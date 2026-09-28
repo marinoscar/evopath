@@ -4,7 +4,7 @@
 //
 // The application is SAME-ORIGIN by design: nginx serves the web app at `/` and
 // the API at `/api`, and the Vite dev server proxies `/api` the same way. The
-// `appctl` CLI and worker nodes are not browsers, so CORS never applies to them.
+// `evopathcli` CLI and worker nodes are not browsers, so CORS never applies to them.
 // No first-party caller therefore needs a single CORS header.
 //
 // The previous `origin: process.env.CORS_ORIGIN || true` with

@@ -2,7 +2,7 @@
 // Every key prefix this application writes into object storage (issue #404)
 // =============================================================================
 //
-// THE ONE REASON THIS FILE EXISTS. `appctl deploy uninstall --purge-storage`
+// THE ONE REASON THIS FILE EXISTS. `evopathcli deploy uninstall --purge-storage`
 // deletes objects, and it must build its targets from a list the APPLICATION
 // owns rather than one somebody transcribed into the CLI. The portable deploy
 // specification records what happens otherwise: a transcribed list said

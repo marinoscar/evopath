@@ -753,7 +753,7 @@ export async function updateMaintenance(
 // what this deployment actually is.
 
 /**
- * What is deployed here: the API's own version, the deploy document `appctl
+ * What is deployed here: the API's own version, the deploy document `evopathcli
  * deploy` left on disk, and a database liveness fact.
  *
  * ⚠ THIS NEVER REJECTS FOR A MISSING OR BROKEN DEPLOY DOCUMENT, and callers

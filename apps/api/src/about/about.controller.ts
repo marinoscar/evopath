@@ -94,7 +94,7 @@ export class AboutController {
     summary: 'Report what is deployed here (Admin only)',
     description:
       'Reports this deployment: the API version the process resolved for itself, the deploy ' +
-      'document `appctl deploy` left on disk, and a database liveness fact.\n\n' +
+      'document `evopathcli deploy` left on disk, and a database liveness fact.\n\n' +
       '**Always answers `200`.** A missing document is `deployInfoStatus: "absent"`, an ' +
       'unreadable or malformed one is `"invalid"`, and a database that does not answer is ' +
       '`database: null` with a `databaseError` string. None of the three is an error status: ' +

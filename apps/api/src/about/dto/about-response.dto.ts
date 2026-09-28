@@ -78,7 +78,7 @@ export const aboutAppSchema = z.object({
 });
 
 export const aboutDeployedBySchema = z.object({
-  /** Which client wrote the document, e.g. `appctl`. */
+  /** Which client wrote the document, e.g. `evopathcli`. */
   cli: z.string().nullable(),
   version: z.string().nullable(),
 });
@@ -208,7 +208,7 @@ export const aboutResponseSchema = z.object({
   remote: aboutRemoteSchema.nullable(),
   run: aboutRunSchema.nullable(),
 
-  /** Which `appctl deploy` subcommand last wrote the document. */
+  /** Which `evopathcli deploy` subcommand last wrote the document. */
   lastCommand: z.enum(['install', 'update']).nullable(),
   /** The host port the stack is bound to (1–65535). */
   bindPort: z.number().int().nullable(),

@@ -333,7 +333,7 @@ export async function runChecks(
         : await check.run(context).catch((error: unknown) => ({
             status: 'fail' as const,
             detail: error instanceof Error ? error.message : String(error),
-            remedy: 'This check itself failed; the problem may be with appctl.',
+            remedy: 'This check itself failed; the problem may be with evopathcli.',
           }));
 
     const completed: CompletedCheck = {

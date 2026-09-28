@@ -43,7 +43,7 @@ export class AboutService {
    * Builds the whole report.
    *
    * ⚠ NO CACHING ANYWHERE IN THIS METHOD, and that is a requirement rather than
-   * an omission. `appctl deploy update` rewrites `info.json` in place against a
+   * an omission. `evopathcli deploy update` rewrites `info.json` in place against a
    * running container; a memoised read — even a short-lived one — would serve a
    * stale commit SHA immediately after the deploy that changed it, which is the
    * one moment anybody looks at this page.

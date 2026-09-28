@@ -20,7 +20,7 @@ import { AiResponseDto } from './dto/ai-response.dto';
 // =============================================================================
 //
 // HTTP access to the runtime facade for the web Playground and the CLI
-// (`appctl api post /ai/responses …`):
+// (`evopathcli api post /ai/responses …`):
 //
 //   POST /api/ai/responses              ai:use   one response
 //   POST /api/ai/responses/stream       ai:use   one response, streamed (SSE)

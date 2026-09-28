@@ -5,17 +5,17 @@ import { APP_NAME } from '@app/shared';
 // =============================================================================
 //
 // This repository is a TEMPLATE. Somebody clones it, calls their product
-// something else, and every user-visible string carrying "appctl" is now
+// something else, and every user-visible string carrying "evopathcli" is now
 // wrong. The whole point of this module is that renaming is a one-line edit
 // here rather than a grep across the package, so three separate things are
 // DERIVED from `CLI_NAME` instead of being written out again:
 //
 //   1. the executable name shown in `--help` and in error messages
-//   2. the config directory, `~/.appctl/` (consumed by #143)
-//   3. the environment-variable prefix, `APPCTL_` (consumed by #143/#144)
+//   2. the config directory, `~/.evopathcli/` (consumed by #143)
+//   3. the environment-variable prefix, `EVOPATHCLI_` (consumed by #143/#144)
 //
 // If those three were three literals, a rename would leave a binary called
-// `acmectl` reading `~/.appctl/config.json` and answering to `APPCTL_TOKEN` —
+// `acmectl` reading `~/.evopathcli/config.json` and answering to `EVOPATHCLI_TOKEN` —
 // and nothing would fail, which is what makes that class of bug expensive.
 //
 // TWO IDENTITIES, NOT ONE (issue #165, epic #161). The three things above are
@@ -37,7 +37,7 @@ import { APP_NAME } from '@app/shared';
 /**
  * The name of the executable, and the seed for everything else in this file.
  *
- * WHY `appctl` AND NOT `app`: a bare `app` is short enough to collide with
+ * WHY `evopathcli` AND NOT `app`: a bare `app` is short enough to collide with
  * something already on a developer's PATH, and a CLI that silently shadows (or
  * is silently shadowed by) another binary is a support ticket nobody enjoys.
  * The `-ctl` suffix is the established convention for "the control client for
@@ -67,7 +67,7 @@ export const CLI_NAME = 'evopathcli';
  * should rename the CLI's banner along with the browser wordmark and the email
  * templates — one edit, everything follows. Renaming the BINARY should not: a
  * product called "Acme" may perfectly well still ship a command called
- * `appctl`, and `CLI_NAME` additionally seeds a filesystem path and an
+ * `evopathcli`, and `CLI_NAME` additionally seeds a filesystem path and an
  * environment-variable prefix, which is why it keeps its own constraints and
  * its own constant.
  */
@@ -96,7 +96,7 @@ export const CONFIG_DIR_NAME = `.${CLI_NAME}`;
 export const CONFIG_FILE_NAME = 'config.json';
 
 /**
- * Turn the CLI name into a legal environment-variable prefix: `APPCTL_`.
+ * Turn the CLI name into a legal environment-variable prefix: `EVOPATHCLI_`.
  *
  * The uppercase-and-substitute is not decoration. A fork that renames to
  * `acme-cli` would otherwise produce `ACME-CLI_TOKEN`, which no POSIX shell
@@ -112,14 +112,14 @@ function toEnvPrefix(name: string): string {
   return /^[0-9]/.test(upper) ? `_${upper}_` : `${upper}_`;
 }
 
-/** e.g. `APPCTL_`. Every env var this CLI reads starts with it. */
+/** e.g. `EVOPATHCLI_`. Every env var this CLI reads starts with it. */
 export const ENV_PREFIX = toEnvPrefix(CLI_NAME);
 
 /**
  * Build the full name of one of this CLI's environment variables.
  *
- *   envVar('TOKEN')      -> 'APPCTL_TOKEN'
- *   envVar('SERVER_URL') -> 'APPCTL_SERVER_URL'
+ *   envVar('TOKEN')      -> 'EVOPATHCLI_TOKEN'
+ *   envVar('SERVER_URL') -> 'EVOPATHCLI_SERVER_URL'
  *
  * Callers pass the SUFFIX only and never concatenate the prefix themselves, so
  * `process.env` lookups cannot drift from the names printed in help text.

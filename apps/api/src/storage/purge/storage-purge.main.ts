@@ -1,5 +1,5 @@
 /**
- * `appctl deploy uninstall --purge-storage`, run INSIDE the api image.
+ * `evopathcli deploy uninstall --purge-storage`, run INSIDE the api image.
  *
  * =============================================================================
  * ⚠ WHY THIS LIVES HERE AND NOT IN THE CLI

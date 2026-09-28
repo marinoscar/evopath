@@ -90,7 +90,7 @@ export function tailCap(text: string, cap: number = OUTPUT_CAP_BYTES): string {
  * variable this container happens to carry (NODE_ENV, NODE_VERSION, ...) would
  * silently override the deployment's `.env` for the same name. With only these
  * keys, the compose files are interpolated from the deployment's `.env` alone,
- * exactly as they are when `appctl deploy` runs them.
+ * exactly as they are when `evopathcli deploy` runs them.
  */
 export function childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {

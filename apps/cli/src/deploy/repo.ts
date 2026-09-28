@@ -19,7 +19,7 @@ import type { DeployState } from './state.js';
 // The shell scripts this epic replaces hardcode the repository they deploy,
 // and that is the single largest reason they cannot be shared: every new
 // application means copying the script and editing the URL, after which the
-// copies drift and a fix made in one never reaches the others. If appctl
+// copies drift and a fix made in one never reaches the others. If evopathcli
 // hardcoded an owner or a repository name anywhere, it would inherit exactly
 // that, and every downstream repository would have to patch the CLI before it
 // could deploy itself.

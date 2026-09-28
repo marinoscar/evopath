@@ -180,7 +180,7 @@ import configuration from './config/configuration';
     MaintenanceModule,
 
     // `GET /api/admin/about` (#401, epic #397): what is deployed here — the
-    // API's resolved version, the deploy document `appctl deploy` bind-mounts
+    // API's resolved version, the deploy document `evopathcli deploy` bind-mounts
     // into the container, and a database liveness fact. Imports `HealthModule`
     // for that last one and reads no settings, so it adds no edge to the
     // settings or storage graphs. Registered after them all the same: it

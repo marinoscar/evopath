@@ -11,7 +11,7 @@
 //
 // KEYS. `ai-outputs/<userId>/<runId>/<n>-<uuid>.<ext>` — under
 // `AI_OUTPUTS_KEY_PREFIX`, which is on `STORAGE_KEY_PREFIXES`, so
-// `appctl deploy uninstall --purge-storage` finds these objects too. The key
+// `evopathcli deploy uninstall --purge-storage` finds these objects too. The key
 // is built here from server-side values only; no caller string reaches it.
 // A job whose output has one fixed name (speech, #439: `speech.mp3`) passes
 // it as `keyName` — a constant of its own, validated here, never user input.

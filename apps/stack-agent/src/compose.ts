@@ -4,7 +4,7 @@
 //
 // ZERO CONFIGURATION, BY DESIGN. The agent is told nothing about the
 // deployment: no project name, no file list, no directory. It reads them off
-// ITS OWN container, whose compose labels record exactly how `appctl deploy`
+// ITS OWN container, whose compose labels record exactly how `evopathcli deploy`
 // started the stack:
 //
 //   com.docker.compose.project                -> -p

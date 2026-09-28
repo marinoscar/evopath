@@ -31,13 +31,13 @@ import { CLI_NAME, envVar } from '../branding.js';
 // `program.ts`, which consults it and only then `await import()`s the renderer.
 // A top-level ink import here would drag the reconciler, yoga (a WASM module)
 // and two dozen transitive packages into the startup path of every
-// `appctl api GET ...` in every pipeline, which is both slow and exactly the
+// `evopathcli api GET ...` in every pipeline, which is both slow and exactly the
 // coupling this gate exists to prevent.
 //
 // -----------------------------------------------------------------------------
 // WHY THE GATE IS ON "NO ARGUMENTS", NOT ON A `--tui` FLAG OR A MODE
 // -----------------------------------------------------------------------------
-// The TUI is the no-argument experience and nothing else. `appctl api GET
+// The TUI is the no-argument experience and nothing else. `evopathcli api GET
 // /api/auth/me` must behave identically whether it runs in a terminal, in a
 // cron job, or under `set -e` in a pipeline — so an explicit subcommand NEVER
 // consults this file, TTY or not. The check lives at the one branch in `run()`
@@ -45,7 +45,7 @@ import { CLI_NAME, envVar } from '../branding.js';
 // meaning to capture.
 // =============================================================================
 
-/** `APPCTL_NO_TUI` — an escape hatch for a terminal we wrongly believe is one. */
+/** `EVOPATHCLI_NO_TUI` — an escape hatch for a terminal we wrongly believe is one. */
 export const NO_TUI_ENV_VAR = envVar('NO_TUI');
 
 /** The one property this gate needs from a stream. Structural, so a test can fake it. */
@@ -89,7 +89,7 @@ export type TuiGateDecision =
  *
  * FIVE CHECKS, ORDERED BY HOW SPECIFIC THE RESULTING ADVICE IS — the first one
  * that fires produces the message, so the most actionable diagnosis must come
- * first. "You set APPCTL_NO_TUI" is a better answer than "stdout is not a
+ * first. "You set EVOPATHCLI_NO_TUI" is a better answer than "stdout is not a
  * terminal" even when both are true.
  */
 export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
@@ -120,7 +120,7 @@ export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
 
   // 3. WHERE THE KEYSTROKES WOULD COME FROM. Checked SEPARATELY from stdout
   //    because the two are independently redirectable and the interesting case
-  //    is real: `echo | appctl` and `appctl < /dev/null` both leave stdout a
+  //    is real: `echo | evopathcli` and `evopathcli < /dev/null` both leave stdout a
   //    terminal while stdin is not. ink cannot put a non-TTY stdin into raw
   //    mode (`setRawMode` does not exist on it), so it would draw a menu that
   //    can never be answered and never exited — a hang in front of a user who
@@ -189,7 +189,7 @@ function refuse(refusal: TuiRefusal, reason: string): TuiGateDecision {
  * bare `!== undefined` test would read both as "yes, this is CI" — refusing
  * the TUI to a developer who explicitly asked not to be treated as one. An
  * empty value is likewise an unset variable that a shell happens to export,
- * the same reading config.ts gives `APPCTL_TOKEN=`.
+ * the same reading config.ts gives `EVOPATHCLI_TOKEN=`.
  */
 function isEnvFlagSet(value: string | undefined): boolean {
   if (value === undefined) return false;

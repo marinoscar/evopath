@@ -127,8 +127,8 @@ const certificateValidity: Check = {
 
 /**
  * Where #391 installs this CLI's own renewal schedule, when nothing else owns
- * it: `/etc/cron.d/appctl-certbot-renew` for the stock CLI name. Built from
- * `CLI_NAME` so a renamed fork stays consistent (and so no `APPCTL_`-prefixed
+ * it: `/etc/cron.d/evopathcli-certbot-renew` for the stock CLI name. Built from
+ * `CLI_NAME` so a renamed fork stays consistent (and so no `EVOPATHCLI_`-prefixed
  * literal trips the env-prefix guard).
  */
 export const CLI_RENEWAL_CRON_PATH = `/etc/cron.d/${CLI_NAME}-certbot-renew`;
@@ -156,7 +156,7 @@ export interface RenewalMechanism {
 export interface RenewalOwnership {
   /**
    * The mechanism that owns renewal, by precedence: a central script, then a
-   * systemd timer, then any other cron entry, then appctl's own. `none` when
+   * systemd timer, then any other cron entry, then evopathcli's own. `none` when
    * nothing renews at all.
    */
   owner: RenewalOwnerKind;
@@ -315,7 +315,7 @@ async function rootCrontab(run: CheckContext['runCommand']): Promise<string | un
  *   - a SYSTEMD TIMER: `systemctl is-enabled certbot.timer`;
  *   - a CRON entry: /etc/cron.d/certbot, or any cron line invoking
  *     `certbot ... renew` directly;
- *   - APPCTL's own: `CLI_RENEWAL_CRON_PATH`, the file #391 installs.
+ *   - EVOPATHCLI's own: `CLI_RENEWAL_CRON_PATH`, the file #391 installs.
  *
  * Exported for #391: its renewal step acts on exactly this answer.
  */
@@ -457,7 +457,7 @@ const certificateRenewal: Check = {
       `owned by ${labels[ownership.owner as RenewalMechanism['owner']]}: ${ownership.detail}` +
       (others.length === 0 ? '' : `; also: ${others.map((other) => other.detail).join('; ')}`);
 
-    // appctl's own schedule ALONGSIDE another owner is the race #391 exists to
+    // evopathcli's own schedule ALONGSIDE another owner is the race #391 exists to
     // avoid: two processes renewing the same certificates.
     const appctl = ownership.mechanisms.find((mechanism) => mechanism.owner === 'appctl' && mechanism.owns);
     if (appctl !== undefined && ownership.owner !== 'appctl') {

@@ -12,10 +12,10 @@ import { CliError, EXIT, type ExitCode } from '../errors.js';
 // installed, where, and at which commit. `status` needs the same. This file is
 // where the answer lives.
 //
-// IT IS NOT IN ~/.appctl/config.json, AND THAT IS NOT A STYLE CHOICE.
+// IT IS NOT IN ~/.evopathcli/config.json, AND THAT IS NOT A STYLE CHOICE.
 // `writeConfigFile` copies an ALLOW-LIST of fields and drops everything else on
 // every write (see config.ts). Deploy state placed there would survive until
-// the next `appctl login` and then vanish, turning a working deployment into
+// the next `evopathcli login` and then vanish, turning a working deployment into
 // one the CLI believes was never installed. Its own file, next to the
 // deployment it describes, also means the state travels with the server rather
 // than with whichever operator's home directory happened to run the install.
@@ -30,7 +30,7 @@ import { CliError, EXIT, type ExitCode } from '../errors.js';
  * safe, and every version this CLI ever wrote must keep a branch in it.
  *
  * The one direction that cannot be helped is backwards: once a v2 file is
- * written, an OLDER appctl refuses it with its own "upgrade appctl" message,
+ * written, an OLDER evopathcli refuses it with its own "upgrade evopathcli" message,
  * which is the refusal this rule exists for.
  */
 export const DEPLOY_STATE_VERSION = 2;
@@ -106,7 +106,7 @@ export interface DeployState {
   installedAt: string;
   lastDeployedAt: string;
   lastCommand: 'install' | 'update';
-  /** Which appctl wrote this, for diagnosing a state file from the future. */
+  /** Which evopathcli wrote this, for diagnosing a state file from the future. */
   appctlVersion: string;
   /** The revision this replaced, for a manual roll-back. */
   previousSha?: string | undefined;
@@ -278,7 +278,7 @@ export function readState(deployRoot: string): DeployState | undefined {
  * - v1 -> v2: adds an empty `history`. `host` and `proxy` stay ABSENT rather
  *   than being fabricated -- nothing observed them yet, and the next
  *   successful run fills them in.
- * - anything else (a newer appctl, a hand edit) is REFUSED rather than
+ * - anything else (a newer evopathcli, a hand edit) is REFUSED rather than
  *   guessed: misreading a state file means updating the wrong checkout or
  *   reporting the wrong commit as deployed.
  */

@@ -131,7 +131,7 @@ export function defaultRoutes(): FakeRoute[] {
 }
 
 export function createFakeVps(options: FakeVpsOptions = {}): FakeVps {
-  const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-fake-vps-'));
+  const appsRoot = mkdtempSync(join(tmpdir(), 'evopathcli-fake-vps-'));
   const deployRoot = join(appsRoot, 'app');
   const composeDir = join(deployRoot, 'repo', 'infra', 'compose');
 

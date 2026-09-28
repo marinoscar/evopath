@@ -76,7 +76,7 @@ import {
 import type { PromptContext } from '../prompt.js';
 
 // =============================================================================
-// `appctl deploy update`  (issue #182, epic #168)
+// `evopathcli deploy update`  (issue #182, epic #168)
 // =============================================================================
 //
 // Installing is the rare operation; updating is the one performed weekly, often

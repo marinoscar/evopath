@@ -107,7 +107,7 @@ import { APP_NAME } from '@app/shared';
 import { DatabaseBackupStorageProviderError } from './db-backup.errors';
 
 /** The fixed, product-neutral prefix every backup object lives under. */
-// Derived, not repeated. The purge in `appctl deploy uninstall` builds its
+// Derived, not repeated. The purge in `evopathcli deploy uninstall` builds its
 // targets from `STORAGE_KEY_PREFIXES`, and a second literal here is exactly the
 // drift that would let a purge report success while leaving every archive in
 // the bucket. Kept exported under this name because it is what callers already

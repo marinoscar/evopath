@@ -1,5 +1,5 @@
 /**
- * `appctl deploy about` — what this server says it is running.
+ * `evopathcli deploy about` — what this server says it is running.
  *
  * =============================================================================
  * ⚠ READS THE DOCUMENT, NEVER THE API

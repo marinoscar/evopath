@@ -951,7 +951,7 @@ export interface AboutApp {
 }
 
 export interface AboutDeployedBy {
-  /** Which client wrote the document, e.g. `appctl`. */
+  /** Which client wrote the document, e.g. `evopathcli`. */
   cli: string | null;
   version: string | null;
 }
@@ -987,7 +987,7 @@ export interface AboutDatabase {
   responseTime: string;
 }
 
-/** Which `appctl deploy` subcommand wrote a record (issue #392). */
+/** Which `evopathcli deploy` subcommand wrote a record (issue #392). */
 export type DeployCommand = 'install' | 'update';
 
 /**
