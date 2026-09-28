@@ -18,7 +18,7 @@
 # (before this file) and vps.telemetry.compose.yml (after it), which applies the
 # same rule to the collector and GreptimeDB. Their hardening lives there, not
 # here: a service block in this file would be a service with no image on every
-# deployment without telemetry. `appctl deploy` builds the list
+# deployment without telemetry. `evopathcli deploy` builds the list
 # (apps/cli/src/deploy/compose-files.ts).
 #
 # It also adds `stack-agent` (issue #567), the one service here that holds the
@@ -88,7 +88,7 @@ services:
       # step (#567): the API asks the stack-agent below, over the internal
       # network. The API itself never sees the Docker socket.
       - STACK_AGENT_URL=http://stack-agent:8090
-      - STACK_AGENT_TOKEN=${STACK_AGENT_TOKEN:?set STACK_AGENT_TOKEN in infra/compose/.env (appctl deploy generates it)}
+      - STACK_AGENT_TOKEN=${STACK_AGENT_TOKEN:?set STACK_AGENT_TOKEN in infra/compose/.env (evopathcli deploy generates it)}
     logging:
       driver: "json-file"
       options:
@@ -150,10 +150,10 @@ services:
       #
       # `:?`, unlike the api's deploy-info mount above: without DEPLOY_ROOT
       # this service cannot work at all, and failing loudly beats mounting a
-      # directory that does not exist. `appctl deploy` writes it into .env.
-      - ${DEPLOY_ROOT:?DEPLOY_ROOT is written into infra/compose/.env by appctl deploy}:${DEPLOY_ROOT:?DEPLOY_ROOT is written into infra/compose/.env by appctl deploy}:ro
+      # directory that does not exist. `evopathcli deploy` writes it into .env.
+      - ${DEPLOY_ROOT:?DEPLOY_ROOT is written into infra/compose/.env by evopathcli deploy}:${DEPLOY_ROOT:?DEPLOY_ROOT is written into infra/compose/.env by evopathcli deploy}:ro
     environment:
-      - STACK_AGENT_TOKEN=${STACK_AGENT_TOKEN:?set STACK_AGENT_TOKEN in infra/compose/.env (appctl deploy generates it)}
+      - STACK_AGENT_TOKEN=${STACK_AGENT_TOKEN:?set STACK_AGENT_TOKEN in infra/compose/.env (evopathcli deploy generates it)}
     read_only: true
     tmpfs:
       - /tmp

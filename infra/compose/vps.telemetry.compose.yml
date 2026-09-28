@@ -11,7 +11,7 @@
 #     -f vps.telemetry.compose.yml \
 #     up -d
 #
-# `appctl deploy` builds that list itself (apps/cli/src/deploy/compose-files.ts)
+# `evopathcli deploy` builds that list itself (apps/cli/src/deploy/compose-files.ts)
 # from the groups recorded at install time; nobody types it by hand.
 #
 # WHY A SEPARATE FILE, not more entries in vps.compose.yml: vps.compose.yml is

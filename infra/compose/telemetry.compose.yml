@@ -24,7 +24,7 @@
 # Passwords have NO compose-level default, unlike the old Uptrace overlay: a
 # missing GREPTIME_*_PASSWORD fails `docker compose` with a message naming the
 # key, rather than silently booting a telemetry store with a well-known
-# password. .env.example (and therefore `appctl init`) supplies development
+# password. .env.example (and therefore `evopathcli init`) supplies development
 # placeholders, so a fresh local setup still starts without extra steps.
 # =============================================================================
 
