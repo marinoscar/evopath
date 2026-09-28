@@ -58,6 +58,33 @@ const TEMPLATE = [
   '# Credential encryption',
   '# ------------------------------------------------------------',
   'SECRETS_ENCRYPTION_KEY=',
+  '',
+  '# ------------------------------------------------------------',
+  '# Uploads',
+  '# ------------------------------------------------------------',
+  'ALLOWED_MIME_TYPES=image/png,image/jpeg',
+  '',
+  '# ------------------------------------------------------------',
+  '# OAuth (Microsoft)',
+  '# ------------------------------------------------------------',
+  'MICROSOFT_CLIENT_ID=',
+  '',
+  '# ------------------------------------------------------------',
+  '# Email (Amazon SES)',
+  '# ------------------------------------------------------------',
+  'AWS_ACCESS_KEY_ID=',
+  '',
+  '# ------------------------------------------------------------',
+  '# Observability',
+  '# ------------------------------------------------------------',
+  'GREPTIME_HOST=localhost',
+  'OTEL_ENABLED=false',
+  'GREPTIME_WRITER_PASSWORD=change-me-writer',
+  '',
+  '# ------------------------------------------------------------',
+  '# Stack agent',
+  '# ------------------------------------------------------------',
+  'STACK_AGENT_TOKEN=',
 ].join('\n');
 
 function specs(): EnvVarSpec[] {
@@ -120,24 +147,24 @@ describe('the byte-identical prefill that stops a re-install regenerating secret
     expect(Buffer.from(cookie?.placeholder ?? '', 'utf8').equals(Buffer.from(COOKIE_SECRET_ON_DISK, 'utf8'))).toBe(true);
   });
 
-  // ⚠ IMPLEMENTATION NOTE, NOT A BUG WORKED AROUND -- see the final report.
-  // `SECRETS_ENCRYPTION_KEY` has no `essential: true` in env-metadata.ts, so
-  // `installFields`'s own loop (`if (metadata.essential !== true) continue;`)
-  // never turns it into a question at all: it is genuinely ABSENT from
-  // `installFields`'s return value, seeded or not. The install-model.ts header
-  // comment describes the seed/installFields prefill as what stops a re-run
-  // from regenerating "JWT_SECRET, COOKIE_SECRET and SECRETS_ENCRYPTION_KEY";
-  // for the third key that particular mechanism does not apply, because there
-  // is no field and no placeholder to inspect.
+  // ⚠ UPDATED FOR #586 -- `SECRETS_ENCRYPTION_KEY` has no `essential: true` in
+  // env-metadata.ts, but `installFields` now asks `shouldAsk` (the same rule
+  // `env-wizard.ts` enforces non-interactively) rather than an essential-only
+  // filter. `shouldAsk` says yes for a SECRET with nothing usable already, so
+  // on a genuinely blank seed the key IS turned into a question (see the "3."
+  // section below for that case in full).
   //
-  // What DOES protect it, verified against the real code in install.ts, is a
+  // This fixture seeds a REAL value for the key, so `shouldAsk` still says no
+  // (a secret with something usable already is not re-asked) and the field
+  // stays absent here -- the re-install case, not the first-install one.
+  // Protecting it further, verified against the real code in install.ts, is a
   // second, independent mechanism that this file does not own: `runInstall`
   // reads the deployment's `.env` off disk itself and merges it under whatever
   // the TUI submitted, so an unasked key simply survives untouched. `seedFor`
   // is still the correct, byte-identical read of that same file -- it is the
   // value `runInstall`'s own onDisk merge depends on being right -- so that is
   // what this test pins.
-  it('seedFor reads SECRETS_ENCRYPTION_KEY byte-identical from disk, even though installFields never turns it into a question', () => {
+  it('seedFor reads SECRETS_ENCRYPTION_KEY byte-identical from disk, and installFields does not re-ask for it when a real value is already seeded', () => {
     const { seed } = seedForFixture();
 
     expect(seed.values.get('SECRETS_ENCRYPTION_KEY')).toBe(SECRETS_ENCRYPTION_KEY_ON_DISK);
@@ -224,6 +251,170 @@ describe('reconcileSeed: retracts the seed the moment the name stops matching', 
     const emptyPassword = emptyFields.find((field) => field.key === 'POSTGRES_PASSWORD');
     expect(emptyPassword?.placeholder).toBe('postgres'); // the template default
     expect(emptyPassword?.prefilled).toBe(false);
+  });
+});
+
+// =============================================================================
+// 3. installFields: which keys are asked, mirroring shouldAsk (#586)
+// =============================================================================
+//
+// Before the fix, this file's own loop asked only `metadata.essential === true`
+// keys. That silently skipped `SECRETS_ENCRYPTION_KEY` (secret, not essential)
+// on every FIRST install -- there was no seed yet to protect it, and the
+// non-interactive wizard underneath still refused to leave it blank. These
+// tests pin the replacement rule: the same `shouldAsk` env-wizard.ts uses.
+// =============================================================================
+
+describe('installFields: a fresh install asks for more than just the essential keys', () => {
+  it('still includes the essential fields, unchanged', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    expect(fields.some((field) => field.key === 'POSTGRES_HOST')).toBe(true);
+    expect(fields.some((field) => field.key === 'JWT_SECRET')).toBe(true);
+    expect(fields.some((field) => field.key === 'COOKIE_SECRET')).toBe(true);
+  });
+
+  it('now includes SECRETS_ENCRYPTION_KEY on a blank seed, even though it carries no essential:true', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    const field = fields.find((f) => f.key === 'SECRETS_ENCRYPTION_KEY');
+    expect(field).toBeDefined();
+  });
+
+  it('does NOT include SECRETS_ENCRYPTION_KEY when the seed already carries a real value for it', () => {
+    const seed: Seed = {
+      name: 'prod',
+      values: new Map([['SECRETS_ENCRYPTION_KEY', 'a-real-encryption-key-already-on-disk']]),
+    };
+    const fields = installFields(specs(), seed);
+    expect(fields.some((field) => field.key === 'SECRETS_ENCRYPTION_KEY')).toBe(false);
+  });
+});
+
+describe('installFields: generated placeholders for a blank generate-mode secret', () => {
+  it('a generate-mode field with no real seeded value is generated: true, prefilled: false, with a plausible generated placeholder', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    const key = fields.find((field) => field.key === 'SECRETS_ENCRYPTION_KEY');
+
+    expect(key?.generated).toBe(true);
+    expect(key?.prefilled).toBe(false);
+    // base64-32: decodes to exactly 32 bytes, round-trips cleanly.
+    const decoded = Buffer.from(key?.placeholder ?? '', 'base64');
+    expect(decoded.length).toBe(32);
+    expect(decoded.toString('base64').replace(/=+$/, '')).toBe(
+      (key?.placeholder ?? '').replace(/=+$/, ''),
+    );
+  });
+
+  it('two independent calls generate two different placeholders (a fresh draw, not a fixed default)', () => {
+    const first = installFields(specs(), EMPTY_SEED).find((f) => f.key === 'SECRETS_ENCRYPTION_KEY');
+    const second = installFields(specs(), EMPTY_SEED).find((f) => f.key === 'SECRETS_ENCRYPTION_KEY');
+    expect(first?.placeholder).not.toBe(second?.placeholder);
+  });
+
+  it('essential + generate-mode fields (JWT_SECRET, COOKIE_SECRET) are also generated on a blank seed', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    const jwt = fields.find((field) => field.key === 'JWT_SECRET');
+    const cookie = fields.find((field) => field.key === 'COOKIE_SECRET');
+
+    expect(jwt?.generated).toBe(true);
+    expect(jwt?.prefilled).toBe(false);
+    expect(Buffer.from(jwt?.placeholder ?? '', 'base64').length).toBe(32);
+
+    expect(cookie?.generated).toBe(true);
+    expect(cookie?.prefilled).toBe(false);
+    expect(Buffer.from(cookie?.placeholder ?? '', 'base64').length).toBe(32);
+  });
+
+  it('REGRESSION GUARD: the same field, with a real value seeded, is prefilled: true, generated falsy, and the placeholder is exactly the seeded value', () => {
+    const seed: Seed = {
+      name: 'prod',
+      values: new Map([['JWT_SECRET', 'disk-jwt-Rz3!p_Qo8x==secret-value-do-not-touch']]),
+    };
+    const fields = installFields(specs(), seed);
+    const jwt = fields.find((field) => field.key === 'JWT_SECRET');
+
+    expect(jwt?.prefilled).toBe(true);
+    expect(jwt?.generated).toBeFalsy();
+    expect(jwt?.placeholder).toBe('disk-jwt-Rz3!p_Qo8x==secret-value-do-not-touch');
+  });
+});
+
+describe('installFields: autoGenerate keys are never asked about, seeded or not, all or not', () => {
+  it('GREPTIME_WRITER_PASSWORD (observability, autoGenerate) is never in the field list', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'GREPTIME_WRITER_PASSWORD'),
+    ).toBe(false);
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'GREPTIME_WRITER_PASSWORD',
+      ),
+    ).toBe(false);
+  });
+
+  it('STACK_AGENT_TOKEN (no group, autoGenerate) is never in the field list', () => {
+    expect(installFields(specs(), EMPTY_SEED).some((field) => field.key === 'STACK_AGENT_TOKEN')).toBe(
+      false,
+    );
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some((field) => field.key === 'STACK_AGENT_TOKEN'),
+    ).toBe(false);
+  });
+});
+
+describe('installFields: the --all toggle (issue #586, step reorder)', () => {
+  it('without all, a non-essential/non-secret ungrouped key (ALLOWED_MIME_TYPES) is not asked', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'ALLOWED_MIME_TYPES'),
+    ).toBe(false);
+  });
+
+  it('with all: true, that same key IS asked', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'ALLOWED_MIME_TYPES',
+      ),
+    ).toBe(true);
+  });
+
+  it('a non-observability grouped key (MICROSOFT_CLIENT_ID) is never asked, all or not', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'MICROSOFT_CLIENT_ID'),
+    ).toBe(false);
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'MICROSOFT_CLIENT_ID',
+      ),
+    ).toBe(false);
+  });
+
+  it('a non-observability grouped SECRET (AWS_ACCESS_KEY_ID, group: email) is never asked, all or not', () => {
+    // Proves the group exclusion runs before the "secret with nothing usable"
+    // branch of shouldAsk would otherwise have picked it up.
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'AWS_ACCESS_KEY_ID'),
+    ).toBe(false);
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'AWS_ACCESS_KEY_ID',
+      ),
+    ).toBe(false);
+  });
+
+  it('an observability-grouped, non-autoGenerate key (GREPTIME_HOST) is asked only with all: true', () => {
+    expect(installFields(specs(), EMPTY_SEED).some((field) => field.key === 'GREPTIME_HOST')).toBe(
+      false,
+    );
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some((field) => field.key === 'GREPTIME_HOST'),
+    ).toBe(true);
+  });
+
+  it('same for another observability key (OTEL_ENABLED)', () => {
+    expect(installFields(specs(), EMPTY_SEED).some((field) => field.key === 'OTEL_ENABLED')).toBe(
+      false,
+    );
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some((field) => field.key === 'OTEL_ENABLED'),
+    ).toBe(true);
   });
 });
 
