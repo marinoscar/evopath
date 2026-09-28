@@ -28,14 +28,14 @@ import {
 // =============================================================================
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const REAL_LOCKFILE = readFileSync(join(REPO_ROOT, 'package-lock.json'), 'utf8');
-const WORKSPACE_PATHS = ['apps/api', 'apps/web', 'apps/cli', 'packages/shared'] as const;
+const WORKSPACE_PATHS = ['apps/api', 'apps/web', 'packages/shared'] as const;
 
-/** A minimal, valid manifest for one of the four versioned workspaces. */
+/** A minimal, valid manifest for one of the three versioned workspaces. */
 function manifestJson(version: string): string {
   return JSON.stringify({ name: 'x', version, dependencies: { left: 'right' } }, null, 2) + '\n';
 }
 
-/** A checkout carrying all four manifests at `version`, but no lockfile. */
+/** A checkout carrying all three manifests at `version`, but no lockfile. */
 function makeCheckout(version = '1.0.0'): string {
   const dir = mkdtempSync(join(tmpdir(), 'evopathcli-appversion-'));
   for (const relative of VERSIONED_MANIFESTS) {
@@ -208,11 +208,11 @@ describe('writeVersion', () => {
 
   it('treats a non-string version field as absent rather than throwing', () => {
     const dir = makeCheckout('1.0.0');
-    writeFileSync(join(dir, 'apps/cli/package.json'), JSON.stringify({ name: 'x', version: 123 }));
+    writeFileSync(join(dir, 'apps/web/package.json'), JSON.stringify({ name: 'x', version: 123 }));
 
     const result = writeVersion(dir, '1.2.3');
 
-    expect(result.absent).toContain('apps/cli/package.json');
+    expect(result.absent).toContain('apps/web/package.json');
   });
 
   // ⚠ REGRESSION FOR THE ANCHOR BUG THE HEADER DESCRIBES. The first attempt at

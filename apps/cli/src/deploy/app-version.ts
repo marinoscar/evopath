@@ -47,11 +47,22 @@ import { join } from 'node:path';
 
 import { UsageError } from '../errors.js';
 
-/** Manifests that must move in lockstep. A fork adding one adds it here. */
+/**
+ * Manifests that must move in lockstep. A fork adding one adds it here.
+ *
+ * ⚠ `apps/cli/package.json` IS DELIBERATELY NOT HERE. It carries the CLI
+ * TOOL's own version (`package-info.ts`'s `CLI_VERSION` -- the `--version`
+ * flag, the TUI header, the user-agent string), which this repository
+ * versions on its own cadence, independent of the deployed APPLICATION
+ * release this file stamps. `cliVersion`/`appctlVersion` in the deploy state
+ * and info.json already record "which CLI build ran this deploy" as a field
+ * distinct from `version` ("which release got deployed") -- the two simply
+ * happened to carry the same number before the CLI's own versioning
+ * diverged, which was a coincidence of history, not a schema fact.
+ */
 export const VERSIONED_MANIFESTS = [
   'apps/api/package.json',
   'apps/web/package.json',
-  'apps/cli/package.json',
   'packages/shared/package.json',
 ] as const;
 
