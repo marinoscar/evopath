@@ -226,12 +226,11 @@ export function buildPlan(old, next) {
   };
 
   // --- The product name -------------------------------------------------
-  // Only the README carries it as prose; docs/ was deliberately made generic so
-  // that it needs no codemod and no guard allowlist entry.
-  add('README.md', `# ${old.productName}\n`, `# ${next.productName}\n`, 1,
-      'the README title is the product name');
-  add('README.md', old.tagline, next.tagline, 1,
-      'the README subtitle');
+  // The root README.md is deliberately NOT a codemod target in this fork: it was
+  // replaced by hand-written product prose (no title anchor, CI badge, clone
+  // instructions or directory tree left to rewrite), and it is a whole-file
+  // exemption in template-identity.test.ts. docs/ was made generic so that it
+  // needs no codemod and no guard allowlist entry.
 
   // --- The repository slug ----------------------------------------------
   // install.sh can never read the manifest: it is fetched and run via
@@ -240,10 +239,6 @@ export function buildPlan(old, next) {
   add('install.sh', old.cloneUrl, next.cloneUrl, 2, 'the APPCTL_REPO default and its documentation');
   add('apps/cli/README.md', old.rawUrl, next.rawUrl, 2, 'the install and uninstall one-liners');
   add('apps/cli/README.md', old.cloneUrl, next.cloneUrl, 1, 'the APPCTL_REPO default in the env table');
-  add('README.md', `https://github.com/${old.repoSlug}/actions`, `https://github.com/${next.repoSlug}/actions`, 2,
-      'the CI badge image and its link target');
-  add('README.md', `cd ${old.repoName}\n`, `cd ${next.repoName}\n`, 1, 'the clone instructions');
-  add('README.md', `${old.repoName}/\n`, `${next.repoName}/\n`, 1, 'the root of the directory tree');
 
   // --- The OpenTelemetry service name -----------------------------------
   // The code fallback follows APP_SLUG (see common/otel/service-name.ts); these
