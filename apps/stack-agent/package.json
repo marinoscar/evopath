@@ -1,0 +1,26 @@
+{
+  "name": "stack-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Locked-down sidecar that holds the Docker socket and can only (re)deploy the telemetry services (issue #567).",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "./dist/main.js",
+  "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'No linter configured'",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  }
+}

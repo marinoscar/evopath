@@ -1,0 +1,94 @@
+# =============================================================================
+# OpenTelemetry Collector Configuration
+# =============================================================================
+# Receives telemetry from the API, strips credential-bearing attributes, and
+# exports to GreptimeDB over OTLP/HTTP (protobuf) as the write-only account.
+#
+# Traces need their own exporter: GreptimeDB rejects OTLP traces (HTTP 400)
+# unless they name an ingest pipeline (x-greptime-pipeline-name). Logs and
+# metrics must NOT carry that header, so they share a second exporter.
+# =============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 10000
+    send_batch_max_size: 11000
+
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+  # Telemetry is readable by anyone holding the read-only account (explorer,
+  # AI assistant, BI tools), so credentials must never reach storage. A deleted
+  # attribute never becomes a GreptimeDB column at all.
+  attributes/redact:
+    actions:
+      - key: http.request.header.authorization
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+      - key: http.response.header.set-cookie
+        action: delete
+      # Query strings can carry OAuth codes, state and device codes.
+      - key: url.query
+        action: delete
+
+exporters:
+  # Logs and metrics
+  otlphttp/greptime:
+    endpoint: http://greptimedb:4000/v1/otlp
+    auth:
+      authenticator: basicauth/greptime
+    headers:
+      X-Greptime-DB-Name: ${env:GREPTIME_DB}
+
+  # Traces (need the trace pipeline header)
+  otlphttp/greptime_traces:
+    endpoint: http://greptimedb:4000/v1/otlp
+    auth:
+      authenticator: basicauth/greptime
+    headers:
+      X-Greptime-DB-Name: ${env:GREPTIME_DB}
+      x-greptime-pipeline-name: greptime_trace_v1
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  basicauth/greptime:
+    client_auth:
+      username: ${env:GREPTIME_WRITER_USER}
+      password: ${env:GREPTIME_WRITER_PASSWORD}
+
+service:
+  extensions: [health_check, basicauth/greptime]
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlphttp/greptime_traces]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlphttp/greptime]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlphttp/greptime]
+
+  telemetry:
+    logs:
+      level: info

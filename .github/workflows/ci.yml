@@ -1,0 +1,512 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# =============================================================================
+# ONE job for typecheck + API/CLI test/build, not several concurrent ones —
+# but the web suite is pulled out into its own sharded matrix below. Read
+# both halves of this note before changing either.
+#
+# Historical finding, still true for typecheck/API/CLI: splitting *those*
+# into their own job was tried and measured, and it was slower. Across
+# measured runs they took 71-95s inside this job but 118-131s in a fresh
+# one — the likely cause is that here they inherit a filesystem page cache
+# already warmed by npm ci; `import` is the metric that inflated most
+# (54s -> 100s) when isolated. Ruled out along the way: the scoped install
+# is not the cause (a full install in a separate job is still 118s), and it
+# is not job contention (three jobs behaved the same as four).
+#
+# That finding no longer applies to the web suite itself. Measured on three
+# consecutive `main` runs (2026-09-07), `test:run --workspace=web` alone
+# took 202-218s — more than every other job in this workflow COMBINED
+# (openapi ~50s, smoke ~100s, visual ~90s), and it ran serially after
+# typecheck and the API suite, making `Build & Test` a ~6 minute job while
+# every sibling job finished in under 2 minutes. That was not true when the
+# note above was written (the suite was 71-95s then); it has roughly
+# tripled since. Losing the warm-cache benefit this note documents is a
+# real, small cost — but it no longer outweighs the win of running that
+# work on additional runners' CPUs in parallel instead of one runner's CPU
+# serially. See the `web-test` job below.
+#
+# The API suite followed it out (2026-09-26). Measured on the eight most
+# recent runs, `npm test --workspace=api` took 170-175s — by then the single
+# largest step in the workflow — and it ran serially after `npm ci` and the
+# three typechecks, making `Build & Test` a ~4m20s job while every other job
+# finished in ~2m15s or less. Total wall clock was 4m00s-4m40s, and that one
+# job was the whole critical path. Two changes, both measured locally on the
+# same 4-core box before landing:
+#
+#   1. ts-jest now transpiles instead of type-checking (`isolatedModules` in
+#      `apps/api/test/jest.config.js`): the full suite went 262s -> 116s
+#      (~2.3x). The type-check that used to happen inside every Jest worker
+#      is not lost — `tsc --noEmit` in this job already checks `src/**`, and
+#      `apps/api/tsconfig.json` now includes `test/**` too. The `smoke` job's
+#      `test:db` step uses the same config and gets the same cut for free.
+#   2. What remains runs as the sharded `api-test` matrix below, concurrently
+#      with typecheck, in the same shape as `web-test`. The cold-cache
+#      penalty the first paragraph measured was mostly ts-jest COMPILE time
+#      on first import; with (1) there is far less of it to pay.
+#
+# `Build & Test` is now typecheck + CLI test + CLI build (~1m30s), and no
+# single job should exceed the ~2m15s the web shards and `smoke` already
+# take. If the API suite grows again, add a shard here before doing anything
+# cleverer.
+# =============================================================================
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      # `typecheck --workspace=api` covers `apps/api/test/**` as well as
+      # `src/**` (see the note atop this file): it is the one type-check the
+      # integration specs and their helpers get now that Jest only transpiles.
+      - run: npm run typecheck --workspace=api
+      - run: npm run typecheck --workspace=web
+      - run: npm run typecheck --workspace=cli
+
+      # The API Jest suite is the sharded `api-test` job below, not a step
+      # here — see the note atop this file for the measurements behind that.
+      - run: npm run test:run --workspace=cli
+
+      # The CLI is the one workspace whose BUILD is the deliverable — the `bin`
+      # points at dist/, so a package that typechecks but does not emit is
+      # broken for every user while looking green here. Cheap (tsc only) and it
+      # catches the ESM footguns this package is exposed to: a missing `.js`
+      # import extension, or a rootDir slip that emits dist/src/cli.js and
+      # leaves the `bin` path dangling. (issue #140, epic #110)
+      - run: npm run build --workspace=cli
+
+      # The stack-agent sidecar (issue #567): the one process holding the
+      # Docker socket on a VPS. Its image runs the compiled JS, so the build
+      # is checked here too, not just the types.
+      - run: npm run typecheck --workspace=stack-agent
+      - run: npm run test:run --workspace=stack-agent
+      - run: npm run build --workspace=stack-agent
+
+  api-test:
+    name: API Tests (shard ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, exactly like `web-test`.
+    # Split out of `Build & Test` and sharded across 2 runners because this
+    # suite (316 files, ~7,000 tests) was the single longest step in the
+    # workflow and the whole critical path; see the note atop this file for
+    # the numbers, and for why the earlier "keep it in one job" finding no
+    # longer holds now that ts-jest transpiles rather than type-checks.
+    #
+    # Two shards, not four: after the transpile-only change the whole suite
+    # projects to ~75s on a runner (the measured 170-175s scaled by the local
+    # 116/262 ratio), so two ~40s halves plus ~45s of checkout/install finish
+    # well inside the ~2m15s the web shards and `smoke` take. A third runner
+    # would buy nothing on wall clock. Check the first few runs against that
+    # projection rather than trusting it.
+    #
+    # `NODE_ENV: test` for the same reason `Build & Test` sets it: the
+    # suites assume it (`test/setup.ts` sets it too, but only after the
+    # config has been read). `prisma generate` is needed because the specs
+    # import `@prisma/client`, unlike the web suite.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      # `npm test` is `jest --config ./test/jest.config.js` plus the
+      # ignore patterns that keep `e2e` and `*.db.spec.ts` out (the latter
+      # run in `smoke`, the one job with a database); `--shard` is Jest's
+      # own file-level split, deterministic for a given file list.
+      - run: npm test --workspace=api -- --shard=${{ matrix.shard }}/2
+
+  web-test:
+    name: Web Tests (shard ${{ matrix.shard }}/6)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, like `openapi`/`smoke`/
+    # `visual` do. Split out of `Build & Test` and sharded across runners
+    # (see the note atop this file) because this suite alone now costs more
+    # wall clock than every other job in the workflow combined, and each
+    # shard gets its own runner's CPUs rather than contending with
+    # typecheck/API-test on one. This job needs neither `prisma generate`
+    # nor any API build step — the web workspace never imports
+    # `@prisma/client` or compiled API output.
+    #
+    # Six shards, up from four (2026-09-26). Once the API suite moved off
+    # the critical path (#506), these shards became the ceiling: on that
+    # PR's run the four test steps took 81-104s each and the slowest shard
+    # ended the workflow at 2m26s, with every other job done by 2m20s.
+    # Vitest splits by file count, not duration, so the spread between
+    # shards is a property of which files land together; more, smaller
+    # shards narrow it. Six is the point where the ~45s of checkout and
+    # `npm ci` per runner starts to rival the test step itself — beyond
+    # that, the next lever is the suite, not the matrix.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run test:run --workspace=web -- --shard=${{ matrix.shard }}/6
+
+  openapi:
+    name: OpenAPI
+    runs-on: ubuntu-latest
+    # No `needs:` — this reads decorator metadata only and shares nothing with
+    # the build job, so it runs concurrently rather than queueing behind it.
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # The dump imports AppModule, which imports @prisma/client. Preview mode
+      # never instantiates PrismaService, but the generated client still has to
+      # exist for the import to resolve.
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      - run: npm run openapi:typecheck --workspace=api
+
+      # Boots the app in Nest preview mode: every module loaded and every
+      # controller's metadata read, no provider instantiated — so no database,
+      # no object storage and no credentials are needed here.
+      - run: npm run openapi:dump
+
+      - run: npm run openapi:lint
+
+  smoke:
+    name: Smoke (boot compiled API)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, like `openapi` does.
+    #
+    # WHY THIS IS A SEPARATE JOB, given the note at the top of this file
+    # -------------------------------------------------------------------------
+    # That note records a measured result: moving typecheck/API-test work into
+    # its own job made it slower (71-95s -> 118-131s), plausibly from losing a
+    # page cache the earlier steps had warmed. It is a real finding, and the
+    # default for that work should be one job. This job is the deliberate
+    # exception, because the measurement does not transfer:
+    #
+    #   - That split duplicated `npm ci` to run *the same* work somewhere else,
+    #     so its cost was pure overhead. This job runs work that exists nowhere
+    #     in CI today — `nest build`, `migrate deploy`, `db seed`, and booting
+    #     the artifact — so the comparison is not "same work, colder cache".
+    #   - Running concurrently, its cost to total wall clock is
+    #     max(build, smoke), not build + smoke. Appending these steps to
+    #     `Build & Test` would instead extend the longest job on the critical
+    #     path by the full build-plus-boot time.
+    #   - The dominant costs here are compilation and waiting on Postgres and
+    #     on bootstrap. Only the first is filesystem-bound, so the specific
+    #     effect the note measured has much less to bite on.
+    #
+    # There is also a correctness reason not to fold this into `Build & Test`:
+    # that job sets `NODE_ENV: test` for the whole job, while this one must run
+    # the artifact with `NODE_ENV=production` — the mode that actually deploys,
+    # and the only one in which `app.module.ts` leaves `TestAuthModule` out.
+    # A service container is job-scoped too, so folding it in would start
+    # Postgres for every unit-test run that has no use for it.
+    #
+    # If the assumption above turns out to be wrong, the thing to measure is
+    # total workflow wall clock, not this job's own duration.
+    services:
+      postgres:
+        # Matches infra/compose/test.compose.yml, which is the only Postgres
+        # version this repo pins (base.compose.yml expects an external database
+        # and declares no `db` service).
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # The API never reads DATABASE_URL from the environment — it builds the
+      # connection string from these at runtime (src/config/configuration.ts,
+      # src/prisma/prisma.service.ts) and the Prisma CLI does the same via
+      # scripts/prisma-env.js. Setting the POSTGRES_* variables is therefore
+      # what exercises the contract the application actually has.
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: appdb
+      POSTGRES_SSL: 'false'
+      # Obviously-fake values. GOOGLE_CLIENT_ID is the one that is genuinely
+      # mandatory: GoogleStrategy passes it straight to passport-google-oauth20,
+      # which throws `OAuth2Strategy requires a clientID option` on an empty
+      # string and takes bootstrap down with it. The rest are supplied because a
+      # real deployment has them, not because bootstrap fails without them.
+      JWT_SECRET: smoke-test-jwt-secret-not-a-real-secret-0000
+      COOKIE_SECRET: smoke-test-cookie-secret-not-a-real-secret
+      GOOGLE_CLIENT_ID: smoke-test-google-client-id
+      GOOGLE_CLIENT_SECRET: smoke-test-google-client-secret
+      GOOGLE_CALLBACK_URL: http://127.0.0.1:3001/api/auth/google/callback
+      INITIAL_ADMIN_EMAIL: smoke-admin@example.test
+      OTEL_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      # NODE_ENV is deliberately left unset for the install and build steps:
+      # `npm ci` skips devDependencies under NODE_ENV=production, which would
+      # remove @nestjs/cli (the build), the Prisma CLI (migrations) and ts-node
+      # (the seed). Only the final step runs as production.
+      - run: npm ci
+
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      # The point of this job: the smoke test runs `dist/main.js`, the same
+      # artifact the Dockerfile runs, rather than a Test.createTestingModule
+      # stand-in that never executes main.ts.
+      - run: npm run build --workspace=api
+
+      # First time migrations and seeding run against a real database in CI.
+      # Both were previously exercised only by hand, which is how #56 (broken
+      # seeding) stayed hidden. These two steps — not the smoke test's readiness
+      # check — are what actually verify the schema: the readiness indicator
+      # issues a `SELECT 1`, which passes against an empty database, whereas the
+      # seed writes real rows and fails on a schema that does not match.
+      - run: npm run prisma:migrate --workspace=api
+
+      # The one place in CI a real Postgres is up: `*.db.spec.ts` (job-schema
+      # index/constraint assertions today, see apps/api/test/jobs/) are
+      # excluded from every other `npm test`/`test:unit`/`test:cov`/`test:ci`
+      # run precisely because no Postgres is reachable there, and would
+      # otherwise fail with a confusing connection error rather than a clear
+      # skip. NODE_ENV=test (not the job's ambient unset/production value)
+      # matches what these specs assume when they build their own connection
+      # string from the POSTGRES_* vars above.
+      - run: npm run test:db --workspace=api
+        env:
+          NODE_ENV: test
+
+      - run: npm run prisma:seed --workspace=api
+
+      # And again (#256, epic #254). Every write in prisma/seed.ts is an upsert
+      # keyed on a natural unique — role.name, permission.name,
+      # rolePermission.roleId_permissionId, systemSettings.key — so a second run
+      # must update the same rows rather than fail on a unique constraint or
+      # duplicate a grant. That is not a hypothetical property: `appctl deploy
+      # update` re-runs the seed on every upgrade, and it is how new permissions
+      # reach an existing database. A seed that is not idempotent therefore
+      # breaks on the SECOND deployment, in production, and never here. This
+      # step is the difference, and it costs a few seconds.
+      #
+      # The data's own self-consistency (no duplicate declarations, no role
+      # granting a permission that is not seeded, the seeded system-settings
+      # blob still equal to the API's defaults) is asserted without a database
+      # by apps/api/test/prisma/seed-data.spec.ts.
+      - run: npm run prisma:seed --workspace=api
+
+      # Boots the compiled app and asserts it serves /api/health/live,
+      # /api/health/ready and a valid /api/openapi.json. See the header of
+      # apps/api/scripts/smoke-test.mjs for what each assertion is protecting —
+      # in particular why a 200 on the OpenAPI document, and not merely a
+      # successful boot, is the assertion that matters.
+      - run: npm run smoke --workspace=api
+        env:
+          NODE_ENV: production
+          SMOKE_PORT: '3001'
+
+  greptime-test:
+    name: API Tests (GreptimeDB)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, like `openapi`/`smoke` do.
+    #
+    # WHY A `docker run` STEP INSTEAD OF A `services:` CONTAINER
+    # -------------------------------------------------------------------------
+    # Every other real-backend job in this workflow (`smoke`) uses a `services:`
+    # container, but GitHub Actions' `services:` cannot pass a custom command
+    # or args to the image — only `image`, `env`, `ports`, `volumes` and
+    # `options`. GreptimeDB's image has no entrypoint default that starts
+    # `standalone` with a configurable `--user-provider`, so the reader/admin
+    # split this suite needs (`telemetry.greptime.spec.ts`) cannot be expressed
+    # as a `services:` block. A plain `docker run -d` step, waited on with the
+    # image's own `/health` endpoint before Jest runs, is simple and
+    # deterministic instead.
+    #
+    # Users, ports and versions here MUST match `infra/compose/test.compose.yml`
+    # (`greptime-test` service) — that file is what a contributor runs locally,
+    # and this job is that same container, minus Compose.
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # The spec imports PrismaService transitively (TelemetryQueryService ->
+      # PrismaService), so the generated client must exist even though this
+      # tier touches no PostgreSQL.
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      - name: Start GreptimeDB
+        run: |
+          docker run -d --name greptime-test \
+            -p 14013:4003 -p 14010:4000 \
+            -e GREPTIMEDB_STANDALONE__ENABLE_TELEMETRY=false \
+            greptime/greptimedb:v1.2.1 standalone start \
+            --http-addr=0.0.0.0:4000 --rpc-bind-addr=0.0.0.0:4001 \
+            --mysql-addr=0.0.0.0:4002 --postgres-addr=0.0.0.0:4003 \
+            --user-provider='static_user_provider:cmd:admin=test-admin,writer=test-writer,reader:readonly=test-reader'
+
+      # The image needs a few seconds to bind its ports; `/health` on the HTTP
+      # endpoint (verified in the #529 spike) returns `{}` once it is ready.
+      # 60 x 1s comfortably covers the ~2-5s a cold pull-then-boot takes; a
+      # slower runner still fails loudly (curl's own timeout) rather than
+      # hanging the job.
+      - name: Wait for GreptimeDB
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:14010/health >/dev/null 2>&1; then
+              echo "GreptimeDB is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "GreptimeDB did not become healthy in time" >&2
+          docker logs greptime-test || true
+          exit 1
+
+      - run: npm run test:greptime --workspace=api
+        env:
+          GREPTIME_TEST_URL: postgres://reader:test-reader@localhost:14013/public
+          GREPTIME_TEST_ADMIN_URL: postgres://admin:test-admin@localhost:14013/public
+
+      - name: Stop GreptimeDB
+        if: always()
+        run: docker rm -f greptime-test
+
+  visual:
+    name: Visual regression (issue #107)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, like `openapi` and `smoke`
+    # do, for the same reason: it shares no state with them (no database, no
+    # compiled API artifact) and gains nothing by queueing behind either.
+    #
+    # WHY A DEDICATED CONTAINER, PINNED TO AN EXACT PLAYWRIGHT BUILD
+    # -------------------------------------------------------------------------
+    # This job asserts PIXELS, not DOM state — the one kind of assertion
+    # nothing else in this workflow makes. `web-test` runs the Vitest+RTL
+    # suite against jsdom, which has no layout engine at all (no
+    # `offsetWidth`, no wrapping, no font metrics), so it structurally cannot
+    # catch a layout regression like #105 (a destination rendered in the wrong
+    # position; a caption clipped by 2px of padding) — see
+    # `apps/web/visual/main.tsx` for the full account of why this suite exists.
+    # A pixel baseline is sensitive to the exact browser BUILD, not just the
+    # Playwright *API* version, so this job runs inside the same
+    # `mcr.microsoft.com/playwright:v1.62.1-noble` image the baselines under
+    # `tests/visual/specs/**/*-snapshots/` were generated in, and
+    # `tests/visual/package.json` pins `@playwright/test` to that exact
+    # version with no caret — unlike `tests/e2e`'s `^1.40.0`, which only ever
+    # asserts DOM state and so is safe to float.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      # The root install (workspaces: apps/*) gets `apps/web` and its Vite dev
+      # server — what the harness in `apps/web/visual` runs on. `tests/visual`
+      # is NOT an npm workspace (same reason `tests/e2e` isn't: these are
+      # test-runner packages, not application code), so its own
+      # `@playwright/test` install is separate.
+      - run: npm ci
+      - run: npm ci
+        working-directory: tests/visual
+
+      # Fails the job on ANY pixel diff (default `expect(page).toHaveScreenshot()`
+      # behavior) or on a missing baseline. `playwright.config.ts` boots
+      # `apps/web/visual`'s own Vite dev server itself (`webServer`) — no
+      # compose stack, no database, no API — so there is nothing else to start
+      # here.
+      #
+      # `tests/visual/node_modules/.bin/playwright` directly, NOT `npx
+      # playwright`: `npx` resolves the binary by walking up from the repo
+      # root, which has no local `playwright` install of its own (only
+      # `apps/web`'s dependencies are hoisted there), so it falls back to an
+      # ad-hoc download of whatever the latest published version is — a
+      # DIFFERENT `@playwright/test` module instance than the pinned one
+      # `tests/visual/specs/*.spec.ts` import, which throws "Playwright Test
+      # did not expect test() to be called here" (two copies of the module,
+      # two singletons). Verified by hitting exactly this failure while
+      # building the suite; the direct binary path is the fix, not a
+      # style preference.
+      - run: tests/visual/node_modules/.bin/playwright test --config=tests/visual/playwright.config.ts
+
+      # Uploaded unconditionally (`if: always()`) so a failing run is
+      # diagnosable from the Actions UI: the HTML report embeds the
+      # expected/actual/diff PNG for every failed assertion, which is far
+      # faster to read than reproducing the failure locally from scratch.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-playwright-report
+          path: tests/visual/playwright-report/
+          retention-days: 14

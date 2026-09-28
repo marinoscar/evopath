@@ -1,0 +1,14 @@
+{
+  // Build config: src/ in, dist/ out, flat, and no test files in the image.
+  // Same split as apps/cli (see its tsconfig.build.json for the rationale).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "vitest.config.ts", "**/*.test.ts"]
+}

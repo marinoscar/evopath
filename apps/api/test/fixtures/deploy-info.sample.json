@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "app": {
+    "name": "acme-app",
+    "version": "1.6.0",
+    "commitSha": "4e7a1c9b2d3f5a6e8c0b1d2f3a4b5c6d7e8f9a0b",
+    "ref": "main"
+  },
+  "installedAt": "2026-03-02T14:05:11.000Z",
+  "updatedAt": "2026-09-20T08:41:37.000Z",
+  "deployedBy": { "cli": "appctl", "version": "1.6.0" },
+  "domain": "app.example.com",
+  "remote": { "commitsBehind": 2, "checkedAt": "2026-09-20T08:41:30.000Z" },
+  "run": {
+    "completed": ["preflight", "pull", "build", "migrate", "up", "healthcheck"],
+    "failedStep": null,
+    "outcome": "success"
+  },
+  "lastCommand": "update",
+  "bindPort": 3535,
+  "proxy": {
+    "mode": "container",
+    "container": "edge-proxy",
+    "certificateExpiresAt": "2026-12-18T23:59:59.000Z"
+  },
+  "host": {
+    "hostname": "vps-app-01",
+    "os": "Ubuntu 24.04.1 LTS",
+    "kernel": "6.8.0-45-generic",
+    "arch": "x64",
+    "cpus": 4,
+    "memoryBytes": 8323063808,
+    "dockerVersion": "27.3.1",
+    "composeVersion": "2.29.7",
+    "capturedAt": "2026-09-20T08:39:02.000Z"
+  },
+  "history": [
+    {
+      "at": "2026-09-20T08:41:37.000Z",
+      "command": "update",
+      "commitSha": "4e7a1c9b2d3f5a6e8c0b1d2f3a4b5c6d7e8f9a0b",
+      "previousCommitSha": "b19d0e2c7a8f6e5d4c3b2a1f0e9d8c7b6a5f4e3d",
+      "ref": "main",
+      "durationMs": 158342,
+      "cliVersion": "1.6.0",
+      "outcome": "success"
+    },
+    {
+      "at": "2026-08-11T17:12:04.000Z",
+      "command": "update",
+      "commitSha": "b19d0e2c7a8f6e5d4c3b2a1f0e9d8c7b6a5f4e3d",
+      "previousCommitSha": "0c2e4a6b8d1f3e5a7c9b0d2f4a6c8e1b3d5f7a9c",
+      "ref": "main",
+      "durationMs": 142907,
+      "cliVersion": "1.5.2",
+      "outcome": "success"
+    },
+    {
+      "at": "2026-03-02T14:05:11.000Z",
+      "command": "install",
+      "commitSha": "0c2e4a6b8d1f3e5a7c9b0d2f4a6c8e1b3d5f7a9c",
+      "previousCommitSha": null,
+      "ref": "main",
+      "durationMs": 401226,
+      "cliVersion": "1.4.0",
+      "outcome": "success"
+    }
+  ]
+}

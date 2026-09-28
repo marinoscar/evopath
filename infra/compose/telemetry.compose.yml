@@ -1,0 +1,109 @@
+# =============================================================================
+# Docker Compose - Telemetry Stack (OpenTelemetry Collector + GreptimeDB)
+# =============================================================================
+# Usage (run from infra/compose folder):
+#   docker compose -f base.compose.yml -f dev.compose.yml [-f devdb.compose.yml] -f telemetry.compose.yml up
+#
+# Services:
+#   - OpenTelemetry Collector: receives OTLP from the API, redacts credential
+#     headers, and writes traces, metrics and logs into GreptimeDB
+#   - GreptimeDB (standalone): stores the telemetry; the API reads it back over
+#     the PostgreSQL wire protocol for the telemetry explorer and AI assistant
+#
+# Host ports (development):
+#   - http://localhost:14000/dashboard   GreptimeDB HTTP API and SQL dashboard
+#   - localhost:14003                    PostgreSQL wire protocol (psql, BI
+#                                        tools; log in as GREPTIME_READER_USER)
+#   - localhost:4327 / localhost:4328    collector OTLP gRPC / HTTP
+#
+# Accounts (static user provider, all from .env):
+#   - GREPTIME_WRITER_USER  collector ingest only
+#   - GREPTIME_READER_USER  read-only: explorer, AI assistant, BI tools
+#   - GREPTIME_ADMIN_USER   DDL: used only to set retention (TTL)
+#
+# Passwords have NO compose-level default, unlike the old Uptrace overlay: a
+# missing GREPTIME_*_PASSWORD fails `docker compose` with a message naming the
+# key, rather than silently booting a telemetry store with a well-known
+# password. .env.example (and therefore `appctl init`) supplies development
+# placeholders, so a fresh local setup still starts without extra steps.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # API - enable OTEL export and point telemetry reads at GreptimeDB
+  # ---------------------------------------------------------------------------
+  api:
+    environment:
+      - OTEL_ENABLED=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - GREPTIME_HOST=${GREPTIME_HOST:-greptimedb}
+      - GREPTIME_PG_PORT=${GREPTIME_PG_PORT:-4003}
+      - GREPTIME_DB=${GREPTIME_DB:-public}
+      - GREPTIME_READER_USER=${GREPTIME_READER_USER:-reader}
+      - GREPTIME_READER_PASSWORD=${GREPTIME_READER_PASSWORD:?set GREPTIME_READER_PASSWORD in infra/compose/.env}
+      - GREPTIME_ADMIN_USER=${GREPTIME_ADMIN_USER:-admin}
+      - GREPTIME_ADMIN_PASSWORD=${GREPTIME_ADMIN_PASSWORD:?set GREPTIME_ADMIN_PASSWORD in infra/compose/.env}
+    depends_on:
+      - otel-collector
+
+  # ---------------------------------------------------------------------------
+  # OpenTelemetry Collector
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.145.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ../otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    environment:
+      - GREPTIME_DB=${GREPTIME_DB:-public}
+      - GREPTIME_WRITER_USER=${GREPTIME_WRITER_USER:-writer}
+      - GREPTIME_WRITER_PASSWORD=${GREPTIME_WRITER_PASSWORD:?set GREPTIME_WRITER_PASSWORD in infra/compose/.env}
+    ports:
+      - "4327:4317"   # OTLP gRPC receiver (remapped to avoid conflict)
+      - "4328:4318"   # OTLP HTTP receiver (remapped to avoid conflict)
+    depends_on:
+      greptimedb:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ---------------------------------------------------------------------------
+  # GreptimeDB - telemetry storage (traces, metrics, logs)
+  # ---------------------------------------------------------------------------
+  greptimedb:
+    image: greptime/greptimedb:v1.2.1
+    command:
+      - standalone
+      - start
+      - --http-addr=0.0.0.0:4000
+      - --rpc-bind-addr=0.0.0.0:4001
+      - --mysql-addr=0.0.0.0:4002
+      - --postgres-addr=0.0.0.0:4003
+      - --user-provider=static_user_provider:cmd:${GREPTIME_ADMIN_USER:-admin}=${GREPTIME_ADMIN_PASSWORD:?set GREPTIME_ADMIN_PASSWORD in infra/compose/.env},${GREPTIME_WRITER_USER:-writer}=${GREPTIME_WRITER_PASSWORD:?set GREPTIME_WRITER_PASSWORD in infra/compose/.env},${GREPTIME_READER_USER:-reader}:readonly=${GREPTIME_READER_PASSWORD:?set GREPTIME_READER_PASSWORD in infra/compose/.env}
+    environment:
+      # GreptimeDB otherwise phones home with usage statistics on startup.
+      - GREPTIMEDB_STANDALONE__ENABLE_TELEMETRY=false
+    volumes:
+      - greptimedb-data:/greptimedb_data
+    ports:
+      - "14000:4000"  # HTTP API + SQL dashboard (/dashboard)
+      - "14003:4003"  # PostgreSQL wire protocol (psql, BI tools)
+    healthcheck:
+      # /health needs no credentials; curl ships in the image.
+      test: ["CMD", "curl", "-fsS", "http://localhost:4000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    networks:
+      - app-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  greptimedb-data:

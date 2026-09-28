@@ -1,0 +1,822 @@
+import { describe, expect, it } from 'vitest';
+
+import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../executor.js';
+import { HOST_CHECKS, evaluateDf, probe } from './host.js';
+import { ALL_CHECKS, requiredChecks } from './index.js';
+import {
+  checksPassed,
+  runChecks,
+  summarise,
+  type Check,
+  type CheckContext,
+  type CheckFs,
+} from './types.js';
+
+// =============================================================================
+// Checks are driven through an injected runCommand returning canned output.
+// The point of a check is what it CONCLUDES from a tool's output, so the
+// interesting input is that output, not a real docker.
+// =============================================================================
+
+type Responder = (argv: readonly string[]) => { exitCode: number; stdout?: string; stderr?: string } | undefined;
+
+function fakeRunCommand(respond: Responder): typeof import('../executor.js').runCommand {
+  return (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
+    const canned = respond(argv) ?? { exitCode: 127, stderr: `${argv[0]}: command not found` };
+    const result: CommandResult = {
+      argv: [...argv],
+      cwd: options.cwd,
+      exitCode: canned.exitCode,
+      stdout: canned.stdout ?? '',
+      stderr: canned.stderr ?? '',
+      durationMs: 1,
+      timedOut: false,
+    };
+    if (result.exitCode !== 0) {
+      throw new CommandFailedError(result.stderr || 'failed', result);
+    }
+    return result;
+  }) as typeof import('../executor.js').runCommand;
+}
+
+const permissiveFs: CheckFs = {
+  exists: () => true,
+  isDirectory: () => true,
+  isWritable: () => true,
+  readFile: () => '',
+  readdir: () => [],
+};
+
+const emptyFs: CheckFs = {
+  exists: () => false,
+  isDirectory: () => false,
+  isWritable: () => false,
+  readFile: () => undefined,
+  readdir: () => [],
+};
+
+/** A server where everything is in place. */
+const HEALTHY: Responder = (argv) => {
+  const line = argv.join(' ');
+  if (line.startsWith('docker --version')) return { exitCode: 0, stdout: 'Docker version 27.3.1, build abc' };
+  if (line.startsWith('docker info')) return { exitCode: 0, stdout: '27.3.1' };
+  if (line.startsWith('docker compose version')) return { exitCode: 0, stdout: 'Docker Compose version v2.29.0' };
+  if (line.startsWith('git --version')) return { exitCode: 0, stdout: 'git version 2.43.0' };
+  if (line.startsWith('df -Pk')) {
+    return {
+      exitCode: 0,
+      stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 100000000 10000000 80000000 12% /',
+    };
+  }
+  if (line.startsWith('certbot --version')) return { exitCode: 0, stdout: 'certbot 2.9.0' };
+  if (line.startsWith('nginx -t')) return { exitCode: 0, stderr: 'syntax is ok' };
+  if (line.startsWith('docker ps')) return { exitCode: 0, stdout: '' };
+  return undefined;
+};
+
+function context(overrides: Partial<CheckContext> = {}): CheckContext {
+  return {
+    runCommand: fakeRunCommand(HEALTHY),
+    deployRoot: '/opt/infra/apps/demo',
+    bindPort: 3535,
+    proxyRoot: '/opt/infra/proxy',
+    fs: permissiveFs,
+    totalMemoryBytes: () => 4 * 1024 * 1024 * 1024,
+    portFree: async () => true,
+    portListening: async () => true,
+    servedCertificate: async () => {
+      throw new Error('no network in tests');
+    },
+    ...overrides,
+  };
+}
+
+function find(id: string): Check {
+  const check = HOST_CHECKS.find((candidate) => candidate.id === id);
+  if (check === undefined) throw new Error(`no check ${id}`);
+  return check;
+}
+
+describe('the registry as a whole', () => {
+  it('passes every check on a healthy server', async () => {
+    const results = await runChecks(HOST_CHECKS, context());
+    const bad = results.filter((result) => result.status === 'fail' || result.status === 'warn');
+
+    expect(bad).toEqual([]);
+    expect(checksPassed(results)).toBe(true);
+  });
+
+  it('gives every failing check an actionable remedy', async () => {
+    // Rule 2 of the contract, asserted over the whole registry so a new check
+    // cannot be added without one.
+    const results = await runChecks(
+      HOST_CHECKS,
+      context({
+        runCommand: fakeRunCommand(() => undefined), // nothing is installed
+        fs: emptyFs,
+        totalMemoryBytes: () => 512 * 1024 * 1024,
+        portFree: async () => false,
+        portListening: async () => false,
+      }),
+    );
+
+    const withoutRemedy = results
+      .filter((result) => result.status === 'fail' || result.status === 'warn')
+      .filter((result) => result.remedy === undefined || result.remedy === '');
+
+    expect(withoutRemedy).toEqual([]);
+  });
+
+  it('has unique, kebab-case ids', () => {
+    const ids = ALL_CHECKS.map((check) => check.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every((id) => /^[a-z0-9-]+$/.test(id))).toBe(true);
+  });
+
+  it('exposes the required subset install and update use as preflight', () => {
+    expect(requiredChecks().every((check) => check.severity === 'required')).toBe(true);
+    expect(requiredChecks().length).toBeGreaterThan(0);
+  });
+});
+
+describe('runChecks', () => {
+  const ok: Check = {
+    id: 'ok',
+    title: 'Fine',
+    severity: 'required',
+    run: async () => ({ status: 'pass', detail: 'yes' }),
+  };
+  const boom: Check = {
+    id: 'boom',
+    title: 'Explodes',
+    severity: 'required',
+    run: async () => {
+      throw new Error('probe blew up');
+    },
+  };
+  const dependent: Check = {
+    id: 'dependent',
+    title: 'Needs boom',
+    severity: 'recommended',
+    requires: ['boom'],
+    run: async () => ({ status: 'pass', detail: 'ran anyway' }),
+  };
+
+  it('reports a check that throws as a failure and keeps going', async () => {
+    const results = await runChecks([boom, ok], context());
+
+    expect(results[0]?.status).toBe('fail');
+    expect(results[0]?.detail).toContain('probe blew up');
+    // Rule 1: the operator wants the whole list, not the first problem.
+    expect(results[1]?.status).toBe('pass');
+  });
+
+  it('skips a check whose requirement did not pass, and says which', async () => {
+    const results = await runChecks([boom, dependent], context());
+
+    expect(results[1]?.status).toBe('skip');
+    expect(results[1]?.detail).toContain('boom');
+  });
+
+  it('streams each result as it completes', async () => {
+    const seen: string[] = [];
+    await runChecks([ok, boom], context(), (result) => seen.push(result.id));
+
+    expect(seen).toEqual(['ok', 'boom']);
+  });
+
+  it('counts a failed recommended check as a pass overall', async () => {
+    const results = await runChecks(
+      [{ ...ok, id: 'advice', severity: 'recommended', run: async () => ({ status: 'fail' as const, detail: 'x', remedy: 'y' }) }],
+      context(),
+    );
+
+    // Failing on advice is how people learn to pass --force.
+    expect(checksPassed(results)).toBe(true);
+  });
+
+  it('summarises by status', async () => {
+    const results = await runChecks([ok, boom, dependent], context());
+
+    expect(summarise(results)).toEqual({ passed: 1, warned: 0, failed: 1, skipped: 1 });
+  });
+});
+
+describe('docker checks', () => {
+  it('reports docker not installed with an install command', async () => {
+    const result = await find('docker-installed').run(
+      context({ runCommand: fakeRunCommand(() => undefined) }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('get.docker.com');
+  });
+
+  it('distinguishes a permission problem from a stopped daemon', async () => {
+    const denied = await find('docker-daemon').run(
+      context({
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker info')
+            ? { exitCode: 1, stderr: 'permission denied while trying to connect to the Docker daemon socket' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(denied.status).toBe('fail');
+    expect(denied.detail).toContain('permission denied');
+    expect(denied.remedy).toContain('docker group');
+
+    const stopped = await find('docker-daemon').run(
+      context({
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker info')
+            ? { exitCode: 1, stderr: 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock.' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(stopped.detail).toContain('not running');
+    expect(stopped.remedy).toContain('systemctl start docker');
+  });
+
+  it('says so when only the legacy docker-compose binary exists', async () => {
+    const result = await find('docker-compose-v2').run(
+      context({
+        runCommand: fakeRunCommand((argv) => {
+          const line = argv.join(' ');
+          if (line.startsWith('docker compose version')) return { exitCode: 1, stderr: "unknown command" };
+          if (line.startsWith('docker-compose --version')) return { exitCode: 0, stdout: 'docker-compose version 1.29.2' };
+          return HEALTHY(argv);
+        }),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('legacy');
+    expect(result.remedy).toContain('docker-compose-plugin');
+  });
+});
+
+describe('evaluateDf', () => {
+  const header = 'Filesystem 1024-blocks Used Available Capacity Mounted on';
+
+  it('passes with plenty of space', () => {
+    expect(evaluateDf(`${header}\n/dev/sda1 100000000 10000000 80000000 12% /`).status).toBe('pass');
+  });
+
+  it('fails when free space is below the build threshold', () => {
+    const result = evaluateDf(`${header}\n/dev/sda1 100000000 99000000 1000000 99% /`);
+
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('docker system prune');
+  });
+
+  it('fails clearly when the output cannot be parsed', () => {
+    expect(evaluateDf('nonsense').status).toBe('fail');
+  });
+});
+
+describe('bind-port-free', () => {
+  it('passes when the port is free', async () => {
+    const result = await find('bind-port-free').run(context({ portFree: async () => true }));
+    expect(result.status).toBe('pass');
+  });
+
+  it('passes when the port is held by this deployment, as during an update', async () => {
+    // A doctor run that reports a false failure against a healthy deployment
+    // is how operators learn to ignore doctor.
+    const result = await find('bind-port-free').run(
+      context({
+        portFree: async () => false,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker ps')
+            ? { exitCode: 0, stdout: 'demo-nginx-1' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('this deployment');
+  });
+
+  it('fails when the port belongs to something else, naming it', async () => {
+    const result = await find('bind-port-free').run(
+      context({
+        portFree: async () => false,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker ps')
+            ? { exitCode: 0, stdout: 'someone-elses-app' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('someone-elses-app');
+    expect(result.remedy).toContain('APP_BIND_PORT');
+  });
+});
+
+describe('proxy checks', () => {
+  it('fails when the proxy directory is absent', async () => {
+    const result = await find('proxy-root').run(context({ fs: emptyFs }));
+
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('--proxy-root');
+  });
+
+  it('fails when conf.d exists but is not writable', async () => {
+    const result = await find('proxy-conf-writable').run(
+      context({ fs: { ...permissiveFs, isWritable: () => false } }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('not writable');
+  });
+
+  it('fails when the ACME webroot is missing, explaining what it is for', async () => {
+    const result = await find('acme-webroot').run(context({ fs: emptyFs }));
+
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('webroot');
+  });
+
+  it('skips the nginx -t check when there is no host nginx binary', async () => {
+    // A containerised proxy is the documented setup, so this check simply
+    // cannot answer - which is not the same as a problem.
+    const result = await find('proxy-config-valid').run(
+      context({ runCommand: fakeRunCommand(() => undefined) }),
+    );
+
+    expect(result.status).toBe('skip');
+  });
+
+  it('warns when the shared proxy config is already broken', async () => {
+    const result = await find('proxy-config-valid').run(
+      context({
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('nginx -t')
+            ? { exitCode: 1, stderr: 'nginx: [emerg] unknown directive "bogus"' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('every site');
+  });
+});
+
+describe('certbot-installed and proxy-config-valid under a container runtime', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'infra-proxy-1',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+
+  it('certbot-installed is only RECOMMENDED in container mode, and passes even without a host binary', async () => {
+    const result = await find('certbot-installed').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand(() => undefined), // no host certbot at all
+      }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('containerised');
+  });
+
+  it('certbot-installed still reports a host certbot if one happens to be there, marked unused', async () => {
+    const result = await find('certbot-installed').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('certbot --version') ? { exitCode: 0, stdout: 'certbot 2.9.0' } : undefined,
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('unused');
+  });
+
+  it('certbot-installed is REQUIRED in host mode, and required when the runtime is unknown', () => {
+    const check = HOST_CHECKS.find((candidate) => candidate.id === 'certbot-installed');
+    expect(check).toBeDefined();
+    expect(check?.severityFor?.(context({ proxyRuntime: { ...containerRuntime, mode: 'host' } }))).toBe(
+      'required',
+    );
+    expect(check?.severityFor?.(context({ proxyRuntime: undefined }))).toBe('required');
+    expect(check?.severityFor?.(context({ proxyRuntime: containerRuntime }))).toBe('recommended');
+  });
+
+  it('proxy-config-valid runs `docker exec <container> nginx -t` in container mode', async () => {
+    const seen: string[][] = [];
+    const result = await find('proxy-config-valid').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) => {
+          seen.push([...argv]);
+          return { exitCode: 0, stderr: 'syntax is ok' };
+        }),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(seen).toContainEqual(['docker', 'exec', 'infra-proxy-1', 'nginx', '-t']);
+  });
+
+  it('proxy-config-valid warns, naming the fix, when the containerised proxy is not running', async () => {
+    const result = await find('proxy-config-valid').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand(() => ({
+          exitCode: 1,
+          stderr: 'Error: No such container: infra-proxy-1',
+        })),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('infra-proxy-1');
+    expect(result.remedy).toContain('docker start infra-proxy-1');
+    expect(result.remedy).toContain('--proxy-container');
+  });
+
+  it('proxy-config-valid warns when nginx -t itself fails inside the container', async () => {
+    const result = await find('proxy-config-valid').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand(() => ({
+          exitCode: 1,
+          stderr: 'nginx: [emerg] unknown directive "bogus"',
+        })),
+      }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('bogus');
+    expect(result.remedy).toContain('every site');
+  });
+});
+
+describe('resource checks', () => {
+  it('warns on a small-memory host', async () => {
+    const result = await find('memory').run(
+      context({ totalMemoryBytes: () => 1_900_000_000 }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('OOM');
+  });
+
+  it('warns when nothing serves port 80', async () => {
+    const result = await find('port-80-listening').run(
+      context({ portListening: async () => false }),
+    );
+
+    expect(result.status).toBe('warn');
+    expect(result.remedy).toContain('proxy');
+  });
+});
+
+describe('probe (exported for source.ts and database.ts)', () => {
+  /** Unlike the module-level `fakeRunCommand`, this one forwards `options` too. */
+  function fakeRunCommandWithOptions(
+    respond: (argv: readonly string[], options: RunCommandOptions) => { exitCode: number; stdout?: string; stderr?: string } | undefined,
+  ): typeof import('../executor.js').runCommand {
+    return (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
+      const canned = respond(argv, options) ?? { exitCode: 127, stderr: `${argv[0]}: command not found` };
+      const result: CommandResult = {
+        argv: [...argv],
+        cwd: options.cwd,
+        exitCode: canned.exitCode,
+        stdout: canned.stdout ?? '',
+        stderr: canned.stderr ?? '',
+        durationMs: 1,
+        timedOut: false,
+      };
+      if (result.exitCode !== 0) throw new CommandFailedError(result.stderr || 'failed', result);
+      return result;
+    }) as typeof import('../executor.js').runCommand;
+  }
+
+  it('forwards a custom env, REPLACING rather than merging with the child\'s default', async () => {
+    const seen: Array<NodeJS.ProcessEnv | undefined> = [];
+    const result = await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.env);
+          return { exitCode: 0, stdout: 'ok' };
+        }),
+      },
+      ['git', 'ls-remote', 'https://example.test/o/r', 'HEAD'],
+      { env: { CUSTOM: '1' } },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(seen[0]).toEqual({ CUSTOM: '1' });
+  });
+
+  it('omits env entirely (the executor default) when none is given', async () => {
+    const seen: Array<NodeJS.ProcessEnv | undefined> = [];
+    await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.env);
+          return { exitCode: 0 };
+        }),
+      },
+      ['docker', '--version'],
+    );
+
+    expect(seen[0]).toBeUndefined();
+  });
+
+  it('honours a custom timeoutMs, defaulting to 20s', async () => {
+    const seen: Array<number | undefined> = [];
+    await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.timeoutMs);
+          return { exitCode: 0 };
+        }),
+      },
+      ['git', '--version'],
+      { timeoutMs: 30_000 },
+    );
+    await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.timeoutMs);
+          return { exitCode: 0 };
+        }),
+      },
+      ['git', '--version'],
+    );
+
+    expect(seen).toEqual([30_000, 20_000]);
+  });
+
+  it('never throws: a failing command comes back as ok: false with stdout/stderr', async () => {
+    const result = await probe(
+      { runCommand: fakeRunCommand(() => ({ exitCode: 1, stderr: 'nope' })) },
+      ['does-not-matter'],
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toBe('nope');
+  });
+});
+
+describe('proxy-container check', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'infra-proxy-1',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+
+  it('skips under --skip-proxy, before even looking at the runtime', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, skipProxy: true }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('--skip-proxy');
+  });
+
+  it('skips when the proxy runs on the host, not in a container', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: { ...containerRuntime, mode: 'host' } }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('runs on the host');
+  });
+
+  it('skips when the proxy runtime is unknown', async () => {
+    const result = await find('proxy-container').run(context({ proxyRuntime: undefined }));
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('unknown');
+  });
+
+  it('passes when the container is running', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 0, stdout: 'true' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('infra-proxy-1 is running');
+  });
+
+  it('FAILS, naming the container, when it exists but is stopped', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 0, stdout: 'false' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('exists but is not running');
+    expect(result.remedy).toContain('docker start infra-proxy-1');
+  });
+
+  it('FAILS with a distinct remedy when no such container exists', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 1, stderr: 'Error: No such container: infra-proxy-1' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('no container named infra-proxy-1');
+    expect(result.remedy).toContain('docker compose up -d');
+    expect(result.remedy).toContain('--proxy-container');
+  });
+
+  it('FAILS with the raw inspect error for anything else', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 1, stderr: 'permission denied' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('permission denied');
+  });
+
+  it('is REQUIRED only in container mode, with a domain, and not --skip-proxy; RECOMMENDED otherwise', () => {
+    const check = HOST_CHECKS.find((candidate) => candidate.id === 'proxy-container');
+    expect(check).toBeDefined();
+
+    expect(
+      check?.severityFor?.(context({ proxyRuntime: containerRuntime, domain: 'app.example.test' })),
+    ).toBe('required');
+    expect(
+      check?.severityFor?.(
+        context({ proxyRuntime: containerRuntime, domain: 'app.example.test', skipProxy: true }),
+      ),
+    ).toBe('recommended');
+    expect(check?.severityFor?.(context({ proxyRuntime: containerRuntime, domain: undefined }))).toBe(
+      'recommended',
+    );
+    expect(
+      check?.severityFor?.(
+        context({ proxyRuntime: { ...containerRuntime, mode: 'host' }, domain: 'app.example.test' }),
+      ),
+    ).toBe('recommended');
+  });
+});
+
+describe('requiredChecks(ALL_CHECKS, ctx): context-driven promotion across the whole registry', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'infra-proxy-1',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+
+  it('proxy-root / proxy-conf-writable / acme-webroot / certbot-installed / proxy-container are ALL excluded under --skip-proxy', () => {
+    const ctx = context({
+      skipProxy: true,
+      proxyRuntime: containerRuntime,
+      domain: 'app.example.test',
+    });
+
+    const ids = new Set(requiredChecks(ALL_CHECKS, ctx).map((check) => check.id));
+
+    for (const id of ['proxy-root', 'proxy-conf-writable', 'acme-webroot', 'certbot-installed', 'proxy-container']) {
+      expect(ids.has(id)).toBe(false);
+    }
+  });
+
+  it('the same proxy checks ARE required with no --skip-proxy (host mode, a domain given)', () => {
+    const ctx = context({ domain: 'app.example.test' });
+
+    const ids = new Set(requiredChecks(ALL_CHECKS, ctx).map((check) => check.id));
+
+    for (const id of ['proxy-root', 'proxy-conf-writable', 'acme-webroot', 'certbot-installed']) {
+      expect(ids.has(id)).toBe(true);
+    }
+  });
+
+  it('proxy-container becomes required only in container mode WITH a domain and without --skip-proxy', () => {
+    expect(
+      requiredChecks(
+        ALL_CHECKS,
+        context({ proxyRuntime: containerRuntime, domain: 'app.example.test' }),
+      ).some((check) => check.id === 'proxy-container'),
+    ).toBe(true);
+
+    expect(
+      requiredChecks(ALL_CHECKS, context({ proxyRuntime: containerRuntime, domain: undefined })).some(
+        (check) => check.id === 'proxy-container',
+      ),
+    ).toBe(false);
+
+    expect(
+      requiredChecks(
+        ALL_CHECKS,
+        context({ proxyRuntime: { ...containerRuntime, mode: 'host' }, domain: 'app.example.test' }),
+      ).some((check) => check.id === 'proxy-container'),
+    ).toBe(false);
+  });
+
+  it('gh-installed/gh-authenticated are promoted into the required subset exactly when the HTTPS GitHub clone has no credential', () => {
+    const needsGh = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false });
+    const hasCredential = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: true });
+    const notGithub = context({ repoUrl: 'git@github.com:acme/widgets.git' });
+    const unknown = context();
+
+    const needsGhIds = requiredChecks(ALL_CHECKS, needsGh).map((c) => c.id);
+    expect(needsGhIds).toContain('gh-installed');
+    expect(needsGhIds).toContain('gh-authenticated');
+
+    for (const ctx of [hasCredential, notGithub, unknown]) {
+      const ids = requiredChecks(ALL_CHECKS, ctx).map((c) => c.id);
+      expect(ids).not.toContain('gh-installed');
+      expect(ids).not.toContain('gh-authenticated');
+    }
+  });
+});
+
+describe('proxy-container when install may bootstrap the proxy (#391)', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'proxy-nginx',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+  const noContainer = fakeRunCommand((argv) =>
+    argv.join(' ').startsWith('docker inspect')
+      ? { exitCode: 1, stderr: 'Error: No such container: proxy-nginx' }
+      : HEALTHY(argv),
+  );
+
+  it('passes an absent proxy in an unconfigured root when bootstrap is authorised', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, runCommand: noContainer, fs: emptyFs, proxyBootstrap: true }),
+    );
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('bootstrap');
+  });
+
+  it('still fails, naming --bootstrap-proxy, when bootstrap is not authorised', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, runCommand: noContainer, fs: emptyFs }),
+    );
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('--bootstrap-proxy');
+  });
+
+  it('still fails when the root has a compose file -- that proxy is somebody else\'s', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, runCommand: noContainer, fs: permissiveFs, proxyBootstrap: true }),
+    );
+    expect(result.status).toBe('fail');
+    expect(result.remedy).not.toContain('--bootstrap-proxy');
+  });
+
+  it('still fails for a stopped container, bootstrap or not', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        fs: emptyFs,
+        proxyBootstrap: true,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect') ? { exitCode: 0, stdout: 'false' } : HEALTHY(argv),
+        ),
+      }),
+    );
+    expect(result.status).toBe('fail');
+  });
+});

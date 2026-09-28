@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // NodeNext (inherited) plus `"type": "module"`: every relative import in
+    // src/ carries a `.js` extension, exactly as in apps/cli.
+    //
+    // `node` only, no `dom`: this is a server process with ZERO runtime
+    // dependencies. Everything it uses comes from `node:*`.
+    "types": ["node"],
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "incremental": true
+  },
+  "include": ["src/**/*", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

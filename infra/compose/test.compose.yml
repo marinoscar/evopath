@@ -1,0 +1,45 @@
+services:
+  db-test:
+    image: postgres:16-alpine
+    container_name: my-app-db-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: my_app_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - test-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Disposable GreptimeDB for telemetry integration tests. No volume: every
+  # `up` starts empty. Fixed, test-only credentials for the three accounts.
+  greptime-test:
+    image: greptime/greptimedb:v1.2.1
+    container_name: my-app-greptime-test
+    command:
+      - standalone
+      - start
+      - --http-addr=0.0.0.0:4000
+      - --rpc-bind-addr=0.0.0.0:4001
+      - --mysql-addr=0.0.0.0:4002
+      - --postgres-addr=0.0.0.0:4003
+      - --user-provider=static_user_provider:cmd:admin=test-admin,writer=test-writer,reader:readonly=test-reader
+    environment:
+      GREPTIMEDB_STANDALONE__ENABLE_TELEMETRY: "false"
+    ports:
+      - "14010:4000"
+      - "14013:4003"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  test-db-data:
