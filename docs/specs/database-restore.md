@@ -552,7 +552,7 @@ rehearsal is for.
    [database-backup.md](database-backup.md#7-verification)).
 2. Confirm the literal is enforced:
    ```bash
-   appctl api POST /api/admin/db-backup/runs/<id>/restore --data '{"confirmation":"restore"}'
+   evopathcli api POST /api/admin/db-backup/runs/<id>/restore --data '{"confirmation":"restore"}'
    ```
    Expect `400`, and no new `db.restore.run` in `/admin/settings/jobs`.
 3. On a role without `CREATEDB`, send `{"confirmation":"RESTORE"}`: expect

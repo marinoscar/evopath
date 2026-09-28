@@ -293,7 +293,7 @@ With any gate closed, the in-process worker takes the backup, including under
   converted once with `BigInt()`. A JSON number is exact only below 2^53.
 - **Node requirements.** `pg_dump` is a required capability (a node without it
   never declares the type). `psql` is degradable (without it, `db_version` and
-  `migration_name` are `null`). `appctl node doctor --db-host <host[:port]>`
+  `migration_name` are `null`). `evopathcli node doctor --db-host <host[:port]>`
   reports the client version and a TCP probe as warnings, never failures.
   There is no tunnelling: a node needs a real network route to PostgreSQL.
 
@@ -493,8 +493,8 @@ seam stands in for it. The restore suites exercise real archives.
 1. Configure storage at `/admin/settings/storage`, then open
    `/admin/settings/db-backup` and click **Back up now**, or:
    ```bash
-   appctl api POST /api/admin/db-backup/runs
-   appctl api GET /api/admin/db-backup/runs/<id>
+   evopathcli api POST /api/admin/db-backup/runs
+   evopathcli api GET /api/admin/db-backup/runs/<id>
    ```
    Watch `status` go `pending → running → completed`, `bytesWritten` grow,
    and `verifiedAt` get set.

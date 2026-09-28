@@ -1,11 +1,11 @@
-# CLI (`appctl`)
+# CLI (`evopathcli`)
 
 First-party command-line client for the API. It authenticates with the same
 device authorization flow as any other headless client, stores a personal
 access token, and then lets you call any API endpoint from a shell — which
 matters because this repository is a **baseline**: new endpoints get added
 and old ones get renamed constantly, and a CLI that hard-codes a subcommand
-per resource goes stale the day it ships. `appctl` has exactly one command
+per resource goes stale the day it ships. `evopathcli` has exactly one command
 that talks to the API (`api <method> <path>`), so it stays correct against
 endpoints that don't exist yet.
 
@@ -15,7 +15,7 @@ logout) built with [ink](https://github.com/vadimdemedes/ink). Everything that m
 is also a plain subcommand, and the subcommands are what this document
 covers — they're what you'd script or run in CI.
 
-## What appctl does
+## What evopathcli does
 
 Four jobs, one binary. Each is also reachable from the full-screen menu.
 
@@ -25,7 +25,7 @@ every secret. `npm run setup` at the repository root builds the CLI and runs
 it for you.
 
 ```bash
-appctl init --admin-email you@example.com
+evopathcli init --admin-email you@example.com
 ```
 
 **Call any endpoint, with no stale wrappers.** Log in once through the device
@@ -33,8 +33,8 @@ flow; `api` then reaches every route the server has, including ones added
 after this CLI was built.
 
 ```bash
-appctl login --server https://app.example.com
-appctl api GET /api/auth/me
+evopathcli login --server https://app.example.com
+evopathcli api GET /api/auth/me
 ```
 
 **Deploy to a VPS in one command.** On the server itself, `deploy install`
@@ -43,50 +43,50 @@ publishes the app over HTTPS behind a shared TLS reverse proxy that every
 application on the box uses.
 
 ```bash
-appctl deploy install --domain app.example.com
+evopathcli deploy install --domain app.example.com
 ```
 
 **Run a worker node.** `node` enrolls this machine with its own credential,
 then claims and runs jobs from the application's queue.
 
 ```bash
-appctl node enroll && appctl node register
-appctl node start
+evopathcli node enroll && evopathcli node register
+evopathcli node start
 ```
 
-In a real terminal, `appctl` with no arguments opens the menu. **Worker node
+In a real terminal, `evopathcli` with no arguments opens the menu. **Worker node
 → Dashboard** attaches read-only to the running worker and shows its status,
 concurrency, job types, success/failure totals, heartbeat age, active jobs
 with elapsed time, and a live event stream.
 
 ## Install
 
-There's no published package; the installer builds `appctl` from this repo
+There's no published package; the installer builds `evopathcli` from this repo
 and deploys a standalone copy — you don't need a local clone to end up with
-a working `appctl` on your PATH.
+a working `evopathcli` on your PATH.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/marinoscar/evopath/main/install.sh | bash
 ```
 
 It's safe to re-run: the installer detects an existing install at
-`~/.appctl/app`, shows the old → new version transition, and updates it in
+`~/.evopathcli/app`, shows the old → new version transition, and updates it in
 place — the same command is also how you update.
 
 ### Install from a local clone
 
 If you already have the repo checked out (or want to test the installer
 itself without a network round-trip), point it at that directory with
-`APPCTL_SRC` instead of letting it `git clone`:
+`EVOPATHCLI_SRC` instead of letting it `git clone`:
 
 ```bash
-APPCTL_SRC=/path/to/repo bash /path/to/repo/install.sh
+EVOPATHCLI_SRC=/path/to/repo bash /path/to/repo/install.sh
 ```
 
 ### Update
 
 Re-run the same command you installed with — the curl one-liner above, or
-the `APPCTL_SRC` form for a local clone. Either way the installer detects
+the `EVOPATHCLI_SRC` form for a local clone. Either way the installer detects
 the existing install and updates it in place.
 
 ### Uninstall
@@ -101,9 +101,9 @@ or, from a local clone:
 bash install.sh --uninstall
 ```
 
-This removes the installed app directory (`~/.appctl/app`) and the `appctl`
-shim (`~/.local/bin/appctl` by default). It leaves
-`~/.appctl/config.json` — your stored server URL and credentials — untouched;
+This removes the installed app directory (`~/.evopathcli/app`) and the `evopathcli`
+shim (`~/.local/bin/evopathcli` by default). It leaves
+`~/.evopathcli/config.json` — your stored server URL and credentials — untouched;
 uninstalling doesn't log you out.
 
 ### Requirements
@@ -114,15 +114,15 @@ The installer checks for these before doing anything else:
 | --- | --- | --- |
 | `node` | >= 20 | apps/cli's own `engines.node` floor |
 | `npm` | any | ships with Node.js |
-| `git` | any | only needed unless you use `APPCTL_SRC` |
+| `git` | any | only needed unless you use `EVOPATHCLI_SRC` |
 | `curl` | any | only needed for the piped one-liner |
 
 apps/cli has no native modules, so there's no C-compiler / build-toolchain
 requirement — just these four.
 
-### Adding appctl to your PATH
+### Adding evopathcli to your PATH
 
-If `~/.local/bin` (or your custom `APPCTL_BIN_DIR`) isn't on `$PATH`, add
+If `~/.local/bin` (or your custom `EVOPATHCLI_BIN_DIR`) isn't on `$PATH`, add
 this to `~/.bashrc` or `~/.zshrc` and reload your shell:
 
 ```bash
@@ -139,12 +139,12 @@ Set these before running the installer to override its defaults:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `APPCTL_REPO` | `https://github.com/marinoscar/evopath.git` | Git clone URL |
-| `APPCTL_REF` | `main` | Branch/tag/commit to install |
-| `APPCTL_HOME` | `$HOME/.appctl` | App install root (same directory the CLI stores `config.json` in) |
-| `APPCTL_BIN_DIR` | `$HOME/.local/bin` | Directory for the `appctl` shim |
+| `EVOPATHCLI_REPO` | `https://github.com/marinoscar/evopath.git` | Git clone URL |
+| `EVOPATHCLI_REF` | `main` | Branch/tag/commit to install |
+| `EVOPATHCLI_HOME` | `$HOME/.evopathcli` | App install root (same directory the CLI stores `config.json` in) |
+| `EVOPATHCLI_BIN_DIR` | `$HOME/.local/bin` | Directory for the `evopathcli` shim |
 | `GITHUB_TOKEN` | (unset) | Optional GitHub PAT, for cloning a private repo |
-| `APPCTL_SRC` | (unset) | Local directory to install from instead of cloning |
+| `EVOPATHCLI_SRC` | (unset) | Local directory to install from instead of cloning |
 
 `NO_COLOR` and the installer's own `--no-color` flag both disable ANSI
 colour in its output.
@@ -152,9 +152,9 @@ colour in its output.
 ## Creating a local environment
 
 ```bash
-appctl init
-appctl init --non-interactive --admin-email you@example.com
-appctl init --force                 # update an existing .env, keeping its values
+evopathcli init
+evopathcli init --non-interactive --admin-email you@example.com
+evopathcli init --force                 # update an existing .env, keeping its values
 ```
 
 Run it from a clone of the repository, or pass `--repo-root <path>`. It
@@ -184,7 +184,7 @@ with `--force`), or a value is missing that an unattended run cannot supply;
 ## Logging in
 
 ```bash
-appctl login
+evopathcli login
 ```
 
 This runs the device authorization flow (RFC 8628) — the same "open this URL
@@ -204,12 +204,12 @@ and enter this code" flow you'd use for the CLI on a smart TV. It:
 The credential minted here is a **personal access token** (a `pat_...`
 string), not a short-lived session JWT — that's what makes it practical to
 stay logged in for days between commands. It's stored, along with the server
-URL, in `~/.appctl/config.json`. That file is created with `0600`
+URL, in `~/.evopathcli/config.json`. That file is created with `0600`
 permissions (owner read/write only) even across restarts and partial
 rewrites — see the extensive comment on `writeConfigFile` in
 `apps/cli/src/config.ts` if you want the mechanics of how that's guaranteed
 under a hostile umask. The token itself is never printed by any command; if
-you need to see what's stored, `appctl config` prints the server URL and a
+you need to see what's stored, `evopathcli config` prints the server URL and a
 masked hint (`pat_abcd••••••••` — the first eight characters, then a
 fixed-width mask) instead.
 
@@ -223,8 +223,8 @@ token on the command line puts it in your shell history and in `ps` output
 for other users on the machine, which is why the CLI warns about it after a
 successful `--token` login.
 
-There is deliberately no `appctl logout` subcommand — logout only exists as
-a screen in the interactive menu (`appctl` with no arguments, then choose
+There is deliberately no `evopathcli logout` subcommand — logout only exists as
+a screen in the interactive menu (`evopathcli` with no arguments, then choose
 Logout). It calls `DELETE /api/pat/{id}` to revoke the token on the server
 *before* deleting the local file, on purpose: the PAT this CLI holds is
 long-lived, so simply deleting the local copy would leave a fully valid,
@@ -236,7 +236,7 @@ equivalent of the interactive logout.
 ## Calling the API
 
 ```bash
-appctl api GET /api/auth/me
+evopathcli api GET /api/auth/me
 ```
 
 `api` is the one command that talks to arbitrary endpoints. The response
@@ -244,7 +244,7 @@ body goes to stdout and nothing else does — status line, spinner and errors
 all go to stderr — so a pipeline sees exactly the server's JSON:
 
 ```bash
-appctl api GET /api/users --raw | jq '.data[].email'
+evopathcli api GET /api/users --raw | jq '.data[].email'
 ```
 
 `--raw` prints compact, uncoloured JSON with a trailing newline and nothing
@@ -255,7 +255,7 @@ not the unwrapped `data` field — because a paginated list's `data` +
 `TransformInterceptor` as `{ data, meta }` look identical from the outside,
 and unwrapping one of them silently drops the pagination info.
 
-Other flags, from `appctl api --help`:
+Other flags, from `evopathcli api --help`:
 
 ```
 Arguments:
@@ -272,35 +272,35 @@ Options:
 ```
 
 The exit code is `0` only for a 2xx response; anything else exits non-zero
-with the server's own error message, so `appctl api ... || echo failed` (or
+with the server's own error message, so `evopathcli api ... || echo failed` (or
 just relying on `set -e`) works the way you'd expect in a script. The `/api`
-prefix is optional — `appctl api GET /api/auth/me` and `appctl api GET
+prefix is optional — `evopathcli api GET /api/auth/me` and `evopathcli api GET
 /auth/me` request the same thing, since the client's base URL already ends
 in `/api`.
 
 Since this is a generic `api` command, it reaches the AI platform the same
-way as any other endpoint — no dedicated `appctl ai` command
+way as any other endpoint — no dedicated `evopathcli ai` command
 exists or is needed:
 
 ```bash
-appctl api post /ai/responses --data '{"input":"hello"}'
+evopathcli api post /ai/responses --data '{"input":"hello"}'
 ```
 
 This requires the caller's account to hold `ai:use`, AI to be enabled for
 the deployment (`ai.enabled`, see
 [`docs/runbooks/ai-configuration.md`](../../docs/runbooks/ai-configuration.md)),
 and either a stored BYOK key for the target provider
-(`appctl api put /ai/keys/openai --data '{"apiKey":"sk-..."}'`) or an
+(`evopathcli api put /ai/keys/openai --data '{"apiKey":"sk-..."}'`) or an
 admin/org fallback key under `byok_with_org_fallback` — otherwise it answers
 `403` with `details.reason: "AI_KEY_REQUIRED"` or `"AI_DISABLED"`. The
 streaming route (`POST /api/ai/responses/stream`) is not reachable through
-`appctl api`, which is built for a single request/response cycle, not
+`evopathcli api`, which is built for a single request/response cycle, not
 Server-Sent Events — use the web Playground for a streamed response.
 
 ## Deploying to a server
 
 ```bash
-appctl deploy doctor
+evopathcli deploy doctor
 ```
 
 Eight subcommands (`doctor`, `install`, `update`, `status`, `list`, `about`,
@@ -308,9 +308,9 @@ Eight subcommands (`doctor`, `install`, `update`, `status`, `list`, `about`,
 from an empty VPS to running, migrated, seeded, and served over HTTPS at a
 real domain, back to the latest revision on every subsequent deploy, and,
 eventually, gone again. They run **on the VPS itself**: SSH in with your own
-credentials, build `appctl` from a checkout there (see
+credentials, build `evopathcli` from a checkout there (see
 [Building from source](#building-from-source-development) below), and run
-these from inside it. There's no SSH client in `appctl` and no laptop-driven
+these from inside it. There's no SSH client in `evopathcli` and no laptop-driven
 orchestration — it never dials out to a server on your behalf, and it must
 never be run with `sudo` (see the runbook's prerequisites for why).
 
@@ -335,8 +335,8 @@ For why it's built this way, see
 ### Checking prerequisites
 
 ```bash
-appctl deploy doctor
-appctl deploy doctor --domain app.example.com
+evopathcli deploy doctor
+evopathcli deploy doctor --domain app.example.com
 ```
 
 Nothing is installed, written or started — it's read-only, so it's safe to
@@ -356,14 +356,14 @@ valid, database exists, `CREATEDB` privilege, can create tables, TLS), and —
 once `--domain` turns them on — DNS and the certificate.
 
 ```bash
-appctl deploy doctor --json | jq '.checks[] | select(.status=="fail")'
+evopathcli deploy doctor --json | jq '.checks[] | select(.status=="fail")'
 ```
 
 Exits `6` (`EXIT.PRECONDITION`) when a required check fails, `0` when only
 recommended checks fail — warnings never fail the run. `--json` prints a
 machine-readable report on stdout and nothing on stderr.
 
-Other flags, from `appctl deploy doctor --help`:
+Other flags, from `evopathcli deploy doctor --help`:
 
 ```
 Options:
@@ -392,7 +392,7 @@ an unreachable database before you're mid-pipeline, not partway through one.
 ### Installing
 
 ```bash
-appctl deploy install --domain app.example.com
+evopathcli deploy install --domain app.example.com
 ```
 
 Runs preflight → checkout → environment → validate-environment →
@@ -408,8 +408,8 @@ value hardcoded in the CLI — a fork deploys itself with no configuration
 change; see "Deploying a fork" below.
 
 ```bash
-appctl deploy install --domain app.example.com --staging
-appctl deploy install --non-interactive --domain app.example.com
+evopathcli deploy install --domain app.example.com --staging
+evopathcli deploy install --non-interactive --domain app.example.com
 ```
 
 Use `--staging` while you're still working out the setup — it requests a
@@ -440,7 +440,7 @@ schedules a twice-daily renewal only when nothing already owns it).
 `--skip-oauth-check` skips the live Google credentials probe (a malformed
 client id then only warns instead of failing).
 
-Other flags, from `appctl deploy install --help`:
+Other flags, from `evopathcli deploy install --help`:
 
 ```
 Options:
@@ -500,14 +500,14 @@ install: the first login" in the runbook linked above.
 No flag or CLI change is needed. `install` and `update` read the repository
 URL and ref from the checkout you run them in (override with `--repo` and
 `--ref`), and the environment wizard reads that checkout's own
-`infra/compose/.env.example`. Clone your fork on the server, build `appctl`
-from it, and run `appctl deploy install` there. See
+`infra/compose/.env.example`. Clone your fork on the server, build `evopathcli`
+from it, and run `evopathcli deploy install` there. See
 [`docs/runbooks/deploy-to-vps.md`, "Deploying a fork"](../../docs/runbooks/deploy-to-vps.md#6-deploying-a-fork).
 
 ### Updating
 
 ```bash
-appctl deploy update
+evopathcli deploy update
 ```
 
 Brings an already-installed server up to the latest revision (or, with
@@ -521,7 +521,7 @@ acted on the same way. `verify` includes the same OAuth sign-in smoke check
 as `install`'s.
 
 ```bash
-appctl deploy update --ref v1.4.0
+evopathcli deploy update --ref v1.4.0
 ```
 
 If the resolved ref's commit hasn't moved since the last successful run,
@@ -539,9 +539,9 @@ want them upserted back.
 There's no automatic rollback. A partly-applied database migration can't be
 undone by checking out the old code, so on failure `update` prints the
 previous revision and the exact command to redeploy it —
-`appctl deploy update --ref <sha> --force` — and leaves that decision to you.
+`evopathcli deploy update --ref <sha> --force` — and leaves that decision to you.
 
-Other flags, from `appctl deploy update --help`:
+Other flags, from `evopathcli deploy update --help`:
 
 ```
 Options:
@@ -570,7 +570,7 @@ Options:
 ### Checking status
 
 ```bash
-appctl deploy status
+evopathcli deploy status
 ```
 
 Reports whether the deployment at `--root` is healthy: container state, an
@@ -578,8 +578,8 @@ immediate `/api/health/ready` poll, migration state, and — with `--domain` —
 an external HTTPS check.
 
 ```bash
-appctl deploy status --domain app.example.com
-appctl deploy status --json || alert 'deployment unhealthy'
+evopathcli deploy status --domain app.example.com
+evopathcli deploy status --json || alert 'deployment unhealthy'
 ```
 
 `/api/health/ready` returning 200 only proves the app can run `SELECT 1`
@@ -591,7 +591,7 @@ probe.
 Exits `0` when serving and the schema is current, `1` when installed but
 unhealthy, `2` when nothing is installed at `--root`.
 
-Other flags, from `appctl deploy status --help`:
+Other flags, from `evopathcli deploy status --help`:
 
 ```
 Options:
@@ -608,7 +608,7 @@ Options:
 ### Listing every deployment
 
 ```bash
-appctl deploy list
+evopathcli deploy list
 ```
 
 Reads the filesystem only — no git, no Docker, no network — and reports every
@@ -629,8 +629,8 @@ Options:
 ### What this server says it is running
 
 ```bash
-appctl deploy about
-appctl deploy about --name myapp --json
+evopathcli deploy about
+evopathcli deploy about --name myapp --json
 ```
 
 Prints the deployment record `install`/`update` leave at
@@ -670,7 +670,7 @@ Options:
 `install` and `update` take answers without a terminal:
 
 ```bash
-appctl deploy install --non-interactive \
+evopathcli deploy install --non-interactive \
   --answers-file ./answers.env \
   --answer INITIAL_ADMIN_EMAIL=admin@example.com
 ```
@@ -697,9 +697,9 @@ you believe you supplied answers and did not.
 ### Managing the TLS certificate directly
 
 ```bash
-appctl deploy certs                              # report expiry, change nothing
-appctl deploy certs --renew                      # renew only inside the 30-day window
-appctl deploy certs --renew --domain app.example.com
+evopathcli deploy certs                              # report expiry, change nothing
+evopathcli deploy certs --renew                      # renew only inside the 30-day window
+evopathcli deploy certs --renew --domain app.example.com
 ```
 
 `--force` renews even when the certificate is not due, and spends rate-limit
@@ -737,9 +737,9 @@ Options:
 ### Removing a deployment
 
 ```bash
-appctl deploy uninstall --dry-run     # always first: what goes, what stays
-appctl deploy uninstall
-appctl deploy uninstall --purge-storage --confirm-bucket <bucket-name>
+evopathcli deploy uninstall --dry-run     # always first: what goes, what stays
+evopathcli deploy uninstall
+evopathcli deploy uninstall --purge-storage --confirm-bucket <bucket-name>
 ```
 
 `uninstall` stops the stack and removes the clone, the run logs, the
@@ -792,7 +792,7 @@ issue or hand to someone else for help.
 
 ## Running a worker node
 
-`appctl node` turns this machine into a worker for the application's job
+`evopathcli node` turns this machine into a worker for the application's job
 queue. A node claims jobs from the server, runs them locally,
 and submits results — the same handler code the API server would have run,
 on hardware you control. Nodes coordinate through nothing but the database,
@@ -802,11 +802,11 @@ about the others.
 ### Enrolling a machine
 
 ```bash
-appctl node enroll
+evopathcli node enroll
 ```
 
 One command from nothing to a machine that holds its own credential. It
-runs the same device-authorization login `appctl login` does, then uses that
+runs the same device-authorization login `evopathcli login` does, then uses that
 session to mint a **node credential** (`nod_…`) and stores it for you. You
 never see or paste the secret.
 
@@ -819,7 +819,7 @@ a separate command rather than just reusing your login token.
 | Flag | Meaning |
 |---|---|
 | `-s, --server <url>` | Server URL, when this machine has no stored one |
-| `-n, --name <name>` | Name for the credential in the web UI (default: `appctl node: user@host`) |
+| `-n, --name <name>` | Name for the credential in the web UI (default: `evopathcli node: user@host`) |
 | `--expires-in-days <n>` | Expire the credential after N days (default: never — see below) |
 | `--no-browser` | Print the verification URL instead of opening one |
 | `--show-token` | Also print the credential on stdout, for provisioning another machine |
@@ -831,14 +831,14 @@ confined to `/api/nodes/*`. Revocation is the control, and it is immediate —
 revoke from the web UI and the next request fails.
 
 If the server predates node credentials you get a named error, not a stack
-trace, pointing at the fallback: create a PAT in the web UI, `appctl login
+trace, pointing at the fallback: create a PAT in the web UI, `evopathcli login
 --token <pat>`, then register. That works, but the PAT carries your full
 account authority.
 
 ### Registering the node
 
 ```bash
-appctl node register --concurrency 4 --types example.checksum
+evopathcli node register --concurrency 4 --types example.checksum
 ```
 
 Creates (or re-attaches to) this machine's row in the fleet. Registration is
@@ -877,16 +877,16 @@ machine.
 ### Inspecting the resolved settings
 
 ```bash
-appctl node config          # human-readable, on stderr
-appctl node config --json   # machine-readable, on stdout — never includes the token
+evopathcli node config          # human-readable, on stderr
+evopathcli node config --json   # machine-readable, on stdout — never includes the token
 ```
 
 ### Running the worker
 
 ```bash
-appctl node start                 # foreground, attachable
-appctl node start --daemon        # detached, logging to ~/.appctl/node/logs/node.log
-appctl node start --headless      # container/service mode
+evopathcli node start                 # foreground, attachable
+evopathcli node start --daemon        # detached, logging to ~/.evopathcli/node/logs/node.log
+evopathcli node start --headless      # container/service mode
 ```
 
 **Every run hosts the control socket**, foreground or detached — a worker you
@@ -904,12 +904,12 @@ means it is going away.
 ### Inspecting and controlling a running worker
 
 ```bash
-appctl node status                # live snapshot from the running worker
-appctl node status --json
-appctl node logs -n 200           # recent lines
-appctl node logs --follow         # attach and stream
-appctl node set-concurrency 8     # applies live; persists either way
-appctl node stop
+evopathcli node status                # live snapshot from the running worker
+evopathcli node status --json
+evopathcli node logs -n 200           # recent lines
+evopathcli node logs --follow         # attach and stream
+evopathcli node set-concurrency 8     # applies live; persists either way
+evopathcli node stop
 ```
 
 `status` is never simply unavailable: with no worker running it falls back to
@@ -942,11 +942,11 @@ capability over an object, and a log file is a thing people attach to issues.
 ### Health checks, dependencies and running as a service
 
 ```bash
-appctl node doctor                 # three independent groups of checks
-appctl node install-deps --dry-run # the dependency step framework
-appctl node service install        # systemd user unit
-appctl node service status
-appctl node service uninstall
+evopathcli node doctor                 # three independent groups of checks
+evopathcli node install-deps --dry-run # the dependency step framework
+evopathcli node service install        # systemd user unit
+evopathcli node service status
+evopathcli node service uninstall
 ```
 
 `doctor` checks **this machine**, **the server** and **the worker**
@@ -958,7 +958,7 @@ For database-backup offload (`db.backup.run`) it also reports the `pg_dump`
 client version and, with `--db-host`, a TCP probe of the database:
 
 ```bash
-appctl node doctor --db-host db.internal:5432
+evopathcli node doctor --db-host db.internal:5432
 ```
 
 Both are **warnings, never failures**. Most nodes in a fleet will never take
@@ -993,7 +993,7 @@ the worker re-execs itself once with an explicit, RAM-aware
 `--max-old-space-size`, and the original process becomes a signal-forwarding
 shim — so a container `SIGTERM` still reaches the worker and still drains, and
 a signal-killed child makes the shim die of the *same* signal rather than
-reporting a clean exit to its supervisor. Set `APPCTL_HEAP_LIMIT_MB=0` to turn
+reporting a clean exit to its supervisor. Set `EVOPATHCLI_HEAP_LIMIT_MB=0` to turn
 re-tuning off entirely (the right answer when a cgroup or a PaaS already
 manages memory).
 
@@ -1003,7 +1003,7 @@ growth trend in MB/hour. A single reading cannot tell a leak from GC sawtooth;
 the trend is what turns "it died" into "it was climbing 40 MB/hour".
 
 **The pre-OOM valve** fires once, when `heapUsed / heapLimit` crosses
-`APPCTL_MEMORY_THRESHOLD` (default 0.9), in this order:
+`EVOPATHCLI_MEMORY_THRESHOLD` (default 0.9), in this order:
 
 1. write a heap snapshot — **first**, before the drain collects the evidence away
 2. log the decision with the sample
@@ -1011,7 +1011,7 @@ the trend is what turns "it died" into "it was climbing 40 MB/hour".
 4. exit `71`, for a supervised restart
 
 > ⚠️ **The valve requires a supervisor.** It exits deliberately after a clean
-> drain, so without `Restart=on-failure` (`appctl node service install` sets
+> drain, so without `Restart=on-failure` (`evopathcli node service install` sets
 > this) or `restart: unless-stopped` in compose, a *successful* drain leaves
 > the worker down.
 
@@ -1021,13 +1021,13 @@ valve it would never fire at all, the process would recycle cleanly forever,
 and the retainer could never be named.
 
 ```bash
-appctl node heap-snapshot   # ask the LIVE daemon to write one
+evopathcli node heap-snapshot   # ask the LIVE daemon to write one
 ```
 
 Asking the live daemon is the point: restarting to attach a diagnostic flag
 discards exactly the accumulated state that names the retainer. Snapshots go to
 `<state dir>/heap-snapshots`, newest five kept, and are skipped with a clear
-reason when free disk is under 1.5× the live heap. `APPCTL_HEAP_SNAPSHOTS=false`
+reason when free disk is under 1.5× the live heap. `EVOPATHCLI_HEAP_SNAPSHOTS=false`
 disables all three snapshot paths at once.
 
 ### Running a fleet in containers
@@ -1039,15 +1039,15 @@ docker compose --env-file .env.worker -f worker.compose.yml up -d --scale worker
 docker compose -f worker.compose.yml -f worker.build.compose.yml up --build   # build from source
 ```
 
-Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN` are required. Leave
-`APPCTL_NODE_NAME` and `APPCTL_NODE_ID` unset when scaling. Why, and what the
+Only `EVOPATHCLI_SERVER_URL` and `EVOPATHCLI_TOKEN` are required. Leave
+`EVOPATHCLI_NODE_NAME` and `EVOPATHCLI_NODE_ID` unset when scaling. Why, and what the
 compose file's `restart`, `stop_grace_period` and exec-form `ENTRYPOINT` are
 for, is in
 [`docs/runbooks/run-worker-nodes.md`, "Run a fleet in containers"](../../docs/runbooks/run-worker-nodes.md#4-run-a-fleet-in-containers).
 
 ### The interactive dashboard
 
-Run `appctl` with no arguments in a real terminal and choose **Worker node**.
+Run `evopathcli` with no arguments in a real terminal and choose **Worker node**.
 It offers a live dashboard, `doctor`, the log, and both `register` and
 `enroll` — all calling the same functions the subcommands call, so there is no
 second implementation of anything.
@@ -1081,26 +1081,26 @@ Run `npm run docs:worker-env --workspace=cli` to regenerate it after changing
 <!-- GENERATED:WORKER_ENV_TABLE:START -->
 | Variable | Description |
 | --- | --- |
-| `APPCTL_SERVER_URL` | `APPCTL_SERVER_URL` — reused from `config.ts`, never minted again. |
-| `APPCTL_TOKEN` | `APPCTL_TOKEN` — reused from `config.ts`. A `nod_` credential, normally. |
-| `APPCTL_NODE_ID` | The node row this process re-attaches to, so a restart is not a new node. |
-| `APPCTL_NODE_NAME` | Display name; defaults to the hostname. Reattachment keys on it server-side. |
-| `APPCTL_CONCURRENCY` | How many jobs this process runs at once. 1–64, per the server's own cap. |
-| `APPCTL_ELIGIBLE_TYPES` | Comma-separated job types this node will claim. Empty means "all it can". |
-| `APPCTL_POLL_INTERVAL_MS` | Idle poll interval in milliseconds. |
-| `APPCTL_HEADLESS` | `true` to run without a TTY and drain on SIGTERM WITHOUT deregistering. |
-| `APPCTL_STATE_DIR` | Overrides the state directory. The one variable a container almost always sets. |
-| `APPCTL_HEAP_LIMIT_MB` | Old-space limit in MB for the re-exec. `0` disables re-tuning entirely. |
-| `APPCTL_HEAP_TUNED` | The re-exec LATCH. Set by the parent shim on the child it spawns. Not an operator knob — it exists so the re-exec cannot loop. It is still declared here rather than read as a literal, because the rule this map enforces has no exceptions: a variable the code reads is a variable a rename must reach. |
-| `APPCTL_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve. |
-| `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. |
-| `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths. |
+| `EVOPATHCLI_SERVER_URL` | `EVOPATHCLI_SERVER_URL` — reused from `config.ts`, never minted again. |
+| `EVOPATHCLI_TOKEN` | `EVOPATHCLI_TOKEN` — reused from `config.ts`. A `nod_` credential, normally. |
+| `EVOPATHCLI_NODE_ID` | The node row this process re-attaches to, so a restart is not a new node. |
+| `EVOPATHCLI_NODE_NAME` | Display name; defaults to the hostname. Reattachment keys on it server-side. |
+| `EVOPATHCLI_CONCURRENCY` | How many jobs this process runs at once. 1–64, per the server's own cap. |
+| `EVOPATHCLI_ELIGIBLE_TYPES` | Comma-separated job types this node will claim. Empty means "all it can". |
+| `EVOPATHCLI_POLL_INTERVAL_MS` | Idle poll interval in milliseconds. |
+| `EVOPATHCLI_HEADLESS` | `true` to run without a TTY and drain on SIGTERM WITHOUT deregistering. |
+| `EVOPATHCLI_STATE_DIR` | Overrides the state directory. The one variable a container almost always sets. |
+| `EVOPATHCLI_HEAP_LIMIT_MB` | Old-space limit in MB for the re-exec. `0` disables re-tuning entirely. |
+| `EVOPATHCLI_HEAP_TUNED` | The re-exec LATCH. Set by the parent shim on the child it spawns. Not an operator knob — it exists so the re-exec cannot loop. It is still declared here rather than read as a literal, because the rule this map enforces has no exceptions: a variable the code reads is a variable a rename must reach. |
+| `EVOPATHCLI_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve. |
+| `EVOPATHCLI_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. |
+| `EVOPATHCLI_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths. |
 <!-- GENERATED:WORKER_ENV_TABLE:END -->
 
-With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the
+With `EVOPATHCLI_SERVER_URL` and `EVOPATHCLI_TOKEN` set and no config file at all, the
 worker synthesises its settings from the environment and starts. If it cannot
 write the file back (a read-only container home is common), it warns and keeps
-going — set `APPCTL_NODE_ID` so a restart re-attaches instead of registering
+going — set `EVOPATHCLI_NODE_ID` so a restart re-attaches instead of registering
 again.
 
 ## CI usage
@@ -1110,11 +1110,11 @@ home directory to have logged in from earlier, so skip `login` entirely and
 set:
 
 ```bash
-export APPCTL_SERVER_URL=https://app.example.com
-export APPCTL_TOKEN=pat_...
+export EVOPATHCLI_SERVER_URL=https://app.example.com
+export EVOPATHCLI_TOKEN=pat_...
 ```
 
-The environment always wins over `~/.appctl/config.json` when both are
+The environment always wins over `~/.evopathcli/config.json` when both are
 present, specifically so a pipeline's service token can't be shadowed by
 whatever a developer happens to have logged in as on a shared runner.
 
@@ -1123,12 +1123,12 @@ Create and revoke the token itself from the web UI's **Access Tokens** page
 for CI use; the device flow is how the CLI gets one for a human logging in
 interactively.
 
-`appctl` also refuses to launch its interactive menu unless stdout and stdin
+`evopathcli` also refuses to launch its interactive menu unless stdout and stdin
 are both real terminals, `TERM` is set to something other than `dumb`, and
-neither `CI` nor `CONTINUOUS_INTEGRATION` is set — so `appctl api ...` in a
+neither `CI` nor `CONTINUOUS_INTEGRATION` is set — so `evopathcli api ...` in a
 pipeline behaves identically whether or not those variables happen to be
 set. If you need to force that refusal in an environment that looks like a
-terminal but isn't one you want to interact with, set `APPCTL_NO_TUI` to
+terminal but isn't one you want to interact with, set `EVOPATHCLI_NO_TUI` to
 any truthy value (anything except empty, `0`, `false`, or `no`); every
 explicit subcommand ignores this gate entirely and is unaffected by it.
 
@@ -1153,16 +1153,16 @@ See [`docs/RENAMING.md`](../../docs/RENAMING.md) for the full rebrand
 walkthrough — this section only covers what's specific to the CLI.
 
 **The executable's own identity** — the command name shown in `--help` and
-errors, the config directory (`~/.appctl/`), and the `APPCTL_`
+errors, the config directory (`~/.evopathcli/`), and the `EVOPATHCLI_`
 environment-variable prefix — is derived from a separate constant:
 
 ```ts
 // apps/cli/src/branding.ts
-export const CLI_NAME = 'appctl';
+export const CLI_NAME = 'evopathcli';
 ```
 
 The split is intentional: a product called "Acme" may perfectly well still
-ship a command called `appctl`, and renaming the binary moves a filesystem
+ship a command called `evopathcli`, and renaming the binary moves a filesystem
 path and an environment-variable prefix, which renaming the product must not.
 
 Change that one line (see the comment above it in `branding.ts` for the
@@ -1174,15 +1174,15 @@ to itself by name follow automatically. The one place it can't reach is the
 code runs, so it has to be updated by hand to match, and a test in
 `apps/cli/src/branding.test.ts` asserts the two stay in sync.
 
-Note that the env var prefix is `APPCTL_`, not `APP_` — a bare `APP_` prefix
+Note that the env var prefix is `EVOPATHCLI_`, not `APP_` — a bare `APP_` prefix
 is generic enough to collide with unrelated variables in a shared CI shell,
 so the prefix is derived from the (longer, more specific) binary name
 instead. If you've seen `APP_SERVER_URL` / `APP_TOKEN` mentioned elsewhere,
 that's what it would have been under a shorter, collision-prone prefix;
-`APPCTL_SERVER_URL` / `APPCTL_TOKEN` is what the code actually reads.
+`EVOPATHCLI_SERVER_URL` / `EVOPATHCLI_TOKEN` is what the code actually reads.
 
-`install.sh`'s default `APPCTL_REPO` (the git URL it clones when
-`APPCTL_SRC` isn't set) is a second place a fork has to edit by hand,
+`install.sh`'s default `EVOPATHCLI_REPO` (the git URL it clones when
+`EVOPATHCLI_SRC` isn't set) is a second place a fork has to edit by hand,
 alongside the `bin` key above. It's a standalone shell script that runs
 *before* any of this repo's own code executes — `git clone`s the source
 first — so it has no way to read `CLI_NAME` out of `branding.ts` and derive
@@ -1195,18 +1195,18 @@ under its own "Defaults" comment block and has to be changed there directly.
 
 1. Checks dependencies (`node`, `npm`, `git`, `curl`; warns, but doesn't
    fail, on low disk space).
-2. Gets the source — either `git clone --depth 1` of `APPCTL_REPO` at
-   `APPCTL_REF`, or a copy of `APPCTL_SRC` if set — into a temp directory
+2. Gets the source — either `git clone --depth 1` of `EVOPATHCLI_REPO` at
+   `EVOPATHCLI_REF`, or a copy of `EVOPATHCLI_SRC` if set — into a temp directory
    that's cleaned up on exit.
 3. Builds the CLI workspace: `npm install --workspace=cli` then
    `npm run build --workspace=cli`, from that temp checkout.
 4. Deploys the standalone app: copies `apps/cli/dist`, `package.json` and
-   `README.md` into `~/.appctl/app` (replacing any previous install), then
+   `README.md` into `~/.evopathcli/app` (replacing any previous install), then
    runs `npm install --omit=dev` there to pull in just the runtime
    dependencies (commander, ink, ink-select-input, ink-spinner,
    ink-text-input, react).
-5. Writes the `appctl` shim to `~/.local/bin/appctl` — a small script that
-   `exec`s `node ~/.appctl/app/dist/cli.js "$@"` — and makes it executable.
+5. Writes the `evopathcli` shim to `~/.local/bin/evopathcli` — a small script that
+   `exec`s `node ~/.evopathcli/app/dist/cli.js "$@"` — and makes it executable.
 6. Checks whether the shim's directory is on `$PATH` and, if not, prints the
    `export` line to add to your shell config (see below).
 7. Verifies the install by running the new shim's `--version` and printing
@@ -1236,8 +1236,8 @@ or, from inside `apps/cli`:
 node dist/cli.js --help
 ```
 
-If you want the bare `appctl` command on your PATH without publishing, `npm
-link` from `apps/cli` (`package.json`'s `bin` field maps `appctl` to
+If you want the bare `evopathcli` command on your PATH without publishing, `npm
+link` from `apps/cli` (`package.json`'s `bin` field maps `evopathcli` to
 `./dist/cli.js`) does that using the standard npm mechanism.
 
 For iterating on the CLI's own source without rebuilding on every change,

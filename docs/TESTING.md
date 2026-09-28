@@ -578,7 +578,7 @@ The bypass is absent in production builds and refused when
 [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#13-test-authentication-development-only).
 
 `.github/workflows/deploy-e2e.yml` is a different thing: it exercises
-`appctl deploy` against real Docker on a simulated VPS.
+`evopathcli deploy` against real Docker on a simulated VPS.
 
 ## Visual regression
 

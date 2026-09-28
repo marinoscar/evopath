@@ -2,7 +2,7 @@
 
 A personal access token (PAT) is a long-lived bearer token that calls the API
 as a specific user, with no browser involved. Use one for scripts, CI jobs, the
-`appctl` CLI and server-side integrations.
+`evopathcli` CLI and server-side integrations.
 
 - A PAT looks like `pat_` followed by 64 hex characters.
 - It is accepted on every authenticated route, sent as
@@ -147,12 +147,12 @@ When the user approves the code at `/activate`, the next poll of
 - Without `tokenType` (or with `"session"`), the flow returns a session JWT and
   refresh token instead.
 
-## Using a Token with appctl
+## Using a Token with evopathcli
 
-`appctl login` runs the device flow with `tokenType: "pat"` and stores the
+`evopathcli login` runs the device flow with `tokenType: "pat"` and stores the
 resulting token. You can also pass an existing token with
-`appctl login --server <url> --token pat_…`, or set `APPCTL_SERVER_URL` and
-`APPCTL_TOKEN` in CI. See the [CLI README](../apps/cli/README.md).
+`evopathcli login --server <url> --token pat_…`, or set `EVOPATHCLI_SERVER_URL` and
+`EVOPATHCLI_TOKEN` in CI. See the [CLI README](../apps/cli/README.md).
 
 ## Expiry and Cleanup
 

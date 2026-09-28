@@ -27,7 +27,7 @@ Every fact has one home, every statement is verified against the code, and every
 | `docs/DEVICE-AUTH.md`, `docs/personal-access-tokens.md`, `docs/RENAMING.md` | Integration and forker guides |
 | `docs/specs/<feature>.md` | Design and rationale, spec skeleton below, at most about 1,000 lines |
 | `docs/runbooks/<task>.md` | Operator procedures, runbook skeleton below |
-| `apps/cli/README.md` | `appctl` command reference |
+| `apps/cli/README.md` | `evopathcli` command reference |
 | `apps/api/src/<module>/README.md` | Developer recipes (jobs/handlers, ai, notifications, device-auth) |
 | `.claude/agents/*.md` | Role plus pointers, about 40–70 lines |
 

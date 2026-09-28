@@ -19,7 +19,7 @@ Source of truth for every claim below:
 - `apps/web/src/pages/Admin/AboutPage.tsx` — the page itself.
 - `apps/cli/src/deploy/deploy-info.ts` — builds and atomically writes the
   document.
-- `apps/cli/src/deploy/about.ts` — `appctl deploy about`, which reads the same
+- `apps/cli/src/deploy/about.ts` — `evopathcli deploy about`, which reads the same
   file from the host side.
 - `infra/compose/vps.compose.yml` — the bind mount that carries the document
   into the API container.
@@ -30,12 +30,12 @@ Source of truth for every claim below:
 
 - The record is `deploy-info/info.json` inside the deployment root. The CLI
   writes it, not the application: once when `/api/health/ready` first answers
-  during `appctl deploy install`/`update`, and again at the end of a
+  during `evopathcli deploy install`/`update`, and again at the end of a
   successful run.
 - The write is atomic (temp file plus rename), and the **directory** is
   bind-mounted read-only into the API container. A redeploy is picked up on
   the page's **Refresh** button with no restart. Nothing on the page polls.
-- On the host, `appctl deploy about` reads the same file without needing the
+- On the host, `evopathcli deploy about` reads the same file without needing the
   API to be up or a login. When the page and the command disagree, the mount
   is the problem.
 - The document never holds a secret.
@@ -44,14 +44,14 @@ Source of truth for every claim below:
 
 | Section / field | Meaning |
 |---|---|
-| This deployment | Name, version, commit, ref, domain, last command, bind port, proxy, certificate expiry, install/update times, `appctl` version, and "Record read from" (`deployInfoPath`). |
+| This deployment | Name, version, commit, ref, domain, last command, bind port, proxy, certificate expiry, install/update times, `evopathcli` version, and "Record read from" (`deployInfoPath`). |
 | Deploy run | Steps completed; for a failed run, `run.failedStep`. |
 | Host | Hostname, OS, kernel, CPUs, memory, Docker/Compose versions **as observed at deploy time**. |
 | This API process | `runtime`: process start, Node version, `NODE_ENV`. The one live section. |
 | Database | Live liveness probe (`up`/`down`, response time). A failure degrades only this section. |
 | Deployment history | The last 20 successful `install`/`update` runs, newest first. |
 | `deployInfoStatus: "ok"` | Document read. With `run.outcome: "failure"` the run failed after the health gate; every fact still renders, plus a warning naming the failed step. |
-| `deployInfoStatus: "absent"` | No file at `deployInfoPath`. Not evidence that `appctl` was never used. |
+| `deployInfoStatus: "absent"` | No file at `deployInfoPath`. Not evidence that `evopathcli` was never used. |
 | `deployInfoStatus: "invalid"` | The file exists but is unreadable or its `schema` is not `1`. |
 
 ## 3. Re-point the mount
@@ -72,7 +72,7 @@ keeps `docker compose config` valid in a checkout that was never deployed.
 
 1. **Move the directory, if you are moving the root.** Nothing moves it for
    you. Create `<new-root>/deploy-info/` before the stack starts, owned by the
-   account that runs `appctl`:
+   account that runs `evopathcli`:
 
    ```bash
    mkdir -p <new-root>/deploy-info
@@ -91,7 +91,7 @@ keeps `docker compose config` valid in a checkout that was never deployed.
    docker compose -f base.compose.yml -f prod.compose.yml -f vps.compose.yml up -d
    ```
 
-5. **Verify.** On the host, `appctl deploy about` prints the record. On the
+5. **Verify.** On the host, `evopathcli deploy about` prints the record. On the
    page, press **Refresh**: "Record read from" shows the new path and
    `deployInfoStatus` is `ok`.
 
@@ -99,16 +99,16 @@ keeps `docker compose config` valid in a checkout that was never deployed.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Page says no record was found; `appctl deploy about` shows one | The bind mount is not attached, or `DEPLOY_ROOT` points elsewhere | Check `DEPLOY_ROOT` in `.env` and recreate the container (§3 step 4). |
-| Both say no record | The run stopped before the health gate, or the deployment predates the record | Run `appctl deploy update`; the record is written once the API is healthy. |
-| Record is stale after a deploy that reported success | The CLI write failed with `EACCES`: Docker created a missing mount source as `root:root`. Writing the record is not a pipeline step, so the deploy stays green. | `chown` `<root>/deploy-info/` to the account that runs `appctl`, then redeploy. |
+| Page says no record was found; `evopathcli deploy about` shows one | The bind mount is not attached, or `DEPLOY_ROOT` points elsewhere | Check `DEPLOY_ROOT` in `.env` and recreate the container (§3 step 4). |
+| Both say no record | The run stopped before the health gate, or the deployment predates the record | Run `evopathcli deploy update`; the record is written once the API is healthy. |
+| Record is stale after a deploy that reported success | The CLI write failed with `EACCES`: Docker created a missing mount source as `root:root`. Writing the record is not a pipeline step, so the deploy stays green. | `chown` `<root>/deploy-info/` to the account that runs `evopathcli`, then redeploy. |
 | `deployInfoStatus: "invalid"` | Corrupt or hand-edited file, or `schema` is not `1` | Inspect the file; a redeploy rewrites it. |
-| A failure warning with every fact shown | The run failed after the health gate (`run.outcome: "failure"`) | Read `run.failedStep`, fix it, and re-run `appctl deploy update`. |
+| A failure warning with every fact shown | The run failed after the health gate (`run.outcome: "failure"`) | Read `run.failedStep`, fix it, and re-run `evopathcli deploy update`. |
 
 ## Summary checklist
 
-- [ ] `<root>/deploy-info/` exists and is owned by the account that runs `appctl`
+- [ ] `<root>/deploy-info/` exists and is owned by the account that runs `evopathcli`
 - [ ] `DEPLOY_ROOT` in `.env` names that root
 - [ ] `DEPLOY_INFO_PATH` changed only if the mount target changed
 - [ ] Container recreated after changing either
-- [ ] `appctl deploy about` and the About page agree, and `deployInfoStatus` is `ok`
+- [ ] `evopathcli deploy about` and the About page agree, and `deployInfoStatus` is `ok`

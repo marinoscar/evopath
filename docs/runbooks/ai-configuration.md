@@ -11,7 +11,7 @@ or a new provider adapter, is
 
 Everything here happens in the admin UI at `/admin/settings/ai` (and
 `/admin/settings/ai/models`, `/admin/settings/ai/usage`) or through
-`appctl api` against the same endpoints. There is no environment variable for
+`evopathcli api` against the same endpoints. There is no environment variable for
 any of it, and there must never be one.
 
 Source of truth for every claim below:
@@ -60,7 +60,7 @@ back on.
    incident response (needs `system_settings:write`):
 
    ```bash
-   appctl api PATCH /api/system-settings --data '{"ai":{"enabled":false}}'
+   evopathcli api PATCH /api/system-settings --data '{"ai":{"enabled":false}}'
    ```
 
 3. **Verify**: any `/api/ai/*` route except `GET /api/ai/config` answers
@@ -90,7 +90,7 @@ call runs to completion.
 From the CLI:
 
 ```bash
-appctl api PATCH /api/system-settings --data '{"ai":{"enabled":true}}'
+evopathcli api PATCH /api/system-settings --data '{"ai":{"enabled":true}}'
 ```
 
 `PATCH /api/system-settings` (`system_settings:write`) and
@@ -137,7 +137,7 @@ capabilities. Beyond the platform's own daily backfill, trigger a refresh on
 demand from `/admin/settings/ai/models` (**Refresh from provider**), or:
 
 ```bash
-appctl api POST /api/admin/ai/models/refresh --data '{"provider":"openai"}'
+evopathcli api POST /api/admin/ai/models/refresh --data '{"provider":"openai"}'
 ```
 
 This enqueues the server-only `ai.catalog.refresh` job and answers with its
@@ -159,7 +159,7 @@ Discovery alone changes nothing a user can reach. On
 
 1. Find the models to review. The page filters by provider, capability and
    search text; each row shows its capability source. From the CLI, list them
-   with `appctl api GET /api/admin/ai/models --query provider=openai --raw`
+   with `evopathcli api GET /api/admin/ai/models --query provider=openai --raw`
    and look for `"capabilitySource": "unclassified"`.
 2. For each unclassified model, state its capabilities (**Edit
    capabilities**, or `PATCH /api/admin/ai/models/{id}` with
@@ -339,7 +339,7 @@ if they happen to be set on the host.
    as `AI_KEY_INVALID` like any other provider's rejection. The billed
    `responses_smoke` check is one tiny `generateContent` call.
 4. Refresh the catalog for `gemini` (section 5):
-   `appctl api POST /api/admin/ai/models/refresh --data '{"provider":"gemini"}'`.
+   `evopathcli api POST /api/admin/ai/models/refresh --data '{"provider":"gemini"}'`.
    Gemini's model list says more than the others' — token limits, supported
    methods, whether a model thinks — so the classifier uses it: context
    window and output limit come from Google, and an alias such as
@@ -400,7 +400,7 @@ host.
    | `deployments` | `{ "<model id>": "<deployment name>" }` for every deployment users should see, e.g. `{ "gpt-4o": "prod-gpt4o", "text-embedding-3-small": "embed" }`. |
 
    ```bash
-   appctl api put /api/admin/ai/config --data '{
+   evopathcli api put /api/admin/ai/config --data '{
      "enabled": true, "keyPolicy": "byok_with_org_fallback", "logPromptContent": false,
      "defaults": { "allowBackgroundRuns": true },
      "providers": { "azure-openai": {
@@ -474,7 +474,7 @@ llama.cpp's server, a LiteLLM gateway.
    | `requiresKey` | Leave on (`true`) for a server that checks a key (vLLM `--api-key`, a gateway). Switch **off** (`false`) for one that authenticates nobody (a default Ollama). |
 
    ```bash
-   appctl api put /api/admin/ai/config --data '{
+   evopathcli api put /api/admin/ai/config --data '{
      "enabled": true, "keyPolicy": "byok", "logPromptContent": false,
      "defaults": { "allowBackgroundRuns": true },
      "providers": { "openai-compatible": {
@@ -576,7 +576,7 @@ curl -X PUT https://app.example.com/api/admin/ai/config \
   }'
 ```
 
-(`appctl api PUT /api/admin/ai/config --data @body.json` sends the same body.) Changes apply
+(`evopathcli api PUT /api/admin/ai/config --data @body.json` sends the same body.) Changes apply
 within about five seconds on every API instance, with no restart.
 
 **What users see.** A call over a limit is refused with **429**,

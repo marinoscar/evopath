@@ -59,7 +59,7 @@ health, the device-code and device-token polls, avatar images).
 - A `pat_` token carries its owner's full permission set
   ([Personal Access Tokens](personal-access-tokens.md)). A `nod_` credential
   cannot reach `/api/node-credentials`, so a leaked one cannot mint another.
-- Browserless clients such as `appctl` use the
+- Browserless clients such as `evopathcli` use the
   [device authorization grant](DEVICE-AUTH.md). Every sign-in path is gated by
   the email allowlist.
 

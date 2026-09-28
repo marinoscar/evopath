@@ -19,7 +19,7 @@ decryptable only under the OLD key. The startup check counts only
 first read after cutover with a "must be re-entered" error.
 
 **No rotation command ships with this repository.** There is no script under
-`scripts/` or `apps/api/scripts/` and no `appctl` subcommand for it. Section 4
+`scripts/` or `apps/api/scripts/` and no `evopathcli` subcommand for it. Section 4
 describes how to write and run a one-off script safely; it is not a command to
 copy and paste.
 

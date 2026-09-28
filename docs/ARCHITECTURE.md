@@ -35,7 +35,7 @@ This document is the map of how those pieces fit together today. It is written f
 ### 2.1 Components
 
 ```
-   Browser (React SPA)       appctl CLI              Worker nodes (appctl node)
+   Browser (React SPA)       evopathcli CLI              Worker nodes (evopathcli node)
           │                      │                       │               │
           │ session JWT          │ pat_ token            │ nod_ token    │ presigned
           │                      │                       │ /api/nodes/*  │ GET / PUT
@@ -154,7 +154,7 @@ Three roles (Admin, Contributor, Viewer) grant 28 permissions named `resource:ac
 
 ### 5.3 Device authorization (RFC 8628)
 
-A device without a browser (the CLI, a script, a kiosk) calls `POST /api/auth/device/code`, shows the user a code and the verification URL `/activate`, and polls `POST /api/auth/device/token`. The user approves the request on `/activate` while signed in. The device can ask for a personal access token instead of a session (`clientInfo.tokenType: "pat"`); this is how `appctl login` gets a long-lived token.
+A device without a browser (the CLI, a script, a kiosk) calls `POST /api/auth/device/code`, shows the user a code and the verification URL `/activate`, and polls `POST /api/auth/device/token`. The user approves the request on `/activate` while signed in. The device can ask for a personal access token instead of a session (`clientInfo.tokenType: "pat"`); this is how `evopathcli login` gets a long-lived token.
 
 - **Code:** `apps/api/src/device-auth/`
 - **UI:** `/activate`
@@ -205,7 +205,7 @@ A job type is one `JobHandler` class that self-registers from `onModuleInit()`. 
 
 ### 5.8 Worker nodes
 
-A worker node is an `appctl node` process on another machine that executes node-eligible job types. It authenticates with a `nod_` credential that can reach only `/api/nodes/*`, registers, heartbeats, claims jobs under a lease, and posts a validated result back for the server to persist. Input and output bytes move directly between the node and object storage through presigned URLs. A job that needs a database connection (the backup) gets a short-lived, job-scoped credential from a secret broker; the server records the credential's handle, never its material.
+A worker node is an `evopathcli node` process on another machine that executes node-eligible job types. It authenticates with a `nod_` credential that can reach only `/api/nodes/*`, registers, heartbeats, claims jobs under a lease, and posts a validated result back for the server to persist. Input and output bytes move directly between the node and object storage through presigned URLs. A job that needs a database connection (the backup) gets a short-lived, job-scoped credential from a secret broker; the server records the credential's handle, never its material.
 
 Whether a structurally eligible type is actually offered to nodes is a runtime decision made at claim time (a deployment-wide broker switch, the feature's own setting, and the broker's capability probe). `JOBS_WORKER_MODE=system` claims exactly the complement, so the API and the fleet partition the queue. Health is derived from `lastHeartbeatAt`; `nodes.fleet.sweep` marks silent nodes offline and `nodes.fleet.prune` forgets old ones.
 
@@ -214,7 +214,7 @@ Whether a structurally eligible type is actually offered to nodes is a runtime d
 - **Permissions:** `nodes:read`, `nodes:write`
 - **Read more:** [specs/worker-nodes.md](specs/worker-nodes.md), [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md)
 
-### 5.9 `appctl` CLI
+### 5.9 `evopathcli` CLI
 
 `apps/cli` is the first-party command-line client, built from this monorepo. It has five command groups:
 
@@ -226,7 +226,7 @@ Whether a structurally eligible type is actually offered to nodes is a runtime d
 | `deploy doctor\|install\|update\|status\|list\|about\|certs\|uninstall` | Installs and updates the application on a VPS behind a shared host proxy |
 | `node config\|enroll\|register\|start\|stop\|status\|logs\|set-concurrency\|doctor\|install-deps\|service\|heap-snapshot` | Runs and manages a worker node |
 
-In a real terminal with no arguments it opens an interactive ink menu. `appctl deploy` writes a state document the API reads for the About page ([§5.15](#515-about-and-deployment-info)).
+In a real terminal with no arguments it opens an interactive ink menu. `evopathcli deploy` writes a state document the API reads for the About page ([§5.15](#515-about-and-deployment-info)).
 
 - **Code:** `apps/cli/src/` (`commands/`, `deploy/`, `node/`, `tui/`)
 - **Read more:** [apps/cli/README.md](../apps/cli/README.md), [specs/vps-deploy.md](specs/vps-deploy.md), [runbooks/deploy-to-vps.md](runbooks/deploy-to-vps.md)
@@ -284,7 +284,7 @@ A maintenance window takes the application out of service on purpose. While open
 
 ### 5.15 About and deployment info
 
-`GET /api/admin/about` reports what is deployed: the API version, the fields of the state document `appctl deploy` writes (commit, ref, domain, proxy runtime, host facts, deploy history), a live runtime block and database liveness. It always answers `200`; a missing or malformed deploy document is reported as a field, not an error.
+`GET /api/admin/about` reports what is deployed: the API version, the fields of the state document `evopathcli deploy` writes (commit, ref, domain, proxy runtime, host facts, deploy history), a live runtime block and database liveness. It always answers `200`; a missing or malformed deploy document is reported as a field, not an error.
 
 - **Code:** `apps/api/src/about/`
 - **UI:** `/admin/settings/about` (`/admin/settings/deployment` redirects here)
@@ -579,7 +579,7 @@ All files live in `infra/compose/` and are layered with repeated `-f` flags from
 | `devdb.compose.yml` | Opt-in PostgreSQL 16 container (`db`) for development | Local development without a shared database |
 | `telemetry.compose.yml` | OpenTelemetry Collector and GreptimeDB standalone | When you want traces, metrics and logs locally |
 | `prod.compose.yml` | Resource limits, restart policies | Production |
-| `vps.compose.yml` | Publishes nothing on a public interface; the app sits behind a shared host proxy. Also adds `stack-agent`, the only service that holds the Docker socket — it lets the admin UI (re)deploy the telemetry containers with no shell step. See [specs/telemetry.md §10](specs/telemetry.md#10-deploying-the-stack-stack-agent). | VPS deployment via `appctl deploy`, after `prod.compose.yml` |
+| `vps.compose.yml` | Publishes nothing on a public interface; the app sits behind a shared host proxy. Also adds `stack-agent`, the only service that holds the Docker socket — it lets the admin UI (re)deploy the telemetry containers with no shell step. See [specs/telemetry.md §10](specs/telemetry.md#10-deploying-the-stack-stack-agent). | VPS deployment via `evopathcli deploy`, after `prod.compose.yml` |
 | `vps.telemetry.compose.yml` | Hardens the telemetry stack for a VPS: no collector host ports, GreptimeDB's Postgres wire port on `127.0.0.1` only | VPS deployment, after `telemetry.compose.yml` and `vps.compose.yml` (always layered — the telemetry stack ships with every VPS deployment) |
 | `test.compose.yml` | Disposable PostgreSQL (`db-test`, host port 5433) | Real-database test runs |
 | `worker.compose.yml` | Worker node containers from the published image; scale with `--scale worker=N` | Running a worker fleet |
@@ -616,7 +616,7 @@ Security headers are set at server level: `X-Frame-Options: SAMEORIGIN`, `X-Cont
 
 ### 10.4 Environment variables
 
-The reference for every variable is [`infra/compose/.env.example`](../infra/compose/.env.example). Create `.env` from it with `npm run setup`, which builds the CLI and runs `appctl init`. The policy:
+The reference for every variable is [`infra/compose/.env.example`](../infra/compose/.env.example). Create `.env` from it with `npm run setup`, which builds the CLI and runs `evopathcli init`. The policy:
 
 - **Database.** Set `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and `POSTGRES_SSL`. `DATABASE_URL` is constructed at runtime; do not set it. Use the `npm run prisma:*` scripts, never bare `npx prisma`, so the URL is built for you.
 - **Runtime-configured features have no variables.** Object storage, AI, Web Push and SMTP are configured in the admin UI and stored in `system_settings` plus encrypted `credentials`. Never add `STORAGE_PROVIDER`, `S3_BUCKET`, `OPENAI_API_KEY` or similar.

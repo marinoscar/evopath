@@ -1,7 +1,7 @@
 # Runbook: Deploy to a VPS
 
 Use this to take one Ubuntu VPS from nothing to a running, migrated, seeded,
-HTTPS deployment with `appctl deploy`, then keep it current, inspect it and
+HTTPS deployment with `evopathcli deploy`, then keep it current, inspect it and
 remove it. Audience: the operator who SSHes into the server; every command
 runs **on the VPS**. Design and rationale:
 [`docs/specs/vps-deploy.md`](../specs/vps-deploy.md). Flags and exit codes:
@@ -13,20 +13,20 @@ Source of truth: `apps/cli/src/deploy/` (`install.ts`, `update.ts`,
 
 ## 1. Before you start
 
-**Never run `appctl deploy`, or anything else in this CLI, with `sudo`.**
+**Never run `evopathcli deploy`, or anything else in this CLI, with `sudo`.**
 `sudo` resets `HOME` to `/root`, so `gh` (which stores its credentials under
 `$HOME/.config/gh`) is unauthenticated under it, and a private clone fails for
 a reason unrelated to the repository. Everything the CLI writes (the clone,
 `.env`, the state file, the run journal, the deployment record) must stay
 owned by the ordinary account that will run `update` next month. Run from that
 account, with it in the `docker` group. The one file that needs root is
-`/etc/cron.d/appctl-certbot-renew` (section 10): when an ordinary account
+`/etc/cron.d/evopathcli-certbot-renew` (section 10): when an ordinary account
 cannot write it, the step prints a loud warning with the exact file content,
 and you install it once by hand, as root. The deploy does not fail.
 
 ### 1.1 Prerequisites
 
-`appctl deploy doctor` checks all of the following, and running it is the
+`evopathcli deploy doctor` checks all of the following, and running it is the
 intended first step — before you've written a line of configuration, before
 you've touched the shared proxy, before anything. Don't hand-verify this list
 yourself; let doctor do it, and fix whatever it reports.
@@ -34,7 +34,7 @@ yourself; let doctor do it, and fix whatever it reports.
 - An Ubuntu VPS you have root SSH access to.
 - Docker Engine, with the **Compose v2 plugin** (`docker compose`, not the
   standalone `docker-compose` v1 binary — see the troubleshooting table).
-- git and Node.js on the server, to clone the repository and build `appctl`.
+- git and Node.js on the server, to clone the repository and build `evopathcli`.
 - **The GitHub CLI (`gh`), installed and authenticated, if the repository you
   are deploying is private and you clone it over HTTPS.** `doctor`'s
   `gh-installed`/`gh-authenticated` checks are only `recommended` in general —
@@ -87,9 +87,9 @@ yourself; let doctor do it, and fix whatever it reports.
   user's sign-in attempt.
 
 ```bash
-appctl deploy doctor
-appctl deploy doctor --domain app.example.com
-appctl deploy doctor --repo https://github.com/you/your-fork
+evopathcli deploy doctor
+evopathcli deploy doctor --domain app.example.com
+evopathcli deploy doctor --repo https://github.com/you/your-fork
 ```
 
 `--repo` checks `gh`'s access to a specific repository URL — useful to run
@@ -102,12 +102,12 @@ you're deploying to, which turns on the DNS and certificate checks.
 
 ## 2. Installing for the first time
 
-`appctl deploy` has no SSH client and never dials out to a server on your
+`evopathcli deploy` has no SSH client and never dials out to a server on your
 behalf — you SSH in yourself, with your own credentials, and everything below
 runs **on the VPS**.
 
-**Everything in this section also has a screen in `appctl`'s interactive
-menu** (run `appctl` with no arguments, in a real terminal, then choose
+**Everything in this section also has a screen in `evopathcli`'s interactive
+menu** (run `evopathcli` with no arguments, in a real terminal, then choose
 **Deploy (this server)**), driving the exact same `install`/`update`/`doctor`
 pipelines described below rather than a second implementation of them. An
 **Advanced** step lets you set the root, proxy root, port, proxy container
@@ -125,7 +125,7 @@ it.
 1. **SSH into the VPS.**
 
 2. **Clone the repository you want to deploy** (your fork, if you have one —
-   see section 6) and build `appctl` from source:
+   see section 6) and build `evopathcli` from source:
 
    ```bash
    git clone <your-repo-url>
@@ -135,13 +135,13 @@ it.
    node apps/cli/dist/cli.js deploy doctor
    ```
 
-   You need a real git checkout here, not the standalone `appctl` the
+   You need a real git checkout here, not the standalone `evopathcli` the
    `curl | bash` installer in the main [CLI README](../../apps/cli/README.md)
    produces — `deploy install` reads its default repository URL and ref from
    *this checkout's own git remote* (section 6), and a standalone install has
    no remote to read. If `~/.local/bin` is already on your `PATH` from an
-   earlier `appctl` install, the plain `appctl` command works the same as
-   `node apps/cli/dist/cli.js` from here on; this runbook uses `appctl` for
+   earlier `evopathcli` install, the plain `evopathcli` command works the same as
+   `node apps/cli/dist/cli.js` from here on; this runbook uses `evopathcli` for
    brevity.
 
 3. **Run `doctor`** (as above) and fix everything it reports before going
@@ -150,7 +150,7 @@ it.
 4. **Run `install`:**
 
    ```bash
-   appctl deploy install --domain app.example.com
+   evopathcli deploy install --domain app.example.com
    ```
 
    This is interactive by default: it walks you through the essential
@@ -178,7 +178,7 @@ it.
      runs again against it (so `database-privileges` gives a real answer),
      and declining names `POSTGRES_DB` and the `.env` to correct it in —
      a typo and a not-yet-created database look identical from outside.
-     `appctl deploy doctor` never creates anything: it still fails on a
+     `evopathcli deploy doctor` never creates anything: it still fails on a
      missing database, with the `createdb` remedy.
    - **If this box has no shared proxy yet**, `install` asks whether to
      bootstrap one — see the prerequisites section above. `--bootstrap-proxy`
@@ -254,8 +254,8 @@ correctly-installed application with no users. So:
 ## 4. Checking status and health
 
 ```bash
-appctl deploy status
-appctl deploy status --domain app.example.com
+evopathcli deploy status
+evopathcli deploy status --domain app.example.com
 ```
 
 `status` reports container state, an immediate `/api/health/ready` poll, a
@@ -281,7 +281,7 @@ which port to talk on (see the troubleshooting table's last row). A single
 failure completely.
 
 ```bash
-appctl deploy status --json || alert 'deployment unhealthy'
+evopathcli deploy status --json || alert 'deployment unhealthy'
 ```
 
 Exit codes: `0` serving and schema current, `1` installed but unhealthy, `2`
@@ -292,7 +292,7 @@ different alerts.
 ## 5. Updating
 
 ```bash
-appctl deploy update
+evopathcli deploy update
 ```
 
 Fetches, and if the resolved ref's commit has moved, rebuilds, migrates,
@@ -305,7 +305,7 @@ unattended, for example from cron:
 
 ```cron
 # Check for a new release every night at 03:00, do nothing if there isn't one
-0 3 * * * cd /opt/infra/apps/repo && appctl deploy update --non-interactive >> /var/log/appctl-update.log 2>&1
+0 3 * * * cd /opt/infra/apps/repo && evopathcli deploy update --non-interactive >> /var/log/evopathcli-update.log 2>&1
 ```
 
 Two behaviors are worth knowing before your first `update`; both are
@@ -328,7 +328,7 @@ heuristic guessing at it. On failure, `update` prints the previous revision
 and the exact command to redeploy it:
 
 ```bash
-appctl deploy update --ref <previous-sha> --force
+evopathcli deploy update --ref <previous-sha> --force
 ```
 
 `--force` is what makes that command work even though the "ref" you're
@@ -344,7 +344,7 @@ server"](../../apps/cli/README.md#deploying-to-a-server).
 You do not need to change anything in this CLI to deploy a fork, and that
 property is worth understanding rather than just trusting.
 
-`appctl deploy install`/`update` read the repository URL and ref from **the
+`evopathcli deploy install`/`update` read the repository URL and ref from **the
 checkout you ran them from** (`repo.ts` walks upward from the current
 directory looking for `.git`, then reads `git remote get-url origin` and the
 current branch) — not from a value hardcoded anywhere in `apps/cli`.
@@ -355,11 +355,11 @@ wizard's questions are parsed structurally from **your checkout's own**
 the CLI — rename the application, add a new secret, remove an optional
 block, switch your default branch to `develop`, and the wizard follows
 all of it with no CLI change. The only two places a fork edits by hand are
-outside `appctl deploy` entirely: the `bin` field in `apps/cli/package.json`
+outside `evopathcli deploy` entirely: the `bin` field in `apps/cli/package.json`
 and `install.sh`'s default clone URL, both documented in the CLI README's
 "Renaming this for a fork" section — neither is part of the deploy path.
 
-In practice: clone your fork on the VPS (step 2 of section 2), build `appctl`
+In practice: clone your fork on the VPS (step 2 of section 2), build `evopathcli`
 from *that* checkout, and run `deploy install` from inside it. It deploys
 your fork, at your fork's default branch, asking about your fork's own
 environment variables, automatically.
@@ -388,7 +388,7 @@ and log redaction pick it up.
 ## 8. Using Let's Encrypt staging while you work out the setup
 
 ```bash
-appctl deploy install --domain app.example.com --staging
+evopathcli deploy install --domain app.example.com --staging
 ```
 
 `--staging` requests a certificate from Let's Encrypt's **staging**
@@ -424,8 +424,8 @@ than one application. `--root` has no default: passing neither `--root` nor
 `--name` means "figure it out", per the five ranks below.
 
 ```bash
-appctl deploy list
-appctl deploy list --json
+evopathcli deploy list
+evopathcli deploy list --json
 ```
 
 `deploy list` reads the filesystem only — no git, no Docker, no network — and
@@ -476,8 +476,8 @@ inside the deployment's own directory.
 ## 10. Inspecting and renewing the certificate directly
 
 ```bash
-appctl deploy certs
-appctl deploy certs --renew
+evopathcli deploy certs
+evopathcli deploy certs --renew
 ```
 
 With no flags, `certs` reports the certificate's expiry and remaining days and
@@ -515,7 +515,7 @@ here?** — and acts on the answer, in this order of precedence:
    scheduled.
 3. **Any other cron entry** invoking `certbot ... renew` directly → likewise.
 4. **Nothing renews yet** → `install`/`update` write
-   `/etc/cron.d/appctl-certbot-renew`, a twice-daily entry that runs
+   `/etc/cron.d/evopathcli-certbot-renew`, a twice-daily entry that runs
    `certbot renew` and then validates and reloads the proxy — the reload is
    the point of writing this file at all, not an afterthought: nginx only
    reads certificates when it loads its configuration, so a renewal that
@@ -548,14 +548,14 @@ docker exec <proxy-container> nginx -t && docker exec <proxy-container> nginx -s
 
 (drop the `docker exec <container>` prefix in host mode). If you see this
 warning on a deployment where renewal is scheduled by something *other* than
-`appctl`, it usually means that other mechanism renews but does not reload —
+`evopathcli`, it usually means that other mechanism renews but does not reload —
 worth fixing at the source, not just running the command above once.
 
 ## 11. Removing a deployment
 
 ```bash
-appctl deploy uninstall --dry-run
-appctl deploy uninstall
+evopathcli deploy uninstall --dry-run
+evopathcli deploy uninstall
 ```
 
 **Always run `--dry-run` first.** It prints exactly what would be removed and
@@ -639,7 +639,7 @@ the first thing to check — `deploy status`'s container list will show it.
 |---|---|---|
 | Certificate issuance fails during `install` | The domain's DNS doesn't actually point at this server. | `doctor --domain <domain>` runs `dns-resolves` and `dns-points-here` specifically for this — the failure names both addresses (what the domain resolves to, and what this server's own address is) so a CDN or a stale record is obvious at a glance. |
 | Login redirects loop, or Google rejects the callback | `GOOGLE_CALLBACK_URL` disagrees with the domain you're actually serving. | `GOOGLE_CALLBACK_URL` is **derived automatically** from the domain you gave during install (`https://<domain>/api/auth/google/callback`) unless you deliberately overrode it in the wizard's `--all` review. If you're seeing this, something overrode the derived value — check the deployed `.env` and either fix it there or re-run the wizard for that key. |
-| Migration step succeeds, but the app can't connect to the database afterward | `POSTGRES_PASSWORD` contains a URL-reserved character (`@`, `:`, `/`, `#`). | The API and the `prisma:*` scripts percent-encode the password when they build the database URL, so this points at a hand-built connection string or an out-of-date checkout. Update the checkout (`appctl deploy update`), or choose a password without those characters. |
+| Migration step succeeds, but the app can't connect to the database afterward | `POSTGRES_PASSWORD` contains a URL-reserved character (`@`, `:`, `/`, `#`). | The API and the `prisma:*` scripts percent-encode the password when they build the database URL, so this points at a hand-built connection string or an out-of-date checkout. Update the checkout (`evopathcli deploy update`), or choose a password without those characters. |
 | `install`/`doctor` reports the loopback port is already in use, by something that isn't this deployment | Another app on the same VPS is already bound to that port. | Pick a different port for this app with `APP_BIND_PORT` in its `.env` (or `--port` during install), or stop whatever's holding the port. `doctor`'s `bind-port-free` check is written to *not* flag this app's own already-running nginx as a conflict — a false positive here means it's genuinely something else. |
 | Repeated `install` attempts start failing with a rate-limit error from Let's Encrypt | You burned the hourly/weekly certificate budget on earlier failed attempts (section 8). | Wait — retrying immediately makes it worse. Use `--staging` for everything except the attempt you actually intend to keep. |
 | `docker compose` commands fail as if the command doesn't exist, or behave unexpectedly | The standalone `docker-compose` **v1** binary is installed instead of the Compose **v2 plugin** (`docker compose`, no hyphen). | `doctor`'s `docker-compose-v2` check catches this directly. Install the v2 plugin per Docker's current documentation; v1 is not a supported substitute anywhere in this pipeline. |
@@ -649,8 +649,8 @@ the first thing to check — `deploy status`'s container list will show it.
 
 ## Summary checklist
 
-- [ ] Never running `appctl` with `sudo` — the ordinary operator account owns every file it writes
-- [ ] `appctl deploy doctor` run clean (or only recommended warnings) before starting
+- [ ] Never running `evopathcli` with `sudo` — the ordinary operator account owns every file it writes
+- [ ] `evopathcli deploy doctor` run clean (or only recommended warnings) before starting
 - [ ] `gh` installed and authenticated (`gh auth login`), if deploying a private repository over HTTPS
 - [ ] The shared proxy either already running (container or host), or nothing at all — `install` bootstraps a fresh container-mode proxy for you and never touches an existing one
 - [ ] DNS A record for the domain points at this server, confirmed by `doctor --domain <domain>`
@@ -658,10 +658,10 @@ the first thing to check — `deploy status`'s container list will show it.
 - [ ] Google OAuth redirect URI matches `https://<domain>/api/auth/google/callback` exactly, and the live credentials probe (or `--skip-oauth-check`) passes
 - [ ] External PostgreSQL reachable, with credentials `doctor`/`install`'s environment validation accepts — the database itself may not exist yet, `install` will offer to create it
 - [ ] First install run with `--staging` if this is a new domain or a first attempt on this server
-- [ ] `appctl deploy install --domain <domain>` completed, including the external HTTPS verification step
+- [ ] `evopathcli deploy install --domain <domain>` completed, including the external HTTPS verification step
 - [ ] Logged in at `https://<domain>` as `INITIAL_ADMIN_EMAIL` — this, not the seed, is what creates the admin account
 - [ ] Additional users added to the allowlist from the admin panel
-- [ ] `appctl deploy status` reports healthy, with migrations "up to date," not just the readiness probe green
-- [ ] `appctl deploy update` scheduled (cron or otherwise) if this server should track new releases automatically
+- [ ] `evopathcli deploy status` reports healthy, with migrations "up to date," not just the readiness probe green
+- [ ] `evopathcli deploy update` scheduled (cron or otherwise) if this server should track new releases automatically
 - [ ] Certificate renewal confirmed owned by *something* — `install`'s own report (section 10) names which mechanism, and `doctor`'s `certificate-renewal`/`certificate-served` checks catch a gap or an un-reloaded renewal later
 - [ ] `<deployRoot>/logs/` reviewed for anything unexpected if any step above didn't go as described

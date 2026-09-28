@@ -4,14 +4,14 @@ Use this to run machines that execute the application's background jobs
 remotely: one machine by hand, or a fleet in containers. Audience: operators
 with an account holding `nodes:read` and `nodes:write`. The design and its
 rejected alternatives are [`docs/specs/worker-nodes.md`](../specs/worker-nodes.md);
-every `appctl node` flag is in
+every `evopathcli node` flag is in
 [`apps/cli/README.md`, "Running a worker node"](../../apps/cli/README.md#running-a-worker-node).
 
 Source of truth for every claim below:
 
-- `apps/cli/src/commands/node.ts` — the `appctl node` subcommands and flags.
+- `apps/cli/src/commands/node.ts` — the `evopathcli node` subcommands and flags.
 - `apps/cli/src/node/` — the engine, `capabilities.ts` (the startup self-test),
-  `install-deps.ts`, `worker-env.ts` (every `APPCTL_*` variable).
+  `install-deps.ts`, `worker-env.ts` (every `EVOPATHCLI_*` variable).
 - `apps/cli/src/tui/screens/node.tsx` — the interactive dashboard.
 - `infra/compose/worker.compose.yml`, `worker.build.compose.yml`,
   `.env.worker.example` — the container fleet.
@@ -22,7 +22,7 @@ Source of truth for every claim below:
 
 ## 1. Before you start
 
-A worker node is a machine running `appctl node start` that claims jobs from the application's
+A worker node is a machine running `evopathcli node start` that claims jobs from the application's
 queue, runs them locally, and submits results. The **same handler code** runs
 on the API server or on a node — a node is an option, never a requirement, and
 a deployment with no nodes at all still executes every job type it enqueues.
@@ -60,16 +60,16 @@ operation).
 
 ```bash
 # 1. Enroll — device login, then mint a node credential for this machine.
-appctl node enroll
+evopathcli node enroll
 
 # 2. Register — create (or re-attach to) this machine's row in the fleet.
-appctl node register --concurrency 4
+evopathcli node register --concurrency 4
 
 # 3. Check everything before committing to it.
-appctl node doctor
+evopathcli node doctor
 
 # 4. Run it.
-appctl node start --daemon
+evopathcli node start --daemon
 ```
 
 Step 3 is worth not skipping. `doctor` reports three independent things an
@@ -85,7 +85,7 @@ operator routinely conflates, and a failure in one never masks the others:
 ### 3.1 Survive a reboot
 
 ```bash
-appctl node service install
+evopathcli node service install
 loginctl enable-linger $USER      # ← do not skip this
 ```
 
@@ -115,7 +115,7 @@ cp .env.worker.example .env.worker      # server URL + node credential
 docker compose --env-file .env.worker -f worker.compose.yml up -d --scale worker=4
 ```
 
-That is the whole configuration. Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN`
+That is the whole configuration. Only `EVOPATHCLI_SERVER_URL` and `EVOPATHCLI_TOKEN`
 are required: with no config file the worker builds its settings from the
 environment and starts. Each replica registers as its own node, named after
 its container hostname (which Docker makes unique), and the replicas
@@ -124,7 +124,7 @@ replicas never receive the same job. Every variable either file may set is in
 the generated table in
 [`apps/cli/README.md`, "Worker environment variables"](../../apps/cli/README.md#worker-environment-variables).
 
-> **Leave `APPCTL_NODE_NAME` and `APPCTL_NODE_ID` empty when scaling.** Setting
+> **Leave `EVOPATHCLI_NODE_NAME` and `EVOPATHCLI_NODE_ID` empty when scaling.** Setting
 > either makes every replica reattach to the same node row, and the server's
 > per-node claim cap is then shared between processes that each believe they
 > own it.
@@ -182,7 +182,7 @@ newest applied migration; without it the backup is taken, uploaded and verified
 with those two audit fields left `null`.
 
 A node also needs a **network route** to the database, which nothing on this
-machine can check for you at startup. `appctl node doctor --db-host
+machine can check for you at startup. `evopathcli node doctor --db-host
 db.internal:5432` probes it, as a warning rather than a failure — see
 "Health checks, dependencies and running as a service" in [`apps/cli/README.md`](../../apps/cli/README.md#running-a-worker-node).
 
@@ -241,8 +241,8 @@ export const JOB_TYPE_REQUIREMENTS = {
 ## 6. Install dependencies
 
 ```bash
-appctl node install-deps --dry-run   # print the plan, change nothing
-appctl node install-deps
+evopathcli node install-deps --dry-run   # print the plan, change nothing
+evopathcli node install-deps
 ```
 
 ⚠️ **This ships as a framework, not as a set of real installs.** The template
@@ -262,7 +262,7 @@ a supervisor is watching.
 `--max-old-space-size`, because Node's default old-space limit is low for a
 machine dedicated to being a worker. The original process becomes a
 signal-forwarding shim, so a container `SIGTERM` still reaches the worker and
-still drains. Set `APPCTL_HEAP_LIMIT_MB=0` when a cgroup or a PaaS already
+still drains. Set `EVOPATHCLI_HEAP_LIMIT_MB=0` when a cgroup or a PaaS already
 manages memory — a second opinion there is worse than none.
 
 **The watchdog** samples memory and, once the samples span a real window,
@@ -275,12 +275,12 @@ threshold (default `0.9`): snapshot → log → drain → exit `71`.
 > ⚠️ **The valve requires a supervisor.** It exits deliberately after a clean
 > drain. Without `Restart=on-failure` or `restart: unless-stopped`, a
 > *successful* drain leaves the worker down — a self-healing mechanism turned
-> into an outage. `appctl node service install` sets this for you.
+> into an outage. `evopathcli node service install` sets this for you.
 
 ### 7.1 Diagnose a leak
 
 ```bash
-appctl node heap-snapshot     # asks the LIVE daemon
+evopathcli node heap-snapshot     # asks the LIVE daemon
 ```
 
 Ask the running worker, not a fresh one. Restarting to attach a diagnostic flag
@@ -301,16 +301,16 @@ DevTools → Memory → Load.
 ## 8. Day-to-day operation
 
 ```bash
-appctl node status              # live snapshot from the running worker
-appctl node logs --follow       # attach to the daemon's event stream
-appctl node set-concurrency 8   # applies live; persists either way
-appctl node stop
+evopathcli node status              # live snapshot from the running worker
+evopathcli node logs --follow       # attach to the daemon's event stream
+evopathcli node set-concurrency 8   # applies live; persists either way
+evopathcli node stop
 ```
 
 Attaching is **read-only** and passive: inspecting a worker never perturbs it,
 and detaching leaves it running untouched.
 
-In a real terminal, `appctl` with no arguments opens the interactive menu;
+In a real terminal, `evopathcli` with no arguments opens the interactive menu;
 **Worker node (this machine)** offers a live dashboard (status, concurrency,
 job types, totals, heartbeat age, active jobs and the event stream),
 `doctor`, the log, `register` and `enroll`. With no worker running, press `s`
@@ -330,12 +330,12 @@ object, and log files are things people attach to issues.
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
-| `A worker is already running here (pid N)` | A live daemon holds this state directory | `appctl node stop`, or use a different `APPCTL_STATE_DIR` |
+| `A worker is already running here (pid N)` | A live daemon holds this state directory | `evopathcli node stop`, or use a different `EVOPATHCLI_STATE_DIR` |
 | Starts, then exits with code `70` | An advertised job type is missing a required capability | The message names both — install it, or drop the type from `--types` |
-| `doctor` says reachable but refused (401) | The credential was revoked or belongs to another server | `appctl node enroll` again |
+| `doctor` says reachable but refused (401) | The credential was revoked or belongs to another server | `evopathcli node enroll` again |
 | `doctor` says refused (403) | The account lacks `nodes:read`/`nodes:write` | Ask an administrator to grant them |
 | `doctor` says 404 on `/api/nodes` | The server predates worker nodes | Upgrade the server |
-| The node shows online in the admin UI but does nothing | It has no executor for any advertised type | `appctl node status` lists what it can actually run |
+| The node shows online in the admin UI but does nothing | It has no executor for any advertised type | `evopathcli node status` lists what it can actually run |
 | Jobs fail immediately with a rate-limit message | A provider is throttling | Nothing to do — the server defers those without charging an attempt |
 | The worker vanishes when you log out | No systemd lingering | `loginctl enable-linger $USER` |
 
@@ -343,17 +343,17 @@ object, and log files are things people attach to issues.
 
 **One machine**
 
-- [ ] `appctl node enroll` stored a `nod_` credential
-- [ ] `appctl node register` created or reattached the node (it says which)
-- [ ] `appctl node doctor` reports this machine, the server and the worker
+- [ ] `evopathcli node enroll` stored a `nod_` credential
+- [ ] `evopathcli node register` created or reattached the node (it says which)
+- [ ] `evopathcli node doctor` reports this machine, the server and the worker
       without failures
-- [ ] `appctl node start --daemon` running, or `appctl node service install`
+- [ ] `evopathcli node start --daemon` running, or `evopathcli node service install`
       plus `loginctl enable-linger $USER`
 
 **A container fleet**
 
-- [ ] `.env.worker` sets `APPCTL_SERVER_URL` and `APPCTL_TOKEN`, and leaves
-      `APPCTL_NODE_NAME`/`APPCTL_NODE_ID` empty
+- [ ] `.env.worker` sets `EVOPATHCLI_SERVER_URL` and `EVOPATHCLI_TOKEN`, and leaves
+      `EVOPATHCLI_NODE_NAME`/`EVOPATHCLI_NODE_ID` empty
 - [ ] `restart: unless-stopped` and `stop_grace_period` kept in
       `worker.compose.yml`
 - [ ] Nodes appear at `/admin/settings/workers`
@@ -361,7 +361,7 @@ object, and log files are things people attach to issues.
 **Database backups on a node (optional)**
 
 - [ ] `pg_dump` on the node's `PATH`, and a network route to PostgreSQL
-      (`appctl node doctor --db-host <host:port>`)
+      (`evopathcli node doctor --db-host <host:port>`)
 - [ ] `nodes.jobSecretBrokerEnabled` and `databaseBackup.nodeOffloadEnabled`
       both on, and the node-credential pre-flight answers `ok`
       ([`node-job-secrets.md`](../runbooks/node-job-secrets.md))

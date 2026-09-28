@@ -1,8 +1,8 @@
-# VPS Deployment (`appctl deploy`)
+# VPS Deployment (`evopathcli deploy`)
 
 > **Status:** shipped · **Code:** `apps/cli/src/deploy/`, `apps/cli/src/commands/deploy.ts`, `apps/cli/src/tui/screens/deploy.tsx`, `infra/compose/vps.compose.yml`, `apps/api/src/about/`, `apps/web/src/pages/Admin/AboutPage.tsx` · **API:** `GET /api/admin/about` (see `/api/docs`) · **Admin UI:** `/admin/settings/about` · **Runbooks:** [deploy-to-vps.md](../runbooks/deploy-to-vps.md), [deployment-info.md](../runbooks/deployment-info.md) · **Command reference:** [apps/cli/README.md](../../apps/cli/README.md#deploying-to-a-server)
 
-`appctl deploy` installs, updates, inspects and removes this application on a
+`evopathcli deploy` installs, updates, inspects and removes this application on a
 Linux server with Docker. The operator runs it on the server itself. It clones
 the fork, writes `.env` through a wizard generated from `.env.example`, builds
 images, migrates and seeds an external PostgreSQL database, starts the stack
@@ -32,7 +32,7 @@ the admin About page reads.
 
 | Decision | Meaning | Rules out |
 |---|---|---|
-| Runs on the VPS | The operator SSHes in with their own credentials and runs `appctl` there | An SSH library in the CLI, laptop-driven orchestration, managing SSH keys |
+| Runs on the VPS | The operator SSHes in with their own credentials and runs `evopathcli` there | An SSH library in the CLI, laptop-driven orchestration, managing SSH keys |
 | Git + build | `git clone`/`fetch` and `docker compose build` on the server, every time | Pulling pre-built images |
 | TLS by a shared host proxy | One nginx + certbot stack at `/opt/infra/proxy`, outside this repository, serves every app on the box. The app binds `127.0.0.1` only | Per-app port 443, per-app certbot timers |
 | External PostgreSQL | `POSTGRES_*` point at a server the operator provides. There is no `db` service in any production compose file | The CLI managing database volumes, backups or upgrades |
@@ -194,6 +194,8 @@ TLS checks run when `--domain` is given.
   and reloads only if validation passed. Any failure restores the previous
   vhost, so one app cannot take down its neighbours. Vhosts carry a
   `# Managed by appctl deploy` sentinel; uninstall never removes one without it.
+  The sentinel is a fixed literal, not derived from `CLI_NAME`, so vhosts written
+  under an earlier binary name stay recognised after a rename.
 - **Renewal ownership** (`renewal.ts`, `detectRenewalOwner`): a central script,
   then a systemd `certbot.timer`, then another direct cron line, then this
   CLI's own `/etc/cron.d/<cli>-certbot-renew`, then none. Only `none` makes the
@@ -258,10 +260,11 @@ fork's new secret needs a `secret: true` metadata entry.
 
 ### Deploy state
 
-`<root>/.appctl-deploy.json`, never `~/.appctl/config.json` (which `appctl
+`<root>/.appctl-deploy.json`, never `~/.evopathcli/config.json` (which `evopathcli
 login` rewrites whole). Version `2` (`DEPLOY_STATE_VERSION`). A v1 file is
 upgraded in place (`history: []`, `host`/`proxy` absent); an unknown version is
-refused with the remedy.
+refused with the remedy. The filename is a fixed literal (`DEPLOY_STATE_FILENAME`), not derived from `CLI_NAME`, so
+a binary rename does not orphan existing deploy state.
 
 | Field group | Fields |
 |---|---|
@@ -304,7 +307,7 @@ The CLI publishes what it deployed; the running application reports it.
   the server as last deployed. The two are never merged.
 - **The UI.** The About card at `/admin/settings/about` (Operations group).
   `/admin/settings/deployment` redirects there; it is one destination, not two.
-- **The CLI.** `appctl deploy about` reads the same file from disk, so it works
+- **The CLI.** `evopathcli deploy about` reads the same file from disk, so it works
   while the app is down and needs no login.
 
 What the page shows, and how to re-point the mount, is in
@@ -434,8 +437,8 @@ GreptimeDB's PostgreSQL wire port is published on
 - **Wizard generated from `.env.example`.** A hard-coded list goes stale the
   day a fork edits the file. An essential subset plus `--all` keeps the common
   path short.
-- **State in its own file.** `~/.appctl/config.json` is rewritten whole by
-  `appctl login`.
+- **State in its own file.** `~/.evopathcli/config.json` is rewritten whole by
+  `evopathcli login`.
 - **Evidence, not bookkeeping.** A lost state file must not make a live
   deployment "uninstalled". Adoption invents nothing (no `installedAt` from
   `mtime`).
@@ -468,24 +471,24 @@ PostgreSQL:
 1. Build the CLI in a checkout of your fork (`npm run build --workspace=cli`,
    see [apps/cli/README.md](../../apps/cli/README.md)), then:
    ```bash
-   appctl deploy doctor --domain app.example.com
+   evopathcli deploy doctor --domain app.example.com
    ```
    Expect every required check to pass, or exit `6` with a remedy.
 2. Install with Let's Encrypt staging first:
    ```bash
-   appctl deploy install --domain app.example.com --staging
+   evopathcli deploy install --domain app.example.com --staging
    ```
    Watch each step report; `verify` should show containers up, ready, frontend
    up, no pending migrations, external HTTPS.
 3. Check the binding: `docker compose -f base.compose.yml -f prod.compose.yml
    -f vps.compose.yml config` (in `repo/infra/compose`) shows one `nginx` port
    with `host_ip: 127.0.0.1`.
-4. `appctl deploy status` and `appctl deploy about` agree with the About page
+4. `evopathcli deploy status` and `evopathcli deploy about` agree with the About page
    at `/admin/settings/about` (`deployInfoStatus: "ok"`).
-5. `appctl deploy update`: with no new commits it reports "up to date" and
+5. `evopathcli deploy update`: with no new commits it reports "up to date" and
    rebuilds nothing.
 6. `grep` a known secret value in `<root>/logs/*.log`: no match.
-7. `appctl deploy uninstall --dry-run` lists what would go and what is kept.
+7. `evopathcli deploy uninstall --dry-run` lists what would go and what is kept.
 8. Tests: `npm test --workspace=cli -- --run`; the `Deploy E2E` workflow for
    the full pipeline against real Docker.
 
@@ -494,7 +497,7 @@ The operator procedure, prerequisites and troubleshooting are in
 
 ## History
 
-- Epic #168: the `appctl deploy` command family, `vps.compose.yml`, the TUI
+- Epic #168: the `evopathcli deploy` command family, `vps.compose.yml`, the TUI
   screen, and the infra fixes it needed (`env_file` on `api`, loopback bind,
   password URL-encoding in the database URL builder).
 - Epic #397 (#398–#405): multi-app layout and five-rank resolution, evidence

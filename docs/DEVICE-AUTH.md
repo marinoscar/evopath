@@ -40,7 +40,7 @@ polls until the credential is ready.
 - The device chooses the credential it wants: a session (JWT plus refresh
   token) or a personal access token.
 
-The first-party `appctl` CLI signs in this way. See
+The first-party `evopathcli` CLI signs in this way. See
 [`apps/cli/README.md`](../apps/cli/README.md).
 
 ---
@@ -48,10 +48,10 @@ The first-party `appctl` CLI signs in this way. See
 ## Use Cases
 
 - **CLI tools.** A command-line client that must act as the user, for example
-  `appctl login`:
+  `evopathcli login`:
 
   ```bash
-  $ appctl login
+  $ evopathcli login
   Visit http://localhost:3535/activate and enter code ABCD-1234
   Waiting for authorization...
   ```
@@ -218,7 +218,7 @@ The device picks the credential with `clientInfo.tokenType` in step 1:
 | Default lifetime | `DEVICE_TOKEN_EXPIRY_DAYS` (7 days), for both tokens | `DEVICE_PAT_EXPIRY_DAYS` (90 days) |
 | Refresh token | Yes | No |
 | Revocable before expiry | Yes: `DELETE /api/auth/device/sessions/{id}` revokes the refresh-token chain and kills the access token on its very next request | Yes: `DELETE /api/pat/{id}`, the Access Tokens page, or `DELETE /api/auth/device/sessions/{id}` |
-| Typical client | Short-lived or interactive devices | CLIs and other headless clients (`appctl`) |
+| Typical client | Short-lived or interactive devices | CLIs and other headless clients (`evopathcli`) |
 
 The `pat` poll response:
 
@@ -612,5 +612,5 @@ Check the API logs; each approval and each issued credential is logged.
 - [Personal Access Tokens](personal-access-tokens.md)
 - [Security Architecture](SECURITY-ARCHITECTURE.md)
 - [Device auth module README](../apps/api/src/device-auth/README.md)
-- [`appctl` CLI](../apps/cli/README.md), the reference client for the `pat`
+- [`evopathcli` CLI](../apps/cli/README.md), the reference client for the `pat`
   credential

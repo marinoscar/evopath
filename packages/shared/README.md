@@ -31,7 +31,7 @@ regenerates the brand icons when a colour changes. See
 that follow (lockfile, visual baselines, GitHub remote, OAuth redirect URIs)
 and the strings that must never be renamed.
 
-The CLI binary name (`appctl`, `CLI_NAME` in `apps/cli/src/branding.ts`) is
+The CLI binary name (`evopathcli`, `CLI_NAME` in `apps/cli/src/branding.ts`) is
 deliberately separate and is not derived from `APP_NAME`.
 
 ## Consumers

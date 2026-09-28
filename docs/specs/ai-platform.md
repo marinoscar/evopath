@@ -264,7 +264,7 @@ nginx buffers `/api` with a 60-second timeout, so `infra/nginx/nginx.conf`
 has a dedicated `location /api/ai/responses/stream` block (before the general
 `/api` block) with `proxy_buffering off`, `proxy_cache off`,
 `chunked_transfer_encoding off` and 600-second timeouts. `gzip_types` must not
-include `text/event-stream`. The `appctl deploy` host vhost
+include `text/event-stream`. The `evopathcli deploy` host vhost
 (`apps/cli/src/deploy/proxy.ts`) carries the same block, because nginx
 consumes `X-Accel-Buffering` instead of forwarding it.
 

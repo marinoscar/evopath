@@ -24,7 +24,7 @@ In this order:
 | [API.md](API.md) | API conventions: auth schemes, response envelope, pagination, errors, `If-Match`, SSE, rate limits, how the OpenAPI document is produced |
 | [DEVICE-AUTH.md](DEVICE-AUTH.md) | Integrating a CLI or device with the RFC 8628 device flow |
 | [personal-access-tokens.md](personal-access-tokens.md) | Creating and using `pat_` tokens for scripts and CI |
-| [../apps/cli/README.md](../apps/cli/README.md) | `appctl`: install, `login`, `api`, `config`, `deploy`, `node`, CI usage |
+| [../apps/cli/README.md](../apps/cli/README.md) | `evopathcli`: install, `login`, `api`, `config`, `deploy`, `node`, CI usage |
 
 ## Feature specs
 
@@ -42,14 +42,14 @@ In this order:
 | [specs/maintenance-mode.md](specs/maintenance-mode.md) | The 503 maintenance window | you change maintenance behaviour or its layers |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
-| [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
+| [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 
 ## Runbooks
 
 | Runbook | When you need it |
 |---|---|
-| [runbooks/deploy-to-vps.md](runbooks/deploy-to-vps.md) | Taking an Ubuntu VPS to a running HTTPS deployment with `appctl deploy`, and keeping it current |
-| [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md) | Enrolling, running and operating worker nodes with `appctl node` |
+| [runbooks/deploy-to-vps.md](runbooks/deploy-to-vps.md) | Taking an Ubuntu VPS to a running HTTPS deployment with `evopathcli deploy`, and keeping it current |
+| [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md) | Enrolling, running and operating worker nodes with `evopathcli node` |
 | [runbooks/storage-configuration.md](runbooks/storage-configuration.md) | Setting up object storage, creating the bucket, rotating its key |
 | [runbooks/ai-configuration.md](runbooks/ai-configuration.md) | Turning AI on, choosing the key policy, curating models, switching it off |
 | [runbooks/vapid-keys.md](runbooks/vapid-keys.md) | Generating, enabling, rotating or removing Web Push keys |

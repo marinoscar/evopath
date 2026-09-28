@@ -682,7 +682,7 @@ per-user and per-model limits. See [API.md](API.md#rate-limiting).
 | `SECRETS_ENCRYPTION_KEY` | `openssl rand -base64 32` |
 
 The API builds its database URL from the `POSTGRES_*` variables at runtime;
-there is no `DATABASE_URL` to configure. `npm run setup` (`appctl init`)
+there is no `DATABASE_URL` to configure. `npm run setup` (`evopathcli init`)
 generates `infra/compose/.env` with random secrets at mode `0600`. Never
 commit `.env`. In production, inject secrets from your platform's secret
 manager and use different values per environment.

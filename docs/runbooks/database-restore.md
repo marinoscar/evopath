@@ -88,7 +88,7 @@ There is no dry-run endpoint. The pre-flight is the first thing the restore
 route does, and its gates come back on every outcome (`preflight.gates`):
 
 ```bash
-appctl api POST /api/admin/db-backup/runs/<run id>/restore \
+evopathcli api POST /api/admin/db-backup/runs/<run id>/restore \
   --data '{"confirmation":"RESTORE"}'
 ```
 
@@ -170,7 +170,7 @@ a support ticket.
 With the API serving:
 
 ```bash
-appctl api GET /api/admin/db-backup/runs/<run id>/download
+evopathcli api GET /api/admin/db-backup/runs/<run id>/download
 curl -fSL -o /tmp/<archive>.dump "<the URL that command printed>"
 ```
 
@@ -484,7 +484,7 @@ only window in which it is unavailable is the swap, and that is seconds.
 
 ### 8.2 While it runs
 
-Poll the run (`appctl api GET /api/admin/db-backup/runs/<run id>`, field
+Poll the run (`evopathcli api GET /api/admin/db-backup/runs/<run id>`, field
 `restoreStatus`) or read the row:
 
 ```bash
@@ -534,7 +534,7 @@ database was still live, so they are in `<live>_old_<ts>`. The
 Use the rollback action on the restored run in the Database Backup page, or:
 
 ```bash
-appctl api POST /api/admin/db-backup/runs/<run id>/rollback \
+evopathcli api POST /api/admin/db-backup/runs/<run id>/rollback \
   --data '{"confirmation":"ROLLBACK"}'
 ```
 

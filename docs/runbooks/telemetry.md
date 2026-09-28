@@ -37,7 +37,7 @@ turns it on (§4).
   `infra/compose/telemetry.compose.yml` directly; a VPS deployment carries
   the telemetry stack on every install and update, with no group or flag
   needed (§2.2). Older deployments recorded before this became the default
-  gain it on their next `appctl deploy update`.
+  gain it on their next `evopathcli deploy update`.
 - **You need `telemetry:write`** to change the policy, `telemetry:read` to
   view it, and `telemetry:query` to use the explorer or the assistant. All
   three are Admin-only by default.
@@ -77,7 +77,7 @@ The telemetry overlay ships with every VPS deployment; there is nothing to
 opt into:
 
 ```bash
-appctl deploy install --domain app.example.com
+evopathcli deploy install --domain app.example.com
 ```
 
 `effectiveGroups()` (`apps/cli/src/deploy/compose-files.ts`) always includes
@@ -88,7 +88,7 @@ are always in the compose file list, the `GREPTIME_*_PASSWORD` values and
 observability` is still accepted on `install`/`update` — it is now a
 harmless no-op, kept so an existing script does not break. A deployment
 recorded before this became the default gains the stack, `stack-agent`
-included, on its next `appctl deploy update`, with no flag.
+included, on its next `evopathcli deploy update`, with no flag.
 
 On a VPS, GreptimeDB's Postgres wire port is published on
 **`127.0.0.1:${GREPTIME_BIND_PG_PORT}` only** (default `14003`); nothing
@@ -120,7 +120,7 @@ them with no shell access:
    same way you would read `docker compose up`'s own output.
 5. `GET /api/admin/telemetry/stack` (`system_settings:read`) reports `agent:
    not_configured` when this deployment has no `stack-agent` — which should
-   not happen on a VPS deployment made with a current `appctl`, but can on a
+   not happen on a VPS deployment made with a current `evopathcli`, but can on a
    deployment where `STACK_AGENT_URL`/`STACK_AGENT_TOKEN` were removed by
    hand from `vps.compose.yml`'s `api` environment.
 
@@ -390,8 +390,8 @@ reader/admin logins.
      -f telemetry.compose.yml up -d --force-recreate greptimedb otel-collector api
    ```
 
-   (On a VPS, use the equivalent `-f` set from `appctl deploy update`, or run
-   `appctl deploy update` after editing `.env` so it recreates the right
+   (On a VPS, use the equivalent `-f` set from `evopathcli deploy update`, or run
+   `evopathcli deploy update` after editing `.env` so it recreates the right
    services for you.)
 4. GreptimeDB reads its accounts from `--user-provider` at startup, so the
    old passwords stop working the moment it restarts. Re-check status (§7)
@@ -453,7 +453,7 @@ configured to do.
 | Status reports `configured: false` | Neither a stored connection nor a usable `GREPTIME_*` deployment default names a host | Save a connection (§9), or deploy the containers (§2.3 on a VPS; §2.1 in development) and confirm the `GREPTIME_*` variables reached the `api` service's environment |
 | Status reports `configured: true`, `reachable: false` | GreptimeDB is down, still starting, or a password is wrong | Check `docker compose ps greptimedb` and its logs; re-check the reader/admin passwords (§9 for a stored connection, §10 for the deployment default); on a VPS, try **Deploy GreptimeDB** (§2.3) to restart it |
 | Test connection / status error says `host "<host>" could not be resolved` | The configured host has no DNS answer at all — usually the telemetry containers (`telemetry.compose.yml`) aren't running, so `greptimedb` isn't a known service name, or the connection points at the wrong hostname | Deploy the containers (§2.3 on a VPS; §2.1 in development) or fix the host in the Connection section (§9); the response can take up to ~15–20 s to arrive, since the host is given a longer lookup than the usual connect timeout before it is reported this way |
-| **Deploy GreptimeDB** fails, or the status card's `agent` reads `not_configured`/`unavailable`/`unauthorized` | `not_configured`: this deployment has no `STACK_AGENT_URL`/`STACK_AGENT_TOKEN` (only possible if they were removed by hand from `vps.compose.yml`'s `api` environment). `unavailable`: `stack-agent` didn't answer within five seconds — check `docker compose ps stack-agent` and its logs. `unauthorized`: the API's `STACK_AGENT_TOKEN` no longer matches the sidecar's (usually a hand-edited `.env`) | Re-run `appctl deploy update` to restore the wiring, or check `stack-agent`'s own logs and the job's `deploy.output` on the status page for what `docker compose up` reported |
+| **Deploy GreptimeDB** fails, or the status card's `agent` reads `not_configured`/`unavailable`/`unauthorized` | `not_configured`: this deployment has no `STACK_AGENT_URL`/`STACK_AGENT_TOKEN` (only possible if they were removed by hand from `vps.compose.yml`'s `api` environment). `unavailable`: `stack-agent` didn't answer within five seconds — check `docker compose ps stack-agent` and its logs. `unauthorized`: the API's `STACK_AGENT_TOKEN` no longer matches the sidecar's (usually a hand-edited `.env`) | Re-run `evopathcli deploy update` to restore the wiring, or check `stack-agent`'s own logs and the job's `deploy.output` on the status page for what `docker compose up` reported |
 | Test connection / status error just says `timeout expired` / `Connection terminated due to connection timeout` | The host **does** resolve, so this is not a missing overlay — GreptimeDB isn't answering on the PG port (down, still starting, or blocked by a firewall/security group) | Check `docker compose ps greptimedb` and its logs; confirm the configured PG port (default `4003`) is reachable from the API container |
 | Explorer/assistant answer `TELEMETRY_NOT_CONFIGURED` (503) | Same as above, surfaced through the API | Same as above |
 | Explorer/assistant answer `TELEMETRY_DISABLED` (409) | `telemetry.enabled` is `false` | Turn it on (§4); allow up to five seconds to take effect everywhere |
@@ -468,7 +468,7 @@ configured to do.
 
 **First enable**
 
-- [ ] `GREPTIME_*` passwords set to real values, not the `.env.example` placeholders (VPS: generated automatically by `appctl deploy`)
+- [ ] `GREPTIME_*` passwords set to real values, not the `.env.example` placeholders (VPS: generated automatically by `evopathcli deploy`)
 - [ ] Containers running (dev: `telemetry.compose.yml`; VPS: shipped automatically — click **Deploy GreptimeDB**, §2.3, if they are not up yet)
 - [ ] `GET /api/admin/telemetry/status` reports `configured: true`, `reachable: true`
 - [ ] `telemetry.enabled` turned on; retention set deliberately

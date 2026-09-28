@@ -483,7 +483,7 @@ Two things never leave the facade, both handled by
    `/api` block, with `proxy_buffering off` and a long `proxy_read_timeout`
    — nginx buffers `/api` with a 60-second read timeout by default, which
    would truncate any response that streams for longer than a minute.
-   `apps/cli/src/deploy/proxy.ts` (the vhost the CLI's `appctl deploy`
+   `apps/cli/src/deploy/proxy.ts` (the vhost the CLI's `evopathcli deploy`
    generates on a target server) carries the identical block, so a
    deployed fork streams correctly too, not only local dev.
 6. A client disconnect is observed via `abortOnDisconnect` listening on the

@@ -938,7 +938,7 @@ to be an opt-in group; `effectiveGroups()`
 update, uninstall and health run, so `telemetry.compose.yml` and
 `vps.telemetry.compose.yml` are always in the compose file list and the
 `GREPTIME_*` keys are always in scope for the environment wizard. A
-deployment recorded before this change gains the stack on its next `appctl
+deployment recorded before this change gains the stack on its next `evopathcli
 deploy update`, with no flag. `--group observability` is still accepted, as a
 harmless no-op, so an existing script or habit does not break.
 
@@ -950,7 +950,7 @@ achievable without a shell session.
 ### The problem this solves
 
 Before this feature, a fresh install had no `greptimedb` container until an
-operator ran `appctl deploy update --group observability` from a shell, and
+operator ran `evopathcli deploy update --group observability` from a shell, and
 recovering from a stopped or removed container needed the same. That
 contradicts CLAUDE.md's Settings UI posture — everything about a deployment's
 telemetry should be reachable from `/admin/settings/telemetry` — and left the

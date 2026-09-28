@@ -5,7 +5,7 @@ Rules for AI assistants working on this codebase, plus one-line pointers to wher
 ## Project overview
 
 This repository is a template: teams fork it to get a production-grade foundation for an enterprise web app.
-Stack: React 19 + MUI (web), NestJS 11 on Fastify + Prisma 7 + Zod (API), PostgreSQL 16, Commander + ink (`appctl` CLI), Nginx same-origin, OpenTelemetry + Pino, Docker Compose, Node 24.
+Stack: React 19 + MUI (web), NestJS 11 on Fastify + Prisma 7 + Zod (API), PostgreSQL 16, Commander + ink (`evopathcli` CLI), Nginx same-origin, OpenTelemetry + Pino, Docker Compose, Node 24.
 Start at [README.md](README.md) (what you get, how to start a new app) and [docs/README.md](docs/README.md) (index of every doc, read-first order).
 
 ## Repository structure
@@ -15,7 +15,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
   apps/
     api/                      # NestJS API: src/, test/, prisma/ (schema.prisma, migrations/, seed), Dockerfile
     web/                      # React app: src/, src/__tests__/, Dockerfile
-    cli/                      # `appctl` first-party CLI
+    cli/                      # `evopathcli` first-party CLI
       src/commands/           # init, login, api, config, deploy, node
       src/tui/                # interactive ink menu (real terminals only)
     stack-agent/              # VPS-only sidecar: holds the Docker socket, starts the telemetry stack
@@ -74,7 +74,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
-| `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
+| `evopathcli` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
@@ -226,7 +226,7 @@ Each is enforced by tests and explained in the linked doc. Read it before touchi
 ## Key commands
 
 ```bash
-# First-time setup: build the CLI and create infra/compose/.env (appctl init)
+# First-time setup: build the CLI and create infra/compose/.env (evopathcli init)
 npm run setup
 docker network create devnet                # once per host
 

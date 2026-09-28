@@ -2,7 +2,7 @@
 
 > **Status:** shipped · **Code:** `apps/api/src/nodes/`, `apps/api/src/jobs/contracts/`, `apps/api/src/storage/storage-job-input.ts`, `apps/cli/src/node/` · **API:** `/api/nodes/*`, `/api/node-credentials`, `/api/admin/nodes/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/workers` · **Runbooks:** [Running worker nodes](../runbooks/run-worker-nodes.md), [Node job secrets](../runbooks/node-job-secrets.md) · **Recipes:** [Job handlers](../../apps/api/src/jobs/handlers/README.md), [Node executors](../../apps/cli/src/node/executors/README.md)
 
-A worker node is a process, usually `appctl node start` on a machine the deployment may not own, that pulls node-eligible jobs off this API's queue, runs them, and reports results back. It authenticates with a `nod_` credential confined to `/api/nodes/*`, holds no durable database or storage access, reads and writes object bytes through presigned URLs, and receives any per-job secret in memory only, for the life of one lease. The server keeps every decision that matters: which types a node may claim, how long it may hold them, whether a result is valid, and when a silent node is declared offline.
+A worker node is a process, usually `evopathcli node start` on a machine the deployment may not own, that pulls node-eligible jobs off this API's queue, runs them, and reports results back. It authenticates with a `nod_` credential confined to `/api/nodes/*`, holds no durable database or storage access, reads and writes object bytes through presigned URLs, and receives any per-job secret in memory only, for the life of one lease. The server keeps every decision that matters: which types a node may claim, how long it may hold them, whether a result is valid, and when a silent node is declared offline.
 
 ## 1. Purpose
 
@@ -72,7 +72,7 @@ Everything mounted under `/api/nodes` is reachable by an unattended, possibly mo
 
 ### Heartbeat and status ownership
 
-`POST /api/nodes/{id}/heartbeat` stamps `lastHeartbeatAt` and may refresh `concurrency` and `capabilities`. A runtime `appctl node set-concurrency` takes effect this way.
+`POST /api/nodes/{id}/heartbeat` stamps `lastHeartbeatAt` and may refresh `concurrency` and `capabilities`. A runtime `evopathcli node set-concurrency` takes effect this way.
 
 A node may report `online` or `offline` about itself. It can never report or clear `draining` or `disabled`; those are operator state. Liveness has exactly one writer: claim does not stamp `lastHeartbeatAt`.
 
@@ -189,7 +189,7 @@ The worst node failure is starting cleanly and then failing every job it claims,
 |---|---|---|
 | `db.backup.run` | `binary:pg_dump` | `binary:psql` |
 
-The probe result is reported as `capabilities` on register and heartbeat and shown on the fleet page. A node also needs a network route to PostgreSQL for `db.backup.run`; `appctl node doctor --db-host` checks it as a warning. Heap tuning, the memory watchdog and the pre-OOM valve are operator concerns, described in [Running worker nodes](../runbooks/run-worker-nodes.md).
+The probe result is reported as `capabilities` on register and heartbeat and shown on the fleet page. A node also needs a network route to PostgreSQL for `db.backup.run`; `evopathcli node doctor --db-host` checks it as a warning. Heap tuning, the memory watchdog and the pre-OOM valve are operator concerns, described in [Running worker nodes](../runbooks/run-worker-nodes.md).
 
 ### Result contracts
 
@@ -265,7 +265,7 @@ UPDATE worker_nodes SET status = 'offline'
 - `NODE_SECRET_SWEEP_ENABLED` — whether this process runs the per-job secret revocation cron. Only `false` disables.
 - `SIGNED_URL_EXPIRY` — the application-wide signed URL lifetime; node URLs are clamped to 60–900s.
 
-CLI-side settings (`APPCTL_*`, including `APPCTL_HEAP_LIMIT_MB`) are documented in [apps/cli/README.md](../../apps/cli/README.md#running-a-worker-node).
+CLI-side settings (`EVOPATHCLI_*`, including `EVOPATHCLI_HEAP_LIMIT_MB`) are documented in [apps/cli/README.md](../../apps/cli/README.md#running-a-worker-node).
 
 ### Permissions
 
@@ -387,8 +387,8 @@ npm run openapi:dump && npm run openapi:lint  # root scripts
 
 End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 
-1. `appctl node enroll`, then `appctl node register`, then `appctl node doctor`.
-2. `appctl node start`. The node appears at `/admin/settings/workers` as healthy.
+1. `evopathcli node enroll`, then `evopathcli node register`, then `evopathcli node doctor`.
+2. `evopathcli node start`. The node appears at `/admin/settings/workers` as healthy.
 3. Upload a file and enqueue `example.checksum` against it. The job moves to `running` claimed by the node, then `succeeded`; the object's metadata gains `sha256` and `bytes`.
 4. Stop the node without deregistering. After roughly `staleHeartbeatSeconds` it shows `stale`; after the next sweep past `staleHeartbeatSeconds × offlineStaleMultiplier` it shows `offline`.
 5. Call any non-node route (for example `GET /api/users`) with the `nod_` token: `403`.
