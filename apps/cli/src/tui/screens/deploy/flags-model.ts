@@ -50,6 +50,12 @@ export const INSTALL_TOGGLES: readonly ToggleFlag[] = [
     help: 'Ask about every environment variable, not only the essential ones.',
   },
   {
+    // ⚠ Listed for CLI flag parity (this file's own header, and
+    // flags-model.test.ts), but the install SCREEN itself always passes
+    // `reinstall: true` regardless of this toggle (#22): its confirm step
+    // already asks "Yes, install now?" over every value about to be written,
+    // which IS that consent. Toggling this row changes nothing there; it
+    // still matters for a plain shell `deploy install --reinstall`.
     flag: '--reinstall',
     option: 'reinstall',
     label: 'Reinstall over what is here',
