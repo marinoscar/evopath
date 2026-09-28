@@ -207,6 +207,45 @@ describe('isHealthy', () => {
     expect(isHealthy(report())).toBe(true);
   });
 
+  it('is healthy when a container is running and its own healthcheck reports healthy', () => {
+    expect(
+      isHealthy(
+        report({
+          containers: [
+            { name: 'demo-api-1', service: 'api', state: 'running', image: 'i' },
+            { name: 'demo-tel-1', service: 'greptimedb', state: 'running', health: 'healthy', image: 'i' },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('is unhealthy when a container is running but its own healthcheck reports unhealthy (issue #24)', () => {
+    expect(
+      isHealthy(
+        report({
+          containers: [
+            { name: 'demo-api-1', service: 'api', state: 'running', image: 'i' },
+            { name: 'demo-tel-1', service: 'greptimedb', state: 'running', health: 'unhealthy', image: 'i' },
+          ],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('is unhealthy when a container is running but its healthcheck is still starting', () => {
+    expect(
+      isHealthy(
+        report({
+          containers: [
+            { name: 'demo-api-1', service: 'api', state: 'running', image: 'i' },
+            { name: 'demo-tel-1', service: 'greptimedb', state: 'running', health: 'starting', image: 'i' },
+          ],
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it('is unhealthy when the web container is stopped, even with the API green', () => {
     // The #169 scenario: API answers, site serves nothing.
     expect(
