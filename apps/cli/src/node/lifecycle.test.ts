@@ -22,7 +22,7 @@ import { writePidfile } from './pidfile.js';
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'appctl-lifecycle-'));
+  dir = mkdtempSync(join(tmpdir(), 'evopathcli-lifecycle-'));
 });
 
 afterEach(() => {

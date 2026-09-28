@@ -15,7 +15,7 @@ import {
 } from './deploy.js';
 
 // =============================================================================
-// `appctl deploy certs`  (runCertsCommand / renderCerts / CertsCommandOptions)
+// `evopathcli deploy certs`  (runCertsCommand / renderCerts / CertsCommandOptions)
 // =============================================================================
 //
 // Same seam as every other subcommand in this file: DeployContext injects
@@ -57,7 +57,7 @@ async function runCerts(
 
 /** A recorded deployment, with a domain and a proxy root, so `certs` has both. */
 function installedRootWithDomain(domain: string, proxyRoot: string): string {
-  const root = mkdtempSync(join(tmpdir(), 'appctl-certs-'));
+  const root = mkdtempSync(join(tmpdir(), 'evopathcli-certs-'));
   const state: DeployState = {
     version: DEPLOY_STATE_VERSION,
     repoUrl: 'https://example.test/o/r',
@@ -97,9 +97,9 @@ function opensslDaysFromNow(days: number): typeof import('../deploy/executor.js'
   })) as typeof import('../deploy/executor.js').runCommand;
 }
 
-describe('appctl deploy certs', () => {
+describe('evopathcli deploy certs', () => {
   it('writes JSON to stdout and nothing to stderr under --json', async () => {
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-proxy-'));
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-proxy-'));
     const domain = 'app.example.test';
     const root = installedRootWithDomain(domain, proxyRoot);
     installCert(proxyRoot, domain);
@@ -116,7 +116,7 @@ describe('appctl deploy certs', () => {
   });
 
   it('writes the table to stderr and nothing to stdout without --json', async () => {
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-proxy-'));
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-proxy-'));
     const domain = 'app.example.test';
     const root = installedRootWithDomain(domain, proxyRoot);
     installCert(proxyRoot, domain);
@@ -132,7 +132,7 @@ describe('appctl deploy certs', () => {
   });
 
   it('a certificate due for renewal, not renewed, throws DeploymentUnhealthyError (exit 1) so a cron wrapper notices', async () => {
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-proxy-'));
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-proxy-'));
     const domain = 'app.example.test';
     const root = installedRootWithDomain(domain, proxyRoot);
     installCert(proxyRoot, domain);
@@ -148,7 +148,7 @@ describe('appctl deploy certs', () => {
   });
 
   it('a current certificate does not throw', async () => {
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-proxy-'));
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-proxy-'));
     const domain = 'app.example.test';
     const root = installedRootWithDomain(domain, proxyRoot);
     installCert(proxyRoot, domain);
@@ -162,8 +162,8 @@ describe('appctl deploy certs', () => {
   });
 
   it('refuses when there is no recorded domain and none was given', async () => {
-    const empty = mkdtempSync(join(tmpdir(), 'appctl-certs-nodomain-'));
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-proxy-'));
+    const empty = mkdtempSync(join(tmpdir(), 'evopathcli-certs-nodomain-'));
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-proxy-'));
 
     const result = await runCerts(['--root', empty, '--proxy-root', proxyRoot], {
       runCommand: opensslDaysFromNow(200),

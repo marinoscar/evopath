@@ -33,7 +33,7 @@ function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
     app: { name: 'App', version: '2.4.1', commitSha: 'abc1234', ref: 'main' },
     installedAt: '2026-01-04T09:12:00.000Z',
     updatedAt: '2026-08-30T18:40:00.000Z',
-    deployedBy: { cli: 'appctl', version: '1.9.0' },
+    deployedBy: { cli: 'evopathcli', version: '1.9.0' },
     domain: 'app.example.com',
     remote: { commitsBehind: 0, checkedAt: '2026-08-30T18:39:00.000Z' },
     run: { completed: ['pull', 'build'], failedStep: null, outcome: 'success' },

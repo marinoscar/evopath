@@ -60,7 +60,7 @@ function logger(): NodeLogger {
 }
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'appctl-daemon-'));
+  dir = mkdtempSync(join(tmpdir(), 'evopathcli-daemon-'));
   cleanups = [];
 });
 

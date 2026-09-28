@@ -9,7 +9,7 @@ import { NodeLogger, REDACTED, formatLogRecord, readLogTail, redact } from './lo
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'appctl-logger-'));
+  dir = mkdtempSync(join(tmpdir(), 'evopathcli-logger-'));
 });
 
 afterEach(() => {
@@ -187,8 +187,8 @@ describe('redacting a brokered credential', () => {
     // The counter-assertion the anchored `^pat$` rule already earns: a worker's
     // log is full of paths and patterns, and a logger that redacted them would
     // be worse than no logger.
-    const kept = redact({ path: '/var/lib/appctl', pattern: '*.dump', host: 'db.internal' });
+    const kept = redact({ path: '/var/lib/evopathcli', pattern: '*.dump', host: 'db.internal' });
 
-    expect(kept).toEqual({ path: '/var/lib/appctl', pattern: '*.dump', host: 'db.internal' });
+    expect(kept).toEqual({ path: '/var/lib/evopathcli', pattern: '*.dump', host: 'db.internal' });
   });
 });

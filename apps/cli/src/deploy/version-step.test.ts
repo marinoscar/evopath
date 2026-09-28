@@ -46,7 +46,7 @@ function manifestJson(version: string): string {
 
 /** A real git repository carrying all four versioned manifests, one commit deep. */
 function makeRepo(version = '1.0.0'): string {
-  const dir = mkdtempSync(join(tmpdir(), 'appctl-versionstep-'));
+  const dir = mkdtempSync(join(tmpdir(), 'evopathcli-versionstep-'));
   git(dir, 'init', '--quiet', '--initial-branch=main');
   for (const relative of VERSIONED_MANIFESTS) {
     mkdirSync(join(dir, dirname(relative)), { recursive: true });
@@ -59,7 +59,7 @@ function makeRepo(version = '1.0.0'): string {
 
 /** A real git repository carrying NONE of the versioned manifests. */
 function makeEmptyRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'appctl-versionstep-empty-'));
+  const dir = mkdtempSync(join(tmpdir(), 'evopathcli-versionstep-empty-'));
   git(dir, 'init', '--quiet', '--initial-branch=main');
   writeFileSync(join(dir, 'README.md'), 'nothing versioned here\n');
   git(dir, 'add', '.');
@@ -157,13 +157,13 @@ describe('runVersionStep', () => {
     }
   });
 
-  it('produces a real commit whose message names the version, attributed to appctl deploy (not the operator)', async () => {
+  it('produces a real commit whose message names the version, attributed to evopathcli deploy (not the operator)', async () => {
     const repo = makeRepo('1.0.0');
 
     await runVersionStep({ checkoutPath: repo, requested: '2.5.0' });
 
     expect(git(repo, 'log', '-1', '--format=%s')).toBe('chore(release): 2.5.0');
-    expect(git(repo, 'log', '-1', '--format=%an')).toBe('appctl deploy');
+    expect(git(repo, 'log', '-1', '--format=%an')).toBe('evopathcli deploy');
   });
 
   // Also: writeVersion on a repo whose manifests are already at the target
@@ -240,7 +240,7 @@ describe('publishVersion', () => {
     }) as typeof import('./executor.js').runCommand;
 
     // A real bare remote so the push has somewhere genuine to land.
-    const bare = mkdtempSync(join(tmpdir(), 'appctl-versionstep-bare-'));
+    const bare = mkdtempSync(join(tmpdir(), 'evopathcli-versionstep-bare-'));
     git(bare, 'init', '--quiet', '--bare', '--initial-branch=main');
     git(repo, 'remote', 'add', 'origin', bare);
 
@@ -355,7 +355,7 @@ describe('stampAppVersion', () => {
 
   /** A real `.env`, built the same way the wizard would: from the real spec list. */
   function makeEnv(overrides: Record<string, string> = {}): string {
-    const dir = mkdtempSync(join(tmpdir(), 'appctl-stampversion-'));
+    const dir = mkdtempSync(join(tmpdir(), 'evopathcli-stampversion-'));
     const values = new Map<string, string>();
     for (const spec of SPECS) {
       if (!spec.optional) values.set(spec.key, spec.defaultValue);
@@ -369,7 +369,7 @@ describe('stampAppVersion', () => {
   }
 
   it('returns false when there is no .env to stamp', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'appctl-stampversion-noenv-'));
+    const dir = mkdtempSync(join(tmpdir(), 'evopathcli-stampversion-noenv-'));
     expect(stampAppVersion(join(dir, '.env'), TEMPLATE_PATH, '1.2.3')).toBe(false);
   });
 

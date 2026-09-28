@@ -326,7 +326,7 @@ describe('deploy status asks the deployment, not the bookkeeping about it', () =
   });
 
   it('still refuses when nothing is installed there at all', async () => {
-    const empty = mkdtempSync(join(tmpdir(), 'appctl-fake-vps-empty-'));
+    const empty = mkdtempSync(join(tmpdir(), 'evopathcli-fake-vps-empty-'));
 
     // ⚠ The distinction is preserved, just asked of the deployment rather than
     // of the record: "nothing installed" is a usage problem, "installed and

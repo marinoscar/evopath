@@ -9,7 +9,7 @@ import { detectDistro, runInstallDeps, type InstallStep } from './install-deps.j
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'appctl-deps-'));
+  dir = mkdtempSync(join(tmpdir(), 'evopathcli-deps-'));
 });
 
 afterEach(() => {

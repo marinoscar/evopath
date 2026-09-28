@@ -365,7 +365,7 @@ describe('DatabaseBackupRunExecutor', () => {
     it('leaves the state directory byte-for-byte free of the credential', async () => {
       // The belt to the previous braces: whatever the executor did, nothing
       // under the node's own directory may contain the password.
-      const stateDir = mkdtempSync(join(tmpdir(), 'appctl-node-secret-'));
+      const stateDir = mkdtempSync(join(tmpdir(), 'evopathcli-node-secret-'));
 
       try {
         const h = makeHarness();
@@ -385,7 +385,7 @@ describe('DatabaseBackupRunExecutor', () => {
       // END TO END through `NodeLogger`, because "nothing logs it" is a
       // property of the executor's messages AND the logger's redaction, and
       // either one alone can be right while the pair leaks.
-      const dir = mkdtempSync(join(tmpdir(), 'appctl-node-log-'));
+      const dir = mkdtempSync(join(tmpdir(), 'evopathcli-node-log-'));
       const path = join(dir, 'node.log');
 
       try {
@@ -413,7 +413,7 @@ describe('DatabaseBackupRunExecutor', () => {
     it('redacts a whole broker response if one is ever handed to the logger', async () => {
       // Defence in depth for the case this executor is careful about: some
       // future code path logging the response object itself.
-      const dir = mkdtempSync(join(tmpdir(), 'appctl-node-log-'));
+      const dir = mkdtempSync(join(tmpdir(), 'evopathcli-node-log-'));
       const path = join(dir, 'node.log');
 
       try {

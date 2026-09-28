@@ -17,7 +17,7 @@ const MB = 1024 * 1024;
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'appctl-snap-'));
+  dir = mkdtempSync(join(tmpdir(), 'evopathcli-snap-'));
 });
 
 afterEach(() => {

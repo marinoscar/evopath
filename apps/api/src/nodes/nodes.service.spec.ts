@@ -511,7 +511,7 @@ describe('NodesService', () => {
     });
 
     it('reads concurrency LIVE, so a heartbeat changes the next claim’s cap', async () => {
-      // The whole reason nothing is cached at registration: `appctl node
+      // The whole reason nothing is cached at registration: `evopathcli node
       // set-concurrency` must take effect on the very next claim.
       (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(makeNode({ concurrency: 2 }));
       (prisma.workerNode.update as jest.Mock).mockImplementation(async ({ data }: any) =>

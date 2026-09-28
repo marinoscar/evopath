@@ -82,7 +82,7 @@ const GOOD_DOCUMENT = {
   },
   installedAt: '2026-01-04T09:00:00.000Z',
   updatedAt: '2026-09-12T18:30:00.000Z',
-  deployedBy: { cli: 'appctl', version: '1.4.0' },
+  deployedBy: { cli: 'evopathcli', version: '1.4.0' },
   domain: 'app.example.com',
   remote: { commitsBehind: 3, checkedAt: '2026-09-14T06:00:00.000Z' },
   run: { completed: ['pull', 'migrate', 'up'], outcome: 'success' },
@@ -229,7 +229,7 @@ describe('About API (Integration)', () => {
       const first = await request(server()).get(ROUTE).set(await adminAuth()).expect(200);
       expect(first.body.data.app.commitSha).toBe(GOOD_DOCUMENT.app.commitSha);
 
-      // `appctl deploy update` rewrites the bind-mounted file in place against
+      // `evopathcli deploy update` rewrites the bind-mounted file in place against
       // this exact running process. Nothing may cache across these two requests.
       await write({ ...GOOD_DOCUMENT, app: { ...GOOD_DOCUMENT.app, commitSha: 'feedface' } });
 

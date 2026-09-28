@@ -106,8 +106,8 @@ describe("update's publish step: MAX_FILE_SIZE reaches installVhost's maxBodyByt
     // own re-renders the vhost from scratch, and a missing option silently
     // reverts client_max_body_size to 100m -- every upload above that starts
     // 413ing at the edge after an update that had nothing to do with uploads.
-    const deployRoot = nestedDeployRoot('appctl-update-publish-');
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-update-proxy-'));
+    const deployRoot = nestedDeployRoot('evopathcli-update-publish-');
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-update-proxy-'));
     const domain = 'app.example.test';
     const state = baseState(deployRoot, domain, proxyRoot);
     installCert({ domain, bindPort: state.bindPort, proxyRoot });
@@ -126,8 +126,8 @@ describe("update's publish step: MAX_FILE_SIZE reaches installVhost's maxBodyByt
   });
 
   it('a different MAX_FILE_SIZE produces a different limit, so the value genuinely threads through', async () => {
-    const deployRoot = nestedDeployRoot('appctl-update-publish-');
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-update-proxy-'));
+    const deployRoot = nestedDeployRoot('evopathcli-update-publish-');
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-update-proxy-'));
     const domain = 'app.example.test';
     const state = baseState(deployRoot, domain, proxyRoot);
     installCert({ domain, bindPort: state.bindPort, proxyRoot });
@@ -145,8 +145,8 @@ describe("update's publish step: MAX_FILE_SIZE reaches installVhost's maxBodyByt
   });
 
   it('no env at all still renders a vhost, defaulting to 100m rather than throwing', async () => {
-    const deployRoot = nestedDeployRoot('appctl-update-publish-');
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-update-proxy-'));
+    const deployRoot = nestedDeployRoot('evopathcli-update-publish-');
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-update-proxy-'));
     const domain = 'app.example.test';
     const state = baseState(deployRoot, domain, proxyRoot);
     installCert({ domain, bindPort: state.bindPort, proxyRoot });
@@ -162,8 +162,8 @@ describe("update's publish step: MAX_FILE_SIZE reaches installVhost's maxBodyByt
 
 describe("update's publish step: proxyRootFor prefers the recorded proxyRoot", () => {
   it('writes the vhost under state.proxyRoot when one was recorded', async () => {
-    const deployRoot = nestedDeployRoot('appctl-update-publish-');
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-update-proxy-'));
+    const deployRoot = nestedDeployRoot('evopathcli-update-publish-');
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-update-proxy-'));
     const domain = 'app.example.test';
     const state = baseState(deployRoot, domain, proxyRoot);
     installCert({ domain, bindPort: state.bindPort, proxyRoot });
@@ -185,7 +185,7 @@ describe("update's publish step: proxyRootFor prefers the recorded proxyRoot", (
 
   it('falls back to <deployRoot>/../../proxy only for a record written before proxyRoot existed', async () => {
     // A compatibility path for old state files, not the answer for a new one.
-    const outer = mkdtempSync(join(tmpdir(), 'appctl-update-fallback-'));
+    const outer = mkdtempSync(join(tmpdir(), 'evopathcli-update-fallback-'));
     const deployRoot = join(outer, 'apps', 'demo');
     mkdirSync(deployRoot, { recursive: true });
     const domain = 'app.example.test';

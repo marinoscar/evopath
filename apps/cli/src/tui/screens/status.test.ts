@@ -24,7 +24,7 @@ const SECRET = 'pat_super-secret-token-value-do-not-print-me';
 
 function envCtx(overrides: Partial<Record<string, string>> = {}): ConfigContext {
   return {
-    home: '/nonexistent-appctl-status-test-home',
+    home: '/nonexistent-evopathcli-status-test-home',
     env: {
       [SERVER_URL_ENV_VAR]: 'https://app.example.com',
       [TOKEN_ENV_VAR]: SECRET,

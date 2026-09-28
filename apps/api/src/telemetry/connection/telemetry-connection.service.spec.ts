@@ -398,7 +398,7 @@ describe('TelemetryConnectionService', () => {
 
       expect(service.isConfigured()).toBe(false);
       expect(service.configurationProblem()).toBe(DEPLOYMENT_READER_MISSING_MESSAGE);
-      expect(DEPLOYMENT_READER_MISSING_MESSAGE).not.toMatch(/env|compose|GREPTIME_|appctl|CLI|variable/i);
+      expect(DEPLOYMENT_READER_MISSING_MESSAGE).not.toMatch(/env|compose|GREPTIME_|evopathcli|CLI|variable/i);
     });
 
     it('reports a missing deployment admin login only when asked about the admin', async () => {

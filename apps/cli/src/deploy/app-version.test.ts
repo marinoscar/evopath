@@ -37,7 +37,7 @@ function manifestJson(version: string): string {
 
 /** A checkout carrying all four manifests at `version`, but no lockfile. */
 function makeCheckout(version = '1.0.0'): string {
-  const dir = mkdtempSync(join(tmpdir(), 'appctl-appversion-'));
+  const dir = mkdtempSync(join(tmpdir(), 'evopathcli-appversion-'));
   for (const relative of VERSIONED_MANIFESTS) {
     mkdirSync(join(dir, dirname(relative)), { recursive: true });
     writeFileSync(join(dir, relative), manifestJson(version));
@@ -93,7 +93,7 @@ describe('currentVersion', () => {
   });
 
   it('defaults to 1.0.0 when nothing versioned exists, rather than inventing a number', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'appctl-appversion-empty-'));
+    const dir = mkdtempSync(join(tmpdir(), 'evopathcli-appversion-empty-'));
     expect(currentVersion(dir)).toBe('1.0.0');
   });
 });

@@ -18,7 +18,7 @@ import { createRedactor, openJournal, pruneOldRuns, timestampSlug } from './jour
 // about file MODE and about what happens when a write genuinely fails, and
 // neither survives being mocked.
 function makeRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-journal-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-journal-'));
 }
 
 function commandResult(overrides: Partial<CommandResult> = {}): CommandResult {
@@ -238,26 +238,26 @@ describe('pruneOldRuns', () => {
     const root = makeRoot();
     const logs = join(root, 'logs');
     seed(logs, [
-      'appctl-install-2026-01-01T00-00-00-000Z',
-      'appctl-install-2026-02-01T00-00-00-000Z',
-      'appctl-update-2026-03-01T00-00-00-000Z',
+      'evopathcli-install-2026-01-01T00-00-00-000Z',
+      'evopathcli-install-2026-02-01T00-00-00-000Z',
+      'evopathcli-update-2026-03-01T00-00-00-000Z',
     ]);
 
     pruneOldRuns(logs, 2);
 
     const remaining = readdirSync(logs).sort();
     expect(remaining).toEqual([
-      'appctl-install-2026-02-01T00-00-00-000Z.jsonl',
-      'appctl-install-2026-02-01T00-00-00-000Z.log',
-      'appctl-update-2026-03-01T00-00-00-000Z.jsonl',
-      'appctl-update-2026-03-01T00-00-00-000Z.log',
+      'evopathcli-install-2026-02-01T00-00-00-000Z.jsonl',
+      'evopathcli-install-2026-02-01T00-00-00-000Z.log',
+      'evopathcli-update-2026-03-01T00-00-00-000Z.jsonl',
+      'evopathcli-update-2026-03-01T00-00-00-000Z.log',
     ]);
   });
 
   it('does nothing when under the limit', () => {
     const root = makeRoot();
     const logs = join(root, 'logs');
-    seed(logs, ['appctl-install-2026-01-01T00-00-00-000Z']);
+    seed(logs, ['evopathcli-install-2026-01-01T00-00-00-000Z']);
 
     pruneOldRuns(logs, 10);
 
@@ -267,7 +267,7 @@ describe('pruneOldRuns', () => {
   it('leaves unrelated files alone', () => {
     const root = makeRoot();
     const logs = join(root, 'logs');
-    seed(logs, ['appctl-install-2026-01-01T00-00-00-000Z']);
+    seed(logs, ['evopathcli-install-2026-01-01T00-00-00-000Z']);
     writeFileSync(join(logs, 'notes.txt'), 'keep me');
 
     pruneOldRuns(logs, 0);
@@ -279,8 +279,8 @@ describe('pruneOldRuns', () => {
     const root = makeRoot();
     const logs = join(root, 'logs');
     seed(logs, [
-      'appctl-install-2026-01-01T00-00-00-000Z',
-      'appctl-install-2026-02-01T00-00-00-000Z',
+      'evopathcli-install-2026-01-01T00-00-00-000Z',
+      'evopathcli-install-2026-02-01T00-00-00-000Z',
     ]);
 
     openJournal({ deployRoot: root, command: 'install', retainRuns: 2 }).finish(
@@ -291,7 +291,7 @@ describe('pruneOldRuns', () => {
     // pre-existing run and the new one, and drops the oldest.
     const kept = readdirSync(logs).filter((n) => n.endsWith('.log')).sort();
     expect(kept).toHaveLength(2);
-    expect(kept[0]).toBe('appctl-install-2026-02-01T00-00-00-000Z.log');
+    expect(kept[0]).toBe('evopathcli-install-2026-02-01T00-00-00-000Z.log');
   });
 });
 

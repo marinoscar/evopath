@@ -85,7 +85,7 @@ describe('composeArgv', () => {
     // the evidence predicate but carries no `composeProject`, and its containers
     // are running under `compose`. Deriving a name from the directory here is
     // what would start the parallel stack.
-    const deployRoot = mkdtempSync(join(tmpdir(), 'appctl-adopted-'));
+    const deployRoot = mkdtempSync(join(tmpdir(), 'evopathcli-adopted-'));
     mkdirSync(join(deployRoot, 'repo', '.git'), { recursive: true });
     writeFileSync(join(deployRoot, '.env'), 'APP_BIND_PORT=3535\n');
     expect(isDeployment(deployRoot)).toBe(true);

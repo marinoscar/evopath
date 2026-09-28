@@ -9,7 +9,7 @@ import { UsageError } from '../errors.js';
 import { registerDeployCommand, type DeployContext } from './deploy.js';
 
 // =============================================================================
-// `appctl deploy uninstall --drop-database`  (#522)
+// `evopathcli deploy uninstall --drop-database`  (#522)
 // =============================================================================
 //
 // The bug this pins: the typed name was checked, everything else was removed,
@@ -39,7 +39,7 @@ const okResult = (stdout = '') => ({
 });
 
 function deployment(): string {
-  const root = mkdtempSync(join(tmpdir(), 'appctl-uninstall-cmd-'));
+  const root = mkdtempSync(join(tmpdir(), 'evopathcli-uninstall-cmd-'));
   mkdirSync(join(root, 'repo', '.git'), { recursive: true });
   writeFileSync(join(root, '.env'), DB_ENV);
   return root;
@@ -73,7 +73,7 @@ async function runUninstall(
 describe('deploy uninstall --drop-database', () => {
   it('shows the DROP in the inventory and prints the outcome with the session count', async () => {
     const root = deployment();
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-uninstall-proxy-'));
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-uninstall-proxy-'));
 
     const result = await runUninstall(
       ['--root', root, '--proxy-root', proxyRoot, '--drop-database', '--confirm-database', 'appdb'],
@@ -88,7 +88,7 @@ describe('deploy uninstall --drop-database', () => {
 
   it('a failed drop is an error, never a "Removed" line', async () => {
     const root = deployment();
-    const proxyRoot = mkdtempSync(join(tmpdir(), 'appctl-uninstall-proxy-'));
+    const proxyRoot = mkdtempSync(join(tmpdir(), 'evopathcli-uninstall-proxy-'));
     const run = vi.fn().mockImplementation(async (argv: readonly string[]) => {
       if (argv.includes('psql')) {
         return { ...okResult(), exitCode: 2, stderr: 'psql: error: connection refused' };

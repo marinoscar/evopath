@@ -87,7 +87,7 @@ function writeStored(body: unknown): void {
 }
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'appctl-enroll-'));
+  home = mkdtempSync(join(tmpdir(), 'evopathcli-enroll-'));
 });
 
 afterEach(() => {
@@ -199,7 +199,7 @@ describe('enrollNode', () => {
       createCredential: async () => ({
         token: 'nod_secret',
         id: 'cred-1',
-        name: 'appctl node: tester@box',
+        name: 'evopathcli node: tester@box',
         tokenPrefix: 'nod_abcd',
         expiresAt: null,
         createdAt: '2026-01-01T00:00:00.000Z',

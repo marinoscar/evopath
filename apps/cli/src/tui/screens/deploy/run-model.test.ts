@@ -71,7 +71,7 @@ describe('failureReport', () => {
       steps: [{ id: 'build', title: 'Build images', outcome: 'failed' }],
       tail: Array.from({ length: 30 }, (_, index) => `out ${index}`),
       journalPath: '/opt/apps/shop/logs/install.log',
-      rerun: 'appctl deploy install --name shop --resume',
+      rerun: 'evopathcli deploy install --name shop --resume',
     });
     expect(report.step?.id).toBe('build');
     expect(report.tail).toHaveLength(FAILURE_TAIL_LINES);

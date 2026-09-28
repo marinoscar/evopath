@@ -98,7 +98,7 @@ describe('vps.telemetry.compose.yml publishes nothing on a public interface', ()
 
   it('declares every variable it interpolates in .env.example', () => {
     // The CLI writes the deployment's `.env` from the template, so a variable
-    // only this file knows about can never be set by `appctl deploy`.
+    // only this file knows about can never be set by `evopathcli deploy`.
     const template = readFileSync(resolve(COMPOSE_DIR, '.env.example'), 'utf8');
     const keys = new Set(parseEnvExample(template).map((spec) => spec.key));
     const used = [...text.matchAll(/\$\{([A-Z0-9_]+)/g)].map((match) => match[1]);

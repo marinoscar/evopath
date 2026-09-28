@@ -130,7 +130,7 @@ describe('buildDeployInfo against the shared fixture', () => {
   });
 
   it('round-trips through writeDeployInfo with the same shape', () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-deploy-info-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-deploy-info-'));
     mkdirSync(join(root, 'deploy-info'));
 
     const result = writeDeployInfo(root, fullInput());

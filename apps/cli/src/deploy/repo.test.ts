@@ -41,7 +41,7 @@ function git(cwd: string, ...args: string[]): string {
 
 /** A repository whose default branch is deliberately NOT `main`. */
 function makeOrigin(defaultBranch = 'develop'): string {
-  const dir = mkdtempSync(join(tmpdir(), 'appctl-origin-'));
+  const dir = mkdtempSync(join(tmpdir(), 'evopathcli-origin-'));
   git(dir, 'init', '--quiet', `--initial-branch=${defaultBranch}`);
   writeFileSync(join(dir, 'README.md'), 'one\n');
   git(dir, 'add', '.');
@@ -53,14 +53,14 @@ function makeOrigin(defaultBranch = 'develop'): string {
 }
 
 function makeClone(origin: string, defaultBranch = 'develop'): string {
-  const dir = mkdtempSync(join(tmpdir(), 'appctl-clone-'));
+  const dir = mkdtempSync(join(tmpdir(), 'evopathcli-clone-'));
   const path = join(dir, 'checkout');
   git(dir, 'clone', '--quiet', '--branch', defaultBranch, origin, path);
   return path;
 }
 
 function deployRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-deploy-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-deploy-'));
 }
 
 describe('normaliseRepoUrl', () => {
@@ -108,7 +108,7 @@ describe('findGitRoot', () => {
   });
 
   it('is undefined outside a checkout', () => {
-    expect(findGitRoot(mkdtempSync(join(tmpdir(), 'appctl-nogit-')))).toBeUndefined();
+    expect(findGitRoot(mkdtempSync(join(tmpdir(), 'evopathcli-nogit-')))).toBeUndefined();
   });
 });
 
@@ -181,7 +181,7 @@ describe('resolveRepoTarget', () => {
   });
 
   it('names --repo when there is no checkout to read', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'appctl-nogit-'));
+    const outside = mkdtempSync(join(tmpdir(), 'evopathcli-nogit-'));
 
     const error = await resolveRepoTarget({ cwd: outside, runCommand }).catch(
       (caught: unknown) => caught,
@@ -192,7 +192,7 @@ describe('resolveRepoTarget', () => {
   });
 
   it('names --repo when the checkout has no origin', async () => {
-    const orphan = mkdtempSync(join(tmpdir(), 'appctl-orphan-'));
+    const orphan = mkdtempSync(join(tmpdir(), 'evopathcli-orphan-'));
     git(orphan, 'init', '--quiet');
 
     const error = await resolveRepoTarget({ cwd: orphan, runCommand }).catch(
@@ -411,7 +411,7 @@ describe('resolveRepoUrl', () => {
   });
 
   it('is undefined -- never throws -- outside any git checkout with nothing else to go on', async () => {
-    const outside = mkdtempSync(join(tmpdir(), 'appctl-nogit-'));
+    const outside = mkdtempSync(join(tmpdir(), 'evopathcli-nogit-'));
 
     const url = await resolveRepoUrl({ cwd: outside, runCommand });
 
@@ -419,7 +419,7 @@ describe('resolveRepoUrl', () => {
   });
 
   it('is undefined for a checkout with no origin remote', async () => {
-    const orphan = mkdtempSync(join(tmpdir(), 'appctl-orphan-'));
+    const orphan = mkdtempSync(join(tmpdir(), 'evopathcli-orphan-'));
     execFileSync('git', ['init', '--quiet'], { cwd: orphan });
 
     const url = await resolveRepoUrl({ cwd: orphan, runCommand });

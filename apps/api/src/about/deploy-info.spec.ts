@@ -34,7 +34,7 @@ const GOOD_DOCUMENT = {
   },
   installedAt: '2026-01-04T09:00:00.000Z',
   updatedAt: '2026-09-12T18:30:00.000Z',
-  deployedBy: { cli: 'appctl', version: '1.4.0' },
+  deployedBy: { cli: 'evopathcli', version: '1.4.0' },
   domain: 'app.example.com',
   remote: { commitsBehind: 3, checkedAt: '2026-09-14T06:00:00.000Z' },
   run: { completed: ['pull', 'migrate', 'up'], outcome: 'success' },
@@ -539,7 +539,7 @@ describe('readDeployInfo', () => {
       GOOD_DOCUMENT.app.commitSha,
     );
 
-    // `appctl deploy update` rewrites this file in place against a running
+    // `evopathcli deploy update` rewrites this file in place against a running
     // container. A cached parse would serve the old SHA for the life of the
     // process, which is exactly the moment the SHA matters.
     await write({ ...GOOD_DOCUMENT, app: { ...GOOD_DOCUMENT.app, commitSha: 'deadbeef' } });

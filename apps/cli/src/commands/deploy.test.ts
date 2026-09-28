@@ -105,7 +105,7 @@ const HEALTHY: Check[] = [
   check('b', 'recommended', 'pass', 'fine'),
 ];
 
-describe('appctl deploy doctor', () => {
+describe('evopathcli deploy doctor', () => {
   it('exits 0 when every required check passes', async () => {
     const result = await runDoctor([], HEALTHY);
 
@@ -119,7 +119,7 @@ describe('appctl deploy doctor', () => {
     ]);
 
     // A distinct code is the point: `doctor || provision-the-box` has to tell
-    // "not ready" apart from "appctl itself broke".
+    // "not ready" apart from "evopathcli itself broke".
     expect(exitCodeFor(result.error)).toBe(EXIT.PRECONDITION);
     expect((result.error as Error).message).toContain('broken');
   });
@@ -179,7 +179,7 @@ describe('appctl deploy doctor', () => {
   });
 });
 
-describe('appctl deploy doctor --json', () => {
+describe('evopathcli deploy doctor --json', () => {
   it('writes valid JSON on stdout and nothing on stderr', async () => {
     const result = await runDoctor(['--json'], HEALTHY);
 
@@ -292,11 +292,11 @@ describe('the deploy group', () => {
 
 
 // ---------------------------------------------------------------------------
-// `appctl deploy status`  (issue #183)
+// `evopathcli deploy status`  (issue #183)
 // ---------------------------------------------------------------------------
 
 function installedRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'appctl-status-'));
+  const root = mkdtempSync(join(tmpdir(), 'evopathcli-status-'));
   const state: DeployState = {
     version: DEPLOY_STATE_VERSION,
     repoUrl: 'https://example.test/o/r',
@@ -366,7 +366,7 @@ async function runStatus(
   return { stdout: stdout.join(''), stderr: stderr.join(''), error };
 }
 
-describe('appctl deploy status', () => {
+describe('evopathcli deploy status', () => {
   it('exits 0 and reports every section when healthy', async () => {
     const root = installedRoot();
 
@@ -412,7 +412,7 @@ describe('appctl deploy status', () => {
   });
 
   it('distinguishes "nothing installed" from "installed and unhealthy"', async () => {
-    const empty = mkdtempSync(join(tmpdir(), 'appctl-empty-'));
+    const empty = mkdtempSync(join(tmpdir(), 'evopathcli-empty-'));
 
     const result = await runStatus(['--root', empty], {
       runCommand: composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'),
@@ -456,7 +456,7 @@ describe('appctl deploy status', () => {
 });
 
 // ---------------------------------------------------------------------------
-// `appctl deploy list`  (runListCommand / ListCommandOptions)
+// `evopathcli deploy list`  (runListCommand / ListCommandOptions)
 // ---------------------------------------------------------------------------
 
 /** A fixture deployment: `<root>/repo/.git/` (a directory is enough) plus an `.env`. */
@@ -493,9 +493,9 @@ async function runList(
   return { stdout: stdout.join(''), stderr: stderr.join(''), error };
 }
 
-describe('appctl deploy list', () => {
+describe('evopathcli deploy list', () => {
   it('writes the table to stderr and nothing to stdout without --json', async () => {
-    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-list-'));
+    const appsRoot = mkdtempSync(join(tmpdir(), 'evopathcli-list-'));
     addDeployment(appsRoot, 'alpha');
 
     const result = await runList(['--apps-root', appsRoot]);
@@ -508,7 +508,7 @@ describe('appctl deploy list', () => {
   });
 
   it('writes JSON to stdout and nothing to stderr under --json', async () => {
-    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-list-'));
+    const appsRoot = mkdtempSync(join(tmpdir(), 'evopathcli-list-'));
     addDeployment(appsRoot, 'alpha');
 
     const result = await runList(['--apps-root', appsRoot, '--json']);
@@ -523,7 +523,7 @@ describe('appctl deploy list', () => {
 });
 
 // ---------------------------------------------------------------------------
-// `appctl deploy certs --renew`  (issue #389)
+// `evopathcli deploy certs --renew`  (issue #389)
 // ---------------------------------------------------------------------------
 
 function installedCertRoot(proxyRoot: string, domain: string): void {
@@ -555,7 +555,7 @@ async function runCerts(argv: readonly string[], extra: Partial<DeployContext> =
   return { stdout: stdout.join(''), stderr: stderr.join(''), error };
 }
 
-describe('appctl deploy certs --renew', () => {
+describe('evopathcli deploy certs --renew', () => {
   /** Every call succeeds except the ones a test's own override answers. */
   function runCommandWith(
     override: (argv: readonly string[]) => { exitCode: number; stdout?: string; stderr?: string } | undefined,
@@ -578,7 +578,7 @@ describe('appctl deploy certs --renew', () => {
   }
 
   it('exits non-zero when a renewal reload FAILS, because the old certificate is still being served', async () => {
-    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-'));
+    const appsRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-'));
     const root = join(appsRoot, 'demo');
     mkdirSync(root, { recursive: true });
     const proxyRoot = join(appsRoot, 'proxy');
@@ -605,7 +605,7 @@ describe('appctl deploy certs --renew', () => {
   });
 
   it('exits 0 when the renewal validates and reloads successfully', async () => {
-    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-'));
+    const appsRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-'));
     const root = join(appsRoot, 'demo');
     mkdirSync(root, { recursive: true });
     const proxyRoot = join(appsRoot, 'proxy');
@@ -627,7 +627,7 @@ describe('appctl deploy certs --renew', () => {
   });
 
   it('reuses --proxy-container for the post-renewal validate/reload, not the default', async () => {
-    const appsRoot = mkdtempSync(join(tmpdir(), 'appctl-certs-'));
+    const appsRoot = mkdtempSync(join(tmpdir(), 'evopathcli-certs-'));
     const root = join(appsRoot, 'demo');
     mkdirSync(root, { recursive: true });
     const proxyRoot = join(appsRoot, 'proxy');
@@ -691,7 +691,7 @@ describe('--proxy-mode / --proxy-container are validated as usage errors', () =>
 // `doctor --repo` (#390): the flag wins over everything else `resolveRepoUrl`
 // would otherwise fall back to, and never touches git when it is given.
 // =============================================================================
-describe('appctl deploy doctor --repo', () => {
+describe('evopathcli deploy doctor --repo', () => {
   function capturingCheck(seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }>): Check {
     return {
       id: 'capture',
@@ -817,9 +817,9 @@ describe('renderHealth: the Google sign-in line', () => {
 });
 
 // ---------------------------------------------------------------------------
-// `appctl deploy status`: the sign-in smoke end to end, and its exit code
+// `evopathcli deploy status`: the sign-in smoke end to end, and its exit code
 // ---------------------------------------------------------------------------
-describe('appctl deploy status: the OAuth smoke (#391)', () => {
+describe('evopathcli deploy status: the OAuth smoke (#391)', () => {
   const CLIENT_ID = '123456789012-abc123def456.apps.googleusercontent.com';
   const CALLBACK = 'https://app.example.test/api/auth/google/callback';
 
@@ -900,7 +900,7 @@ describe('appctl deploy status: the OAuth smoke (#391)', () => {
 // --skip-renewal, --skip-oauth-check). `runInstall`/`runUpdate` are mocked so
 // these tests assert on the OPTIONS BUILT, not on a pipeline run.
 // =============================================================================
-describe('appctl deploy install / update: the #391 flags reach the pipeline options', () => {
+describe('evopathcli deploy install / update: the #391 flags reach the pipeline options', () => {
   async function runInstallCli(argv: readonly string[]): Promise<InstallOptions> {
     vi.mocked(installModule.runInstall).mockReset();
     vi.mocked(installModule.runInstall).mockResolvedValue({
@@ -919,7 +919,7 @@ describe('appctl deploy install / update: the #391 flags reach the pipeline opti
     });
 
     await program.parseAsync(
-      ['deploy', 'install', '--root', '/tmp/appctl-flags-test', '--domain', 'app.example.test', ...argv],
+      ['deploy', 'install', '--root', '/tmp/evopathcli-flags-test', '--domain', 'app.example.test', ...argv],
       { from: 'user' },
     );
 
@@ -943,7 +943,7 @@ describe('appctl deploy install / update: the #391 flags reach the pipeline opti
       isTty: false,
     });
 
-    await program.parseAsync(['deploy', 'update', '--root', '/tmp/appctl-flags-test', ...argv], {
+    await program.parseAsync(['deploy', 'update', '--root', '/tmp/evopathcli-flags-test', ...argv], {
       from: 'user',
     });
 

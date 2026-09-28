@@ -177,7 +177,7 @@ describe('TelemetryConnectionTestService', () => {
           'The GreptimeDB deployed with this application has no reader login configured. ' +
           'Update the application to provision it.',
       });
-      expect(result.reader.error).not.toMatch(/env|compose|GREPTIME_|appctl|CLI/i);
+      expect(result.reader.error).not.toMatch(/env|compose|GREPTIME_|evopathcli|CLI/i);
       // The admin login is still checked on its own.
       expect(service.created).toHaveLength(1);
       expect(service.created[0]).toMatchObject({ user: 'env-admin' });
@@ -287,7 +287,7 @@ describe('TelemetryConnectionTestService', () => {
       expect(result.reader.error).toContain('candidate-host');
       expect(result.reader.error).toContain('(getaddrinfo EAI_AGAIN candidate-host)');
       expect(result.reader.error).toContain('Check the host name, or clear it');
-      expect(result.reader.error).not.toMatch(/compose|appctl/i);
+      expect(result.reader.error).not.toMatch(/compose|evopathcli/i);
     });
 
     it('is reported as the automatic-host message when the candidate host is automatic (null)', async () => {
@@ -305,7 +305,7 @@ describe('TelemetryConnectionTestService', () => {
       expect(result.reader.error).toContain('"deploy-host"');
       expect(result.reader.error).toContain('(getaddrinfo EAI_AGAIN deploy-host)');
       expect(result.reader.error).toContain('Deploy GreptimeDB');
-      expect(result.reader.error).not.toMatch(/compose|appctl/i);
+      expect(result.reader.error).not.toMatch(/compose|evopathcli/i);
     });
 
     it('still masks a password that happens to appear in the DNS error text', async () => {

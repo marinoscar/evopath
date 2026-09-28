@@ -53,7 +53,7 @@ function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
     },
     installedAt: '2026-01-04T09:12:00.000Z',
     updatedAt: '2026-08-30T18:40:00.000Z',
-    deployedBy: { cli: 'appctl', version: '1.9.0' },
+    deployedBy: { cli: 'evopathcli', version: '1.9.0' },
     domain: 'app.example.com',
     remote: { commitsBehind: 3, checkedAt: '2026-08-30T18:39:00.000Z' },
     run: { completed: ['pull', 'build', 'migrate', 'restart'], failedStep: null, outcome: 'success' },
@@ -106,7 +106,7 @@ describe('AboutPage — state 1: a document was read and the run succeeded', () 
     ).toBeInTheDocument();
     expect(within(facts).getByText('main')).toBeInTheDocument();
     expect(within(facts).getByText('app.example.com')).toBeInTheDocument();
-    expect(within(facts).getByText('appctl 1.9.0')).toBeInTheDocument();
+    expect(within(facts).getByText('evopathcli 1.9.0')).toBeInTheDocument();
     // Shown on `ok` too, not only when the record is missing: comparing two
     // instances means knowing which file each answered from.
     expect(within(facts).getByText('/srv/app/deploy/info.json')).toBeInTheDocument();
@@ -280,7 +280,7 @@ describe('AboutPage — state 3: a complete record whose deploy run failed', () 
     ).toBeInTheDocument();
     expect(within(facts).getByText('main')).toBeInTheDocument();
     expect(within(facts).getByText('app.example.com')).toBeInTheDocument();
-    expect(within(facts).getByText('appctl 1.9.0')).toBeInTheDocument();
+    expect(within(facts).getByText('evopathcli 1.9.0')).toBeInTheDocument();
   });
 
   it('is NOT collapsed into the "no record" state', async () => {

@@ -16,7 +16,7 @@ import {
 } from './layout.js';
 
 function makeAppsRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-layout-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-layout-'));
 }
 
 /** A fixture deployment: `<root>/repo/.git/` (a directory is enough) plus an `.env`. */
@@ -76,7 +76,7 @@ describe('locateApp: the five resolution ranks, in order', () => {
   it('rank 4: the sole installed deployment resolves with via "sole"', () => {
     const appsRoot = makeAppsRoot();
     addDeployment(appsRoot, 'alpha');
-    const elsewhere = mkdtempSync(join(tmpdir(), 'appctl-elsewhere-'));
+    const elsewhere = mkdtempSync(join(tmpdir(), 'evopathcli-elsewhere-'));
 
     const located = locateApp({ appsRoot, cwd: elsewhere });
 
@@ -86,7 +86,7 @@ describe('locateApp: the five resolution ranks, in order', () => {
 
   it('rank 5: zero deployments throws UsageError mentioning the apps root', () => {
     const appsRoot = makeAppsRoot();
-    const elsewhere = mkdtempSync(join(tmpdir(), 'appctl-elsewhere-'));
+    const elsewhere = mkdtempSync(join(tmpdir(), 'evopathcli-elsewhere-'));
 
     expect(() => locateApp({ appsRoot, cwd: elsewhere })).toThrow(UsageError);
     expect(() => locateApp({ appsRoot, cwd: elsewhere })).toThrow(appsRoot);
@@ -98,7 +98,7 @@ describe('locateApp: ambiguity refuses and NEVER prefers', () => {
     const appsRoot = makeAppsRoot();
     addMarkedDeployment(appsRoot, 'alpha');
     addDeployment(appsRoot, 'beta'); // no DEPLOY_ROOT marker
-    const outside = mkdtempSync(join(tmpdir(), 'appctl-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'evopathcli-outside-'));
 
     let error: unknown;
     try {
@@ -119,7 +119,7 @@ describe('locateApp: ambiguity refuses and NEVER prefers', () => {
 
 describe('deploymentContaining: bounded strictly inside the apps root', () => {
   it('never returns a deployment-looking directory ABOVE the apps root', () => {
-    const parent = mkdtempSync(join(tmpdir(), 'appctl-parent-'));
+    const parent = mkdtempSync(join(tmpdir(), 'evopathcli-parent-'));
     // A deployment-looking directory that is the PARENT of the apps root.
     mkdirSync(join(parent, 'repo', '.git'), { recursive: true });
     writeFileSync(join(parent, '.env'), 'APP_BIND_PORT=3535\n');

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { ENV_PREFIX } from '../branding.js';
+import { CLI_NAME, ENV_PREFIX } from '../branding.js';
 import { SERVER_URL_ENV_VAR, TOKEN_ENV_VAR } from '../config.js';
 import { WORKER_ENV, workerEnvNames } from './worker-env.js';
 import { APP_NAME } from '@app/shared';
@@ -21,8 +21,8 @@ import { APP_NAME } from '@app/shared';
 
 describe('WORKER_ENV', () => {
   it('reuses the existing server-URL and token variables rather than minting new ones', () => {
-    // If these ever drift apart, a machine gets `appctl api` working and
-    // `appctl node start` not working, with no way for a user to tell why.
+    // If these ever drift apart, a machine gets `evopathcli api` working and
+    // `evopathcli node start` not working, with no way for a user to tell why.
     expect(WORKER_ENV.serverUrl).toBe(SERVER_URL_ENV_VAR);
     expect(WORKER_ENV.token).toBe(TOKEN_ENV_VAR);
   });
@@ -100,8 +100,8 @@ describe('the worker container branding guard (issue #278)', () => {
     'direction (a): %s declares every variable WORKER_ENV names',
     (path) => {
       const body = readFileSync(path, 'utf8');
-      // A trailing boundary, not a bare `includes`: `APPCTL_CONCURRENCY` is a
-      // PREFIX of `APPCTL_CONCURRENCY_RENAMED`, so a substring check would
+      // A trailing boundary, not a bare `includes`: `EVOPATHCLI_CONCURRENCY` is a
+      // PREFIX of `EVOPATHCLI_CONCURRENCY_RENAMED`, so a substring check would
       // pass over exactly the rename this direction exists to catch.
       const missing = workerEnvNames().filter((name) => !new RegExp(`${name}(?![A-Z0-9_])`).test(body));
 
@@ -137,7 +137,10 @@ describe('the worker container branding guard (issue #278)', () => {
     // The service key is `worker` and the image is a build-time variable, so
     // there is nothing here for a fork to rename by hand.
     for (const [path, body] of contents) {
-      const lower = body.toLowerCase();
+      // The CLI's own name (and so its env prefix) legitimately appears here and
+      // may embed the product name (`<product>cli`), so it is removed before the
+      // product name is looked for. Anything else naming the product still fails.
+      const lower = body.toLowerCase().replaceAll(CLI_NAME.toLowerCase(), '');
       expect(lower, path).not.toContain(APP_NAME.toLowerCase());
       expect(lower, path).not.toContain('enterpriseappbase');
     }

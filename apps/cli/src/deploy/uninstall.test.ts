@@ -12,7 +12,7 @@ import { DEPLOY_STATE_VERSION, deployStatePath, writeState, type DeployState } f
 const FAKE_DB_PASSWORD = 'not-a-real-password';
 
 function deployment(env = 'POSTGRES_DB=appdb\nAPP_BIND_PORT=3535\n'): string {
-  const root = mkdtempSync(join(tmpdir(), 'appctl-uninstall-'));
+  const root = mkdtempSync(join(tmpdir(), 'evopathcli-uninstall-'));
   mkdirSync(join(root, 'repo', '.git'), { recursive: true });
   writeFileSync(join(root, '.env'), env);
   return root;
@@ -131,7 +131,7 @@ describe('the read-only inventory', () => {
   });
 
   it('refuses a directory that is not a deployment', () => {
-    const empty = mkdtempSync(join(tmpdir(), 'appctl-empty-'));
+    const empty = mkdtempSync(join(tmpdir(), 'evopathcli-empty-'));
 
     expect(() => planUninstall({ deployRoot: empty })).toThrow(UsageError);
   });

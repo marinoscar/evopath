@@ -15,7 +15,7 @@ import {
 } from './deployment-evidence.js';
 
 function makeRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-evidence-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-evidence-'));
 }
 
 /** repo/.git as a directory, exactly the marker `hasGitCheckout` looks for. */

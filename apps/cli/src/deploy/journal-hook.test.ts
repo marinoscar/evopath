@@ -44,7 +44,7 @@ function recorder(): { hooks: DeployHooks; events: string[]; paths: string[] } {
 
 describe('onJournal', () => {
   it('install announces its journal once, before the first step, even when that step fails', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-journal-hook-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-journal-hook-'));
     const { hooks, events, paths } = recorder();
 
     await runInstall({
@@ -64,7 +64,7 @@ describe('onJournal', () => {
   });
 
   it('update announces its journal once, before the first step', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-journal-hook-update-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-journal-hook-update-'));
     mkdirSync(join(root, 'repo', '.git'), { recursive: true });
     writeFileSync(join(root, '.env'), 'APP_BIND_PORT=3535\n');
     writeState({

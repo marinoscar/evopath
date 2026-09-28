@@ -123,7 +123,7 @@ describe('TelemetryServicesSection', () => {
 
     const alert = await screen.findByTestId('telemetry-services-unavailable');
     expect(alert).toHaveTextContent(UNAVAILABLE_MESSAGE);
-    expect(alert.textContent).not.toMatch(/appctl|compose/i);
+    expect(alert.textContent).not.toMatch(/evopathcli|compose/i);
     expect(screen.queryByRole('button', { name: /deploy/i })).not.toBeInTheDocument();
   });
 
@@ -132,7 +132,7 @@ describe('TelemetryServicesSection', () => {
     renderSection();
 
     const alert = await screen.findByTestId('telemetry-services-unavailable');
-    expect(alert.textContent).not.toMatch(/appctl|compose|\.yml|\.env/i);
+    expect(alert.textContent).not.toMatch(/evopathcli|compose|\.yml|\.env/i);
   });
 
   it('reports mismatched internal credentials as an error', async () => {

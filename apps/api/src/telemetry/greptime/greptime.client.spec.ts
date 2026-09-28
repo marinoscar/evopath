@@ -302,7 +302,7 @@ describe('GreptimeClient', () => {
       expect((error as Error).message).toContain('greptimedb');
       expect((error as Error).message).toContain('(getaddrinfo EAI_AGAIN greptimedb)');
       expect((error as Error).message).toContain('Check the host name, or clear it');
-      expect((error as Error).message).not.toMatch(/compose|appctl/i);
+      expect((error as Error).message).not.toMatch(/compose|evopathcli/i);
       expect(client.hostsAsked).toEqual([]);
     });
 
@@ -317,7 +317,7 @@ describe('GreptimeClient', () => {
       expect((error as Error).message).toMatch(/^Could not connect to GreptimeDB: GreptimeDB is not running alongside/);
       expect((error as Error).message).toContain('(getaddrinfo EAI_AGAIN greptimedb)');
       expect((error as Error).message).toContain('Deploy GreptimeDB');
-      expect((error as Error).message).not.toMatch(/compose|appctl/i);
+      expect((error as Error).message).not.toMatch(/compose|evopathcli/i);
     });
 
     it('a connect timeout asks resolveHost with the host mode of the connection in force', async () => {
@@ -423,7 +423,7 @@ describe('GreptimeClient', () => {
       expect('error' in result && result.error).toContain('greptimedb');
       expect('error' in result && result.error).toContain('does not exist on its network');
       expect('error' in result && result.error).toContain('Deploy GreptimeDB');
-      expect('error' in result && result.error).not.toMatch(/compose|appctl/i);
+      expect('error' in result && result.error).not.toMatch(/compose|evopathcli/i);
       expect(client.hostsAsked).toEqual([]);
     });
 
@@ -449,7 +449,7 @@ describe('GreptimeClient', () => {
       expect(result.reachable).toBe(false);
       expect('error' in result && result.error).toContain('greptimedb');
       expect('error' in result && result.error).toContain('could not be resolved');
-      expect('error' in result && result.error).not.toMatch(/compose|appctl/i);
+      expect('error' in result && result.error).not.toMatch(/compose|evopathcli/i);
       expect(client.hostsAsked).toEqual([]);
     });
 

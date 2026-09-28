@@ -39,7 +39,7 @@ function documentAsTheCliWritesIt(): Record<string, unknown> {
     },
     installedAt: '2026-09-19T00:00:00.000Z',
     updatedAt: '2026-09-19T00:05:00.000Z',
-    deployedBy: { cli: 'appctl', version: '1.0.0' },
+    deployedBy: { cli: 'evopathcli', version: '1.0.0' },
     domain: 'app.example.test',
     remote: null,
     run: {
@@ -63,7 +63,7 @@ describe('the deploy-info contract between the CLI and this API', () => {
     expect(result.status).toBe('ok');
     expect(result.document?.app.version).toBe('1.0.1');
     expect(result.document?.app.commitSha).toBe('a'.repeat(40));
-    expect(result.document?.deployedBy?.cli).toBe('appctl');
+    expect(result.document?.deployedBy?.cli).toBe('evopathcli');
     expect(result.document?.domain).toBe('app.example.test');
     expect(result.document?.run?.completed).toEqual([
       'preflight',

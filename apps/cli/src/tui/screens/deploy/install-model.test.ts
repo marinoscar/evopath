@@ -21,7 +21,7 @@ import {
 } from './install-model.js';
 
 function makeAppsRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-install-model-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-install-model-'));
 }
 
 function writeDeploymentEnv(appsRoot: string, name: string, contents: string): void {

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { readAbout, renderAbout } from './about.js';
 
 function root(document?: unknown): string {
-  const deployRoot = mkdtempSync(join(tmpdir(), 'appctl-about-'));
+  const deployRoot = mkdtempSync(join(tmpdir(), 'evopathcli-about-'));
   mkdirSync(join(deployRoot, 'deploy-info'), { recursive: true });
   if (document !== undefined) {
     writeFileSync(
@@ -29,7 +29,7 @@ function sample(overrides: Record<string, unknown> = {}): Record<string, unknown
     },
     installedAt: '2026-09-01T10:00:00.000Z',
     updatedAt: '2026-09-19T00:00:00.000Z',
-    deployedBy: { cli: 'appctl', version: '1.0.0' },
+    deployedBy: { cli: 'evopathcli', version: '1.0.0' },
     domain: 'app.example.test',
     remote: null,
     run: { completed: ['preflight'], failedStep: null, outcome: 'success' },

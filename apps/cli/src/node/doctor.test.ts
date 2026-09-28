@@ -67,7 +67,7 @@ function find(checks: DoctorCheck[], id: string): DoctorCheck | undefined {
 const NO_DAEMON = async () => ({ live: false, snapshot: undefined, pid: undefined });
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'appctl-doctor-'));
+  dir = mkdtempSync(join(tmpdir(), 'evopathcli-doctor-'));
 });
 
 afterEach(() => {

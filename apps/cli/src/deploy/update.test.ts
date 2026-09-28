@@ -93,7 +93,7 @@ describe('the update pipeline', () => {
 
 describe('runUpdate preconditions', () => {
   it('refuses to run when nothing is installed, naming install', async () => {
-    const empty = mkdtempSync(join(tmpdir(), 'appctl-noinstall-'));
+    const empty = mkdtempSync(join(tmpdir(), 'evopathcli-noinstall-'));
 
     const error = await runUpdate({ deployRoot: empty }).catch((caught: unknown) => caught);
 
@@ -104,7 +104,7 @@ describe('runUpdate preconditions', () => {
   });
 
   it('names which half is missing when refusing, rather than asserting a bare negative', async () => {
-    const empty = mkdtempSync(join(tmpdir(), 'appctl-noinstall-'));
+    const empty = mkdtempSync(join(tmpdir(), 'evopathcli-noinstall-'));
 
     const error = await runUpdate({ deployRoot: empty }).catch((caught: unknown) => caught);
 
@@ -139,7 +139,7 @@ describe('runUpdate: adopting an unrecorded deployment (#not the NotInstalledErr
   };
 
   function unrecordedDeploymentRoot(): string {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-adopt-update-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-adopt-update-'));
     mkdirSync(join(root, 'repo', '.git'), { recursive: true });
     writeFileSync(join(root, '.env'), 'APP_BIND_PORT=3535\n');
     return root;
@@ -160,7 +160,7 @@ describe('runUpdate: adopting an unrecorded deployment (#not the NotInstalledErr
   });
 
   it('still refuses a root with NEITHER a checkout nor an .env, even alongside this adoption path', async () => {
-    const empty = mkdtempSync(join(tmpdir(), 'appctl-adopt-update-empty-'));
+    const empty = mkdtempSync(join(tmpdir(), 'evopathcli-adopt-update-empty-'));
 
     const error = await runUpdate({
       deployRoot: empty,
@@ -222,7 +222,7 @@ describe('the publish step resolves and records the proxy runtime', () => {
   }
 
   it('an explicit --proxy-mode/--proxy-container flag is what gets resolved and recorded', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-update-publish-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-publish-'));
     const context = contextFor(root, baseState(root), {
       proxyMode: 'container',
       proxyContainer: 'flagged-proxy',
@@ -238,7 +238,7 @@ describe('the publish step resolves and records the proxy runtime', () => {
   });
 
   it('with no flag, install\'s recorded runtime is what gets resolved and recorded', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-update-publish-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-publish-'));
     const context = contextFor(
       root,
       baseState(root, { proxyMode: 'container', proxyContainer: 'recorded-proxy' }),
@@ -256,7 +256,7 @@ describe('the publish step resolves and records the proxy runtime', () => {
 
 describe('runUpdate: an unreadable state file is not an unrecorded deployment', () => {
   it('surfaces DeployStateError, not the adoption path and not NotInstalledError', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-badstate-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-badstate-'));
     mkdirSync(join(root, 'repo', '.git'), { recursive: true });
     writeFileSync(join(root, '.env'), 'APP_BIND_PORT=3535\n');
     // The file is present but this build cannot interpret it - a different
@@ -342,7 +342,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
   }
 
   it('does not require gh at all for a non-github (or ssh) repository', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-preflight-'));
     const context = contextFor(root, { repoUrl: 'git@github.com:acme/widgets.git' }, makeRunCommand(() => undefined));
 
     // gh is never even probed: no `gh ...` argv is answered above, so this
@@ -351,7 +351,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
   });
 
   it('does not require gh when git can already read the HTTPS GitHub URL', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-preflight-'));
     const context = contextFor(
       root,
       { repoUrl: 'https://github.com/acme/widgets' },
@@ -364,7 +364,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
   });
 
   it('REQUIRES gh (and FAILS the preflight) for an HTTPS GitHub URL git cannot read, with gh missing', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-preflight-'));
     const context = contextFor(
       root,
       { repoUrl: 'https://github.com/acme/widgets' },
@@ -383,7 +383,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
   });
 
   it('passes when gh is required AND actually installed and authenticated', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-preflight-'));
     const context = contextFor(
       root,
       { repoUrl: 'https://github.com/acme/widgets' },

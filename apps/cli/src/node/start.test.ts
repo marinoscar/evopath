@@ -83,7 +83,7 @@ function api(record: { deregisters: number; claims: number }): NodeApi {
 }
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'appctl-start-'));
+  home = mkdtempSync(join(tmpdir(), 'evopathcli-start-'));
   started = [];
 });
 

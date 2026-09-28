@@ -40,7 +40,7 @@ function readStored(): Record<string, unknown> {
 }
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), 'appctl-node-config-'));
+  home = mkdtempSync(join(tmpdir(), 'evopathcli-node-config-'));
 });
 
 afterEach(() => {

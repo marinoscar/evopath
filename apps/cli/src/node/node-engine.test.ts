@@ -197,7 +197,7 @@ class ControlledExecutor implements JobExecutor {
 let tmp: string;
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'appctl-engine-'));
+  tmp = mkdtempSync(join(tmpdir(), 'evopathcli-engine-'));
 });
 
 afterEach(() => {

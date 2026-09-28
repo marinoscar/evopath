@@ -14,7 +14,7 @@ import {
 import { DEPLOY_STATE_VERSION, deployStatePath, writeState, type DeployState } from './state.js';
 
 function makeAppsRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-inventory-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-inventory-'));
 }
 
 /** A fixture deployment: `<root>/repo/.git/` (a directory is enough) plus an `.env`. */

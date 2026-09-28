@@ -14,7 +14,7 @@ import {
 import type { CommandResult } from './executor.js';
 
 function root(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-proxy-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-proxy-'));
 }
 
 function targetIn(proxyRoot: string, domain = 'app.example.com'): ProxyTarget {

@@ -22,7 +22,7 @@ import {
 } from './state.js';
 
 function makeRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-state-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-state-'));
 }
 
 function sample(deployRoot: string): DeployState {

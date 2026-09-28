@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { adoptDeployment, NotAdoptableError, type AdoptOptions } from './adopt.js';
 
 function makeRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-adopt-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-adopt-'));
 }
 
 /** A root that passes `isDeployment`: repo/.git plus a readable .env. */

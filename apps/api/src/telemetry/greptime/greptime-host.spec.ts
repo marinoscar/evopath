@@ -147,7 +147,7 @@ describe('isDnsError', () => {
 
 describe('hostNotFoundMessage', () => {
   // Shown to administrators: never a compose file, a file edit or the CLI.
-  const OPERATOR_INSTRUCTIONS = /compose|\.ya?ml|appctl|\.env|docker|\bCLI\b/i;
+  const OPERATOR_INSTRUCTIONS = /compose|\.ya?ml|evopathcli|\.env|docker|\bCLI\b/i;
 
   describe('a custom host', () => {
     const message = hostNotFoundMessage('candidate-host', dnsError('EAI_AGAIN', 'getaddrinfo EAI_AGAIN candidate-host'));

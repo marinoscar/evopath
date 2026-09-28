@@ -26,7 +26,7 @@ vi.mock('./renewal.js', async (importOriginal) => {
 });
 
 function installedRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'appctl-install-'));
+  const root = mkdtempSync(join(tmpdir(), 'evopathcli-install-'));
   const state: DeployState = {
     version: DEPLOY_STATE_VERSION,
     repoUrl: 'https://example.test/o/r',
@@ -161,7 +161,7 @@ describe('the install pipeline', () => {
 
 /** A root passing `isDeployment` (checkout + .env), but with no state file. */
 function evidenceOnlyRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'appctl-install-evidence-'));
+  const root = mkdtempSync(join(tmpdir(), 'evopathcli-install-evidence-'));
   mkdirSync(join(root, 'repo', '.git'), { recursive: true });
   writeFileSync(join(root, '.env'), 'APP_BIND_PORT=3535\n');
   return root;
@@ -366,7 +366,7 @@ describe('the environment step: blank answers vs. an on-disk value', () => {
   }
 
   it('keeps the on-disk secret when the supplied answer is blank', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-env-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-env-step-'));
     seed(root, KNOWN_SECRET);
 
     const context = contextFor(root, new Map([['JWT_SECRET', '']]));
@@ -379,7 +379,7 @@ describe('the environment step: blank answers vs. an on-disk value', () => {
   });
 
   it('lets a genuinely supplied, non-blank answer win over the on-disk value', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-env-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-env-step-'));
     seed(root, KNOWN_SECRET);
 
     const context = contextFor(root, new Map([['JWT_SECRET', NEW_SECRET]]));
@@ -435,7 +435,7 @@ describe('the publish step resolves and records the proxy runtime', () => {
   }
 
   it('an explicit --proxy-mode/--proxy-container flag is what gets resolved and recorded', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-publish-step-'));
     const context = contextFor(root, { proxyMode: 'container', proxyContainer: 'my-proxy' });
 
     await publishStep().run(context as never);
@@ -448,7 +448,7 @@ describe('the publish step resolves and records the proxy runtime', () => {
   });
 
   it('with no flag, a previous run\'s recorded runtime is what gets resolved and recorded', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-publish-step-'));
     const context = {
       ...contextFor(root, {}),
       recordedProxy: { proxyMode: 'container' as const, proxyContainer: 'recorded-proxy' },
@@ -464,7 +464,7 @@ describe('the publish step resolves and records the proxy runtime', () => {
   });
 
   it('resolves the runtime only ONCE: preflight and publish must never disagree', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-publish-step-'));
     const context = contextFor(root, { proxyMode: 'host' });
     // A HOST runtime would call `certbot certonly` and `nginx -t`/`-s reload`
     // directly, none of which this test's runCommand answers -- so a second,
@@ -548,7 +548,7 @@ describe('the proxy-bootstrap step', () => {
   });
 
   it('does nothing on the host: the proxy is the host\'s own nginx, never bootstrapped', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-proxy-step-'));
     const proxyRoot = join(root, 'proxy');
     const runtime = { ...proxyRuntimeFor('host', proxyRoot), source: 'explicit' as const };
     // No command is ever issued in host mode; any call here is a bug.
@@ -563,7 +563,7 @@ describe('the proxy-bootstrap step', () => {
   });
 
   it('does nothing when the proxy container is already running', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-proxy-step-'));
     const proxyRoot = join(root, 'proxy');
     const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
     const run = routedRunCommand([
@@ -577,7 +577,7 @@ describe('the proxy-bootstrap step', () => {
   });
 
   it('refuses -- and does not start it -- when the container exists but is stopped', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-proxy-step-'));
     const proxyRoot = join(root, 'proxy');
     const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
     const run = routedRunCommand([
@@ -595,7 +595,7 @@ describe('the proxy-bootstrap step', () => {
   });
 
   it('refuses -- and never overwrites -- when a compose file makes the root somebody else\'s', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-proxy-step-'));
     const proxyRoot = join(root, 'proxy');
     mkdirSync(proxyRoot, { recursive: true });
     const theirs = 'services:\n  proxy:\n    image: caddy\n';
@@ -615,7 +615,7 @@ describe('the proxy-bootstrap step', () => {
   });
 
   it('when absent, reuses the preflight\'s consent rather than asking a second time', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-proxy-step-'));
     const proxyRoot = join(root, 'proxy');
     const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
     const run = routedRunCommand([
@@ -639,7 +639,7 @@ describe('the proxy-bootstrap step', () => {
   });
 
   it('when absent and never yet asked, asks once, and on "yes" lays out and starts the proxy', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-proxy-step-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-proxy-step-'));
     const proxyRoot = join(root, 'proxy');
     const runtime = { ...proxyRuntimeFor('container', proxyRoot, 'proxy-nginx'), source: 'explicit' as const };
     const run = routedRunCommand([
@@ -738,7 +738,7 @@ describe('the preflight step: the bootstrap-proxy consent gate', () => {
   }
 
   it('non-interactive, no --bootstrap-proxy: fails, and the remedy names the flag', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-preflight-consent-'));
     const context = contextFor(root, routedRunCommand(() => ({ ok: false })), { nonInteractive: true });
 
     const error = await preflightStep()
@@ -752,7 +752,7 @@ describe('the preflight step: the bootstrap-proxy consent gate', () => {
   });
 
   it('with --bootstrap-proxy: consent is "flag", and proxy-container itself passes', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-preflight-consent-'));
     const context = contextFor(root, routedRunCommand(() => ({ ok: false })), { bootstrapProxy: true });
 
     // The overall preflight still fails on unrelated required checks (DNS, git,
@@ -768,7 +768,7 @@ describe('the preflight step: the bootstrap-proxy consent gate', () => {
   });
 
   it('interactive and declined: asked exactly once, and the answer is recorded, not re-asked', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-preflight-consent-'));
     const ask = vi.fn(async () => false);
     const context = contextFor(root, routedRunCommand(() => ({ ok: false })), { ask });
 
@@ -782,7 +782,7 @@ describe('the preflight step: the bootstrap-proxy consent gate', () => {
   });
 
   it('a running proxy asks nothing at all: there is no absence to consent to', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'appctl-preflight-consent-'));
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-preflight-consent-'));
     const ask = vi.fn(async () => true);
     const context = contextFor(root, routedRunCommand(() => ({ ok: true, stdout: 'true' })), {
       nonInteractive: true,
@@ -825,7 +825,7 @@ describe('scheduleRenewal', () => {
     vi.mocked(renewalModule.ensureRenewal).mockResolvedValueOnce({
       action: 'owned-elsewhere',
       detail: 'renewal is owned by a central renewal script (found /etc/cron.d/renew-all)',
-      path: '/etc/cron.d/appctl-certbot-renew',
+      path: '/etc/cron.d/evopathcli-certbot-renew',
       ownership: { owner: 'central-script', detail: 'found /etc/cron.d/renew-all', mechanisms: [] } as never,
     });
 
@@ -839,13 +839,13 @@ describe('scheduleRenewal', () => {
   });
 
   it('warns, but never throws, when the cron file cannot be written', async () => {
-    const content = '# Managed by appctl deploy.\n17 3,15 * * * root true\n';
+    const content = '# Managed by evopathcli deploy.\n17 3,15 * * * root true\n';
     vi.mocked(renewalModule.ensureRenewal).mockResolvedValueOnce({
       action: 'not-writable',
-      detail: 'could not write /etc/cron.d/appctl-certbot-renew (EACCES); certificate renewal is NOT scheduled',
-      remedy: `As root, write /etc/cron.d/appctl-certbot-renew with exactly this content (mode 0644):\n${content}`,
+      detail: 'could not write /etc/cron.d/evopathcli-certbot-renew (EACCES); certificate renewal is NOT scheduled',
+      remedy: `As root, write /etc/cron.d/evopathcli-certbot-renew with exactly this content (mode 0644):\n${content}`,
       content,
-      path: '/etc/cron.d/appctl-certbot-renew',
+      path: '/etc/cron.d/evopathcli-certbot-renew',
       ownership: { owner: 'none', detail: 'nothing found', mechanisms: [] } as never,
     });
 

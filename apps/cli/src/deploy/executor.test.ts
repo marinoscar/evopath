@@ -207,7 +207,7 @@ describe('runCommand', () => {
   it('does not interpret its arguments as a shell command', async () => {
     // With `shell: true` this would run `echo` and then `touch`. Without it,
     // the whole string is one argument to node, which prints it back.
-    const payload = 'safe; touch /tmp/appctl-should-not-exist';
+    const payload = 'safe; touch /tmp/evopathcli-should-not-exist';
     const result = await runCommand(
       [NODE, '-e', 'process.stdout.write(process.argv[1])', payload],
       { cwd: CWD },

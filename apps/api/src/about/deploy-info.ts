@@ -3,7 +3,7 @@
 // #401, epic #397)
 // =============================================================================
 //
-// `appctl deploy install|update` writes this file into the deploy root and the
+// `evopathcli deploy install|update` writes this file into the deploy root and the
 // compose file bind-mounts it READ-ONLY into the api container. Nothing in this
 // application writes it, and nothing in this application may fetch, refresh or
 // verify it: it is a note left by the process that put this container here, and
@@ -44,7 +44,7 @@ import { DEPLOY_INFO_STATUSES } from './deploy-info.constants';
  * ⚠ DO NOT BUMP THIS TO ADD AN OPTIONAL FIELD. EVER.
  *
  * The ordering of a deploy makes that a guaranteed outage of this endpoint
- * rather than a risk of one. `appctl deploy update` writes `info.json` and THEN
+ * rather than a risk of one. `evopathcli deploy update` writes `info.json` and THEN
  * brings containers up; more to the point, an operator running a newer CLI
  * against a deployment whose image has not been rebuilt has a NEW file being
  * read by an OLD api. If a new optional field came with `schema: 2`, every
@@ -118,7 +118,7 @@ export interface DeployInfoRun {
 
 // --- Issue #392: additive fields. `schema` stays 1 — see DEPLOY_INFO_SCHEMA_VERSION. ---
 
-/** Which `appctl deploy` subcommand last wrote the document. */
+/** Which `evopathcli deploy` subcommand last wrote the document. */
 export type DeployCommand = 'install' | 'update';
 
 /** How TLS is terminated in front of this deployment. */
@@ -190,7 +190,7 @@ export interface DeployInfoReadResult {
 /**
  * Reads and parses the deploy document.
  *
- * ⚠ READS FROM DISK ON EVERY CALL, AND CACHES NOTHING. `appctl deploy update`
+ * ⚠ READS FROM DISK ON EVERY CALL, AND CACHES NOTHING. `evopathcli deploy update`
  * rewrites this file in place without restarting the container — that is the
  * point of the bind mount — so a cached parse would serve a stale commit SHA
  * for as long as the process lives, which is precisely the question this

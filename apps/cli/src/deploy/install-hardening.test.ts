@@ -10,7 +10,7 @@ import { UsageError } from '../errors.js';
 import { DEPLOY_STATE_VERSION, readState, writeState, type DeployState } from './state.js';
 
 function fixture(): string {
-  const deployRoot = mkdtempSync(join(tmpdir(), 'appctl-harden-'));
+  const deployRoot = mkdtempSync(join(tmpdir(), 'evopathcli-harden-'));
   mkdirSync(composeCwd(deployRoot), { recursive: true });
   writeFileSync(
     join(composeCwd(deployRoot), '.env.example'),
@@ -166,7 +166,7 @@ describe('install: --domain is only required when something will be published', 
 
 describe('deploy state stays readable across this change', () => {
   it('a record with neither composeProject nor proxyRoot still loads', () => {
-    const deployRoot = mkdtempSync(join(tmpdir(), 'appctl-state-compat-'));
+    const deployRoot = mkdtempSync(join(tmpdir(), 'evopathcli-state-compat-'));
     // ⚠ A LITERAL v1 RECORD, as every deployment in the field has on disk.
     writeState({
       version: 1 as typeof DEPLOY_STATE_VERSION,

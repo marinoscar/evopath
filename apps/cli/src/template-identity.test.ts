@@ -132,6 +132,9 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // prose (sentences, a directory listing), not a single substitutable
   // token, so a per-line codemod-output check does not fit it.
   'README.md',
+  // Product vision document: deliberately carries the real product name as
+  // hand-written prose, not a substitutable token.
+  'VISION.md',
   // Install one-liners carrying the repo URL for `npm install -g`/`npx`.
   'apps/cli/README.md',
   // Fetched and run via `curl | bash` BEFORE the repository exists on disk —

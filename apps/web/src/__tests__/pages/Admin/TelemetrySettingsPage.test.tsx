@@ -114,7 +114,7 @@ describe('TelemetrySettingsPage', () => {
     );
     expect(alert).toHaveTextContent(/GreptimeDB is deployed with this application/);
     expect(alert).toHaveTextContent(/take effect once it is reachable, with no restart needed/);
-    expect(alert.textContent).not.toMatch(/appctl|compose/i);
+    expect(alert.textContent).not.toMatch(/evopathcli|compose/i);
   });
 
   it('sets retentionDays from a preset and saves with If-Match', async () => {
@@ -434,7 +434,7 @@ describe('TelemetrySettingsPage', () => {
       expect(description).toHaveTextContent(/GreptimeDB is deployed with this application/);
       expect(description).toHaveTextContent(/the Automatic host finds it — leave the host blank/);
       expect(description).toHaveTextContent(/Enter a host only to use an external GreptimeDB/);
-      expect(description.textContent).not.toMatch(/appctl|compose/i);
+      expect(description.textContent).not.toMatch(/evopathcli|compose/i);
     });
 
     describe('automatic host', () => {

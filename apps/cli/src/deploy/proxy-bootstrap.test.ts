@@ -47,7 +47,7 @@ function fake(respond: (argv: readonly string[]) => Reply): {
 const NO_CONTAINER: Reply = { exitCode: 1, stderr: 'Error: No such container: proxy-nginx' };
 
 function root(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-proxy-bootstrap-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-proxy-bootstrap-'));
 }
 
 describe('renderProxyCompose', () => {

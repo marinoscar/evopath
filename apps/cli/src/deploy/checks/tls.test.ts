@@ -14,7 +14,7 @@ import type { Check, CheckContext, CheckFs } from './types.js';
 
 // =============================================================================
 // detectRenewalOwner reads root's crontab, /etc/crontab, /etc/cron.d/*, a
-// systemd timer and appctl's own cron file. Everything is injected: a fake
+// systemd timer and evopathcli's own cron file. Everything is injected: a fake
 // CheckFs and a fake runCommand, never a real filesystem or a real crontab.
 // =============================================================================
 
@@ -141,7 +141,7 @@ describe('renewsWithCertbot', () => {
 
 describe('CLI_RENEWAL_CRON_PATH', () => {
   it('is namespaced under the CLI name', () => {
-    expect(CLI_RENEWAL_CRON_PATH).toBe('/etc/cron.d/appctl-certbot-renew');
+    expect(CLI_RENEWAL_CRON_PATH).toBe('/etc/cron.d/evopathcli-certbot-renew');
   });
 });
 
@@ -203,11 +203,11 @@ describe('detectRenewalOwner', () => {
     expect(result.detail).toContain('/etc/cron.d/renew-certs');
   });
 
-  it('never mistakes appctl\'s own cron file or the certbot package cron file for a discovered /etc/cron.d entry', async () => {
+  it('never mistakes evopathcli\'s own cron file or the certbot package cron file for a discovered /etc/cron.d entry', async () => {
     // Both are read explicitly (their own branches), and must not also be
     // iterated as arbitrary /etc/cron.d/* entries -- that would double-count.
     const fs = makeFs({
-      dirs: { '/etc/cron.d': ['certbot', 'appctl-certbot-renew'] },
+      dirs: { '/etc/cron.d': ['certbot', 'evopathcli-certbot-renew'] },
       files: {
         '/etc/cron.d/certbot': '0 */12 * * * root certbot renew --quiet\n',
         [CLI_RENEWAL_CRON_PATH]: '17 3 * * * root certbot renew --quiet\n',
@@ -216,13 +216,13 @@ describe('detectRenewalOwner', () => {
 
     const result = await detectRenewalOwner({ fs, runCommand: NOTHING_RUNS });
 
-    // certbot's package cron and appctl's own file are each counted exactly
+    // certbot's package cron and evopathcli's own file are each counted exactly
     // once (by their dedicated branches), not a second time as a loose
     // /etc/cron.d/* entry.
     const certbotCount = result.mechanisms.filter((m) => m.path === '/etc/cron.d/certbot').length;
-    const appctlCount = result.mechanisms.filter((m) => m.path === CLI_RENEWAL_CRON_PATH).length;
+    const evopathcliCount = result.mechanisms.filter((m) => m.path === CLI_RENEWAL_CRON_PATH).length;
     expect(certbotCount).toBe(1);
-    expect(appctlCount).toBe(1);
+    expect(evopathcliCount).toBe(1);
   });
 
   it('finds a SYSTEMD TIMER', async () => {
@@ -249,7 +249,7 @@ describe('detectRenewalOwner', () => {
     expect(result.detail).toContain('certbot renew');
   });
 
-  it('finds APPCTL\'s own schedule when nothing else owns it', async () => {
+  it('finds evopathcli\'s own schedule when nothing else owns it', async () => {
     const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
 
     const result = await detectRenewalOwner({ fs, runCommand: NOTHING_RUNS });
@@ -258,7 +258,7 @@ describe('detectRenewalOwner', () => {
     expect(result.path).toBe(CLI_RENEWAL_CRON_PATH);
   });
 
-  it('PRECEDENCE: a central script wins over a systemd timer, cron and appctl all present at once', async () => {
+  it('PRECEDENCE: a central script wins over a systemd timer, cron and evopathcli all present at once', async () => {
     const fs = makeFs({
       files: {
         '/opt/scripts/renew-all.sh': 'certbot renew\n',
@@ -286,7 +286,7 @@ describe('detectRenewalOwner', () => {
     ]);
   });
 
-  it('PRECEDENCE: a systemd timer wins over cron and appctl', async () => {
+  it('PRECEDENCE: a systemd timer wins over cron and evopathcli', async () => {
     const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
     const run = fakeRunCommand((argv) => {
       const line = argv.join(' ');
@@ -489,7 +489,7 @@ describe('certificate-renewal check', () => {
     expect(result.remedy).toContain('90 days');
   });
 
-  it('WARNS with a DOUBLE-SCHEDULE remedy when appctl\'s own cron coexists with another real owner', async () => {
+  it('WARNS with a DOUBLE-SCHEDULE remedy when evopathcli\'s own cron coexists with another real owner', async () => {
     const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
     const run = fakeRunCommand((argv) =>
       argv.join(' ') === 'crontab -l -u root' ? { exitCode: 0, stdout: '0 4 * * * certbot renew\n' } : undefined,
@@ -503,7 +503,7 @@ describe('certificate-renewal check', () => {
     expect(result.remedy).toContain(`rm ${CLI_RENEWAL_CRON_PATH}`);
   });
 
-  it('does not warn about a double schedule when appctl IS the (only) owner', async () => {
+  it('does not warn about a double schedule when evopathcli IS the (only) owner', async () => {
     const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
 
     const result = await find('certificate-renewal').run(context({ fs }));

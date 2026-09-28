@@ -16,7 +16,7 @@ import { parseEnvExample } from './env-spec.js';
 import { readEnvFile, writeEnvContents, writeEnvFile } from './env-file.js';
 
 function makeRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'appctl-env-file-'));
+  return mkdtempSync(join(tmpdir(), 'evopathcli-env-file-'));
 }
 
 /** A template exercising a section banner and more than one key, like the

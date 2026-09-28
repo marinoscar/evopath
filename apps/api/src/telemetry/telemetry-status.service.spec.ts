@@ -64,7 +64,7 @@ describe('TelemetryStatusService', () => {
     const status = await service.getStatus();
 
     expect(status).toMatchObject({ configured: false, reachable: false, error: problem });
-    expect(status.error).not.toMatch(/env|compose|GREPTIME_|appctl|CLI/i);
+    expect(status.error).not.toMatch(/env|compose|GREPTIME_|evopathcli|CLI/i);
     expect(greptime.ping).not.toHaveBeenCalled();
   });
 
