@@ -10,10 +10,11 @@ import {
 // =============================================================================
 //
 // The primitive underneath every runtime-configured secret this application
-// will ever store. Deploy-time secrets (JWT_SECRET, AWS_SECRET_ACCESS_KEY,
-// GOOGLE_CLIENT_SECRET) correctly live in the environment; this module exists
-// for the other kind — an SMTP password an administrator types into a form,
-// which cannot come from an env var because it needs a redeploy to change.
+// will ever store. Deploy-time secrets (JWT_SECRET, GOOGLE_CLIENT_SECRET)
+// correctly live in the environment; this module exists for the other kind —
+// an SMTP password or an SES secret access key an administrator types into a
+// form, which cannot come from an env var because it needs a redeploy to
+// change.
 //
 // Payload layout (concatenated, then base64-encoded into one opaque string):
 //

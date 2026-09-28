@@ -746,9 +746,10 @@ environment variable needs a redeploy. Those are encrypted at rest.
 None of these stores has a generic HTTP surface. Each feature exposes its own
 narrow admin or user routes, which call the store. No route, log line,
 span, error body or audit row returns key material; `describe`/`list` reads
-never even select the ciphertext column. AWS SES still takes
-`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` from the environment; those two
-are for email only and do not authorize storage.
+never even select the ciphertext column. AWS SES's secret access key is one
+more `CredentialsService` entry, at its own purpose (`email_ses`), independent
+of the object-storage secret; the access key id is an ordinary field in the
+`email` settings namespace. Neither authorizes the other.
 
 ### The cipher
 

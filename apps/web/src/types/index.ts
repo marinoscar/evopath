@@ -715,6 +715,15 @@ export interface EmailSettings {
   /** SES region override, e.g. `us-east-1`. Absent means the deployment's `SES_REGION`. */
   sesRegion?: string;
 
+  /**
+   * SES access key ID — an ordinary, non-secret settings field, exactly like
+   * `smtpHost`: readable as plaintext, absent means "not configured" (never
+   * present-and-empty). The paired secret half lives in
+   * {@link EmailSettings.sesSecretAccessKeyStatus}, not here — an access key ID
+   * identifies a credential, it is not one.
+   */
+  sesAccessKeyId?: string;
+
   smtpHost?: string;
   smtpPort?: number;
 
@@ -734,6 +743,16 @@ export interface EmailSettings {
 
   /** Everything the UI may know about the stored password. See {@link SmtpPasswordStatus}. */
   smtpPasswordStatus: SmtpPasswordStatus;
+
+  /**
+   * Everything the UI may know about the stored SES secret access key —
+   * structurally identical to {@link SmtpPasswordStatus} (the shape is already
+   * reused this way for other stored secrets — see `pushConfig.ts`,
+   * `storageConfig.ts`) and for the same reason: the secret itself is
+   * unreadable through the API by construction, so this is what makes the
+   * blank secret-access-key box honest.
+   */
+  sesSecretAccessKeyStatus: SmtpPasswordStatus;
 
   /**
    * Why the STORED configuration could not be read, when it could not be. Null
@@ -794,6 +813,7 @@ export interface EmailSettingsInput {
   provider: EmailProviderKind | null;
   enabled: boolean;
   sesRegion?: Blankable<string>;
+  sesAccessKeyId?: Blankable<string>;
   smtpHost?: Blankable<string>;
   smtpPort?: Blankable<number>;
   smtpUseTls?: Blankable<boolean>;
@@ -801,6 +821,13 @@ export interface EmailSettingsInput {
   fromAddress?: Blankable<string>;
   fromName?: Blankable<string>;
   smtpPassword?: string;
+
+  /**
+   * BLANK PRESERVES, exactly like `smtpPassword` above: omitted — or the key
+   * left out entirely — leaves the stored SES secret access key exactly as it
+   * is. Only include this when the admin actually typed something.
+   */
+  sesSecretAccessKey?: string;
 }
 
 /**

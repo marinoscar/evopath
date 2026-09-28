@@ -65,6 +65,7 @@ const baseSettings: EmailSettings = {
     updatedAt: '2024-01-01T00:00:00.000Z',
     updatedByUserId: 'admin-user-id',
   },
+  sesSecretAccessKeyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
   settingsError: null,
   version: 3,
   updatedAt: '2024-01-01T00:00:00.000Z',
@@ -354,6 +355,150 @@ describe('EmailSettingsPage', () => {
       renderAsAdmin();
 
       expect(screen.getByRole('switch', { name: 'Require TLS' })).not.toBeChecked();
+    });
+  });
+
+  // ==========================================================================
+  // SES access key id — renders, updates, and is required when SES is chosen
+  // (issue #585 — this replaces AWS_ACCESS_KEY_ID from the environment)
+  // ==========================================================================
+
+  describe('SES access key id', () => {
+    it('renders the stored access key id when SES is the chosen provider', () => {
+      setHook({
+        settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: 'AKIAEXAMPLE' },
+      });
+
+      renderAsAdmin();
+
+      expect(screen.getByLabelText(/access key id/i)).toHaveValue('AKIAEXAMPLE');
+    });
+
+    it('updates as the admin types', async () => {
+      const user = userEvent.setup();
+      setHook({ settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: '' } });
+
+      renderAsAdmin();
+      const field = screen.getByLabelText(/access key id/i);
+      await user.type(field, 'AKIATYPED');
+
+      expect(field).toHaveValue('AKIATYPED');
+    });
+
+    it('is required when SES is enabled and chosen, with a stated error', async () => {
+      const user = userEvent.setup();
+      setHook({
+        settings: {
+          ...baseSettings,
+          provider: 'ses',
+          enabled: true,
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+        },
+      });
+
+      renderAsAdmin();
+      await user.clear(screen.getByLabelText(/access key id/i));
+
+      await waitFor(() =>
+        expect(screen.getByText('An access key ID is required.')).toBeInTheDocument(),
+      );
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
+    });
+  });
+
+  // ==========================================================================
+  // SES secret access key — blank-preserves, mirroring the SMTP password field
+  // (issue #585)
+  // ==========================================================================
+
+  describe('SES secret access key', () => {
+    it('renders empty regardless of whether a secret is stored (blank-preserves, never round-trips plaintext)', () => {
+      setHook({
+        settings: {
+          ...baseSettings,
+          provider: 'ses',
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKeyStatus: {
+            configured: true,
+            hint: '••••x9fQ',
+            updatedAt: '2024-01-02T00:00:00.000Z',
+            updatedByUserId: 'admin-user-id',
+          },
+        },
+      });
+
+      renderAsAdmin();
+
+      expect(screen.getByLabelText(/secret access key/i)).toHaveValue('');
+    });
+
+    it('shows "no secret access key is saved yet" when none is configured', () => {
+      setHook({
+        settings: {
+          ...baseSettings,
+          provider: 'ses',
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKeyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+        },
+      });
+
+      renderAsAdmin();
+
+      expect(
+        screen.getByText(/no secret access key is saved yet\. ses cannot send until one is/i),
+      ).toBeInTheDocument();
+    });
+
+    it('states a secret is saved, including its hint, when one is configured', () => {
+      setHook({
+        settings: {
+          ...baseSettings,
+          provider: 'ses',
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKeyStatus: {
+            configured: true,
+            hint: '••••x9fQ',
+            updatedAt: '2024-01-02T00:00:00.000Z',
+            updatedByUserId: 'admin-user-id',
+          },
+        },
+      });
+
+      renderAsAdmin();
+
+      expect(
+        screen.getByText(/a secret access key is saved \(••••x9fQ\).*leave this blank to keep it/i),
+      ).toBeInTheDocument();
+    });
+
+    it('typing into the secret field is a change (counts as dirty) even though every other field matches', async () => {
+      const user = userEvent.setup();
+      setHook({
+        settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: 'AKIAEXAMPLE' },
+      });
+
+      renderAsAdmin();
+      await user.type(screen.getByLabelText(/secret access key/i), 'new-secret-value');
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /save changes/i })).not.toBeDisabled(),
+      );
+    });
+
+    it('is not required by client-side validation: leaving it blank does not block save', () => {
+      setHook({
+        settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: 'AKIAEXAMPLE' },
+      });
+
+      renderAsAdmin();
+
+      // No form change at all, so the button is correctly disabled for being
+      // clean, not because a blank secret box is treated as an error.
+      expect(screen.queryByText(/secret access key.*required/i)).not.toBeInTheDocument();
     });
   });
 

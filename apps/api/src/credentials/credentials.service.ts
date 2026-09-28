@@ -24,9 +24,9 @@ import type {
 // =============================================================================
 //
 // One audited place to put a secret an ADMINISTRATOR configures at runtime: an
-// SMTP password (#109, the immediate consumer), an OAuth client secret, a
-// webhook signing key, a second bucket's S3 key. Deploy-time secrets
-// (JWT_SECRET, AWS_SECRET_ACCESS_KEY, GOOGLE_CLIENT_SECRET) are NOT this —
+// SMTP password (#109, the immediate consumer), an SES secret access key
+// (#585), an OAuth client secret, a webhook signing key, a second bucket's S3
+// key. Deploy-time secrets (JWT_SECRET, GOOGLE_CLIENT_SECRET) are NOT this —
 // they come from the environment and correctly stay there.
 //
 // Records are addressed by `(purpose, name)`:
