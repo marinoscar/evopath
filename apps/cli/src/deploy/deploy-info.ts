@@ -56,6 +56,8 @@
 import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { CLI_NAME } from '../branding.js';
+
 import type { DeploymentHistoryEntry, HostFacts } from './state.js';
 
 /** The one value `schema` may hold. See rule 1 above. */
@@ -112,7 +114,7 @@ export function buildDeployInfo(input: DeployInfoInput): Record<string, unknown>
     installedAt: orNull(input.installedAt),
     updatedAt: orNull(input.updatedAt),
     deployedBy: {
-      cli: 'appctl',
+      cli: CLI_NAME,
       version: orNull(input.cliVersion),
     },
     domain: orNull(input.domain),
