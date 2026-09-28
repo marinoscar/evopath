@@ -19,6 +19,15 @@ import type { DeployState } from './state.js';
 // migrations silently failed reports itself ready. So this asks about
 // migration state separately, and a green probe alone is never treated as
 // proof that the schema is there.
+//
+// THE SAME TRAP APPLIES TO `docker compose ps`'s `State` (issue #24):
+// "running" is not "working". The telemetry stack ships with every VPS
+// deployment (compose-files.ts), and `greptimedb` carries a real Docker
+// healthcheck for exactly this reason -- a process can stay `running` while
+// crash-looping internally or never finishing startup. `isHealthy` reads that
+// healthcheck, not only the coarse running/stopped state, so a telemetry
+// container that never becomes healthy fails the deployment's health gate
+// instead of silently reporting success.
 // =============================================================================
 
 export interface ProbeResult {
@@ -302,11 +311,28 @@ export async function collectHealth(options: HealthOptions): Promise<HealthRepor
   };
 }
 
-/** True when the deployment is serving and its schema is current. */
+/**
+ * True when the deployment is serving and its schema is current.
+ *
+ * ⚠ A CONTAINER'S OWN HEALTHCHECK IS CHECKED TOO, NOT ONLY ITS `state`
+ * (issue #24). `greptimedb` runs a real Docker healthcheck (`curl .../health`
+ * with retries) precisely because a process can be `running` while its
+ * healthcheck fails -- crash-looping internally, wedged, or up but not yet
+ * answering -- and `docker compose ps`'s `State` stays "running" throughout.
+ * Before this, an install whose telemetry container never became healthy
+ * still reported success: `deploy install`'s `verify` step, `deploy status`
+ * and `deploy update` all read this same function. A container with no
+ * healthcheck at all reports no `health` field and is judged by `state`
+ * alone, exactly as before -- this adds a check, it never invents one.
+ */
 export function isHealthy(report: HealthReport): boolean {
   const containersOk =
     report.containers.length === 0 ||
-    report.containers.every((container) => /running/i.test(container.state));
+    report.containers.every(
+      (container) =>
+        /running/i.test(container.state) &&
+        (container.health === undefined || container.health === 'healthy'),
+    );
 
   const migrationsOk = !report.migrations.known || report.migrations.pending.length === 0;
 
