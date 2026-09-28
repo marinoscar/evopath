@@ -83,7 +83,7 @@ services:
       # GREPTIME_* (telemetry reads) arrive via env_file with no default here:
       # absent, the API reports telemetry as unavailable.
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
-      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-my-app-api}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-evopath-api}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     networks:
       - app-network

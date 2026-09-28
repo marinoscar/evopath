@@ -66,7 +66,7 @@ and deploys a standalone copy — you don't need a local clone to end up with
 a working `appctl` on your PATH.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/marinoscar/EnterpriseAppBase/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/marinoscar/evopath/main/install.sh | bash
 ```
 
 It's safe to re-run: the installer detects an existing install at
@@ -92,7 +92,7 @@ the existing install and updates it in place.
 ### Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/marinoscar/EnterpriseAppBase/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/marinoscar/evopath/main/install.sh | bash -s -- --uninstall
 ```
 
 or, from a local clone:
@@ -139,7 +139,7 @@ Set these before running the installer to override its defaults:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `APPCTL_REPO` | `https://github.com/marinoscar/EnterpriseAppBase.git` | Git clone URL |
+| `APPCTL_REPO` | `https://github.com/marinoscar/evopath.git` | Git clone URL |
 | `APPCTL_REF` | `main` | Branch/tag/commit to install |
 | `APPCTL_HOME` | `$HOME/.appctl` | App install root (same directory the CLI stores `config.json` in) |
 | `APPCTL_BIN_DIR` | `$HOME/.local/bin` | Directory for the `appctl` shim |

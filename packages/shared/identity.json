@@ -1,7 +1,7 @@
 {
-  "productName": "My App",
+  "productName": "EvoPath",
   "tagline": "A production-grade full-stack application foundation built with React, NestJS, and PostgreSQL.",
-  "repoSlug": "marinoscar/EnterpriseAppBase",
-  "themeColor": "#1976d2",
+  "repoSlug": "marinoscar/evopath",
+  "themeColor": "#0f766e",
   "backgroundColor": "#ffffff"
 }

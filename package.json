@@ -1,5 +1,5 @@
 {
-  "name": "my-app",
+  "name": "evopath",
   "private": true,
   "workspaces": [
     "apps/*",
