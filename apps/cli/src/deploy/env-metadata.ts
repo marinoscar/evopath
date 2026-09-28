@@ -327,10 +327,10 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // so there is nothing about storage left to ask at install time — and asking
   // would recreate the second source of truth the epic removed.
   //
-  // These three survive because SES still reads them, and only SES does.
+  // Only one survives (issue #585 removed the SES access key id/secret the
+  // same way #377 removed storage's): SES_REGION still reads as a fallback
+  // default, and only SES does.
   SES_REGION: { group: 'email' },
-  AWS_ACCESS_KEY_ID: { group: 'email', secret: true },
-  AWS_SECRET_ACCESS_KEY: { group: 'email', secret: true },
 };
 
 export function metadataFor(key: string): EnvVarMetadata {
