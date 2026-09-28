@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { CLI_NAME } from '../../../branding.js';
 import { DEFAULT_BIND_PORT } from '../../../commands/deploy.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
-import { collectHealth, isHealthy, type HealthReport } from '../../../deploy/health.js';
+import { collectHealth, isHealthy, type ContainerState, type HealthReport } from '../../../deploy/health.js';
 import { oauthSmokeTarget } from '../../../deploy/install.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { readState } from '../../../deploy/state.js';
@@ -82,6 +82,24 @@ export function StatusScreen({ onDone, located }: StatusScreenProps): ReactNode 
   );
 }
 
+/**
+ * The "Containers: ..." summary line's contents, pure so it is testable
+ * without ink (issue #24). Matches the plain `deploy status` command's own
+ * rendering (`commands/deploy.ts`'s `renderHealth`): a container can stay
+ * `running` while its own healthcheck fails, and the health suffix is the one
+ * thing that would otherwise never surface here.
+ */
+export function containersSummary(containers: readonly ContainerState[]): string {
+  return (
+    containers
+      .map(
+        (container) =>
+          `${container.service}=${container.state}${container.health === undefined ? '' : `(${container.health})`}`,
+      )
+      .join(' ') || 'none'
+  );
+}
+
 /** Collects health. The same call `runStatusCommand` makes. */
 async function performStatus(
   resolved: string,
@@ -112,7 +130,7 @@ async function performStatus(
 
   return [
     isHealthy(report) ? 'Healthy.' : 'NOT healthy.',
-    `Containers: ${report.containers.map((container) => `${container.service}=${container.state}`).join(' ') || 'none'}`,
+    `Containers: ${containersSummary(report.containers)}`,
     `Readiness:  ${report.local.ready.ok ? 'ok' : (report.local.ready.error ?? 'failed')}`,
     `Frontend:   ${report.local.frontend.ok ? 'ok' : (report.local.frontend.error ?? 'failed')}`,
     ...(report.external === undefined
