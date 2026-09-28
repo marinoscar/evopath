@@ -43,6 +43,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { CLI_NAME } from '../branding.js';
 import { readEnvFile, writeEnvFile } from './env-file.js';
 import { parseEnvExample } from './env-spec.js';
 import { runCommand as defaultRunCommand } from './executor.js';
@@ -116,9 +117,9 @@ export async function runVersionStep(
   await git(options, ['add', ...changed]);
   await git(options, [
     '-c',
-    'user.name=appctl deploy',
+    `user.name=${CLI_NAME} deploy`,
     '-c',
-    'user.email=appctl@localhost',
+    `user.email=${CLI_NAME}@localhost`,
     'commit',
     '--no-verify',
     '-m',

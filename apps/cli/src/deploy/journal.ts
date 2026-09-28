@@ -1,6 +1,8 @@
 import { appendFileSync, mkdirSync, openSync, closeSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { CLI_NAME } from '../branding.js';
+
 import type { CommandResult } from './executor.js';
 
 // =============================================================================
@@ -143,7 +145,7 @@ export function openJournal(options: OpenJournalOptions): Journal {
 
   const logsDir = join(options.deployRoot, 'logs');
   const slug = timestampSlug(now());
-  const base = `appctl-${options.command}-${slug}`;
+  const base = `${CLI_NAME}-${options.command}-${slug}`;
   const logPath = join(logsDir, `${base}.log`);
   const jsonlPath = join(logsDir, `${base}.jsonl`);
 
@@ -273,7 +275,7 @@ export function pruneOldRuns(logsDir: string, retain: number): void {
 
   const bases = new Set<string>();
   for (const name of readdirSync(logsDir)) {
-    const match = /^(appctl-.+?)\.(log|jsonl)$/.exec(name);
+    const match = new RegExp(`^(${CLI_NAME}-.+?)\\.(log|jsonl)$`).exec(name);
     if (match?.[1] !== undefined) bases.add(match[1]);
   }
 
