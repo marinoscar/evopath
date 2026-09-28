@@ -93,6 +93,7 @@ interface EmailFormState {
   fromAddress: string;
   fromName: string;
   sesRegion: string;
+  sesAccessKeyId: string;
   smtpHost: string;
   smtpPort: string;
   /** REQUIRE TLS — see `EmailSettings.smtpUseTls`. Not nodemailer's `secure`. */
@@ -151,6 +152,7 @@ function toFormState(settings: EmailSettings): EmailFormState {
     fromAddress: settings.fromAddress ?? '',
     fromName: settings.fromName ?? '',
     sesRegion: settings.sesRegion ?? '',
+    sesAccessKeyId: settings.sesAccessKeyId ?? '',
     smtpHost: settings.smtpHost ?? '',
     // An absent port renders as the STARTTLS default rather than as blank or
     // "0": it is both a legal port and an obvious default to an admin, and it
@@ -204,6 +206,24 @@ function smtpPasswordHelperText(status: SmtpPasswordStatus): string {
 }
 
 /**
+ * What to say about the stored SES secret access key — the same three-state
+ * wording as {@link smtpPasswordHelperText}, and for the same reason: this
+ * field is BLANK-PRESERVES too (see `EmailSettingsInput.sesSecretAccessKey`),
+ * so the box is honest about whether leaving it alone keeps something or
+ * keeps nothing.
+ */
+function sesSecretAccessKeyHelperText(status: SmtpPasswordStatus): string {
+  if (!status.configured) {
+    return 'No secret access key is saved yet. SES cannot send until one is.';
+  }
+  const which = status.hint ? ` (${status.hint})` : '';
+  const when = status.updatedAt
+    ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}`
+    : '';
+  return `A secret access key is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
+}
+
+/**
  * Field-level validation, client-side only.
  *
  * Deliberately thin: the API validates for real (it must, since this page is
@@ -246,8 +266,18 @@ function validate(form: EmailFormState): Partial<Record<keyof EmailFormState, st
     errors.fromAddress = 'A from address is required to send mail.';
   }
 
-  if (form.provider === 'ses' && !form.sesRegion.trim()) {
-    errors.sesRegion = 'A region is required, e.g. us-east-1.';
+  if (form.provider === 'ses') {
+    if (!form.sesRegion.trim()) {
+      errors.sesRegion = 'A region is required, e.g. us-east-1.';
+    }
+    // Access key ID is the visible/required half of the SES credential, exactly
+    // like `smtpHost` for SMTP. The secret access key is the write-only,
+    // blank-preserves half — like `smtpPassword` — and is deliberately NOT
+    // checked here: blank means "keep the stored one", which is a legal, even
+    // expected, state on every load of this form.
+    if (!form.sesAccessKeyId.trim()) {
+      errors.sesAccessKeyId = 'An access key ID is required.';
+    }
   }
 
   if (form.provider === 'smtp') {
@@ -284,16 +314,24 @@ export default function EmailSettingsPage() {
    * to remove.
    */
   const [smtpPassword, setSmtpPassword] = useState('');
+  /**
+   * Held OUTSIDE `form` for the exact same reason as `smtpPassword` above: it
+   * is write-only and blank-preserves (see
+   * `EmailSettingsInput.sesSecretAccessKey`), so it must not enter the
+   * dirty-comparison baseline as an unchanged value.
+   */
+  const [sesSecretAccessKey, setSesSecretAccessKey] = useState('');
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   // The server's response is the new baseline after every load AND every save,
-  // so this also clears the password box once a save has consumed it. Leaving a
-  // typed password on screen after a successful save would imply it is still
-  // pending, and the next save would send it again.
+  // so this also clears the password/secret boxes once a save has consumed
+  // them. Leaving a typed secret on screen after a successful save would imply
+  // it is still pending, and the next save would send it again.
   useEffect(() => {
     if (settings) {
       setForm(toFormState(settings));
       setSmtpPassword('');
+      setSesSecretAccessKey('');
     }
   }, [settings]);
 
@@ -314,12 +352,15 @@ export default function EmailSettingsPage() {
   const errors = form ? validate(form) : {};
   const hasErrors = Object.keys(errors).length > 0;
 
-  // A typed password counts as a change even when every other field matches:
-  // it is the one edit that leaves no visible trace in the form baseline.
+  // A typed password/secret counts as a change even when every other field
+  // matches: each is the one edit that leaves no visible trace in the form
+  // baseline.
   const isDirty =
     !!form &&
     !!settings &&
-    (JSON.stringify(form) !== JSON.stringify(toFormState(settings)) || smtpPassword !== '');
+    (JSON.stringify(form) !== JSON.stringify(toFormState(settings)) ||
+      smtpPassword !== '' ||
+      sesSecretAccessKey !== '');
 
   const update = <K extends keyof EmailFormState>(key: K, value: EmailFormState[K]) => {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -360,6 +401,7 @@ export default function EmailSettingsPage() {
     fromAddress: state.fromAddress.trim(),
     fromName: state.fromName.trim(),
     sesRegion: state.sesRegion.trim(),
+    sesAccessKeyId: state.sesAccessKeyId.trim(),
     smtpHost: state.smtpHost.trim(),
     smtpPort: toPortValue(state.smtpPort),
     smtpUseTls: state.smtpUseTls,
@@ -373,6 +415,8 @@ export default function EmailSettingsPage() {
     // password that a future server revision might read as "clear it". See
     // `EmailSettingsInput`.
     ...(smtpPassword ? { smtpPassword } : {}),
+    // Same exception, same reason, for the SES secret access key.
+    ...(sesSecretAccessKey ? { sesSecretAccessKey } : {}),
   });
 
   const handleSubmit = async (event: FormEvent) => {
@@ -588,10 +632,56 @@ export default function EmailSettingsPage() {
                     Amazon SES
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    SES uses the AWS credentials already in the deployment's environment (epic
-                    #109) — there is no access key to enter here.
+                    Enter the AWS access key for a user or role authorised to call SES in the
+                    region below (issue #585 — these credentials are stored here, not read from
+                    the deployment's environment).
                   </Typography>
                   <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <TextField
+                        fullWidth
+                        label="Access Key ID"
+                        value={form.sesAccessKeyId}
+                        onChange={(e) => update('sesAccessKeyId', e.target.value)}
+                        disabled={!canWrite}
+                        autoComplete="off"
+                        error={!!errors.sesAccessKeyId}
+                        helperText={
+                          errors.sesAccessKeyId ?? 'e.g. AKIAIOSFODNN7EXAMPLE'
+                        }
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      {/* THE BLANK-PRESERVES CONTRACT, SAID OUT LOUD — same
+                          shape as the SMTP password field below, and for the
+                          same reason (#585). The field renders empty because
+                          the stored secret is encrypted and unreadable, not
+                          because nothing is stored. An empty box that silently
+                          means "keep" confuses; one that silently means "erase"
+                          destroys. So the helper text states which it is, and
+                          `sesSecretAccessKeyStatus` — the only non-secret thing
+                          the API says about this credential — decides the
+                          wording, so the sentence is never a guess. Its `hint`
+                          is the store's own mask, which names WHICH credential
+                          is live rather than only that one exists. */}
+                      <TextField
+                        fullWidth
+                        type="password"
+                        label="Secret Access Key"
+                        value={sesSecretAccessKey}
+                        onChange={(e) => setSesSecretAccessKey(e.target.value)}
+                        disabled={!canWrite}
+                        // A password manager filling this box would silently
+                        // re-send a credential the admin never typed.
+                        autoComplete="new-password"
+                        placeholder={
+                          settings.sesSecretAccessKeyStatus.configured
+                            ? (settings.sesSecretAccessKeyStatus.hint ?? '••••••••')
+                            : ''
+                        }
+                        helperText={sesSecretAccessKeyHelperText(settings.sesSecretAccessKeyStatus)}
+                      />
+                    </Grid>
                     <Grid size={{ xs: 12, sm: 6 }}>
                       <TextField
                         fullWidth
