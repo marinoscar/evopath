@@ -69,11 +69,12 @@ const TEMPLATE = [
   '# OAuth (Microsoft)',
   '# ------------------------------------------------------------',
   'MICROSOFT_CLIENT_ID=',
+  'MICROSOFT_CLIENT_SECRET=',
   '',
   '# ------------------------------------------------------------',
   '# Email (Amazon SES)',
   '# ------------------------------------------------------------',
-  'AWS_ACCESS_KEY_ID=',
+  'SES_REGION=',
   '',
   '# ------------------------------------------------------------',
   '# Observability',
@@ -387,15 +388,15 @@ describe('installFields: the --all toggle (issue #586, step reorder)', () => {
     ).toBe(false);
   });
 
-  it('a non-observability grouped SECRET (AWS_ACCESS_KEY_ID, group: email) is never asked, all or not', () => {
+  it('a non-observability grouped SECRET (MICROSOFT_CLIENT_SECRET, group: microsoft-oauth) is never asked, all or not', () => {
     // Proves the group exclusion runs before the "secret with nothing usable"
     // branch of shouldAsk would otherwise have picked it up.
     expect(
-      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'AWS_ACCESS_KEY_ID'),
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'MICROSOFT_CLIENT_SECRET'),
     ).toBe(false);
     expect(
       installFields(specs(), EMPTY_SEED, { all: true }).some(
-        (field) => field.key === 'AWS_ACCESS_KEY_ID',
+        (field) => field.key === 'MICROSOFT_CLIENT_SECRET',
       ),
     ).toBe(false);
   });

@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 
 // =============================================================================
-// SesEmailProvider — tests (issue #122, epic #109)
+// SesEmailProvider — tests (issue #122, epic #109; own credential as of #585)
 // =============================================================================
 //
 // `@aws-sdk/client-sesv2` is mocked entirely, at the module level, BEFORE it
@@ -13,10 +13,17 @@ import type { ConfigService } from '@nestjs/config';
 // provider resolves internally, since that resolution is private.
 //
 // The provider is instantiated directly (`new SesEmailProvider(...)`) rather
-// than through a Nest TestingModule: its constructor takes only two plain
+// than through a Nest TestingModule: its constructor takes three plain
 // dependencies, and nearly every test below needs a different combination of
-// config/settings values, so a hand-built pair of fakes per test is far
-// clearer than rebuilding a DI container for each one.
+// config/settings/credential values, so a hand-built triple of fakes per test
+// is far clearer than rebuilding a DI container for each one.
+//
+// #585 moved the AWS credential off the environment and onto its own
+// admin-configurable field (`sesAccessKeyId`, a setting) plus its own
+// encrypted-credential-store entry (`(email_ses, default)`, the secret access
+// key) — exactly mirroring how the SMTP password already works. This file's
+// `makeCredentials` helper is the same shape as
+// `smtp-email.provider.spec.ts`'s.
 // =============================================================================
 
 const sesSendMock = jest.fn();
@@ -35,7 +42,11 @@ jest.mock('@aws-sdk/client-sesv2', () => ({
 }));
 
 import { SesEmailProvider } from './ses-email.provider';
-import { CredentialsService } from '../../credentials/credentials.service';
+import {
+  SES_CREDENTIAL_NAME,
+  SES_CREDENTIAL_PURPOSE,
+} from '../ses-credential.constants';
+import type { CredentialsService } from '../../credentials/credentials.service';
 import type { EmailSettingsService } from '../email-settings.service';
 import type { EmailSettings } from '../email-settings.schema';
 import type { EmailMessage } from '../email.types';
@@ -65,19 +76,25 @@ function makeEmailSettings(value: EmailSettings): EmailSettingsService {
   } as unknown as EmailSettingsService;
 }
 
+function makeCredentials(secret: string | null): CredentialsService {
+  return {
+    getSecret: jest.fn().mockResolvedValue(secret),
+  } as unknown as CredentialsService;
+}
+
+/** A settings object carrying the non-secret half of the SES credential. */
+const withAccessKeyId = (
+  settings: EmailSettings,
+  accessKeyId = 'AKIAEXAMPLE',
+): EmailSettings => ({ ...settings, sesAccessKeyId: accessKeyId });
+
 describe('SesEmailProvider', () => {
   let warnSpy: jest.SpyInstance;
-  let credentialsGetSecretSpy: jest.SpyInstance;
 
   beforeEach(() => {
     jest.clearAllMocks();
     warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
     jest.spyOn(Logger.prototype, 'error').mockImplementation();
-    // SES uses only environment credentials (see the header comment in
-    // ses-email.provider.ts). Spying on the real CredentialsService proves
-    // that structurally: SesEmailProvider does not even hold a reference to
-    // it, so this spy can only fire if a regression wires one in.
-    credentialsGetSecretSpy = jest.spyOn(CredentialsService.prototype, 'getSecret');
   });
 
   afterEach(() => {
@@ -85,31 +102,58 @@ describe('SesEmailProvider', () => {
   });
 
   // ==========================================================================
-  // Credentials come from the environment, never from CredentialsService
+  // The SES credential comes from its own settings field + CredentialsService,
+  // never from the environment (#585)
   // ==========================================================================
 
-  describe('credentials come from the environment, not CredentialsService', () => {
-    it('never calls CredentialsService for a successful send', async () => {
+  describe('the credential comes from settings + CredentialsService, not the environment', () => {
+    it('reads the secret access key through CredentialsService.getSecret with the SES purpose and default name', async () => {
+      const credentials = makeCredentials('super-secret-access-key-value');
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-2' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-2' })),
+        credentials,
       );
       sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-1' });
 
       await provider.send(baseMessage);
 
-      expect(credentialsGetSecretSpy).not.toHaveBeenCalled();
+      expect(credentials.getSecret).toHaveBeenCalledWith(
+        SES_CREDENTIAL_PURPOSE,
+        SES_CREDENTIAL_NAME,
+      );
+      expect(SES_CREDENTIAL_PURPOSE).toBe('email_ses');
     });
 
-    it('never calls CredentialsService even on a configuration failure', async () => {
-      const provider = new SesEmailProvider(makeConfig({}), makeEmailSettings(baseEmailSettings));
+    it('never reads the old environment-based config keys for the access key id or secret', async () => {
+      const config = makeConfig({});
+      const provider = new SesEmailProvider(
+        config,
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-2' })),
+        makeCredentials('super-secret-access-key-value'),
+      );
+      sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-2' });
 
       await provider.send(baseMessage);
 
-      expect(credentialsGetSecretSpy).not.toHaveBeenCalled();
+      expect(config.get).not.toHaveBeenCalledWith('email.awsAccessKeyId');
+      expect(config.get).not.toHaveBeenCalledWith('email.awsSecretAccessKey');
+    });
+
+    it('still calls CredentialsService even on a configuration failure (the id is missing)', async () => {
+      const credentials = makeCredentials('super-secret-access-key-value');
+      const provider = new SesEmailProvider(
+        makeConfig({}),
+        makeEmailSettings(baseEmailSettings), // no sesAccessKeyId
+        credentials,
+      );
+
+      await provider.send(baseMessage);
+
+      expect(credentials.getSecret).toHaveBeenCalledWith(
+        SES_CREDENTIAL_PURPOSE,
+        SES_CREDENTIAL_NAME,
+      );
     });
   });
 
@@ -119,22 +163,40 @@ describe('SesEmailProvider', () => {
 
   describe('missing/incomplete configuration is a result, not a throw', () => {
     it('reports a failure, not an exception, when no AWS credentials are configured', async () => {
-      const provider = new SesEmailProvider(makeConfig({}), makeEmailSettings(baseEmailSettings));
+      const provider = new SesEmailProvider(
+        makeConfig({}),
+        makeEmailSettings(baseEmailSettings),
+        makeCredentials(null),
+      );
 
       const result = await provider.send(baseMessage);
 
       expect(result).toEqual({
         success: false,
         error:
-          'SES: AWS credentials are not set. SES uses AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from the environment.',
+          'SES: AWS credentials are not set. Enter the SES access key ID and secret access key in email settings.',
       });
       expect(sesConstructorMock).not.toHaveBeenCalled();
     });
 
     it('reports a failure when the secret access key is missing even if the access key id is present', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({ 'email.awsAccessKeyId': 'AKIAEXAMPLE' }),
-        makeEmailSettings(baseEmailSettings),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId(baseEmailSettings)),
+        makeCredentials(null),
+      );
+
+      const result = await provider.send(baseMessage);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('AWS credentials are not set');
+    });
+
+    it('reports a failure when the access key id is missing even if the secret access key is stored', async () => {
+      const provider = new SesEmailProvider(
+        makeConfig({}),
+        makeEmailSettings(baseEmailSettings), // no sesAccessKeyId
+        makeCredentials('super-secret-access-key-value'),
       );
 
       const result = await provider.send(baseMessage);
@@ -146,11 +208,10 @@ describe('SesEmailProvider', () => {
     it('reports an explicit region error rather than silently defaulting to us-east-1', async () => {
       const provider = new SesEmailProvider(
         makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
           // no email.sesRegionFallback configured either
         }),
-        makeEmailSettings(baseEmailSettings), // no sesRegion
+        makeEmailSettings(withAccessKeyId(baseEmailSettings)), // no sesRegion
+        makeCredentials('super-secret-access-key-value'),
       );
 
       const result = await provider.send(baseMessage);
@@ -168,18 +229,17 @@ describe('SesEmailProvider', () => {
   });
 
   // ==========================================================================
-  // Region resolution
+  // Region resolution — UNCHANGED by #585, still settings-first, env-fallback
   // ==========================================================================
 
   describe('region resolution', () => {
     it('prefers email.sesRegion from settings over the SES_REGION environment fallback', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-          'email.sesRegionFallback': 'us-west-2',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'eu-west-1' }),
+        makeConfig({ 'email.sesRegionFallback': 'us-west-2' }),
+        makeEmailSettings(
+          withAccessKeyId({ ...baseEmailSettings, sesRegion: 'eu-west-1' }),
+        ),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-2' });
 
@@ -192,12 +252,9 @@ describe('SesEmailProvider', () => {
 
     it('falls back to SES_REGION when no email.sesRegion setting is configured', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-          'email.sesRegionFallback': 'ap-southeast-2',
-        }),
-        makeEmailSettings(baseEmailSettings), // no sesRegion
+        makeConfig({ 'email.sesRegionFallback': 'ap-southeast-2' }),
+        makeEmailSettings(withAccessKeyId(baseEmailSettings)), // no sesRegion
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-3' });
 
@@ -216,11 +273,9 @@ describe('SesEmailProvider', () => {
   describe('sending', () => {
     it('returns { success: true } with the SES message id on acceptance', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-real-message-id' });
 
@@ -231,11 +286,9 @@ describe('SesEmailProvider', () => {
 
     it('builds the SendEmailCommand input from the message, including extra headers', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-4' });
 
@@ -263,11 +316,9 @@ describe('SesEmailProvider', () => {
 
     it('omits the Headers field when the message carries none', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-5' });
 
@@ -281,11 +332,9 @@ describe('SesEmailProvider', () => {
 
     it('reports a failure when SES accepts the request but returns no message id', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValueOnce({});
 
@@ -299,11 +348,9 @@ describe('SesEmailProvider', () => {
 
     it('returns a failure result, never a rejection, when the SDK call rejects with an Error', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockRejectedValueOnce(new Error('Network timeout'));
 
@@ -315,11 +362,9 @@ describe('SesEmailProvider', () => {
 
     it('returns a failure result when the SDK rejects with a non-Error value', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockRejectedValueOnce({ $metadata: { httpStatusCode: 403 } });
 
@@ -337,11 +382,9 @@ describe('SesEmailProvider', () => {
   describe('rate-limit classification', () => {
     it('tags a TooManyRequestsException rejection as rateLimited', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       const throttleError = Object.assign(new Error('Maximum sending rate exceeded.'), {
         name: 'TooManyRequestsException',
@@ -357,11 +400,9 @@ describe('SesEmailProvider', () => {
 
     it('does not tag an authentication/authorization error as rateLimited', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       const authError = Object.assign(new Error('The security token is invalid'), {
         name: 'UnrecognizedClientException',
@@ -383,11 +424,9 @@ describe('SesEmailProvider', () => {
   describe('client caching', () => {
     it('reuses the cached client across sends with the same region and access key', async () => {
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValue({ MessageId: 'ses-msg-a' });
 
@@ -398,21 +437,46 @@ describe('SesEmailProvider', () => {
     });
 
     it('rebuilds and destroys the old client when the region changes', async () => {
-      const emailSettings = makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' });
+      const emailSettings = makeEmailSettings(
+        withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+      );
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': 'super-secret-access-key-value',
-        }),
+        makeConfig({}),
         emailSettings,
+        makeCredentials('super-secret-access-key-value'),
       );
       sesSendMock.mockResolvedValue({ MessageId: 'ses-msg-b' });
 
       await provider.send(baseMessage);
-      (emailSettings.get as jest.Mock).mockResolvedValueOnce({
-        ...baseEmailSettings,
-        sesRegion: 'eu-central-1',
-      });
+      (emailSettings.get as jest.Mock).mockResolvedValueOnce(
+        withAccessKeyId({ ...baseEmailSettings, sesRegion: 'eu-central-1' }),
+      );
+      await provider.send(baseMessage);
+
+      expect(sesConstructorMock).toHaveBeenCalledTimes(2);
+      expect(sesDestroyMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('rebuilds and destroys the old client when the secret access key rotates, even with the same region and access key id', async () => {
+      // The whole reason the implementation puts the secret INTO the cache key
+      // (`${region} ${accessKeyId} ${secretAccessKey}`, see the class-level
+      // comment on `buildClient`): a runtime secret rotation must take effect
+      // on the very next send, not at the next process restart.
+      const credentialsGetSecret = jest
+        .fn()
+        .mockResolvedValueOnce('old-secret-access-key-value')
+        .mockResolvedValueOnce('new-rotated-secret-access-key-value');
+      const credentials = {
+        getSecret: credentialsGetSecret,
+      } as unknown as CredentialsService;
+      const provider = new SesEmailProvider(
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        credentials,
+      );
+      sesSendMock.mockResolvedValue({ MessageId: 'ses-msg-c' });
+
+      await provider.send(baseMessage);
       await provider.send(baseMessage);
 
       expect(sesConstructorMock).toHaveBeenCalledTimes(2);
@@ -428,11 +492,9 @@ describe('SesEmailProvider', () => {
     it('redacts the AWS secret access key from an SDK error message', async () => {
       const secret = 'super-secret-access-key-value-1234';
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': secret,
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials(secret),
       );
       sesSendMock.mockRejectedValueOnce(
         new Error(
@@ -450,11 +512,9 @@ describe('SesEmailProvider', () => {
     it('never logs the AWS secret access key', async () => {
       const secret = 'super-secret-access-key-value-5678';
       const provider = new SesEmailProvider(
-        makeConfig({
-          'email.awsAccessKeyId': 'AKIAEXAMPLE',
-          'email.awsSecretAccessKey': secret,
-        }),
-        makeEmailSettings({ ...baseEmailSettings, sesRegion: 'us-east-1' }),
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials(secret),
       );
       sesSendMock.mockRejectedValueOnce(new Error(`auth error, key=${secret}`));
 

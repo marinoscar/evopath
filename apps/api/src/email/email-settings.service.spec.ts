@@ -288,6 +288,83 @@ describe('EmailSettingsService', () => {
       expect(view.settingsError).toBeNull();
     });
 
+    it('reports sesSecretAccessKeyStatus.configured: true when a secret is stored', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        version: 1,
+        updatedAt: new Date('2024-01-01T00:00:00.000Z'),
+        updatedByUser: null,
+        value: { provider: 'ses', enabled: true, sesRegion: 'us-east-1' },
+      } as any);
+      mockCredentials.describe.mockImplementation((purpose: string) =>
+        Promise.resolve(
+          purpose === 'email_ses'
+            ? {
+                purpose: 'email_ses',
+                name: 'default',
+                hint: '••••x9fQ',
+                label: 'SES secret access key',
+                updatedByUserId: 'user-1',
+                createdAt: new Date('2024-01-01T00:00:00.000Z'),
+                updatedAt: new Date('2024-01-02T00:00:00.000Z'),
+              }
+            : null,
+        ),
+      );
+
+      const view = await service.describeForAdmin();
+
+      expect(view.sesSecretAccessKeyStatus).toEqual({
+        configured: true,
+        hint: '••••x9fQ',
+        updatedAt: new Date('2024-01-02T00:00:00.000Z'),
+        updatedByUserId: 'user-1',
+      });
+      expect(mockCredentials.describe).toHaveBeenCalledWith('email_ses', 'default');
+    });
+
+    it('reports sesSecretAccessKeyStatus.configured: false when nothing is stored', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
+      mockCredentials.describe.mockResolvedValue(null);
+
+      const view = await service.describeForAdmin();
+
+      expect(view.sesSecretAccessKeyStatus).toEqual({
+        configured: false,
+        hint: null,
+        updatedAt: null,
+        updatedByUserId: null,
+      });
+    });
+
+    it('the SMTP password and the SES secret access key are reported independently', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        version: 1,
+        updatedAt: new Date(),
+        updatedByUser: null,
+        value: { provider: 'smtp', enabled: true, smtpHost: 'smtp.example.com' },
+      } as any);
+      mockCredentials.describe.mockImplementation((purpose: string) =>
+        Promise.resolve(
+          purpose === 'smtp'
+            ? {
+                purpose: 'smtp',
+                name: 'default',
+                hint: '••••ab12',
+                label: 'SMTP password',
+                updatedByUserId: 'user-1',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              }
+            : null,
+        ),
+      );
+
+      const view = await service.describeForAdmin();
+
+      expect(view.smtpPasswordStatus.configured).toBe(true);
+      expect(view.sesSecretAccessKeyStatus.configured).toBe(false);
+    });
+
     it('never leaks the SMTP password: JSON.stringify of the admin view never contains a known plaintext', async () => {
       const suspiciousPlaintext = 'do-not-leak-this-smtp-password-Xk9!q2';
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
@@ -407,6 +484,127 @@ describe('EmailSettingsService', () => {
           enabled: true,
           smtpHost: 'smtp.example.com',
           smtpPassword: submittedPlaintext,
+        },
+        userId,
+      );
+
+      expect(JSON.stringify(view)).not.toContain(submittedPlaintext);
+    });
+
+    it('blank SES secret access key ("") preserves the stored credential: setSecret is not called for it', async () => {
+      existingRow(1);
+
+      await service.update(
+        {
+          provider: 'ses',
+          enabled: true,
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKey: '',
+        },
+        userId,
+      );
+
+      expect(mockCredentials.setSecret).not.toHaveBeenCalled();
+    });
+
+    it('blank SES secret access key (null) preserves the stored credential: setSecret is not called for it', async () => {
+      existingRow(1);
+
+      await service.update(
+        {
+          provider: 'ses',
+          enabled: true,
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKey: null,
+        },
+        userId,
+      );
+
+      expect(mockCredentials.setSecret).not.toHaveBeenCalled();
+    });
+
+    it('blank SES secret access key (key absent) preserves the stored credential: setSecret is not called for it', async () => {
+      existingRow(1);
+
+      await service.update(
+        {
+          provider: 'ses',
+          enabled: true,
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+        },
+        userId,
+      );
+
+      expect(mockCredentials.setSecret).not.toHaveBeenCalled();
+    });
+
+    it('a non-blank SES secret access key replaces the stored credential: setSecret is called with the exact value', async () => {
+      existingRow(1);
+
+      await service.update(
+        {
+          provider: 'ses',
+          enabled: true,
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKey: 'new-plaintext-secret-access-key',
+        },
+        userId,
+      );
+
+      expect(mockCredentials.setSecret).toHaveBeenCalledTimes(1);
+      expect(mockCredentials.setSecret).toHaveBeenCalledWith(
+        'email_ses',
+        'default',
+        'new-plaintext-secret-access-key',
+        expect.objectContaining({ updatedByUserId: userId }),
+      );
+    });
+
+    it('both secrets can be set independently in the same submission', async () => {
+      existingRow(1);
+
+      await service.update(
+        {
+          provider: 'smtp',
+          enabled: true,
+          smtpHost: 'smtp.example.com',
+          smtpPassword: 'new-smtp-password',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKey: 'new-ses-secret',
+        },
+        userId,
+      );
+
+      expect(mockCredentials.setSecret).toHaveBeenCalledTimes(2);
+      expect(mockCredentials.setSecret).toHaveBeenCalledWith(
+        'smtp',
+        'default',
+        'new-smtp-password',
+        expect.objectContaining({ updatedByUserId: userId }),
+      );
+      expect(mockCredentials.setSecret).toHaveBeenCalledWith(
+        'email_ses',
+        'default',
+        'new-ses-secret',
+        expect.objectContaining({ updatedByUserId: userId }),
+      );
+    });
+
+    it('never leaks the submitted SES secret access key: JSON.stringify of the returned view never contains it', async () => {
+      existingRow(1);
+      const submittedPlaintext = 'submitted-ses-secret-Xk9!q2-do-not-leak';
+
+      const view = await service.update(
+        {
+          provider: 'ses',
+          enabled: true,
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+          sesSecretAccessKey: submittedPlaintext,
         },
         userId,
       );
