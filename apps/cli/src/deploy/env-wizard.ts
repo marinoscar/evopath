@@ -90,8 +90,14 @@ function isBlank(value: string | undefined): boolean {
  *
  * Asked when it is essential, when it is a secret with nothing usable already,
  * or when --all was passed. Everything else takes its default.
+ *
+ * Exported so the TUI's `installFields` (tui/screens/deploy/install-model.ts)
+ * can build its question list with the SAME rule this module enforces
+ * non-interactively -- otherwise the two silently disagree about which keys
+ * need an answer, and the TUI can ask a screen's worth of questions while the
+ * pipeline still refuses to run for one it never showed.
  */
-function shouldAsk(
+export function shouldAsk(
   metadata: EnvVarMetadata,
   current: string | undefined,
   all: boolean,

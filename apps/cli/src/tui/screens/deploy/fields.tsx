@@ -182,6 +182,8 @@ export function FieldWizard({
       </Box>
       {field.prefilled ? (
         <Text dimColor>Currently set on this deployment; enter keeps it.</Text>
+      ) : field.generated ? (
+        <Text dimColor>Generated automatically; enter keeps it, or type your own.</Text>
       ) : null}
       {error === undefined ? null : (
         <Box marginTop={1}>
