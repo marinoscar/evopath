@@ -12,6 +12,7 @@ import {
   decideResume,
   EMPTY_SEED,
   envAnswers,
+  existingDeploymentNote,
   installFields,
   reconcileSeed,
   seedFor,
@@ -491,7 +492,7 @@ describe('decideResume: every branch, and every branch names why', () => {
   it('lastOutcome failure, steps recorded, answers still match the file: resume', () => {
     const state = baseState({
       lastOutcome: 'failure',
-      completedSteps: ['env', 'build'],
+      completedSteps: ['environment', 'build'],
       lastFailedStep: 'migrate',
     });
     const onDisk = new Map([
@@ -516,7 +517,7 @@ describe('decideResume: every branch, and every branch names why', () => {
   it('lastOutcome failure, steps recorded, ONE answer differs: refuse, and NAME the differing key', () => {
     const state = baseState({
       lastOutcome: 'failure',
-      completedSteps: ['env', 'build'],
+      completedSteps: ['environment', 'build'],
       lastFailedStep: 'migrate',
     });
     const onDisk = new Map([
@@ -540,7 +541,7 @@ describe('decideResume: every branch, and every branch names why', () => {
   it('lastOutcome failure, steps recorded, ALL answers differ: names every differing key', () => {
     const state = baseState({
       lastOutcome: 'failure',
-      completedSteps: ['env'],
+      completedSteps: ['environment'],
     });
     const onDisk = new Map([
       ['A_KEY', 'old-a'],
@@ -564,7 +565,7 @@ describe('decideResume: every branch, and every branch names why', () => {
     // the operator's fix. See the final report for the actual red/green run.
     const state = baseState({
       lastOutcome: 'failure',
-      completedSteps: ['env', 'build'],
+      completedSteps: ['environment', 'build'],
       lastFailedStep: 'migrate',
     });
     const onDisk = new Map([['POSTGRES_PASSWORD', 'old-wrong-password']]);
@@ -572,6 +573,88 @@ describe('decideResume: every branch, and every branch names why', () => {
 
     const decision = decideResume({ state, answers, onDisk });
     expect(decision.resume).toBe(false);
+  });
+
+  // ===========================================================================
+  // THE ACTUAL #22 REGRESSION. A first attempt that dies INSIDE the
+  // environment step itself never gets `environment` into `completedSteps`,
+  // and never writes anything real to disk either -- so a freshly-collected
+  // answer set can never match the (empty or stale) file. Refusing here, as
+  // the old unconditional comparison did, forces the operator to re-answer
+  // the entire wizard only to be refused again at the very last moment.
+  // ===========================================================================
+  it('#22: lastOutcome failure, environment never completed, answers differ wildly from disk: resume anyway', () => {
+    const state = baseState({
+      lastOutcome: 'failure',
+      completedSteps: ['preflight', 'checkout'],
+      lastFailedStep: 'environment',
+    });
+    // The real-world shape: nothing made it to disk, so onDisk is empty, while
+    // the operator's freshly-collected answers are a full set.
+    const onDisk = new Map<string, string>();
+    const answers = new Map([
+      ['POSTGRES_PASSWORD', 'brand-new-password'],
+      ['JWT_SECRET', 'brand-new-jwt'],
+    ]);
+
+    const decision = decideResume({ state, answers, onDisk });
+
+    expect(decision.resume).toBe(true);
+    expect(decision.reason.length).toBeGreaterThan(0);
+    expect(decision.reason).toContain('environment');
+  });
+});
+
+// =============================================================================
+// 4b. existingDeploymentNote: the confirm screen's "something is already here"
+// =============================================================================
+
+describe('existingDeploymentNote', () => {
+  function makeRoot(): string {
+    return mkdtempSync(join(tmpdir(), 'evopathcli-existing-note-'));
+  }
+
+  /** repo/.git as a directory, exactly the marker `isDeployment` looks for. */
+  function addCheckout(root: string): void {
+    mkdirSync(join(root, 'repo', '.git'), { recursive: true });
+  }
+
+  function addEnv(root: string, contents = 'APP_BIND_PORT=3535\n'): void {
+    writeFileSync(join(root, '.env'), contents);
+  }
+
+  it('undefined when resume is true, even with a state and real evidence on disk', () => {
+    const root = makeRoot();
+    addCheckout(root);
+    addEnv(root);
+
+    expect(existingDeploymentNote(root, baseState(), true)).toBeUndefined();
+  });
+
+  it('undefined when resume is false, no state, and no deployment evidence at all', () => {
+    const root = makeRoot(); // empty: no repo/.git, no .env
+
+    expect(existingDeploymentNote(root, undefined, false)).toBeUndefined();
+  });
+
+  it('a note mentioning the deploy root when resume is false and a state is recorded', () => {
+    const root = makeRoot(); // no evidence on disk needed: `state` alone is enough
+
+    const note = existingDeploymentNote(root, baseState({ deployRoot: root }), false);
+
+    expect(note).toBeDefined();
+    expect(note).toContain(root);
+  });
+
+  it('a note mentioning the deploy root when resume is false, no state, but isDeployment is true', () => {
+    const root = makeRoot();
+    addCheckout(root);
+    addEnv(root);
+
+    const note = existingDeploymentNote(root, undefined, false);
+
+    expect(note).toBeDefined();
+    expect(note).toContain(root);
   });
 });
 
