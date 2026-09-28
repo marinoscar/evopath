@@ -78,5 +78,12 @@ export interface FieldSpec {
   secret: boolean;
   /** True when `placeholder` came from the deployment's own `.env`. */
   prefilled: boolean;
+  /**
+   * True when `placeholder` is a FRESH value this screen generated (a
+   * strong secret this deployment needed and had nothing real to keep) --
+   * never true together with `prefilled`. Lets the field say "generated,
+   * Enter keeps it" rather than the wrong "currently set" hint.
+   */
+  generated?: boolean;
   validate?: ((value: string) => string | undefined) | undefined;
 }

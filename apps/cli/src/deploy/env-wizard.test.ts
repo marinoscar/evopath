@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { UsageError } from '../errors.js';
 import { parseEnvExample } from './env-spec.js';
-import { runEnvWizard } from './env-wizard.js';
+import { runEnvWizard, shouldAsk } from './env-wizard.js';
 
 // Same scripted terminal as prompt.test.ts: an answer is supplied only when
 // something is actually waiting for one, because readline drops buffered lines
@@ -108,6 +108,37 @@ const ESSENTIAL_ANSWERS = [
   'y', // JWT_SECRET: generate one?
   'y', // review: write this environment?
 ];
+
+// =============================================================================
+// shouldAsk: exported for tui/screens/deploy/install-model.ts to reuse (#586).
+// runEnvWizard's own suite exercises it indirectly throughout this file; these
+// pin its three branches directly, against the exported function itself.
+// =============================================================================
+describe('shouldAsk', () => {
+  it('essential: true is always asked, even with a real value already present', () => {
+    expect(shouldAsk({ essential: true }, 'already-set', false)).toBe(true);
+    expect(shouldAsk({ essential: true }, undefined, false)).toBe(true);
+  });
+
+  it('a secret with nothing usable yet is asked, even without essential or all', () => {
+    expect(shouldAsk({ secret: true }, undefined, false)).toBe(true);
+    expect(shouldAsk({ secret: true }, '', false)).toBe(true);
+  });
+
+  it('a secret with a real value already present is NOT asked, without all', () => {
+    expect(shouldAsk({ secret: true }, 'a-real-secret-value', false)).toBe(false);
+  });
+
+  it('a plain, non-essential, non-secret key is not asked, without all', () => {
+    expect(shouldAsk({}, undefined, false)).toBe(false);
+    expect(shouldAsk({}, 'some-default', false)).toBe(false);
+  });
+
+  it('all: true asks about everything, whatever the metadata says', () => {
+    expect(shouldAsk({}, 'some-default', true)).toBe(true);
+    expect(shouldAsk({ secret: true }, 'a-real-secret-value', true)).toBe(true);
+  });
+});
 
 describe('runEnvWizard', () => {
   it('asks only the essential keys and defaults the rest', async () => {

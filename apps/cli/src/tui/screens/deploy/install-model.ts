@@ -16,17 +16,19 @@
  *    `COOKIE_SECRET`. Prefilling fixes that BY CONSTRUCTION rather than by a
  *    guard: there is no empty answer left to trigger the generator.
  *
- *    ⚠ IT DOES NOT COVER `SECRETS_ENCRYPTION_KEY`, AND SAYING SO MATTERS --
+ *    ⚠ `SECRETS_ENCRYPTION_KEY` NEEDS BOTH MECHANISMS, NOT JUST THIS ONE --
  *    that is the one whose loss makes every stored credential permanently
- *    undecryptable. It carries no `essential: true`, so `installFields`' own
- *    filter never turns it into a question at all: there is no placeholder to
- *    seed. What protects it is a SECOND, independent mechanism in
- *    `install.ts`'s environment step -- it re-reads the `.env` off disk and
- *    drops blank answers before merging, so an untouched field cannot
- *    overwrite a live secret. Two mechanisms, and only one of them is here.
- *    An earlier version of this comment claimed all three; a ⚠ comment that
- *    overstates its own coverage is worse than no comment, because the next
- *    reader stops looking.
+ *    undecryptable. It carries no `essential: true`, so this file used to skip
+ *    it outright and rely only on `install.ts`'s environment step -- which
+ *    re-reads the `.env` off disk and drops blank answers before merging, so
+ *    an untouched field cannot overwrite a live secret. That protected a
+ *    RE-install; it did nothing for a FIRST one, where there is no live secret
+ *    to protect and no seed to carry it -- the key was simply never asked, and
+ *    the non-interactive wizard underneath refused to leave it blank (#19).
+ *    `installFields` now asks for it precisely when `shouldAsk` would (nothing
+ *    real seeded), so the two mechanisms cover both cases: this one answers
+ *    the question on a first install, `install.ts`'s still protects a live
+ *    secret from an untouched field on a re-install.
  *
  * 2. RETRACT THE SEED WHEN THE NAME CHANGES. The app name is a field on the
  *    first screen, so an operator typing a neighbour's name reads that
@@ -47,7 +49,8 @@
 import { UsageError } from '../../../errors.js';
 import { resolveEnvPath } from '../../../deploy/deployment-evidence.js';
 import { readEnvFile } from '../../../deploy/env-file.js';
-import { metadataFor } from '../../../deploy/env-metadata.js';
+import { generateValue, metadataFor } from '../../../deploy/env-metadata.js';
+import { shouldAsk } from '../../../deploy/env-wizard.js';
 import type { EnvVarSpec } from '../../../deploy/env-spec.js';
 import { deployRootFor } from '../../../deploy/layout.js';
 import type { DeployState } from '../../../deploy/state.js';
@@ -126,16 +129,42 @@ export function reconcileSeed(seed: Seed, name: string | undefined): Seed {
   return seed.name === name ? seed : EMPTY_SEED;
 }
 
+export interface InstallFieldsOptions {
+  /**
+   * Mirrors `--all`: ask about every variable this wizard could ask about,
+   * not only the essential ones (issue #19). Without it, the screen's own
+   * "Review every variable" toggle asked NOTHING extra while still telling
+   * the pipeline to require answers for everything -- a guaranteed failure.
+   */
+  all?: boolean;
+}
+
 /**
  * The questions install asks, in order, prefilled from `seed`.
  *
  * The screen keeps a cursor into this array. A hand-rolled union of thirty
  * step variants does not scale, so the wizard is DATA.
+ *
+ * ⚠ WHICH KEYS ARE ASKED MIRRORS `env-wizard.ts`'s OWN `shouldAsk`, not a
+ * looser "essential only" rule (issue #19). `SECRETS_ENCRYPTION_KEY` is the
+ * key this fixes: it carries no `essential`, so a rule that asked only
+ * essential keys never surfaced it here -- yet the server wizard, running
+ * non-interactively underneath this screen, refuses to leave a SECRET blank
+ * whether or not it is essential. The gap was invisible on a re-install
+ * (the key was already on disk) and guaranteed on every FIRST one.
+ *
+ * Grouped keys stay out of scope here EXCEPT `observability`, which -- unlike
+ * `email` and `microsoft-oauth` -- is always active (`effectiveGroups`,
+ * compose-files.ts, #567): an opt-in group's keys depend on the `__group`
+ * answer this SAME wizard pass collects later, so which of them apply is not
+ * yet knowable when this list is built; `observability`'s are knowable now.
  */
 export function installFields(
   specs: readonly EnvVarSpec[],
   seed: Seed = EMPTY_SEED,
+  options: InstallFieldsOptions = {},
 ): FieldSpec[] {
+  const { all = false } = options;
   const fields: FieldSpec[] = [
     {
       key: '__domain',
@@ -154,10 +183,25 @@ export function installFields(
     const metadata = metadataFor(spec.key);
     if (metadata.never === true || metadata.fixed !== undefined) continue;
     if (metadata.derive !== undefined) continue;
-    if (metadata.group !== undefined) continue;
-    if (metadata.essential !== true) continue;
+    if (metadata.group !== undefined && metadata.group !== 'observability') continue;
+    // Generated WITHOUT ASKING, whatever the answer would have been -- only
+    // the stack itself reads these. Same rule env-wizard.ts applies, and it
+    // must run BEFORE shouldAsk: an autoGenerate secret is also a blank
+    // secret, which shouldAsk would otherwise turn into a question nobody is
+    // meant to see.
+    if (metadata.autoGenerate === true) continue;
 
     const seeded = seed.values.get(spec.key);
+    if (!shouldAsk(metadata, seeded, all)) continue;
+
+    const hasRealValue = seeded !== undefined && seeded !== '';
+    // A key the wizard can generate, with nothing real to keep: offer a
+    // FRESH generated value as the placeholder, so Enter alone produces a
+    // strong secret. Never fires over a real seeded value -- see rule 1 in
+    // the file header: a re-run must not mint a new secret on top of a live
+    // one just because this screen decided to ask about it.
+    const generated =
+      !hasRealValue && metadata.generate !== undefined ? generateValue(metadata.generate) : undefined;
 
     fields.push({
       key: spec.key,
@@ -168,9 +212,10 @@ export function installFields(
       // correct for a key nobody answered and catastrophic for one seeded from
       // disk -- it would reset a live deployment's database password to
       // `postgres` on an operator pressing Enter.
-      placeholder: seeded ?? spec.defaultValue,
+      placeholder: generated ?? seeded ?? spec.defaultValue,
       secret: metadata.secret === true,
-      prefilled: seeded !== undefined,
+      prefilled: hasRealValue,
+      generated: generated !== undefined,
       ...(metadata.validate === undefined ? {} : { validate: metadata.validate }),
     });
   }

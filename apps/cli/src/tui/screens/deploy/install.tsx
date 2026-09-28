@@ -8,6 +8,7 @@ import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { runInstall } from '../../../deploy/install.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
+import { findGitRoot } from '../../../deploy/repo.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
 import {
   advancedDefaults,
@@ -70,9 +71,17 @@ import { rerunCommand } from './run-model.js';
 // confirm it.
 //
 // ⚠ WHERE IT RUNS IS STEP 1½. The Advanced step (issue #393) comes between
-// the name and the questions, because it can move the deploy root -- and the
-// root is what the seed, the record and the template are read from. It opens
-// on "Use these" with the recorded values, so the common path costs one Enter.
+// the name and everything after, because it can move the deploy root -- and
+// the root is what the seed, the record and the template are read from. It
+// opens on "Use these" with the recorded values, so the common path costs one
+// Enter.
+//
+// ⚠ FLAGS COME BEFORE THE ENVIRONMENT QUESTIONS, NOT AFTER (#19). The
+// "Review every variable" toggle decides how MANY questions `installFields`
+// asks; asking it after the questions were already built meant the toggle
+// could never add a single field to the list it claimed to expand, while
+// still telling the pipeline underneath to require answers for the wider set
+// it never showed -- a guaranteed failure the operator had no way to avoid.
 //
 // ⚠ RESUME IS DECIDED, NOT ASKED. See `decideResume` and `NOT_IN_TUI` in
 // flags-model.ts: whether the collected answers still match the file is a fact
@@ -101,11 +110,12 @@ type Step =
       defaults: AdvancedSettings;
       state: DeployState | undefined;
     }
+  | { kind: 'flags'; target: Target }
   | { kind: 'questions'; target: Target; fields: readonly FieldSpec[] }
-  | { kind: 'flags'; target: Target; answers: ReadonlyMap<string, string> }
   | {
       kind: 'confirm';
       target: Target;
+      fields: readonly FieldSpec[];
       answers: ReadonlyMap<string, string>;
       resume: ResumeDecision;
     };
@@ -169,27 +179,7 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
           const fresh = seedAt(settings.deployRoot, step.name.resolved);
           setSeed(fresh);
           const target: Target = { name: step.name, settings, state };
-          setStep({
-            kind: 'questions',
-            target,
-            fields: [
-              ...installFields(loadSpecs(settings.deployRoot), fresh),
-              ...installFlagFields(state, fresh),
-            ],
-          });
-        }}
-      />
-    );
-  }
-
-  if (step.kind === 'questions') {
-    return (
-      <FieldWizard
-        title={`Install — ${step.target.name.display}`}
-        subtitle={`Into ${step.target.settings.deployRoot}`}
-        fields={step.fields}
-        onComplete={(answers) => {
-          setStep({ kind: 'flags', target: step.target, answers });
+          setStep({ kind: 'flags', target });
         }}
       />
     );
@@ -205,11 +195,38 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
           setChosen((current) => toggled(current, flag));
         }}
         onContinue={() => {
+          const target = step.target;
+          setStep({
+            kind: 'questions',
+            target,
+            // ⚠ Built HERE, now that `chosen` is known, so "Review every
+            // variable" actually widens the question list instead of only
+            // widening what the pipeline requires. See the file header.
+            fields: [
+              ...installFields(loadSpecs(target.settings.deployRoot), seed, {
+                all: chosen.has('--all'),
+              }),
+              ...installFlagFields(target.state, seed),
+            ],
+          });
+        }}
+      />
+    );
+  }
+
+  if (step.kind === 'questions') {
+    return (
+      <FieldWizard
+        title={`Install — ${step.target.name.display}`}
+        subtitle={`Into ${step.target.settings.deployRoot}`}
+        fields={step.fields}
+        onComplete={(answers) => {
           setStep({
             kind: 'confirm',
             target: step.target,
-            answers: step.answers,
-            resume: decideResumeFor(step.target.settings.deployRoot, step.answers, seed),
+            fields: step.fields,
+            answers,
+            resume: decideResumeFor(step.target.settings.deployRoot, answers, seed),
           });
         }}
       />
@@ -236,7 +253,7 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
         `Resume: ${step.resume.resume ? 'yes' : 'no'} — ${step.resume.reason}`,
       ]}
       onNo={() => {
-        setStep({ kind: 'flags', target: step.target, answers: step.answers });
+        setStep({ kind: 'questions', target: step.target, fields: step.fields });
       }}
       onYes={() => {
         const target = step.target;
@@ -278,20 +295,42 @@ function installRerun(
 /**
  * The template the questions are derived from.
  *
- * Read from the RESOLVED deployment's own checkout, because a fork's
- * `.env.example` is the specification of its own environment and no other
- * deployment's will do.
+ * Read from the RESOLVED deployment's own checkout when one is already there,
+ * because a fork's `.env.example` is the specification of its own environment
+ * and no other deployment's will do.
+ *
+ * ⚠ A FIRST INSTALL HAS NO CHECKOUT AT THE DEPLOY ROOT YET (#19). `checkout`
+ * is a PIPELINE step, and it runs inside `runInstall` -- long after this
+ * screen has already built its question list. Falling straight through to
+ * `[]` there left the wizard asking nothing but the domain and reporting
+ * every essential value "missing" only once the pipeline itself ran, deep
+ * past the point an operator could still answer them. The fallback is the
+ * checkout `evopathcli` is ITSELF running in, found the same way `repo.ts`
+ * resolves "this checkout's own origin" for a fork that deploys itself --
+ * which is the ordinary way this screen is used. A `--repo` deploy of some
+ * OTHER project, run from a bare directory with neither checkout present,
+ * still falls through to the domain-only question list; there is genuinely no
+ * template to read yet, and the pipeline's own checkout step is what makes
+ * one exist.
  */
 function loadSpecs(deployRoot: string): EnvVarSpec[] {
-  try {
-    return parseEnvExample(
-      readFileSync(join(deployRoot, 'repo', 'infra', 'compose', '.env.example'), 'utf8'),
-    );
-  } catch {
-    // Before a first checkout there is no template to read; the domain
-    // question alone is still enough to get started.
-    return [];
+  for (const path of templateCandidates(deployRoot)) {
+    try {
+      return parseEnvExample(readFileSync(path, 'utf8'));
+    } catch {
+      // Try the next candidate; see the doc comment above.
+    }
   }
+  return [];
+}
+
+function templateCandidates(deployRoot: string): string[] {
+  const candidates = [join(deployRoot, 'repo', 'infra', 'compose', '.env.example')];
+  const gitRoot = findGitRoot(process.cwd());
+  if (gitRoot !== undefined) {
+    candidates.push(join(gitRoot, 'infra', 'compose', '.env.example'));
+  }
+  return candidates;
 }
 
 /** The state recorded for a deployment, or undefined when there is none to read. */
@@ -443,6 +482,13 @@ async function performInstall(
   const email = answers.get('__email') ?? '';
   const groups = selectedGroups(answers.get('__group') ?? '');
 
+  // ⚠ `--all` is dropped before it reaches the pipeline; see the comment at
+  // its call site below for why.
+  const { all: _reviewEveryVariable, ...pipelineToggles } = optionsFromToggles(
+    INSTALL_TOGGLES,
+    chosen,
+  );
+
   const result = await runInstall({
     deployRoot: target.settings.deployRoot,
     // Load-bearing: every child process runs under the screen's signal, so
@@ -472,7 +518,16 @@ async function performInstall(
     // subcommand's own Commander definitions, so a toggle for a flag the CLI
     // does not declare is a failing test rather than a control that does
     // nothing.
-    ...optionsFromToggles(INSTALL_TOGGLES, chosen),
+    //
+    // ⚠ `--all` deliberately EXCLUDED (#19): it only ever meant "ask about
+    // every variable interactively," and this screen is ALWAYS non-interactive
+    // underneath (readline cannot run while ink holds stdin raw). Forwarding
+    // it would make the environment step REQUIRE a real answer for every
+    // non-essential variable too, whether or not THIS wizard actually asked
+    // about it -- and `installFields` already read the same toggle, above, to
+    // decide how many questions to ask. What the operator answered is carried
+    // in `answers`; there is nothing left for `--all` to do downstream.
+    ...pipelineToggles,
     hooks,
   });
 
