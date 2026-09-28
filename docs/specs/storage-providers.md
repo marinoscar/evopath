@@ -244,8 +244,9 @@ credential (§1):
 | `STORAGE_PART_SIZE` | 10 MB | Multipart part size |
 
 `SECRETS_ENCRYPTION_KEY` is required in practice: the storage secret lives
-in the encrypted store. `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` and
-`SES_REGION` belong to the SES email transport only.
+in the encrypted store. `SES_REGION` remains an environment-backed fallback
+default for the SES email transport; its AWS credential lives in its own
+settings field and encrypted credential-store entry, not the environment.
 
 **Permissions:** `storage_config:read` and `storage_config:write`, seeded
 Admin only. They are distinct from `system_settings:*` and from `storage:*`
@@ -364,3 +365,6 @@ Against a real provider, follow the
 - #519 enforced `MAX_FILE_SIZE` on resumable-upload init and the simple
   upload's multipart limit, and changed the `ALLOWED_MIME_TYPES` default to
   empty (allow every type).
+- #585 moved the SES AWS credential off environment variables and onto its
+  own admin-configurable settings field + encrypted credential-store entry,
+  exactly like the SMTP password.
