@@ -68,6 +68,15 @@ import { emailSettingsSchema } from '../email-settings.schema';
 const MAX_SMTP_PASSWORD_LENGTH = 1024;
 
 /**
+ * Length ceiling on the submitted SES secret access key.
+ *
+ * Same rationale as {@link MAX_SMTP_PASSWORD_LENGTH}: not a security control,
+ * just a bound on what a paste accident can push into an encrypted column.
+ * AWS secret access keys are 40 characters; this is generous headroom.
+ */
+const MAX_SES_SECRET_ACCESS_KEY_LENGTH = 1024;
+
+/**
  * A settings field an admin has left empty.
  *
  * An HTML form has no way to say "absent": a cleared text input submits `''`,
@@ -99,6 +108,7 @@ export const updateEmailSettingsSchema = emailSettingsSchema.extend({
   // Every optional field, widened to tolerate an emptied form control. The
   // rules themselves still come from `emailSettingsSchema.shape`.
   sesRegion: blankable(emailSettingsSchema.shape.sesRegion),
+  sesAccessKeyId: blankable(emailSettingsSchema.shape.sesAccessKeyId),
   smtpHost: blankable(emailSettingsSchema.shape.smtpHost),
   smtpPort: blankable(emailSettingsSchema.shape.smtpPort),
   smtpUseTls: blankable(emailSettingsSchema.shape.smtpUseTls),
@@ -114,6 +124,15 @@ export const updateEmailSettingsSchema = emailSettingsSchema.extend({
    * separate control, and is deliberately not expressible through this field.
    */
   smtpPassword: z.string().max(MAX_SMTP_PASSWORD_LENGTH).nullish(),
+
+  /**
+   * The SES secret access key. WRITE-ONLY — see the header.
+   *
+   * Blank (absent, `null`, or `''`) preserves whatever is stored. Erasing a
+   * stored secret is `CredentialsService.deleteSecret`, reached from a
+   * separate control, and is deliberately not expressible through this field.
+   */
+  sesSecretAccessKey: z.string().max(MAX_SES_SECRET_ACCESS_KEY_LENGTH).nullish(),
 });
 
 /** The parsed PUT body, password included. */

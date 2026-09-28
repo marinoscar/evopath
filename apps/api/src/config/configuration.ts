@@ -353,33 +353,28 @@ export default () => {
     partSize: parseInt(process.env.STORAGE_PART_SIZE || '10485760', 10), // 10MB default
   },
 
-  // Email transports (issue #122, epic #109; decoupled from storage by #377)
+  // Email transport (issue #122, epic #109; own credential as of #585)
   //
-  // THESE THREE VARIABLES BELONG TO EMAIL ALONE. `AWS_ACCESS_KEY_ID` and
-  // `AWS_SECRET_ACCESS_KEY` were once shared with the S3 storage provider —
-  // the same two variables, read twice — and the block that used to stand here
-  // said email read them from `process.env` directly rather than from
-  // `storage.s3.*` precisely so email would not break "the day someone gives
-  // storage its own credential source". Epic #372 was that day: storage now
-  // holds its own key in the encrypted credential store, `storage.s3.*` no
-  // longer exists, and nothing below is shared with anything.
+  // ONE VARIABLE REMAINS, AND IT IS A DEFAULT, NOT A CREDENTIAL.
+  // `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are GONE (#585): SES now
+  // has its own admin-configurable credential, exactly like SMTP's password —
+  // the access key id is `email.sesAccessKeyId` in the `email` settings
+  // namespace, the secret access key lives in the encrypted credential store
+  // at `(purpose 'email_ses', name 'default')` (see
+  // ses-credential.constants.ts, ses-email.provider.ts). Adding either
+  // variable back here would restore the two-sources-of-truth ambiguity this
+  // fix existed to end.
   //
-  // ⚠ `sesRegionFallback` READS `SES_REGION`, NOT `S3_REGION` (changed in
-  // #377). A deployment that relied on `S3_REGION` to region SES, and has not
-  // set `sesRegion` in the `email` settings namespace, must now set
-  // `SES_REGION`.
-  //
-  // IT STILL HAS NO DEFAULT, and must not acquire one. A wrong region does not
-  // fail as "wrong region": SES answers that the sending identity is not
-  // verified, because the identity is verified in the region the admin actually
-  // uses. An unset region reported as "SES region is not configured" is a far
-  // better error than us-east-1 guessing wrong.
+  // `sesRegionFallback` READS `SES_REGION`. It has no default, and must not
+  // acquire one: a wrong region does not fail as "wrong region" — SES answers
+  // that the sending identity is not verified, because the identity is
+  // verified in the region the admin actually uses. An unset region reported
+  // as "SES region is not configured" is a far better error than us-east-1
+  // guessing wrong.
   //
   // It remains a FALLBACK: `email.sesRegion` in the settings namespace is what
   // an administrator edits, and this is only consulted when that is empty.
   email: {
-    awsAccessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    awsSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
     sesRegionFallback: process.env.SES_REGION || '',
   },
 

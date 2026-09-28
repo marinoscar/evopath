@@ -68,6 +68,16 @@ export const emailSettingsSchema = z.object({
    */
   sesRegion: z.string().trim().min(1).optional(),
 
+  /**
+   * SES access key id.
+   *
+   * An IDENTIFIER, NOT A SECRET — it travels in clear in every SigV4 request.
+   * The secret access key lives in the encrypted credential store at
+   * `(purpose 'email_ses', name 'default')` (see ses-credential.constants.ts)
+   * and must never be added here.
+   */
+  sesAccessKeyId: z.string().trim().min(1).optional(),
+
   smtpHost: z.string().trim().min(1).optional(),
 
   /**

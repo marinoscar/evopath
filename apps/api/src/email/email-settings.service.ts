@@ -14,6 +14,11 @@ import {
   SMTP_CREDENTIAL_NAME,
   SMTP_CREDENTIAL_PURPOSE,
 } from './smtp-credential.constants';
+import {
+  SES_CREDENTIAL_LABEL,
+  SES_CREDENTIAL_NAME,
+  SES_CREDENTIAL_PURPOSE,
+} from './ses-credential.constants';
 import type { UpdateEmailSettingsInput } from './dto/update-email-settings.dto';
 
 // =============================================================================
@@ -67,7 +72,8 @@ import type { UpdateEmailSettingsInput } from './dto/update-email-settings.dto';
 export const EMAIL_SETTINGS_KEY = 'email';
 
 /**
- * The masked view of the stored SMTP password that the admin page renders.
+ * The masked view of a stored secret (the SMTP password, the SES secret
+ * access key) that the admin page renders.
  *
  * A boolean alone was the alternative and is not enough: an admin who has just
  * rotated a credential needs to see WHICH value is live, and "when, and by
@@ -79,19 +85,22 @@ export const EMAIL_SETTINGS_KEY = 'email';
  * holds it; nothing in this module can widen it, and no other part of the
  * secret is representable in this shape.
  */
-export interface SmtpPasswordStatus {
-  /** Is a password stored at `(purpose 'smtp', name 'default')`? */
+export interface CredentialStatus {
+  /** Is a secret stored at this credential's address? */
   configured: boolean;
 
   /** The store's mask, e.g. `••••x9fQ`. Null when nothing is stored. */
   hint: string | null;
 
-  /** When the stored password was last written. */
+  /** When the stored secret was last written. */
   updatedAt: Date | null;
 
   /** Who last wrote it. Null when nothing is stored, or the user was deleted. */
   updatedByUserId: string | null;
 }
+
+/** @deprecated kept as an alias — see {@link CredentialStatus}. */
+export type SmtpPasswordStatus = CredentialStatus;
 
 /**
  * What the admin settings page reads: the configuration plus the three things
@@ -105,7 +114,10 @@ export interface SmtpPasswordStatus {
  * field crept into the extension.
  */
 export interface EmailSettingsAdminView extends EmailSettings {
-  smtpPasswordStatus: SmtpPasswordStatus;
+  smtpPasswordStatus: CredentialStatus;
+
+  /** Same shape as {@link CredentialStatus}, for the SES secret access key. */
+  sesSecretAccessKeyStatus: CredentialStatus;
 
   /**
    * Why the stored row could not be read, when it could not be. Null normally.
@@ -178,19 +190,19 @@ function stripUnsetSettingFields(
 }
 
 /**
- * Is this submission "I did not retype the password"?
+ * Is this submission "I did not retype the secret"?
  *
  * Mirrors `CredentialsService.isBlankSecret` exactly, including the ABSENCE of
  * `.trim()`: a passphrase whose surrounding whitespace is significant is a
- * real password, and silently altering a secret's bytes produces an
- * authentication failure with no visible cause.
+ * real secret, and silently altering its bytes produces an authentication
+ * failure with no visible cause.
  *
- * It exists here only to decide WHETHER TO CALL `setSecret` at all (see
- * `update`); the preserve behaviour itself belongs to the store and is not
- * reimplemented. If the two definitions ever need to differ, that is a bug in
- * this one.
+ * Shared by the SMTP password and the SES secret access key: it exists only
+ * to decide WHETHER TO CALL `setSecret` at all (see `update`); the preserve
+ * behaviour itself belongs to the store and is not reimplemented. If this
+ * definition and the store's ever need to differ, that is a bug in this one.
  */
-function isBlankPassword(value: string | null | undefined): boolean {
+function isBlankSecret(value: string | null | undefined): boolean {
   return value === undefined || value === null || value === '';
 }
 
@@ -200,15 +212,16 @@ export class EmailSettingsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    // The SMTP password's only home. `EmailSettingsService` holds this
-    // reference so that "save the email configuration" is ONE operation with
-    // one transactional story, rather than a controller stitching a settings
-    // write and a credential write together and getting the order wrong.
+    // The SMTP password's and the SES secret access key's only home.
+    // `EmailSettingsService` holds this reference so that "save the email
+    // configuration" is ONE operation with one transactional story, rather
+    // than a controller stitching a settings write and one or two credential
+    // writes together and getting the order wrong.
     //
     // Note it is only ever used through `setSecret` (write) and `describe`
     // (masked read). `getSecret` -- the plaintext one -- is never called from
-    // this file, and must not be: nothing on the settings path needs the
-    // password's value, and a call to it here would put plaintext one careless
+    // this file, and must not be: nothing on the settings path needs a
+    // secret's value, and a call to it here would put plaintext one careless
     // `return` away from an admin response.
     private readonly credentials: CredentialsService,
   ) {}
@@ -328,25 +341,27 @@ export class EmailSettingsService {
   /**
    * Replace the email configuration (`PUT /api/email-settings`).
    *
-   * TWO DESTINATIONS, ONE SUBMISSION. The ordinary settings go to the `email`
-   * row of `system_settings`; the SMTP password goes to the encrypted
-   * credential store and NOWHERE ELSE.
+   * THREE DESTINATIONS, ONE SUBMISSION. The ordinary settings go to the
+   * `email` row of `system_settings`; the SMTP password and the SES secret
+   * access key each go to their own address in the encrypted credential store
+   * and NOWHERE ELSE.
    *
    * -----------------------------------------------------------------------
-   * WHY THE PASSWORD IS WRITTEN FIRST
+   * WHY THE SECRETS ARE WRITTEN FIRST
    * -----------------------------------------------------------------------
    *
    * `CredentialsService.setSecret` rejects (400) a blank secret written to an
    * address that holds nothing yet. Doing the settings write first would mean
-   * that request persists an SMTP username with no password behind it and then
-   * 400s -- the admin sees a failure, the configuration changed anyway, and the
-   * next send fails for a reason the error never mentioned. Password first
-   * makes that refusal happen before anything is persisted.
+   * that request persists an SMTP username (or an SES access key id) with no
+   * secret behind it and then 400s -- the admin sees a failure, the
+   * configuration changed anyway, and the next send fails for a reason the
+   * error never mentioned. Secrets first makes that refusal happen before
+   * anything is persisted.
    *
-   * The opposite partial failure (credential written, settings write fails) is
-   * harmless by construction: a stored password that no settings row points at
-   * yet is inert, and the next successful save picks it up. Given the choice
-   * of which half to leave orphaned, the inert one is the right answer.
+   * The opposite partial failure (a credential written, settings write fails)
+   * is harmless by construction: a stored secret that no settings row points
+   * at yet is inert, and the next successful save picks it up. Given the
+   * choice of which half to leave orphaned, the inert one is the right answer.
    *
    * -----------------------------------------------------------------------
    * BLANK PRESERVES -- AND WHY `setSecret` IS SKIPPED ENTIRELY WHEN BLANK
@@ -377,12 +392,13 @@ export class EmailSettingsService {
     userId: string,
     expectedVersion?: number,
   ): Promise<EmailSettingsAdminView> {
-    // Destructured out FIRST, so the password is a named local that never
+    // Destructured out FIRST, so each secret is a named local that never
     // travels with the rest of the body. `emailSettingsSchema.parse` below
-    // would strip it anyway (zod drops unknown keys) -- that is the structural
-    // guarantee -- but relying on a silent strip to keep a secret out of a
-    // persisted blob is a guarantee nobody reading the call site can see.
-    const { smtpPassword, ...submitted } = input;
+    // would strip them anyway (zod drops unknown keys) -- that is the
+    // structural guarantee -- but relying on a silent strip to keep a secret
+    // out of a persisted blob is a guarantee nobody reading the call site can
+    // see.
+    const { smtpPassword, sesSecretAccessKey, ...submitted } = input;
 
     const settings = emailSettingsSchema.parse(
       stripUnsetSettingFields(submitted),
@@ -403,8 +419,12 @@ export class EmailSettingsService {
       );
     }
 
-    // See the header: password first, and only when one was actually typed.
-    const passwordSubmitted = !isBlankPassword(smtpPassword);
+    // See the header: secrets first, and only when actually typed. The SMTP
+    // password and the SES secret access key are independent writes -- only
+    // one provider is active at a time, but nothing stops storing both, and
+    // there is no ordering dependency between the two.
+    const passwordSubmitted = !isBlankSecret(smtpPassword);
+    const sesSecretSubmitted = !isBlankSecret(sesSecretAccessKey);
 
     if (passwordSubmitted) {
       await this.credentials.setSecret(
@@ -413,6 +433,16 @@ export class EmailSettingsService {
         // Passed through UNTOUCHED. See the blank-preserves note above.
         smtpPassword,
         { label: SMTP_CREDENTIAL_LABEL, updatedByUserId: userId },
+      );
+    }
+
+    if (sesSecretSubmitted) {
+      await this.credentials.setSecret(
+        SES_CREDENTIAL_PURPOSE,
+        SES_CREDENTIAL_NAME,
+        // Passed through UNTOUCHED. See the blank-preserves note above.
+        sesSecretAccessKey,
+        { label: SES_CREDENTIAL_LABEL, updatedByUserId: userId },
       );
     }
 
@@ -444,20 +474,26 @@ export class EmailSettingsService {
           // password is not in this object and cannot become so without that
           // proof failing to compile.
           newValue: settings as unknown as Prisma.InputJsonValue,
-          // WHETHER the password changed, never what it changed to. This is
-          // the fact an audit trail needs -- "who rotated the SMTP credential,
-          // and when" -- and it is the whole of what can be safely recorded.
+          // WHETHER each secret changed, never what it changed to. This is the
+          // fact an audit trail needs -- "who rotated which credential, and
+          // when" -- and it is the whole of what can be safely recorded.
           smtpPasswordChanged: passwordSubmitted,
+          sesSecretAccessKeyChanged: sesSecretSubmitted,
         } as unknown as Prisma.InputJsonValue,
       },
     });
 
     // userId only. No settings values, no recipient, and above all no
-    // password: application logs are shipped, indexed and retained far more
+    // secret: application logs are shipped, indexed and retained far more
     // widely than this table is.
+    const updatedParts = [
+      passwordSubmitted ? 'SMTP password updated' : null,
+      sesSecretSubmitted ? 'SES secret access key updated' : null,
+    ].filter((part): part is string => part !== null);
+
     this.logger.log(
       `Email settings replaced by user ${userId}` +
-        (passwordSubmitted ? ' (SMTP password updated)' : ''),
+        (updatedParts.length > 0 ? ` (${updatedParts.join(', ')})` : ''),
     );
 
     return this.toAdminView(settings, null, row);
@@ -490,22 +526,28 @@ export class EmailSettingsService {
     // The masked read. NOT `getSecret` -- `describe` returns `CredentialInfo`,
     // which has no field capable of carrying secret material, so there is
     // nothing on this path that could be widened into a leak.
-    const info = await this.credentials.describe(
-      SMTP_CREDENTIAL_PURPOSE,
-      SMTP_CREDENTIAL_NAME,
-    );
+    const [smtpInfo, sesInfo] = await Promise.all([
+      this.credentials.describe(SMTP_CREDENTIAL_PURPOSE, SMTP_CREDENTIAL_NAME),
+      this.credentials.describe(SES_CREDENTIAL_PURPOSE, SES_CREDENTIAL_NAME),
+    ]);
 
     return {
       ...settings,
       smtpPasswordStatus: {
-        configured: info !== null,
+        configured: smtpInfo !== null,
         // The store's own mask ('••••' plus at most four trailing
         // characters, and nothing at all below eight). Derived on write by
         // `CredentialsService`; never computed here, because computing it
         // would mean holding the plaintext to compute it from.
-        hint: info?.hint ?? null,
-        updatedAt: info?.updatedAt ?? null,
-        updatedByUserId: info?.updatedByUserId ?? null,
+        hint: smtpInfo?.hint ?? null,
+        updatedAt: smtpInfo?.updatedAt ?? null,
+        updatedByUserId: smtpInfo?.updatedByUserId ?? null,
+      },
+      sesSecretAccessKeyStatus: {
+        configured: sesInfo !== null,
+        hint: sesInfo?.hint ?? null,
+        updatedAt: sesInfo?.updatedAt ?? null,
+        updatedByUserId: sesInfo?.updatedByUserId ?? null,
       },
       settingsError,
       version: row?.version ?? 0,

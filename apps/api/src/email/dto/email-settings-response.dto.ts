@@ -10,13 +10,13 @@ import { emailSettingsSchema } from '../email-settings.schema';
 // The settings themselves, plus three things the admin page cannot work
 // without and cannot derive:
 //
-//   1. `smtpPasswordStatus` — IS a password stored, and roughly which one.
-//      Without it the page renders an empty box and has no way to tell the
-//      admin whether that means "none set" or "one is set and you cannot see
-//      it". Those two states demand opposite actions, and #115's blank-
-//      preserves contract is unusable if the admin cannot tell them apart:
-//      submitting blank is correct in one case and leaves the form broken in
-//      the other.
+//   1. `smtpPasswordStatus` / `sesSecretAccessKeyStatus` — IS a secret stored,
+//      and roughly which one. Without it the page renders an empty box and
+//      has no way to tell the admin whether that means "none set" or "one is
+//      set and you cannot see it". Those two states demand opposite actions,
+//      and #115's blank-preserves contract is unusable if the admin cannot
+//      tell them apart: submitting blank is correct in one case and leaves the
+//      form broken in the other.
 //
 //   2. `version` / `updatedAt` / `updatedBy` — provenance and the optimistic-
 //      concurrency token, matching `SystemSettingsResponseDto`.
@@ -28,12 +28,13 @@ import { emailSettingsSchema } from '../email-settings.schema';
 // WHAT IS NOT HERE
 // -----------------------------------------------------------------------------
 //
-// The SMTP password, in any shape: not the plaintext, not the ciphertext, not
-// its length, not a "masked" copy of the real characters. `smtpPasswordStatus`
-// is built from `CredentialsService.describe`, whose return type
-// (`CredentialInfo`) carries its own compile-time proof that it has no field
-// able to hold a secret — and whose query does not even SELECT the ciphertext
-// column, so the encrypted bytes never leave Postgres for a presentation read.
+// The SMTP password or the SES secret access key, in any shape: not the
+// plaintext, not the ciphertext, not its length, not a "masked" copy of the
+// real characters. Both status fields are built from
+// `CredentialsService.describe`, whose return type (`CredentialInfo`) carries
+// its own compile-time proof that it has no field able to hold a secret — and
+// whose query does not even SELECT the ciphertext column, so the encrypted
+// bytes never leave Postgres for a presentation read.
 //
 // `hint` below is the store's own mask ('••••' plus at most the last four
 // characters, and nothing at all for a secret shorter than eight). It is
@@ -44,16 +45,16 @@ import { emailSettingsSchema } from '../email-settings.schema';
 // =============================================================================
 
 /**
- * What the admin page needs to know about the stored SMTP password without
- * being told the password.
+ * What the admin page needs to know about a stored secret (the SMTP password,
+ * the SES secret access key) without being told the secret itself.
  *
- * A flat `smtpPasswordConfigured: boolean` was the alternative and is worse:
- * an admin who has just rotated a credential wants to see WHICH one is live,
- * and "when, and by whom" is the difference between "my change saved" and "I
- * am looking at a colleague's value from last March".
+ * A flat `configured: boolean` was the alternative and is worse: an admin who
+ * has just rotated a credential wants to see WHICH one is live, and "when, and
+ * by whom" is the difference between "my change saved" and "I am looking at a
+ * colleague's value from last March".
  */
-export const smtpPasswordStatusSchema = z.object({
-  /** Is a password stored at `(purpose 'smtp', name 'default')`? */
+export const credentialStatusSchema = z.object({
+  /** Is a secret stored at this credential's address? */
   configured: z.boolean(),
 
   /**
@@ -62,15 +63,21 @@ export const smtpPasswordStatusSchema = z.object({
    */
   hint: z.string().nullable(),
 
-  /** When the stored password was last written. Null when nothing is stored. */
+  /** When the stored secret was last written. Null when nothing is stored. */
   updatedAt: z.iso.datetime().nullable(),
 
   /** Who last wrote it. Null when nothing is stored, or the user was deleted. */
   updatedByUserId: z.uuid().nullable(),
 });
 
+/** @deprecated kept as an alias — see {@link credentialStatusSchema}. */
+export const smtpPasswordStatusSchema = credentialStatusSchema;
+
 export const emailSettingsResponseSchema = emailSettingsSchema.extend({
-  smtpPasswordStatus: smtpPasswordStatusSchema,
+  smtpPasswordStatus: credentialStatusSchema,
+
+  /** Same shape as {@link credentialStatusSchema}, for the SES secret access key. */
+  sesSecretAccessKeyStatus: credentialStatusSchema,
 
   /**
    * Why the stored configuration could not be read, when it could not be.
