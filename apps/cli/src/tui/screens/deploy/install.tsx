@@ -32,6 +32,7 @@ import { INSTALL_TOGGLES, optionsFromToggles, VALUE_FLAGS } from './flags-model.
 import {
   decideResume,
   envAnswers,
+  existingDeploymentNote,
   installFields,
   reconcileSeed,
   seedAt,
@@ -233,6 +234,12 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
     );
   }
 
+  const existingNote = existingDeploymentNote(
+    step.target.settings.deployRoot,
+    step.target.state,
+    step.resume.resume,
+  );
+
   return (
     <ConfirmStep
       action="install"
@@ -251,6 +258,11 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
         // Every branch of `decideResume` names a reason, including the yeses,
         // and the operator sees it before agreeing to anything.
         `Resume: ${step.resume.resume ? 'yes' : 'no'} — ${step.resume.reason}`,
+        // ⚠ The explicit "you are about to overwrite something" this screen
+        // used to skip entirely, discovering it only after `runInstall`
+        // refused at the very end (#22). Absent whenever `resume` already
+        // explains what happens to whatever is here.
+        ...(existingNote === undefined ? [] : [existingNote]),
       ]}
       onNo={() => {
         setStep({ kind: 'questions', target: step.target, fields: step.fields });
@@ -508,6 +520,12 @@ async function performInstall(
     nonInteractive: true,
     // ⚠ Only when the model said so. See `decideResume`.
     ...(resume ? { resume: true } : {}),
+    // ⚠ ALWAYS TRUE (#22): the confirm screen already lists every value
+    // about to be written and asks "Yes, install now?" -- clicking Yes IS the
+    // consent `--reinstall` exists to obtain, whether or not `resume` also
+    // applies. Harmless when nothing is there yet: `runInstall`'s guard only
+    // ever reads this when its OWN evidence check already found something.
+    reinstall: true,
     ...(domain === '' ? {} : { domain }),
     ...(repo === '' ? {} : { repo }),
     ...(ref === '' ? {} : { ref }),

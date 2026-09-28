@@ -47,7 +47,7 @@
  * =============================================================================
  */
 import { UsageError } from '../../../errors.js';
-import { resolveEnvPath } from '../../../deploy/deployment-evidence.js';
+import { isDeployment, resolveEnvPath } from '../../../deploy/deployment-evidence.js';
 import { readEnvFile } from '../../../deploy/env-file.js';
 import { generateValue, metadataFor } from '../../../deploy/env-metadata.js';
 import { shouldAsk } from '../../../deploy/env-wizard.js';
@@ -273,6 +273,20 @@ export interface ResumeDecision {
  * values already on disk, so the common path resumes and the corrected path
  * does not.
  *
+ * ⚠ THAT COMPARISON ONLY MEANS SOMETHING ONCE `environment` HAS ACTUALLY RUN
+ * (issue #22). A first attempt that fails INSIDE the environment step itself
+ * never reaches the write at the end of it -- `runEnvWizard` throws before
+ * `install.ts`'s `environment` step gets `values` back -- so `environment` is
+ * never added to that failed run's `completedSteps`, and there is nothing
+ * real on disk to differ from. Comparing anyway made EVERY such retry look
+ * "changed" (a full, freshly-collected answer set can never equal an empty or
+ * stale file) and refused to resume, even though a resumed run would simply
+ * RE-RUN `environment` in this case -- it is not in `completedSteps`, so
+ * `runPipeline` never skips it, and the fresh answers reach it exactly as if
+ * this were the corrected-password case one paragraph up. There was never a
+ * real conflict to protect against; only whether `environment` had already
+ * completed decides whether one is even possible.
+ *
  * ⚠ And resume over a COMPLETED deployment is strictly worse than the refusal
  * it waives: the flag exempts the "already exists" guard, so it would skip
  * every recorded step and report an install that did nothing at all.
@@ -306,23 +320,52 @@ export function decideResume(input: {
     return { resume: false, reason: 'the last attempt recorded no completed steps' };
   }
 
-  const changed = [...answers.keys()]
-    .filter((key) => answers.get(key) !== onDisk.get(key))
-    .sort();
+  // A mismatch only matters when `environment` already ran: resuming would
+  // then SKIP it and keep the stale file. When it never completed, resuming
+  // re-runs it regardless -- see the comment above.
+  if ((state.completedSteps ?? []).includes('environment')) {
+    const changed = [...answers.keys()]
+      .filter((key) => answers.get(key) !== onDisk.get(key))
+      .sort();
 
-  if (changed.length > 0) {
-    return {
-      resume: false,
-      reason:
-        `these answers differ from the ones on disk, so the environment step must run again: ` +
-        changed.join(', '),
-    };
+    if (changed.length > 0) {
+      return {
+        resume: false,
+        reason:
+          `these answers differ from the ones on disk, so the environment step must run again: ` +
+          changed.join(', '),
+      };
+    }
   }
 
   return {
     resume: true,
     reason: `continuing from ${state.lastFailedStep ?? 'the step that failed'}`,
   };
+}
+
+/**
+ * The confirm screen's note about pre-existing deployment evidence, or
+ * undefined when there is none to mention (issue #22).
+ *
+ * `runInstall` refuses outright when a deployment already exists here and
+ * neither `--resume` nor `--reinstall` was given -- a refusal `performInstall`
+ * now always waives (see its own comment) because THIS is where that consent
+ * belongs: the confirm screen already lists every value about to be written
+ * and asks "Yes, install now?". An operator who clicks Yes without ever being
+ * told something is already at this deploy root has not actually consented to
+ * overwrite it, so this note is what makes that consent informed rather than
+ * accidental. Suppressed when `resume` is true: the Resume note right above
+ * it already explains what is happening to whatever is here.
+ */
+export function existingDeploymentNote(
+  deployRoot: string,
+  state: DeployState | undefined,
+  resume: boolean,
+): string | undefined {
+  if (resume) return undefined;
+  if (state === undefined && !isDeployment(deployRoot)) return undefined;
+  return `A deployment already exists at ${deployRoot}; confirming will reinstall over it.`;
 }
 
 /** Validation for the loopback port field, kept here so the screen stays dumb. */
