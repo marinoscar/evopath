@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
-import { render, screen, mockUser } from '../utils/test-utils';
+import { render, screen, mockUser, within } from '../utils/test-utils';
 import TodayPage from '../../pages/TodayPage';
 import { comingInLabel } from '../../config/roadmap';
 
@@ -42,13 +42,29 @@ describe('TodayPage', () => {
     for (const card of CARDS) {
       expect(screen.getByRole('region', { name: card.title })).toBeInTheDocument();
     }
-    expect(screen.getAllByText(comingInLabel('health'))).toHaveLength(2);
+    // Readiness still waits for E2.4; the body card has `Content` (#53), so no chip.
+    expect(screen.getAllByText(comingInLabel('health'))).toHaveLength(1);
+    expect(
+      within(screen.getByRole('region', { name: 'Readiness' })).getByText(comingInLabel('health')),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: 'Body snapshot' })).queryByText(comingInLabel('health')),
+    ).toBeNull();
     expect(screen.getByText('Coming in E5')).toBeInTheDocument();
     expect(screen.getByText('Coming in E3')).toBeInTheDocument();
     for (const card of CARDS) {
       const links = screen.getAllByRole('link', { name: card.link });
       expect(links.some((l) => l.getAttribute('href') === card.href)).toBe(true);
     }
+  });
+
+  it('renders the body snapshot content (#53): the empty state and the Open Health link', async () => {
+    render(<TodayPage />);
+    const body = screen.getByRole('region', { name: 'Body snapshot' });
+    expect(
+      await within(body).findByRole('button', { name: 'Log your first weight' }),
+    ).toBeInTheDocument();
+    expect(within(body).getByRole('link', { name: 'Open Health' })).toHaveAttribute('href', '/health');
   });
 
   it('greets by first name', () => {

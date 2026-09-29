@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { harnessUrl, waitForInter } from '../support/harness';
+import { mockHealthApi } from '../support/health';
 
 /**
  * The Today page: the app's landing screen and its four cards.
@@ -15,6 +16,11 @@ import { harnessUrl, waitForInter } from '../support/harness';
  * time zone and locale the date is formatted in. The harness user is
  * `Visual Harness`, hence "Hello, Visual". The user menu is never open in
  * these shots, which keeps its version line out of every baseline.
+ *
+ * The Body snapshot card shows real data since #53 (E2.3): its
+ * `/api/measurements/*` and `/api/health-profile` calls are answered by
+ * `support/health.ts` (the `data` scenario, an imperial user), so the card
+ * renders the same three values on every run instead of a failed fetch.
  */
 
 test.use({ timezoneId: 'UTC', locale: 'en-US' });
@@ -25,6 +31,7 @@ const CARDS = ["Today's workout", 'Readiness', 'Body snapshot', 'Your gym'];
 
 async function openToday(page: Page, options: { theme?: 'light' | 'dark' } = {}) {
   await page.clock.setFixedTime(FIXED_NOW);
+  await mockHealthApi(page, 'data');
   await page.goto(harnessUrl({ route: '/', ...options }));
   await waitForInter(page);
 
@@ -34,6 +41,7 @@ async function openToday(page: Page, options: { theme?: 'light' | 'dark' } = {})
   for (const name of CARDS) {
     await expect(main.getByRole('region', { name })).toBeVisible();
   }
+  await expect(main.getByRole('region', { name: 'Body snapshot' }).getByText('208.4 lb')).toBeVisible();
 }
 
 test.describe('Today page', () => {

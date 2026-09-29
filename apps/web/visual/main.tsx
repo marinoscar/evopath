@@ -78,6 +78,10 @@ import { LoadingSpinner } from '../src/components/common/LoadingSpinner';
 import type { Role, User } from '../src/types';
 
 const TodayPage = lazy(() => import('../src/pages/TodayPage'));
+// The Health page (#53, E2.3) IS its data: `health-page.spec.ts` answers its
+// `/api/measurements/*` and `/api/health-profile` calls with `page.route()`
+// (`tests/visual/support/health.ts`), as the telemetry dashboard spec does.
+const HealthPage = lazy(() => import('../src/pages/HealthPage'));
 const UserSettingsHubPage = lazy(() => import('../src/pages/UserSettingsHubPage'));
 const UserProfilePage = lazy(() => import('../src/pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'));
@@ -229,6 +233,7 @@ function HarnessRoutes() {
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           <Route path="/" element={<TodayPage />} />
+          <Route path="/health" element={<HealthPage />} />
 
           <Route path="/settings" element={<UserSettingsHubPage />} />
           <Route path="/settings/profile" element={<UserProfilePage />} />

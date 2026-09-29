@@ -317,7 +317,7 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
 - **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
-- **UI:** `/settings/health-profile`
+- **UI:** `/settings/health-profile`, `/health`, the Today body snapshot card
 - **Permissions:** `health_data:read`, `health_data:write`
 - **Read more:** [specs/health-data.md](specs/health-data.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#7-audit-logging-and-security-tables)
 
@@ -524,7 +524,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Access | Routes |
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
-| Signed in | `/` (Today), `/train`, `/health`, `/gyms` (placeholder pages until their features ship), `/activate` (device approval), `/ai` (AI Playground, `ai:use` and AI enabled), `/settings` hub and its pages |
+| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/gyms` (placeholder pages until their features ship), `/activate` (device approval), `/ai` (AI Playground, `ai:use` and AI enabled), `/settings` hub and its pages |
 | Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 

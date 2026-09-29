@@ -1,6 +1,6 @@
 # Health Data
 
-> **Status:** shipped (health profile, measurements) · **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/` · **API:** `/api/health-profile`, `/api/measurements/*` (see `/api/docs`, tags "Health Profile" and "Measurements") · **Admin UI:** none (user page `/settings/health-profile`) · **Runbook:** none · **Recipe:** [section 4](#4-extending-it-in-a-fork)
+> **Status:** shipped (health profile, measurements, quick entry) · **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/web/src/components/health/` · **API:** `/api/health-profile`, `/api/measurements/*` (see `/api/docs`, tags "Health Profile" and "Measurements") · **Admin UI:** none (user pages `/settings/health-profile` and `/health`) · **Runbook:** none · **Recipe:** [section 4](#4-extending-it-in-a-fork)
 
 Health data is per-user data an app built from this template interprets in context: a weight or a heart rate reads differently with an age, a sex at birth and a height, and its day boundaries depend on a time zone. It lives in its own tables, behind its own permission family (`health_data:read`, `health_data:write`), and is only ever reachable by its owner. It has two parts. The **health profile** is one row per user with date of birth, sex at birth, height, unit system, time zone and a short bio. **Measurements** are one longitudinal table of values (weight, body fat, waist, blood pressure, resting heart rate, and daily wellness scores) with a unit, a method, a source and a history of corrections, described by an in-code metric registry. Later health features add tables and routes under the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
@@ -190,6 +190,45 @@ A `409` means reload the entry and try again.
 
 After a successful delete the service writes one `audit_events` row, best-effort: action `measurement_entry:delete`, `targetType` `measurement_entry`, `targetId` the `entryId`, `meta.readingCount` only. No value and no notes. Create and edit write no audit row; the revision chain is the history. Values and notes never reach a log line or an error message; failures log ids and counts.
 
+### 2.14 Quick entry and the Health page
+
+`/health` (`apps/web/src/pages/HealthPage.tsx`) shows the latest value of each body and vital metric and opens the quick-entry dialog. The Today "Body snapshot" card (`apps/web/src/components/today/TodayBodySnapshot.tsx`, set as `Content` of the `body` entry in `apps/web/src/config/todayCards.tsx`) shows the latest weight, body fat and waist and opens the same dialog. Manual entry has no AI dependency.
+
+**Data sources.** `useMeasurementCatalog` fetches `GET /api/measurements/metrics` once per session and shares the promise; a failed request is dropped from the cache so the next mount retries. `useLatestMeasurements` reads `GET /api/measurements/latest` and refetches after a save; the UI never updates optimistically. `useHealthProfile` supplies `unitSystem` and `heightMm`; with no profile the unit system is `metric`.
+
+**Units: one copy of the factors.**
+- `apps/web/src/utils/measurementUnits.ts` holds no conversion constant. Every factor, display unit, decimal count and bound comes from the catalog.
+- If the catalog fails to load, the dialog shows an inline error and disables Save. There is no fallback table.
+- Fields show the user's unit system (kg or lb, cm or in). The dialog sends `{ metricKey, value, unit }` in the displayed unit and the API converts; the client never sends a canonical value.
+- Bounds shown in a field message are the catalog's hard bounds converted to the displayed unit and rounded inward, so any accepted value is inside the API's bounds.
+- Typed decimals accept `.` or `,`. Exponents, signs, `Infinity` and `NaN` are refused.
+
+**The dialog (`LogMeasurementDialog`).**
+- One form for weight, body fat, waist, blood pressure (systolic and diastolic) and resting heart rate. Weight is focused first, or the metric of the tile whose Log button opened it. Only filled fields become readings.
+- A collapsed **Details** section holds a method per filled metric, the date and time, and a note. The method defaults to the method of that metric's latest reading, else `unspecified`, which is omitted from the request. `measuredAt` is sent only when the picker was touched, so the server clock is the default.
+- Client checks are a convenience: bounds, both-or-none blood pressure, systolic above diastolic, at least one value, no future time. Server `400` issues (`details.issues`) are mapped back onto the fields.
+- Save runs on the button or Enter and is disabled while pending. A network error keeps the typed values.
+- Compact windows use MUI `fullScreen` (`down('sm')`). This is a local choice, not one of the five coupled breakpoint gates in [settings-ui.md](settings-ui.md#breakpoint-gates).
+
+**Soft warning.** When an entered value differs by more than 25% from that metric's latest reading (`SOFT_WARNING_PERCENT`, compared in canonical units), the dialog shows "This is N% different from your last entry (X). Check the unit." and a **Save anyway** button. It never blocks: the API is the only authority on what is valid.
+
+**Tiles.** One tile per metric, in registry order: weight, body fat, waist, blood pressure, resting heart rate.
+- A tile shows the latest value in the user's unit, when it was taken (today, yesterday, `N days ago`, then a date), the method as a chip unless it is `unspecified`, and the change since the previous reading.
+- The change is neutral: an arrow and wording, never green or red and never good or bad, because the template has no notion of a goal.
+- Blood pressure shows `systolic/diastolic`; when the two belong to different entries, each shows its own date.
+- **BMI is computed on read, never stored.** It uses the latest weight in canonical kilograms and the profile height, and its tile is labelled "Calculated". It is absent without a weight. Without a height it shows "Add your height", linking to `/settings/health-profile`.
+
+**Permission states.**
+
+| State | Behaviour |
+|---|---|
+| No `health_data:read` | Health page and Today card show "Health data is not available for your account"; no request is made |
+| `health_data:read` only | Tiles render; every Log button (`LogMeasurementButton`) is disabled and a tooltip says "You don't have permission to log health data" |
+| Both | Full flow |
+| API `403` | Treated as no read grant, with the same message |
+
+Later stories append sections below the tiles in the same plain stack. The Health page has no tab strip: the tiles are one glance, not parallel tasks.
+
 ## 3. Configuration and permissions
 
 There are no settings keys and no environment variables. Storage, AI and other runtime services are not involved.
@@ -200,8 +239,8 @@ Both are held by Admin, Contributor and Viewer: the data is the user's own, self
 
 | Permission | Enforced by |
 |---|---|
-| `health_data:read` | `GET /api/health-profile`; every `GET /api/measurements*` route; the Health Profile card; the `/settings/health-profile` route |
-| `health_data:write` | `PUT /api/health-profile`; `POST`, `PATCH` and `DELETE` on `/api/measurements`; the enabled state of the form's inputs |
+| `health_data:read` | `GET /api/health-profile`; every `GET /api/measurements*` route; the Health Profile card; the `/settings/health-profile` route; the tiles on `/health` and the Today body card |
+| `health_data:write` | `PUT /api/health-profile`; `POST`, `PATCH` and `DELETE` on `/api/measurements`; the enabled state of the profile form's inputs; the enabled state of every Log button |
 
 An existing deployment gets the two permissions and their grants by re-running `npm run prisma:seed` (from `apps/api`, or through the API container as in the development loop); the seed upserts, so it adds the new rows without duplicating grants. Until then, every user of that deployment receives `403` from the health routes and does not see the card.
 
@@ -283,6 +322,14 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 | `apps/web/src/__tests__/components/settings/HealthProfileSettings.test.tsx` | Unit-switch conversion, disabled state without write, validation messages, `409` handling |
 | `apps/web/src/__tests__/config/userSettingsSections.test.ts` | The card is in group Health after Security and declares `health_data:read` |
 | `apps/web/src/__tests__/App.test.tsx` | The route redirects a user without `health_data:read` |
+| `apps/web/src/__tests__/utils/measurementUnits.test.ts` | Conversion and rounding from catalog factors, `parseDecimal`, inward-rounded bounds, `bmi`, deltas |
+| `apps/web/src/__tests__/hooks/useMeasurementCatalog.test.ts` | One request shared per session; a failure is not cached |
+| `apps/web/src/__tests__/components/health/LogMeasurementDialog.test.tsx` | Request bodies in the displayed unit, validation messages, the 25% soft warning and Save anyway, method defaults, server `400` mapping, kept values on a network error |
+| `apps/web/src/__tests__/components/health/MeasurementTile.test.tsx`, `LatestMeasurementTiles.test.tsx` | Dates, method chip, neutral delta, blood-pressure combination, BMI states, empty and permission states |
+| `apps/web/src/__tests__/pages/HealthPage.test.tsx`, `components/today/TodayBodySnapshot.test.tsx` | Loading, empty, error and forbidden states; a save refetches |
+| `apps/web/src/__tests__/config/todayCards.test.ts` | The `body` entry has `Content` |
+| `tests/e2e/specs/health-log-weight.spec.ts` | A viewer logs a weight with type and Enter; the tile and Today show it and it survives a reload; an out-of-range weight is blocked |
+| `tests/visual/specs/health-page.spec.ts` | The Health page at 1440x900 dark with data and at 390x844 light with nothing logged |
 
 ## 6. Design decisions
 
@@ -297,6 +344,10 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 - **Supersede instead of edit in place or a history table.** A revision table needs copy logic for the same effect. Superseding rows keep the current value one predicate away.
 - **A query predicate, not a partial index, for "active".** The repository already carries two intentional raw-SQL index drifts and does not add a third. A plain composite index serves the reads.
 - **Canonical storage, not the client's unit.** Mixed units in one column make every aggregate wrong. Factors are published by the catalog endpoint, so the web app has no second copy.
+- **No client conversion table.** A second copy of the factors drifts from the registry. The dialog sends the displayed unit and the API converts.
+- **A soft warning, not a hard limit.** A 25% jump is usually a unit slip but can be real; the hard bounds stay on the API.
+- **Neutral deltas.** Whether a change is good depends on a goal, and no goal exists here.
+- **BMI derived on read.** Storing it would duplicate weight and height and go stale when either is edited.
 - **Entry-level edit and delete.** A blood-pressure pair edited row by row can be left half-edited.
 - **`Float`, not `Decimal`.** Conversion already produces non-decimal values; the API rounds to 4 decimals.
 - **`origin` and `sourceRef` are server-only.** A client that could send them could label a typed value as AI or device data.
@@ -306,7 +357,7 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 ```bash
 npm test --workspace=api -- health-profile measurements metric-registry health-data seed-data http-exception openapi-document
 npm run test:db --workspace=api -- health-profile measurements
-npm run test:run --workspace=web -- HealthProfile userSettingsSections
+npm run test:run --workspace=web -- HealthProfile userSettingsSections measurement HealthPage TodayBodySnapshot todayCards
 npm run openapi:dump && npm run openapi:lint
 ```
 
@@ -322,8 +373,13 @@ Manually, signed in as any seeded role:
 8. `POST` weight `5` in `kg`: `400` with `details.issues` naming `readings.0.value`. `POST` a body with `origin`: `400`.
 9. `DELETE` the entry: `204`; a second `DELETE`: `404`. Query `audit_events` for `measurement_entry:delete`: `meta` is `{ "readingCount": 1 }`.
 10. Sign in as a second user and `PATCH` or `DELETE` the first user's `entryId`: `404`.
+11. Open `/health`, choose **Log measurement**, type `208.4` and press Enter: the dialog closes and the Weight tile reads `208.4 lb` (imperial profile) or the metric equivalent, taken today. Log `207.9`: the tile shows the neutral change.
+12. Enter `5` kg: a bounds message and nothing is sent. Enter `120` after an `80` kg reading: the 25% warning appears with **Save anyway**.
+13. Save a height in the health profile: the BMI tile appears, labelled "Calculated". Open Today: the Body snapshot lists the latest weight, body fat and waist.
+14. Run the browser suites: `cd tests/e2e && npm test -- health-log-weight`, and the visual `health-page` spec as in [TESTING.md](../TESTING.md#visual-regression).
 
 ## History
 
 - #47: health profile table, `health_data:read/write`, `GET/PUT /api/health-profile`, the Health Profile settings card and page, and this spec.
 - #50: `measurements` table, metric registry and catalog endpoint, `/api/measurements` create, list, latest, series, edit and delete, and the validation `details.issues` shape.
+- #53: the Health page tiles, the quick-entry dialog, the Today body snapshot, and the web hooks and unit helpers behind them.
