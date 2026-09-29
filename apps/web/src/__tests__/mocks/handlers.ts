@@ -36,6 +36,7 @@ import {
 } from './fixtures/telemetry';
 import { mockHealthProfileEmpty } from './fixtures/health';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
+import { mockTodayCheckInEmpty } from './fixtures/checkIns';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -155,6 +156,35 @@ export const handlers = [
       },
       { status: 201 },
     );
+  }),
+
+  // Daily check-ins (#56, E2.4): nothing checked in yet, a PUT that echoes
+  // the body back as the stored day, and a DELETE that succeeds.
+  http.get(`${API_BASE}/check-ins/today`, () => {
+    return HttpResponse.json({ data: mockTodayCheckInEmpty });
+  }),
+
+  http.get(`${API_BASE}/check-ins`, () => {
+    return HttpResponse.json({ data: { items: [] } });
+  }),
+
+  http.put(`${API_BASE}/check-ins/:date`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({
+      data: {
+        date: params.date,
+        energy: body.energy ?? null,
+        sleepQuality: body.sleepQuality ?? null,
+        soreness: body.soreness ?? null,
+        stress: body.stress ?? null,
+        note: body.note ?? null,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }),
+
+  http.delete(`${API_BASE}/check-ins/:date`, () => {
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.get(`${API_BASE}/user-settings`, () => {

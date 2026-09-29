@@ -1,20 +1,21 @@
 import type { Page, Route } from '@playwright/test';
 
 /**
- * Fixture API for the Health page and the Today body snapshot — issue #53
- * (E2.3), epic E2.
+ * Fixture API for the Health page, the Today body snapshot (issue #53, E2.3)
+ * and the daily check-in (issue #56, E2.4), epic E2.
  *
  * The harness (`apps/web/visual/main.tsx`) has no API behind it. These pages
  * ARE their data, so this answers `/api/measurements/metrics`,
  * `/api/measurements/latest` and `/api/health-profile` with `page.route()`,
- * the approach of `support/telemetryDashboard.ts`. Anything else falls through
+ * and `/api/check-ins/*` (the check-in section, the dialog and the Today
+ * Readiness card), the approach of `support/telemetryDashboard.ts`. Anything else falls through
  * to the harness's Vite server (`route.fallback()`).
  *
  * Every timestamp is a pure function of {@link FIXED_NOW}; specs pin the page
  * clock to it (`page.clock.setFixedTime`) so "Today" and "3 days ago" never
  * move. The catalog mirrors `catalogView()` in
- * `apps/api/src/measurements/metric-registry.ts` (body and vital metrics
- * only: the web app reads nothing else from it here).
+ * `apps/api/src/measurements/metric-registry.ts` (the body and vital metrics,
+ * and the four wellness scores the check-in reads its scales from).
  */
 
 export const FIXED_NOW = Date.parse('2026-09-29T12:00:00.000Z');
@@ -23,6 +24,24 @@ export type HealthScenario = 'empty' | 'data';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const iso = (msAgo: number) => new Date(FIXED_NOW - msAgo).toISOString();
+
+/** A daily 1-5 self-report score, as the registry's `wellness()` builds it. */
+function wellness(key: string, label: string, lowLabel: string, highLabel: string) {
+  return {
+    key,
+    label,
+    category: 'wellness',
+    canonicalUnit: 'score',
+    units: [{ unit: 'score', factor: 1, label: 'score' }],
+    displayUnit: { metric: 'score', imperial: 'score' },
+    min: 1,
+    max: 5,
+    decimals: 0,
+    methods: ['self_report'],
+    scale: { min: 1, max: 5, lowLabel, highLabel },
+    daily: true,
+  };
+}
 
 const CATALOG = {
   metrics: [
@@ -116,6 +135,10 @@ const CATALOG = {
       scale: null,
       daily: false,
     },
+    wellness('energy', 'Energy', 'Drained', 'Energised'),
+    wellness('sleep_quality', 'Sleep quality', 'Poor', 'Great'),
+    wellness('muscle_soreness', 'Muscle soreness', 'None', 'Severe'),
+    wellness('stress', 'Stress', 'Calm', 'Overwhelmed'),
   ],
   methods: [
     { key: 'unspecified', label: 'Not specified' },
@@ -193,6 +216,25 @@ const PROFILE = {
   updatedAt: '2026-09-01T10:00:00.000Z',
 };
 
+/** The server's "today" (the profile time zone is UTC) at {@link FIXED_NOW}. */
+export const CHECK_IN_TODAY = '2026-09-29';
+
+function checkIn(date: string, scores: [number | null, number | null, number | null, number | null], note: string | null) {
+  const [energy, sleepQuality, soreness, stress] = scores;
+  return { date, energy, sleepQuality, soreness, stress, note, updatedAt: `${date}T07:30:00.000Z` };
+}
+
+/** Today (four scores and a note) and three earlier days, newest first. */
+function checkIns(scenario: HealthScenario) {
+  if (scenario === 'empty') return [];
+  return [
+    checkIn(CHECK_IN_TODAY, [4, 3, 2, 3], 'Big presentation'),
+    checkIn('2026-09-28', [3, 4, 3, 2], null),
+    checkIn('2026-09-26', [2, null, 4, null], 'Long run yesterday'),
+    checkIn('2026-09-24', [5, 5, 1, 1], null),
+  ];
+}
+
 function answer(route: Route, data: unknown) {
   return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data }) });
 }
@@ -208,6 +250,13 @@ export async function mockHealthApi(page: Page, scenario: HealthScenario): Promi
         return answer(route, { items: latest(scenario) });
       case '/api/health-profile':
         return answer(route, PROFILE);
+      case '/api/check-ins/today':
+        return answer(route, {
+          date: CHECK_IN_TODAY,
+          checkIn: checkIns(scenario).find((c) => c.date === CHECK_IN_TODAY) ?? null,
+        });
+      case '/api/check-ins':
+        return answer(route, { items: checkIns(scenario) });
       default:
         return route.fallback();
     }

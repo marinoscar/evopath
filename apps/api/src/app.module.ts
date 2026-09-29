@@ -35,6 +35,7 @@ import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { HealthProfileModule } from './health-profile/health-profile.module';
 import { MeasurementsModule } from './measurements/measurements.module';
+import { CheckInsModule } from './check-ins/check-ins.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -209,6 +210,11 @@ import configuration from './config/configuration';
     // The caller's measurements (E2.2, #50): metric catalog, entries, latest,
     // series under `health_data:*`. Exports `MeasurementsService`.
     MeasurementsModule,
+
+    // The daily readiness check-in (E2.4, #56): `/api/check-ins` under
+    // `health_data:*`, stored as wellness `measurements` rows with `localDate`.
+    // Exports `CheckInsService` (`getToday`, `getForDate`) for E5.
+    CheckInsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

@@ -21,6 +21,24 @@ function metric(def: Omit<MetricDef, 'scale' | 'daily'> & Partial<Pick<MetricDef
   return { scale: null, daily: false, ...def };
 }
 
+/** A daily 1-5 self-report score, as the registry's `wellness()` helper builds it. */
+function wellness(key: string, label: string, lowLabel: string, highLabel: string): MetricDef {
+  return metric({
+    key,
+    label,
+    category: 'wellness',
+    canonicalUnit: 'score',
+    units: [{ unit: 'score', factor: 1, label: 'score' }],
+    displayUnit: { metric: 'score', imperial: 'score' },
+    min: 1,
+    max: 5,
+    decimals: 0,
+    methods: ['self_report'],
+    scale: { min: 1, max: 5, lowLabel, highLabel },
+    daily: true,
+  });
+}
+
 export const mockMetricCatalog: MetricCatalog = {
   metrics: [
     metric({
@@ -115,6 +133,9 @@ export const mockMetricCatalog: MetricCatalog = {
       scale: { min: 1, max: 5, lowLabel: 'Drained', highLabel: 'Energised' },
       daily: true,
     }),
+    wellness('sleep_quality', 'Sleep quality', 'Poor', 'Great'),
+    wellness('muscle_soreness', 'Muscle soreness', 'None', 'Severe'),
+    wellness('stress', 'Stress', 'Calm', 'Overwhelmed'),
   ],
   methods: [
     { key: 'unspecified', label: 'Not specified' },

@@ -250,3 +250,84 @@ export function isHealthDataForbidden(err: unknown): boolean {
 
 /** What every health surface shows instead of data on a `403` or without `health_data:read`. */
 export const HEALTH_DATA_UNAVAILABLE = 'Health data is not available for your account';
+
+// =============================================================================
+// Daily check-ins (`/api/check-ins`), issue #56 (E2.4)
+// =============================================================================
+//
+// Four optional 1-5 self-reported scores and a note, one record per LOCAL day.
+// The server decides what "today" is (in the profile time zone), so the web
+// app asks `GET /today` and echoes its `date` back on `PUT`; it never derives
+// a day from the device clock. The score bounds and end labels ("Drained" to
+// "Energised") are read off the measurement catalog's wellness metrics
+// (`scale`), not copied here. No combined readiness score is computed.
+
+/** API field -> the catalog's wellness metric key, in display order. */
+export const CHECK_IN_FIELDS = [
+  { field: 'energy', metricKey: 'energy', fallbackLabel: 'Energy' },
+  { field: 'sleepQuality', metricKey: 'sleep_quality', fallbackLabel: 'Sleep quality' },
+  { field: 'soreness', metricKey: 'muscle_soreness', fallbackLabel: 'Muscle soreness' },
+  { field: 'stress', metricKey: 'stress', fallbackLabel: 'Stress' },
+] as const;
+export type CheckInField = (typeof CHECK_IN_FIELDS)[number]['field'];
+
+/** The API's limit on `note`, counted after trimming. */
+export const CHECK_IN_NOTE_MAX_LENGTH = 500;
+
+/** One day's check-in. `null` = that score was not recorded. */
+export interface CheckIn {
+  /** `YYYY-MM-DD`, the user's local day; never parse it through local time. */
+  date: string;
+  energy: number | null;
+  sleepQuality: number | null;
+  soreness: number | null;
+  stress: number | null;
+  note: string | null;
+  updatedAt: string;
+}
+
+/** `GET /api/check-ins/today`. */
+export interface TodayCheckIn {
+  /** Today in the profile time zone (UTC when unset). Send it back on `PUT`. */
+  date: string;
+  checkIn: CheckIn | null;
+}
+
+/** The body of `PUT /api/check-ins/:date`: a FULL replace of that day. */
+export type CheckInInput = Pick<CheckIn, CheckInField | 'note'>;
+
+/** `GET /api/check-ins/today` (`health_data:read`). */
+export function getTodayCheckIn(): Promise<TodayCheckIn> {
+  return api.get<TodayCheckIn>('/check-ins/today');
+}
+
+/** `GET /api/check-ins?days=` (`health_data:read`), newest first. */
+export async function listCheckIns(days: number): Promise<CheckIn[]> {
+  const data = await api.get<{ items: CheckIn[] }>(`/check-ins?days=${encodeURIComponent(String(days))}`);
+  return data.items;
+}
+
+/**
+ * `PUT /api/check-ins/:date` (`health_data:write`). The API schema is strict,
+ * so exactly these five keys are sent; an omitted score is sent as `null`.
+ */
+export function saveCheckIn(date: string, input: CheckInInput): Promise<CheckIn> {
+  const body: CheckInInput = {
+    energy: input.energy,
+    sleepQuality: input.sleepQuality,
+    soreness: input.soreness,
+    stress: input.stress,
+    note: input.note,
+  };
+  return api.put<CheckIn>(`/check-ins/${encodeURIComponent(date)}`, body);
+}
+
+/** `DELETE /api/check-ins/:date` (`health_data:write`). `404` when there is none. */
+export async function deleteCheckIn(date: string): Promise<void> {
+  await api.delete<void>(`/check-ins/${encodeURIComponent(date)}`);
+}
+
+/** True when a check-in save lost a race with another device (`409`). */
+export function isCheckInConflict(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409;
+}

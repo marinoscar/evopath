@@ -1,8 +1,8 @@
 # Health Data
 
-> **Status:** shipped (health profile, measurements, quick entry) · **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/web/src/components/health/` · **API:** `/api/health-profile`, `/api/measurements/*` (see `/api/docs`, tags "Health Profile" and "Measurements") · **Admin UI:** none (user pages `/settings/health-profile` and `/health`) · **Runbook:** none · **Recipe:** [section 4](#4-extending-it-in-a-fork)
+> **Status:** shipped (health profile, measurements, quick entry, daily check-ins) · **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/api/src/check-ins/`, `apps/web/src/components/health/` · **API:** `/api/health-profile`, `/api/measurements/*`, `/api/check-ins/*` (see `/api/docs`, tags "Health Profile", "Measurements" and "Check-ins") · **Admin UI:** none (user pages `/settings/health-profile` and `/health`) · **Runbook:** none · **Recipe:** [section 4](#4-extending-it-in-a-fork)
 
-Health data is per-user data an app built from this template interprets in context: a weight or a heart rate reads differently with an age, a sex at birth and a height, and its day boundaries depend on a time zone. It lives in its own tables, behind its own permission family (`health_data:read`, `health_data:write`), and is only ever reachable by its owner. It has two parts. The **health profile** is one row per user with date of birth, sex at birth, height, unit system, time zone and a short bio. **Measurements** are one longitudinal table of values (weight, body fat, waist, blood pressure, resting heart rate, and daily wellness scores) with a unit, a method, a source and a history of corrections, described by an in-code metric registry. Later health features add tables and routes under the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
+Health data is per-user data an app built from this template interprets in context: a weight or a heart rate reads differently with an age, a sex at birth and a height, and its day boundaries depend on a time zone. It lives in its own tables, behind its own permission family (`health_data:read`, `health_data:write`), and is only ever reachable by its owner. It has three parts. The **health profile** is one row per user with date of birth, sex at birth, height, unit system, time zone and a short bio. **Measurements** are one longitudinal table of values (weight, body fat, waist, blood pressure, resting heart rate, and daily wellness scores) with a unit, a method, a source and a history of corrections, described by an in-code metric registry. The **daily check-in** is four self-reported wellness scores and a note per local day, stored as measurement rows behind its own thin API. Later health features add tables and routes under the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
 ## 1. Purpose
 
@@ -14,7 +14,9 @@ Health data is per-user data an app built from this template interprets in conte
   - Not administered. There is no admin route to another user's profile.
 - **Problem it solves.** A fork that records health values needs somewhere to keep the facts that give them meaning, and a permission that lets a deployment govern access to health data without also blocking someone from changing their theme.
 - **Measurements: what they are.** One generic store for every health value, so a new metric is a registry entry, not a migration and not a new table. Values are kept in one canonical unit per metric, edits keep the history, and how a value was measured (`method`) is kept apart from how it entered the system (`origin`).
-- **Measurements: what they are not.** Not a table per metric, not a place that stores the unit a client displayed, and not writable on behalf of another user. Daily wellness scores are defined in the registry but are not accepted or listed by `/api/measurements`; a check-ins feature owns them.
+- **Measurements: what they are not.** Not a table per metric, not a place that stores the unit a client displayed, and not writable on behalf of another user. Daily wellness scores are defined in the registry but are not accepted or listed by `/api/measurements`; the daily check-in ([2.15](#215-daily-check-ins)) owns them.
+- **Check-ins: what they are.** How the person feels today: energy, sleep quality, muscle soreness and stress, each optional, plus a note. One check-in per local day, editable for today and the seven days before. Later features read it through `CheckInsService`.
+- **Check-ins: what they are not.** Not a table of their own, not a combined readiness score (the four scales have mixed polarity and no validated weighting), and not a required daily form.
 
 ## 2. How it works
 
@@ -102,7 +104,7 @@ The Health Profile card sits in the **Health** group of `USER_SETTINGS_SECTIONS`
 | `value` | float | In the metric's canonical unit. |
 | `unit` | text | The canonical unit, always. |
 | `measuredAt` | `timestamptz` | When the reading was taken. |
-| `localDate` | `date`, null | The person's local calendar day; reserved for daily metrics. The measurements API leaves it null and copies it forward on edit. |
+| `localDate` | `date`, null | The person's local calendar day, set on daily metrics. The check-in API sets it; the measurements API leaves it null and copies it forward on edit. |
 | `method` | text, default `unspecified` | How it was measured. A plain string. |
 | `origin` | text, default `manual` | How it entered the system: `manual`, `calculated`, `ai` or `device`. A plain string. |
 | `notes` | text, null | Free text, at most 500 characters. |
@@ -229,6 +231,67 @@ After a successful delete the service writes one `audit_events` row, best-effort
 
 Later stories append sections below the tiles in the same plain stack. The Health page has no tab strip: the tiles are one glance, not parallel tasks.
 
+### 2.15 Daily check-ins
+
+A check-in is not a table. It is the caller's active `measurements` rows under the four wellness keys for one `localDate`, sharing one `entryId`.
+
+| API field | Metric key | Scale end labels (from the registry `scale`) |
+|---|---|---|
+| `energy` | `energy` | 1 Drained, 5 Energised |
+| `sleepQuality` | `sleep_quality` | 1 Poor, 5 Great |
+| `soreness` | `muscle_soreness` | 1 None, 5 Severe |
+| `stress` | `stress` | 1 Calm, 5 Overwhelmed |
+
+`CHECK_IN_FIELDS` in `apps/api/src/check-ins/dto/check-in.dto.ts` is the one mapping between the API's camelCase fields and the registry keys; loading it fails if a key is not a daily wellness metric. Rows are written with unit `score`, `method: self_report`, `origin: manual`, `measuredAt` the time of the write and `localDate` the day. The note is copied onto each row. Scores are stored as entered; no combined score is computed anywhere.
+
+**Local day and time zone.**
+- The server decides "today": the calendar date of the current instant in the profile time zone (`HealthProfileService.getTimeZone`). With no zone, or one this runtime does not know, it is UTC.
+- `apps/api/src/check-ins/local-date.ts` holds the pure helpers (`localDateInZone`, `addDays`, `isRealDate`, `isWithinWindow`, and the `date` column converters). Dates are `YYYY-MM-DD` strings and never pass through local time.
+- Existing rows keep their `localDate` when the zone changes; "today" follows the new zone from then on.
+- The client asks `GET /api/check-ins/today` and echoes `date` back to `PUT`. It never computes the day, so a wrong device clock or a travelling user cannot write to the wrong day.
+
+**Window.** A write is accepted for today and the seven days before it (`CHECK_IN_MAX_BACK_DAYS`). A date that is not a real day, is after today or is older than the window is a `400` whose message names the rule; `details.today` and `details.maxBackDays` carry the current bounds. Reads are not windowed.
+
+**Full replace.** `PUT /api/check-ins/:date` replaces the day. The body is strict Zod:
+
+| Field | Rule |
+|---|---|
+| `energy`, `sleepQuality`, `soreness`, `stress` | Whole number from 1 to 5, or null or omitted for "not recorded" |
+| `note` | Trimmed, at most 500 characters; blank is stored as null |
+| The four scores together | At least one is required; clearing a whole day is `DELETE` |
+
+In one transaction the service loads the day's active rows, then:
+
+1. No rows: inserts one row per submitted score, with a new `entryId` and `revision 1`.
+2. Rows exist and the scores and note are identical: writes nothing and returns the stored check-in.
+3. Otherwise: stamps `supersededAt` on the rows of resubmitted scores, `deletedAt` on the rows of omitted or null scores, and inserts a new row per submitted score with `revision + 1` and `supersedesId` set where a row existed (the `entryId` is kept). A score added to an existing day is inserted at the new revision with no `supersedesId`.
+
+The original values stay in the table, as with any measurement edit ([2.10](#210-active-rows-and-revisions)). Every read spreads `ACTIVE` next to the owner filter. `PUT` answers `200` with the check-in as it now stands.
+
+**Concurrency.** There is no unique index on (user, day, key), on purpose. Instead `put` runs at `Serializable` isolation and the stamps are conditional on the rows still being active:
+- Two concurrent first saves of a day both read "nothing"; Postgres aborts one with a serialization failure.
+- Two concurrent edits: the loser's conditional stamp matches fewer rows than it loaded, or its insert hits the unique `supersedes_id`.
+- All three surface as a `409` (`isWriteConflict` covers `P2002`, `P2034` and the raw adapter serialization error), never as two active check-ins for a day.
+
+**Reading.**
+
+| Read | Behaviour |
+|---|---|
+| `GET /api/check-ins/today` | `{ date, checkIn }`; `checkIn` is null when there is none |
+| `GET /api/check-ins?days=` | 1 to 365 (default 30) local days ending today; `{ items }` newest first; days without a check-in are absent |
+
+A check-in is `{ date, energy, sleepQuality, soreness, stress, note, updatedAt }`, with null for an unrecorded score. `CheckInsModule` exports `CheckInsService`; `getToday(userId)` and `getForDate(userId, date)` read a check-in without HTTP.
+
+**Delete.** `DELETE /api/check-ins/:date` soft-deletes every active score of the day and answers `204`; `404` when there is none. It then writes one `audit_events` row, best-effort: action `check_in:delete`, `targetType` `check_in`, `targetId` the date, `meta.scoreCount` only. Create and edit write no audit row; the revision chain is the history. Scores and notes never reach a log line, an error message or audit `meta`.
+
+**Web.**
+- `services/health.ts` carries `getTodayCheckIn`, `listCheckIns`, `saveCheckIn` and `deleteCheckIn`. `useCheckIn` (today's day and check-in, `save`, `remove`, `refresh`) and `useCheckInHistory` sit on them.
+- `ScoreField` is a five-button `ToggleButtonGroup` (44px targets), named for a screen reader such as "Energy, 1 Drained to 5 Energised". Tapping the selected number clears it. Selection uses the theme primary colour only: no red or green, because the app does not judge a value. Bounds and end labels come from the measurement catalog.
+- `CheckInDialog` is titled "Daily check-in" with the long date it saves to. The date is fixed when the dialog opens, so an answer given across midnight lands on the day it was about while that day is still in the window. Save is disabled until a score is chosen. Editing offers **Delete check-in** behind a confirmation. A `409` shows "This check-in was updated elsewhere" and reloads the day. A note issue from the API appears under the note field. The dialog is `fullScreen` on compact windows (`down('sm')`), a local choice like the measurement dialog, not one of the five coupled gates.
+- `CheckInSection` on `/health`, below the tiles: today's scores as chips (`CheckInSummary`) and the note, or "Not done today"; a **Check in** or **Edit check-in** button; and "Recent check-ins", the last 14 days inline.
+- `TodayReadiness` is the `Content` of the `readiness` entry in `apps/web/src/config/todayCards.tsx`: the same chips and an **Edit check-in** button, or "How are you feeling today? Takes a few seconds." and **Check in**. It opens the same dialog.
+- Permission states follow [2.14](#214-quick-entry-and-the-health-page): without `health_data:read` both surfaces show "Health data is not available for your account"; with read only, the button is disabled with the tooltip "You don't have permission to log health data"; the dialog does not open without `health_data:write`.
+
 ## 3. Configuration and permissions
 
 There are no settings keys and no environment variables. Storage, AI and other runtime services are not involved.
@@ -239,8 +302,8 @@ Both are held by Admin, Contributor and Viewer: the data is the user's own, self
 
 | Permission | Enforced by |
 |---|---|
-| `health_data:read` | `GET /api/health-profile`; every `GET /api/measurements*` route; the Health Profile card; the `/settings/health-profile` route; the tiles on `/health` and the Today body card |
-| `health_data:write` | `PUT /api/health-profile`; `POST`, `PATCH` and `DELETE` on `/api/measurements`; the enabled state of the profile form's inputs; the enabled state of every Log button |
+| `health_data:read` | `GET /api/health-profile`; every `GET /api/measurements*` route; every `GET /api/check-ins*` route; the Health Profile card; the `/settings/health-profile` route; the tiles and check-in section on `/health`; the Today body and readiness cards |
+| `health_data:write` | `PUT /api/health-profile`; `POST`, `PATCH` and `DELETE` on `/api/measurements`; `PUT` and `DELETE` on `/api/check-ins/:date`; the enabled state of the profile form's inputs; the enabled state of every Log and Check in button |
 
 An existing deployment gets the two permissions and their grants by re-running `npm run prisma:seed` (from `apps/api`, or through the API container as in the development loop); the seed upserts, so it adds the new rows without duplicating grants. Until then, every user of that deployment receives `403` from the health routes and does not see the card.
 
@@ -257,8 +320,12 @@ An existing deployment gets the two permissions and their grants by re-running `
 | `GET /api/measurements/series` | `health_data:read` | Ascending chart points for one metric, at most 1000 |
 | `PATCH /api/measurements/entries/:entryId` | `health_data:write` | Supersede the entry's rows; `404` if none active; `409` on a concurrent edit |
 | `DELETE /api/measurements/entries/:entryId` | `health_data:write` | Soft-delete the entry; `204`; `404` if none active |
+| `GET /api/check-ins/today` | `health_data:read` | `{ date, checkIn }` for today in the profile time zone (UTC when unset) |
+| `GET /api/check-ins` | `health_data:read` | `days` 1 to 365 (default 30); `{ items }` newest first |
+| `PUT /api/check-ins/:date` | `health_data:write` | Full replace of that day; `400` outside the window or with no score; `409` on a concurrent save; `200` with the check-in |
+| `DELETE /api/check-ins/:date` | `health_data:write` | Soft-delete the day; `204`; `404` if none; audited as `check_in:delete` |
 
-The measurement routes are owner scoped: an entry belonging to someone else is a `404`, never a `403`. The literal routes (`metrics`, `latest`, `series`) are declared before the parameterised ones.
+The measurement routes are owner scoped: an entry belonging to someone else is a `404`, never a `403`. The literal routes (`metrics`, `latest`, `series`) are declared before the parameterised ones. The check-in routes are owner scoped by the token's user id, and `today` is declared before `:date`.
 
 Per-endpoint detail, schemas and error responses: `/api/docs` (`npm run openapi:dump`).
 
@@ -297,6 +364,10 @@ Appending an entry to `METRICS` in `apps/api/src/measurements/metric-registry.ts
 - To record values on the server with provenance, parse the input with `createMeasurementEntrySchema`, open a transaction and call `createEntryInTransaction(tx, userId, input, { origin, sourceRef })`. The metric registry is importable directly.
 - Every read of `measurements` spreads `ACTIVE` next to the owner filter.
 
+### Read readiness from another feature
+
+`CheckInsModule` exports `CheckInsService`. Import the module and call `getToday(userId)` (the date and check-in) or `getForDate(userId, date)`; do not query the wellness rows from another module. The four values are all there is: decide in the consuming feature how they influence anything, and do not store a combined score.
+
 ### Add a profile field
 
 Add the column, the field to `healthProfileInputSchema` and the response DTO, and the name to `HEALTH_PROFILE_FIELDS` (`apps/api/src/health-profile/dto/health-profile.dto.ts`), which drives changed-field detection for the audit. The form in `apps/web/src/components/settings/HealthProfileSettings.tsx` gets the input.
@@ -327,9 +398,17 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 | `apps/web/src/__tests__/components/health/LogMeasurementDialog.test.tsx` | Request bodies in the displayed unit, validation messages, the 25% soft warning and Save anyway, method defaults, server `400` mapping, kept values on a network error |
 | `apps/web/src/__tests__/components/health/MeasurementTile.test.tsx`, `LatestMeasurementTiles.test.tsx` | Dates, method chip, neutral delta, blood-pressure combination, BMI states, empty and permission states |
 | `apps/web/src/__tests__/pages/HealthPage.test.tsx`, `components/today/TodayBodySnapshot.test.tsx` | Loading, empty, error and forbidden states; a save refetches |
-| `apps/web/src/__tests__/config/todayCards.test.ts` | The `body` entry has `Content` |
+| `apps/web/src/__tests__/config/todayCards.test.ts` | The `body` and `readiness` entries have `Content`; `workout` and `gym` do not |
+| `apps/api/src/check-ins/local-date.spec.ts` | Local day in zones ahead of and behind UTC around midnight, DST days, `Pacific/Kiritimati`, an invalid zone, the window |
+| `apps/api/src/check-ins/check-ins.service.spec.ts` | Field-to-key mapping, create, no-op when unchanged, replace with omissions, the window in the profile zone, conflict mapping, delete and audit with count only, audit failure swallowed |
+| `apps/api/test/health-data/check-ins.integration.spec.ts` | `401`, `403`, `400`, `404`, `409`, `200`, `204` per route, the Auckland `today`, route order, the note never echoed |
+| `apps/api/test/health-data/check-ins.db.spec.ts` | One active row per (user, day, key) after repeated saves, concurrent first saves and concurrent edits leave one winner (`409` for the other), time-zone filtering, soft delete with audit, other users cannot read or change a day |
+| `apps/web/src/__tests__/components/health/ScoreField.test.tsx`, `CheckInDialog.test.tsx`, `CheckInSection.test.tsx` | Select, clear, keyboard and aria; create, edit, delete confirmation, validation, `409` and network messages; the section states; no axe violations |
+| `apps/web/src/__tests__/components/today/TodayReadiness.test.tsx` | Prompt, scores, check in from the card, permission and error states |
+| `apps/web/src/__tests__/hooks/useCheckIn.test.ts`, `services/checkIns.test.ts` | The server's day, save and remove updating state, request shapes |
+| `tests/e2e/specs/health-check-in.spec.ts` | A viewer checks in from Health, sees it on Today, edits the same day, reloads, then deletes it |
 | `tests/e2e/specs/health-log-weight.spec.ts` | A viewer logs a weight with type and Enter; the tile and Today show it and it survives a reload; an out-of-range weight is blocked |
-| `tests/visual/specs/health-page.spec.ts` | The Health page at 1440x900 dark with data and at 390x844 light with nothing logged |
+| `tests/visual/specs/health-page.spec.ts` | The Health page at 1440x900 dark with data and a check-in, at 390x844 light with nothing logged, and the full-screen check-in dialog at 375x812 light |
 
 ## 6. Design decisions
 
@@ -346,6 +425,14 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 - **Canonical storage, not the client's unit.** Mixed units in one column make every aggregate wrong. Factors are published by the catalog endpoint, so the web app has no second copy.
 - **No client conversion table.** A second copy of the factors drifts from the registry. The dialog sends the displayed unit and the API converts.
 - **A soft warning, not a hard limit.** A 25% jump is usually a unit slip but can be real; the hard bounds stay on the API.
+- **Check-ins on `measurements`, not a `check_ins` table.** The store already has longitudinal rows, revisions and provenance, and series reads work for the four keys unchanged.
+- **No combined readiness score.** The four scales have mixed polarity and any weighting would be an unvalidated clinical-looking claim. The values are shown as entered.
+- **Every score optional.** A check-in that must be complete gets skipped; one that takes seconds gets done.
+- **The server decides "today".** A client-supplied day would let a wrong device clock or a travelling user write to the wrong day. The client echoes the server's `date`.
+- **A seven-day window.** It keeps the check-in a record of how the person feels rather than a retro-fill form.
+- **Full replace, and `DELETE` for an empty day.** The saved day is exactly what was submitted, so an omitted score is removed and nothing is guessed. Saving nothing is refused with a `400` instead of silently deleting.
+- **`Serializable` and conditional stamps, not a unique index.** A partial or composite unique index on (user, day, key) would be a raw-SQL drift like the two the repository already carries; the transaction gives the same guarantee as a `409`.
+- **A five-button toggle group, not a slider.** Faster and exact one-handed on a phone.
 - **Neutral deltas.** Whether a change is good depends on a goal, and no goal exists here.
 - **BMI derived on read.** Storing it would duplicate weight and height and go stale when either is edited.
 - **Entry-level edit and delete.** A blood-pressure pair edited row by row can be left half-edited.
@@ -355,9 +442,9 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 ## 7. Verification
 
 ```bash
-npm test --workspace=api -- health-profile measurements metric-registry health-data seed-data http-exception openapi-document
-npm run test:db --workspace=api -- health-profile measurements
-npm run test:run --workspace=web -- HealthProfile userSettingsSections measurement HealthPage TodayBodySnapshot todayCards
+npm test --workspace=api -- health-profile measurements metric-registry health-data seed-data http-exception openapi-document check-ins local-date
+npm run test:db --workspace=api -- health-profile measurements check-ins
+npm run test:run --workspace=web -- HealthProfile userSettingsSections measurement HealthPage TodayBodySnapshot todayCards CheckIn ScoreField TodayReadiness checkIns
 npm run openapi:dump && npm run openapi:lint
 ```
 
@@ -376,10 +463,18 @@ Manually, signed in as any seeded role:
 11. Open `/health`, choose **Log measurement**, type `208.4` and press Enter: the dialog closes and the Weight tile reads `208.4 lb` (imperial profile) or the metric equivalent, taken today. Log `207.9`: the tile shows the neutral change.
 12. Enter `5` kg: a bounds message and nothing is sent. Enter `120` after an `80` kg reading: the 25% warning appears with **Save anyway**.
 13. Save a height in the health profile: the BMI tile appears, labelled "Calculated". Open Today: the Body snapshot lists the latest weight, body fat and waist.
-14. Run the browser suites: `cd tests/e2e && npm test -- health-log-weight`, and the visual `health-page` spec as in [TESTING.md](../TESTING.md#visual-regression).
+14. `GET /api/check-ins/today` with a profile time zone of `Pacific/Auckland` answers that zone's date; with none, the UTC date.
+15. `PUT /api/check-ins/<today>` with `{ "energy": 4, "sleepQuality": 3, "soreness": 2, "stress": 3, "note": "Big presentation" }`: `200` with the same values; four active `measurements` rows share one `entryId`, with `localDate` set and `method: self_report`.
+16. `PUT` the same day with only `energy: 5`: the result has energy `5` and nulls; one active row remains and its `revision` is `2`. Repeat the identical `PUT`: `200`, no new rows.
+17. `PUT` with every score null, a score of `0`, `6` or `3.5`, a note over 500 characters, tomorrow, 8 days ago or `2026-02-30`: each is `400`.
+18. `GET /api/check-ins?days=7` lists at most 7 days, newest first; `days=0` and `days=400` are `400`.
+19. `DELETE /api/check-ins/<today>`: `204`; a repeat is `404`. Query `audit_events` for `check_in:delete`: `meta` is `{ "scoreCount": 1 }`.
+20. Open `/health`, choose **Check in**, tap four scores, add a note and Save: the section and the Today Readiness card show the chips. Reopen, tap a selected score to clear it, and Save: still one check-in. Clear every score: Save is disabled.
+21. Run the browser suites: `cd tests/e2e && npm test -- health-log-weight health-check-in`, and the visual `health-page` spec as in [TESTING.md](../TESTING.md#visual-regression).
 
 ## History
 
 - #47: health profile table, `health_data:read/write`, `GET/PUT /api/health-profile`, the Health Profile settings card and page, and this spec.
 - #50: `measurements` table, metric registry and catalog endpoint, `/api/measurements` create, list, latest, series, edit and delete, and the validation `details.issues` shape.
 - #53: the Health page tiles, the quick-entry dialog, the Today body snapshot, and the web hooks and unit helpers behind them.
+- #56: the daily check-in: `/api/check-ins`, the local-day helpers, `check_in:delete` audit, the check-in dialog, the Health page section and the Today Readiness card.

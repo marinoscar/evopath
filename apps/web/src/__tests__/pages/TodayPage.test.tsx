@@ -42,11 +42,11 @@ describe('TodayPage', () => {
     for (const card of CARDS) {
       expect(screen.getByRole('region', { name: card.title })).toBeInTheDocument();
     }
-    // Readiness still waits for E2.4; the body card has `Content` (#53), so no chip.
-    expect(screen.getAllByText(comingInLabel('health'))).toHaveLength(1);
+    // Readiness (#56) and Body snapshot (#53) have `Content`, so no health chip.
+    expect(screen.queryAllByText(comingInLabel('health'))).toHaveLength(0);
     expect(
-      within(screen.getByRole('region', { name: 'Readiness' })).getByText(comingInLabel('health')),
-    ).toBeInTheDocument();
+      within(screen.getByRole('region', { name: 'Readiness' })).queryByText(comingInLabel('health')),
+    ).toBeNull();
     expect(
       within(screen.getByRole('region', { name: 'Body snapshot' })).queryByText(comingInLabel('health')),
     ).toBeNull();
@@ -65,6 +65,14 @@ describe('TodayPage', () => {
       await within(body).findByRole('button', { name: 'Log your first weight' }),
     ).toBeInTheDocument();
     expect(within(body).getByRole('link', { name: 'Open Health' })).toHaveAttribute('href', '/health');
+  });
+
+  it('renders the readiness content (#56): the check-in prompt and the Open Health link', async () => {
+    render(<TodayPage />);
+    const readiness = screen.getByRole('region', { name: 'Readiness' });
+    expect(await within(readiness).findByText('How are you feeling today? Takes a few seconds.')).toBeInTheDocument();
+    expect(within(readiness).getByRole('button', { name: 'Check in' })).toBeInTheDocument();
+    expect(within(readiness).getByRole('link', { name: 'Open Health' })).toHaveAttribute('href', '/health');
   });
 
   it('greets by first name', () => {
