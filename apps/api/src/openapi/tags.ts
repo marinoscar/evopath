@@ -111,6 +111,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'Gated on `health_data:read`/`:write`; owner-scoped (a foreign id is a 404).',
       },
       {
+        name: 'Check-ins',
+        description:
+          'The calling user\'s daily readiness check-in: four optional self-reported scores from ' +
+          '1 to 5 (energy, sleep quality, muscle soreness, stress) and a note, one per local ' +
+          'calendar day in the profile time zone, editable for today and the 7 days before. ' +
+          'Stored as wellness measurements; no combined readiness score is computed. Gated on ' +
+          '`health_data:read`/`:write`; owner-scoped.',
+      },
+      {
         name: 'System Settings',
         description:
           'Deployment-wide configuration, stored as a JSON document. Readable by any signed-in user; ' +
