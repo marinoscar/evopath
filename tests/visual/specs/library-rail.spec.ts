@@ -12,10 +12,10 @@ import { harnessUrl, waitForInter } from '../support/harness';
  *     #105 part 2 (collapsed captions truncating to "Setti…"/"Cons…").
  *   - expanded tier (≥ `lg`, 1920px here).
  *
- * Scoped to the `nav` element, not a full-page screenshot: `/`'s body
- * (the Today page) makes its own `/api` calls this harness
- * does not control the timing of (see `main.tsx`'s header comment). The rail
- * itself has no such race — `useNavigationPrefs`' fetch failing resolves to
+ * Scoped to the `nav` element, not a full-page screenshot: the rail is the
+ * stable region and the subject here, while `/`'s body (the Today page) is
+ * pinned by its own spec (`today-page.spec.ts`). The rail
+ * has no data race — `useNavigationPrefs`' fetch failing resolves to
  * the same `railCollapsed: false` result from the very first render, so its
  * content is stable the instant it paints.
  */
@@ -29,7 +29,10 @@ test.describe('Library rail — Console pinned at the foot', () => {
 
     const rail = page.locator('nav[aria-label="Main navigation"]');
     await expect(rail).toBeVisible();
-    await expect(rail.getByRole('link', { name: 'Home' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Today' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Train' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Health' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Gyms' })).toBeVisible();
     await expect(rail.getByRole('link', { name: 'User Settings' })).toBeVisible();
     await expect(rail.getByRole('link', { name: 'Console' })).toBeVisible();
 
@@ -44,7 +47,10 @@ test.describe('Library rail — Console pinned at the foot', () => {
 
     const rail = page.locator('nav[aria-label="Main navigation"]');
     await expect(rail).toBeVisible();
-    await expect(rail.getByRole('link', { name: 'Home' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Today' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Train' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Health' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Gyms' })).toBeVisible();
     await expect(rail.getByRole('link', { name: 'User Settings' })).toBeVisible();
     await expect(rail.getByRole('link', { name: 'Console' })).toBeVisible();
 
