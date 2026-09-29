@@ -26,11 +26,12 @@ describe('TODAY_CARDS', () => {
     }
   });
 
-  it('gives body (#53) and readiness (#56) their Content; workout and gym stay placeholders', () => {
+  it('gives body (#53), readiness (#56) and gym (E3.3) their Content; workout stays a placeholder', () => {
     const byKey = Object.fromEntries(TODAY_CARDS.map((c) => [c.key, c]));
     expect(byKey.body.Content).toBeDefined();
     expect(byKey.readiness.Content).toBeDefined();
+    expect(byKey.gym.Content).toBeDefined();
+    // Until E4.6.
     expect(byKey.workout.Content).toBeUndefined();
-    expect(byKey.gym.Content).toBeUndefined();
   });
 });

@@ -36,6 +36,10 @@ const TodayPage = lazy(() => import('./pages/TodayPage'));
 const TrainPage = lazy(() => import('./pages/TrainPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
+// E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
+// destination through the `/gyms` prefix.
+const GymNewPage = lazy(() => import('./pages/GymNewPage'));
+const GymDetailPage = lazy(() => import('./pages/GymDetailPage'));
 // User settings — the hub (#96) plus one route per card in
 // `config/userSettingsSections.tsx` (#91, epic #90). These replace the single
 // stacked `UserSettingsPage`, which is deleted rather than left unrouted.
@@ -193,6 +197,8 @@ function AppRoutes() {
                   <Route path="/train" element={<TrainPage />} />
                   <Route path="/health" element={<HealthPage />} />
                   <Route path="/gyms" element={<GymsPage />} />
+                  <Route path="/gyms/new" element={<GymNewPage />} />
+                  <Route path="/gyms/:gymId" element={<GymDetailPage />} />
                   {/* The per-user settings surface (#96, epic #90) — the same
                       hub component `/admin/settings` renders, over
                       `USER_SETTINGS_SECTIONS`, plus one route per card.
