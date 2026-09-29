@@ -101,8 +101,9 @@ of this runbook assumes it.
 ## 4. Add and test the admin (org) key
 
 The admin/org key has exactly two uses: discovering and classifying a
-provider's models (section 5), and, only under `byok_with_org_fallback`,
-serving a request for a user who has not brought their own key. It is
+provider's models (section 5), and serving a request for a user who has not
+brought their own key: under `byok_with_org_fallback` any such user, under
+`byok` only a holder of `ai_config:write`. It is
 **never** a default key for everyone regardless of policy, and no endpoint
 returns it once stored.
 
@@ -178,7 +179,11 @@ capability decision, the platform does not guess one.
 - **`byok` (default)** — every user must bring their own key (`/settings/ai`,
   gated by `ai:use`) before they can call any model. No admin key is ever used
   to serve a user's request under this policy. `AiKeyResolver.resolve` enforces
-  this in one place.
+  this in one place. The one exception is an administrator: a user holding
+  `ai_config:write` with no key of their own is served by the org key under
+  either policy, because that account is the administrator's own. Every other
+  user is never billed to it. An administrator can override with a personal
+  key at `/settings/ai`.
 - **`byok_with_org_fallback`** — a user with no key of their own is served by
   the admin/org key, for whichever providers have one. Setting this policy
   while a provider has no admin key is refused (`400 AI_KEY_REQUIRED`).

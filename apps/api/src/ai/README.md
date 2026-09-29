@@ -62,7 +62,7 @@ ai/
     ai-public.controller.ts /api/ai/config (any authenticated user)
     ai-config-admin.service.ts, ai-models-admin.service.ts, ai-provider-test.service.ts
   keys/                    Per-user BYOK keys + which models a user can reach
-    ai-key-resolver.service.ts   AiKeyResolver — the ONE place the byok/org rule is decided
+    ai-key-resolver.service.ts   AiKeyResolver — the ONE place the byok/org/admin rule is decided
     usable-models.service.ts    UsableModelsService — "which models can I call?"
     user-ai-keys.service.ts / .controller.ts   /api/ai/keys/*, /api/ai/models
     ai-keys-recheck.handler.ts / .task.ts       `ai.keys.recheck` job (server-only)
