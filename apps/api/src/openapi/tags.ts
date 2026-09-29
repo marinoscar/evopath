@@ -94,6 +94,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '(`PUT`) and JSON Merge Patch (`PATCH`).',
       },
       {
+        name: 'Health Profile',
+        description:
+          'The calling user\'s health profile: date of birth, sex at birth, height, unit system, ' +
+          'time zone and a short bio, used to interpret their measurements. Full replacement ' +
+          '(`PUT`) with an optional `If-Match` version. Gated on `health_data:read`/`:write`, ' +
+          'separately from `user_settings:*`.',
+      },
+      {
         name: 'System Settings',
         description:
           'Deployment-wide configuration, stored as a JSON document. Readable by any signed-in user; ' +
