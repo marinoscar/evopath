@@ -254,6 +254,94 @@ export function approveExercise(id: string): Promise<ExerciseDetail> {
 }
 
 // -----------------------------------------------------------------------------
+// History: "Last time" and records (E4.4)
+// -----------------------------------------------------------------------------
+//
+// Kilograms and metres, as everywhere in the workouts API; the browser only
+// converts for display. The API computes every record (the formulas live in
+// `apps/api/src/workouts/workout-records.ts`); nothing here recomputes one.
+
+/** Mirrors `EXERCISE_HISTORY_LIMIT_*` in `apps/api/src/workouts/workouts.constants.ts`. */
+export const EXERCISE_HISTORY_LIMIT_DEFAULT = 3;
+export const EXERCISE_HISTORY_LIMIT_MAX = 10;
+
+/** One completed set of the "last time" workout. */
+export interface LastTimeSet {
+  setNumber: number;
+  weightKg: number | null;
+  reps: number | null;
+  durationSeconds: number | null;
+  distanceMeters: number | null;
+  rpe: number | null;
+  isWarmup: boolean;
+}
+
+/** The most recent earlier completed workout with this exercise. */
+export interface ExerciseLastTime {
+  workoutId: string;
+  /** `YYYY-MM-DD`, a calendar day. */
+  date: string;
+  gym: { id: string; name: string } | null;
+  /** In position then `setNumber` order; warm-ups flagged. */
+  sets: LastTimeSet[];
+}
+
+export interface ExerciseRecentWorkout {
+  workoutId: string;
+  date: string;
+  topSet: { weightKg: number; reps: number } | null;
+  e1rmKg: number | null;
+}
+
+export interface ExerciseRecords {
+  maxWeightKg: { value: number; reps: number; date: string } | null;
+  maxReps: { value: number; weightKg: number; date: string } | null;
+  bestE1rmKg: { value: number; weightKg: number; reps: number; date: string } | null;
+}
+
+/** `GET /exercises/:id/history`. */
+export interface ExerciseHistory {
+  exerciseId: string;
+  /** Null the first time the exercise is logged. */
+  lastTime: ExerciseLastTime | null;
+  /** Newest first. */
+  recent: ExerciseRecentWorkout[];
+  records: ExerciseRecords;
+}
+
+export interface ExerciseHistoryParams {
+  /** History in the context of this workout: it is excluded, and only earlier completed workouts count. */
+  workoutId?: string;
+  /** `YYYY-MM-DD`; ignored by the API with `workoutId`. */
+  beforeDate?: string;
+  /** Prefer this gym for `lastTime`. */
+  gymId?: string;
+  /** 1..10 recent workouts; default 3. */
+  limit?: number;
+}
+
+export function exerciseHistoryQueryString(params: ExerciseHistoryParams = {}): string {
+  const search = new URLSearchParams();
+  if (params.beforeDate) search.set('beforeDate', params.beforeDate);
+  if (params.workoutId) search.set('workoutId', params.workoutId);
+  if (params.gymId) search.set('gymId', params.gymId);
+  if (params.limit !== undefined) search.set('limit', String(params.limit));
+  const qs = search.toString();
+  return qs ? `?${qs}` : '';
+}
+
+/** `GET /exercises/:id/history` (`workouts:read`): owner-scoped; `404` for an unknown or foreign exercise. */
+export function getExerciseHistory(
+  id: string,
+  params: ExerciseHistoryParams = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<ExerciseHistory> {
+  return api.get<ExerciseHistory>(`${exercisePath(id)}/history${exerciseHistoryQueryString(params)}`, {
+    signal: options.signal,
+  });
+}
+
+// -----------------------------------------------------------------------------
 // Errors
 // -----------------------------------------------------------------------------
 

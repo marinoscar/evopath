@@ -48,6 +48,7 @@ import {
   type Effort,
 } from '../../utils/workoutFormat';
 import { SetMoreMenu } from './SetMoreMenu';
+import { PR_LABEL, PrChips, orderedPrs, visuallyHidden } from './PrChips';
 
 /** How long a row waits after the last keystroke before saving. */
 export const SET_AUTOSAVE_DELAY_MS = 400;
@@ -86,6 +87,32 @@ export interface SetRowProps {
 
 type RowStatus = 'idle' | 'saving' | 'error';
 
+/**
+ * The text a polite live region reads when a set EARNS a record: once, when
+ * its PRs go from none to some while the row is on screen. PRs already there
+ * when the row mounts (a reload) are shown but not announced.
+ */
+function usePrAnnouncement(setNumber: number, prs: SetLogView['prs']): string {
+  const key = orderedPrs(prs ?? [])
+    .map((pr) => pr.type)
+    .join(',');
+  const previous = useRef(key);
+  const [text, setText] = useState('');
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = key;
+    if (key === before) return;
+    if (key === '') {
+      setText('');
+      return;
+    }
+    if (before !== '') return;
+    const labels = key.split(',').map((type) => PR_LABEL[type as keyof typeof PR_LABEL]);
+    setText(`Set ${setNumber}: ${labels.join(', ')}`);
+  }, [key, setNumber]);
+  return text;
+}
+
 export function SetRow({
   set,
   trackingMode,
@@ -106,6 +133,8 @@ export function SetRow({
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
   const [addedWeight, setAddedWeight] = useState(set.weightKg !== null);
   const isMounted = useIsMounted();
+  const prs = set.prs ?? [];
+  const announcement = usePrAnnouncement(n, prs);
 
   const showAddedWeight = trackingMode === 'bodyweight_reps' && (addedWeight || set.weightKg !== null);
   const fields = fieldsFor(trackingMode, showAddedWeight);
@@ -430,6 +459,15 @@ export function SetRow({
         >
           <MoreVertIcon />
         </IconButton>
+      </Box>
+
+      {prs.length > 0 && (
+        <Box sx={{ mt: 0.5, pl: { xs: 0, sm: 4.5 } }}>
+          <PrChips prs={prs} unit={unit} />
+        </Box>
+      )}
+      <Box role="status" aria-live="polite" sx={visuallyHidden}>
+        {announcement}
       </Box>
 
       {set.painFlag && (

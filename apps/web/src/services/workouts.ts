@@ -84,6 +84,37 @@ export interface SetLogView {
   painFlag: boolean;
   painNote: string | null;
   notes: string | null;
+  /**
+   * E4.4. The personal records this set earns, computed by the API on read
+   * against the caller's earlier completed workouts and the earlier sets of
+   * this workout. Empty for an uncompleted or warm-up set and for time or
+   * distance exercises.
+   */
+  prs: SetPr[];
+}
+
+/** The PR types a set can earn, in the API's reporting order (E4.4). */
+export const PR_TYPES = ['first_time', 'weight', 'reps', 'e1rm'] as const;
+export type PrType = (typeof PR_TYPES)[number];
+
+/**
+ * One personal record (the API's `SetPr`). `value` and `previous` are
+ * kilograms for `weight` and `e1rm` (e1RM rounded to 0.1 kg), reps for
+ * `reps`, and the set's kilograms for `first_time` (`previous` null).
+ */
+export interface SetPr {
+  type: PrType;
+  value: number;
+  previous: number | null;
+}
+
+/** One line of `summary.prs`: the best set per PR type per exercise (E4.4). */
+export interface WorkoutPrSummary extends SetPr {
+  exerciseId: string;
+  exerciseName: string;
+  workoutExerciseId: string;
+  setId: string;
+  setNumber: number;
 }
 
 /** The exercise a workout entry refers to. */
@@ -145,6 +176,8 @@ export interface WorkoutTotals {
   setCount: number;
   /** Sum of weightKg x reps, kilograms. */
   volumeKg: number;
+  /** E4.4. The best set per PR type per exercise, in exercise order. */
+  prs: WorkoutPrSummary[];
 }
 
 /** A full workout (the API's `WorkoutView`). */
