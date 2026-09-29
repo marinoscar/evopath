@@ -1,3 +1,4 @@
+import { sourcePhotoIdsFor } from '../../intake/intake-analyzer';
 import type { DraftItemConfidence } from '../../intake/intake-kind.interface';
 import {
   normalizeEquipmentValue,
@@ -40,17 +41,7 @@ function text(value: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-/** The chunk's storage object ids an item names, or all of them. */
-export function sourcePhotoIdsFor(indexes: readonly number[], chunkPhotoIds: readonly string[]): string[] {
-  const ids: string[] = [];
-
-  for (const index of indexes) {
-    const id = Number.isInteger(index) ? chunkPhotoIds[index] : undefined;
-    if (id !== undefined && !ids.includes(id)) ids.push(id);
-  }
-
-  return ids.length > 0 ? ids : [...chunkPhotoIds];
-}
+export { sourcePhotoIdsFor };
 
 export function mapScanItem(
   item: EquipmentScanOutputItem,
