@@ -4,8 +4,8 @@ test.describe('Admin functionality', () => {
   test('admin can access user management', async ({ adminPage }) => {
     await adminPage.goto('/admin/users');
 
-    // Verify we're on the admin page
-    await expect(adminPage).toHaveURL('/admin/users');
+    // /admin/users redirects to the Users settings page
+    await expect(adminPage).toHaveURL('/admin/settings/users');
     await expect(adminPage.locator('h1, h2, h3, h4, h5, h6').first()).toBeVisible();
   });
 
@@ -21,9 +21,8 @@ test.describe('Role-based access', () => {
   test('viewer cannot access admin users page', async ({ viewerPage }) => {
     await viewerPage.goto('/admin/users');
 
-    // Should be redirected away from admin page
-    // Either to home or access denied page
-    await expect(viewerPage).not.toHaveURL('/admin/users');
+    // /admin/users -> /admin/settings/users -> RequirePermission fallback to the Today page
+    await expect(viewerPage).toHaveURL('/');
   });
 
   test('contributor can access regular pages', async ({ contributorPage }) => {
@@ -34,11 +33,13 @@ test.describe('Role-based access', () => {
   });
 });
 
-test.describe('Home page', () => {
-  test('shows content for authenticated user', async ({ viewerPage }) => {
+test.describe('Today page', () => {
+  test('shows the heading and the four cards for an authenticated user', async ({ viewerPage }) => {
     await viewerPage.goto('/');
 
-    // Should be on home page
-    await expect(viewerPage).toHaveURL('/');
+    await expect(viewerPage.getByRole('heading', { level: 1, name: 'Today' })).toBeVisible();
+    for (const name of ["Today's workout", 'Readiness', 'Body snapshot', 'Your gym']) {
+      await expect(viewerPage.getByRole('region', { name })).toBeVisible();
+    }
   });
 });
