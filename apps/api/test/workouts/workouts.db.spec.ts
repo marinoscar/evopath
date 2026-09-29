@@ -37,6 +37,7 @@ import { HealthProfileService } from '../../src/health-profile/health-profile.se
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createSetSchema, startWorkoutSchema, updateSetSchema } from '../../src/workouts/dto/workout.dto';
 import { WorkoutEntriesService } from '../../src/workouts/workout-entries.service';
+import { WorkoutHistoryService } from '../../src/workouts/workout-history.service';
 import { WorkoutsService } from '../../src/workouts/workouts.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
@@ -56,10 +57,11 @@ function buildStack(): Stack {
   const prisma = client as unknown as PrismaService;
   const gyms = new GymsService(prisma, {} as GymStorageService);
   const checkIns = new CheckInsService(prisma, new HealthProfileService(prisma));
+  const history = new WorkoutHistoryService(prisma, checkIns);
   return {
     client,
-    workouts: new WorkoutsService(prisma, gyms, checkIns),
-    entries: new WorkoutEntriesService(prisma),
+    workouts: new WorkoutsService(prisma, gyms, checkIns, history),
+    entries: new WorkoutEntriesService(prisma, history),
     exercises: new ExercisesService(prisma, new ExerciseAvailabilityService(prisma, gyms), new ExerciseUsageRepository(prisma)),
   };
 }

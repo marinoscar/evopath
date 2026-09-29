@@ -99,6 +99,8 @@ function applySetInput(set: SetLogView, input: SetInput): SetLogView {
   } else if (input.completed === false) {
     next.completed = false;
     next.completedAt = null;
+    // An uncompleted set earns nothing; the server's answer confirms it.
+    next.prs = [];
   }
   return next;
 }
@@ -210,8 +212,21 @@ export function useWorkout(id: string | undefined): UseWorkoutReturn {
       getWorkout(id)
         .then((data) => {
           if (isMounted()) {
+            // Totals and PRs are computed on read; an edit to one set can change
+            // the PRs of the sets after it, so both are taken from the server.
+            const prsById = new Map<string, SetLogView['prs']>();
+            for (const entry of data.exercises) for (const set of entry.sets) prsById.set(set.id, set.prs);
             setWorkout((prev) =>
-              prev ? { ...prev, summary: data.summary, durationSeconds: data.durationSeconds } : prev,
+              prev
+                ? {
+                    ...mapSets(prev, (s) => {
+                      const prs = prsById.get(s.id);
+                      return prs && JSON.stringify(prs) !== JSON.stringify(s.prs) ? { ...s, prs } : s;
+                    }),
+                    summary: data.summary,
+                    durationSeconds: data.durationSeconds,
+                  }
+                : prev,
             );
           }
         })

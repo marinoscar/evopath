@@ -5,13 +5,20 @@
  * owner-less but 404 for unknown ids, sets copied from the previous set on
  * create, totals over completed working sets, dense renumbering. Every
  * mutating request is recorded in `calls` with its body.
+ *
+ * E4.4: every set carries `prs` and `summary.prs`, and
+ * `GET /exercises/:id/history` answers from the same state, with a compact
+ * port of `apps/api/src/workouts/workout-records.ts` (a test double only;
+ * the API is the single home of the rules).
  */
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
-import type { Exercise } from '../../../services/exercises';
+import type { Exercise, ExerciseHistory, LastTimeSet } from '../../../services/exercises';
 import type {
   GymRef,
+  PrType,
   ReadinessSnapshot,
+  SetPr,
   SetInput,
   SetLogView,
   Workout,
@@ -47,6 +54,7 @@ export function mockSet(overrides: Partial<SetLogView> = {}): SetLogView {
     painFlag: false,
     painNote: null,
     notes: null,
+    prs: [],
     ...overrides,
   };
 }
@@ -96,7 +104,189 @@ export function computeSummary(workout: Pick<Workout, 'exercises' | 'durationSec
     exerciseCount: workout.exercises.length,
     setCount,
     volumeKg: Math.round(volume * 1000) / 1000,
+    prs: summaryPrs(workout.exercises),
   };
+}
+
+// -----------------------------------------------------------------------------
+// Records (E4.4): a compact port of the API's rules, for the test double
+// -----------------------------------------------------------------------------
+
+interface Working {
+  weightKg: number;
+  reps: number;
+}
+
+const PR_ORDER: PrType[] = ['first_time', 'weight', 'reps', 'e1rm'];
+const round1 = (v: number) => Math.round(v * 10 + 1e-9) / 10;
+
+export function fixtureE1rm(weightKg: number, reps: number): number | null {
+  if (!(weightKg > 0) || reps < 1 || reps > 12) return null;
+  return round1(reps === 1 ? weightKg : weightKg * (1 + reps / 30));
+}
+
+function working(set: SetLogView, mode: string): Working | null {
+  if (mode !== 'weight_reps' && mode !== 'bodyweight_reps') return null;
+  if (!set.completed || set.isWarmup || set.reps === null || set.reps < 1) return null;
+  if (set.weightKg === null) return mode === 'bodyweight_reps' ? { weightKg: 0, reps: set.reps } : null;
+  return { weightKg: set.weightKg, reps: set.reps };
+}
+
+export function fixtureClassify(set: Working, prior: readonly Working[]): SetPr[] {
+  if (prior.length === 0) return [{ type: 'first_time', value: set.weightKg, previous: null }];
+  const prs: SetPr[] = [];
+  const maxWeight = Math.max(...prior.map((p) => p.weightKg));
+  if (set.weightKg > maxWeight) prs.push({ type: 'weight', value: set.weightKg, previous: maxWeight });
+  const heavier = prior.filter((p) => p.weightKg >= set.weightKg - 0.01);
+  if (heavier.length > 0) {
+    const maxReps = Math.max(...heavier.map((p) => p.reps));
+    if (set.reps > maxReps) prs.push({ type: 'reps', value: set.reps, previous: maxReps });
+  }
+  const e = fixtureE1rm(set.weightKg, set.reps);
+  const priorE = prior.map((p) => fixtureE1rm(p.weightKg, p.reps)).filter((v): v is number => v !== null);
+  if (e !== null && priorE.length > 0 && e > Math.max(...priorE)) {
+    prs.push({ type: 'e1rm', value: e, previous: Math.max(...priorE) });
+  }
+  return prs;
+}
+
+const byTime = (a: Pick<Workout, 'date' | 'startedAt'>, b: Pick<Workout, 'date' | 'startedAt'>) =>
+  a.date === b.date ? a.startedAt.localeCompare(b.startedAt) : a.date.localeCompare(b.date);
+
+/** Completed workouts other than `w`, earlier than it by (date, startedAt), oldest first. */
+function earlierCompleted(all: readonly Workout[], w: Pick<Workout, 'id' | 'date' | 'startedAt'>): Workout[] {
+  return all.filter((o) => o.id !== w.id && o.status === 'completed' && byTime(o, w) < 0).sort(byTime);
+}
+
+/** Sets every set's `prs` in `w` against `all` (the other workouts). */
+export function applyPrs(w: Workout, all: readonly Workout[]): void {
+  const earlier = earlierCompleted(all, w);
+  const running = new Map<string, Working[]>();
+  const priorFor = (exerciseId: string, mode: string) => {
+    let list = running.get(exerciseId);
+    if (!list) {
+      list = [];
+      for (const o of earlier) {
+        for (const e of o.exercises) {
+          if (e.exerciseId !== exerciseId) continue;
+          for (const s of e.sets) {
+            const ws = working(s, mode);
+            if (ws) list.push(ws);
+          }
+        }
+      }
+      running.set(exerciseId, list);
+    }
+    return list;
+  };
+  for (const entry of [...w.exercises].sort((a, b) => a.position - b.position)) {
+    const mode = entry.exercise.trackingMode;
+    const prior = priorFor(entry.exerciseId, mode);
+    for (const set of entry.sets) {
+      const ws = working(set, mode);
+      if (!ws) {
+        set.prs = [];
+        continue;
+      }
+      set.prs = fixtureClassify(ws, prior);
+      prior.push(ws);
+    }
+  }
+}
+
+/** The best set per PR type per exercise (highest value, earliest on a tie). */
+export function summaryPrs(exercises: readonly WorkoutExerciseView[]): Workout['summary']['prs'] {
+  const out: Workout['summary']['prs'] = [];
+  const seen = new Set<string>();
+  for (const entry of exercises) {
+    if (seen.has(entry.exerciseId)) continue;
+    seen.add(entry.exerciseId);
+    const entries = exercises.filter((e) => e.exerciseId === entry.exerciseId);
+    for (const type of PR_ORDER) {
+      let best: Workout['summary']['prs'][number] | null = null;
+      for (const e of entries) {
+        for (const set of e.sets) {
+          const pr = (set.prs ?? []).find((p) => p.type === type);
+          if (pr && (!best || pr.value > best.value)) {
+            best = {
+              exerciseId: e.exerciseId,
+              exerciseName: e.exercise.name,
+              workoutExerciseId: e.id,
+              setId: set.id,
+              setNumber: set.setNumber,
+              ...pr,
+            };
+          }
+        }
+      }
+      if (best) out.push(best);
+    }
+  }
+  return out;
+}
+
+/** `GET /exercises/:id/history` over `all`, in the context of `context` (or as of now). */
+export function fixtureHistory(
+  all: readonly Workout[],
+  exerciseId: string,
+  context: Pick<Workout, 'id' | 'date' | 'startedAt' | 'gymId'> | null,
+  gymId: string | null,
+  limit = 3,
+): ExerciseHistory {
+  const pool = context
+    ? earlierCompleted(all, context)
+    : all.filter((o) => o.status === 'completed').sort(byTime);
+  const withExercise = pool
+    .filter((o) => o.exercises.some((e) => e.exerciseId === exerciseId && e.sets.some((s) => s.completed)))
+    .reverse();
+  const preferred = gymId ?? context?.gymId ?? null;
+  const pick = withExercise.slice(0, 2).find((o) => preferred && o.gymId === preferred) ?? withExercise[0] ?? null;
+  const setsOf = (o: Workout) =>
+    o.exercises
+      .filter((e) => e.exerciseId === exerciseId)
+      .flatMap((e) => e.sets.filter((s) => s.completed).map((s) => ({ s, mode: e.exercise.trackingMode })));
+  const lastTime = pick
+    ? {
+        workoutId: pick.id,
+        date: pick.date,
+        gym: pick.gym,
+        sets: setsOf(pick).map(
+          ({ s }): LastTimeSet => ({
+            setNumber: s.setNumber,
+            weightKg: s.weightKg,
+            reps: s.reps,
+            durationSeconds: s.durationSeconds,
+            distanceMeters: s.distanceMeters,
+            rpe: s.rpe,
+            isWarmup: s.isWarmup,
+          }),
+        ),
+      }
+    : null;
+  const records: ExerciseHistory['records'] = { maxWeightKg: null, maxReps: null, bestE1rmKg: null };
+  const recent: ExerciseHistory['recent'] = [];
+  for (const o of withExercise) {
+    let top: Working | null = null;
+    let best: number | null = null;
+    for (const { s, mode } of setsOf(o)) {
+      const ws = working(s, mode);
+      if (!ws) continue;
+      if (!top || ws.weightKg > top.weightKg || (ws.weightKg === top.weightKg && ws.reps > top.reps)) top = ws;
+      const e = fixtureE1rm(ws.weightKg, ws.reps);
+      if (e !== null && (best === null || e > best)) best = e;
+      if (!records.maxWeightKg || ws.weightKg > records.maxWeightKg.value) {
+        records.maxWeightKg = { value: ws.weightKg, reps: ws.reps, date: o.date };
+      }
+      if (!records.maxReps || ws.reps > records.maxReps.value) {
+        records.maxReps = { value: ws.reps, weightKg: ws.weightKg, date: o.date };
+      }
+      if (e !== null && (!records.bestE1rmKg || e > records.bestE1rmKg.value)) {
+        records.bestE1rmKg = { value: e, weightKg: ws.weightKg, reps: ws.reps, date: o.date };
+      }
+    }
+    if (recent.length < limit) recent.push({ workoutId: o.id, date: o.date, topSet: top, e1rmKg: best });
+  }
+  return { exerciseId, lastTime, recent, records };
 }
 
 export function mockWorkout(overrides: Partial<Workout> = {}): Workout {
@@ -114,7 +304,7 @@ export function mockWorkout(overrides: Partial<Workout> = {}): Workout {
     programWorkoutId: null,
     readinessSnapshot: null,
     exercises: [],
-    summary: { durationSeconds: null, exerciseCount: 0, setCount: 0, volumeKg: 0 },
+    summary: { durationSeconds: null, exerciseCount: 0, setCount: 0, volumeKg: 0, prs: [] },
     createdAt: WORKOUT_NOW,
     updatedAt: WORKOUT_NOW,
     ...overrides,
@@ -150,6 +340,8 @@ export function toListItem(w: Workout): WorkoutListItem {
 export interface WorkoutsApiState {
   workouts: Workout[];
   calls: { method: string; path: string; body?: unknown }[];
+  /** `GET /exercises/:id/history` requests (reads are not in `calls`). */
+  historyCalls: { exerciseId: string; query: string }[];
 }
 
 export interface WorkoutsApiOptions {
@@ -166,14 +358,20 @@ const notFound = (what: string) =>
   HttpResponse.json({ statusCode: 404, message: `${what} not found`, error: 'Not Found' }, { status: 404 });
 
 export function statefulWorkoutsApi(initial: Workout[] = [], options: WorkoutsApiOptions = {}): WorkoutsApiState {
-  const state: WorkoutsApiState = { workouts: initial.map((w) => structuredClone(w)), calls: [] };
+  const state: WorkoutsApiState = { workouts: initial.map((w) => structuredClone(w)), calls: [], historyCalls: [] };
   const gyms = options.gyms ?? [];
   const exercises = options.exercises ?? [];
 
   const find = (id: unknown) => state.workouts.find((w) => w.id === id);
   const view = (w: Workout): Workout => {
+    applyPrs(w, state.workouts);
     w.summary = computeSummary(w);
     return structuredClone(w);
+  };
+  /** A set as the API answers a write: its `prs` computed against the rest. */
+  const setView = (w: Workout, set: SetLogView): SetLogView => {
+    applyPrs(w, state.workouts);
+    return structuredClone(set);
   };
   const findSet = (w: Workout, setId: unknown) => {
     for (const entry of w.exercises) {
@@ -184,6 +382,22 @@ export function statefulWorkoutsApi(initial: Workout[] = [], options: WorkoutsAp
   };
 
   server.use(
+    http.get(`${API}/exercises/:id/history`, ({ params, request }) => {
+      const url = new URL(request.url);
+      const workoutId = url.searchParams.get('workoutId');
+      const context = workoutId ? (find(workoutId) ?? null) : null;
+      if (workoutId && !context) return notFound('Workout');
+      state.historyCalls.push({ exerciseId: String(params.id), query: url.search });
+      return HttpResponse.json({
+        data: fixtureHistory(
+          state.workouts,
+          String(params.id),
+          context,
+          url.searchParams.get('gymId'),
+          Number(url.searchParams.get('limit') ?? 3),
+        ),
+      });
+    }),
     http.get(`${API}/workouts`, ({ request }) => {
       const url = new URL(request.url);
       const status = url.searchParams.get('status');
@@ -299,15 +513,20 @@ export function statefulWorkoutsApi(initial: Workout[] = [], options: WorkoutsAp
         durationSeconds: copy('durationSeconds'),
         distanceMeters: copy('distanceMeters'),
       });
+      if (body.isWarmup !== undefined) set.isWarmup = body.isWarmup;
+      if (body.completed === true) {
+        set.completed = true;
+        set.completedAt = WORKOUT_NOW;
+      }
       entry.sets.push(set);
-      return HttpResponse.json({ data: structuredClone(set) }, { status: 201 });
+      return HttpResponse.json({ data: setView(w, set) }, { status: 201 });
     }),
     http.patch(`${API}/workouts/:id/sets/:setId`, async ({ params, request }) => {
       const body = (await request.clone().json()) as SetInput;
       state.calls.push({ method: 'PATCH', path: `/workouts/${params.id}/sets/${params.setId}`, body });
       const w = find(params.id);
       const found = w ? findSet(w, params.setId) : null;
-      if (!found) return notFound('Set');
+      if (!w || !found) return notFound('Set');
       const { set } = found;
       for (const [key, value] of Object.entries(body)) {
         if (key === 'completed') continue;
@@ -320,7 +539,7 @@ export function statefulWorkoutsApi(initial: Workout[] = [], options: WorkoutsAp
         set.completed = false;
         set.completedAt = null;
       }
-      return HttpResponse.json({ data: structuredClone(set) });
+      return HttpResponse.json({ data: setView(w, set) });
     }),
     http.delete(`${API}/workouts/:id/sets/:setId`, ({ params }) => {
       state.calls.push({ method: 'DELETE', path: `/workouts/${params.id}/sets/${params.setId}` });

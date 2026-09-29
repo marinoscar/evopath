@@ -8,6 +8,8 @@
  * `workouts:read` decides whether there is anything to show and
  * `workouts:write` whether anything can change; the API enforces both.
  * Nothing here involves AI (E4.5's "Prefill from photo" slot renders nothing).
+ * E4.4: each card shows "Last time" (with Copy sets) and each set its PR
+ * chips; the finish summary and the completed view list the workout's PRs.
  */
 import { useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -47,7 +49,8 @@ import { setHasValues } from '../utils/workoutFormat';
 import { WorkoutHeader } from '../components/train/WorkoutHeader';
 import { WorkoutExerciseCard } from '../components/train/WorkoutExerciseCard';
 import { ExercisePickerDialog } from '../components/train/ExercisePickerDialog';
-import { SummaryStats, WorkoutSummaryDialog } from '../components/train/WorkoutSummaryDialog';
+import { PrSummaryList, SummaryStats, WorkoutSummaryDialog } from '../components/train/WorkoutSummaryDialog';
+import { ExerciseLastTime } from '../components/train/LastTimeLine';
 import { EditWorkoutDialog } from '../components/train/EditWorkoutDialog';
 import { ReadinessCard } from '../components/train/StartWorkoutDialog';
 
@@ -281,6 +284,16 @@ export default function WorkoutPage() {
           canWrite={canWrite}
           isFirst={i === 0}
           isLast={i === workout.exercises.length - 1}
+          lastTime={
+            <ExerciseLastTime
+              entry={entry}
+              workout={workout}
+              unit={unit}
+              canWrite={canWrite}
+              onAddSet={w.addSet}
+              onSaveSet={w.updateSet}
+            />
+          }
           onMove={(weId, dir) => {
             w.moveExercise(weId, dir).catch((err: unknown) =>
               setActionError(workoutErrorMessage(err, 'Could not move the exercise')),
@@ -364,6 +377,18 @@ export default function WorkoutPage() {
                   <SummaryStats workout={workout} unit={unit} />
                 </CardContent>
               </Card>
+              {(workout.summary.prs?.length ?? 0) > 0 && (
+                <Card variant="outlined">
+                  <CardContent>
+                    <PrSummaryList
+                      prs={workout.summary.prs}
+                      unit={unit}
+                      headingId="workout-prs-heading"
+                      headingComponent="h2"
+                    />
+                  </CardContent>
+                </Card>
+              )}
               {workout.notes && (
                 <Card variant="outlined" component="section" aria-labelledby="workout-notes-heading">
                   <CardContent>

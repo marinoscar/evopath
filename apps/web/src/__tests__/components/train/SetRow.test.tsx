@@ -249,4 +249,68 @@ describe('SetRow', () => {
     await user.click(screen.getByRole('option', { name: '8.5' }));
     await waitFor(() => expect(onSave).toHaveBeenLastCalledWith(set.id, { rpe: 8.5 }));
   });
+  describe('PR chips (E4.4)', () => {
+    it('shows the chips a completed set earns, with the previous best, and announces them once', async () => {
+      const initial = mockSet({ weightKg: 65, reps: 7 });
+      const onSave = vi.fn<SaveFn>(async (_id, input) => ({
+        ...initial,
+        completed: Boolean(input.completed),
+        prs: input.completed
+          ? [
+              { type: 'reps', value: 7, previous: 6 },
+              { type: 'e1rm', value: 80.2, previous: 80 },
+            ]
+          : [],
+      }));
+      const user = userEvent.setup();
+      render(<Harness initial={initial} onSave={onSave} />);
+      expect(screen.queryByRole('list', { name: 'Personal records' })).toBeNull();
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+
+      await user.click(screen.getByRole('button', { name: 'Complete set 1' }));
+      const list = await screen.findByRole('list', { name: 'Personal records' });
+      expect(list).toHaveTextContent('Rep PR: 7 reps. Previous best 6 reps at this weight or heavier');
+      expect(list).toHaveTextContent('Est. 1RM PR: 80.2 kg. Previous best est. 1RM 80 kg');
+      expect(list).not.toHaveTextContent('Weight PR');
+      expect(screen.getByRole('status')).toHaveTextContent('Set 1: Rep PR, Est. 1RM PR');
+
+      // Un-completing clears them; the region is emptied, not re-announced.
+      await user.click(screen.getByRole('button', { name: 'Complete set 1' }));
+      await waitFor(() => expect(screen.queryByRole('list', { name: 'Personal records' })).toBeNull());
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    });
+
+    it('shows PRs a set already had (a reload) without announcing them', () => {
+      const set = mockSet({
+        weightKg: 67.5,
+        reps: 5,
+        completed: true,
+        prs: [{ type: 'weight', value: 67.5, previous: 65 }],
+      });
+      render(<Harness initial={set} onSave={saveFrom(set)} />);
+      expect(screen.getByRole('list', { name: 'Personal records' })).toHaveTextContent(
+        'Weight PR: 67.5 kg. Previous best 65 kg',
+      );
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    });
+
+    it('a first set reads "First time logged"', () => {
+      const set = mockSet({ weightKg: 60, reps: 10, completed: true, prs: [{ type: 'first_time', value: 60, previous: null }] });
+      render(<Harness initial={set} onSave={saveFrom(set)} />);
+      expect(screen.getByText('First time logged')).toBeInTheDocument();
+    });
+
+    it('shows chips in the user unit', () => {
+      const set = mockSet({
+        weightKg: 34.019,
+        reps: 8,
+        completed: true,
+        prs: [{ type: 'weight', value: 34.019, previous: 31.751 }],
+      });
+      render(<Harness initial={set} unit="lb" onSave={saveFrom(set)} />);
+      expect(screen.getByRole('list', { name: 'Personal records' })).toHaveTextContent(
+        'Weight PR: 75.0 lb. Previous best 70.0 lb',
+      );
+    });
+  });
 });

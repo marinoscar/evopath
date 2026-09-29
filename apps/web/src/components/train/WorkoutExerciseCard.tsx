@@ -1,6 +1,6 @@
 /**
- * One exercise of a workout (E4.3): name, muscles, the "Last time" line
- * (filled by E4.4; nothing renders while absent), the set rows, Add set, and
+ * One exercise of a workout (E4.3): name, muscles, the "Last time" slot
+ * (E4.4: `ExerciseLastTime` from `LastTimeLine.tsx`; nothing renders while absent), the set rows, Add set, and
  * an overflow menu (Move up/down, Notes, Equipment used, Remove exercise).
  *
  * Completing the LAST row adds the next one (the server copies weight and
@@ -48,7 +48,7 @@ export interface WorkoutExerciseCardProps {
   canWrite: boolean;
   isFirst: boolean;
   isLast: boolean;
-  /** E4.4's "Last time" line; nothing renders when absent. */
+  /** E4.4's "Last time" line (`ExerciseLastTime`); nothing renders when absent. */
   lastTime?: ReactNode;
   onMove: (weId: string, direction: -1 | 1) => void;
   onRemove: (entry: WorkoutExerciseView) => void;

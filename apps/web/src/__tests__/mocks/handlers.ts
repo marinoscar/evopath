@@ -803,6 +803,17 @@ export const handlers = [
   // Exercise library (E4.1): empty by default. Suites that exercise the
   // library install their own stateful API (`fixtures/exercises.ts`).
   http.get(`${API_BASE}/exercises`, () => HttpResponse.json({ data: [] })),
+  // E4.4: no history by default ("First time logging this exercise").
+  http.get(`${API_BASE}/exercises/:id/history`, ({ params }) =>
+    HttpResponse.json({
+      data: {
+        exerciseId: String(params.id),
+        lastTime: null,
+        recent: [],
+        records: { maxWeightKg: null, maxReps: null, bestE1rmKg: null },
+      },
+    }),
+  ),
 
   // Workouts (E4.3): none yet. Suites that log workouts install their own
   // stateful API (`fixtures/workouts.ts`).

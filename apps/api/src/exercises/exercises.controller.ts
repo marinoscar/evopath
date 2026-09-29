@@ -23,6 +23,9 @@ import {
 } from '../common/constants/training.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { ErrorDto } from '../common/dto/error.dto';
+import { ExerciseHistoryQueryDto, ExerciseHistoryView } from '../workouts/dto/exercise-history.dto';
+import { WorkoutHistoryService } from '../workouts/workout-history.service';
+import { EXERCISE_HISTORY_LIMIT_DEFAULT, EXERCISE_HISTORY_LIMIT_MAX } from '../workouts/workouts.constants';
 import {
   CreateExerciseDto,
   ExerciseView,
@@ -66,7 +69,10 @@ const BAD_ID = { status: 400, description: 'The id is not a UUID', type: ErrorDt
 @ApiTags('Exercises')
 @Controller('exercises')
 export class ExercisesController {
-  constructor(private readonly exercises: ExercisesService) {}
+  constructor(
+    private readonly exercises: ExercisesService,
+    private readonly workoutHistory: WorkoutHistoryService,
+  ) {}
 
   @Get()
   @Auth({ permissions: [PERMISSIONS.EXERCISES_READ] })
@@ -131,6 +137,45 @@ export class ExercisesController {
   @ApiResponse(NOT_FOUND)
   get(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.exercises.get(userId, id);
+  }
+
+  @Get(':id/history')
+  @Auth({ permissions: [PERMISSIONS.WORKOUTS_READ] })
+  @ApiOperation({
+    summary: 'Exercise history: last time and records',
+    description:
+      'What the caller logged for this exercise, computed on read from their own completed workouts ' +
+      '(`workouts:read`): `lastTime` (the sets of the most recent workout with a completed set of it, ' +
+      'preferring `gymId` when one of the two most recent was there), `recent` (top set and best ' +
+      'estimated 1RM per workout, newest first) and all-time `records` over working sets (completed, ' +
+      'not warm-up, reps >= 1). Kilograms and metres. As of `beforeDate` (default today, inclusive), or ' +
+      'strictly before `workoutId` when given. Time and distance exercises have no records.',
+  })
+  @ApiParam(EXERCISE_ID_PARAM)
+  @ApiQuery({ name: 'beforeDate', required: false, type: String, format: 'date' })
+  @ApiQuery({ name: 'workoutId', required: false, type: String, format: 'uuid', description: 'One of the caller\'s workouts.' })
+  @ApiQuery({ name: 'gymId', required: false, type: String, format: 'uuid' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: `Recent workouts; default ${EXERCISE_HISTORY_LIMIT_DEFAULT}, max ${EXERCISE_HISTORY_LIMIT_MAX}.`,
+  })
+  @ApiDataResponse(ExerciseHistoryView, { description: 'Last time, recent workouts and records' })
+  @ApiResponse({ status: 400, description: 'Invalid id or query', type: ErrorDto })
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse({ status: 403, description: 'Missing workouts:read', type: ErrorDto })
+  @ApiResponse({
+    status: 404,
+    description: 'No library exercise and no exercise of the caller has this id, or no workout with `workoutId`',
+    type: ErrorDto,
+  })
+  history(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ExerciseHistoryQueryDto,
+  ) {
+    return this.workoutHistory.history(userId, id, query);
   }
 
   @Post()

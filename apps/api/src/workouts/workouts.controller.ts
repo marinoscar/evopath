@@ -147,7 +147,9 @@ export class WorkoutsController {
   @Auth({ permissions: [PERMISSIONS.WORKOUTS_READ] })
   @ApiOperation({
     summary: 'Get a workout',
-    description: 'The workout with its exercises in `position` order and each exercise\'s sets in `setNumber` order.',
+    description:
+      'The workout with its exercises in `position` order and each exercise\'s sets in `setNumber` order. ' +
+      'Each completed working set carries its `prs`; `summary.prs` lists the best set per PR type per exercise.',
   })
   @ApiParam(WORKOUT_ID_PARAM)
   @ApiDataResponse(WorkoutView, { description: 'The workout' })
@@ -192,7 +194,8 @@ export class WorkoutsController {
     description:
       'Marks the workout completed, sets `endedAt` (default now) and `durationSeconds`. Uncompleted sets ' +
       'without any value are deleted; uncompleted sets with values stay uncompleted. Finishing a ' +
-      'completed workout returns it unchanged. `summary` carries the totals.',
+      'completed workout returns it unchanged. `summary` carries the totals and `summary.prs`, the best ' +
+      'set per PR type (weight, reps, e1rm, first_time) per exercise.',
   })
   @ApiParam(WORKOUT_ID_PARAM)
   @ApiBody({ type: FinishWorkoutDto, required: false })
@@ -320,7 +323,7 @@ export class WorkoutsController {
     description:
       'Appends a set (`setNumber` = last + 1). Every field is optional: an omitted `weightKg`, `reps`, ' +
       '`durationSeconds` or `distanceMeters` is copied from the previous set of this exercise. ' +
-      `At most ${MAX_SETS_PER_EXERCISE} sets per exercise.`,
+      `At most ${MAX_SETS_PER_EXERCISE} sets per exercise. A completed set carries the \`prs\` it earns.`,
   })
   @ApiParam(WORKOUT_ID_PARAM)
   @ApiParam(WORKOUT_EXERCISE_ID_PARAM)
@@ -346,7 +349,8 @@ export class WorkoutsController {
     description:
       '`completed: true` stamps `completedAt` and, when the set has no `restSeconds`, derives it from the ' +
       'workout\'s previous completion if that was under 15 minutes ago. `completed: false` clears ' +
-      '`completedAt`. Null clears a value.',
+      '`completedAt`. Null clears a value. A completed set carries the `prs` it earns against earlier ' +
+      'workouts and the earlier sets of this one.',
   })
   @ApiParam(WORKOUT_ID_PARAM)
   @ApiParam(SET_ID_PARAM)
