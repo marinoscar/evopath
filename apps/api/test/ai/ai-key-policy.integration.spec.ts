@@ -15,9 +15,15 @@
 //                                        even looked at (`FakeAiProvider`
 //                                        never receives it).
 //   - `byok_with_org_fallback`,
-//     no user key, an org key stored -> the call proceeds WITH the org key
-//                                        (this is the one legitimate case),
+//     no user key, an org key stored -> the call proceeds WITH the org key,
 //                                        recorded `keySource: 'org'`.
+//   - the caller holds
+//     `ai_config:write` (#593), no    -> the call proceeds WITH the org key
+//     user key, an org key stored        under EITHER policy — the org account
+//                                        is the administrator's own — recorded
+//                                        `keySource: 'org'`. A caller without
+//                                        the permission is unaffected (the
+//                                        `byok` block above still refuses).
 //   - a user key exists              -> ALWAYS the user's own key, however the
 //                                        deployment's policy is set and however
 //                                        an org key is configured. This is the
@@ -327,6 +333,72 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       expect(app.harness.usageEvents).toEqual([
         expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.speech', keySource: 'org' }),
       ]);
+    });
+  });
+
+  describe('the caller holds ai_config:write (#593), has no key, an org key is stored', () => {
+    let adminToken: string;
+
+    beforeEach(async () => {
+      const admin = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'admin' });
+      adminToken = admin.accessToken;
+      app.harness.setAiConfigWriter(HARNESS_USER, true);
+      app.harness.removeUserKeys(HARNESS_USER);
+      app.harness.setOrgKey(HARNESS_ORG_KEY);
+    });
+
+    it.each(['byok', 'byok_with_org_fallback'] as const)(
+      'under %s, POST /api/ai/responses succeeds WITH the org key, usage row keySource=org',
+      async (keyPolicy) => {
+        app.harness.setPolicy({ keyPolicy });
+
+        await request(app.context.app.getHttpServer())
+          .post('/api/ai/responses')
+          .set(authHeader(adminToken))
+          .send(BODY)
+          .expect(200);
+
+        expect(app.harness.fake.apiKeys).toEqual([HARNESS_ORG_KEY]);
+        expect(app.harness.usageEvents).toEqual(
+          expect.arrayContaining([expect.objectContaining({ userId: HARNESS_USER, keySource: 'org' })]),
+        );
+      },
+    );
+
+    it('under byok, the usable-models answer (GET /api/ai/models) lists every model with keySource org', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok' });
+
+      const models = await app.harness.usableModels.listForUser(HARNESS_USER);
+
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every((m) => m.keySource === 'org')).toBe(true);
+    });
+
+    it('a personal key still overrides the org key', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok' });
+      app.harness.addUserKey(HARNESS_USER, HARNESS_USER_KEY, ['fake-model']);
+
+      await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(adminToken))
+        .send(BODY)
+        .expect(200);
+
+      expect(app.harness.fake.apiKeys).toEqual([HARNESS_USER_KEY]);
+    });
+
+    it('once the permission is gone, byok refuses again with the org key untouched', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok' });
+      app.harness.setAiConfigWriter(HARNESS_USER, false);
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(adminToken))
+        .send(BODY)
+        .expect(403);
+
+      expect(res.body.details.reason).toBe('AI_KEY_REQUIRED');
+      expect(app.harness.fake.calls).toEqual([]);
     });
   });
 

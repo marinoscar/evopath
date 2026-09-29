@@ -94,6 +94,41 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '(`PUT`) and JSON Merge Patch (`PATCH`).',
       },
       {
+        name: 'Health Profile',
+        description:
+          'The calling user\'s health profile: date of birth, sex at birth, height, unit system, ' +
+          'time zone and a short bio, used to interpret their measurements. Full replacement ' +
+          '(`PUT`) with an optional `If-Match` version. Gated on `health_data:read`/`:write`, ' +
+          'separately from `user_settings:*`.',
+      },
+      {
+        name: 'Measurements',
+        description:
+          'The calling user\'s health measurements (weight, body fat, waist, blood pressure, ' +
+          'resting heart rate): the metric catalog with unit conversion factors, entries of ' +
+          'readings saved together, latest values, and chart series. Values are stored in each ' +
+          'metric\'s canonical unit; edits create superseding revisions and deletes are soft. ' +
+          'Gated on `health_data:read`/`:write`; owner-scoped (a foreign id is a 404).',
+      },
+      {
+        name: 'Check-ins',
+        description:
+          'The calling user\'s daily readiness check-in: four optional self-reported scores from ' +
+          '1 to 5 (energy, sleep quality, muscle soreness, stress) and a note, one per local ' +
+          'calendar day in the profile time zone, editable for today and the 7 days before. ' +
+          'Stored as wellness measurements; no combined readiness score is computed. Gated on ' +
+          '`health_data:read`/`:write`; owner-scoped.',
+      },
+      {
+        name: 'Intakes',
+        description:
+          'The calling user\'s photo intakes: share photos instead of typing, let a vision model ' +
+          'draft structured items, review them (edit, accept, reject, add missing), then apply the ' +
+          'accepted items to real data. Each flow is a registered intake kind. Provenance is kept: ' +
+          'the AI\'s original value, confidence and a verified flag. Gated on `intakes:read`/`:write`; ' +
+          'analyze also needs `ai:use` and AI switched on. Owner-scoped (a foreign id is a 404).',
+      },
+      {
         name: 'System Settings',
         description:
           'Deployment-wide configuration, stored as a JSON document. Readable by any signed-in user; ' +
@@ -123,6 +158,33 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'push subscriber offline until they resubscribe — a materially different act from an ' +
           'ordinary settings edit. The VAPID private key is write-only: it is held in the ' +
           'encrypted credential store and is never returned by any endpoint.',
+      },
+    ],
+  },
+  {
+    name: 'Gyms & Equipment',
+    tags: [
+      {
+        name: 'Gyms',
+        description:
+          'The calling user\'s training locations: name, type, description, notes, temporary flag, ' +
+          'the one default gym, the equipment in each (manual rows, and AI rows with their ' +
+          'provenance) and photos attached from storage objects the caller uploaded. Gated on ' +
+          '`gyms:read`/`gyms:write`; attaching or removing a photo also needs `storage:write`. ' +
+          'Owner-scoped (a foreign id is a 404).',
+      },
+      {
+        name: 'Equipment',
+        description:
+          'The equipment catalog (seeded, read-only) plus the caller\'s own custom equipment ' +
+          'types, searchable by name and alias. Gated on `gyms:read`/`gyms:write`; a custom type ' +
+          'is visible only to its owner.',
+      },
+      {
+        name: 'Capabilities',
+        description:
+          'What equipment lets you train (e.g. back squat, lat pulldown), with movement pattern ' +
+          'and primary muscles. Seeded and read-only; gated on `gyms:read`.',
       },
     ],
   },

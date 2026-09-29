@@ -1,0 +1,15 @@
+{
+  "readable": true,
+  "deviceKind": "scale",
+  "readings": [
+    {
+      "metricKey": "weight",
+      "value": 208.4,
+      "unit": "lb",
+      "confidence": "high",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [1]
+    }
+  ]
+}

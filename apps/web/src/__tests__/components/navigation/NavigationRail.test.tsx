@@ -68,8 +68,10 @@ describe('NavigationRail', () => {
       render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
 
       const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      expect(within(nav).getAllByRole('link')).toHaveLength(3);
-      expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
+      expect(within(nav).getAllByRole('link')).toHaveLength(6);
+      for (const name of ['Today', 'Train', 'Health', 'Gyms']) {
+        expect(screen.getByRole('link', { name })).toBeInTheDocument();
+      }
       expect(screen.getByRole('link', { name: 'User Settings' })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
     });
@@ -77,7 +79,9 @@ describe('NavigationRail', () => {
     it('hides Console from a user holding neither admin permission', () => {
       render(<NavigationRail />);
 
-      expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
+      for (const name of ['Today', 'Train', 'Health', 'Gyms']) {
+        expect(screen.getByRole('link', { name })).toBeInTheDocument();
+      }
       expect(screen.getByRole('link', { name: 'User Settings' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: 'Console' })).not.toBeInTheDocument();
     });
@@ -113,7 +117,7 @@ describe('NavigationRail', () => {
 
       render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
 
-      expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+      expect(screen.getByRole('link', { name: 'Today' })).toHaveAttribute('href', '/');
       expect(screen.getByRole('link', { name: 'User Settings' })).toHaveAttribute(
         'href',
         '/settings',
@@ -147,7 +151,7 @@ describe('NavigationRail', () => {
         'aria-current',
         'page',
       );
-      expect(screen.getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current');
+      expect(screen.getByRole('link', { name: 'Today' })).not.toHaveAttribute('aria-current');
     });
 
     it('marks exactly one row active on a nested admin route', () => {
@@ -275,6 +279,9 @@ describe('NavigationRail', () => {
 
       expect(screen.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
         '/',
+        '/train',
+        '/health',
+        '/gyms',
         '/settings',
         '/admin/settings',
       ]);
@@ -489,12 +496,12 @@ describe('NavigationRail', () => {
       return list as HTMLElement;
     }
 
-    it('renders Console in a different list than Home and Settings, preceded by a divider', () => {
+    it('renders Console in a different list than Today and Settings, preceded by a divider', () => {
       setPermissions(ADMIN_PERMISSIONS, true);
       render(<NavigationRail />, { wrapperOptions: { user: mockAdminUser } });
 
       const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      const homeList = within(nav).getByRole('link', { name: 'Home' }).closest('ul');
+      const homeList = within(nav).getByRole('link', { name: 'Today' }).closest('ul');
       const footList = pinnedList(nav);
 
       expect(homeList).not.toBeNull();
@@ -516,6 +523,9 @@ describe('NavigationRail', () => {
 
       expect(screen.getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
         '/',
+        '/train',
+        '/health',
+        '/gyms',
         '/settings',
         '/admin/settings',
       ]);
@@ -528,7 +538,7 @@ describe('NavigationRail', () => {
       await act(async () => setViewportWidth(800));
 
       const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      const homeList = within(nav).getByRole('link', { name: 'Home' }).closest('ul');
+      const homeList = within(nav).getByRole('link', { name: 'Today' }).closest('ul');
       const footList = pinnedList(nav);
 
       expect(footList).not.toBe(homeList);
@@ -668,8 +678,15 @@ describe('NavigationRail', () => {
       expect(screen.queryByRole('link', { name: 'AI Playground' })).not.toBeInTheDocument();
     });
 
-    it('shows AI Playground → /ai in the library list with ai:use and AI on, active on /ai', () => {
-      setPermissions(['ai:use', ...ADMIN_PERMISSIONS], true);
+    it('shows no AI Playground row to a Contributor-like ai:use holder without ai_config:read (#593)', () => {
+      setPermissions(['ai:use']);
+      render(<NavigationRail />, { wrapperOptions: { aiEnabled: true } });
+
+      expect(screen.queryByRole('link', { name: 'AI Playground' })).not.toBeInTheDocument();
+    });
+
+    it('shows AI Playground → /ai in the library list with ai:use + ai_config:read and AI on, active on /ai', () => {
+      setPermissions(['ai:use', 'ai_config:read', ...ADMIN_PERMISSIONS], true);
       render(<NavigationRail />, {
         wrapperOptions: { aiEnabled: true, route: '/ai', user: mockAdminUser },
       });
@@ -678,7 +695,7 @@ describe('NavigationRail', () => {
       expect(row).toHaveAttribute('href', '/ai');
       expect(row).toHaveAttribute('aria-current', 'page');
       const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      expect(within(nav).getAllByRole('link')).toHaveLength(4);
+      expect(within(nav).getAllByRole('link')).toHaveLength(7);
     });
 
     describe('Console rows', () => {

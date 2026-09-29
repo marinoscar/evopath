@@ -47,6 +47,10 @@ describe('UsableModelsService', () => {
   let current: AiPolicy;
   let orgKeyStored: boolean;
   let getSecret: jest.Mock;
+  let describeOrgKey: jest.Mock;
+  let aiConfigWriters: Set<string>;
+  let holdsAiConfigWrite: jest.Mock;
+  let registry: AiProviderRegistry;
   let service: UsableModelsService;
 
   function addUserKey(userId: string, reachable: string[]) {
@@ -78,14 +82,22 @@ describe('UsableModelsService', () => {
     orgKeyStored = false;
     getSecret = jest.fn(async () => (orgKeyStored ? 'sk-org' : null));
 
-    const registry = new AiProviderRegistry();
+    describeOrgKey = jest.fn(async () => (orgKeyStored ? { hint: 'x' } : null));
+    aiConfigWriters = new Set();
+    holdsAiConfigWrite = jest.fn(async (userId: string) => aiConfigWriters.has(userId));
+
+    registry = new AiProviderRegistry();
     registry.register(new FakeAiProvider({ id: 'openai' }));
     const aiConfig = new AiConfigService(
       { getAiPolicy: jest.fn(async () => current) } as never,
-      { getSecret, describe: jest.fn(async () => (orgKeyStored ? { hint: 'x' } : null)) } as never,
+      { getSecret, describe: describeOrgKey } as never,
       registry,
     );
-    const resolver = new AiKeyResolver({ getDecrypted: jest.fn() } as never, aiConfig);
+    const resolver = new AiKeyResolver(
+      { getDecrypted: jest.fn() } as never,
+      aiConfig,
+      { holdsAiConfigWrite } as never,
+    );
     service = new UsableModelsService(db.prisma as never, aiConfig, registry, resolver);
   });
 
@@ -175,6 +187,62 @@ describe('UsableModelsService', () => {
       expect(weird?.capabilities).toEqual({ capabilities: [], inputModalities: [], outputModalities: [] });
     });
 
+    describe('a holder of ai_config:write (#593)', () => {
+      beforeEach(() => {
+        aiConfigWriters.add(USER);
+        orgKeyStored = true;
+      });
+
+      it.each(['byok', 'byok_with_org_fallback'] as const)(
+        'with no key under %s, every enabled model with keySource org',
+        async (keyPolicy) => {
+          current = policy({ keyPolicy });
+
+          const models = await service.listForUser(USER);
+
+          expect(models.map((m) => m.modelId)).toEqual(['embed-small', 'gpt-big', 'gpt-mini', 'weird']);
+          expect(models.every((m) => m.keySource === 'org')).toBe(true);
+          expect(getSecret).not.toHaveBeenCalled();
+        },
+      );
+
+      it('with a key of their own, the personal key overrides the org key', async () => {
+        addUserKey(USER, ['gpt-big']);
+
+        expect(await service.listForUser(USER)).toEqual([
+          expect.objectContaining({ modelId: 'gpt-big', keySource: 'user' }),
+        ]);
+        expect(holdsAiConfigWrite).not.toHaveBeenCalled();
+      });
+
+      it('without an org key, lists nothing', async () => {
+        orgKeyStored = false;
+
+        expect(await service.listForUser(USER)).toEqual([]);
+      });
+
+      it('looks the permission up once per listing, not once per provider', async () => {
+        registry.register(new FakeAiProvider({ id: 'anthropic' }));
+        db.addModel({ provider: 'anthropic', modelId: 'claude-x', capabilities: TEXT });
+        current = policy({
+          providers: { ...policy().providers, anthropic: { enabled: true } },
+        });
+
+        const models = await service.listForUser(USER);
+
+        expect(models.map((m) => `${m.provider}/${m.modelId}`)).toContain('anthropic/claude-x');
+        expect(models.every((m) => m.keySource === 'org')).toBe(true);
+        expect(holdsAiConfigWrite).toHaveBeenCalledTimes(1);
+        expect(holdsAiConfigWrite).toHaveBeenCalledWith(USER);
+      });
+
+      it('does not extend to another user: a non-holder under byok still gets nothing, org key unread', async () => {
+        expect(await service.listForUser(OTHER)).toEqual([]);
+        expect(describeOrgKey).not.toHaveBeenCalled();
+        expect(getSecret).not.toHaveBeenCalled();
+      });
+    });
+
     it('is empty while AI is off', async () => {
       addUserKey(USER, ['gpt-mini']);
 
@@ -224,6 +292,16 @@ describe('UsableModelsService', () => {
       orgKeyStored = true;
 
       expect(await code(service.assertUsable(USER, 'openai', 'gpt-mini'))).toBe('AI_KEY_REQUIRED');
+    });
+
+    it('a holder of ai_config:write is served by the org key under byok (#593)', async () => {
+      aiConfigWriters.add(USER);
+      orgKeyStored = true;
+
+      await expect(service.assertUsable(USER, 'openai', 'gpt-big')).resolves.toMatchObject({
+        keySource: 'org',
+      });
+      expect(await code(service.assertUsable(OTHER, 'openai', 'gpt-big'))).toBe('AI_KEY_REQUIRED');
     });
 
     it('org fallback serves any enabled model', async () => {

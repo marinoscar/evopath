@@ -38,6 +38,10 @@
  *                              than permission, confirmed by reading both files
  *                              rather than assumed. No current spec relies on
  *                              this param.
+ *   ?ai=on                     Mount the real `AiConfigProvider` (issue #64),
+ *                              so AI-gated surfaces read `GET /api/ai/config`;
+ *                              the spec answers it with `page.route()`.
+ *                              Omitted, AI is off and nothing is fetched.
  *
  * WHY THE `/api` FETCHES BELOW ARE SAFE TO IGNORE
  * -------------------------------------------------------------------------
@@ -54,8 +58,8 @@
  * is `false` (rail expanded, subject to the width gates) whether `settings` is
  * `null` from the very first render or after the fetch has failed — so the
  * rail's rendered output never changes across that fetch settling. No spec
- * needs to wait on it. Other pages this harness can route to (`HomePage`'s
- * `UserProfileCard`, the leaf `/admin/settings/*` and `/settings/*` pages) make
+ * needs to wait on it. Other pages this harness can route to (the
+ * leaf `/admin/settings/*` and `/settings/*` pages) make
  * their own such calls; specs that visit them scope their screenshot to the
  * `AppBar`/rail element rather than the full page, so that race can never
  * appear in a baseline.
@@ -68,6 +72,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
 import { AuthContext } from '../src/contexts/AuthContext';
+import { AiConfigProvider } from '../src/contexts/AiConfigContext';
 import { ThemeContextProvider, useThemeContext } from '../src/contexts/ThemeContext';
 import { ProtectedRoute } from '../src/components/common/ProtectedRoute';
 import { RequirePermission } from '../src/components/common/RequirePermission';
@@ -77,7 +82,11 @@ import { ErrorBoundary } from '../src/components/common/ErrorBoundary';
 import { LoadingSpinner } from '../src/components/common/LoadingSpinner';
 import type { Role, User } from '../src/types';
 
-const HomePage = lazy(() => import('../src/pages/HomePage'));
+const TodayPage = lazy(() => import('../src/pages/TodayPage'));
+// The Health page (#53, E2.3) IS its data: `health-page.spec.ts` answers its
+// `/api/measurements/*` and `/api/health-profile` calls with `page.route()`
+// (`tests/visual/support/health.ts`), as the telemetry dashboard spec does.
+const HealthPage = lazy(() => import('../src/pages/HealthPage'));
 const UserSettingsHubPage = lazy(() => import('../src/pages/UserSettingsHubPage'));
 const UserProfilePage = lazy(() => import('../src/pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'));
@@ -135,6 +144,18 @@ const DEFAULT_PERMISSIONS = [
   // stopped containing it — green, and wrong.
   'storage_config:read',
   'storage_config:write',
+  // The per-user `Health Profile` card (#47, E2.1) is gated on
+  // `health_data:read`; without it the `user-hub` baseline would silently
+  // regenerate without the `Health` group. `health_data:write` keeps the
+  // harness a user who can edit the form, like every seeded role.
+  'health_data:read',
+  'health_data:write',
+  // The Today `Your gym` card (E3.3) reads `GET /api/gyms` only with
+  // `gyms:read`; without it the card renders its "unavailable" copy and the
+  // `today-page` baselines would stop covering the real card. `gyms:write`
+  // keeps the harness a user who can add a gym, like every seeded role.
+  'gyms:read',
+  'gyms:write',
   // The `About` card (#401, epic #397) needs NO new string here: it mirrors
   // `system_settings:read`, already first in this list, because that is the
   // literal permission `about/about.controller.ts` enforces. Noted rather than
@@ -147,6 +168,7 @@ interface HarnessParams {
   permissions: string[];
   theme: 'light' | 'dark';
   roles: Role[];
+  ai: boolean;
 }
 
 function parseHarnessParams(): HarnessParams {
@@ -174,10 +196,16 @@ function parseHarnessParams(): HarnessParams {
       : ['admin']
   ).map((name) => ({ name }));
 
-  return { route, permissions, theme, roles };
+  // Issue #64 (E2.6): `?ai=on` mounts the real `AiConfigProvider`, so the
+  // page reads `GET /api/ai/config` like the app does (the spec answers it
+  // with `page.route()`). Omitted, no provider is mounted and every AI
+  // surface is off with no request, exactly as before this parameter existed.
+  const ai = search.get('ai') === 'on';
+
+  return { route, permissions, theme, roles, ai };
 }
 
-const { route, permissions, theme, roles } = parseHarnessParams();
+const { route, permissions, theme, roles, ai } = parseHarnessParams();
 
 // MUST happen before `createRoot(...).render(...)` — `ThemeContextProvider`
 // reads this key synchronously in its `useState` initializer.
@@ -222,7 +250,8 @@ function HarnessRoutes() {
     <Routes>
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route path="/" element={<HomePage />} />
+          <Route path="/" element={<TodayPage />} />
+          <Route path="/health" element={<HealthPage />} />
 
           <Route path="/settings" element={<UserSettingsHubPage />} />
           <Route path="/settings/profile" element={<UserProfilePage />} />
@@ -278,7 +307,13 @@ function Inner() {
       <CssBaseline />
       <ErrorBoundary>
         <Suspense fallback={<LoadingSpinner fullScreen />}>
-          <HarnessRoutes />
+          {ai ? (
+            <AiConfigProvider>
+              <HarnessRoutes />
+            </AiConfigProvider>
+          ) : (
+            <HarnessRoutes />
+          )}
         </Suspense>
       </ErrorBoundary>
     </ThemeProvider>

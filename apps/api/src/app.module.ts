@@ -33,6 +33,11 @@ import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
+import { HealthProfileModule } from './health-profile/health-profile.module';
+import { MeasurementsModule } from './measurements/measurements.module';
+import { CheckInsModule } from './check-ins/check-ins.module';
+import { IntakeModule } from './intake/intake.module';
+import { GymsModule } from './gyms/gyms.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -198,6 +203,30 @@ import configuration from './config/configuration';
     // server-only `telemetry.retention.apply` job. The explorer (#535) and the
     // assistant (#536) add their services inside this module.
     TelemetryModule,
+
+    // The caller's health profile (E2.1, #47): `GET`/`PUT /api/health-profile`
+    // under `health_data:*`. Exports `HealthProfileService` for later health
+    // features (time zone for day boundaries).
+    HealthProfileModule,
+
+    // The caller's measurements (E2.2, #50): metric catalog, entries, latest,
+    // series under `health_data:*`. Exports `MeasurementsService`.
+    MeasurementsModule,
+
+    // The daily readiness check-in (E2.4, #56): `/api/check-ins` under
+    // `health_data:*`, stored as wellness `measurements` rows with `localDate`.
+    // Exports `CheckInsService` (`getToday`, `getForDate`) for E5.
+    CheckInsModule,
+
+    // Photo intakes (E3.1): `/api/intakes` under `intakes:*` (analyze also
+    // behind `AiEnabledGuard` + `ai:use`). Exports `IntakeKindRegistry` and
+    // `IntakeService` for the features that register an intake kind.
+    IntakeModule,
+
+    // Gyms (E3.3): `/api/gyms` (with equipment and photos), `/api/equipment-types`
+    // and `/api/capabilities` under `gyms:*` (photo attach/remove also
+    // `storage:write`). Manual only; no AI import.
+    GymsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

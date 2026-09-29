@@ -36,6 +36,9 @@ model User {
   allowlistEntry         AllowedEmail?           @relation("AllowlistClaimedBy")
   deviceCodes            DeviceCode[]            @relation("UserDeviceCodes")
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
+  photoIntakes           PhotoIntake[]
+  gyms                   Gym[]
+  equipmentTypes         EquipmentType[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
@@ -74,6 +77,11 @@ model User {
   // Per-user encrypted credentials (issue #387). Cascade: a user-owned
   // secret has no meaning once its owner is gone — see `UserCredential`.
   userCredentials        UserCredential[]        @relation("UserCredentials")
+  // Health profile (E2.1, #47). Cascade: person-level health facts have no
+  // meaning once the account is gone — see `HealthProfile`.
+  healthProfile          HealthProfile?
+  // Measurements (E2.2, #50). Cascade, like `healthProfile`.
+  measurements           Measurement[]
 
   @@map("users")
 }
@@ -379,8 +387,10 @@ model StorageObject {
   updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  uploadedBy User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
-  chunks     StorageObjectChunk[]
+  uploadedBy   User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
+  chunks       StorageObjectChunk[]
+  intakePhotos PhotoIntakePhoto[]
+  gymPhotos    GymPhoto[]
 
   @@index([uploadedById])
   @@index([status])
@@ -2535,4 +2545,284 @@ model AiUsageEvent {
   // accounting/billing query, independent of any one user.
   @@index([createdAt])
   @@map("ai_usage_events")
+}
+
+// Health profile (E2.1, #47): one row per user with the person-level facts the
+// health features interpret measurements against (age, sex at birth, height)
+// and how values are entered and grouped (unit system, time zone). A dedicated
+// table rather than a `user_settings` namespace: typed columns the server
+// computes with, and a different lifecycle than UI preferences.
+// `sexAtBirth` and `unitSystem` are plain strings validated by Zod, like the
+// other state-machine columns. `heightMm` is integer millimetres so imperial
+// entry (5 ft 10 in = 1778 mm) is exact. Cascade: no reader once the user is gone.
+model HealthProfile {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @map("user_id") @db.Uuid
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  sexAtBirth  String?   @map("sex_at_birth") // female | male | prefer_not_to_say
+  heightMm    Int?      @map("height_mm")
+  unitSystem  String    @default("metric") @map("unit_system") // metric | imperial
+  timeZone    String?   @map("time_zone") // IANA name
+  bio         String?
+  version     Int       @default(1)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_profiles")
+}
+
+// Measurements (E2.2, #50). One generic longitudinal store for health values.
+// `metricKey`, `method` and `origin` are plain strings: the metric registry and
+// Zod own the vocabulary. `value` is always in the metric's canonical unit.
+// Rows saved together share an `entryId`. Edits insert a superseding row
+// (`revision + 1`, `supersedesId` = old row) and stamp `supersededAt` on the
+// old one; deletes set `deletedAt`. "Active" = both null, enforced by a query
+// predicate, deliberately NOT a raw-SQL partial index. The unique
+// `supersedesId` means two concurrent edits cannot both win. Cascade: no
+// reader once the user is gone.
+model Measurement {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  entryId      String    @map("entry_id") @db.Uuid
+  metricKey    String    @map("metric_key")
+  value        Float
+  unit         String
+  measuredAt   DateTime  @map("measured_at") @db.Timestamptz
+  localDate    DateTime? @map("local_date") @db.Date
+  method       String    @default("unspecified")
+  origin       String    @default("manual") // manual | calculated | ai | device
+  notes        String?
+  sourceRef    Json?     @map("source_ref")
+  revision     Int       @default(1)
+  supersedesId String?   @unique @map("supersedes_id") @db.Uuid
+  supersededAt DateTime? @map("superseded_at") @db.Timestamptz
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supersedes   Measurement? @relation("MeasurementRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy Measurement? @relation("MeasurementRevisions")
+
+  @@index([userId, metricKey, measuredAt(sort: Desc)])
+  @@index([userId, entryId])
+  @@index([userId, localDate])
+  @@map("measurements")
+}
+
+// =============================================================================
+// Photo intake (E3.1): generic "share pictures, AI drafts, user reviews" flow
+// =============================================================================
+//
+// State-machine and kind columns are plain strings on purpose (a new kind or
+// status needs no migration); the API validates them. `jobId` and
+// `subjectType`/`subjectId` are deliberately unconstrained polymorphic
+// references, like `jobs.subject_type`/`subject_id`.
+
+model PhotoIntake {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  kind         String // registered kind, e.g. 'gym_equipment', 'workout_prefill'
+  status       String    @default("draft") // draft | scanning | ready | applied | failed
+  subjectType  String?   @map("subject_type") // target record type, e.g. 'gym'
+  subjectId    String?   @map("subject_id") @db.Uuid
+  context      Json? // kind-specific inputs, validated by the kind (e.g. { gymId })
+  provider     String? // chosen at analyze time
+  modelId      String?   @map("model_id")
+  jobId        String?   @map("job_id") @db.Uuid
+  errorCode    String?   @map("error_code")
+  errorMessage String?   @map("error_message")
+  resultMeta   Json?     @map("result_meta") // promptVersion, batches, ignored objects; never keys/prompts/bytes
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz
+
+  // Relations
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photos PhotoIntakePhoto[]
+  items  DraftItem[]
+
+  @@index([userId, kind, status])
+  @@map("photo_intakes")
+}
+
+model PhotoIntakePhoto {
+  id              String   @id @default(uuid()) @db.Uuid
+  intakeId        String   @map("intake_id") @db.Uuid
+  storageObjectId String   @map("storage_object_id") @db.Uuid
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  intake        PhotoIntake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  storageObject StorageObject @relation(fields: [storageObjectId], references: [id], onDelete: Cascade)
+
+  @@unique([intakeId, storageObjectId])
+  @@index([storageObjectId])
+  @@map("photo_intake_photos")
+}
+
+model DraftItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  intakeId        String   @map("intake_id") @db.Uuid
+  kind            String // the item kind inside the intake kind, e.g. 'equipment'
+  origin          String // 'ai' | 'user'
+  status          String   @default("pending") // pending | accepted | rejected
+  confidence      String? // 'high' | 'medium' | 'low' (null for user items)
+  uncertain       Boolean  @default(false) // AI flags "I am not sure about something here"
+  uncertaintyNote String?  @map("uncertainty_note")
+  sourcePhotoIds  String[] @map("source_photo_ids") @db.Uuid // storage object ids (no FK: a removed photo just dangles)
+  userVerified    Boolean  @default(false) @map("user_verified")
+  value           Json // the current value, validated by the kind's Zod schema
+  originalAiValue Json?    @map("original_ai_value") // set on the FIRST edit of an AI item; never overwritten
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  intake PhotoIntake @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+
+  @@index([intakeId, sortOrder])
+  @@map("draft_items")
+}
+
+// =============================================================================
+// Gyms, equipment catalog and capabilities (E3.2)
+// =============================================================================
+//
+// INTENTIONAL DRIFT: `gyms_user_default_uniq_idx` (one default gym per user),
+// the lat/lng CHECKs on `gyms` and the quantity CHECK on `gym_equipment` exist
+// only in the migration SQL. Prisma cannot express a partial unique index or a
+// CHECK constraint. Never "fix" them with `@@unique` and never replace the
+// index with a `findFirst` pre-check.
+
+enum GymType {
+  home
+  club
+  office
+  hotel
+  apartment
+  outdoor
+  other
+}
+
+model Gym {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  name        String // 1..80, validated in Zod
+  type        GymType  @default(other)
+  description String?
+  notes       String?
+  latitude    Float?   @db.DoublePrecision // -90..90 (CHECK in migration SQL)
+  longitude   Float?   @db.DoublePrecision // -180..180 (CHECK in migration SQL)
+  isDefault   Boolean  @default(false) @map("is_default")
+  isTemporary Boolean  @default(false) @map("is_temporary")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment GymEquipment[]
+  photos    GymPhoto[]
+
+  @@index([userId])
+  @@map("gyms")
+}
+
+model Capability {
+  id              String   @id @default(uuid()) @db.Uuid
+  slug            String   @unique // permanent once seeded
+  name            String
+  movementPattern String   @map("movement_pattern") // squat|hinge|horizontal_push|vertical_push|horizontal_pull|vertical_pull|lunge|carry|core|isolation|cardio
+  primaryMuscles  String[] @map("primary_muscles")
+  description     String?
+  sortOrder       Int      @default(0) @map("sort_order")
+
+  equipmentTypes EquipmentTypeCapability[]
+
+  @@map("capabilities")
+}
+
+model EquipmentType {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique // permanent once seeded; custom rows get 'custom-<8 random chars>'
+  name        String
+  category    String // free_weights|benches_racks|plate_loaded|selectorized|cable|cardio|bodyweight|accessories
+  aliases     String[] @default([])
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  ownerUserId String?  @map("owner_user_id") @db.Uuid // null = seeded catalog; set = that user's custom equipment
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  owner        User?                     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  capabilities EquipmentTypeCapability[]
+  gymEquipment GymEquipment[]
+
+  @@index([ownerUserId])
+  @@map("equipment_types")
+}
+
+model EquipmentTypeCapability {
+  equipmentTypeId String @map("equipment_type_id") @db.Uuid
+  capabilityId    String @map("capability_id") @db.Uuid
+
+  equipmentType EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Cascade)
+  capability    Capability    @relation(fields: [capabilityId], references: [id], onDelete: Restrict)
+
+  @@id([equipmentTypeId, capabilityId])
+  @@map("equipment_type_capabilities")
+}
+
+model GymEquipment {
+  id              String   @id @default(uuid()) @db.Uuid
+  gymId           String   @map("gym_id") @db.Uuid
+  equipmentTypeId String   @map("equipment_type_id") @db.Uuid
+  quantity        Int      @default(1) // 1..99 (CHECK in migration SQL)
+  brand           String?
+  model           String?
+  notes           String?
+  origin          String   @default("manual") // 'manual' | 'ai'
+  confidence      String? // 'high'|'medium'|'low', AI only
+  userVerified    Boolean  @default(true) @map("user_verified")
+  originalAiValue Json?    @map("original_ai_value")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  gym           Gym                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  equipmentType EquipmentType       @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  photos        GymEquipmentPhoto[]
+
+  @@index([gymId])
+  @@index([equipmentTypeId])
+  @@map("gym_equipment")
+}
+
+model GymPhoto {
+  id              String    @id @default(uuid()) @db.Uuid
+  gymId           String    @map("gym_id") @db.Uuid
+  storageObjectId String    @unique @map("storage_object_id") @db.Uuid
+  caption         String?
+  takenAt         DateTime? @map("taken_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  gym           Gym                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  storageObject StorageObject       @relation(fields: [storageObjectId], references: [id], onDelete: Cascade)
+  equipment     GymEquipmentPhoto[]
+
+  @@index([gymId])
+  @@map("gym_photos")
+}
+
+model GymEquipmentPhoto {
+  gymEquipmentId String @map("gym_equipment_id") @db.Uuid
+  gymPhotoId     String @map("gym_photo_id") @db.Uuid
+
+  gymEquipment GymEquipment @relation(fields: [gymEquipmentId], references: [id], onDelete: Cascade)
+  gymPhoto     GymPhoto     @relation(fields: [gymPhotoId], references: [id], onDelete: Cascade)
+
+  @@id([gymEquipmentId, gymPhotoId])
+  @@map("gym_equipment_photos")
 }

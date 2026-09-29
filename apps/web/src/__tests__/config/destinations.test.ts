@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
   DESTINATIONS,
+  PRIMARY_DESTINATION_LIMIT,
   DESTINATION_ROUTES,
   UNOWNED_ROUTES,
   isDestinationVisible,
@@ -142,12 +143,12 @@ describe('destinations — segment-boundary matching', () => {
     expect(resolveActiveDestination('/admin/users-archive')).toBe('console');
   });
 
-  it('activates Home on / only, never on any other path', () => {
-    // Every path starts with '/', so without the exact-match rule Home would
+  it('activates Today on / only, never on any other path', () => {
+    // Every path starts with '/', so without the exact-match rule Today would
     // own the entire app and beat nothing only by prefix length.
-    expect(resolveActiveDestination('/')).toBe('home');
-    expect(resolveActiveDestination('/settings')).not.toBe('home');
-    expect(resolveActiveDestination('/admin/settings')).not.toBe('home');
+    expect(resolveActiveDestination('/')).toBe('today');
+    expect(resolveActiveDestination('/settings')).not.toBe('today');
+    expect(resolveActiveDestination('/admin/settings')).not.toBe('today');
     expect(owns('/', '/anything')).toBe(false);
   });
 
@@ -184,7 +185,7 @@ describe('destinations — reachability regression', () => {
     }
   });
 
-  it('offers four destinations: the two admin rows merged into Console, plus AI (#425)', () => {
+  it('offers seven destinations: four primary product areas, Settings, Console and AI', () => {
     // NOT four any more (#92). `/admin/users` stops being a destination PATH
     // while staying a resolvable route — it redirects to
     // `/admin/settings/users`, and the assertion above is what proves the
@@ -193,8 +194,47 @@ describe('destinations — reachability regression', () => {
     // `/ai` (#425, epic #419) is the fourth — the bottom bar's ceiling, asserted
     // below — and is hidden unless the user holds `ai:use` AND AI is on.
     expect(DESTINATIONS.map((destination) => destination.path).sort()).toEqual(
-      ['/', '/admin/settings', '/settings', '/ai'].sort(),
+      ['/', '/train', '/health', '/gyms', '/settings', '/admin/settings', '/ai'].sort(),
     );
+  });
+});
+
+describe('destinations — primary flag and product routes', () => {
+  it('keeps declaration order as navigation order', () => {
+    expect(DESTINATIONS.map((d) => d.key)).toEqual([
+      'today',
+      'train',
+      'health',
+      'gyms',
+      'settings',
+      'console',
+      'ai',
+    ]);
+  });
+
+  it('marks exactly the four product destinations primary, within the ceiling', () => {
+    const primary = DESTINATIONS.filter((d) => d.primary);
+    expect(primary.map((d) => d.key)).toEqual(['today', 'train', 'health', 'gyms']);
+    expect(primary.length).toBeLessThanOrEqual(PRIMARY_DESTINATION_LIMIT);
+  });
+
+  it('gives the primary destinations no permission or feature gate', () => {
+    for (const d of DESTINATIONS.filter((x) => x.primary)) {
+      expect(d.permission, d.key).toBeUndefined();
+      expect(d.anyPermission, d.key).toBeUndefined();
+      expect(d.feature, d.key).toBeUndefined();
+    }
+  });
+
+  it('resolves the product routes on segment boundaries', () => {
+    expect(resolveActiveDestination('/train')).toBe('train');
+    expect(resolveActiveDestination('/train/anything')).toBe('train');
+    expect(resolveActiveDestination('/trainer')).toBeNull();
+    expect(resolveActiveDestination('/health')).toBe('health');
+    expect(resolveActiveDestination('/health/body')).toBe('health');
+    expect(resolveActiveDestination('/gyms/1')).toBe('gyms');
+    expect(resolveActiveDestination('/settings/health')).toBe('settings');
+    expect(owns('/train', '/trainer')).toBe(false);
   });
 });
 
@@ -243,18 +283,18 @@ describe('destinations — the table itself', () => {
 
   it('leaves the non-admin destinations open to any authenticated user', () => {
     const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
-    expect(byKey.home.permission).toBeUndefined();
+    expect(byKey.today.permission).toBeUndefined();
     expect(byKey.settings.permission).toBeUndefined();
   });
 
-  it('marks Console pinned and leaves Home and Settings as ordinary list rows (#105)', () => {
+  it('marks Console pinned and leaves Today and Settings as ordinary list rows (#105)', () => {
     // The rail's foot section is driven entirely by this flag — see
     // `NavigationRail`'s `listDestinations`/`pinnedDestinations` split — so a
     // console row that stops being flagged `pinned` silently falls back to
     // rendering inline as a third library destination, with no other signal.
     const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
     expect(byKey.console.pinned).toBe(true);
-    expect(byKey.home.pinned).toBeFalsy();
+    expect(byKey.today.pinned).toBeFalsy();
     expect(byKey.settings.pinned).toBeFalsy();
   });
 
@@ -279,8 +319,10 @@ describe('destinations — the table itself', () => {
     }
   });
 
-  it('caps the destination set at four — the bottom bar ceiling', () => {
-    expect(DESTINATIONS.length).toBeLessThanOrEqual(4);
+  it('caps the primary set at the bottom bar ceiling', () => {
+    expect(DESTINATIONS.filter((d) => d.primary).length).toBeLessThanOrEqual(
+      PRIMARY_DESTINATION_LIMIT,
+    );
   });
 });
 
@@ -365,7 +407,7 @@ describe('admin sections — registry against the live routes', () => {
 
 /**
  * Issue #92 regression. The `console` destination becomes VISIBLE (a rail row,
- * a menu entry, a quick action) whenever the user holds either permission in
+ * a menu entry) whenever the user holds either permission in
  * `anyPermission` — but the `/admin/settings` route itself once kept only
  * `system_settings:read`. A user holding `users:read` alone saw the row,
  * clicked it, and was bounced straight back to `/`: the destination said "you
@@ -438,7 +480,7 @@ describe('destinations — the AI Playground (#425)', () => {
   const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
   const holding = (granted: string[]) => (permission: string) => granted.includes(permission);
 
-  it('declares ai → /ai on ai:use, feature-gated, not pinned', () => {
+  it('declares ai → /ai on ai:use AND ai_config:read, feature-gated, not pinned', () => {
     expect(byKey.ai).toMatchObject({
       label: 'AI Playground',
       compactLabel: 'AI',
@@ -447,7 +489,9 @@ describe('destinations — the AI Playground (#425)', () => {
       feature: 'ai',
     });
     expect(byKey.ai.pinned).toBeFalsy();
-    expect(byKey.ai.anyPermission).toBeUndefined();
+    // #593: the Playground is an operator tool — `ai_config:read` is the
+    // string `/api/admin/ai/*` enforces, Admin-only in the seed.
+    expect(byKey.ai.anyPermission).toEqual(['ai_config:read']);
   });
 
   it('owns /ai and its children, and nothing else', () => {
@@ -461,15 +505,24 @@ describe('destinations — the AI Playground (#425)', () => {
     expect(resolveActiveDestination('/admin/settings/ai/models')).toBe('console');
   });
 
-  it('is hidden unless the permission is held AND the feature is on', () => {
-    expect(isDestinationVisible(byKey.ai, holding(['ai:use']))).toBe(false);
-    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: false })).toBe(false);
+  it('is hidden unless both permissions are held AND the feature is on', () => {
+    const admin = ['ai:use', 'ai_config:read'];
+    expect(isDestinationVisible(byKey.ai, holding(admin))).toBe(false);
+    expect(isDestinationVisible(byKey.ai, holding(admin), { ai: false })).toBe(false);
     expect(isDestinationVisible(byKey.ai, holding([]), { ai: true })).toBe(false);
-    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: true })).toBe(true);
+    expect(isDestinationVisible(byKey.ai, holding(admin), { ai: true })).toBe(true);
+  });
+
+  it('is hidden from a Contributor-like user holding ai:use alone (#593)', () => {
+    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: true })).toBe(false);
+  });
+
+  it('is hidden from someone holding ai_config:read without ai:use', () => {
+    expect(isDestinationVisible(byKey.ai, holding(['ai_config:read']), { ai: true })).toBe(false);
   });
 
   it('leaves destinations without a feature untouched by the feature map', () => {
-    for (const key of ['home', 'settings'] as const) {
+    for (const key of ['today', 'settings'] as const) {
       expect(isDestinationVisible(byKey[key], holding([]))).toBe(true);
       expect(isDestinationVisible(byKey[key], holding([]), { ai: false })).toBe(true);
     }
@@ -479,7 +532,10 @@ describe('destinations — the AI Playground (#425)', () => {
     const source = readFileSync(APP_TSX, 'utf8');
     const chunk = source.split('<Route').find((c) => /^\s*path="\/ai"/.test(c));
     expect(chunk, '/ai has no route').toBeDefined();
-    expect(/permission="([^"]+)"/.exec(chunk ?? '')?.[1]).toBe(byKey.ai.permission);
+    const routePermissions = [...(chunk ?? '').matchAll(/permission="([^"]+)"/g)].map((m) => m[1]);
+    expect(routePermissions.sort()).toEqual(
+      [byKey.ai.permission, ...(byKey.ai.anyPermission ?? [])].sort(),
+    );
     expect(chunk).toContain('<RequireAiEnabled>');
   });
 });

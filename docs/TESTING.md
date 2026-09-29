@@ -536,8 +536,9 @@ running application with Playwright.
 tests/e2e/
 ├── playwright.config.ts      # baseURL http://localhost:3535, Chromium
 ├── helpers/auth.helper.ts    # loginAsTestUser, loginAsAdmin/Contributor/Viewer, isLoggedIn, logout
+├── helpers/ai.helper.ts      # configureFakeVisionProvider, setFakeFixture (fake vision provider)
 ├── fixtures/auth.fixture.ts  # adminPage / viewerPage fixtures
-└── specs/                    # auth.spec.ts, example.spec.ts
+└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation and telemetry-dashboard specs
 ```
 
 It is not run in CI. Run it against a local stack:
@@ -550,6 +551,33 @@ npm test                 # headless
 npm run test:headed      # watch the browser
 npm run test:ui          # Playwright UI mode
 ```
+
+The `gyms` spec covers the manual path and needs no AI. The `gym-scan` spec
+drives "Scan gym" against the fake vision server
+(`tests/e2e/support/fake-vision-server.mjs`) and needs two things on the stack:
+
+- The `infra/compose/fake-ai.compose.yml` overlay, which starts the fake.
+- Object storage configured in the admin UI, because the spec uploads photos.
+
+The spec runs serially, because the fake's fixture queue is global. It skips
+with a message when `http://localhost:4010/v1/models` is unreachable
+(`FAKE_AI_URL` overrides the host URL). Start the stack with the overlay,
+migrate and seed, then:
+
+```bash
+cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fake-ai.compose.yml up
+cd tests/e2e && npx playwright test gyms gym-scan
+```
+
+`tests/e2e/helpers/ai.helper.ts` exports `configureFakeVisionProvider` (turns AI
+on and enables the `fake-vision` model through the admin API), `setFakeFixture`,
+`fakeRequests`, `resetFake` and `isFakeVisionReachable`. Tests that assert the
+AI-off or no-vision-model copy do not change deployment state: they stub
+`/api/ai/config` and `/api/ai/models` with `page.route`
+(`tests/e2e/helpers/ai-stub.helper.ts`, used by both gym specs). How the fake
+works is in [the gyms spec](specs/gyms-and-equipment.md#212-the-fake-vision-server).
+The Jest guard `apps/api/test/gyms/gym-scan-examples.spec.ts` checks that the
+reference photos and fixtures the scan spec names exist.
 
 Outside CI the config starts the dev stack itself
 (`docker compose -f base.compose.yml -f dev.compose.yml up`) and waits for
@@ -600,7 +628,7 @@ rail caption or a card grid with the wrong column count.
   on port 5183, disables animations, allows at most **4 differing pixels**
   (`maxDiffPixels`, an absolute count) with a pixelmatch `threshold` of 0.05,
   and never retries.
-- 26 baselines across 8 spec files, in `tests/visual/specs/*-snapshots/`.
+- 37 baselines across 11 spec files, in `tests/visual/specs/*-snapshots/`.
   Most are full-page shots that include the AppBar wordmark, so renaming the
   product changes them.
 - The Telemetry Dashboard spec (`telemetry-dashboard.spec.ts`, #579) is the
@@ -608,7 +636,11 @@ rail caption or a card grid with the wrong column count.
   with fixtures through Playwright's `page.route()`
   (`tests/visual/support/telemetryDashboard.ts`), pins `Date.now()` with
   `page.clock.setFixedTime`, and pins the time zone and locale. Every other
-  spec relies on its `/api` fetches failing.
+  spec relies on its `/api` fetches failing, except the Health page spec
+  (`health-page.spec.ts`), which uses the same technique with
+  `tests/visual/support/health.ts`. The photo-reading spec
+  (`health-photo-read.spec.ts`) does the same with
+  `tests/visual/support/photoRead.ts`.
 
 ### The pinned browser
 

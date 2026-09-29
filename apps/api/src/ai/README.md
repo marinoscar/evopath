@@ -62,7 +62,7 @@ ai/
     ai-public.controller.ts /api/ai/config (any authenticated user)
     ai-config-admin.service.ts, ai-models-admin.service.ts, ai-provider-test.service.ts
   keys/                    Per-user BYOK keys + which models a user can reach
-    ai-key-resolver.service.ts   AiKeyResolver — the ONE place the byok/org rule is decided
+    ai-key-resolver.service.ts   AiKeyResolver — the ONE place the byok/org/admin rule is decided
     usable-models.service.ts    UsableModelsService — "which models can I call?"
     user-ai-keys.service.ts / .controller.ts   /api/ai/keys/*, /api/ai/models
     ai-keys-recheck.handler.ts / .task.ts       `ai.keys.recheck` job (server-only)
@@ -230,6 +230,14 @@ has the full table (`AI_DISABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_ENABLED`,
 `throw err.toRateLimitError() ?? err;` so a provider throttle defers the job
 rather than charging an attempt, the same idiom `RateLimitError` already
 uses elsewhere in this codebase.
+
+## Vision features: photo intake and an `ai.*` scan job
+
+A feature that turns photos into rows registers a photo-intake kind and a
+server-only `ai.*` analyzer job instead of calling `AiService` from a route.
+The recipe is [the intake README](../intake/README.md); `ai.equipment.scan`
+("Scan gym") is the worked example, described in
+[the gyms and equipment spec](../../../../docs/specs/gyms-and-equipment.md#27-the-scan-job).
 
 ## The request lifecycle: the gate pipeline
 

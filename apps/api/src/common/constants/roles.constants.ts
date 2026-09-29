@@ -186,6 +186,24 @@ export const PERMISSIONS = {
   TELEMETRY_READ: 'telemetry:read',
   TELEMETRY_WRITE: 'telemetry:write',
   TELEMETRY_QUERY: 'telemetry:query',
+
+  // Health data (E2.1, #47). Deliberately separate from `user_settings:*`:
+  // health data is a different class of data than UI preferences, so a
+  // deployment must be able to withhold it from a role without also blocking
+  // that role from changing its theme. Unlike the operational surfaces above,
+  // this is per-user self-service data, so all three roles (admin,
+  // contributor, viewer) are seeded with both.
+  HEALTH_DATA_READ: 'health_data:read',
+  HEALTH_DATA_WRITE: 'health_data:write',
+
+  // Photo intake (E3.1): the caller's own intake drafts, self-service like
+  // `health_data:*`. Analyzing additionally needs `ai:use`.
+  INTAKES_READ: 'intakes:read',
+  INTAKES_WRITE: 'intakes:write',
+
+  // Gyms and equipment (E3.2): the caller's own gyms, self-service.
+  GYMS_READ: 'gyms:read',
+  GYMS_WRITE: 'gyms:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

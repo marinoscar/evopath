@@ -6,10 +6,11 @@
  * Material 3 acknowledges it has no recommended drawer replacement at this
  * size, which is why the answer is a bottom bar and nothing else.
  *
- * FOUR ACTIONS IS THE CEILING, and this app has exactly four destinations —
- * which is what lets `showLabels` stay on. Five labelled tabs do not fit at
- * 360px, so a fifth destination would force a choice between labels and the
- * tab; do not add one here without resolving that first.
+ * FOUR ACTIONS IS THE CEILING, which is what lets `showLabels` stay on. Five
+ * labelled tabs do not fit at 360px. The bar renders only `primary`
+ * destinations, and `PRIMARY_DESTINATION_LIMIT` (asserted in
+ * `destinations.test.ts`) enforces the ceiling. Every other destination is
+ * reached from the user menu.
  *
  * ACTIVE STATE COMES FROM THE DESTINATION MODEL, NOT A PATH PREFIX
  * (`config/destinations.ts`). The `startsWith` chain this replaces would have
@@ -48,8 +49,9 @@ export function BottomNav() {
 
   if (!isCompactWindow) return null;
 
-  const visibleDestinations = DESTINATIONS.filter((destination) =>
-    isDestinationVisible(destination, hasPermission, features),
+  const visibleDestinations = DESTINATIONS.filter(
+    (destination) =>
+      destination.primary && isDestinationVisible(destination, hasPermission, features),
   );
 
   const resolved = resolveActiveDestination(location.pathname);

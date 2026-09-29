@@ -1,0 +1,32 @@
+[
+  {
+    "kind": "equipment",
+    "origin": "ai",
+    "status": "pending",
+    "confidence": "high",
+    "uncertain": false,
+    "uncertaintyNote": "The placard text LEG CURL is readable; the muscle diagram highlights the hamstrings and calves and the illustrations show a seated position.",
+    "sourcePhotoIds": [
+      "<photo0>"
+    ],
+    "userVerified": false,
+    "originalAiValue": null,
+    "value": {
+      "equipmentTypeSlug": "leg_curl_machine",
+      "name": "Leg curl machine",
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": "Precor",
+      "brandEvidence": "PRECOR logo above the placard.",
+      "model": null,
+      "configuration": "seated, selectorized",
+      "notes": null,
+      "capabilitySlugs": [
+        "leg_curl"
+      ],
+      "targetMuscles": [
+        "hamstrings"
+      ]
+    }
+  }
+]

@@ -146,7 +146,7 @@ Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the c
 
 ### 5.2 Role-based access control
 
-Three roles (Admin, Contributor, Viewer) grant 28 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
+Three roles (Admin, Contributor, Viewer) grant 37 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
 
 - **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts`
 - **Matrix:** [§7](#7-authorization)
@@ -235,10 +235,10 @@ In a real terminal with no arguments it opens an interactive ink menu. `evopathc
 
 The AI platform is an admin-governed, bring-your-own-key capability over five providers: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`. It offers responses (plain, streaming, structured output, function-calling tool loops), embeddings, image generation and editing, transcription, text-to-speech and realtime voice sessions, plus background runs and usage reporting.
 
-A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That client runs one gate pipeline for every call: kill switch, provider and model enablement, capability match, key resolution (the user's own key, or the org key under `byok_with_org_fallback`), rate limits and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `apps/api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an AI Playground at `/ai`.
+A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That client runs one gate pipeline for every call: kill switch, provider and model enablement, capability match, key resolution (the user's own key, or the org key under `byok_with_org_fallback` or for a holder of `ai_config:write`), rate limits and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `apps/api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
 
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
-- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`, `/ai`
+- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; admin-only Playground `/ai`
 - **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)
 - **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../apps/api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
 
@@ -312,13 +312,38 @@ The API is instrumented with OpenTelemetry for traces, metrics and logs, and log
 
 The API uses Jest and Supertest for mocked integration tests (`*.integration.spec.ts`) and real-PostgreSQL tests (`*.db.spec.ts`, `npm run test:db`). The web app and CLI use Vitest. Playwright end-to-end tests live in `tests/e2e`; pixel-baseline visual tests live in `tests/visual`, with their harness in `apps/web/visual`. See [TESTING.md](TESTING.md).
 
+### 5.20 Health data
+
+Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. The daily readiness check-in (four optional 1 to 5 scores and a note per local day) is stored as `measurements` rows too and served by `/api/check-ins`, with "today" decided by the server in the profile time zone. A reading can also come from a photo: the `body_metric_reading` intake kind (`apps/api/src/measurements/photo/`, see [5.21](#521-photo-intake)) has the server-only job `ai.health.body_metric_reading` draft values from a scale or cuff photo, and its `apply` saves the accepted ones as one entry whose rows carry server-derived provenance. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
+
+- **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/` (photo readings in `photo/`), `apps/api/src/check-ins/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
+- **UI:** `/settings/health-profile`, `/health` (tiles, Daily check-in, Trend and History sections, **Read from photo**), the Today body snapshot and Readiness cards
+- **Permissions:** `health_data:read`, `health_data:write`
+- **Read more:** [specs/health-data.md](specs/health-data.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#7-audit-logging-and-security-tables)
+
+### 5.21 Photo intake
+
+A photo intake is the shared path for "share pictures instead of typing" features. `photo_intakes` holds one flow for one user: the photos attached to it (links to storage objects), the draft items an AI job read from them, and the state (`draft`, `scanning`, `ready`, `applied`, `failed`). What is being captured is a registered intake kind (`IntakeKindRegistry`): it validates the kind-specific context and each item value, names the server-only `ai.*` analyzer job, may declare `requiredPermissions` (extra `read` and `write` permissions checked on every route, fail-closed, `403` with `details.reason: MISSING_KIND_PERMISSIONS`), and writes the accepted items as real rows in the transaction that marks the intake applied. The registered kinds are `body_metric_reading` ([specs/health-data.md](specs/health-data.md#217-photo-readings)) and `gym_equipment` ("Scan gym", [5.22](#522-gyms-and-equipment), analyzer `ai.equipment.scan`); the first requires `health_data:read/write`, the second `gyms:read/write`, on top of `intakes:*`. `POST /api/intakes/:id/analyze` re-checks that the chosen model reads images and returns structured output, then enqueues the kind's analyzer job; the job stores its output through `IntakeService.replaceAiDrafts`. AI output is always a draft: the API keeps every item the model returned, records the first AI value of an edited item, and never deletes an AI item (it is rejected instead). The web kit in `apps/web/src/components/intake/` supplies photo picking with client-side downscaling, the provider disclosure and the draft review list.
+
+- **Code:** `apps/api/src/intake/`, `apps/web/src/components/intake/`
+- **Permissions:** `intakes:read`, `intakes:write`; analyze also `ai:use` behind `AiEnabledGuard`
+- **Read more:** [intake/README.md](../apps/api/src/intake/README.md)
+
+### 5.22 Gyms and equipment
+
+A gym is a named place a user trains (type, description, notes, `isTemporary`), owned by one user; a foreign id answers `404`. The first gym becomes the default automatically, `POST /api/gyms/:id/default` moves the default, and deleting the default promotes the oldest remaining gym in the same transaction. Equipment rows (`gym_equipment`) point at an equipment type from the catalog: the seeded rows every user shares, or the user's own custom types (`custom-` slug prefix, created by `POST /api/equipment-types`, refused while gym equipment uses them). Types enable capabilities (movements), listed by `GET /api/capabilities`. A gym photo attaches an existing, ready, image-typed storage object the caller owns (`POST /api/gyms/:id/photos` with `storageObjectId`; the bytes are uploaded through `/api/storage/objects`) and can be linked to the equipment it shows. Removing a photo or a gym deletes the storage objects after the database write commits. Refusals carry a machine-readable `details.reason` (for example `GYM_LIMIT`, `DEFAULT_CONFLICT`, `EQUIPMENT_TYPE_IN_USE`, `PHOTO_ALREADY_ATTACHED`); the values and every size limit live in `apps/api/src/gyms/gyms.constants.ts`. Equipment written by AI carries an `origin`, a confidence and a write-once `originalAiValue`, so a manual gym works with AI off. Design, the scan job and the reference examples: [specs/gyms-and-equipment.md](specs/gyms-and-equipment.md).
+
+- **Code:** `apps/api/src/gyms/` (`GymsModule`)
+- **Routes:** `/api/gyms` (including `/:id/equipment` and `/:id/photos`), `/api/equipment-types`, `/api/capabilities`; details in `/api/docs` (tags "Gyms", "Equipment", "Capabilities")
+- **Permissions:** `gyms:read`, `gyms:write`; photo attach and remove also need `storage:write`
+
 ---
 
 ## 6. Data architecture
 
 ### 6.1 Prisma models
 
-The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 31 models, grouped by subsystem:
+The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 43 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|
@@ -330,7 +355,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
 | RBAC | `Role` | `roles` | Admin, Contributor, Viewer |
-| RBAC | `Permission` | `permissions` | The 28 `resource:action` permissions |
+| RBAC | `Permission` | `permissions` | The 37 `resource:action` permissions |
 | RBAC | `RolePermission` | `role_permissions` | Role-to-permission grants |
 | RBAC | `UserRole` | `user_roles` | User-to-role assignments |
 | Settings | `SystemSettings` | `system_settings` | Keyed JSONB rows for deployment settings |
@@ -353,6 +378,18 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `UserAiKey` | `user_ai_keys` | Encrypted BYOK key per `(userId, provider)`, reachable models |
 | AI | `AiRun` | `ai_runs` | Background AI runs (response, image, transcription, speech) |
 | AI | `AiUsageEvent` | `ai_usage_events` | One row per provider round trip, tokens, key source |
+| Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, time zone, bio, version |
+| Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set |
+| Intake | `PhotoIntake` | `photo_intakes` | One photo-to-draft flow per row: kind, status, kind-specific context, chosen provider and model, analyze job, error, result metadata |
+| Intake | `PhotoIntakePhoto` | `photo_intake_photos` | Link from an intake to a `storage_objects` row, unique per `(intakeId, storageObjectId)`, with sort order |
+| Intake | `DraftItem` | `draft_items` | One reviewable item: origin, status, confidence, uncertainty, source photos, `userVerified`, current `value`, write-once `originalAiValue` |
+| Gyms | `Gym` | `gyms` | One place a user trains: name, type, optional coordinates, `isDefault` (at most one per user, enforced by the raw-SQL partial unique index `gyms_user_default_uniq_idx`), `isTemporary` |
+| Gyms | `EquipmentType` | `equipment_types` | Equipment catalog row keyed by a permanent `slug`: category, aliases; `ownerUserId` null for seeded rows, set for a user's custom equipment |
+| Gyms | `Capability` | `capabilities` | A movement an equipment type enables, keyed by a permanent `slug`: movement pattern and primary muscles |
+| Gyms | `EquipmentTypeCapability` | `equipment_type_capabilities` | Join of equipment type to capability (composite key) |
+| Gyms | `GymEquipment` | `gym_equipment` | Equipment present in a gym: type, quantity (1 to 99), brand, model, origin, confidence, `userVerified`, write-once `originalAiValue` |
+| Gyms | `GymPhoto` | `gym_photos` | Link from a gym to a `storage_objects` row, with caption and taken-at time |
+| Gyms | `GymEquipmentPhoto` | `gym_equipment_photos` | Join of a gym equipment row to the gym photos that show it (composite key) |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -436,10 +473,16 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
+| `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`, `GET /api/measurements*`, `GET /api/check-ins*`); reach `/settings/health-profile` |
+| `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`, `PUT/DELETE /api/check-ins/:date`) |
+| `intakes:read` | ✓ | ✓ | ✓ | Read own photo intakes and their draft items (`GET /api/intakes*`); a kind's own `requiredPermissions.read` is also needed (`body_metric_reading`: `health_data:read`, `gym_equipment`: `gyms:read`) |
+| `intakes:write` | ✓ | ✓ | ✓ | Create, edit, apply and discard own photo intakes (`POST/PATCH/DELETE /api/intakes*`); `POST /api/intakes/:id/analyze` also needs `ai:use`, and a kind's own `requiredPermissions.write` is also needed (`body_metric_reading`: `health_data:write`, `gym_equipment`: `gyms:write`) |
+| `gyms:read` | ✓ | ✓ | ✓ | Read own gyms, their equipment and the equipment catalog (`GET /api/gyms*`, `GET /api/equipment-types`, `GET /api/capabilities`) |
+| `gyms:write` | ✓ | ✓ | ✓ | Create, edit and delete own gyms, equipment and custom equipment types (`POST/PATCH/DELETE /api/gyms*`, `/api/equipment-types*`); gym photo attach and remove also need `storage:write` |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 
@@ -447,7 +490,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 23 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
+All 26 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
 
 | Type | Handler | What it does | Node-eligible |
 |---|---|---|:-:|
@@ -457,7 +500,9 @@ All 23 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `ai.audio.transcribe` | `ai/runtime/ai-audio-transcribe.handler.ts` | Streams a user's recording to the provider; stores the transcript on the run | No |
 | `ai.audio.speech` | `ai/runtime/ai-audio-speech.handler.ts` | Text-to-speech; the audio becomes the user's storage object | No |
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Deletes `ai_usage_events` past `ai.usageRetentionDays`, in batches; daily | No |
+| `ai.health.body_metric_reading` | `measurements/photo/body-metric-reading.handler.ts` | Reads a scale or blood-pressure-cuff photo into pending draft readings for a `body_metric_reading` intake | No |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Re-verifies stale user keys for one provider, refreshes reachable models | No |
+| `ai.equipment.scan` | `gyms/scan/equipment-scan.handler.ts` | "Scan gym": sends a `gym_equipment` photo intake's photos to the user's vision model in batches of 16 and stores the equipment drafts for review | No |
 | `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
 | `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
 | `example.checksum` | `jobs/handlers/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
@@ -511,8 +556,8 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Access | Routes |
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
-| Signed in | `/` (home), `/activate` (device approval), `/ai` (AI Playground, `ai:use` and AI enabled), `/settings` hub and its pages |
-| Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages |
+| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/gyms` (placeholder pages until their features ship), `/activate` (device approval), `/settings` hub and its pages |
+| Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
 `ProtectedRoute` establishes that someone is signed in. `RequirePermission` wraps each gated page with the same permission string its registry card declares and its API controller enforces. `RequireAiEnabled` redirects AI pages while AI is off. `MaintenanceGate` swaps the app for a maintenance screen while a window is open.
@@ -546,12 +591,15 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
+| `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
 
 ### 9.3 Layout and breakpoint
 
 The layout switches between a phone treatment (bottom navigation, compact AppBar, drill-down settings list) and a wider treatment (navigation rail, card grid) at MUI's `sm` breakpoint, 600px. Five gates move together: `showRail` in `apps/web/src/components/common/Layout.tsx`, the self-gate in `components/navigation/BottomNav.tsx`, `<main>`'s bottom padding in `Layout.tsx`, and `isCompactWindow` in both `components/settings/SettingsHub.tsx` and `components/navigation/AppBar.tsx`. Change one only after checking all five. See [specs/settings-ui.md](specs/settings-ui.md).
+
+Destinations are declared once, in `apps/web/src/config/destinations.ts`; the rail, the bottom bar and the user menu all read that list. Four are `primary`: Today, Train, Health and Gyms. They make up the phone bottom bar, and `PRIMARY_DESTINATION_LIMIT` (4) caps how many may be, because more labelled tabs do not fit at 360px; a test enforces the ceiling. The other destinations (Settings, Console, AI) are not in the bottom bar. On phones they are entries in the user menu; at `sm` and up they sit in the rail, with Console pinned at its foot.
 
 ### 9.4 Contexts and API client
 
@@ -662,6 +710,7 @@ Health endpoints (public, reachable during maintenance):
 | An API endpoint | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) |
 | A background job type | [jobs/handlers/README.md](../apps/api/src/jobs/handlers/README.md) |
+| A photo-intake kind | [intake/README.md](../apps/api/src/intake/README.md) |
 | A notification event | [notifications/README.md](../apps/api/src/notifications/README.md) |
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |

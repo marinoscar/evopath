@@ -34,6 +34,9 @@ import {
   mockTelemetryStackRunning,
   mockTelemetryStatus,
 } from './fixtures/telemetry';
+import { mockHealthProfileEmpty } from './fixtures/health';
+import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
+import { mockTodayCheckInEmpty } from './fixtures/checkIns';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -106,6 +109,128 @@ export const handlers = [
   }),
 
   // User settings endpoints
+  // Health profile (#47, E2.1): a user with no row, and a PUT that echoes the
+  // body back as the saved row with the next version.
+  http.get(`${API_BASE}/health-profile`, () => {
+    return HttpResponse.json({ data: mockHealthProfileEmpty });
+  }),
+
+  http.put(`${API_BASE}/health-profile`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const ifMatch = request.headers.get('If-Match');
+    const version = (ifMatch === null ? 0 : Number(ifMatch)) + 1;
+    return HttpResponse.json({
+      data: { ...body, version, updatedAt: new Date().toISOString() },
+    });
+  }),
+
+  // Measurements (#53, E2.3): the catalog, a user with nothing logged, and a
+  // POST that echoes each reading back with the value as sent (no unit
+  // conversion; a test that cares about canonical values overrides it).
+  http.get(`${API_BASE}/measurements/metrics`, () => {
+    return HttpResponse.json({ data: mockMetricCatalog });
+  }),
+
+  http.get(`${API_BASE}/measurements/latest`, () => {
+    return HttpResponse.json({ data: { items: mockLatestEmpty } });
+  }),
+
+  // History and trends (#60, E2.5): nothing logged yet (an empty first page,
+  // an empty series), a PATCH that echoes the changes as revision 2, and a
+  // 204 DELETE. Tests that need data override these with `server.use`.
+  http.get(`${API_BASE}/measurements/series`, ({ request }) => {
+    const metricKey = new URL(request.url).searchParams.get('metricKey') ?? 'weight';
+    const unit = mockMetricCatalog.metrics.find((m) => m.key === metricKey)?.canonicalUnit ?? 'kg';
+    return HttpResponse.json({ data: { metricKey, unit, points: [], truncated: false } });
+  }),
+
+  http.get(`${API_BASE}/measurements`, ({ request }) => {
+    const url = new URL(request.url);
+    const page = Number(url.searchParams.get('page') ?? '1');
+    const pageSize = Number(url.searchParams.get('pageSize') ?? '20');
+    return HttpResponse.json({ data: { items: [], total: 0, page, pageSize, totalPages: 0 } });
+  }),
+
+  http.patch(`${API_BASE}/measurements/entries/:entryId`, async ({ request, params }) => {
+    const body = (await request.json()) as {
+      notes?: string | null;
+      measuredAt?: string;
+      readings?: Array<{ metricKey: string; value: number; method?: string }>;
+    };
+    const entryId = String(params.entryId);
+    return HttpResponse.json({
+      data: {
+        entryId,
+        items: (body.readings ?? []).map((reading) =>
+          mockMeasurement(reading.metricKey, reading.value, {
+            entryId,
+            method: reading.method ?? 'unspecified',
+            notes: body.notes ?? null,
+            revision: 2,
+            edited: true,
+            ...(body.measuredAt ? { measuredAt: body.measuredAt } : {}),
+          }),
+        ),
+      },
+    });
+  }),
+
+  http.delete(`${API_BASE}/measurements/entries/:entryId`, () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.post(`${API_BASE}/measurements`, async ({ request }) => {
+    const body = (await request.json()) as {
+      measuredAt?: string;
+      readings: Array<{ metricKey: string; value: number; method?: string }>;
+    };
+    const entryId = '00000000-0000-4000-8000-00000000e001';
+    return HttpResponse.json(
+      {
+        data: {
+          entryId,
+          items: body.readings.map((reading) =>
+            mockMeasurement(reading.metricKey, reading.value, {
+              entryId,
+              method: reading.method ?? 'unspecified',
+              measuredAt: body.measuredAt ?? new Date().toISOString(),
+            }),
+          ),
+        },
+      },
+      { status: 201 },
+    );
+  }),
+
+  // Daily check-ins (#56, E2.4): nothing checked in yet, a PUT that echoes
+  // the body back as the stored day, and a DELETE that succeeds.
+  http.get(`${API_BASE}/check-ins/today`, () => {
+    return HttpResponse.json({ data: mockTodayCheckInEmpty });
+  }),
+
+  http.get(`${API_BASE}/check-ins`, () => {
+    return HttpResponse.json({ data: { items: [] } });
+  }),
+
+  http.put(`${API_BASE}/check-ins/:date`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({
+      data: {
+        date: params.date,
+        energy: body.energy ?? null,
+        sleepQuality: body.sleepQuality ?? null,
+        soreness: body.soreness ?? null,
+        stress: body.stress ?? null,
+        note: body.note ?? null,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }),
+
+  http.delete(`${API_BASE}/check-ins/:date`, () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.get(`${API_BASE}/user-settings`, () => {
     return HttpResponse.json({ data: mockUserSettings });
   }),
@@ -667,6 +792,13 @@ export const handlers = [
   http.post(`${API_BASE}/ai/audio/speech`, () => {
     return HttpResponse.json({ data: { runId: 'run_speech_1', jobId: 'job-ai-audio-2' } }, { status: 202 });
   }),
+
+  // Gyms (E3.3): nobody has a gym yet, and the catalog is empty. Suites that
+  // exercise the gym pages install their own stateful API
+  // (`fixtures/gyms.ts`).
+  http.get(`${API_BASE}/gyms`, () => HttpResponse.json({ data: [] })),
+  http.get(`${API_BASE}/equipment-types`, () => HttpResponse.json({ data: [] })),
+  http.get(`${API_BASE}/capabilities`, () => HttpResponse.json({ data: [] })),
 
   // Storage objects (#445 playground inputs/outputs): an upload answers
   // `processing`, a read answers `ready`, and a download is a signed URL.

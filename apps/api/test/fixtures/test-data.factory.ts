@@ -218,6 +218,41 @@ export const mockPermissions = {
     name: 'telemetry:query',
     description: 'Run SQL, export and use the AI assistant against telemetry',
   },
+  // E2.1, #47 — the caller's own health data. Seeded to ALL THREE roles in
+  // `prisma/seed-data.ts` and mirrored that way below; kept separate from
+  // `user_settings:*` so a spec can withhold it on its own.
+  healthDataRead: {
+    id: randomUUID(),
+    name: 'health_data:read',
+    description: 'Read own health data',
+  },
+  healthDataWrite: {
+    id: randomUUID(),
+    name: 'health_data:write',
+    description: 'Modify own health data',
+  },
+  // E3.1 — the caller's own photo intakes; seeded to all three roles.
+  intakesRead: {
+    id: randomUUID(),
+    name: 'intakes:read',
+    description: 'Read own photo intakes and their draft items',
+  },
+  intakesWrite: {
+    id: randomUUID(),
+    name: 'intakes:write',
+    description: 'Create, edit, analyze and apply own photo intakes',
+  },
+  // E3.2 — the caller's own gyms and equipment; seeded to all three roles.
+  gymsRead: {
+    id: randomUUID(),
+    name: 'gyms:read',
+    description: 'Read own gyms and their equipment',
+  },
+  gymsWrite: {
+    id: randomUUID(),
+    name: 'gyms:write',
+    description: 'Create, edit and delete own gyms and equipment',
+  },
 };
 
 export const mockRoles = {
@@ -542,6 +577,12 @@ export const rolePermissionsMap = {
     mockPermissions.telemetryRead,
     mockPermissions.telemetryWrite,
     mockPermissions.telemetryQuery,
+    mockPermissions.healthDataRead,
+    mockPermissions.healthDataWrite,
+    mockPermissions.intakesRead,
+    mockPermissions.intakesWrite,
+    mockPermissions.gymsRead,
+    mockPermissions.gymsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -550,6 +591,12 @@ export const rolePermissionsMap = {
     // #516 — read + write, mirroring `prisma/seed-data.ts`; never `delete_any`.
     mockPermissions.storageRead,
     mockPermissions.storageWrite,
+    mockPermissions.healthDataRead,
+    mockPermissions.healthDataWrite,
+    mockPermissions.intakesRead,
+    mockPermissions.intakesWrite,
+    mockPermissions.gymsRead,
+    mockPermissions.gymsWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -565,6 +612,12 @@ export const rolePermissionsMap = {
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
     mockPermissions.storageRead,
+    mockPermissions.healthDataRead,
+    mockPermissions.healthDataWrite,
+    mockPermissions.intakesRead,
+    mockPermissions.intakesWrite,
+    mockPermissions.gymsRead,
+    mockPermissions.gymsWrite,
   ],
 };
 

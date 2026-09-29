@@ -32,7 +32,16 @@ import { LoadingSpinner } from './components/common/LoadingSpinner';
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
-const HomePage = lazy(() => import('./pages/HomePage'));
+const TodayPage = lazy(() => import('./pages/TodayPage'));
+const TrainPage = lazy(() => import('./pages/TrainPage'));
+const HealthPage = lazy(() => import('./pages/HealthPage'));
+const GymsPage = lazy(() => import('./pages/GymsPage'));
+// E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
+// destination through the `/gyms` prefix.
+const GymNewPage = lazy(() => import('./pages/GymNewPage'));
+const GymDetailPage = lazy(() => import('./pages/GymDetailPage'));
+// E3.4: "Scan gym", photos to an AI-drafted equipment list the user reviews.
+const GymScanPage = lazy(() => import('./pages/GymScanPage'));
 // User settings — the hub (#96) plus one route per card in
 // `config/userSettingsSections.tsx` (#91, epic #90). These replace the single
 // stacked `UserSettingsPage`, which is deleted rather than left unrouted.
@@ -92,6 +101,7 @@ const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
 // Issue #444, epic #420 — AI usage aggregates.
 const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
+const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
@@ -185,7 +195,13 @@ function AppRoutes() {
                     </NotificationProvider>
                   }
                 >
-                  <Route path="/" element={<HomePage />} />
+                  <Route path="/" element={<TodayPage />} />
+                  <Route path="/train" element={<TrainPage />} />
+                  <Route path="/health" element={<HealthPage />} />
+                  <Route path="/gyms" element={<GymsPage />} />
+                  <Route path="/gyms/new" element={<GymNewPage />} />
+                  <Route path="/gyms/:gymId" element={<GymDetailPage />} />
+                  <Route path="/gyms/:gymId/scan" element={<GymScanPage />} />
                   {/* The per-user settings surface (#96, epic #90) — the same
                       hub component `/admin/settings` renders, over
                       `USER_SETTINGS_SECTIONS`, plus one route per card.
@@ -198,9 +214,9 @@ function AppRoutes() {
                       settings, which the API grants to all three roles, and
                       `config/userSettingsSections.tsx` correspondingly declares no
                       `permission` on their cards. A gate here would deny a Viewer
-                      their own display name. (The single exception, `/settings/ai`
-                      below, gates on a grant the API really does withhold — see
-                      its own comment.)
+                      their own display name. (The exceptions, `/settings/ai` and
+                      `/settings/health-profile` below, gate on grants the API
+                      really does withhold — see their own comments.)
 
                       As above, declaration order does not matter — React Router
                       v6 ranks by specificity, so `/settings/profile` beats
@@ -213,7 +229,7 @@ function AppRoutes() {
                       itself `@Auth()` with no permission for the same reason. */}
                   <Route path="/settings/notifications" element={<UserNotificationsPage />} />
                   <Route path="/settings/tokens" element={<UserTokensPage />} />
-                  {/* Issue #425, epic #419. THE ONE GATED `/settings/*` ROUTE,
+                  {/* Issue #425, epic #419. THE FIRST GATED `/settings/*` ROUTE,
                       and the exception is real: `ai:use` is a grant a
                       deployment can withhold from a role, and the
                       `/api/ai/keys` controller enforces exactly that string —
@@ -233,8 +249,26 @@ function AppRoutes() {
                       </RequirePermission>
                     }
                   />
+                  {/* Issue #47 (E2.1). Gated on `health_data:read`, the exact
+                      string `GET /api/health-profile` enforces and the
+                      `Health Profile` card declares: health data is a grant a
+                      deployment can withhold from a role. */}
+                  <Route
+                    path="/settings/health-profile"
+                    element={
+                      <RequirePermission
+                        permission="health_data:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <UserHealthProfilePage />
+                      </RequirePermission>
+                    }
+                  />
                   {/* Issue #425, epic #419 — the `ai` destination. Gated
-                      exactly as the destination is: `ai:use` plus AI being on. */}
+                      exactly as the destination is: `ai:use` AND
+                      `ai_config:read` (#593 — the Playground is an operator
+                      tool, and `ai_config:read` is the string the admin
+                      `/api/admin/ai/*` controllers enforce) plus AI being on. */}
                   <Route
                     path="/ai"
                     element={
@@ -242,9 +276,14 @@ function AppRoutes() {
                         permission="ai:use"
                         fallback={<Navigate to="/" replace />}
                       >
-                        <RequireAiEnabled>
-                          <AiPlaygroundPage />
-                        </RequireAiEnabled>
+                        <RequirePermission
+                          permission="ai_config:read"
+                          fallback={<Navigate to="/" replace />}
+                        >
+                          <RequireAiEnabled>
+                            <AiPlaygroundPage />
+                          </RequireAiEnabled>
+                        </RequirePermission>
                       </RequirePermission>
                     }
                   />
@@ -306,7 +345,7 @@ function AppRoutes() {
                       answer the same question ("may this user reach the admin
                       surface?") on two different surfaces, and #92 left them
                       disagreeing: the Console row appeared in the rail, bottom
-                      bar, user menu and quick actions for a `users:read`-only
+                      bar and user menu for a `users:read`-only
                       user, whose click then bounced straight back to `/`. That
                       split brain is exactly what `config/destinations.ts`'s
                       header says the destination model exists to prevent, so the

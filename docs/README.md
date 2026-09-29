@@ -42,6 +42,8 @@ In this order:
 | [specs/database-restore.md](specs/database-restore.md) | Restore and rollback from a backup | you change restore gates or outcomes |
 | [specs/maintenance-mode.md](specs/maintenance-mode.md) | The 503 maintenance window | you change maintenance behaviour or its layers |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
+| [specs/health-data.md](specs/health-data.md) | Per-user health data: the health profile, measurements with the metric registry, daily check-ins, photo readings, and the `health_data` permissions | you add a health feature, read values off a photo, add a metric, read the profile (units, time zone, height), or read today's readiness |
+| [specs/gyms-and-equipment.md](specs/gyms-and-equipment.md) | Gyms, the equipment catalog and custom equipment, gym photos, AI Scan Gym (`ai.equipment.scan`), optional GPS location, and the `gyms` permissions | you add equipment or a capability to the catalog, read a user's gym equipment, change the scan prompt, or build another photo-to-rows flow |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 
@@ -72,6 +74,7 @@ READMEs that live next to the code they describe.
 | [../apps/api/src/jobs/contracts/README.md](../apps/api/src/jobs/contracts/README.md) | Result schemas a worker node posts back for a node-eligible type |
 | [../apps/cli/src/node/executors/README.md](../apps/cli/src/node/executors/README.md) | The CLI side of a node-eligible job type |
 | [../apps/api/src/ai/README.md](../apps/api/src/ai/README.md) | Using AI from a feature; the AI module's map |
+| [../apps/api/src/intake/README.md](../apps/api/src/intake/README.md) | Adding a photo-intake kind; the intake module's map |
 | [../apps/api/src/notifications/README.md](../apps/api/src/notifications/README.md) | Adding a notification; the notifications module's map |
 | [../apps/api/src/storage/processing/processors/README.md](../apps/api/src/storage/processing/processors/README.md) | Post-upload storage object processors |
 | [../apps/api/src/device-auth/README.md](../apps/api/src/device-auth/README.md) | Device flow reference: schemas, fields, security rationale |

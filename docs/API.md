@@ -100,7 +100,8 @@ body:
   `PAYLOAD_TOO_LARGE` (413), `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS`
   (429), `INTERNAL_ERROR` (500), and `ERROR` for anything else (for example
   503). A `code` on a thrown exception is ignored.
-- `details` is optional and endpoint-specific. It is the only place a custom
+- A `400` from a body or query that fails Zod validation carries `details.issues`: an array of `{ "path": "readings.0.unit", "message": "…" }`, one per failing field, with dots joining nested path segments. Only the path and the rule's message are published, never the submitted value, so health data and free text are not echoed back.
+- `details` is otherwise optional and endpoint-specific. It is the only place a custom
   field survives. Branch on `details.reason` where an endpoint documents one
   (for example `AI_DISABLED`, `AI_KEY_REQUIRED`, `MAINTENANCE_MODE`), never on
   `message`.
@@ -216,7 +217,7 @@ X-Frame-Options: SAMEORIGIN
 X-Content-Type-Options: nosniff
 X-XSS-Protection: 1; mode=block
 Referrer-Policy: strict-origin-when-cross-origin
-Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=()
+Permissions-Policy: camera=(), microphone=(self), geolocation=(self), payment=()
 Strict-Transport-Security: max-age=31536000; includeSubDomains
 Content-Security-Policy: <per path, from infra/nginx/csp.conf>
 ```
@@ -266,6 +267,13 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `admin/ai` | AI kill switch, key policy, providers, model catalog, usage | `ai_config:*` | [ai-platform](specs/ai-platform.md) |
 | `telemetry` | Public telemetry feature flag | authenticated (any user) | [telemetry](specs/telemetry.md) |
 | `admin/telemetry` | Telemetry policy, status, SQL explorer, export, AI assistant stream | `telemetry:read/write/query` (assistant also needs `ai:use`) | [telemetry](specs/telemetry.md) |
+| `health-profile` | The caller's own health profile | `health_data:read/write` | [health-data](specs/health-data.md) |
+| `measurements` | The caller's own measurements: metric catalog, entries, latest, series | `health_data:read/write` | [health-data](specs/health-data.md) |
+| `check-ins` | The caller's own daily check-in: today, recent days, replace or delete a day (tag "Check-ins") | `health_data:read/write` | [health-data](specs/health-data.md#215-daily-check-ins) |
+| `intakes` | The caller's own photo intakes: photos, draft items, analyze, apply (tag "Intakes") | `intakes:read/write` (analyze also `ai:use`) | [intake README](../apps/api/src/intake/README.md) |
+| `gyms` | The caller's own gyms, default gym, and per-gym equipment (`/gyms/:id/equipment`) and photos (`/gyms/:id/photos`) (tag "Gyms") | `gyms:read/write` (photo attach and remove also `storage:write`) | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
+| `equipment-types` | Equipment catalog (seeded plus the caller's custom types) (tag "Equipment") | `gyms:read/write` | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
+| `capabilities` | Movement capabilities equipment can enable (tag "Capabilities") | `gyms:read` | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 
 Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with

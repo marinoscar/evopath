@@ -1,0 +1,93 @@
+{
+  "items": [
+    {
+      "catalogSlug": "elliptical",
+      "otherName": null,
+      "configuration": null,
+      "quantity": 3,
+      "quantityUncertain": true,
+      "brand": "Precor",
+      "brandEvidence": "No logo is readable on the ellipticals; brand inferred from the PRECOR-labelled bike beside them and the matching frames.",
+      "model": null,
+      "confidence": "medium",
+      "uncertain": true,
+      "note": "Three near-identical ellipticals in a row; the right-most one is close to the edge of the frame, so the count may be off.",
+      "capabilitySlugs": [],
+      "sourcePhotoIndexes": [
+        0
+      ]
+    },
+    {
+      "catalogSlug": "stationary_bike",
+      "otherName": null,
+      "configuration": "upright or recumbent (unclear)",
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": "Matrix",
+      "brandEvidence": "MATRIX lettering on the frame.",
+      "model": null,
+      "confidence": "medium",
+      "uncertain": true,
+      "note": "Bike style (upright vs recumbent) is not clear from this angle.",
+      "capabilitySlugs": [],
+      "sourcePhotoIndexes": [
+        0
+      ]
+    },
+    {
+      "catalogSlug": "stationary_bike",
+      "otherName": null,
+      "configuration": null,
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": "Precor",
+      "brandEvidence": "PRECOR logo on the base cover.",
+      "model": null,
+      "confidence": "medium",
+      "uncertain": false,
+      "note": null,
+      "capabilitySlugs": [],
+      "sourcePhotoIndexes": [
+        0
+      ]
+    },
+    {
+      "catalogSlug": "other",
+      "otherName": "Unidentified machine (partly out of frame)",
+      "configuration": null,
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": null,
+      "brandEvidence": null,
+      "model": null,
+      "confidence": "low",
+      "uncertain": true,
+      "note": "Only part of a machine is visible at the right edge of the photo; its type cannot be determined.",
+      "capabilitySlugs": [],
+      "sourcePhotoIndexes": [
+        0
+      ]
+    },
+    {
+      "catalogSlug": "leg_curl_machine",
+      "otherName": null,
+      "configuration": "seated, selectorized",
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": "Precor",
+      "brandEvidence": "PRECOR logo above the placard.",
+      "model": null,
+      "confidence": "high",
+      "uncertain": false,
+      "note": "The placard text LEG CURL is readable; the muscle diagram highlights the hamstrings and calves and the illustrations show a seated position.",
+      "capabilitySlugs": [],
+      "sourcePhotoIndexes": [
+        1
+      ]
+    }
+  ],
+  "ignoredObjects": [
+    "fire extinguisher",
+    "window blinds"
+  ]
+}

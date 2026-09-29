@@ -66,6 +66,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
    */
   const PERMISSION_GATED_USER_CARDS: Record<string, string> = {
     '/settings/ai': 'ai:use',
+    // #47 (E2.1): the exact string `GET /api/health-profile` enforces.
+    '/settings/health-profile': 'health_data:read',
   };
 
   it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
@@ -78,5 +80,27 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     for (const path of Object.keys(PERMISSION_GATED_USER_CARDS)) {
       expect(allCards.some((card) => card.path === path), `${path} is registered`).toBe(true);
     }
+  });
+});
+
+/**
+ * Issue #47 (E2.1). The Health Profile card lives in a NEW `Health` group,
+ * appended after `Security` (append, never insert), gated on the exact string
+ * the API's `GET /api/health-profile` enforces, and not behind the AI feature.
+ */
+describe('USER_SETTINGS_SECTIONS - Health Profile card (issue #47)', () => {
+  it('appends a Health group after Security, as the last group', () => {
+    const labels = USER_SETTINGS_SECTIONS.map((section) => section.label);
+    expect(labels.indexOf('Health')).toBe(labels.indexOf('Security') + 1);
+    expect(labels[labels.length - 1]).toBe('Health');
+  });
+
+  it('declares the Health Profile card with health_data:read and no feature gate', () => {
+    const health = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Health');
+    const card = health?.cards.find((c) => c.path === '/settings/health-profile');
+    expect(card).toBeDefined();
+    expect(card?.title).toBe('Health Profile');
+    expect(card?.permission).toBe('health_data:read');
+    expect(card?.feature).toBeUndefined();
   });
 });

@@ -3,8 +3,8 @@
  *
  * Issue #55, epic #51. This file is the SINGLE source of truth for the app's
  * navigation targets. Before it existed the same four menu paths were spelled
- * out in four places (`App.tsx`, `Sidebar.tsx`, `UserMenu.tsx`,
- * `home/QuickActions.tsx`), each with its own idea of who was allowed to see
+ * out in four places (`App.tsx`, `Sidebar.tsx`, `UserMenu.tsx` and
+ * a quick-actions card), each with its own idea of who was allowed to see
  * them — which is how a Contributor holding `system_settings:read` ended up
  * with a working System Settings page, a menu entry pointing at it, and no
  * sidebar row: three gates, three answers.
@@ -37,14 +37,32 @@
  */
 
 import type { SvgIconComponent } from '@mui/icons-material';
-import HomeIcon from '@mui/icons-material/Home';
+import TodayIcon from '@mui/icons-material/Today';
+import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
+import PlaceIcon from '@mui/icons-material/Place';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AdminIcon from '@mui/icons-material/AdminPanelSettings';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import type { SettingsFeatureKey, SettingsFeatures } from './adminSections';
 import { isFeatureEnabled } from './adminSections';
 
-export type DestinationKey = 'home' | 'settings' | 'console' | 'ai';
+export type DestinationKey =
+  | 'today'
+  | 'train'
+  | 'health'
+  | 'gyms'
+  | 'settings'
+  | 'console'
+  | 'ai';
+
+/**
+ * The most destinations that may set `primary`. The phone bottom bar cannot hold
+ * more: five labelled tabs do not fit at 360px and `showLabels` depends on it.
+ * `destinations.test.ts` asserts the primary count against this, so the ceiling
+ * is executable rather than a comment.
+ */
+export const PRIMARY_DESTINATION_LIMIT = 4;
 
 /**
  * Does `prefix` own `path`? True when the path equals the prefix or continues
@@ -70,7 +88,10 @@ export function owns(prefix: string, path: string): boolean {
  * would fail it as "neither owned nor deliberately unowned".
  */
 export const DESTINATION_ROUTES: Record<DestinationKey, readonly string[]> = {
-  home: ['/'],
+  today: ['/'],
+  train: ['/train'],
+  health: ['/health'],
+  gyms: ['/gyms'],
   settings: ['/settings'],
   console: ['/admin'],
   // Issue #425, epic #419. The AI Playground. `/ai` only — the per-user AI
@@ -129,9 +150,9 @@ export interface Destination {
    * site and "or" at another. A separate field names the semantics.
    *
    * The two fields AND together when both are set — `permission` must be held
-   * AND at least one of `anyPermission`. No destination sets both today; the
-   * rule is stated so the day one does, `isDestinationVisible` is the only
-   * place that has to know.
+   * AND at least one of `anyPermission`. `ai` is the destination that sets
+   * both (#593): `ai:use` AND `ai_config:read`. `isDestinationVisible` is the
+   * only place that has to know.
    */
   anyPermission?: readonly string[];
   /**
@@ -148,11 +169,16 @@ export interface Destination {
    * foot communicates.
    *
    * RAIL-ONLY, deliberately. The bottom bar has no foot to pin to (it IS the
-   * foot) and the user menu is a flat list, so both keep reading `DESTINATIONS`
-   * in declaration order and ignore this flag. Ordering here therefore still
-   * has to be the correct order for those surfaces.
+   * foot) and the user menu is a flat list, so both ignore this flag. They
+   * read `primary` instead to decide which of them lists a destination.
    */
   pinned?: boolean;
+  /**
+   * Shown in the phone bottom bar. At most PRIMARY_DESTINATION_LIMIT destinations
+   * may set this (asserted in destinations.test.ts). Destinations without it
+   * are reached from the user menu on phones; the rail lists all of them.
+   */
+  primary?: boolean;
   /**
    * A deployment-wide feature this destination only exists under (#425) — the
    * same `feature` field, and the same fail-closed rule, as a settings card
@@ -166,7 +192,7 @@ export interface Destination {
  * Is `destination` visible to a user with this `hasPermission` predicate?
  *
  * EVERY surface calls this rather than testing `destination.permission`
- * inline. Four surfaces (rail, bottom bar, user menu, quick actions) each ran
+ * inline. Three surfaces (rail, bottom bar, user menu) each ran
  * their own `!destination.permission || hasPermission(...)` expression, and
  * every one of them silently ignored `anyPermission` the moment it was added —
  * the `console` row would have appeared for everyone. One function is the same
@@ -184,9 +210,11 @@ export function isDestinationVisible(
 }
 
 /**
- * The four destinations, in navigation order.
+ * The destinations, in navigation order: the four `primary` product
+ * destinations, then Settings, Console (pinned) and AI.
  *
- * Declaration order IS navigation order on every surface. The rail is the one
+ * Declaration order IS navigation order on every surface. The bottom bar shows
+ * only `primary` destinations and the user menu only the rest. The rail is the one
  * exception, and only for the tail of the list: it lifts `pinned` destinations
  * out to its foot (#105) while leaving the rest in this order.
  *
@@ -213,12 +241,30 @@ export function isDestinationVisible(
  * produced the split-brain described in the file header.
  */
 export const DESTINATIONS: readonly Destination[] = [
+  { key: 'today', label: 'Today', compactLabel: 'Today', Icon: TodayIcon, path: '/', primary: true },
   {
-    key: 'home',
-    label: 'Home',
-    compactLabel: 'Home',
-    Icon: HomeIcon,
-    path: '/',
+    key: 'train',
+    label: 'Train',
+    compactLabel: 'Train',
+    Icon: FitnessCenterIcon,
+    path: '/train',
+    primary: true,
+  },
+  {
+    key: 'health',
+    label: 'Health',
+    compactLabel: 'Health',
+    Icon: MonitorHeartIcon,
+    path: '/health',
+    primary: true,
+  },
+  {
+    key: 'gyms',
+    label: 'Gyms',
+    compactLabel: 'Gyms',
+    Icon: PlaceIcon,
+    path: '/gyms',
+    primary: true,
   },
   {
     key: 'settings',
@@ -240,23 +286,32 @@ export const DESTINATIONS: readonly Destination[] = [
     pinned: true,
   },
   {
-    // Issue #425, epic #419 — the fourth and, by the bottom bar's ceiling,
-    // last destination. `ai:use` is the literal string the consumer AI
+    // Issue #425, epic #419 — the AI Playground, reached from the user menu on
+    // phones (not `primary`). `ai:use` is the literal string the consumer AI
     // controllers enforce (`PERMISSIONS.AI_USE`), and `feature: 'ai'` hides it
     // while AI is switched off, where every call it would make answers
     // `403 AI_DISABLED`.
     //
+    // ADMIN-ONLY (#593). The Playground is an OPERATOR tool — for checking
+    // that a provider, model and key actually work — not an end-user feature,
+    // so it additionally requires `ai_config:read`: the exact string the admin
+    // `/api/admin/ai/*` controllers enforce, granted only to `Admin` in the
+    // seed. The consumer `/api/ai/*` endpoints deliberately stay on `ai:use`
+    // alone, because in-app AI features (the telemetry assistant, a fork's
+    // own features) call them on behalf of ordinary users. Both strings are
+    // required: `permission` and `anyPermission` AND together.
+    //
     // DECLARED AFTER `console`, deliberately. Declaration order is navigation
-    // order on the bottom bar and the user menu, and appending leaves the three
-    // existing tabs exactly where users learnt them. The rail lifts `console`
-    // (pinned) to its foot regardless, so there AI sits after Settings in the
-    // library list.
+    // order in the user menu, and appending leaves the existing entries where
+    // users learnt them. The rail lifts `console` (pinned) to its foot
+    // regardless, so there AI sits after Settings in the library list.
     key: 'ai',
     label: 'AI Playground',
     compactLabel: 'AI',
     Icon: AutoAwesomeIcon,
     path: '/ai',
     permission: 'ai:use',
+    anyPermission: ['ai_config:read'],
     feature: 'ai',
   },
 ];

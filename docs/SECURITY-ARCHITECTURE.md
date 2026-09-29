@@ -481,6 +481,20 @@ target and time. Actions are `<area>:<verb>` strings, for example
 `storage:object:delete`, `storage_config:test`, `ai_config:set_key`.
 Audit `meta` never contains key material.
 
+### Health data
+
+Health data (`health_profiles`: date of birth, sex at birth, height, unit system, time zone, bio; `measurements`: values, methods, notes, including the daily check-in scores and note) is personal data with its own permission family, `health_data:read/write`, separate from `user_settings:*` so a deployment can withhold it from a role. Handling rules:
+
+- **Owner scoped.** Every route and service method takes the id from the access token. No route or method accepts another user's id, so no code path reaches another user's row. An administrator has no route to it.
+- **No values in logs.** Values and the free-text bio, measurement notes and check-in notes never reach a log line, an exception message or a validation message. A validation `400` names the failing field under `details.issues`, never the submitted value.
+- **Audit carries field names only.** A save writes `health_profile:update` with `meta.fields` listing the names of the fields that changed; never a value, never the bio. A save that changes nothing writes no row. Deleting a measurement entry writes `measurement_entry:delete` with `meta.readingCount` only; deleting a day's check-in writes `check_in:delete` with `meta.scoreCount` only.
+- **Provenance is server-owned.** A measurement's `origin` and `sourceRef` cannot be sent by a client; only server code sets them. A reading saved from a photo gets `origin: 'ai'` and a `sourceRef` (the intake, the draft item, the photos, the model's original reading, whether the user edited it) that the intake kind's `apply` derives from the intake's own rows inside the apply transaction.
+- **Photos are private and never logged.** A photo of a scale or cuff is a private storage object owned by the user, sent to the AI provider only by the server under the key resolved for that call. The web kit drops EXIF and other metadata before upload. No value, prompt, image byte or URL reaches a log line, span, audit row, `resultMeta` or error message. Discarding an intake deletes its photos that nothing else links; photos linked from a saved reading are kept.
+- **A kind's permissions are enforced by the intake service.** The `body_metric_reading` intake kind declares `health_data:read` and `health_data:write`, and the `gym_equipment` kind declares `gyms:read` and `gyms:write`, each on top of `intakes:*`, so the generic intake routes cannot read or write health data or gym equipment for a user who lacks them (`403`, `details.reason: MISSING_KIND_PERMISSIONS`). A server-side caller that presents no permissions fails closed. The job that drafts readings is server-only: no AI key reaches a worker node.
+- **Removed with the account.** The rows are deleted with their user (`ON DELETE CASCADE`), measurement revisions included.
+
+Design and guardrails: [specs/health-data.md](specs/health-data.md#217-photo-readings).
+
 ---
 
 ## 8. File storage security
@@ -621,7 +635,7 @@ apply to error responses:
 | `X-Frame-Options` | `SAMEORIGIN` |
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Permissions-Policy` | `camera=(), microphone=(self), geolocation=(), payment=()` |
+| `Permissions-Policy` | `camera=(), microphone=(self), geolocation=(self), payment=()` |
 | `X-XSS-Protection` | `1; mode=block` (legacy browsers) |
 
 `microphone=(self)`, not `()`: an empty allowlist disables the device for the
@@ -930,6 +944,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | Admin bootstrap | `apps/api/src/common/services/admin-bootstrap.service.ts` |
 | Roles and permissions | `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts` |
 | Allowlist | `apps/api/src/allowlist/` |
+| Health data | `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/api/src/check-ins/` |
 | PATs | `apps/api/src/pat/` |
 | Device flow | `apps/api/src/device-auth/` |
 | Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |
