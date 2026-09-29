@@ -800,6 +800,10 @@ export const handlers = [
   http.get(`${API_BASE}/equipment-types`, () => HttpResponse.json({ data: [] })),
   http.get(`${API_BASE}/capabilities`, () => HttpResponse.json({ data: [] })),
 
+  // Exercise library (E4.1): empty by default. Suites that exercise the
+  // library install their own stateful API (`fixtures/exercises.ts`).
+  http.get(`${API_BASE}/exercises`, () => HttpResponse.json({ data: [] })),
+
   // Storage objects (#445 playground inputs/outputs): an upload answers
   // `processing`, a read answers `ready`, and a download is a signed URL.
   http.post(`${API_BASE}/storage/objects`, () => {

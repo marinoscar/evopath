@@ -34,6 +34,9 @@ const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
 const TodayPage = lazy(() => import('./pages/TodayPage'));
 const TrainPage = lazy(() => import('./pages/TrainPage'));
+// E4.1: the exercise library. Owned by the `train` destination through the
+// `/train` prefix.
+const TrainExercisesPage = lazy(() => import('./pages/TrainExercisesPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
 // E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
@@ -197,6 +200,7 @@ function AppRoutes() {
                 >
                   <Route path="/" element={<TodayPage />} />
                   <Route path="/train" element={<TrainPage />} />
+                  <Route path="/train/exercises" element={<TrainExercisesPage />} />
                   <Route path="/health" element={<HealthPage />} />
                   <Route path="/gyms" element={<GymsPage />} />
                   <Route path="/gyms/new" element={<GymNewPage />} />
