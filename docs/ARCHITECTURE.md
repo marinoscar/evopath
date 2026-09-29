@@ -146,7 +146,7 @@ Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the c
 
 ### 5.2 Role-based access control
 
-Three roles (Admin, Contributor, Viewer) grant 30 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
+Three roles (Admin, Contributor, Viewer) grant 32 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
 
 - **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts`
 - **Matrix:** [§7](#7-authorization)
@@ -321,6 +321,14 @@ Per-user health facts live in their own tables with their own permission family 
 - **Permissions:** `health_data:read`, `health_data:write`
 - **Read more:** [specs/health-data.md](specs/health-data.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#7-audit-logging-and-security-tables)
 
+### 5.21 Photo intake
+
+A photo intake is the shared path for "share pictures instead of typing" features. `photo_intakes` holds one flow for one user: the photos attached to it (links to storage objects), the draft items an AI job read from them, and the state (`draft`, `scanning`, `ready`, `applied`, `failed`). What is being captured is a registered intake kind (`IntakeKindRegistry`): it validates the kind-specific context and each item value, names the server-only `ai.*` analyzer job, and writes the accepted items as real rows in the transaction that marks the intake applied. `POST /api/intakes/:id/analyze` re-checks that the chosen model reads images and returns structured output, then enqueues the kind's analyzer job; the job stores its output through `IntakeService.replaceAiDrafts`. AI output is always a draft: the API keeps every item the model returned, records the first AI value of an edited item, and never deletes an AI item (it is rejected instead). The web kit in `apps/web/src/components/intake/` supplies photo picking with client-side downscaling, the provider disclosure and the draft review list.
+
+- **Code:** `apps/api/src/intake/`, `apps/web/src/components/intake/`
+- **Permissions:** `intakes:read`, `intakes:write`; analyze also `ai:use` behind `AiEnabledGuard`
+- **Read more:** [intake/README.md](../apps/api/src/intake/README.md)
+
 ---
 
 ## 6. Data architecture
@@ -339,7 +347,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
 | RBAC | `Role` | `roles` | Admin, Contributor, Viewer |
-| RBAC | `Permission` | `permissions` | The 30 `resource:action` permissions |
+| RBAC | `Permission` | `permissions` | The 32 `resource:action` permissions |
 | RBAC | `RolePermission` | `role_permissions` | Role-to-permission grants |
 | RBAC | `UserRole` | `user_roles` | User-to-role assignments |
 | Settings | `SystemSettings` | `system_settings` | Keyed JSONB rows for deployment settings |
@@ -364,6 +372,9 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `AiUsageEvent` | `ai_usage_events` | One row per provider round trip, tokens, key source |
 | Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, time zone, bio, version |
 | Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set |
+| Intake | `PhotoIntake` | `photo_intakes` | One photo-to-draft flow per row: kind, status, kind-specific context, chosen provider and model, analyze job, error, result metadata |
+| Intake | `PhotoIntakePhoto` | `photo_intake_photos` | Link from an intake to a `storage_objects` row, unique per `(intakeId, storageObjectId)`, with sort order |
+| Intake | `DraftItem` | `draft_items` | One reviewable item: origin, status, confidence, uncertainty, source photos, `userVerified`, current `value`, write-once `originalAiValue` |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -449,10 +460,12 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
 | `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`, `GET /api/measurements*`, `GET /api/check-ins*`); reach `/settings/health-profile` |
 | `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`, `PUT/DELETE /api/check-ins/:date`) |
+| `intakes:read` | ✓ | ✓ | ✓ | Read own photo intakes and their draft items (`GET /api/intakes*`) |
+| `intakes:write` | ✓ | ✓ | ✓ | Create, edit, apply and discard own photo intakes (`POST/PATCH/DELETE /api/intakes*`); `POST /api/intakes/:id/analyze` also needs `ai:use` |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 
@@ -678,6 +691,7 @@ Health endpoints (public, reachable during maintenance):
 | An API endpoint | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) |
 | A background job type | [jobs/handlers/README.md](../apps/api/src/jobs/handlers/README.md) |
+| A photo-intake kind | [intake/README.md](../apps/api/src/intake/README.md) |
 | A notification event | [notifications/README.md](../apps/api/src/notifications/README.md) |
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
