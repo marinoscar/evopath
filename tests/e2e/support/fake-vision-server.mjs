@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // =============================================================================
-// Fake OpenAI-compatible vision server for "Scan gym" (E3.4). TEST-ONLY.
+// Fake OpenAI-compatible vision server for "Scan gym" (E3.4) and "Prefill
+// from photo" (E4.5). TEST-ONLY.
 // =============================================================================
 //
 // A dependency-free `node:http` server the API reaches as its
@@ -11,7 +12,8 @@
 //   GET  /v1/models              one model, `fake-vision`
 //   POST /v1/chat/completions    a chat completion whose message content is
 //                                the chosen fixture's `*.model-output.json`
-//   POST /__control/next         { "fixture": "cardio-row-wide" | "leg-curl-placard" | "both" }
+//   POST /__control/next         { "fixture": "cardio-row-wide" | "leg-curl-placard" | "both"
+//                                  | "workout-placard" | "workout-notebook" }
 //                                answers the NEXT completion with it (one-shot)
 //   GET  /__control/requests     [{ model, imageCount, hasResponseFormat }] per
 //                                completion received — never bytes or URLs
@@ -20,9 +22,11 @@
 // Without a queued fixture: `cardio-row-wide` for one image, `both` for two or
 // more (and for none).
 //
-// Fixtures are read from FIXTURE_DIR (default: apps/api/test/fixtures/gym-scan
-// next to this repository). PORT defaults to 4010. The compose overlay
-// `infra/compose/fake-ai.compose.yml` runs it as service `fake-ai`.
+// Fixtures are read from FIXTURE_DIR (default: apps/api/test/fixtures next to
+// this repository): the gym scan answers from its `gym-scan/` folder, the
+// workout prefill answers from `workout-prefill/`. PORT defaults to 4010. The
+// compose overlay `infra/compose/fake-ai.compose.yml` runs it as service
+// `fake-ai`.
 // =============================================================================
 
 import { readFileSync } from 'node:fs';
@@ -31,17 +35,25 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_DIR = process.env.FIXTURE_DIR ?? resolve(HERE, '../../../apps/api/test/fixtures/gym-scan');
+const FIXTURE_DIR = process.env.FIXTURE_DIR ?? resolve(HERE, '../../../apps/api/test/fixtures');
 const PORT = Number(process.env.PORT ?? 4010);
 const MODEL_ID = 'fake-vision';
-const FIXTURES = ['cardio-row-wide', 'leg-curl-placard', 'both'];
+/** Fixture name -> its `*.model-output.json` path under FIXTURE_DIR, without the suffix. */
+const FIXTURE_FILES = {
+  'cardio-row-wide': 'gym-scan/cardio-row-wide',
+  'leg-curl-placard': 'gym-scan/leg-curl-placard',
+  both: 'gym-scan/both',
+  'workout-placard': 'workout-prefill/placard',
+  'workout-notebook': 'workout-prefill/notebook',
+};
+const FIXTURES = Object.keys(FIXTURE_FILES);
 /** A request body this big is refused (inline images are base64). */
 const MAX_BODY_BYTES = 200 * 1024 * 1024;
 
 const state = { next: null, requests: [], counter: 0 };
 
 function loadFixture(name) {
-  return readFileSync(join(FIXTURE_DIR, `${name}.model-output.json`), 'utf8');
+  return readFileSync(join(FIXTURE_DIR, `${FIXTURE_FILES[name]}.model-output.json`), 'utf8');
 }
 
 function send(res, status, body) {

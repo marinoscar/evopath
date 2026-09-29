@@ -46,6 +46,10 @@ export type WorkoutExerciseWithRelations = Prisma.WorkoutExerciseGetPayload<{ in
 export const WORKOUT_INCLUDE = {
   gym: { select: { id: true, name: true } },
   exercises: { orderBy: [{ position: 'asc' as const }, { createdAt: 'asc' as const }], include: WORKOUT_EXERCISE_INCLUDE },
+  photos: {
+    orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+    select: { id: true, storageObjectId: true, caption: true, createdAt: true },
+  },
 } satisfies Prisma.WorkoutInclude;
 
 export type WorkoutWithRelations = Prisma.WorkoutGetPayload<{ include: typeof WORKOUT_INCLUDE }>;
@@ -261,6 +265,13 @@ export function toWorkoutView(workout: WorkoutWithRelations, prsBySet: PrsBySet 
     programWorkoutId: workout.programWorkoutId,
     readinessSnapshot: readinessOf(workout.readinessSnapshot),
     exercises: workout.exercises.map((entry) => toWorkoutExerciseView(entry, prsBySet)),
+    // `?? []`: a row read without the photos include (older fixtures) has none.
+    photos: (workout.photos ?? []).map((photo) => ({
+      id: photo.id,
+      storageObjectId: photo.storageObjectId,
+      caption: photo.caption,
+      createdAt: photo.createdAt.toISOString(),
+    })),
     summary: toWorkoutTotals(workout, prsBySet),
     createdAt: workout.createdAt.toISOString(),
     updatedAt: workout.updatedAt.toISOString(),

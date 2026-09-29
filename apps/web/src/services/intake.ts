@@ -130,6 +130,18 @@ export async function getIntake<TValue = unknown, TContext = unknown>(
   return api.get<PhotoIntakeView<TValue, TContext>>(base(id));
 }
 
+/**
+ * `PATCH /intakes/:id`: replace the intake's context (the whole object; the
+ * kind's schema validates it). Allowed while the intake is not scanning or
+ * applied.
+ */
+export async function updateIntakeContext<TValue = unknown, TContext = unknown>(
+  id: string,
+  context: TContext,
+): Promise<PhotoIntakeView<TValue, TContext>> {
+  return api.patch<PhotoIntakeView<TValue, TContext>>(base(id), { context });
+}
+
 /** Discard an intake (allowed unless `applied`). */
 export async function discardIntake(id: string): Promise<void> {
   await api.delete<void>(base(id));

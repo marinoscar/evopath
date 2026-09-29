@@ -6,7 +6,8 @@
 #
 # A tiny OpenAI-compatible server (tests/e2e/support/fake-vision-server.mjs)
 # that answers every chat completion with a canned "Scan gym" result from
-# apps/api/test/fixtures/gym-scan. No key, no cost, deterministic.
+# apps/api/test/fixtures/gym-scan or a "Prefill from photo" result from
+# apps/api/test/fixtures/workout-prefill. No key, no cost, deterministic.
 #
 # Point the API at it at runtime, never with an environment variable: in
 # /admin/settings/ai enable the OpenAI-compatible provider with base URL
@@ -16,6 +17,7 @@
 #
 # Host port 4010:
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"leg-curl-placard"}'
+#   curl -X POST localhost:4010/__control/next -d '{"fixture":"workout-notebook"}'
 #   curl localhost:4010/__control/requests     # image counts only, never bytes
 #   curl -X POST localhost:4010/__control/reset
 # =============================================================================
@@ -26,7 +28,7 @@ services:
     command: node /support/fake-vision-server.mjs
     volumes:
       - ../../tests/e2e/support:/support:ro
-      - ../../apps/api/test/fixtures/gym-scan:/fixtures:ro
+      - ../../apps/api/test/fixtures:/fixtures:ro
     environment:
       FIXTURE_DIR: /fixtures
     ports:

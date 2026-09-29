@@ -35,6 +35,7 @@ import {
   PhotoIntakeSummary,
   PhotoIntakeView,
   UpdateDraftItemDto,
+  UpdateIntakeDto,
 } from './dto/intake.dto';
 import { IntakeService } from './intake.service';
 
@@ -145,6 +146,29 @@ export class IntakesController {
   @ApiResponse(NOT_FOUND)
   get(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.intakes.get(user.id, id, user.permissions);
+  }
+
+  @Patch(':id')
+  @Auth({ permissions: [PERMISSIONS.INTAKES_WRITE] })
+  @ApiOperation({
+    summary: 'Change a photo intake\'s context',
+    description:
+      'Replaces `context` (for example a source hint the analyzer reads) in `draft`, `ready` or ' +
+      '`failed`. The kind validates it as on create; photos and items are untouched.',
+  })
+  @ApiParam(ID_PARAM)
+  @ApiDataResponse(PhotoIntakeView, { description: 'The intake' })
+  @ApiResponse({ status: 400, description: 'Validation error (`details.issues`, prefixed `context`)', type: ErrorDto })
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse(NO_WRITE)
+  @ApiResponse(NOT_FOUND)
+  @ApiResponse(STATE_CONFLICT)
+  updateContext(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateIntakeDto,
+  ) {
+    return this.intakes.updateContext(user.id, id, dto, user.permissions);
   }
 
   @Delete(':id')

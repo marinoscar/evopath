@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { CheckInsService } from '../check-ins/check-ins.service';
@@ -30,6 +30,7 @@ import {
 } from './workout-mapper';
 import { WorkoutHistoryService } from './workout-history.service';
 import { lockOwnedWorkout } from './workout-lock';
+import { WorkoutPhotoStorageService } from './workout-photo-storage.service';
 import { WORKOUT_DATE_WINDOW_DAYS, WORKOUT_FUTURE_SKEW_MS, WORKOUT_REFUSALS } from './workouts.constants';
 
 // =============================================================================
@@ -58,6 +59,8 @@ export class WorkoutsService {
     private readonly gyms: GymsService,
     private readonly checkIns: CheckInsService,
     private readonly history: WorkoutHistoryService,
+    // Optional so a hand-built service (tests) needs none; Nest always injects it.
+    @Optional() private readonly photoStorage?: WorkoutPhotoStorageService,
   ) {}
 
   /**
@@ -283,11 +286,26 @@ export class WorkoutsService {
     return this.get(userId, workoutId);
   }
 
+  /**
+   * Deletes the workout (its exercises, sets and photo links by cascade), then,
+   * best effort, the storage objects of its photos that nothing else holds.
+   */
   async remove(userId: string, workoutId: string): Promise<void> {
+    const photos = await this.prisma.workoutPhoto.findMany({
+      where: { workoutId, workout: { userId } },
+      select: { storageObjectId: true },
+    });
     const { count } = await this.prisma.workout.deleteMany({ where: { id: workoutId, userId } });
 
     if (count === 0) {
       throw workoutNotFound();
+    }
+
+    if (photos.length > 0 && this.photoStorage) {
+      await this.photoStorage.deleteObjects(
+        userId,
+        photos.map((photo) => photo.storageObjectId),
+      );
     }
   }
 

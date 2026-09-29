@@ -15,7 +15,7 @@ export const FAKE_AI_API_BASE_URL = process.env.FAKE_AI_API_BASE_URL ?? 'http://
 export const FAKE_PROVIDER_ID = 'openai-compatible';
 export const FAKE_MODEL_ID = 'fake-vision';
 
-export type FakeFixture = 'cardio-row-wide' | 'leg-curl-placard' | 'both';
+export type FakeFixture = 'cardio-row-wide' | 'leg-curl-placard' | 'both' | 'workout-placard' | 'workout-notebook';
 
 export interface FakeRequestRecord {
   model: string | null;

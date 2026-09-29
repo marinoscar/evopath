@@ -39,6 +39,8 @@ const TrainPage = lazy(() => import('./pages/TrainPage'));
 const TrainExercisesPage = lazy(() => import('./pages/TrainExercisesPage'));
 // E4.3: one workout (active logger or completed detail), also under `/train`.
 const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
+// E4.5: "Prefill from photo", photos to AI-drafted exercises the user reviews.
+const WorkoutPrefillPage = lazy(() => import('./pages/WorkoutPrefillPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
 // E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
@@ -204,6 +206,7 @@ function AppRoutes() {
                   <Route path="/train" element={<TrainPage />} />
                   <Route path="/train/exercises" element={<TrainExercisesPage />} />
                   <Route path="/train/workouts/:workoutId" element={<WorkoutPage />} />
+                  <Route path="/train/workouts/:workoutId/prefill" element={<WorkoutPrefillPage />} />
                   <Route path="/health" element={<HealthPage />} />
                   <Route path="/gyms" element={<GymsPage />} />
                   <Route path="/gyms/new" element={<GymNewPage />} />

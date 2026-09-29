@@ -180,6 +180,14 @@ export interface WorkoutTotals {
   prs: WorkoutPrSummary[];
 }
 
+/** A photo the workout was prefilled from (E4.5, "Prefill from photo"); shown through a signed URL on demand. */
+export interface WorkoutPhotoView {
+  id: string;
+  storageObjectId: string;
+  caption: string | null;
+  createdAt: string;
+}
+
 /** A full workout (the API's `WorkoutView`). */
 export interface Workout {
   id: string;
@@ -199,6 +207,8 @@ export interface Workout {
   /** In `position` order. */
   exercises: WorkoutExerciseView[];
   summary: WorkoutTotals;
+  /** Photos the workout was prefilled from, oldest first (E4.5). */
+  photos: WorkoutPhotoView[];
   createdAt: string;
   updatedAt: string;
 }

@@ -20,7 +20,10 @@ import { OpenAiCompatibleClientFactory } from '../../src/ai/providers/openai-com
 import { OpenAiCompatibleProviderAdapter } from '../../src/ai/providers/openai-compatible/openai-compatible.adapter';
 import { buildScanContent } from '../../src/gyms/scan/equipment-scan.handler';
 import { buildEquipmentScanOutputSchema } from '../../src/gyms/scan/equipment-scan.prompt';
+import { buildPrefillContent } from '../../src/workouts/prefill/workout-prefill.handler';
+import { buildWorkoutPrefillOutputSchema } from '../../src/workouts/prefill/workout-prefill.prompt';
 import { loadModelOutput, seedVocabulary } from '../fixtures/gym-scan.fixtures';
+import { loadPrefillModelOutput, seedExerciseVocabulary } from '../fixtures/workout-prefill.fixtures';
 
 const SERVER = join(__dirname, '..', '..', '..', '..', 'tests', 'e2e', 'support', 'fake-vision-server.mjs');
 const PHOTO = Buffer.from('fake-jpeg-bytes');
@@ -119,6 +122,27 @@ describe('fake vision server', () => {
 
     expect((await scan(['p0'])).parsed).toEqual(loadModelOutput('leg-curl-placard'));
     expect((await scan(['p0'])).parsed).toEqual(loadModelOutput('cardio-row-wide'));
+  });
+
+  it.each([
+    ['workout-placard', 'placard'],
+    ['workout-notebook', 'notebook'],
+  ] as const)('serves %s from workout-prefill/, parsed by the real adapter into the prefill schema', async (fixture, file) => {
+    const prefillSchema = buildWorkoutPrefillOutputSchema(seedExerciseVocabulary());
+    await fetch(`${base}/__control/next`, { method: 'POST', body: JSON.stringify({ fixture }) });
+
+    const response = await adapter.responses.create(
+      {
+        model: 'fake-vision',
+        instructions: 'test',
+        input: [{ type: 'message', role: 'user', content: buildPrefillContent(['p0'], 'notebook') }],
+        structuredOutput: { name: 'workout_prefill', schema: prefillSchema, strict: true },
+      },
+      ctx(['p0']),
+    );
+
+    expect(response.parsed).toEqual(loadPrefillModelOutput(file));
+    expect(prefillSchema.safeParse(response.parsed).success).toBe(true);
   });
 
   it('refuses an unknown fixture name', async () => {

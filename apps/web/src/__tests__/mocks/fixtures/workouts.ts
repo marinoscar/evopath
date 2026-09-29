@@ -305,6 +305,7 @@ export function mockWorkout(overrides: Partial<Workout> = {}): Workout {
     readinessSnapshot: null,
     exercises: [],
     summary: { durationSeconds: null, exerciseCount: 0, setCount: 0, volumeKg: 0, prs: [] },
+    photos: [],
     createdAt: WORKOUT_NOW,
     updatedAt: WORKOUT_NOW,
     ...overrides,

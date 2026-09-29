@@ -7,11 +7,14 @@
  *
  * `workouts:read` decides whether there is anything to show and
  * `workouts:write` whether anything can change; the API enforces both.
- * Nothing here involves AI (E4.5's "Prefill from photo" slot renders nothing).
+ * Manual logging never involves AI. E4.5: "Prefill from photo" sits under
+ * Add exercise (disabled with the reason when AI cannot run for this user),
+ * the photos a workout was prefilled from are listed under Photos, and the
+ * prefill page returns here with a summary snackbar (`WorkoutLocationState`).
  * E4.4: each card shows "Last time" (with Copy sets) and each set its PR
  * chips; the finish summary and the completed view list the workout's PRs.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
@@ -53,6 +56,9 @@ import { PrSummaryList, SummaryStats, WorkoutSummaryDialog } from '../components
 import { ExerciseLastTime } from '../components/train/LastTimeLine';
 import { EditWorkoutDialog } from '../components/train/EditWorkoutDialog';
 import { ReadinessCard } from '../components/train/StartWorkoutDialog';
+import { PrefillButton } from '../components/train/PrefillButton';
+import { WorkoutPhotos } from '../components/train/WorkoutPhotos';
+import type { WorkoutLocationState } from '../services/workoutPrefill';
 
 export const WORKOUT_NOT_FOUND_TITLE = 'Workout not found';
 
@@ -125,10 +131,18 @@ export default function WorkoutPage() {
   const w = useWorkout(canRead ? workoutId : undefined);
   const workout = w.workout;
 
-  const initialNotice = (location.state as { notice?: string } | null)?.notice ?? null;
+  const locationState = location.state as (WorkoutLocationState & { notice?: string }) | null;
+  const initialNotice = locationState?.notice ?? null;
   const [notice, setNotice] = useState<string | null>(initialNotice);
-  const [snack, setSnack] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [snack, setSnack] = useState<string | null>(locationState?.snack ?? null);
+  const [pickerOpen, setPickerOpen] = useState(locationState?.openPicker === true);
+  // The prefill page's one-off state (summary, "Continue manually") is consumed once: a reload must not replay it.
+  const oneOff = Boolean(locationState?.snack || locationState?.openPicker);
+  useEffect(() => {
+    if (oneOff) navigate(location.pathname, { replace: true, state: null });
+    // Once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [finishing, setFinishing] = useState(false);
   const [confirmFinish, setConfirmFinish] = useState<string[] | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -321,7 +335,7 @@ export default function WorkoutPage() {
           Add exercise
         </Button>
       )}
-      {/* E4.5: "Prefill from photo" goes here; nothing renders until then. */}
+      {canWrite && <PrefillButton workoutId={workout.id} />}
     </Stack>
   );
 
@@ -402,6 +416,7 @@ export default function WorkoutPage() {
                 </Card>
               )}
               {readiness && <ReadinessCard checkIn={readiness} title="Readiness at start" />}
+              <WorkoutPhotos photos={workout.photos ?? []} />
             </Stack>
           </Box>
         ) : (
@@ -414,6 +429,7 @@ export default function WorkoutPage() {
               canWrite={canWrite}
               onSave={(notes) => w.update({ notes })}
             />
+            <WorkoutPhotos photos={workout.photos ?? []} />
           </Stack>
         )}
       </Box>
@@ -490,7 +506,7 @@ export default function WorkoutPage() {
 
       <Snackbar
         open={snack !== null}
-        autoHideDuration={4000}
+        autoHideDuration={6000}
         onClose={() => setSnack(null)}
         message={snack ?? ''}
       />

@@ -128,6 +128,7 @@ const VALID_BODIES: Record<string, object> = {
   'POST /api/intakes/{id}/analyze': { provider: 'openai', modelId: HARNESS_MODEL },
   'POST /api/intakes/{id}/items': { kind: 'thing', value: { name: 'Bench' } },
   'PATCH /api/intakes/{id}/items/{itemId}': { status: 'accepted' },
+  'PATCH /api/intakes/{id}': { context: { label: 'Gym' } },
 };
 
 const ROLES = ['admin', 'contributor', 'viewer'] as const;
@@ -190,7 +191,7 @@ describe('/api/intakes over HTTP (E3.1)', () => {
 
   describe('RBAC matrix', () => {
     it('discovers every intake route, each declaring intakes:read or intakes:write (analyze also ai:use)', () => {
-      expect(routes.length).toBe(12);
+      expect(routes.length).toBe(13);
 
       const failures = routes
         .filter((route) => {
@@ -310,6 +311,53 @@ describe('/api/intakes over HTTP (E3.1)', () => {
   // ---------------------------------------------------------------------------
   // Photos
   // ---------------------------------------------------------------------------
+
+  describe('PATCH /api/intakes/:id (context)', () => {
+    const patch = (token: string, body: object) => call('patch', `/api/intakes/${INTAKE}`, token, body);
+
+    it('replaces the context, validated by the kind, and answers the intake', async () => {
+      const row = intakeRow({ status: 'ready', context: { label: 'Home' } });
+      storeIntake(row);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntake.findFirst.mockImplementation(async (args: any) =>
+        args?.include ? { ...row, context: { label: 'Gym' }, photos: [], items: [] } : row,
+      );
+
+      const res = await patch(tokens.contributor, { context: { label: 'Gym' } }).expect(200);
+
+      expect(res.body.data.context).toEqual({ label: 'Gym' });
+      expect(prisma.photoIntake.updateMany.mock.calls[0][0]).toMatchObject({
+        where: { id: INTAKE, userId: HARNESS_USER, status: { in: ['draft', 'ready', 'failed'] } },
+        data: { context: { label: 'Gym' } },
+      });
+    });
+
+    it('answers 400 with context-prefixed issues for a context the kind refuses', async () => {
+      storeIntake(intakeRow());
+
+      const res = await patch(tokens.contributor, { context: { label: 'x'.repeat(21) } }).expect(400);
+
+      expect(res.body.details.issues[0].path).toBe('context.label');
+      expect(prisma.photoIntake.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 while scanning or once applied, and 404 for another user\'s intake', async () => {
+      storeIntake(intakeRow({ status: 'scanning' }));
+      expect((await patch(tokens.contributor, { context: {} }).expect(409)).body.details.reason).toBe('INTAKE_SCANNING');
+
+      storeIntake(intakeRow({ status: 'applied' }));
+      expect((await patch(tokens.contributor, { context: {} }).expect(409)).body.details.reason).toBe('ALREADY_APPLIED');
+
+      storeIntake(intakeRow({ userId: VIEWER }));
+      await patch(tokens.contributor, { context: {} }).expect(404);
+      expect(prisma.photoIntake.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('refuses unknown properties', async () => {
+      storeIntake(intakeRow());
+      await patch(tokens.contributor, { context: {}, kind: 'other' }).expect(400);
+    });
+  });
 
   describe('POST /api/intakes/:id/photos', () => {
     const readyImage = {

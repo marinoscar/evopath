@@ -59,14 +59,16 @@ export class GymStorageService {
   async deleteObjects(userId: string, storageObjectIds: readonly string[]): Promise<void> {
     for (const storageObjectId of storageObjectIds) {
       try {
-        const [gymLinks, intakeHolders] = await Promise.all([
+        const [gymLinks, workoutLinks, intakeHolders] = await Promise.all([
           this.prisma.gymPhoto.count({ where: { storageObjectId } }),
+          // A workout photo (E4.5) holds its object too.
+          this.prisma.workoutPhoto.count({ where: { storageObjectId } }),
           this.prisma.photoIntakePhoto.count({
             where: { storageObjectId, intake: { status: { not: 'applied' } } },
           }),
         ]);
 
-        if (gymLinks === 0 && intakeHolders === 0) {
+        if (gymLinks === 0 && workoutLinks === 0 && intakeHolders === 0) {
           await this.objects.delete(storageObjectId, userId);
         }
       } catch (error) {
