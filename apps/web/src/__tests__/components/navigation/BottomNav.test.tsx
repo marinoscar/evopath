@@ -68,90 +68,73 @@ describe('BottomNav', () => {
 
     it('appears and disappears across the sm boundary', async () => {
       renderPhone();
-      expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Today' })).toBeInTheDocument();
 
       await act(async () => setViewportWidth(600));
-      expect(screen.queryByRole('button', { name: 'Home' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Today' })).not.toBeInTheDocument();
 
       await act(async () => setViewportWidth(599));
-      expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Today' })).toBeInTheDocument();
     });
   });
 
   describe('Destinations', () => {
-    it('renders all three destinations for a fully permitted user', () => {
-      // THREE since #92 merged the two admin rows into `Console`. The bar's
-      // four-action ceiling is unchanged and asserted below; this is simply one
-      // row further from it.
+    it('renders exactly the four primary destinations for a fully permitted user', () => {
       renderPhone();
 
-      expect(screen.getByRole('button', { name: 'Home' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'User Settings' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Console' })).toBeInTheDocument();
+      for (const name of ['Today', 'Train', 'Health', 'Gyms']) {
+        expect(screen.getByRole('button', { name })).toBeInTheDocument();
+      }
+      // Reached from the user menu on phones, never from the bar.
+      for (const name of ['User Settings', 'Console', 'AI Playground']) {
+        expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+      }
     });
 
     it('shows the compact label as visible text but the full label as the accessible name', () => {
-      // A 4-up bar at 375px gives each tab ~90px; "User Settings" does not fit.
+      // A 4-up bar at 375px gives each tab ~90px; the full label may not fit.
       renderPhone();
 
-      expect(screen.getByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'User Settings' })).toBeInTheDocument();
+      expect(screen.getByText('Gyms')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Gyms' })).toBeInTheDocument();
     });
 
     it('never renders more than four actions — showLabels depends on it', () => {
       renderPhone();
 
-      expect(screen.getAllByRole('button')).toHaveLength(3);
+      expect(screen.getAllByRole('button')).toHaveLength(4);
       expect(screen.getAllByRole('button').length).toBeLessThanOrEqual(4);
     });
 
-    it('hides destinations the user lacks permission for', () => {
+    it('shows the same four buttons to a user without permissions', () => {
       setPermissions([]);
       renderPhone();
 
-      expect(screen.getAllByRole('button')).toHaveLength(2);
+      expect(screen.getAllByRole('button')).toHaveLength(4);
       expect(screen.queryByRole('button', { name: 'Console' })).not.toBeInTheDocument();
-    });
-
-    it('gates on permission rather than the admin role', () => {
-      setPermissions(['system_settings:read'], false);
-      renderPhone();
-
-      expect(screen.getByRole('button', { name: 'Console' })).toBeInTheDocument();
-    });
-
-    it('shows Console on users:read alone', () => {
-      // `console` is gated on EITHER admin permission (`anyPermission`), and a
-      // user holding only this one must still get the row.
-      setPermissions(['users:read'], false);
-      renderPhone();
-
-      expect(screen.getByRole('button', { name: 'Console' })).toBeInTheDocument();
     });
   });
 
   describe('Active state', () => {
     it('selects the destination that owns the route', () => {
+      renderPhone('/train');
+
+      expect(screen.getByRole('button', { name: 'Train' })).toHaveClass('Mui-selected');
+      expect(screen.getByRole('button', { name: 'Today' })).not.toHaveClass('Mui-selected');
+    });
+
+    it('selects no tab on /settings, which is not a primary destination', () => {
       renderPhone('/settings');
 
-      expect(screen.getByRole('button', { name: 'User Settings' })).toHaveClass('Mui-selected');
-      expect(screen.getByRole('button', { name: 'Home' })).not.toHaveClass('Mui-selected');
+      for (const action of screen.getAllByRole('button')) {
+        expect(action).not.toHaveClass('Mui-selected');
+      }
     });
 
     it('resolves a child route to its parent destination', () => {
-      renderPhone('/admin/settings/users');
+      renderPhone('/health/body');
 
-      expect(screen.getByRole('button', { name: 'Console' })).toHaveClass('Mui-selected');
-    });
-
-    it('still selects Console on the redirected /admin/users path', () => {
-      // `/admin/users` redirects to `/admin/settings/users` (#92), but the bar
-      // renders for the one frame before the redirect commits. `console` owns
-      // `/admin`, not `/admin/settings`, precisely so that frame highlights the
-      // right row instead of nothing.
-      renderPhone('/admin/users/abc-123');
-
-      expect(screen.getByRole('button', { name: 'Console' })).toHaveClass('Mui-selected');
+      expect(screen.getByRole('button', { name: 'Health' })).toHaveClass('Mui-selected');
     });
 
     it('selects NOTHING on a route no destination owns', () => {
@@ -164,8 +147,7 @@ describe('BottomNav', () => {
       }
     });
 
-    it('selects nothing when the active destination is one the user cannot see', () => {
-      setPermissions([]);
+    it('selects nothing on a non-primary destination such as Console', () => {
       renderPhone('/admin/settings');
 
       for (const action of screen.getAllByRole('button')) {
@@ -179,18 +161,18 @@ describe('BottomNav', () => {
       const user = userEvent.setup();
       renderPhone('/');
 
-      await user.click(screen.getByRole('button', { name: 'User Settings' }));
+      await user.click(screen.getByRole('button', { name: 'Gyms' }));
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'User Settings' })).toHaveClass('Mui-selected');
+        expect(screen.getByRole('button', { name: 'Gyms' })).toHaveClass('Mui-selected');
       });
     });
 
-    it('reaches every destination the old Sidebar offered', async () => {
+    it('reaches every primary destination', async () => {
       const user = userEvent.setup();
       renderPhone('/');
 
-      for (const name of ['User Settings', 'Console', 'Home']) {
+      for (const name of ['Train', 'Health', 'Gyms', 'Today']) {
         await user.click(screen.getByRole('button', { name }));
         await waitFor(() => {
           expect(screen.getByRole('button', { name })).toHaveClass('Mui-selected');
