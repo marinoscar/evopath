@@ -375,6 +375,29 @@ describe('GymDetailPage', () => {
     expect(await screen.findByRole('dialog', { name: 'What the AI proposed' })).toHaveTextContent('AI said: Elliptical ×3, Precor');
   });
 
+  it('saves and clears the location through PUT/DELETE /gyms/:id/location', async () => {
+    const api = statefulGymsApi([mockGymDetail({ id: GYM_ID, latitude: null, longitude: null })]);
+    const user = userEvent.setup();
+    renderDetail();
+    const section = await screen.findByRole('region', { name: 'Location' });
+    expect(within(section).getByText('No location saved')).toBeInTheDocument();
+
+    await user.type(within(section).getByRole('textbox', { name: 'Latitude' }), '9.934');
+    await user.type(within(section).getByRole('textbox', { name: 'Longitude' }), '-84.08');
+    await user.click(within(section).getByRole('button', { name: 'Save location' }));
+
+    expect(await within(section).findByText('Saved: 9.93400, -84.08000')).toBeInTheDocument();
+    expect(api.calls.find((c) => c.method === 'PUT')).toEqual({
+      method: 'PUT',
+      path: `/gyms/${GYM_ID}/location`,
+      body: { latitude: 9.934, longitude: -84.08 },
+    });
+
+    await user.click(within(section).getByRole('button', { name: 'Clear' }));
+    expect(await within(section).findByText('No location saved')).toBeInTheDocument();
+    expect(api.calls.some((c) => c.method === 'DELETE' && c.path === `/gyms/${GYM_ID}/location`)).toBe(true);
+  });
+
   it('has no axe violations', async () => {
     statefulGymsApi([
       mockGymDetail({ id: GYM_ID, equipment: [mockEquipment(DUMBBELLS)], photos: [mockPhoto()] }),

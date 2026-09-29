@@ -1,0 +1,248 @@
+/**
+ * `GymLocationField` (E3.5): the saved value with Clear (and Undo), manual
+ * latitude/longitude with live validation, and "Use my location", shown only
+ * with `navigator.geolocation` in a secure context, which fills the inputs
+ * without saving anything until "Save location".
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
+import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor } from '../../utils/test-utils';
+import { GymLocationField } from '../../../components/gyms/GymLocationField';
+import { LOCATION_HELPER_TEXT, LOCATION_PROMPT_EXPLANATION } from '../../../components/gyms/gymLocation';
+import type { GymLocationInput } from '../../../services/gyms';
+
+const originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
+const originalGeolocation = Object.getOwnPropertyDescriptor(navigator, 'geolocation');
+
+type Success = (position: GeolocationPosition) => void;
+type Failure = (error: GeolocationPositionError) => void;
+
+function installGeolocation(behaviour: (success: Success, failure: Failure) => void, secure = true) {
+  Object.defineProperty(window, 'isSecureContext', { configurable: true, value: secure });
+  const getCurrentPosition = vi.fn((success: Success, failure: Failure) => behaviour(success, failure));
+  const watchPosition = vi.fn();
+  Object.defineProperty(navigator, 'geolocation', {
+    configurable: true,
+    value: { getCurrentPosition, watchPosition, clearWatch: vi.fn() },
+  });
+  return { getCurrentPosition, watchPosition };
+}
+
+function removeGeolocation() {
+  Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true });
+  Object.defineProperty(navigator, 'geolocation', { configurable: true, value: undefined });
+  delete (navigator as unknown as Record<string, unknown>).geolocation;
+}
+
+const fixAt = (latitude: number, longitude: number, accuracy: number) =>
+  ({ coords: { latitude, longitude, accuracy }, timestamp: 0 }) as unknown as GeolocationPosition;
+const errorCode = (code: number) => ({ code, message: '' }) as GeolocationPositionError;
+
+afterEach(() => {
+  if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext);
+  else delete (window as unknown as Record<string, unknown>).isSecureContext;
+  if (originalGeolocation) Object.defineProperty(navigator, 'geolocation', originalGeolocation);
+  else delete (navigator as unknown as Record<string, unknown>).geolocation;
+});
+
+/** A host that stores what is saved, like the gym page does through the API. */
+function Harness({
+  initial = null,
+  onSave,
+  onClear,
+  canWrite,
+}: {
+  initial?: { latitude: number; longitude: number } | null;
+  onSave?: (input: GymLocationInput) => void;
+  onClear?: () => void;
+  canWrite?: boolean;
+}) {
+  const [saved, setSaved] = useState(initial);
+  return (
+    <GymLocationField
+      latitude={saved?.latitude ?? null}
+      longitude={saved?.longitude ?? null}
+      canWrite={canWrite}
+      onSave={async (input) => {
+        onSave?.(input);
+        setSaved({ latitude: input.latitude, longitude: input.longitude });
+      }}
+      onClear={async () => {
+        onClear?.();
+        setSaved(null);
+      }}
+    />
+  );
+}
+
+const latInput = () => screen.getByRole('textbox', { name: 'Latitude' });
+const lngInput = () => screen.getByRole('textbox', { name: 'Longitude' });
+
+describe('GymLocationField', () => {
+  it('shows "No location saved", the helper text, and saves typed coordinates', async () => {
+    removeGeolocation();
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onSave={onSave} />);
+
+    expect(screen.getByText('No location saved')).toBeInTheDocument();
+    expect(screen.getByText(LOCATION_HELPER_TEXT)).toBeInTheDocument();
+    await user.type(latInput(), '9.93400');
+    await user.type(lngInput(), '-84.08000');
+    await user.click(screen.getByRole('button', { name: 'Save location' }));
+
+    expect(onSave).toHaveBeenCalledWith({ latitude: 9.934, longitude: -84.08 });
+    expect(await screen.findByText('Saved: 9.93400, -84.08000')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Open in maps' });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.openstreetmap.org/?mlat=9.93400&mlon=-84.08000#map=17/9.93400/-84.08000',
+    );
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(latInput()).toHaveValue('');
+  });
+
+  it('validates live: range, text, a decimal comma, and a missing half', async () => {
+    removeGeolocation();
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onSave={onSave} />);
+
+    await user.type(latInput(), '91');
+    expect(screen.getByText('Latitude is between -90 and 90.')).toBeInTheDocument();
+    await user.clear(latInput());
+    await user.type(latInput(), 'abc');
+    expect(screen.getByText('Enter a number, for example 9.934.')).toBeInTheDocument();
+    await user.type(lngInput(), '-181');
+    expect(screen.getByText('Longitude is between -180 and 180.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save location' })).toBeDisabled();
+
+    await user.clear(latInput());
+    await user.clear(lngInput());
+    await user.type(latInput(), '10,5');
+    expect(screen.getByText(/Use a dot for decimals/)).toBeInTheDocument();
+
+    await user.clear(latInput());
+    await user.type(latInput(), '10.5');
+    await user.click(screen.getByRole('button', { name: 'Save location' }));
+    expect(screen.getByText('Enter a longitude too.')).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('splits a pasted "lat, lng" pair into both fields', async () => {
+    removeGeolocation();
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(latInput());
+    await user.paste('10.0012, -84.1234');
+    expect(latInput()).toHaveValue('10.0012');
+    expect(lngInput()).toHaveValue('-84.1234');
+  });
+
+  it('hides "Use my location" without navigator.geolocation', () => {
+    removeGeolocation();
+    render(<Harness />);
+    expect(screen.queryByRole('button', { name: 'Use my location' })).toBeNull();
+    expect(latInput()).toBeEnabled();
+  });
+
+  it('hides "Use my location" outside a secure context', () => {
+    installGeolocation(() => undefined, false);
+    render(<Harness />);
+    expect(screen.queryByRole('button', { name: 'Use my location' })).toBeNull();
+    expect(latInput()).toBeEnabled();
+  });
+
+  it('fills the inputs with the accuracy and saves nothing until "Save location"', async () => {
+    const geo = installGeolocation((success) => success(fixAt(10.001234, -84.123456, 25.4)));
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onSave={onSave} />);
+
+    expect(screen.getByText(LOCATION_PROMPT_EXPLANATION)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Use my location' }));
+
+    expect(geo.getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(geo.watchPosition).not.toHaveBeenCalled();
+    expect(await screen.findByText(/accuracy about 25 m/)).toBeInTheDocument();
+    expect(latInput()).toHaveValue('10.00123');
+    expect(lngInput()).toHaveValue('-84.12346');
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText('No location saved')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save location' }));
+    expect(onSave).toHaveBeenCalledWith({ latitude: 10.00123, longitude: -84.12346, accuracyMeters: 25 });
+    expect(await screen.findByText('Saved: 10.00123, -84.12346')).toBeInTheDocument();
+  });
+
+  it('warns about a very approximate position but still allows saving', async () => {
+    installGeolocation((success) => success(fixAt(10, -84, 12000)));
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onSave={onSave} />);
+    await user.click(screen.getByRole('button', { name: 'Use my location' }));
+    expect(await screen.findByText('This position is very approximate.')).toBeInTheDocument();
+    expect(screen.getByText(/accuracy about 12.0 km/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save location' }));
+    expect(onSave).toHaveBeenCalledWith({ latitude: 10, longitude: -84, accuracyMeters: 12000 });
+  });
+
+  it.each([
+    [1, 'Location permission was denied. You can type coordinates instead.'],
+    [2, 'Your device could not determine a position.'],
+    [3, 'Timed out. Try again or type coordinates.'],
+  ])('error code %i shows its message and leaves manual entry working', async (code, message) => {
+    installGeolocation((_success, failure) => failure(errorCode(code)));
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onSave={onSave} />);
+
+    await user.click(screen.getByRole('button', { name: 'Use my location' }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+
+    await user.type(latInput(), '9.934');
+    await user.type(lngInput(), '-84.08');
+    await user.click(screen.getByRole('button', { name: 'Save location' }));
+    expect(onSave).toHaveBeenCalledWith({ latitude: 9.934, longitude: -84.08 });
+  });
+
+  it('calls getCurrentPosition exactly once per click', async () => {
+    const geo = installGeolocation((success) => success(fixAt(1, 2, 3)));
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: 'Use my location' }));
+    await screen.findByText(/accuracy about 3 m/);
+    await user.click(screen.getByRole('button', { name: 'Use my location' }));
+    await waitFor(() => expect(geo.getCurrentPosition).toHaveBeenCalledTimes(2));
+    expect(geo.watchPosition).not.toHaveBeenCalled();
+  });
+
+  it('clears a saved location at once and restores it with Undo', async () => {
+    removeGeolocation();
+    const onSave = vi.fn();
+    const onClear = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness initial={{ latitude: 10.00123, longitude: -84.12345 }} onSave={onSave} onClear={onClear} />);
+
+    expect(screen.getByText('Saved: 10.00123, -84.12345')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(onClear).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('No location saved')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open in maps' })).toBeNull();
+
+    await user.click(await screen.findByRole('button', { name: 'Undo' }));
+    expect(onSave).toHaveBeenCalledWith({ latitude: 10.00123, longitude: -84.12345 });
+    expect(await screen.findByText('Saved: 10.00123, -84.12345')).toBeInTheDocument();
+  });
+
+  it('shows only the saved value and the map link without write access', () => {
+    installGeolocation(() => undefined);
+    render(<Harness initial={{ latitude: 1, longitude: 2 }} canWrite={false} />);
+    expect(screen.getByText('Saved: 1.00000, 2.00000')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open in maps' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Use my location' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Latitude' })).toBeNull();
+  });
+});

@@ -67,6 +67,28 @@ describe('GymsPage', () => {
     });
   });
 
+  it('sends an optional location set on /gyms/new with the new gym', async () => {
+    const api = statefulGymsApi();
+    const user = userEvent.setup();
+    renderGyms({ route: '/gyms/new' });
+
+    await user.type(screen.getByRole('textbox', { name: /Name/ }), 'Home Gym');
+    expect(screen.getByText('No location set')).toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Latitude' }), '9.934');
+    await user.type(screen.getByRole('textbox', { name: 'Longitude' }), '-84.08');
+    await user.click(screen.getByRole('button', { name: 'Set location' }));
+    expect(screen.getByText('Location: 9.93400, -84.08000')).toBeInTheDocument();
+    expect(api.calls).toHaveLength(0);
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('region', { name: 'Home Gym' });
+    expect(api.calls.find((c) => c.method === 'POST')?.body).toMatchObject({
+      name: 'Home Gym',
+      latitude: 9.934,
+      longitude: -84.08,
+    });
+  });
+
   it('refuses to save a blank name', async () => {
     const api = statefulGymsApi();
     const user = userEvent.setup();
