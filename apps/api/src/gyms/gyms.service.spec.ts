@@ -4,6 +4,7 @@ import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 
 import type { PrismaService } from '../prisma/prisma.service';
 import { GymStorageService } from './gym-storage.service';
+import { roundCoordinate } from './gym-views';
 import { GymsService } from './gyms.service';
 
 // =============================================================================
@@ -214,5 +215,107 @@ describe('GymsService', () => {
         data: { notes: null, isTemporary: true },
       });
     });
+  });
+
+  describe('location (E3.5)', () => {
+    const detail = (overrides: Record<string, unknown> = {}) => ({ ...gymRow(overrides), equipment: [], photos: [] }) as any;
+
+    it('setLocation writes both coordinates rounded to 5 decimals, never accuracyMeters, and echoes it', async () => {
+      prisma.gym.findFirst
+        .mockResolvedValueOnce(gymRow() as any)
+        .mockResolvedValueOnce(detail({ latitude: 10.00123, longitude: -84.12346 }));
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.setLocation(USER, GYM, {
+        latitude: 10.001234999,
+        longitude: -84.123456,
+        accuracyMeters: 25,
+      });
+
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: USER },
+        data: { latitude: 10.00123, longitude: -84.12346 },
+      });
+      expect(result).toEqual(expect.objectContaining({ latitude: 10.00123, longitude: -84.12346, accuracyMeters: 25 }));
+    });
+
+    it('setLocation without accuracyMeters echoes null', async () => {
+      prisma.gym.findFirst.mockResolvedValueOnce(gymRow() as any).mockResolvedValueOnce(detail({ latitude: 1, longitude: 2 }));
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.setLocation(USER, GYM, { latitude: 1, longitude: 2 });
+
+      expect(result.accuracyMeters).toBeNull();
+    });
+
+    it('clearLocation nulls both coordinates, scoped to the caller', async () => {
+      prisma.gym.findFirst.mockResolvedValueOnce(gymRow({ latitude: 1, longitude: 2 }) as any).mockResolvedValueOnce(detail());
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.clearLocation(USER, GYM);
+
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: USER },
+        data: { latitude: null, longitude: null },
+      });
+      expect(result).toEqual(expect.objectContaining({ latitude: null, longitude: null, accuracyMeters: null }));
+    });
+
+    it.each([
+      ['setLocation', (svc: GymsService) => svc.setLocation(USER, OTHER, { latitude: 1, longitude: 2 })],
+      ['clearLocation', (svc: GymsService) => svc.clearLocation(USER, OTHER)],
+    ])('%s of a gym that is not the caller\'s is a 404 and writes nothing', async (_name, act) => {
+      prisma.gym.findFirst.mockResolvedValue(null);
+
+      await expect(act(service)).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.gym.findFirst).toHaveBeenCalledWith({ where: { id: OTHER, userId: USER } });
+      expect(prisma.gym.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('a gym deleted between the lookup and the write is a 404', async () => {
+      prisma.gym.findFirst.mockResolvedValue(gymRow() as any);
+      prisma.gym.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.setLocation(USER, GYM, { latitude: 1, longitude: 2 })).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('create and update round coordinates the same way', async () => {
+      prisma.gym.count.mockResolvedValue(0);
+      prisma.gym.create.mockResolvedValue(gymRow() as any);
+      await service.create(USER, { name: 'G', type: 'home', latitude: 9.934999999, longitude: -84.000004 });
+      expect(prisma.gym.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ latitude: 9.935, longitude: -84 }),
+      });
+
+      prisma.gym.findFirst.mockResolvedValue(detail());
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+      await service.update(USER, GYM, { latitude: 0.000004, longitude: 179.999996 });
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: USER },
+        data: { latitude: 0, longitude: 180 },
+      });
+    });
+  });
+});
+
+describe('roundCoordinate', () => {
+  it.each([
+    [10.001234999, 10.00123],
+    [10.001235001, 10.00124],
+    [-84.123456, -84.12346],
+    [9.934, 9.934],
+    [90, 90],
+    [-180, -180],
+    [179.999996, 180],
+    [-0.000001, 0],
+  ])('%p -> %p', (input, expected) => {
+    const rounded = roundCoordinate(input);
+    expect(rounded).toBe(expected);
+    expect(Object.is(rounded, -0)).toBe(false);
+  });
+
+  it('passes null and undefined through', () => {
+    expect(roundCoordinate(null)).toBeNull();
+    expect(roundCoordinate(undefined)).toBeUndefined();
   });
 });

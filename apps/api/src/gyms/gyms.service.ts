@@ -9,6 +9,7 @@ import type {
   ListGymsQuery,
   UpdateGymInput,
 } from './dto/gym.dto';
+import type { GymLocationResultData, SetGymLocationInput } from './dto/gym-location.dto';
 import { GYM_REFUSALS, MAX_GYMS_PER_USER } from './gyms.constants';
 import { GymStorageService } from './gym-storage.service';
 import {
@@ -18,6 +19,7 @@ import {
   gymNotFound,
   isUniqueViolation,
   refuse,
+  roundCoordinate,
   toGymEquipmentView,
   toGymPhotoView,
   toGymView,
@@ -116,8 +118,8 @@ export class GymsService {
       description: input.description ?? null,
       notes: input.notes ?? null,
       isTemporary: input.isTemporary ?? false,
-      latitude: input.latitude ?? null,
-      longitude: input.longitude ?? null,
+      latitude: roundCoordinate(input.latitude ?? null),
+      longitude: roundCoordinate(input.longitude ?? null),
     };
 
     // The first gym becomes the default. Two concurrent "first" gyms both see
@@ -147,8 +149,8 @@ export class GymsService {
     if (input.description !== undefined) data.description = input.description;
     if (input.notes !== undefined) data.notes = input.notes;
     if (input.isTemporary !== undefined) data.isTemporary = input.isTemporary;
-    if (input.latitude !== undefined) data.latitude = input.latitude;
-    if (input.longitude !== undefined) data.longitude = input.longitude;
+    if (input.latitude !== undefined) data.latitude = roundCoordinate(input.latitude);
+    if (input.longitude !== undefined) data.longitude = roundCoordinate(input.longitude);
 
     const { count } = await this.prisma.gym.updateMany({ where: { id: gymId, userId }, data });
 
@@ -210,7 +212,39 @@ export class GymsService {
     return this.get(userId, gymId);
   }
 
+  /**
+   * Sets the gym's position (E3.5), both coordinates rounded to 5 decimals.
+   * `accuracyMeters` is echoed in the result only: never stored, never logged.
+   * No log line here carries a coordinate.
+   */
+  async setLocation(userId: string, gymId: string, input: SetGymLocationInput): Promise<GymLocationResultData> {
+    await this.writeLocation(userId, gymId, roundCoordinate(input.latitude), roundCoordinate(input.longitude));
+    return { ...(await this.get(userId, gymId)), accuracyMeters: input.accuracyMeters ?? null };
+  }
+
+  /** Clears the gym's position (both coordinates null). Clearing an unset position is a no-op. */
+  async clearLocation(userId: string, gymId: string): Promise<GymLocationResultData> {
+    await this.writeLocation(userId, gymId, null, null);
+    return { ...(await this.get(userId, gymId)), accuracyMeters: null };
+  }
+
   // ---------------------------------------------------------------------------
+
+  /** One owner-scoped write of the pair; the DB CHECK `gyms_latlng_pair_chk` backs "both or neither". */
+  private async writeLocation(
+    userId: string,
+    gymId: string,
+    latitude: number | null,
+    longitude: number | null,
+  ): Promise<void> {
+    await this.findOwned(userId, gymId);
+
+    const { count } = await this.prisma.gym.updateMany({ where: { id: gymId, userId }, data: { latitude, longitude } });
+
+    if (count === 0) {
+      throw gymNotFound();
+    }
+  }
 
   private async promoteOldestIfNoDefault(tx: Prisma.TransactionClient, userId: string): Promise<void> {
     const defaults = await tx.gym.count({ where: { userId, isDefault: true } });

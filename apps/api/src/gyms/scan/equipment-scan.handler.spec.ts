@@ -215,6 +215,41 @@ describe('EquipmentScanHandler', () => {
     });
   });
 
+  describe('location privacy (E3.5)', () => {
+    it('never reads the gym and never sends a coordinate to the provider', async () => {
+      const t = setup({ script: answer('both'), photos: 2 });
+      // A gym with a saved position is reachable through the same Prisma; the
+      // handler must not touch it, and nothing it sends may carry the position.
+      const gymRow = { id: 'g', userId: HARNESS_USER, latitude: 9.93412, longitude: -84.08013 };
+      const gymAccess = jest.fn(async () => gymRow);
+      (t.prisma as Record<string, unknown>).gym = {
+        findFirst: gymAccess,
+        findUnique: gymAccess,
+        findMany: jest.fn(async () => [gymRow]),
+      };
+
+      await t.handler.process(t.job);
+
+      expect(t.written).toHaveLength(1);
+      expect(gymAccess).not.toHaveBeenCalled();
+      expect(((t.prisma as any).gym.findMany as jest.Mock)).not.toHaveBeenCalled();
+      for (const call of t.prisma.photoIntake.findUnique.mock.calls) {
+        expect(JSON.stringify(call)).not.toMatch(/gym|latitude|longitude/i);
+      }
+
+      const calls = t.h.fake.callsTo('responses.create');
+      expect(calls.length).toBeGreaterThan(0);
+      const sent = JSON.stringify(calls.map((call) => ({ request: call.request, storageInputs: call.storageInputs })));
+      expect(sent).not.toMatch(/latitude|longitude|coordinat|gps/i);
+      expect(sent).not.toContain('9.93412');
+      expect(sent).not.toContain('84.08013');
+      // The only content parts are the photo labels, the images and the reminder.
+      const input = calls[0].request!.input as Array<{ content: Array<Record<string, unknown>> }>;
+      const kinds = new Set(input.flatMap((item) => item.content).map((part) => part.type));
+      expect([...kinds].sort()).toEqual(['image', 'text']);
+    });
+  });
+
   describe('chunking', () => {
     it('17 photos are two calls (16 + 1), and overlapping items merge with the max quantity', async () => {
       let calls = 0;

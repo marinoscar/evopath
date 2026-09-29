@@ -33,6 +33,11 @@ export const GYM_DESCRIPTION_MAX = 1000;
 export const GYM_NOTES_MAX = 4000;
 export const MAX_GYMS_PER_USER = 50;
 
+/** Stored coordinates keep 5 decimals (about 1 m); more would only be noise. */
+export const GYM_COORDINATE_DECIMALS = 5;
+/** Upper bound of the (never stored) `accuracyMeters` a location write may carry. */
+export const GYM_LOCATION_ACCURACY_MAX_METERS = 100_000;
+
 export const EQUIPMENT_QUANTITY_MIN = 1;
 export const EQUIPMENT_QUANTITY_MAX = 99;
 export const EQUIPMENT_BRAND_MAX = 60;

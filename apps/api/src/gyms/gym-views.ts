@@ -9,6 +9,7 @@ import type { CapabilityRefData, CapabilityViewData, EquipmentTypeViewData } fro
 import type { GymEquipmentViewData } from './dto/gym-equipment.dto';
 import type { GymPhotoViewData } from './dto/gym-photo.dto';
 import type { GymViewData } from './dto/gym.dto';
+import { GYM_COORDINATE_DECIMALS } from './gyms.constants';
 
 // =============================================================================
 // Gyms (E3.3) — Prisma includes, row-to-view mappers and error helpers
@@ -35,6 +36,20 @@ export type GymPhotoWithLinks = Prisma.GymPhotoGetPayload<{ include: typeof GYM_
 
 /** Equipment and photos in a stable oldest-first order. */
 export const OLDEST_FIRST = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
+
+const COORDINATE_FACTOR = 10 ** GYM_COORDINATE_DECIMALS;
+
+/**
+ * A coordinate rounded to `GYM_COORDINATE_DECIMALS` places (about 1 m), the
+ * precision every stored gym position keeps. `null`/`undefined` pass through;
+ * `-0` becomes `0`. Rounding never leaves the -90..90 / -180..180 ranges,
+ * because the bounds are themselves whole numbers.
+ */
+export function roundCoordinate<T extends number | null | undefined>(value: T): T {
+  if (typeof value !== 'number') return value;
+  const rounded = Math.round(value * COORDINATE_FACTOR) / COORDINATE_FACTOR;
+  return (Object.is(rounded, -0) ? 0 : rounded) as T;
+}
 
 function capabilityRefs(type: EquipmentTypeWithCapabilities): CapabilityRefData[] {
   return [...type.capabilities]
