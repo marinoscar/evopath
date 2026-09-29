@@ -96,6 +96,7 @@ vi.mock('../pages/UserNotificationsPage', () => ({
   default: () => <h1>User Notifications Page</h1>,
 }));
 
+vi.mock('../pages/TodayPage', () => ({ default: () => <h1>Today Page</h1> }));
 vi.mock('../pages/TrainPage', () => ({ default: () => <h1>Train Page</h1> }));
 vi.mock('../pages/HealthPage', () => ({ default: () => <h1>Health Page</h1> }));
 vi.mock('../pages/GymsPage', () => ({ default: () => <h1>Gyms Page</h1> }));
@@ -135,7 +136,7 @@ describe('App', () => {
     await waitFor(
       () => {
         // Should either show login page or home page depending on mock auth state
-        const welcomeText = screen.queryByText(/Welcome/i);
+        const welcomeText = screen.queryByText(/Welcome/i) || screen.queryByText(/Today Page/i);
         const homeText = screen.queryByText(/Home Page/i);
         expect(welcomeText || homeText).toBeTruthy();
       },
@@ -168,9 +169,12 @@ describe('App', () => {
         </MemoryRouter>
       );
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
       expect(screen.queryByRole('heading', { name: /system settings/i })).not.toBeInTheDocument();
     });
 
@@ -183,9 +187,12 @@ describe('App', () => {
         </MemoryRouter>
       );
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
       expect(screen.queryByRole('heading', { name: 'Admin Users' })).not.toBeInTheDocument();
     });
 
@@ -282,6 +289,7 @@ describe('App', () => {
    */
   describe('Product routes', () => {
     it.each([
+      ['/', 'Today Page'],
       ['/train', 'Train Page'],
       ['/health', 'Health Page'],
       ['/gyms', 'Gyms Page'],
@@ -421,9 +429,12 @@ describe('App', () => {
           </MemoryRouter>
         );
 
-        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-          timeout: 5000,
-        });
+        await waitFor(
+          () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+          {
+            timeout: 5000,
+          }
+        );
       }
     );
   });
@@ -490,9 +501,12 @@ describe('App', () => {
         </MemoryRouter>
       );
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
       expect(screen.queryByRole('heading', { name: 'Admin About' })).not.toBeInTheDocument();
     });
 
@@ -507,9 +521,12 @@ describe('App', () => {
         </MemoryRouter>
       );
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
       expect(screen.queryByRole('heading', { name: 'Admin Users' })).not.toBeInTheDocument();
     });
   });
@@ -546,9 +563,12 @@ describe('App', () => {
         signInAs(AI_ALL, ['admin']);
         renderAt(path);
 
-        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-          timeout: 5000,
-        });
+        await waitFor(
+          () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+          {
+            timeout: 5000,
+          }
+        );
         expect(
           screen.queryByRole('heading', {
             level: 1,
@@ -592,9 +612,12 @@ describe('App', () => {
         signInAs(['user_settings:read']);
         renderAt(path);
 
-        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-          timeout: 5000,
-        });
+        await waitFor(
+          () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+          {
+            timeout: 5000,
+          }
+        );
         expect(
           screen.queryByRole('heading', {
             level: 1,
@@ -611,9 +634,12 @@ describe('App', () => {
         signInAs(['user_settings:read', 'ai:use']);
         renderAt(path);
 
-        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-          timeout: 5000,
-        });
+        await waitFor(
+          () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+          {
+            timeout: 5000,
+          }
+        );
       }
     );
   });
@@ -658,9 +684,12 @@ describe('App', () => {
       signInAs(TELEMETRY_ALL, ['admin']);
       renderAt('/admin/settings/telemetry/explorer');
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
       expect(
         screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Explorer' })
       ).not.toBeInTheDocument();
@@ -697,9 +726,12 @@ describe('App', () => {
     it('redirects the dashboard to / while telemetry is off (#578)', async () => {
       signInAs(TELEMETRY_ALL, ['admin']);
       renderAt('/admin/settings/telemetry/dashboard');
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
       expect(
         screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' })
       ).not.toBeInTheDocument();
@@ -709,9 +741,12 @@ describe('App', () => {
       telemetryOn();
       signInAs(['user_settings:read', 'telemetry:read']);
       renderAt('/admin/settings/telemetry/dashboard');
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
       expect(
         screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' })
       ).not.toBeInTheDocument();
@@ -722,9 +757,12 @@ describe('App', () => {
       signInAs(['user_settings:read', 'telemetry:query']);
       renderAt('/admin/settings/telemetry');
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
     });
 
     it('redirects the explorer for a user without telemetry:query, even with telemetry on', async () => {
@@ -732,9 +770,12 @@ describe('App', () => {
       signInAs(['user_settings:read', 'telemetry:read']);
       renderAt('/admin/settings/telemetry/explorer');
 
-      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
     });
   });
 });
