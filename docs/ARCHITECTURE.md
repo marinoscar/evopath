@@ -317,7 +317,7 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. The daily readiness check-in (four optional 1 to 5 scores and a note per local day) is stored as `measurements` rows too and served by `/api/check-ins`, with "today" decided by the server in the profile time zone. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
 - **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/api/src/check-ins/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
-- **UI:** `/settings/health-profile`, `/health` (tiles and Daily check-in section), the Today body snapshot and Readiness cards
+- **UI:** `/settings/health-profile`, `/health` (tiles, Daily check-in, Trend and History sections), the Today body snapshot and Readiness cards
 - **Permissions:** `health_data:read`, `health_data:write`
 - **Read more:** [specs/health-data.md](specs/health-data.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#7-audit-logging-and-security-tables)
 
