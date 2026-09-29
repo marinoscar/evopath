@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { DraftItem, PhotoIntake, Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -26,6 +27,7 @@ import {
   type IntakeStatus,
 } from './intake-kind.interface';
 import { IntakeKindRegistry } from './intake-kind.registry';
+import { StorageObjectReferences } from './storage-object-references';
 import {
   INTAKE_ERROR_MESSAGE_MAX,
   type AnalyzeIntakeInput,
@@ -245,6 +247,8 @@ export class IntakeService {
     private readonly jobs: JobsService,
     private readonly usableModels: UsableModelsService,
     private readonly objects: ObjectsService,
+    // Optional so a hand-built service (tests) needs none; Nest always injects it.
+    @Optional() private readonly references: StorageObjectReferences = new StorageObjectReferences(),
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -259,13 +263,15 @@ export class IntakeService {
       await kind.assertContext(userId, context);
     }
 
+    const subject = kind.subjectOf?.(context) ?? null;
+
     const intake = await this.prisma.photoIntake.create({
       data: {
         userId,
         kind: kind.kind,
         status: 'draft',
-        subjectType: input.subjectType ?? null,
-        subjectId: input.subjectId ?? null,
+        subjectType: subject?.subjectType ?? input.subjectType ?? null,
+        subjectId: subject?.subjectId ?? input.subjectId ?? null,
         context: nullableJson(context),
       },
       include: INTAKE_DETAIL_INCLUDE,
@@ -872,13 +878,17 @@ export class IntakeService {
     return kind.normalizeValue ? kind.normalizeValue(value, this.contextOf(kind, intake)) : value;
   }
 
-  /** Deletes each object no intake links any more. Best effort: a failure is logged, never thrown. */
+  /**
+   * Deletes each object no intake links any more and no other consumer
+   * references (`StorageObjectReferences`, e.g. a gym photo). Best effort: a
+   * failure is logged, never thrown.
+   */
   private async deleteUnreferencedObjects(userId: string, storageObjectIds: readonly string[]): Promise<void> {
     for (const storageObjectId of storageObjectIds) {
       try {
         const links = await this.prisma.photoIntakePhoto.count({ where: { storageObjectId } });
 
-        if (links === 0) {
+        if (links === 0 && !(await this.references.isReferenced(storageObjectId))) {
           await this.objects.delete(storageObjectId, userId);
         }
       } catch (error) {
