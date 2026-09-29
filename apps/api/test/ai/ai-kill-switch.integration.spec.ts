@@ -198,6 +198,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.catalog.refresh': { providerId: 'openai' },
       'ai.keys.recheck': { provider: 'openai' },
       'ai.usage.purge': {},
+      'ai.equipment.scan': null, // filled in per-test: needs a scanning gym_equipment intake (E3.4)
     };
 
     let registry: JobHandlerRegistry;
@@ -345,6 +346,56 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       const stored = app.harness.runRows.find((r) => r.id === created.id);
       expect(stored?.status).toBe('failed');
       expect(stored?.errorCode).toBe('AI_DISABLED');
+    });
+
+    it('ai.equipment.scan: disabled makes zero provider calls and reads no photo, intake fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.equipment.scan');
+      expect(handler).toBeDefined();
+
+      const photo = app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'image/jpeg' });
+      (app.harness.storage.provider.download as jest.Mock).mockClear();
+      const intakeId = '99999999-9999-4999-8999-999999999999';
+      const prisma = app.context.prismaMock;
+
+      // A `scanning` intake the way `POST /intakes/:id/analyze` leaves it, and
+      // a one-row vocabulary, so the kill switch is what refuses the scan.
+      (prisma.photoIntake.findUnique as jest.Mock).mockResolvedValue({
+        id: intakeId,
+        userId: HARNESS_USER,
+        status: 'scanning',
+        provider: 'openai',
+        modelId: 'fake-model',
+        photos: [{ storageObjectId: photo.id }],
+      });
+      (prisma.capability.findMany as jest.Mock).mockResolvedValue([
+        { slug: 'leg_curl', name: 'Leg curl', movementPattern: 'isolation', primaryMuscles: ['hamstrings'] },
+      ]);
+      (prisma.equipmentType.findMany as jest.Mock).mockResolvedValue([
+        {
+          slug: 'leg_curl_machine',
+          name: 'Leg curl machine',
+          category: 'selectorized',
+          aliases: [],
+          capabilities: [{ capability: { slug: 'leg_curl' } }],
+        },
+      ]);
+      (prisma.photoIntake.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await expect(
+        handler!.process({ id: 'job-kill-switch', type: 'ai.equipment.scan', payload: { intakeId } } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.harness.storage.provider.download).not.toHaveBeenCalled();
+      expect(prisma.photoIntake.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: intakeId, status: 'scanning' },
+          data: expect.objectContaining({ status: 'failed', errorCode: 'AI_DISABLED' }),
+        }),
+      );
+      expect(prisma.draftItem.createMany).not.toHaveBeenCalled();
     });
 
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {

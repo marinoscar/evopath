@@ -166,6 +166,27 @@ describe('GymStorageService', () => {
     expect(objects.delete).toHaveBeenCalledWith('a', USER);
   });
 
+  it('counts only unapplied intakes as holders: an applied intake does not keep the object', async () => {
+    prisma.gymPhoto.count.mockResolvedValue(0);
+    prisma.photoIntakePhoto.count.mockResolvedValue(0);
+
+    await service.deleteObjects(USER, ['a']);
+
+    expect(prisma.photoIntakePhoto.count).toHaveBeenCalledWith({
+      where: { storageObjectId: 'a', intake: { status: { not: 'applied' } } },
+    });
+    expect(objects.delete).toHaveBeenCalledWith('a', USER);
+  });
+
+  it('keeps an object another gym photo still links', async () => {
+    prisma.gymPhoto.count.mockResolvedValue(1);
+    prisma.photoIntakePhoto.count.mockResolvedValue(0);
+
+    await service.deleteObjects(USER, ['a']);
+
+    expect(objects.delete).not.toHaveBeenCalled();
+  });
+
   it('is best effort: a provider failure does not stop the others', async () => {
     prisma.gymPhoto.count.mockResolvedValue(0);
     prisma.photoIntakePhoto.count.mockResolvedValue(0);

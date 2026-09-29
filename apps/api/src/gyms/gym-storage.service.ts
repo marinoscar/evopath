@@ -14,7 +14,18 @@ import { ObjectsService } from '../storage/objects/objects.service';
 // never the storage objects they point at, so the services call
 // `deleteObjects` AFTER the database write commits. It is best effort (a
 // provider failure is logged, the user's action still succeeds) and skips an
-// object another row still references, such as a photo intake.
+// object another row still HOLDS: another gym photo, or a photo intake that can
+// still use it (any status but `applied`).
+//
+// An APPLIED intake is not a holder. "Scan gym" leaves every applied intake
+// linked to the photos it turned into gym photos, and those links are history
+// only (nothing reads the photos of an applied intake again), so counting them
+// would keep every scanned photo's object alive forever once the gym photo is
+// removed. Deleting the object removes those `photo_intake_photos` rows by
+// cascade, in the same statement as the object row; the draft items'
+// `sourcePhotoIds` keep pointing at it ("photo removed"), as for any deleted
+// photo. The links are deliberately NOT deleted beforehand: if the provider
+// delete then failed, the object would be left with no row referencing it.
 // =============================================================================
 
 export interface OwnedStorageObject {
@@ -41,16 +52,21 @@ export class GymStorageService {
     });
   }
 
-  /** Deletes each object no gym photo or photo intake still links, best effort. */
+  /**
+   * Deletes each object no gym photo and no unapplied photo intake still
+   * links, best effort. Links of applied intakes go with the object (cascade).
+   */
   async deleteObjects(userId: string, storageObjectIds: readonly string[]): Promise<void> {
     for (const storageObjectId of storageObjectIds) {
       try {
-        const [gymLinks, intakeLinks] = await Promise.all([
+        const [gymLinks, intakeHolders] = await Promise.all([
           this.prisma.gymPhoto.count({ where: { storageObjectId } }),
-          this.prisma.photoIntakePhoto.count({ where: { storageObjectId } }),
+          this.prisma.photoIntakePhoto.count({
+            where: { storageObjectId, intake: { status: { not: 'applied' } } },
+          }),
         ]);
 
-        if (gymLinks === 0 && intakeLinks === 0) {
+        if (gymLinks === 0 && intakeHolders === 0) {
           await this.objects.delete(storageObjectId, userId);
         }
       } catch (error) {

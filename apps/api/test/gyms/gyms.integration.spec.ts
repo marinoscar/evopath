@@ -14,6 +14,9 @@
 
 import request from 'supertest';
 
+import { IntakeKindRegistry } from '../../src/intake/intake-kind.registry';
+import { StorageObjectReferences } from '../../src/intake/storage-object-references';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { closeTestApp, createTestApp, TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
@@ -243,6 +246,12 @@ describe('Gyms (integration)', () => {
   // ---------------------------------------------------------------------------
   // Envelope and shapes
   // ---------------------------------------------------------------------------
+
+  it('wires "Scan gym" into the app: the intake kind, its job, and the gym-photo reference checker', () => {
+    expect(context.app.get(IntakeKindRegistry).get('gym_equipment')).toBeDefined();
+    expect(context.app.get(JobHandlerRegistry).get('ai.equipment.scan')).toBeDefined();
+    expect(context.app.get(StorageObjectReferences).list()).toContain('gym_photos');
+  });
 
   describe('shapes', () => {
     it('GET /api/gyms lists summaries with counts and cover photo', async () => {

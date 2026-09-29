@@ -1,0 +1,124 @@
+[
+  {
+    "kind": "equipment",
+    "origin": "ai",
+    "status": "pending",
+    "confidence": "medium",
+    "uncertain": true,
+    "uncertaintyNote": "Three near-identical ellipticals in a row; the right-most one is close to the edge of the frame, so the count may be off.",
+    "sourcePhotoIds": [
+      "<photo0>"
+    ],
+    "userVerified": false,
+    "originalAiValue": null,
+    "value": {
+      "equipmentTypeSlug": "elliptical",
+      "name": "Elliptical",
+      "quantity": 3,
+      "quantityUncertain": true,
+      "brand": "Precor",
+      "brandEvidence": "No logo is readable on the ellipticals; brand inferred from the PRECOR-labelled bike beside them and the matching frames.",
+      "model": null,
+      "configuration": null,
+      "notes": null,
+      "capabilitySlugs": [
+        "steady_state_cardio",
+        "interval_cardio",
+        "low_impact_cardio"
+      ],
+      "targetMuscles": [
+        "full_body"
+      ]
+    }
+  },
+  {
+    "kind": "equipment",
+    "origin": "ai",
+    "status": "pending",
+    "confidence": "medium",
+    "uncertain": true,
+    "uncertaintyNote": "Bike style (upright vs recumbent) is not clear from this angle.",
+    "sourcePhotoIds": [
+      "<photo0>"
+    ],
+    "userVerified": false,
+    "originalAiValue": null,
+    "value": {
+      "equipmentTypeSlug": "stationary_bike",
+      "name": "Stationary bike",
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": "Matrix",
+      "brandEvidence": "MATRIX lettering on the frame.",
+      "model": null,
+      "configuration": "upright or recumbent (unclear)",
+      "notes": null,
+      "capabilitySlugs": [
+        "steady_state_cardio",
+        "interval_cardio",
+        "low_impact_cardio"
+      ],
+      "targetMuscles": [
+        "full_body"
+      ]
+    }
+  },
+  {
+    "kind": "equipment",
+    "origin": "ai",
+    "status": "pending",
+    "confidence": "medium",
+    "uncertain": false,
+    "uncertaintyNote": null,
+    "sourcePhotoIds": [
+      "<photo0>"
+    ],
+    "userVerified": false,
+    "originalAiValue": null,
+    "value": {
+      "equipmentTypeSlug": "stationary_bike",
+      "name": "Stationary bike",
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": "Precor",
+      "brandEvidence": "PRECOR logo on the base cover.",
+      "model": null,
+      "configuration": null,
+      "notes": null,
+      "capabilitySlugs": [
+        "steady_state_cardio",
+        "interval_cardio",
+        "low_impact_cardio"
+      ],
+      "targetMuscles": [
+        "full_body"
+      ]
+    }
+  },
+  {
+    "kind": "equipment",
+    "origin": "ai",
+    "status": "pending",
+    "confidence": "low",
+    "uncertain": true,
+    "uncertaintyNote": "Only part of a machine is visible at the right edge of the photo; its type cannot be determined.",
+    "sourcePhotoIds": [
+      "<photo0>"
+    ],
+    "userVerified": false,
+    "originalAiValue": null,
+    "value": {
+      "equipmentTypeSlug": null,
+      "name": "Unidentified machine (partly out of frame)",
+      "quantity": 1,
+      "quantityUncertain": false,
+      "brand": null,
+      "brandEvidence": null,
+      "model": null,
+      "configuration": null,
+      "notes": null,
+      "capabilitySlugs": [],
+      "targetMuscles": []
+    }
+  }
+]
