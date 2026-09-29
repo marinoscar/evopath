@@ -82,11 +82,12 @@ export function UserMenu() {
   // the sidebar gated the same page on the `admin` ROLE — the two disagreed for
   // any Contributor granted that permission. There is now one answer.
   //
-  // Home is dropped: the brand in the AppBar already routes there, and a menu
-  // row duplicating on-screen chrome is the exact bloat this epic removes.
+  // Primary destinations are dropped: the phone bottom bar and the rail already
+  // show them, and a menu row duplicating on-screen chrome is bloat. What is
+  // left is every visible non-primary destination, at every width.
   const menuDestinations = DESTINATIONS.filter(
     (destination) =>
-      destination.key !== 'home' && isDestinationVisible(destination, hasPermission, features),
+      !destination.primary && isDestinationVisible(destination, hasPermission, features),
   );
 
   const initials = user.displayName
