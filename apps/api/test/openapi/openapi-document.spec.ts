@@ -245,6 +245,27 @@ describe('OpenAPI document', () => {
       expect(silent).toEqual([]);
     });
 
+    it('gates every /api/measurements operation on a health_data permission (E2.2)', () => {
+      const measurementOps = operations.filter(({ path }) => path.startsWith('/api/measurements'));
+      expect(measurementOps.map(({ method, path }) => `${method} ${path}`).sort()).toEqual([
+        'delete /api/measurements/entries/{entryId}',
+        'get /api/measurements',
+        'get /api/measurements/latest',
+        'get /api/measurements/metrics',
+        'get /api/measurements/series',
+        'patch /api/measurements/entries/{entryId}',
+        'post /api/measurements',
+      ]);
+
+      for (const { method, operation } of measurementOps) {
+        const rbac = operation[RBAC_EXTENSION_KEY] as { permissions: string[] } | undefined;
+        expect(rbac?.permissions).toEqual([
+          method === 'get' ? 'health_data:read' : 'health_data:write',
+        ]);
+        expect(operation.tags).toEqual(['Measurements']);
+      }
+    });
+
     it('leaves public operations alone', () => {
       const live = operations.find(
         ({ path, method }) => path === '/api/health/live' && method === 'get',
