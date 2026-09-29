@@ -38,6 +38,26 @@ export type DraftItemOrigin = (typeof DRAFT_ITEM_ORIGINS)[number];
 export const DRAFT_ITEM_CONFIDENCES = ['high', 'medium', 'low'] as const;
 export type DraftItemConfidence = (typeof DRAFT_ITEM_CONFIDENCES)[number];
 
+/** What a route does to an intake: `read` (get, list) or `write` (everything else, apply included). */
+export type IntakeAccess = 'read' | 'write';
+
+/**
+ * Permissions a kind requires ON TOP of the routes' own `intakes:read` /
+ * `intakes:write`, for example `health_data:write` for a kind whose `apply`
+ * writes health data. Checked by `IntakeService` against the caller's resolved
+ * permissions; a missing one is a 403 (`details.reason:
+ * MISSING_KIND_PERMISSIONS`).
+ */
+export interface IntakeKindPermissions {
+  /** Needed to see an intake of this kind (`GET /intakes/:id`, and in `GET /intakes`). */
+  read?: readonly string[];
+  /** Needed for every change: create, photos, analyze, items, discard and apply. */
+  write?: readonly string[];
+}
+
+/** Who wrote a draft item value: a user through the routes, or the analyzer job. */
+export type IntakeValueSource = 'user' | 'analyzer';
+
 /** The photo cap a kind gets when it declares none. */
 export const DEFAULT_INTAKE_MAX_PHOTOS = 48;
 
@@ -69,10 +89,22 @@ export interface IntakeKind<TContext = unknown, TValue = unknown> {
    * with one item kind declares it so a typo is a 400 rather than a row.
    */
   readonly itemKinds?: readonly string[];
+  /**
+   * Extra permissions for this kind's intakes (see `IntakeKindPermissions`).
+   * Omitted = the routes' `intakes:*` permissions are enough.
+   */
+  readonly requiredPermissions?: IntakeKindPermissions;
   /** Checks the context against the caller (e.g. the gym is theirs); throw a 404 otherwise. */
   assertContext?(userId: string, context: TContext): Promise<void>;
-  /** Recomputes derived fields of a value before it is stored. */
-  normalizeValue?(value: TValue, context: TContext): TValue | Promise<TValue>;
+  /**
+   * Recomputes derived fields of a value before it is stored. `source` says
+   * who wrote it: `'user'` for an add or edit through the routes (a refusal
+   * throws a 400 naming the field), `'analyzer'` for an item the analyzer job
+   * hands `replaceAiDrafts`. An analyzer item must never be dropped for a
+   * doubtful value (the review shows it, flagged, and `apply` refuses it until
+   * the user resolves it), so a kind is lenient there and must not throw.
+   */
+  normalizeValue?(value: TValue, context: TContext, source: IntakeValueSource): TValue | Promise<TValue>;
   /** Writes the accepted items as real data; the return value is the `apply` route's response. */
   apply(args: IntakeApplyArgs<TContext>): Promise<unknown>;
 }

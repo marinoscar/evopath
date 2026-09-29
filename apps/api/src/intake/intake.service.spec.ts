@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { z } from 'zod';
@@ -434,6 +434,15 @@ describe('IntakeService', () => {
       expect(view).toMatchObject({ origin: 'user', confidence: null, userVerified: true, originalAiValue: null });
     });
 
+    it("tells the kind's normalizeValue the write came from a user", async () => {
+      const normalizeValue = jest.fn((value: StubValue) => value);
+      registry.register(stubKind({ normalizeValue }));
+
+      await service.addItem(USER, INTAKE, { kind: 'thing', value: { name: 'Bench' } });
+
+      expect(normalizeValue).toHaveBeenCalledWith({ name: 'Bench' }, undefined, 'user');
+    });
+
     it("refuses a value the kind's schema rejects, naming the field", async () => {
       const error = (await caught(
         service.addItem(USER, INTAKE, { kind: 'thing', value: { name: '' } }),
@@ -678,6 +687,15 @@ describe('IntakeService', () => {
       expect(result).toEqual({ inserted: 2, removed: 2, invalid: [] });
     });
 
+    it("tells the kind's normalizeValue the write came from the analyzer", async () => {
+      const normalizeValue = jest.fn((value: StubValue) => value);
+      registry.register(stubKind({ normalizeValue }));
+
+      await service.replaceAiDrafts(INTAKE, [{ kind: 'thing', value: { name: 'Row' }, confidence: 'high' }]);
+
+      expect(normalizeValue).toHaveBeenCalledWith({ name: 'Row' }, undefined, 'analyzer');
+    });
+
     it('stores what passes validation and records what did not in resultMeta, by index and issue only', async () => {
       const result = await service.replaceAiDrafts(
         INTAKE,
@@ -732,6 +750,99 @@ describe('IntakeService', () => {
       prisma.photoIntake.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.failIntake(INTAKE, 'X', 'y')).resolves.toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // A kind's own requiredPermissions
+  // ---------------------------------------------------------------------------
+
+  describe("a kind's requiredPermissions", () => {
+    const INTAKES = ['intakes:read', 'intakes:write'];
+    const reasonOf = (error: unknown) => ((error as ForbiddenException).getResponse() as any).details;
+
+    beforeEach(() => {
+      registry.register(stubKind({ requiredPermissions: { read: ['health_data:read'], write: ['health_data:write'] } }));
+      prisma.photoIntake.create.mockResolvedValue({ ...intakeRow(), photos: [], items: [] } as never);
+    });
+
+    it('create is a 403 naming the missing permission, before anything is written', async () => {
+      const error = await caught(service.create(USER, { kind: 'test_stub' }, INTAKES));
+
+      expect(error).toBeInstanceOf(ForbiddenException);
+      expect((error as ForbiddenException).message).toBe('Missing permissions: health_data:write');
+      expect(reasonOf(error)).toEqual({
+        reason: 'MISSING_KIND_PERMISSIONS',
+        kind: 'test_stub',
+        permissions: ['health_data:write'],
+      });
+      expect(prisma.photoIntake.create).not.toHaveBeenCalled();
+    });
+
+    it('create succeeds with the permission', async () => {
+      await service.create(USER, { kind: 'test_stub' }, [...INTAKES, 'health_data:write']);
+      expect(prisma.photoIntake.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails closed when the caller\'s permissions are unknown', async () => {
+      await expect(service.create(USER, { kind: 'test_stub' })).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('apply is a 403 before the status flip or the kind runs', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'ready' }) as never);
+      prisma.draftItem.count.mockResolvedValue(0);
+      const apply = jest.fn();
+      registry.register(stubKind({ apply, requiredPermissions: { write: ['health_data:write'] } }));
+
+      await expect(service.apply(USER, INTAKE, INTAKES)).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(prisma.photoIntake.updateMany).not.toHaveBeenCalled();
+      expect(apply).not.toHaveBeenCalled();
+    });
+
+    it('an owned intake of the kind: write routes need `write`, get needs `read`', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue({ ...intakeRow({ status: 'ready' }), photos: [], items: [] } as never);
+
+      await expect(service.acceptAll(USER, INTAKE, [...INTAKES, 'health_data:read'])).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      await expect(service.get(USER, INTAKE, [...INTAKES, 'health_data:write'])).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      await expect(service.get(USER, INTAKE, [...INTAKES, 'health_data:read'])).resolves.toMatchObject({ id: INTAKE });
+    });
+
+    it('another user\'s intake is still a 404, not a 403', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(null);
+      await expect(service.discard(USER, INTAKE, INTAKES)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('list leaves out the kinds the caller may not read, and naming one is a 403', async () => {
+      prisma.photoIntake.findMany.mockResolvedValue([]);
+      registry.register({ ...stubKind(), kind: 'open_kind' });
+
+      await service.list(USER, { limit: 20 }, INTAKES);
+      expect(prisma.photoIntake.findMany.mock.calls[0][0]!.where).toEqual({
+        userId: USER,
+        kind: { notIn: ['test_stub'] },
+      });
+
+      await expect(service.list(USER, { kind: 'test_stub', limit: 20 }, INTAKES)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      await service.list(USER, { kind: 'open_kind', limit: 20 }, INTAKES);
+      expect(prisma.photoIntake.findMany.mock.calls[1][0]!.where).toEqual({ userId: USER, kind: 'open_kind' });
+    });
+
+    it('a kind without requiredPermissions is unaffected, even with unknown permissions', async () => {
+      registry.register(stubKind());
+      prisma.photoIntake.findMany.mockResolvedValue([]);
+
+      await service.create(USER, { kind: 'test_stub' });
+      await service.list(USER, { limit: 20 });
+
+      expect(prisma.photoIntake.create).toHaveBeenCalledTimes(1);
+      expect(prisma.photoIntake.findMany.mock.calls[0][0]!.where).toEqual({ userId: USER });
     });
   });
 });
