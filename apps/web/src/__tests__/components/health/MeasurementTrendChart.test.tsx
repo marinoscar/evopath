@@ -14,6 +14,8 @@ import { server } from '../../mocks/server';
 import { resetViewportWidth, setViewportWidth } from '../../setup';
 import {
   MeasurementTrendChart,
+  VALUE_AXIS,
+  valueAxisLayout,
   type MeasurementTrendChartProps,
 } from '../../../components/health/MeasurementTrendChart';
 import type { MeasurementSeries } from '../../../services/health';
@@ -298,5 +300,34 @@ describe('MeasurementTrendChart', () => {
     expect(screen.getByRole('group', { name: 'Range' })).toBeInTheDocument();
     vi.useRealTimers();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  // jsdom measures no text, so the library never shortens a label here: this
+  // pins the formatter (full one-decimal values), and `valueAxisLayout` below
+  // pins the width that keeps a real browser from cutting them to `2...`.
+  it('formats y-axis ticks as full values at phone width', async () => {
+    act(() => setViewportWidth(390));
+    seriesApi(() =>
+      mockSeries('weight', [mockSeriesPoint(ago(20), 95.2, 'scale'), mockSeriesPoint(ago(5), 95.8, 'scale')]),
+    );
+    const { container } = renderChart({ width: 358 });
+    await screen.findByTestId('measurement-trend-chart');
+    const ticks = Array.from(container.querySelectorAll('.MuiChartsAxis-directionY .MuiChartsAxis-tickLabel')).map(
+      (node) => node.textContent ?? '',
+    );
+    expect(ticks.length).toBeGreaterThan(0);
+    for (const tick of ticks) expect(tick).toMatch(/^\d+\.\d$/);
+  });
+});
+
+describe('valueAxisLayout', () => {
+  it('gives a phone y-axis room for a five-character tick beside the unit label', () => {
+    // ~30px goes to the rotated unit label, tick mark and gaps; `210.5` needs ~32px.
+    expect(valueAxisLayout(true)).toEqual({ width: VALUE_AXIS.compact.width, tickNumber: 4 });
+    expect(valueAxisLayout(true).width).toBeGreaterThanOrEqual(64);
+  });
+
+  it('leaves the desktop y-axis as it was (60px, library tick count)', () => {
+    expect(valueAxisLayout(false)).toEqual({ width: 60, tickNumber: undefined });
   });
 });

@@ -59,6 +59,26 @@ export type TrendRange = (typeof TREND_RANGES)[number];
 export const DEFAULT_TREND_RANGE: TrendRange = 90;
 
 const CHART_HEIGHT = { compact: 280, regular: 360 } as const;
+
+/**
+ * The value (y) axis layout. In `@mui/x-charts` the y-axis `width` holds the
+ * rotated unit label, the tick marks AND the tick labels (about 30px goes to
+ * the label, tick and gaps); a tick label wider than what is left is cut to
+ * an ellipsis. 48px on a phone left ~18px, so `210.5` read `2...`. 68px
+ * leaves ~38px, room for a five-character tick (`210.5`, `1234`) at the
+ * default tick font. On a phone the numeric ticks are also capped at four so
+ * they do not crowd the 280px-high plot; desktop keeps its layout (60px,
+ * library tick count), which its visual baseline already shows readable.
+ */
+export const VALUE_AXIS = {
+  compact: { width: 68, tickNumber: 4 },
+  regular: { width: 60, tickNumber: undefined },
+} as const;
+
+export function valueAxisLayout(compact: boolean): { width: number; tickNumber: number | undefined } {
+  return compact ? VALUE_AXIS.compact : VALUE_AXIS.regular;
+}
+
 const MIN_POINTS_FOR_TREND = 2;
 const PART_LABEL: Record<string, string> = { [BP_SYSTOLIC]: 'Systolic', [BP_DIASTOLIC]: 'Diastolic' };
 
@@ -102,8 +122,8 @@ export function MeasurementTrendChart({
 }: MeasurementTrendChartProps) {
   const theme = useTheme();
   const ids = useId();
-  // A local layout choice for the chart height, NOT one of the five coupled
-  // `sm` shell gates (docs/specs/settings-ui.md#breakpoint-gates).
+  // A local layout choice for the chart height and value axis, NOT one of the
+  // five coupled `sm` shell gates (docs/specs/settings-ui.md#breakpoint-gates).
   const compact = useMediaQuery(theme.breakpoints.down('sm'));
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const choices = useMemo(() => metricChoices(metrics), [metrics]);
@@ -192,6 +212,7 @@ export function MeasurementTrendChart({
   };
 
   const height = compact ? CHART_HEIGHT.compact : CHART_HEIGHT.regular;
+  const valueAxis = valueAxisLayout(compact);
   const isMeasurementMetric = primary ? primary.category !== 'wellness' : false;
   const unitLabel = primary ? (primary.scale ? 'Score' : displayUnit(primary, unitSystem)) : '';
 
@@ -289,7 +310,7 @@ export function MeasurementTrendChart({
               {
                 id: 'value',
                 label: unitLabel,
-                width: compact ? 48 : 60,
+                width: valueAxis.width,
                 ...(chart.domain ? { min: chart.domain.min, max: chart.domain.max } : {}),
                 ...(primary.scale
                   ? {
@@ -298,7 +319,9 @@ export function MeasurementTrendChart({
                         (_, i) => primary.scale!.min + i,
                       ),
                     }
-                  : {}),
+                  : valueAxis.tickNumber !== undefined
+                    ? { tickNumber: valueAxis.tickNumber }
+                    : {}),
                 valueFormatter: (value: number) => formatNumber(primary, value),
               },
             ]}
