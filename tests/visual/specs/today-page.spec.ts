@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { harnessUrl, waitForInter } from '../support/harness';
+import { GYM_EQUIPMENT_COUNT, GYM_NAME, mockGymsApi } from '../support/gyms';
 import { mockHealthApi } from '../support/health';
 
 /**
@@ -23,6 +24,10 @@ import { mockHealthApi } from '../support/health';
  * renders the same three values on every run instead of a failed fetch.
  * The Readiness card shows today's check-in since #56 (E2.4): the same
  * fixture answers `/api/check-ins/today` with four scores and a note.
+ * The Your gym card shows the default gym since E3.3: `support/gyms.ts`
+ * answers `GET /api/gyms` with one gym ("Home Gym", four pieces of equipment),
+ * and the harness grants `gyms:read`, so the card never lands on a loading,
+ * error or "unavailable" state.
  */
 
 test.use({ timezoneId: 'UTC', locale: 'en-US' });
@@ -34,6 +39,7 @@ const CARDS = ["Today's workout", 'Readiness', 'Body snapshot', 'Your gym'];
 async function openToday(page: Page, options: { theme?: 'light' | 'dark' } = {}) {
   await page.clock.setFixedTime(FIXED_NOW);
   await mockHealthApi(page, 'data');
+  await mockGymsApi(page);
   await page.goto(harnessUrl({ route: '/', ...options }));
   await waitForInter(page);
 
@@ -45,6 +51,9 @@ async function openToday(page: Page, options: { theme?: 'light' | 'dark' } = {})
   }
   await expect(main.getByRole('region', { name: 'Body snapshot' }).getByText('208.4 lb')).toBeVisible();
   await expect(main.getByRole('region', { name: 'Readiness' }).getByText('Energy 4')).toBeVisible();
+  const gym = main.getByRole('region', { name: 'Your gym' });
+  await expect(gym.getByText(GYM_NAME)).toBeVisible();
+  await expect(gym.getByText(`${GYM_EQUIPMENT_COUNT} pieces of equipment`)).toBeVisible();
 }
 
 test.describe('Today page', () => {
