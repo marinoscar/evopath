@@ -10,6 +10,13 @@
  * the dialog sends `{ value, unit }` in the unit shown and the API converts.
  * The checks here explain a problem before the round trip; the API decides.
  *
+ * Edit mode (issue #60, E2.5): given an `entry`, the same form is prefilled
+ * with that entry's readings only (in the user's units), its methods, time
+ * and note, titled "Edit entry", and saves with
+ * `PATCH /api/measurements/entries/:entryId` carrying ONLY what changed. An
+ * unchanged form closes without a request. A changed value shows what it was
+ * ("Was 80.0 kg"), read off the row the dialog was opened with.
+ *
  * Nothing typed here goes to the URL, the console or analytics.
  */
 
@@ -42,11 +49,16 @@ import { ApiError } from '../../services/api';
 import {
   createMeasurementEntry,
   HEALTH_DATA_UNAVAILABLE,
+  isEntryConflict,
+  isEntryGone,
   isHealthDataForbidden,
+  updateMeasurementEntry,
   UNSPECIFIED_METHOD,
   validationIssues,
   type CreateMeasurementEntryInput,
   type HealthProfile,
+  type MeasurementReadingInput,
+  type UpdateMeasurementEntryInput,
   type LatestItem,
   type MeasurementDto,
   type MetricDef,
@@ -59,11 +71,14 @@ import {
   boundsInDisplayUnits,
   displayUnit,
   formatMeasurement,
+  formatNumber,
   fromDisplay,
   parseDecimal,
   percentDifference,
+  toDisplay,
   withUnit,
 } from '../../utils/measurementUnits';
+import type { HistoryEntry } from '../../utils/measurementSeries';
 import {
   parseDateTimeLocalValue,
   toDateTimeLocalValue,
@@ -126,7 +141,23 @@ export interface LogMeasurementDialogProps {
   latest?: LatestItem[];
   /** The health profile: the unit system. `null`/no row → metric, with a hint. */
   profile?: HealthProfile | null;
+  /**
+   * Edit mode: the entry (a History row) to change. Only its metrics are
+   * shown, prefilled; saving PATCHes only what changed.
+   */
+  entry?: HistoryEntry | null;
+  /**
+   * Edit mode: the entry could not be saved because it is no longer what the
+   * dialog was opened with. `gone` = `404` (deleted elsewhere), `conflict` =
+   * `409` (changed elsewhere). The dialog closes; the caller reloads and says so.
+   */
+  onStale?: (reason: 'gone' | 'conflict') => void;
 }
+
+/** What a submit sends: a new entry, or the changes to an existing one. */
+type Payload =
+  | { mode: 'create'; body: CreateMeasurementEntryInput }
+  | { mode: 'edit'; entryId: string; body: UpdateMeasurementEntryInput };
 
 function isFilled(text: string): boolean {
   return text.trim() !== '';
@@ -139,7 +170,10 @@ export function LogMeasurementDialog({
   focusMetric,
   latest = [],
   profile = null,
+  entry = null,
+  onStale,
 }: LogMeasurementDialogProps) {
+  const isEdit = entry !== null;
   const theme = useTheme();
   // A local layout choice for this dialog, NOT one of the five coupled `sm`
   // shell gates (docs/specs/settings-ui.md#breakpoint-gates).
@@ -166,7 +200,15 @@ export function LogMeasurementDialog({
   const [failure, setFailure] = useState<SubmitFailure | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);
   const savingRef = useRef(false);
-  const lastPayload = useRef<CreateMeasurementEntryInput | null>(null);
+  const lastPayload = useRef<Payload | null>(null);
+  // Edit mode: what the form held when it was prefilled, to diff against.
+  const [original, setOriginal] = useState<{
+    values: Values;
+    methods: Record<string, string>;
+    measuredAtText: string;
+    notes: string;
+  } | null>(null);
+  const prefilled = useRef(false);
   const idBase = useId();
 
   const metricsByKey = useMemo(() => {
@@ -200,6 +242,8 @@ export function LogMeasurementDialog({
     setDetailsOpen(false);
     setWarnings(null);
     setFailure(null);
+    setOriginal(null);
+    prefilled.current = false;
     lastPayload.current = null;
     const defaults: Record<string, string> = {};
     for (const group of METHOD_GROUPS) {
@@ -209,6 +253,47 @@ export function LogMeasurementDialog({
     // `latestByKey` is read once per opening on purpose: a refetch while the
     // form is open must not overwrite a method the user picked.
   }, [open]);
+
+  // Edit mode: prefill once per opening, as soon as the catalog (the units)
+  // is there. The entry is read at that moment only: a History refetch while
+  // the form is open must not overwrite what the user typed.
+  useEffect(() => {
+    if (!open || !entry || !catalog || prefilled.current) return;
+    prefilled.current = true;
+    const nextValues: Values = { ...EMPTY_VALUES };
+    const nextMethods: Record<string, string> = {};
+    for (const reading of entry.readings) {
+      const key = reading.metricKey as MetricKey;
+      const metric = metricsByKey.get(key);
+      if (!metric || !(key in EMPTY_VALUES)) continue;
+      nextValues[key] = formatNumber(metric, toDisplay(metric, reading.value, unitSystem));
+      nextMethods[GROUP_OF[key]] = reading.method;
+    }
+    const at = toDateTimeLocalValue(new Date(entry.measuredAt));
+    const note = entry.notes ?? '';
+    setValues(nextValues);
+    setMethods((prev) => ({ ...prev, ...nextMethods }));
+    setMeasuredAtText(at);
+    setNotes(note);
+    setDetailsOpen(true);
+    setOriginal({ values: nextValues, methods: { ...nextMethods }, measuredAtText: at, notes: note });
+  }, [open, entry, catalog, metricsByKey, unitSystem]);
+
+  /** Edit mode: the metric keys the entry holds; create mode: every field. */
+  const shownKeys = useMemo(() => {
+    if (!entry) return new Set<MetricKey>(FIELDS.map((f) => f.key));
+    return new Set(entry.readings.map((r) => r.metricKey as MetricKey));
+  }, [entry]);
+
+  const originalReading = (key: MetricKey) => entry?.readings.find((r) => r.metricKey === key);
+
+  /** Edit mode: the typed value differs from the prefilled one. */
+  const valueChanged = (key: MetricKey): boolean => {
+    if (!original) return false;
+    const before = parseDecimal(original.values[key]);
+    const now = parseDecimal(values[key]);
+    return now !== before;
+  };
 
   // ---------------------------------------------------------------------------
   // Validation
@@ -233,21 +318,25 @@ export function LogMeasurementDialog({
   const validate = useCallback((): Errors => {
     const next: Errors = {};
     for (const { key } of FIELDS) {
+      if (isEdit && shownKeys.has(key) && !isFilled(values[key])) {
+        next[key] = 'Enter a value';
+        continue;
+      }
       const problem = fieldProblem(key, values[key]);
       if (problem) next[key] = problem;
     }
 
     const hasSystolic = isFilled(values.bp_systolic);
     const hasDiastolic = isFilled(values.bp_diastolic);
-    if (hasSystolic && !hasDiastolic) next.bp_diastolic = 'Enter both numbers';
-    if (!hasSystolic && hasDiastolic) next.bp_systolic = 'Enter both numbers';
+    if (hasSystolic && !hasDiastolic) next.bp_diastolic = next.bp_diastolic ?? 'Enter both numbers';
+    if (!hasSystolic && hasDiastolic) next.bp_systolic = next.bp_systolic ?? 'Enter both numbers';
     if (hasSystolic && hasDiastolic && !next.bp_systolic && !next.bp_diastolic) {
       const systolic = parseDecimal(values.bp_systolic)!;
       const diastolic = parseDecimal(values.bp_diastolic)!;
       if (systolic <= diastolic) next.bp_systolic = 'Systolic must be higher than diastolic';
     }
 
-    if (!FIELDS.some(({ key }) => isFilled(values[key]))) {
+    if (!isEdit && !FIELDS.some(({ key }) => isFilled(values[key]))) {
       next.form = 'Enter at least one value';
     }
 
@@ -261,7 +350,7 @@ export function LogMeasurementDialog({
       next.notes = `Notes must be at most ${NOTES_MAX_LENGTH} characters`;
     }
     return next;
-  }, [fieldProblem, values, measuredAtTouched, measuredAtText, notes]);
+  }, [fieldProblem, values, measuredAtTouched, measuredAtText, notes, isEdit, shownKeys]);
 
   const hasErrors = Object.values(errors).some(Boolean);
 
@@ -269,7 +358,7 @@ export function LogMeasurementDialog({
   // Submit
   // ---------------------------------------------------------------------------
 
-  const buildPayload = (): CreateMeasurementEntryInput => {
+  const buildCreate = (): CreateMeasurementEntryInput => {
     const readings = FIELDS.filter(({ key }) => isFilled(values[key])).map(({ key }) => {
       const metric = metricsByKey.get(key)!;
       const method = methods[GROUP_OF[key]];
@@ -289,11 +378,52 @@ export function LogMeasurementDialog({
     return payload;
   };
 
-  const softWarnings = (payload: CreateMeasurementEntryInput): string[] => {
+  /**
+   * Edit mode: only what changed, or `null` when nothing did. A changed value
+   * is sent in the unit shown; a reading whose METHOD alone changed is sent
+   * with its stored canonical value and unit, so re-saving never re-rounds it.
+   */
+  const buildPatch = (): UpdateMeasurementEntryInput | null => {
+    if (!entry || !original) return null;
+    const readings: MeasurementReadingInput[] = [];
+    for (const { key } of FIELDS) {
+      if (!shownKeys.has(key)) continue;
+      const metric = metricsByKey.get(key);
+      const stored = originalReading(key);
+      if (!metric || !stored) continue;
+      const method = methods[GROUP_OF[key]];
+      const methodChanged = method !== undefined && method !== original.methods[GROUP_OF[key]];
+      if (valueChanged(key)) {
+        readings.push({
+          metricKey: key,
+          value: parseDecimal(values[key])!,
+          unit: displayUnit(metric, unitSystem),
+          ...(methodChanged ? { method } : {}),
+        });
+      } else if (methodChanged) {
+        readings.push({ metricKey: key, value: stored.value, unit: stored.unit, method });
+      }
+    }
+    const patch: UpdateMeasurementEntryInput = {};
+    if (readings.length > 0) patch.readings = readings;
+    if (measuredAtTouched && measuredAtText !== original.measuredAtText) {
+      patch.measuredAt = parseDateTimeLocalValue(measuredAtText)!.toISOString();
+    }
+    const trimmed = notes.trim();
+    if (trimmed !== original.notes.trim()) patch.notes = trimmed === '' ? null : trimmed;
+    return Object.keys(patch).length > 0 ? patch : null;
+  };
+
+  const softWarnings = (readingsToCheck: MeasurementReadingInput[]): string[] => {
     const lines: string[] = [];
-    for (const reading of payload.readings) {
+    for (const reading of readingsToCheck) {
       const metric = metricsByKey.get(reading.metricKey);
-      const previous = latestByKey.get(reading.metricKey)?.latest;
+      // Edit mode compares with the value being replaced; a method-only
+      // change (sent in the canonical unit) is not a new number.
+      if (isEdit && !valueChanged(reading.metricKey as MetricKey)) continue;
+      const previous = isEdit
+        ? originalReading(reading.metricKey as MetricKey)
+        : latestByKey.get(reading.metricKey)?.latest;
       if (!metric || !previous) continue;
       const entered = fromDisplay(metric, reading.value, unitSystem);
       const pct = percentDifference(entered, previous.value);
@@ -305,7 +435,7 @@ export function LogMeasurementDialog({
             unitSystem,
           )}). Check the unit.`,
         );
-        if (payload.readings.length > 1) {
+        if (readingsToCheck.length > 1) {
           lines[lines.length - 1] = `${FIELD_LABEL[reading.metricKey as MetricKey]}: ${lines[lines.length - 1]}`;
         }
       }
@@ -313,7 +443,7 @@ export function LogMeasurementDialog({
     return lines;
   };
 
-  const applyServerIssues = (err: unknown, payload: CreateMeasurementEntryInput): boolean => {
+  const applyServerIssues = (err: unknown, payload: { readings?: Array<{ metricKey: string }> }): boolean => {
     const issues = validationIssues(err);
     if (issues.length === 0) return false;
     const next: Errors = {};
@@ -321,7 +451,7 @@ export function LogMeasurementDialog({
     for (const issue of issues) {
       const [head, index, field] = issue.path.split('.');
       if (head === 'readings' && index !== undefined) {
-        const key = payload.readings[Number(index)]?.metricKey as MetricKey | undefined;
+        const key = payload.readings?.[Number(index)]?.metricKey as MetricKey | undefined;
         if (key && field === 'method') {
           openDetails = true;
           next.form = next.form ?? issue.message;
@@ -344,7 +474,7 @@ export function LogMeasurementDialog({
     return true;
   };
 
-  const send = async (payload: CreateMeasurementEntryInput) => {
+  const send = async (payload: Payload) => {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
@@ -352,14 +482,20 @@ export function LogMeasurementDialog({
     setWarnings(null);
     lastPayload.current = payload;
     try {
-      const entry = await createMeasurementEntry(payload);
-      onSaved(entry.items);
+      const saved =
+        payload.mode === 'create'
+          ? await createMeasurementEntry(payload.body)
+          : await updateMeasurementEntry(payload.entryId, payload.body);
+      onSaved(saved.items);
       setSavedOpen(true);
       onClose();
     } catch (err) {
-      if (isHealthDataForbidden(err)) {
+      if (payload.mode === 'edit' && (isEntryGone(err) || isEntryConflict(err))) {
+        onStale?.(isEntryGone(err) ? 'gone' : 'conflict');
+        onClose();
+      } else if (isHealthDataForbidden(err)) {
         setFailure({ kind: 'forbidden' });
-      } else if (applyServerIssues(err, payload)) {
+      } else if (applyServerIssues(err, payload.body)) {
         // Field messages are shown under their fields.
       } else if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
         setFailure({ kind: 'rejected', message: err.message });
@@ -379,9 +515,20 @@ export function LogMeasurementDialog({
     if (found.measuredAt || found.notes) setDetailsOpen(true);
     if (Object.values(found).some(Boolean)) return;
 
-    const payload = buildPayload();
+    let payload: Payload;
+    if (isEdit) {
+      const patch = buildPatch();
+      if (!patch) {
+        // Nothing changed: nothing to send.
+        onClose();
+        return;
+      }
+      payload = { mode: 'edit', entryId: entry!.entryId, body: patch };
+    } else {
+      payload = { mode: 'create', body: buildCreate() };
+    }
     if (!confirmed) {
-      const lines = softWarnings(payload);
+      const lines = softWarnings(payload.body.readings ?? []);
       if (lines.length > 0) {
         setWarnings(lines);
         return;
@@ -418,13 +565,22 @@ export function LogMeasurementDialog({
     if (problem) setErrors((prev) => ({ ...prev, [key]: problem }));
   };
 
-  const autoFocusKey: MetricKey =
+  const requestedFocus: MetricKey =
     focusMetric === 'bp_diastolic' ? 'bp_systolic' : (focusMetric ?? 'weight');
+  // Edit mode focuses the entry's first metric when the requested one is not shown.
+  const autoFocusKey: MetricKey = shownKeys.has(requestedFocus)
+    ? requestedFocus
+    : (FIELDS.find(({ key }) => shownKeys.has(key))?.key ?? 'weight');
 
   const renderField = (key: MetricKey) => {
     const metric = metricsByKey.get(key);
     const unit = metric ? displayUnit(metric, unitSystem) : '';
     const id = `${idBase}-${key}`;
+    const stored = isEdit ? originalReading(key) : undefined;
+    const wasHint =
+      metric && stored && isFilled(values[key]) && valueChanged(key)
+        ? `Was ${formatMeasurement(metric, stored.value, unitSystem)}`
+        : undefined;
     return (
       <TextField
         key={key}
@@ -434,7 +590,7 @@ export function LogMeasurementDialog({
         onChange={(event) => onValueChange(key, event.target.value)}
         onBlur={() => onValueBlur(key)}
         error={!!errors[key]}
-        helperText={errors[key]}
+        helperText={errors[key] ?? wasHint}
         disabled={saving}
         autoFocus={autoFocusKey === key}
         fullWidth
@@ -447,7 +603,10 @@ export function LogMeasurementDialog({
     );
   };
 
-  const filledGroups = METHOD_GROUPS.filter((group) => group.keys.some((key) => isFilled(values[key])));
+  const filledGroups = METHOD_GROUPS.filter((group) =>
+    isEdit ? group.keys.some((key) => shownKeys.has(key)) : group.keys.some((key) => isFilled(values[key])),
+  );
+  const show = (key: MetricKey) => shownKeys.has(key);
 
   const dialogOpen = open && canWrite;
 
@@ -467,7 +626,7 @@ export function LogMeasurementDialog({
           onSubmit={onSubmit}
           sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' }}
         >
-          <DialogTitle id={`${idBase}-title`}>Log measurement</DialogTitle>
+          <DialogTitle id={`${idBase}-title`}>{isEdit ? 'Edit entry' : 'Log measurement'}</DialogTitle>
           <DialogContent dividers>
             {catalogLoading && (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -492,21 +651,23 @@ export function LogMeasurementDialog({
                   </Typography>
                 )}
 
-                {renderField('weight')}
-                {renderField('body_fat_pct')}
-                {renderField('waist_circumference')}
+                {show('weight') && renderField('weight')}
+                {show('body_fat_pct') && renderField('body_fat_pct')}
+                {show('waist_circumference') && renderField('waist_circumference')}
 
-                <Box role="group" aria-labelledby={`${idBase}-bp`}>
-                  <Typography id={`${idBase}-bp`} variant="subtitle2" component="p" sx={{ mb: 1 }}>
-                    Blood pressure
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    {renderField('bp_systolic')}
-                    {renderField('bp_diastolic')}
+                {(show('bp_systolic') || show('bp_diastolic')) && (
+                  <Box role="group" aria-labelledby={`${idBase}-bp`}>
+                    <Typography id={`${idBase}-bp`} variant="subtitle2" component="p" sx={{ mb: 1 }}>
+                      Blood pressure
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                      {show('bp_systolic') && renderField('bp_systolic')}
+                      {show('bp_diastolic') && renderField('bp_diastolic')}
+                    </Box>
                   </Box>
-                </Box>
+                )}
 
-                {renderField('resting_hr')}
+                {show('resting_hr') && renderField('resting_hr')}
 
                 {errors.form && <Alert severity="error">{errors.form}</Alert>}
 
