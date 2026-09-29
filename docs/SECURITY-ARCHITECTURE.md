@@ -635,7 +635,7 @@ apply to error responses:
 | `X-Frame-Options` | `SAMEORIGIN` |
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Permissions-Policy` | `camera=(), microphone=(self), geolocation=(), payment=()` |
+| `Permissions-Policy` | `camera=(), microphone=(self), geolocation=(self), payment=()` |
 | `X-XSS-Protection` | `1; mode=block` (legacy browsers) |
 
 `microphone=(self)`, not `()`: an empty allowlist disables the device for the
