@@ -289,6 +289,14 @@ describe('seed data', () => {
         );
       }
     });
+
+    it('grants intakes:read and intakes:write to every seeded role (E3.1)', () => {
+      for (const role of ROLES.map((r) => r.name)) {
+        expect(ROLE_PERMISSIONS[role as keyof typeof ROLE_PERMISSIONS]).toEqual(
+          expect.arrayContaining(['intakes:read', 'intakes:write']),
+        );
+      }
+    });
   });
 
   describe('seeded system settings', () => {

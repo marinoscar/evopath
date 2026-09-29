@@ -36,6 +36,7 @@ model User {
   allowlistEntry         AllowedEmail?           @relation("AllowlistClaimedBy")
   deviceCodes            DeviceCode[]            @relation("UserDeviceCodes")
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
+  photoIntakes           PhotoIntake[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
@@ -384,8 +385,9 @@ model StorageObject {
   updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  uploadedBy User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
-  chunks     StorageObjectChunk[]
+  uploadedBy   User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
+  chunks       StorageObjectChunk[]
+  intakePhotos PhotoIntakePhoto[]
 
   @@index([uploadedById])
   @@index([status])
@@ -2607,4 +2609,80 @@ model Measurement {
   @@index([userId, entryId])
   @@index([userId, localDate])
   @@map("measurements")
+}
+
+// =============================================================================
+// Photo intake (E3.1): generic "share pictures, AI drafts, user reviews" flow
+// =============================================================================
+//
+// State-machine and kind columns are plain strings on purpose (a new kind or
+// status needs no migration); the API validates them. `jobId` and
+// `subjectType`/`subjectId` are deliberately unconstrained polymorphic
+// references, like `jobs.subject_type`/`subject_id`.
+
+model PhotoIntake {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  kind         String // registered kind, e.g. 'gym_equipment', 'workout_prefill'
+  status       String    @default("draft") // draft | scanning | ready | applied | failed
+  subjectType  String?   @map("subject_type") // target record type, e.g. 'gym'
+  subjectId    String?   @map("subject_id") @db.Uuid
+  context      Json? // kind-specific inputs, validated by the kind (e.g. { gymId })
+  provider     String? // chosen at analyze time
+  modelId      String?   @map("model_id")
+  jobId        String?   @map("job_id") @db.Uuid
+  errorCode    String?   @map("error_code")
+  errorMessage String?   @map("error_message")
+  resultMeta   Json?     @map("result_meta") // promptVersion, batches, ignored objects; never keys/prompts/bytes
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz
+
+  // Relations
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photos PhotoIntakePhoto[]
+  items  DraftItem[]
+
+  @@index([userId, kind, status])
+  @@map("photo_intakes")
+}
+
+model PhotoIntakePhoto {
+  id              String   @id @default(uuid()) @db.Uuid
+  intakeId        String   @map("intake_id") @db.Uuid
+  storageObjectId String   @map("storage_object_id") @db.Uuid
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  intake        PhotoIntake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  storageObject StorageObject @relation(fields: [storageObjectId], references: [id], onDelete: Cascade)
+
+  @@unique([intakeId, storageObjectId])
+  @@index([storageObjectId])
+  @@map("photo_intake_photos")
+}
+
+model DraftItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  intakeId        String   @map("intake_id") @db.Uuid
+  kind            String // the item kind inside the intake kind, e.g. 'equipment'
+  origin          String // 'ai' | 'user'
+  status          String   @default("pending") // pending | accepted | rejected
+  confidence      String? // 'high' | 'medium' | 'low' (null for user items)
+  uncertain       Boolean  @default(false) // AI flags "I am not sure about something here"
+  uncertaintyNote String?  @map("uncertainty_note")
+  sourcePhotoIds  String[] @map("source_photo_ids") @db.Uuid // storage object ids (no FK: a removed photo just dangles)
+  userVerified    Boolean  @default(false) @map("user_verified")
+  value           Json // the current value, validated by the kind's Zod schema
+  originalAiValue Json?    @map("original_ai_value") // set on the FIRST edit of an AI item; never overwritten
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  intake PhotoIntake @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+
+  @@index([intakeId, sortOrder])
+  @@map("draft_items")
 }

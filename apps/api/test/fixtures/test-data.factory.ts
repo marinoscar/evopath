@@ -231,6 +231,17 @@ export const mockPermissions = {
     name: 'health_data:write',
     description: 'Modify own health data',
   },
+  // E3.1 — the caller's own photo intakes; seeded to all three roles.
+  intakesRead: {
+    id: randomUUID(),
+    name: 'intakes:read',
+    description: 'Read own photo intakes and their draft items',
+  },
+  intakesWrite: {
+    id: randomUUID(),
+    name: 'intakes:write',
+    description: 'Create, edit, analyze and apply own photo intakes',
+  },
 };
 
 export const mockRoles = {
@@ -557,6 +568,8 @@ export const rolePermissionsMap = {
     mockPermissions.telemetryQuery,
     mockPermissions.healthDataRead,
     mockPermissions.healthDataWrite,
+    mockPermissions.intakesRead,
+    mockPermissions.intakesWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -567,6 +580,8 @@ export const rolePermissionsMap = {
     mockPermissions.storageWrite,
     mockPermissions.healthDataRead,
     mockPermissions.healthDataWrite,
+    mockPermissions.intakesRead,
+    mockPermissions.intakesWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -584,6 +599,8 @@ export const rolePermissionsMap = {
     mockPermissions.storageRead,
     mockPermissions.healthDataRead,
     mockPermissions.healthDataWrite,
+    mockPermissions.intakesRead,
+    mockPermissions.intakesWrite,
   ],
 };
 
