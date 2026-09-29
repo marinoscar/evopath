@@ -271,6 +271,9 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `measurements` | The caller's own measurements: metric catalog, entries, latest, series | `health_data:read/write` | [health-data](specs/health-data.md) |
 | `check-ins` | The caller's own daily check-in: today, recent days, replace or delete a day (tag "Check-ins") | `health_data:read/write` | [health-data](specs/health-data.md#215-daily-check-ins) |
 | `intakes` | The caller's own photo intakes: photos, draft items, analyze, apply (tag "Intakes") | `intakes:read/write` (analyze also `ai:use`) | [intake README](../apps/api/src/intake/README.md) |
+| `gyms` | The caller's own gyms, default gym, and per-gym equipment (`/gyms/:id/equipment`) and photos (`/gyms/:id/photos`) (tag "Gyms") | `gyms:read/write` (photo attach and remove also `storage:write`) | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
+| `equipment-types` | Equipment catalog (seeded plus the caller's custom types) (tag "Equipment") | `gyms:read/write` | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
+| `capabilities` | Movement capabilities equipment can enable (tag "Capabilities") | `gyms:read` | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 
 Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with
