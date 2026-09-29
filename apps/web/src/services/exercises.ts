@@ -78,6 +78,8 @@ export const SECONDARY_MUSCLES_MAX = 6;
 export const REQUIREMENT_GROUPS_MAX = 4;
 export const REQUIREMENT_OPTIONS_MAX = 6;
 export const EXERCISES_LIMIT_MAX = 200;
+/** Longest `q` the list accepts. */
+export const EXERCISE_QUERY_MAX = 80;
 
 /** `upper_back` -> `Upper back`; works for any vocabulary string. */
 export function humanize(value: string): string {
@@ -99,32 +101,10 @@ export function trackingLabel(mode: string): string {
 export type ExerciseOrigin = 'seed' | 'user' | 'ai';
 export type ExerciseStatus = 'active' | 'pending_review';
 
-/** One item of `GET /exercises`. */
-export interface Exercise {
-  id: string;
-  slug: string;
-  name: string;
-  aliases: string[];
-  primaryMuscles: string[];
-  secondaryMuscles: string[];
-  movementPattern: string;
-  trackingMode: string;
-  isUnilateral: boolean;
-  isBodyweight: boolean;
-  notes: string | null;
-  /** True for the caller's own custom exercise; false for a library one. */
-  custom: boolean;
-  origin?: ExerciseOrigin;
-  status?: ExerciseStatus;
-  /** Present only when the list was asked with `gymId`. */
-  available?: boolean;
-  /** Human names of the first unsatisfied group's options (with `gymId`). */
-  missing?: string[];
-}
-
 /** One option of a requirement group: a concrete equipment type or a capability. */
 export interface ExerciseRequirementOption {
-  kind: 'equipment_type' | 'capability';
+  kind: 'equipment' | 'capability';
+  /** The equipment type id or the capability id. */
   id: string;
   slug: string;
   name: string;
@@ -139,12 +119,48 @@ export interface ExerciseRequirementGroup {
   options: ExerciseRequirementOption[];
 }
 
-/** `GET /exercises/:id`. */
-export interface ExerciseDetail extends Exercise {
+/**
+ * One exercise, as `GET /exercises`, `GET /exercises/:id` and the mutations
+ * return it (the API's `ExerciseView`). Requirement groups are always
+ * expanded.
+ */
+export interface Exercise {
+  id: string;
+  /** Permanent; `custom-<8 chars>` for a custom exercise. */
+  slug: string;
+  name: string;
+  /** True for the caller's own exercise; false for a library one. */
+  isCustom: boolean;
+  origin: ExerciseOrigin;
+  /** `pending_review`: an AI proposal awaiting the caller's approval. */
+  status: ExerciseStatus;
+  /** The AI run that proposed it; null otherwise. */
+  proposedByRunId: string | null;
+  primaryMuscles: string[];
+  secondaryMuscles: string[];
+  movementPattern: string;
+  trackingMode: TrackingMode;
+  isUnilateral: boolean;
+  isBodyweight: boolean;
+  aliases: string[];
+  notes: string | null;
+  /** Every group must be satisfied; empty means it needs no equipment. */
   requirements: ExerciseRequirementGroup[];
+  /** Only with `gymId`: whether that gym satisfies every requirement group. */
+  available?: boolean;
+  /** Only with `gymId`: names of the first unsatisfied group's options (empty when available). */
+  missing?: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
-/** One requirement group of a create/update body (ids, OR within the group). */
+/** Kept as a name for the single-exercise read; the list items carry the same fields. */
+export type ExerciseDetail = Exercise;
+
+/**
+ * One requirement group of a create/update body: any listed equipment type OR
+ * capability satisfies it; 1 to {@link REQUIREMENT_OPTIONS_MAX} ids in total.
+ */
 export interface ExerciseRequirementInput {
   equipmentTypeIds?: string[];
   capabilityIds?: string[];
@@ -156,13 +172,17 @@ export interface ExerciseInput {
   primaryMuscles: string[];
   secondaryMuscles?: string[];
   movementPattern: string;
-  trackingMode: string;
+  /** Defaults to `weight_reps` on the API. */
+  trackingMode?: TrackingMode;
   isUnilateral?: boolean;
   isBodyweight?: boolean;
+  /** Blank or null stores no notes. */
   notes?: string | null;
+  /** Up to {@link REQUIREMENT_GROUPS_MAX} groups (AND); empty or omitted needs nothing. */
   requirements?: ExerciseRequirementInput[];
 }
 
+/** `PATCH` body: at least one field; `requirements` replaces every group when given. */
 export type ExerciseUpdate = Partial<ExerciseInput>;
 
 export interface ExerciseQuery {
@@ -170,8 +190,10 @@ export interface ExerciseQuery {
   muscle?: string | null;
   pattern?: string | null;
   tracking?: string | null;
-  /** `true` lists only the caller's custom exercises. */
+  /** `true`: only the caller's custom exercises; `false`: only the library; omitted: both. */
   custom?: boolean;
+  /** `true` also lists the caller's AI-proposed exercises awaiting approval. */
+  includePending?: boolean;
   gymId?: string | null;
   /** Needs `gymId`; the API answers 400 without it. */
   availableOnly?: boolean;
@@ -192,7 +214,8 @@ export function exerciseQueryString(query: ExerciseQuery = {}): string {
   if (query.muscle) params.set('muscle', query.muscle);
   if (query.pattern) params.set('pattern', query.pattern);
   if (query.tracking) params.set('tracking', query.tracking);
-  if (query.custom) params.set('custom', 'true');
+  if (query.custom !== undefined) params.set('custom', String(query.custom));
+  if (query.includePending) params.set('includePending', 'true');
   if (query.gymId) params.set('gymId', query.gymId);
   if (query.gymId && query.availableOnly) params.set('availableOnly', 'true');
   if (query.limit !== undefined) params.set('limit', String(query.limit));
@@ -201,12 +224,8 @@ export function exerciseQueryString(query: ExerciseQuery = {}): string {
 }
 
 /** `GET /exercises` (`exercises:read`): the library plus the caller's custom exercises. */
-export async function listExercises(query: ExerciseQuery = {}): Promise<Exercise[]> {
-  const data = await api.get<Exercise[] | { items: Exercise[] }>(
-    `/exercises${exerciseQueryString(query)}`
-  );
-  // Tolerate a paginated `{ items }` body as well as a bare array.
-  return Array.isArray(data) ? data : (data?.items ?? []);
+export function listExercises(query: ExerciseQuery = {}): Promise<Exercise[]> {
+  return api.get<Exercise[]>(`/exercises${exerciseQueryString(query)}`);
 }
 
 /** `GET /exercises/:id` (`exercises:read`), requirement groups expanded. */

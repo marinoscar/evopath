@@ -33,13 +33,15 @@ async function listItems() {
 
 describe('TrainExercisesPage', () => {
   it('renders the h1, a link back to Train and the library', async () => {
-    statefulExercisesApi();
+    const api = statefulExercisesApi();
     renderPage();
     expect(screen.getByRole('heading', { level: 1, name: 'Exercise library' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Train' })).toHaveAttribute('href', '/train');
     expect(await listItems()).toHaveLength(6);
     expect(screen.getByText('Barbell bench press')).toBeInTheDocument();
     expect(screen.queryByRole('tab')).toBeNull();
+    // No `custom` param at all: `custom=false` would hide the caller's own exercises.
+    expect(api.calls[0].path).toBe('/exercises');
   });
 
   it('searches by name: "bench" finds four exercises', async () => {

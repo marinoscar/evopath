@@ -40,6 +40,7 @@ import {
   trackingLabel,
   type ExerciseDetail,
   type ExerciseInput,
+  type TrackingMode,
 } from '../../services/exercises';
 import type { EquipmentType } from '../../services/gyms';
 import { useEquipmentTypes } from '../../hooks/useEquipmentTypes';
@@ -64,7 +65,7 @@ export function CustomExerciseDialog({ open, onClose, onCreate }: CustomExercise
   const [primaryMuscles, setPrimaryMuscles] = useState<string[]>([]);
   const [secondaryMuscles, setSecondaryMuscles] = useState<string[]>([]);
   const [movementPattern, setMovementPattern] = useState('');
-  const [trackingMode, setTrackingMode] = useState<string>('weight_reps');
+  const [trackingMode, setTrackingMode] = useState<TrackingMode>('weight_reps');
   const [isUnilateral, setIsUnilateral] = useState(false);
   const [isBodyweight, setIsBodyweight] = useState(false);
   const [notes, setNotes] = useState('');
@@ -221,7 +222,7 @@ export function CustomExerciseDialog({ open, onClose, onCreate }: CustomExercise
             select
             label="Tracking"
             value={trackingMode}
-            onChange={(e) => setTrackingMode(e.target.value)}
+            onChange={(e) => setTrackingMode(e.target.value as TrackingMode)}
             helperText="How a set of this exercise is measured."
           >
             {TRACKING_MODES.map((m) => (

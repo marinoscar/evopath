@@ -46,6 +46,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useExerciseDetail, useExercises } from '../hooks/useExercises';
 import {
   EXERCISES_UNAVAILABLE,
+  EXERCISE_QUERY_MAX,
   MUSCLES,
   muscleLabel,
   patternLabel,
@@ -67,7 +68,7 @@ function musclesLine(exercise: Pick<Exercise, 'primaryMuscles'>): string {
 function ExerciseChips({ exercise }: { exercise: Exercise }) {
   return (
     <>
-      {exercise.custom && <Chip label="Custom" size="small" color="primary" variant="outlined" />}
+      {exercise.isCustom && <Chip label="Custom" size="small" color="primary" variant="outlined" />}
       {exercise.status === 'pending_review' && (
         <Chip label="Needs your OK" size="small" color="warning" variant="outlined" />
       )}
@@ -172,7 +173,7 @@ function ExerciseDrawer({
           <Stack spacing={2}>
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
               <Chip
-                label={exercise.custom ? 'Custom' : 'Library'}
+                label={exercise.isCustom ? 'Custom' : 'Library'}
                 size="small"
                 variant="outlined"
               />
@@ -220,7 +221,8 @@ function ExerciseLibrary({ canWrite }: { canWrite: boolean }) {
   const { exercises, isLoading, error, forbidden, refresh, create } = useExercises({
     q,
     muscle,
-    custom: customOnly,
+    // Omitted (not `false`) lists the library and custom exercises together.
+    custom: customOnly ? true : undefined,
   });
 
   if (forbidden) return <Alert severity="info">{EXERCISES_UNAVAILABLE}</Alert>;
@@ -323,6 +325,7 @@ function ExerciseLibrary({ canWrite }: { canWrite: boolean }) {
           onChange={(e) => setQ(e.target.value)}
           fullWidth
           slotProps={{
+            htmlInput: { maxLength: EXERCISE_QUERY_MAX },
             input: {
               startAdornment: (
                 <InputAdornment position="start">

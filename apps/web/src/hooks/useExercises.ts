@@ -18,7 +18,10 @@ export interface UseExercisesOptions {
   q?: string;
   muscle?: string | null;
   pattern?: string | null;
+  /** `true`: only custom; `false`: only the library; omitted: both. */
   custom?: boolean;
+  /** Also list the caller's AI proposals awaiting approval. */
+  includePending?: boolean;
   gymId?: string | null;
   availableOnly?: boolean;
   /** `false` skips the requests (the caller lacks `exercises:read`). */
@@ -48,7 +51,8 @@ export function useExercises({
   q = '',
   muscle = null,
   pattern = null,
-  custom = false,
+  custom,
+  includePending = false,
   gymId = null,
   availableOnly = false,
   enabled = true,
@@ -66,7 +70,7 @@ export function useExercises({
     setIsLoading(true);
     const timer = setTimeout(() => {
       const requestId = ++latestRequest.current;
-      listExercises({ q, muscle, pattern, custom, gymId, availableOnly })
+      listExercises({ q, muscle, pattern, custom, includePending, gymId, availableOnly })
         .then((data) => {
           if (!isMounted() || requestId !== latestRequest.current) return;
           setExercises(data);
@@ -83,7 +87,7 @@ export function useExercises({
         });
     }, EXERCISE_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [q, muscle, pattern, custom, gymId, availableOnly, enabled, nonce, isMounted]);
+  }, [q, muscle, pattern, custom, includePending, gymId, availableOnly, enabled, nonce, isMounted]);
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
 

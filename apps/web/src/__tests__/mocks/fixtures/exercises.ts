@@ -8,10 +8,11 @@
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
 import type { EquipmentType } from '../../../services/gyms';
-import type { ExerciseDetail, ExerciseInput } from '../../../services/exercises';
+import type { Exercise, ExerciseInput } from '../../../services/exercises';
 import { CATALOG } from './gyms';
 
 const API = '*/api';
+const NOW = '2026-09-29T12:00:00.000Z';
 
 let seq = 0;
 const nextId = () => {
@@ -19,7 +20,7 @@ const nextId = () => {
   return `00000000-0000-4000-8000-b${String(seq).padStart(11, '0')}`;
 };
 
-export function mockExercise(overrides: Partial<ExerciseDetail> = {}): ExerciseDetail {
+export function mockExercise(overrides: Partial<Exercise> = {}): Exercise {
   return {
     id: nextId(),
     slug: 'barbell_bench_press',
@@ -32,23 +33,26 @@ export function mockExercise(overrides: Partial<ExerciseDetail> = {}): ExerciseD
     isUnilateral: false,
     isBodyweight: false,
     notes: null,
-    custom: false,
+    isCustom: false,
     origin: 'seed',
     status: 'active',
+    proposedByRunId: null,
     requirements: [],
+    createdAt: NOW,
+    updatedAt: NOW,
     ...overrides,
   };
 }
 
 const eq = (id: string, slug: string, name: string) => ({
-  kind: 'equipment_type' as const,
+  kind: 'equipment' as const,
   id,
   slug,
   name,
 });
 
 /** A small library: four "bench" exercises, curls, a bodyweight move. */
-export function mockLibrary(): ExerciseDetail[] {
+export function mockLibrary(): Exercise[] {
   return [
     mockExercise({
       slug: 'barbell_bench_press',
@@ -94,18 +98,13 @@ export function mockLibrary(): ExerciseDetail[] {
 }
 
 export interface ExercisesApiState {
-  exercises: ExerciseDetail[];
+  exercises: Exercise[];
   types: EquipmentType[];
   calls: { method: string; path: string; body?: unknown }[];
 }
 
-const summary = (e: ExerciseDetail) => {
-  const { requirements: _requirements, ...rest } = e;
-  return rest;
-};
-
 export function statefulExercisesApi(
-  initial: ExerciseDetail[] = mockLibrary(),
+  initial: Exercise[] = mockLibrary(),
   types: EquipmentType[] = CATALOG
 ): ExercisesApiState {
   const state: ExercisesApiState = {
@@ -120,7 +119,9 @@ export function statefulExercisesApi(
       state.calls.push({ method: 'GET', path: `/exercises${url.search}` });
       const q = url.searchParams.get('q')?.toLowerCase();
       const muscle = url.searchParams.get('muscle');
-      const custom = url.searchParams.get('custom') === 'true';
+      // `custom=true`: only custom; `custom=false`: only the library; omitted: both.
+      const custom = url.searchParams.get('custom');
+      const includePending = url.searchParams.get('includePending') === 'true';
       const data = state.exercises
         .filter(
           (e) =>
@@ -128,10 +129,10 @@ export function statefulExercisesApi(
               e.name.toLowerCase().includes(q) ||
               e.aliases.some((a) => a.toLowerCase().includes(q))) &&
             (!muscle || e.primaryMuscles.includes(muscle) || e.secondaryMuscles.includes(muscle)) &&
-            (!custom || e.custom)
+            (custom === null || e.isCustom === (custom === 'true')) &&
+            (includePending || e.status !== 'pending_review')
         )
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map(summary);
+        .sort((a, b) => a.name.localeCompare(b.name));
       return HttpResponse.json({ data });
     }),
     http.get(`${API}/exercises/:id`, ({ params }) => {
@@ -153,11 +154,11 @@ export function statefulExercisesApi(
         primaryMuscles: body.primaryMuscles,
         secondaryMuscles: body.secondaryMuscles ?? [],
         movementPattern: body.movementPattern,
-        trackingMode: body.trackingMode,
         isUnilateral: body.isUnilateral ?? false,
         isBodyweight: body.isBodyweight ?? false,
         notes: body.notes ?? null,
-        custom: true,
+        trackingMode: body.trackingMode ?? 'weight_reps',
+        isCustom: true,
         origin: 'user',
         requirements: (body.requirements ?? []).map((g, groupIndex) => ({
           groupIndex,
