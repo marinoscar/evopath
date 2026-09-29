@@ -341,10 +341,12 @@ A gym is a named place a user trains (type, description, notes, `isTemporary`), 
 
 The exercise library is the shared vocabulary workouts are built from. `exercises` holds the seeded catalog (94 rows keyed by a permanent `slug`, `ownerUserId` null, `origin` `seed`) and each user's own custom exercises (`custom-` slug prefix, `origin` `user` or `ai`). Every exercise names its primary and secondary muscles, a movement pattern, and a tracking mode (`weight_reps`, `bodyweight_reps`, `time`, `distance_time`); the vocabularies live in `apps/api/src/common/constants/training.constants.ts`. What an exercise needs is `exercise_requirements`: rows sharing a `groupIndex` are alternatives (OR), and every group must be satisfied (AND). Each row names an equipment type or a capability, never both (a CHECK constraint). `ExerciseAvailabilityService` evaluates the groups against a gym's equipment types and the capabilities they enable, so `GET /api/exercises` with `gymId` marks each item `available` and lists what is `missing`; `availableOnly` filters to the available ones. Library rows are read-only (`LIBRARY_EXERCISE_READ_ONLY`), another user's custom exercise answers `404`, and deleting an exercise that workouts use is refused (`EXERCISE_IN_USE`). An exercise with `status` `pending_review` is hidden from lists until its owner approves it (`POST /api/exercises/:id/approve`) or deletes it. The seed upserts by slug and re-syncs requirement rows for seeded exercises only. Limits and refusal reasons live in `apps/api/src/exercises/exercises.constants.ts`.
 
+`GET /api/exercises/:id/history` (permission `workouts:read`) returns the caller's last time, recent workouts and records for one exercise. The route lives in `ExercisesController` and is served by `WorkoutHistoryService` from [§5.24](#524-workout-logging). `ExercisesModule` imports `WorkoutsModule`; `WorkoutsModule` never imports `ExercisesModule`.
+
 - **Code:** `apps/api/src/exercises/` (`ExercisesModule`), `apps/web/src/pages/TrainExercisesPage.tsx`, `apps/web/src/components/train/CustomExerciseDialog.tsx`
-- **Routes:** `/api/exercises` (including `/:id` and `/:id/approve`); details in `/api/docs` (group "Training", tag "Exercises")
+- **Routes:** `/api/exercises` (including `/:id`, `/:id/approve` and `/:id/history`); details in `/api/docs` (group "Training", tag "Exercises")
 - **UI:** `/train/exercises`
-- **Permissions:** `exercises:read`, `exercises:write`
+- **Permissions:** `exercises:read`, `exercises:write`; `/:id/history` needs `workouts:read`
 
 ### 5.24 Workout logging
 
@@ -357,6 +359,7 @@ A workout is one logged training session. `workouts` holds the session (name, th
 - **Set rules.** Adding a set with omitted `weightKg` and `reps` copies them from the previous set. Completing a set stamps `completedAt` and derives `restSeconds` only when the previous completion is under 15 minutes old; un-completing clears `completedAt`. Field bounds are enforced by Zod and mirrored by the `set_logs_ranges_chk` CHECK.
 - **Finish.** `POST /api/workouts/:id/finish` is idempotent. It sets `endedAt` and `durationSeconds` and deletes uncompleted sets that hold no value; uncompleted sets with values stay. `volumeKg` and `setCount` count completed, non-warm-up sets only.
 - **Readiness snapshot.** At start the workout copies today's check-in by value from `CheckInsService` (null when there is none), so later edits of the check-in do not rewrite history. It never blocks starting.
+- **Personal records are computed on read.** No table stores them. `WorkoutHistoryService` (exported by `WorkoutsModule`) derives each set's `prs` (`first_time`, `weight`, `reps` (at a weight), estimated 1RM) against the user's earlier working sets, and the workout views carry `summary.prs`. Warm-up and incomplete sets never count. The formulas and the working-set rule live only in [`workout-records.ts`](../apps/api/src/workouts/workout-records.ts).
 - **Deletion.** Deleting a workout cascades to its exercises and sets. Deleting a gym sets `gymId` to null. Deleting an exercise that a workout uses is refused (`EXERCISE_IN_USE`).
 
 - **Code:** `apps/api/src/workouts/` (`WorkoutsModule`; limits and refusal reasons in `workouts.constants.ts`)
