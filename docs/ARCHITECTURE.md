@@ -329,13 +329,21 @@ A photo intake is the shared path for "share pictures instead of typing" feature
 - **Permissions:** `intakes:read`, `intakes:write`; analyze also `ai:use` behind `AiEnabledGuard`
 - **Read more:** [intake/README.md](../apps/api/src/intake/README.md)
 
+### 5.22 Gyms and equipment
+
+A gym is a named place a user trains (type, description, notes, `isTemporary`), owned by one user; a foreign id answers `404`. The first gym becomes the default automatically, `POST /api/gyms/:id/default` moves the default, and deleting the default promotes the oldest remaining gym in the same transaction. Equipment rows (`gym_equipment`) point at an equipment type from the catalog: the seeded rows every user shares, or the user's own custom types (`custom-` slug prefix, created by `POST /api/equipment-types`, refused while gym equipment uses them). Types enable capabilities (movements), listed by `GET /api/capabilities`. A gym photo attaches an existing, ready, image-typed storage object the caller owns (`POST /api/gyms/:id/photos` with `storageObjectId`; the bytes are uploaded through `/api/storage/objects`) and can be linked to the equipment it shows. Removing a photo or a gym deletes the storage objects after the database write commits. Refusals carry a machine-readable `details.reason` (for example `GYM_LIMIT`, `DEFAULT_CONFLICT`, `EQUIPMENT_TYPE_IN_USE`, `PHOTO_ALREADY_ATTACHED`); the values and every size limit live in `apps/api/src/gyms/gyms.constants.ts`. Equipment written by AI carries an `origin`, a confidence and a write-once `originalAiValue`, so a manual gym works with AI off.
+
+- **Code:** `apps/api/src/gyms/` (`GymsModule`)
+- **Routes:** `/api/gyms` (including `/:id/equipment` and `/:id/photos`), `/api/equipment-types`, `/api/capabilities`; details in `/api/docs` (tags "Gyms", "Equipment", "Capabilities")
+- **Permissions:** `gyms:read`, `gyms:write`; photo attach and remove also need `storage:write`
+
 ---
 
 ## 6. Data architecture
 
 ### 6.1 Prisma models
 
-The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 33 models, grouped by subsystem:
+The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 43 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|
@@ -469,8 +477,8 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`, `PUT/DELETE /api/check-ins/:date`) |
 | `intakes:read` | ✓ | ✓ | ✓ | Read own photo intakes and their draft items (`GET /api/intakes*`) |
 | `intakes:write` | ✓ | ✓ | ✓ | Create, edit, apply and discard own photo intakes (`POST/PATCH/DELETE /api/intakes*`); `POST /api/intakes/:id/analyze` also needs `ai:use` |
-| `gyms:read` | ✓ | ✓ | ✓ | Read own gyms, their equipment and the equipment catalog |
-| `gyms:write` | ✓ | ✓ | ✓ | Create, edit and delete own gyms, equipment and custom equipment types |
+| `gyms:read` | ✓ | ✓ | ✓ | Read own gyms, their equipment and the equipment catalog (`GET /api/gyms*`, `GET /api/equipment-types`, `GET /api/capabilities`) |
+| `gyms:write` | ✓ | ✓ | ✓ | Create, edit and delete own gyms, equipment and custom equipment types (`POST/PATCH/DELETE /api/gyms*`, `/api/equipment-types*`); gym photo attach and remove also need `storage:write` |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 

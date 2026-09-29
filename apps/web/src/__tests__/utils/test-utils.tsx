@@ -79,6 +79,9 @@ export const mockUser: MockUser = {
     'ai:use',
     'health_data:read',
     'health_data:write',
+    // `gyms:*` (E3.2): seeded to all three roles.
+    'gyms:read',
+    'gyms:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),
@@ -145,6 +148,9 @@ export const mockAdminUser: MockUser = {
     // Present because the seeded `admin` role grants them (#47, E2.1).
     'health_data:read',
     'health_data:write',
+    // Present because the seeded `admin` role grants them (E3.2).
+    'gyms:read',
+    'gyms:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),

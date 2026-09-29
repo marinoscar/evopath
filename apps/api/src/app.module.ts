@@ -37,6 +37,7 @@ import { HealthProfileModule } from './health-profile/health-profile.module';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
+import { GymsModule } from './gyms/gyms.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -221,6 +222,11 @@ import configuration from './config/configuration';
     // behind `AiEnabledGuard` + `ai:use`). Exports `IntakeKindRegistry` and
     // `IntakeService` for the features that register an intake kind.
     IntakeModule,
+
+    // Gyms (E3.3): `/api/gyms` (with equipment and photos), `/api/equipment-types`
+    // and `/api/capabilities` under `gyms:*` (photo attach/remove also
+    // `storage:write`). Manual only; no AI import.
+    GymsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

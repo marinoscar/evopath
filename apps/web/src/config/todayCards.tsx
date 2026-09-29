@@ -7,6 +7,7 @@ import PlaceIcon from '@mui/icons-material/Place';
 import type { RoadmapArea } from './roadmap';
 import { TodayBodySnapshot } from '../components/today/TodayBodySnapshot';
 import { TodayReadiness } from '../components/today/TodayReadiness';
+import { TodayGym } from '../components/today/TodayGym';
 
 /**
  * Cards on the Today page. Append-only order: workout, readiness, body, gym.
@@ -66,5 +67,7 @@ export const TODAY_CARDS: readonly TodayCardDef[] = [
     to: '/gyms',
     linkLabel: 'Open Gyms',
     area: 'gyms',
+    // E3.3: the default gym's name and equipment count, or "Add your gym".
+    Content: TodayGym,
   },
 ];

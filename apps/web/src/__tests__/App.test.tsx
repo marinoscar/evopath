@@ -105,6 +105,8 @@ vi.mock('../pages/TodayPage', () => ({ default: () => <h1>Today Page</h1> }));
 vi.mock('../pages/TrainPage', () => ({ default: () => <h1>Train Page</h1> }));
 vi.mock('../pages/HealthPage', () => ({ default: () => <h1>Health Page</h1> }));
 vi.mock('../pages/GymsPage', () => ({ default: () => <h1>Gyms Page</h1> }));
+vi.mock('../pages/GymNewPage', () => ({ default: () => <h1>Gym New Page</h1> }));
+vi.mock('../pages/GymDetailPage', () => ({ default: () => <h1>Gym Detail Page</h1> }));
 
 const API_BASE = '*/api';
 
@@ -298,6 +300,8 @@ describe('App', () => {
       ['/train', 'Train Page'],
       ['/health', 'Health Page'],
       ['/gyms', 'Gyms Page'],
+      ['/gyms/new', 'Gym New Page'],
+      ['/gyms/00000000-0000-4000-8000-000000000001', 'Gym Detail Page'],
     ])('renders %s for a signed-in user', async (path, heading) => {
       signInAs(['user_settings:read']);
 

@@ -793,6 +793,13 @@ export const handlers = [
     return HttpResponse.json({ data: { runId: 'run_speech_1', jobId: 'job-ai-audio-2' } }, { status: 202 });
   }),
 
+  // Gyms (E3.3): nobody has a gym yet, and the catalog is empty. Suites that
+  // exercise the gym pages install their own stateful API
+  // (`fixtures/gyms.ts`).
+  http.get(`${API_BASE}/gyms`, () => HttpResponse.json({ data: [] })),
+  http.get(`${API_BASE}/equipment-types`, () => HttpResponse.json({ data: [] })),
+  http.get(`${API_BASE}/capabilities`, () => HttpResponse.json({ data: [] })),
+
   // Storage objects (#445 playground inputs/outputs): an upload answers
   // `processing`, a read answers `ready`, and a download is a signed URL.
   http.post(`${API_BASE}/storage/objects`, () => {

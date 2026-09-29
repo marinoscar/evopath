@@ -51,7 +51,8 @@ describe('TodayPage', () => {
       within(screen.getByRole('region', { name: 'Body snapshot' })).queryByText(comingInLabel('health')),
     ).toBeNull();
     expect(screen.getByText('Coming in E5')).toBeInTheDocument();
-    expect(screen.getByText('Coming in E3')).toBeInTheDocument();
+    // Your gym (E3.3) has `Content`, so no gyms chip.
+    expect(screen.queryByText(comingInLabel('gyms'))).toBeNull();
     for (const card of CARDS) {
       const links = screen.getAllByRole('link', { name: card.link });
       expect(links.some((l) => l.getAttribute('href') === card.href)).toBe(true);
@@ -73,6 +74,13 @@ describe('TodayPage', () => {
     expect(await within(readiness).findByText('How are you feeling today? Takes a few seconds.')).toBeInTheDocument();
     expect(within(readiness).getByRole('button', { name: 'Check in' })).toBeInTheDocument();
     expect(within(readiness).getByRole('link', { name: 'Open Health' })).toHaveAttribute('href', '/health');
+  });
+
+  it('renders the gym content (E3.3): "Add your gym" and the Open Gyms link', async () => {
+    render(<TodayPage />);
+    const gym = screen.getByRole('region', { name: 'Your gym' });
+    expect(await within(gym).findByRole('link', { name: 'Add your gym' })).toHaveAttribute('href', '/gyms/new');
+    expect(within(gym).getByRole('link', { name: 'Open Gyms' })).toHaveAttribute('href', '/gyms');
   });
 
   it('greets by first name', () => {

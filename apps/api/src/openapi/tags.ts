@@ -162,6 +162,33 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
     ],
   },
   {
+    name: 'Gyms & Equipment',
+    tags: [
+      {
+        name: 'Gyms',
+        description:
+          'The calling user\'s training locations: name, type, description, notes, temporary flag, ' +
+          'the one default gym, the equipment in each (manual rows, and AI rows with their ' +
+          'provenance) and photos attached from storage objects the caller uploaded. Gated on ' +
+          '`gyms:read`/`gyms:write`; attaching or removing a photo also needs `storage:write`. ' +
+          'Owner-scoped (a foreign id is a 404).',
+      },
+      {
+        name: 'Equipment',
+        description:
+          'The equipment catalog (seeded, read-only) plus the caller\'s own custom equipment ' +
+          'types, searchable by name and alias. Gated on `gyms:read`/`gyms:write`; a custom type ' +
+          'is visible only to its owner.',
+      },
+      {
+        name: 'Capabilities',
+        description:
+          'What equipment lets you train (e.g. back squat, lat pulldown), with movement pattern ' +
+          'and primary muscles. Seeded and read-only; gated on `gyms:read`.',
+      },
+    ],
+  },
+  {
     name: 'Storage',
     tags: [
       {
