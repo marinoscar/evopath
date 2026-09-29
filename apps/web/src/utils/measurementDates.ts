@@ -55,3 +55,34 @@ export function parseDateTimeLocalValue(value: string): Date | null {
   }
   return date;
 }
+
+/**
+ * `Sep 29`: the short date History uses in accessible names and the delete
+ * confirmation (issue #60, E2.5). The reading's instant in the BROWSER's time
+ * zone; the profile's zone only defines check-in days.
+ */
+export function formatShortDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** `8:00 AM` (locale-dependent), the time part of a History row. */
+export function formatShortTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+/** `Sep 29, 2026, 8:00 AM`: a History row's date and time, and the chart tooltip's. */
+export function formatDateTime(iso: string | Date): string {
+  const date = typeof iso === 'string' ? new Date(iso) : iso;
+  if (Number.isNaN(date.getTime())) return String(iso);
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}

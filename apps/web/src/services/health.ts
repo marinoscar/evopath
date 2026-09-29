@@ -99,7 +99,7 @@ export function isHealthProfileConflict(err: unknown): boolean {
 // catalog. A reading is sent in the unit the user sees and the API converts it
 // once; every value the API returns is canonical.
 //
-// List, series, update and delete arrive with E2.5.
+// List, series, update and delete arrived with E2.5 (#60).
 
 /** The body and vital metrics the quick-entry form and the tiles show, in display order. */
 export const QUICK_ENTRY_METRIC_KEYS = [
@@ -329,5 +329,129 @@ export async function deleteCheckIn(date: string): Promise<void> {
 
 /** True when a check-in save lost a race with another device (`409`). */
 export function isCheckInConflict(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409;
+}
+
+// =============================================================================
+// History and trends, issue #60 (E2.5)
+// =============================================================================
+
+/** `GET /api/measurements` answers with the flat pagination shape (docs/API.md). */
+export interface MeasurementPage {
+  items: MeasurementDto[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/** The API's `pageSize` cap on `GET /api/measurements`. */
+export const MEASUREMENTS_PAGE_SIZE_MAX = 100;
+
+export interface ListMeasurementsParams {
+  /** A body or vital metric; omitted = all of them. */
+  metricKey?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * `GET /api/measurements` (`health_data:read`): active body and vital
+ * readings, newest `measuredAt` first. Rows, not entries: the caller groups
+ * them (`utils/measurementSeries.ts` `groupByEntry`).
+ */
+export function listMeasurements(
+  params: ListMeasurementsParams = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<MeasurementPage> {
+  const search = new URLSearchParams();
+  if (params.metricKey) search.set('metricKey', params.metricKey);
+  if (params.from) search.set('from', params.from);
+  if (params.to) search.set('to', params.to);
+  if (params.page) search.set('page', String(params.page));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  const query = search.toString();
+  return api.get<MeasurementPage>(`/measurements${query ? `?${query}` : ''}`, { signal: options.signal });
+}
+
+/** One chart point of `GET /api/measurements/series`; `value` is canonical. */
+export interface SeriesPoint {
+  id: string;
+  measuredAt: string;
+  value: number;
+  method: string;
+  origin: string;
+}
+
+/** `GET /api/measurements/series`: oldest first, at most 1000 points (the newest kept). */
+export interface MeasurementSeries {
+  metricKey: string;
+  unit: string;
+  points: SeriesPoint[];
+  truncated: boolean;
+}
+
+/** `GET /api/measurements/series` (`health_data:read`). Any registry metric, wellness included. */
+export function getMeasurementSeries(
+  params: { metricKey: string; from?: string; to?: string },
+  options: { signal?: AbortSignal } = {},
+): Promise<MeasurementSeries> {
+  const search = new URLSearchParams({ metricKey: params.metricKey });
+  if (params.from) search.set('from', params.from);
+  if (params.to) search.set('to', params.to);
+  return api.get<MeasurementSeries>(`/measurements/series?${search}`, { signal: options.signal });
+}
+
+/**
+ * The body of `PATCH /api/measurements/entries/:entryId`. At least one
+ * property; readings not mentioned are copied unchanged by the API, and every
+ * `readings[].metricKey` must already be in the entry. `notes: null` clears.
+ */
+export interface UpdateMeasurementEntryInput {
+  measuredAt?: string;
+  notes?: string | null;
+  readings?: MeasurementReadingInput[];
+}
+
+/**
+ * `PATCH /api/measurements/entries/:entryId` (`health_data:write`). The API
+ * supersedes the old rows (kept, `revision + 1`) and resolves with the entry
+ * as it now stands. `404`: already gone; `409`: changed by another request.
+ */
+export function updateMeasurementEntry(
+  entryId: string,
+  input: UpdateMeasurementEntryInput,
+): Promise<MeasurementEntry> {
+  const body: UpdateMeasurementEntryInput = {
+    ...(input.measuredAt !== undefined ? { measuredAt: input.measuredAt } : {}),
+    ...(input.notes !== undefined ? { notes: input.notes } : {}),
+    ...(input.readings !== undefined
+      ? {
+          readings: input.readings.map((reading) => ({
+            metricKey: reading.metricKey,
+            value: reading.value,
+            unit: reading.unit,
+            ...(reading.method !== undefined ? { method: reading.method } : {}),
+          })),
+        }
+      : {}),
+  };
+  return api.patch<MeasurementEntry>(`/measurements/entries/${encodeURIComponent(entryId)}`, body);
+}
+
+/** `DELETE /api/measurements/entries/:entryId` (`health_data:write`): a soft delete, `204`. */
+export async function deleteMeasurementEntry(entryId: string): Promise<void> {
+  await api.delete<void>(`/measurements/entries/${encodeURIComponent(entryId)}`);
+}
+
+/** True for a `404`: the entry is no longer active (deleted or edited elsewhere). */
+export function isEntryGone(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404;
+}
+
+/** True for a `409`: the entry was changed by another request mid-edit. */
+export function isEntryConflict(err: unknown): boolean {
   return err instanceof ApiError && err.status === 409;
 }
