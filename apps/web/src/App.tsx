@@ -32,7 +32,7 @@ import { LoadingSpinner } from './components/common/LoadingSpinner';
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
-const HomePage = lazy(() => import('./pages/HomePage'));
+const TodayPage = lazy(() => import('./pages/TodayPage'));
 const TrainPage = lazy(() => import('./pages/TrainPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
@@ -188,7 +188,7 @@ function AppRoutes() {
                     </NotificationProvider>
                   }
                 >
-                  <Route path="/" element={<HomePage />} />
+                  <Route path="/" element={<TodayPage />} />
                   <Route path="/train" element={<TrainPage />} />
                   <Route path="/health" element={<HealthPage />} />
                   <Route path="/gyms" element={<GymsPage />} />
