@@ -15,7 +15,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
-import { render, mockUser } from '../utils/test-utils';
+import { render, mockUser, mockAdminUser } from '../utils/test-utils';
 import { server } from '../mocks/server';
 import UserAiKeysPage from '../../pages/UserAiKeysPage';
 import UserSettingsHubPage from '../../pages/UserSettingsHubPage';
@@ -234,6 +234,49 @@ describe('UserAiKeysPage', () => {
       useConfig(mockAiPublicConfigByok);
       await renderPage({ fetchConfig: true });
       expect(screen.getByRole('region', { name: 'OpenAI key' })).toBeInTheDocument();
+      expect(screen.queryByText(/Your organization provides a shared key/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('administrator served by the org key (#593)', () => {
+    const ADMIN_NOTICE = /As an administrator, your AI calls use the organization key/;
+    const strictByokWithOrgKey: AiPublicConfig = {
+      ...mockAiPublicConfigByok,
+      providers: mockAiPublicConfigByok.providers.map((p) => ({ ...p, hasOrgKey: true })),
+    };
+
+    async function renderAs(user: typeof mockUser) {
+      render(<UserAiKeysPage />, { wrapperOptions: { user } });
+      await waitFor(() =>
+        expect(screen.queryByLabelText('Loading AI keys')).not.toBeInTheDocument(),
+      );
+    }
+
+    it('tells an ai_config:write holder the org key covers them, even under strict byok', async () => {
+      useConfig(strictByokWithOrgKey);
+      useKeys(mockUserAiKeysNone);
+      await renderAs(mockAdminUser);
+
+      expect(screen.getByText(ADMIN_NOTICE)).toBeInTheDocument();
+      // The per-provider card treats the org key as covering them, too.
+      expect(screen.getByText(/Your organization provides a shared key/)).toBeInTheDocument();
+    });
+
+    it('does not tell an admin the org key covers them when no org key exists', async () => {
+      useConfig(mockAiPublicConfigByok);
+      await renderAs(mockAdminUser);
+
+      expect(screen.getByRole('region', { name: 'OpenAI key' })).toBeInTheDocument();
+      expect(screen.queryByText(ADMIN_NOTICE)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Your organization provides a shared key/)).not.toBeInTheDocument();
+    });
+
+    it('says nothing about the org key to a non-admin under strict byok', async () => {
+      useConfig(strictByokWithOrgKey);
+      await renderAs(mockUser);
+
+      expect(screen.getByRole('region', { name: 'OpenAI key' })).toBeInTheDocument();
+      expect(screen.queryByText(ADMIN_NOTICE)).not.toBeInTheDocument();
       expect(screen.queryByText(/Your organization provides a shared key/)).not.toBeInTheDocument();
     });
   });
