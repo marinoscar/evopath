@@ -192,6 +192,11 @@ export const PERMISSIONS = [
   // Gyms and equipment (E3.2): the caller's own gyms, self-service.
   { name: 'gyms:read', description: 'Read own gyms and their equipment' },
   { name: 'gyms:write', description: 'Create, edit and delete own gyms and equipment' },
+
+  // Exercise library (E4.1): read the library plus own custom exercises;
+  // write only own custom exercises.
+  { name: 'exercises:read', description: 'Read the exercise library and own custom exercises' },
+  { name: 'exercises:write', description: 'Create, edit and delete own custom exercises' },
 ] as const;
 
 // Role to permissions mapping
@@ -270,6 +275,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E3.2 — own gyms and equipment, self-service; all three roles.
     'gyms:read',
     'gyms:write',
+    // E4.1 — exercise library; all three roles (custom exercises are own-only).
+    'exercises:read',
+    'exercises:write',
   ],
   contributor: [
     'user_settings:read',
@@ -293,6 +301,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E3.2 — own gyms and equipment, self-service; all three roles.
     'gyms:read',
     'gyms:write',
+    // E4.1 — exercise library; all three roles (custom exercises are own-only).
+    'exercises:read',
+    'exercises:write',
   ],
   viewer: [
     'user_settings:read',
@@ -311,6 +322,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E3.2 — own gyms and equipment, self-service; all three roles.
     'gyms:read',
     'gyms:write',
+    // E4.1 — exercise library; all three roles (custom exercises are own-only).
+    'exercises:read',
+    'exercises:write',
     // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
     // is the DEFAULT role every new user lands in (see `ROLES` above and
     // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto
@@ -944,3 +958,190 @@ export const EQUIPMENT_CATALOG: EquipmentSeed[] = [
     capabilities: ['ab_crunch', 'push_up'],
   },
 ];
+
+// =============================================================================
+// Exercise library (E4.1)
+// =============================================================================
+//
+// Slugs are PERMANENT once seeded: the seed upserts by slug and workouts will
+// reference the rows. Custom (user-owned) exercises are not part of this
+// catalog and the seed never touches them.
+//
+// Notation, one exercise per line:
+//   slug | Name | primary; secondary | pattern | requirements | flags
+// Requirements: `E:a|b` is a group of equipment types (any one satisfies it),
+// `C:x|y` a group of capabilities (any one satisfies it); groups are joined by
+// ` + ` (every group must be satisfied); `-` means no requirement. Flags (comma
+// separated, optional): BW bodyweight, U unilateral, T time tracking, D
+// distance+time tracking. Tracking mode: none -> weight_reps; BW alone ->
+// bodyweight_reps; T -> time; D -> distance_time.
+
+export const EXERCISE_TRACKING_MODES = [
+  'weight_reps', 'bodyweight_reps', 'time', 'distance_time',
+] as const;
+export type ExerciseTrackingMode = (typeof EXERCISE_TRACKING_MODES)[number];
+
+export interface ExerciseRequirementGroupSeed {
+  kind: 'equipment' | 'capability';
+  /** Equipment type slugs or capability slugs (OR within the group). */
+  slugs: string[];
+}
+
+export interface ExerciseSeed {
+  slug: string;
+  name: string;
+  primaryMuscles: Muscle[];
+  secondaryMuscles: Muscle[];
+  movementPattern: MovementPattern;
+  trackingMode: ExerciseTrackingMode;
+  isUnilateral: boolean;
+  isBodyweight: boolean;
+  /** AND of groups; index in this array is the row's `groupIndex`. */
+  requirements: ExerciseRequirementGroupSeed[];
+}
+
+const EXERCISE_LINES: string[] = [
+  'barbell_bench_press | Barbell bench press | chest; triceps,shoulders | horizontal_push | E:barbell + E:flat_bench|adjustable_bench',
+  'dumbbell_bench_press | Dumbbell bench press | chest; triceps,shoulders | horizontal_push | E:dumbbells|adjustable_dumbbells + E:flat_bench|adjustable_bench',
+  'incline_dumbbell_press | Incline dumbbell press | chest; shoulders,triceps | horizontal_push | E:dumbbells|adjustable_dumbbells + E:adjustable_bench',
+  'incline_barbell_press | Incline barbell press | chest; shoulders,triceps | horizontal_push | E:barbell + E:adjustable_bench',
+  'machine_chest_press | Machine chest press | chest; triceps | horizontal_push | C:chest_press',
+  'dumbbell_fly | Dumbbell fly | chest; shoulders | isolation | E:dumbbells|adjustable_dumbbells + E:flat_bench|adjustable_bench',
+  'cable_fly | Cable fly | chest; shoulders | isolation | C:cable_fly',
+  'pec_deck | Pec deck | chest | isolation | C:pec_deck',
+  'push_up | Push-up | chest; triceps,shoulders | horizontal_push | - | BW',
+  'diamond_push_up | Diamond push-up | triceps; chest | horizontal_push | - | BW',
+  'dip | Dip | triceps; chest,shoulders | vertical_push | C:dip | BW',
+  'bench_dip | Bench dip | triceps; chest | vertical_push | E:flat_bench|adjustable_bench|plyo_box | BW',
+  'barbell_overhead_press | Barbell overhead press | shoulders; triceps | vertical_push | E:barbell',
+  'dumbbell_shoulder_press | Dumbbell shoulder press | shoulders; triceps | vertical_push | E:dumbbells|adjustable_dumbbells',
+  'arnold_press | Arnold press | shoulders; triceps | vertical_push | E:dumbbells|adjustable_dumbbells',
+  'machine_shoulder_press | Machine shoulder press | shoulders; triceps | vertical_push | C:machine_shoulder_press',
+  'landmine_press | Landmine press | shoulders; chest,triceps | vertical_push | E:landmine | U',
+  'dumbbell_lateral_raise | Dumbbell lateral raise | shoulders | isolation | E:dumbbells|adjustable_dumbbells',
+  'cable_lateral_raise | Cable lateral raise | shoulders | isolation | E:cable_machine|functional_trainer | U',
+  'dumbbell_rear_delt_raise | Dumbbell rear delt raise | rear_delts; upper_back | isolation | E:dumbbells|adjustable_dumbbells',
+  'reverse_pec_deck | Reverse pec deck | rear_delts; upper_back | isolation | C:reverse_pec_deck',
+  'face_pull | Face pull | rear_delts; upper_back,shoulders | horizontal_pull | C:face_pull',
+  'pike_push_up | Pike push-up | shoulders; triceps | vertical_push | - | BW',
+  'pull_up | Pull-up | lats; biceps,upper_back | vertical_pull | C:pull_up | BW',
+  'chin_up | Chin-up | lats,biceps; upper_back | vertical_pull | C:pull_up | BW',
+  'assisted_pull_up | Assisted pull-up | lats; biceps | vertical_pull | C:assisted_pull_up',
+  'lat_pulldown | Lat pulldown | lats; biceps,upper_back | vertical_pull | C:lat_pulldown',
+  'seated_cable_row | Seated row | upper_back,lats; biceps | horizontal_pull | C:seated_row|cable_row',
+  'barbell_row | Barbell row | upper_back,lats; biceps,lower_back | horizontal_pull | E:barbell',
+  'dumbbell_row | One-arm dumbbell row | lats,upper_back; biceps | horizontal_pull | E:dumbbells|adjustable_dumbbells | U',
+  't_bar_row | T-bar row | upper_back,lats; biceps | horizontal_pull | E:landmine',
+  'inverted_row | Inverted row | upper_back; biceps,lats | horizontal_pull | E:smith_machine|power_rack|squat_rack|suspension_trainer | BW',
+  'back_extension | Back extension | lower_back; glutes,hamstrings | hinge | C:back_extension | BW',
+  'dumbbell_shrug | Dumbbell shrug | traps | isolation | E:dumbbells|adjustable_dumbbells',
+  'barbell_shrug | Barbell shrug | traps | isolation | E:barbell',
+  'dumbbell_pullover | Dumbbell pullover | lats; chest | isolation | E:dumbbells|adjustable_dumbbells + E:flat_bench|adjustable_bench',
+  'barbell_back_squat | Barbell back squat | quads,glutes; hamstrings,lower_back | squat | E:barbell + E:squat_rack|power_rack',
+  'front_squat | Front squat | quads; glutes,abs | squat | E:barbell + E:squat_rack|power_rack',
+  'smith_machine_squat | Smith machine squat | quads,glutes | squat | E:smith_machine',
+  'goblet_squat | Goblet squat | quads,glutes; abs | squat | C:goblet_squat',
+  'leg_press | Leg press | quads,glutes; hamstrings | squat | C:leg_press',
+  'hack_squat | Hack squat | quads; glutes | squat | C:hack_squat',
+  'bodyweight_squat | Bodyweight squat | quads,glutes | squat | - | BW',
+  'bulgarian_split_squat | Bulgarian split squat | quads,glutes; hamstrings | lunge | E:flat_bench|adjustable_bench|plyo_box | BW,U',
+  'walking_lunge | Walking lunge | quads,glutes; hamstrings | lunge | - | BW,U',
+  'reverse_lunge | Reverse lunge | quads,glutes | lunge | - | BW,U',
+  'dumbbell_lunge | Dumbbell lunge | quads,glutes; hamstrings | lunge | E:dumbbells|adjustable_dumbbells | U',
+  'step_up | Step-up | quads,glutes | lunge | C:step_up | BW,U',
+  'conventional_deadlift | Conventional deadlift | hamstrings,glutes,lower_back; upper_back,quads,forearms | hinge | E:barbell',
+  'romanian_deadlift | Romanian deadlift | hamstrings,glutes; lower_back | hinge | E:barbell',
+  'dumbbell_romanian_deadlift | Dumbbell Romanian deadlift | hamstrings,glutes; lower_back | hinge | E:dumbbells|adjustable_dumbbells',
+  'good_morning | Good morning | hamstrings,lower_back; glutes | hinge | E:barbell',
+  'kettlebell_swing | Kettlebell swing | glutes,hamstrings; lower_back,shoulders | hinge | C:kettlebell_swing',
+  'hip_thrust | Hip thrust | glutes; hamstrings | hinge | C:hip_thrust + E:flat_bench|adjustable_bench|plyo_box',
+  'glute_bridge | Glute bridge | glutes; hamstrings | hinge | - | BW',
+  'leg_extension | Leg extension | quads | isolation | C:leg_extension',
+  'leg_curl | Leg curl | hamstrings; calves | isolation | C:leg_curl',
+  'calf_raise | Calf raise | calves | isolation | C:calf_raise',
+  'bodyweight_calf_raise | Bodyweight calf raise | calves | isolation | - | BW',
+  'hip_abduction_machine | Hip abduction | abductors,glutes | isolation | C:hip_abduction',
+  'hip_adduction_machine | Hip adduction | adductors | isolation | C:hip_adduction',
+  'wall_sit | Wall sit | quads; glutes | squat | - | BW,T',
+  'barbell_curl | Barbell curl | biceps; forearms | isolation | E:barbell|ez_bar',
+  'ez_bar_curl | EZ-bar curl | biceps; forearms | isolation | E:ez_bar',
+  'dumbbell_curl | Dumbbell curl | biceps; forearms | isolation | E:dumbbells|adjustable_dumbbells',
+  'hammer_curl | Hammer curl | biceps,forearms | isolation | E:dumbbells|adjustable_dumbbells',
+  'cable_curl | Cable curl | biceps | isolation | E:cable_machine|functional_trainer',
+  'triceps_pushdown | Triceps pushdown | triceps | isolation | C:triceps_pushdown',
+  'dumbbell_overhead_triceps_extension | Dumbbell overhead triceps extension | triceps | isolation | E:dumbbells|adjustable_dumbbells',
+  'skull_crusher | Skull crusher | triceps | isolation | E:ez_bar|barbell + E:flat_bench|adjustable_bench',
+  'close_grip_bench_press | Close-grip bench press | triceps; chest,shoulders | horizontal_push | E:barbell + E:flat_bench|adjustable_bench',
+  'wrist_curl | Wrist curl | forearms | isolation | E:dumbbells|adjustable_dumbbells|barbell',
+  'plank | Plank | abs; obliques,shoulders | core | - | BW,T',
+  'side_plank | Side plank | obliques; abs | core | - | BW,T,U',
+  'crunch | Crunch | abs | core | - | BW',
+  'bicycle_crunch | Bicycle crunch | abs,obliques | core | - | BW',
+  'russian_twist | Russian twist | obliques; abs | core | - | BW',
+  'dead_bug | Dead bug | abs; hip_flexors | core | - | BW',
+  'hanging_leg_raise | Hanging leg raise | abs; hip_flexors | core | C:hanging_leg_raise | BW',
+  'cable_crunch | Cable crunch | abs | core | E:cable_machine|functional_trainer',
+  'ab_wheel_rollout | Ab wheel rollout | abs; shoulders | core | E:ab_wheel | BW',
+  'pallof_press | Pallof press | obliques; abs | core | E:cable_machine|functional_trainer | U',
+  'farmers_carry | Farmer\'s carry | forearms,traps; abs | carry | C:farmer_carry | D',
+  'mountain_climber | Mountain climber | abs; full_body | core | - | BW,T',
+  'treadmill_run | Treadmill run | full_body | cardio | E:treadmill | D',
+  'treadmill_incline_walk | Treadmill incline walk | full_body | cardio | E:treadmill | D',
+  'stationary_bike_ride | Stationary bike | full_body | cardio | E:stationary_bike | D',
+  'elliptical_session | Elliptical | full_body | cardio | E:elliptical | D',
+  'rowing_machine_session | Rowing machine | full_body | cardio | E:rowing_machine | D',
+  'stair_climber_session | Stair climber | full_body | cardio | E:stair_climber | D',
+  'outdoor_run | Outdoor run | full_body | cardio | - | D',
+  'jump_rope | Jump rope | full_body | cardio | - | BW,T',
+  'burpee | Burpee | full_body | cardio | - | BW',
+  'band_pull_apart | Band pull-apart | rear_delts; upper_back | horizontal_pull | E:resistance_bands',
+];
+
+function parseExerciseLine(line: string): ExerciseSeed {
+  const parts = line.split(' | ').map((p) => p.trim());
+  if (parts.length < 5 || parts.length > 6) {
+    throw new Error(`Malformed exercise line: ${line}`);
+  }
+  const [slug, name, muscles, pattern, reqs, flagsRaw = ''] = parts;
+  const [primary, secondary = ''] = muscles.split(';').map((m) => m.trim());
+  const list = (s: string) => (s ? s.split(',').map((x) => x.trim()) : []);
+  const flags = new Set(list(flagsRaw));
+  for (const f of flags) {
+    if (!['BW', 'U', 'T', 'D'].includes(f)) {
+      throw new Error(`Exercise "${slug}" has unknown flag "${f}"`);
+    }
+  }
+  const trackingMode: ExerciseTrackingMode = flags.has('T')
+    ? 'time'
+    : flags.has('D')
+      ? 'distance_time'
+      : flags.has('BW')
+        ? 'bodyweight_reps'
+        : 'weight_reps';
+  const requirements: ExerciseRequirementGroupSeed[] =
+    reqs === '-'
+      ? []
+      : reqs.split(' + ').map((g) => {
+          const [prefix, rest] = [g.slice(0, 2), g.slice(2)];
+          if (prefix !== 'E:' && prefix !== 'C:') {
+            throw new Error(`Exercise "${slug}" has malformed group "${g}"`);
+          }
+          return {
+            kind: prefix === 'E:' ? 'equipment' : 'capability',
+            slugs: rest.split('|').map((s) => s.trim()),
+          };
+        });
+  return {
+    slug,
+    name,
+    primaryMuscles: list(primary) as Muscle[],
+    secondaryMuscles: list(secondary) as Muscle[],
+    movementPattern: pattern as MovementPattern,
+    trackingMode,
+    isUnilateral: flags.has('U'),
+    isBodyweight: flags.has('BW'),
+    requirements,
+  };
+}
+
+export const EXERCISE_CATALOG: ExerciseSeed[] = EXERCISE_LINES.map(parseExerciseLine);

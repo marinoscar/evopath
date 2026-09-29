@@ -10,6 +10,7 @@ import {
   DEFAULT_SYSTEM_SETTINGS,
   CAPABILITY_CATALOG,
   EQUIPMENT_CATALOG,
+  EXERCISE_CATALOG,
 } from './seed-data';
 
 // Prisma 7 requires a driver adapter — PrismaClient can no longer be
@@ -184,6 +185,88 @@ async function seedCatalogs() {
   );
 }
 
+/**
+ * Upsert the seeded exercise library by `slug` (E4.1).
+ *
+ * Idempotent: fields are refreshed and each exercise's requirement rows are
+ * re-synced (delete + insert, one transaction per exercise). Never touches a
+ * user-owned exercise: a catalog slug that is taken by one throws. Every
+ * requirement slug is resolved before anything is written (typo guard).
+ */
+async function seedExercises() {
+  console.log('Seeding exercise library...');
+
+  const equipment = await prisma.equipmentType.findMany({
+    where: { ownerUserId: null },
+    select: { id: true, slug: true },
+  });
+  const capabilities = await prisma.capability.findMany({
+    select: { id: true, slug: true },
+  });
+  const equipmentIds = new Map(equipment.map((e) => [e.slug, e.id]));
+  const capabilityIds = new Map(capabilities.map((c) => [c.slug, c.id]));
+
+  for (const ex of EXERCISE_CATALOG) {
+    for (const group of ex.requirements) {
+      const known = group.kind === 'equipment' ? equipmentIds : capabilityIds;
+      for (const slug of group.slugs) {
+        if (!known.has(slug)) {
+          throw new Error(
+            `Exercise "${ex.slug}" references unknown ${group.kind} "${slug}"`,
+          );
+        }
+      }
+    }
+  }
+
+  for (const ex of EXERCISE_CATALOG) {
+    const existing = await prisma.exercise.findUnique({
+      where: { slug: ex.slug },
+      select: { ownerUserId: true },
+    });
+    if (existing && existing.ownerUserId !== null) {
+      throw new Error(
+        `Catalog slug "${ex.slug}" is taken by a user-owned exercise`,
+      );
+    }
+    const data = {
+      name: ex.name,
+      primaryMuscles: ex.primaryMuscles,
+      secondaryMuscles: ex.secondaryMuscles,
+      movementPattern: ex.movementPattern,
+      trackingMode: ex.trackingMode,
+      isUnilateral: ex.isUnilateral,
+      isBodyweight: ex.isBodyweight,
+      origin: 'seed',
+      status: 'active',
+    };
+    await prisma.$transaction(async (tx) => {
+      const row = await tx.exercise.upsert({
+        where: { slug: ex.slug },
+        update: data,
+        create: { slug: ex.slug, ...data },
+        select: { id: true },
+      });
+      await tx.exerciseRequirement.deleteMany({ where: { exerciseId: row.id } });
+      const rows = ex.requirements.flatMap((group, groupIndex) =>
+        group.slugs.map((slug) => ({
+          exerciseId: row.id,
+          groupIndex,
+          equipmentTypeId:
+            group.kind === 'equipment' ? equipmentIds.get(slug)! : null,
+          capabilityId:
+            group.kind === 'capability' ? capabilityIds.get(slug)! : null,
+        })),
+      );
+      if (rows.length > 0) {
+        await tx.exerciseRequirement.createMany({ data: rows });
+      }
+    });
+  }
+
+  console.log(`✓ Seeded ${EXERCISE_CATALOG.length} exercises`);
+}
+
 async function seedSystemSettings() {
   console.log('Seeding system settings...');
 
@@ -230,6 +313,7 @@ async function main() {
   await seedPermissions();
   await seedRolePermissions();
   await seedCatalogs();
+  await seedExercises();
   await seedSystemSettings();
   await seedInitialAdminAllowlist();
 

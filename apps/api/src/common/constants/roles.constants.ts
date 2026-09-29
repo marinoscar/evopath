@@ -204,6 +204,10 @@ export const PERMISSIONS = {
   // Gyms and equipment (E3.2): the caller's own gyms, self-service.
   GYMS_READ: 'gyms:read',
   GYMS_WRITE: 'gyms:write',
+
+  // Exercise library (E4.1): library read plus own custom exercises.
+  EXERCISES_READ: 'exercises:read',
+  EXERCISES_WRITE: 'exercises:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
