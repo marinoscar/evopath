@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { IntakeKind } from './intake-kind.interface';
 import { IntakeKindRegistry } from './intake-kind.registry';
 import { IntakeService } from './intake.service';
+import { StorageObjectReferences } from './storage-object-references';
 
 // =============================================================================
 // IntakeService — the provenance and state invariants, over a mocked Prisma
@@ -104,6 +105,7 @@ describe('IntakeService', () => {
   let usableModels: { assertUsable: jest.Mock };
   let objects: { delete: jest.Mock };
   let service: IntakeService;
+  let references: StorageObjectReferences;
   let kind: IntakeKind<unknown, StubValue>;
 
   beforeEach(() => {
@@ -115,7 +117,15 @@ describe('IntakeService', () => {
     jobs = { enqueueWithin: jest.fn(async () => ({ id: '66666666-6666-4666-8666-666666666666' })) };
     usableModels = { assertUsable: jest.fn(async () => ({})) };
     objects = { delete: jest.fn(async () => undefined) };
-    service = new IntakeService(prisma as never, registry, jobs as never, usableModels as never, objects as never);
+    references = new StorageObjectReferences();
+    service = new IntakeService(
+      prisma as never,
+      registry,
+      jobs as never,
+      usableModels as never,
+      objects as never,
+      references,
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -165,6 +175,36 @@ describe('IntakeService', () => {
         context: { label: 'x' },
       });
       expect(view).toMatchObject({ id: INTAKE, status: 'draft', photos: [], items: [] });
+    });
+
+    it("takes the subject from the kind's subjectOf over what the client sent", async () => {
+      registry.register(
+        stubKind({ subjectOf: (context: any) => ({ subjectType: 'gym', subjectId: `gym-of-${context.label}` }) }),
+      );
+      prisma.photoIntake.create.mockResolvedValue({ ...intakeRow({ status: 'draft' }), photos: [], items: [] } as never);
+
+      await service.create(USER, {
+        kind: 'test_stub',
+        context: { label: 'x' },
+        subjectType: 'other',
+        subjectId: '99999999-9999-4999-8999-999999999999',
+      });
+
+      expect(prisma.photoIntake.create.mock.calls[0][0].data).toMatchObject({
+        subjectType: 'gym',
+        subjectId: 'gym-of-x',
+      });
+    });
+
+    it('keeps the client-sent subject for a kind without subjectOf', async () => {
+      prisma.photoIntake.create.mockResolvedValue({ ...intakeRow({ status: 'draft' }), photos: [], items: [] } as never);
+
+      await service.create(USER, { kind: 'test_stub', subjectType: 'gym', subjectId: '99999999-9999-4999-8999-999999999999' });
+
+      expect(prisma.photoIntake.create.mock.calls[0][0].data).toMatchObject({
+        subjectType: 'gym',
+        subjectId: '99999999-9999-4999-8999-999999999999',
+      });
     });
   });
 
@@ -280,6 +320,43 @@ describe('IntakeService', () => {
   });
 
   describe('detachPhoto and discard', () => {
+    it('keeps an object another consumer still references (e.g. a gym photo), on detach and on discard', async () => {
+      const isReferenced = jest.fn(async (id: string) => id === OBJECT);
+      references.register({ name: 'test_consumer', isReferenced });
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.photoIntakePhoto.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+      prisma.photoIntakePhoto.findMany.mockResolvedValue([
+        { storageObjectId: OBJECT },
+        { storageObjectId: 'other-object' },
+      ] as never);
+      prisma.photoIntake.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.detachPhoto(USER, INTAKE, OBJECT);
+      expect(objects.delete).not.toHaveBeenCalled();
+
+      await service.discard(USER, INTAKE);
+      expect(isReferenced).toHaveBeenCalledWith(OBJECT);
+      expect(objects.delete).toHaveBeenCalledTimes(1);
+      expect(objects.delete).toHaveBeenCalledWith('other-object', USER);
+    });
+
+    it('keeps the object when a reference checker fails (the safe side of best effort)', async () => {
+      references.register({
+        name: 'broken',
+        isReferenced: async () => {
+          throw new Error('db down');
+        },
+      });
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.photoIntakePhoto.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+
+      await service.detachPhoto(USER, INTAKE, OBJECT);
+
+      expect(objects.delete).not.toHaveBeenCalled();
+    });
+
     it('deletes the storage object once no intake links it', async () => {
       prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
       prisma.photoIntakePhoto.deleteMany.mockResolvedValue({ count: 1 });

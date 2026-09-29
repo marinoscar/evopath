@@ -97,6 +97,13 @@ export interface IntakeKind<TContext = unknown, TValue = unknown> {
   /** Checks the context against the caller (e.g. the gym is theirs); throw a 404 otherwise. */
   assertContext?(userId: string, context: TContext): Promise<void>;
   /**
+   * The record the intake is about, derived from the context (e.g. the gym of
+   * `{ gymId }`). When defined it wins over a client-sent `subjectType` /
+   * `subjectId`, so `GET /intakes?subjectId=` finds the intake whatever the
+   * client sent.
+   */
+  subjectOf?(context: TContext): { subjectType: string; subjectId: string } | null;
+  /**
    * Recomputes derived fields of a value before it is stored. `source` says
    * who wrote it: `'user'` for an add or edit through the routes (a refusal
    * throws a 400 naming the field), `'analyzer'` for an item the analyzer job

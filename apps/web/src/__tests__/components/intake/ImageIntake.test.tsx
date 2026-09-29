@@ -72,6 +72,18 @@ describe('ImageIntake', () => {
     expect(take).not.toHaveAttribute('multiple');
   });
 
+  it('opens each file input from a real button (no label role="button")', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<Harness />, { wrapperOptions: { user: uploader } });
+    expect(container.querySelector('label[role="button"]')).toBeNull();
+    for (const name of ['Add photos', 'Take photo']) {
+      const input = screen.getByLabelText(name) as HTMLInputElement;
+      const click = vi.spyOn(input, 'click');
+      await user.click(screen.getByRole('button', { name }));
+      expect(click).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it('shows 3 tiles moving downscaling → uploading → processing → ready, with an aggregate count', async () => {
     const user = userEvent.setup();
     render(<Harness />, { wrapperOptions: { user: uploader } });

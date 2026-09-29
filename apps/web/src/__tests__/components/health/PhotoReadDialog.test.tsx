@@ -420,11 +420,8 @@ describe('PhotoReadDialog: accessibility', () => {
   it('has no axe violations on the photo step and on the review', async () => {
     const { user, container } = setup({ result: { items: cuffItems() } });
     await screen.findByText(PHOTO_READ_HELPER_TEXT);
-    // `aria-allowed-role` is off for the photo step only: E3.1's `ImageIntake`
-    // renders its file pickers as `<Button component="label">` (a label with
-    // role="button"), which axe flags. That is the shared kit's markup, reused
-    // unchanged here; everything this story renders is checked in full below.
-    expect(await axe(document.body, { rules: { 'aria-allowed-role': { enabled: false } } })).toHaveNoViolations();
+    // The kit's file pickers are real buttons, so the photo step is checked in full too.
+    expect(await axe(document.body)).toHaveNoViolations();
     await addPhotoAndRead(user);
     await waitFor(() => expect(rows()).toHaveLength(3));
     expect(await axe(document.body)).toHaveNoViolations();

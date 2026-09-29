@@ -114,6 +114,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'ai.audio.transcribe': 'AI audio transcription',
   // One user's queued text-to-speech, stored as their own audio file (#439) — `speak`.
   'ai.audio.speech': 'AI speech synthesis',
+  // One "Scan gym" analysis of a `gym_equipment` photo intake (E3.4), from
+  // `POST /api/intakes/:id/analyze`.
+  'ai.equipment.scan': 'AI gym scan',
   // Daily deletion of `ai_usage_events` past `ai.usageRetentionDays` (#443).
   'ai.usage.purge': 'AI usage purge',
   // Reads a scale or blood-pressure-cuff display off a photo intake into draft

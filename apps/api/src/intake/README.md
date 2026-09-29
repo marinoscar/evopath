@@ -19,6 +19,7 @@ intake/
   intake-kind.interface.ts   # IntakeKind, IntakeApplyArgs, AiDraftInput, status enums
   intake-kind.registry.ts    # IntakeKindRegistry: register(), get(), require(), list()
   intake.service.ts          # Routes' logic + replaceAiDrafts / failIntake for jobs
+  storage-object-references.ts # StorageObjectReferences: consumers that still use an intake photo
   intake.controller.ts       # /api/intakes (analyze sits behind AiEnabledGuard)
   dto/intake.dto.ts          # Zod schemas and the view types
 ```
@@ -66,6 +67,8 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
   readonly valueSchema = valueSchema;
   readonly analyzeJobType = 'ai.equipment.scan'; // null = manual-only kind
   readonly itemKinds = ['equipment'] as const;
+  // apply writes gym rows: the gym routes' permissions, on top of intakes:*
+  readonly requiredPermissions = { read: [PERMISSIONS.GYMS_READ], write: [PERMISSIONS.GYMS_WRITE] };
 
   constructor(
     private readonly registry: IntakeKindRegistry,
@@ -97,6 +100,7 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
 | `itemKinds` | Optional allow-list for `DraftItem.kind`. Omitted means any non-empty string. |
 | `requiredPermissions` | Optional `{ read?, write? }`: permissions this kind needs on top of the routes' `intakes:read` / `intakes:write`. See [Kind Permissions](#kind-permissions). |
 | `assertContext` | Optional. Checks the context against the caller; another user's record is a 404, never a 403. Runs on create. |
+| `subjectOf` | Optional. Derives `subjectType`/`subjectId` from the context (e.g. the gym); when defined it wins over what the client sent, so the list filter `subjectId` finds the intake. |
 | `normalizeValue` | Optional. Recomputes derived fields; runs after `valueSchema` on every stored value. Its third argument, `source`, is `'user'` (a route add or edit: throw a 400 naming the field) or `'analyzer'` (`replaceAiDrafts`: be lenient and never throw, so a doubtful AI item is shown flagged rather than dropped; `apply` refuses it until the user resolves it). |
 | `apply` | Turns `accepted` items into real rows. The return value is the `apply` route's response. |
 
@@ -172,6 +176,44 @@ Rules for the handler:
 | `replaceAiDrafts(intakeId, items, { resultMeta? })` | One transaction: moves a `scanning` intake to `ready`, deletes only untouched AI drafts of an earlier scan (`origin: 'ai'`, `status: 'pending'`, `userVerified: false`), appends the new items after the survivors. An item that fails the shape check, `itemKinds` or `valueSchema` is not stored and is recorded by index and issue (never the value) in `resultMeta.invalidItems`. Returns `{ inserted, removed, invalid }`. Throws 404 when the intake was discarded and 409 `NOT_SCANNING` when it is no longer `scanning`. |
 | `failIntake(intakeId, code, message)` | Moves a `scanning` intake to `failed` with `errorCode` and a short user-safe `errorMessage`. Returns `false` and changes nothing when the intake is gone or not `scanning`, so a failure path may call it unconditionally. |
 
+### 6. Keep Photos Other Features Use
+
+Discarding an intake, or detaching one of its photos, deletes each storage
+object that no intake links any more. If your feature keeps using an intake's
+photos (the gym scan turns them into gym photos on apply), register a checker
+with `StorageObjectReferences` (exported by `IntakeModule`) in your own
+`onModuleInit`, so the object is kept while your row references it:
+
+```typescript
+@Injectable()
+export class GymPhotoObjectReferences implements StorageObjectReferenceChecker, OnModuleInit {
+  readonly name = 'gym_photos';
+
+  constructor(
+    private readonly references: StorageObjectReferences,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  onModuleInit(): void {
+    this.references.register(this);
+  }
+
+  async isReferenced(storageObjectId: string): Promise<boolean> {
+    return (await this.prisma.gymPhoto.count({ where: { storageObjectId } })) > 0;
+  }
+}
+```
+
+- A checker answers for its own tables only. The object is kept when any
+  checker says it is referenced.
+- A checker that throws counts as "referenced": keeping an object is the safe
+  side of a best-effort cleanup. The failure is logged.
+- Without a checker, the cascade from the object delete would remove your row.
+- The reverse direction is yours: when your feature deletes its own row, do not
+  count links of `applied` intakes as holders (they are history; the object
+  delete removes them by cascade). `GymStorageService.deleteObjects` is the
+  worked example.
+
 ## Provenance Fields
 
 The draft item is the public contract (`DraftItemView` in OpenAPI). The
@@ -218,7 +260,10 @@ controller as each method's last argument):
   declares requirements fails closed for it. Kinds without
   `requiredPermissions` behave exactly as before.
 
-`body_metric_reading` (`measurements/photo/`) is the worked example.
+The registered kinds both declare one: `body_metric_reading` (`measurements/photo/`)
+requires `health_data:read` / `health_data:write`, and `gym_equipment`
+(`gyms/intake/`) requires `gyms:read` / `gyms:write`. `body_metric_reading` is
+the worked example.
 
 ## Error Reasons
 

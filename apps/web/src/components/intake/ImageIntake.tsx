@@ -3,7 +3,7 @@
  * over `useImageIntake` (which owns the queue, the downscale and the upload).
  *
  * - "Add photos" opens the file picker (`accept="image/*" multiple`).
- * - "Take photo" is a file input with `capture="environment"`: the OS opens
+ * - "Take photo" opens a file input with `capture="environment"`: the OS opens
  *   the camera, so no `getUserMedia` and no Permissions-Policy change.
  * - Drag and drop works on the whole area (desktop).
  * - The grid is 2 columns below `sm` and 4 from `sm` up.
@@ -148,6 +148,8 @@ export function ImageIntake({ state, maxPhotos, disabled = false, helperText }: 
   const full = state.items.length >= limit;
   const addDisabled = disabled || !canUpload || full;
   const [dragging, setDragging] = useState(false);
+  const addInput = useRef<HTMLInputElement>(null);
+  const takeInput = useRef<HTMLInputElement>(null);
 
   // Announce each tile's stage change once, politely.
   const [announcement, setAnnouncement] = useState('');
@@ -204,22 +206,36 @@ export function ImageIntake({ state, maxPhotos, disabled = false, helperText }: 
       }}
     >
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5 }}>
-        <Button component="label" variant="contained" startIcon={<AddIcon />} disabled={addDisabled}>
+        {/* Real buttons that open hidden file inputs: a `<label>` styled as a
+            button gets `role="button"`, which `aria-allowed-role` forbids. */}
+        <Button variant="contained" startIcon={<AddIcon />} disabled={addDisabled} onClick={() => addInput.current?.click()}>
           Add photos
-          <input hidden multiple type="file" accept="image/*" aria-label="Add photos" onChange={onChange} disabled={addDisabled} />
         </Button>
-        <Button component="label" variant="outlined" startIcon={<CameraIcon />} disabled={addDisabled}>
+        <input
+          ref={addInput}
+          hidden
+          multiple
+          type="file"
+          accept="image/*"
+          aria-label="Add photos"
+          tabIndex={-1}
+          onChange={onChange}
+          disabled={addDisabled}
+        />
+        <Button variant="outlined" startIcon={<CameraIcon />} disabled={addDisabled} onClick={() => takeInput.current?.click()}>
           Take photo
-          <input
-            hidden
-            type="file"
-            accept="image/*"
-            capture="environment"
-            aria-label="Take photo"
-            onChange={onChange}
-            disabled={addDisabled}
-          />
         </Button>
+        <input
+          ref={takeInput}
+          hidden
+          type="file"
+          accept="image/*"
+          capture="environment"
+          aria-label="Take photo"
+          tabIndex={-1}
+          onChange={onChange}
+          disabled={addDisabled}
+        />
       </Stack>
 
       {!canUpload ? (
