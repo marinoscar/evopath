@@ -194,7 +194,7 @@ Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secr
 
 Each is enforced by tests and explained in the linked doc. Read it before touching the area.
 
-- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx` and `database_backup_runs_active_uniq_idx` exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md) and [database-backup.md](docs/specs/database-backup.md).
+- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx` and `gyms_user_default_uniq_idx` (one default gym per user) exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md) and [database-backup.md](docs/specs/database-backup.md).
 - **A backup archive is never buffered.** `pg_dump` streams straight into object storage, and both the upload and the dump's exit code are awaited. See [database-backup.md](docs/specs/database-backup.md).
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).
