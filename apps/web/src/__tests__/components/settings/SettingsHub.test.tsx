@@ -659,6 +659,36 @@ describe('UserSettingsHubPage — AI Keys (#425)', () => {
   });
 });
 
+/**
+ * Issue #47 (E2.1). The `Health Profile` card sits in a new `Health` group and
+ * is gated on `health_data:read`, the exact string `GET /api/health-profile`
+ * enforces.
+ */
+describe('UserSettingsHubPage — Health Profile (#47)', () => {
+  it('shows the Health group and card to a health_data:read holder, routed to /settings/health-profile', async () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(['user_settings:read', 'health_data:read']);
+    const user = userEvent.setup();
+    render(<UserSettingsHubPage />);
+
+    expect(screen.getByText('Health')).toBeInTheDocument();
+    await user.click(screen.getByRole('heading', { level: 6, name: 'Health Profile' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/health-profile');
+  });
+
+  it('hides the card, and with it the whole Health group, without health_data:read', () => {
+    setViewportWidth(DESKTOP);
+    setPermissions(['user_settings:read', 'health_data:write']);
+    render(<UserSettingsHubPage />);
+
+    expect(
+      screen.queryByRole('heading', { level: 6, name: 'Health Profile' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Health')).not.toBeInTheDocument();
+  });
+});
+
 describe('UserSettingsHubPage — the real user registry', () => {
   // Deliberately NOT `users:read` or `system_settings:read` — those are what
   // the admin hub gates on, and this suite exists to prove the user hub does

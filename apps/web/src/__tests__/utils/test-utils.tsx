@@ -72,7 +72,14 @@ export const mockUser: MockUser = {
   profileImageUrl: null,
   roles: [{ name: 'viewer' }],
   // `ai:use` (#425): seeded to every role by default, withholdable per role.
-  permissions: ['user_settings:read', 'user_settings:write', 'ai:use'],
+  // `health_data:*` (#47, E2.1): seeded to all three roles.
+  permissions: [
+    'user_settings:read',
+    'user_settings:write',
+    'ai:use',
+    'health_data:read',
+    'health_data:write',
+  ],
   isActive: true,
   createdAt: new Date().toISOString(),
 };
@@ -135,6 +142,9 @@ export const mockAdminUser: MockUser = {
     'telemetry:read',
     'telemetry:write',
     'telemetry:query',
+    // Present because the seeded `admin` role grants them (#47, E2.1).
+    'health_data:read',
+    'health_data:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),
