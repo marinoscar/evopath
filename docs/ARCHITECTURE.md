@@ -314,10 +314,10 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 
 ### 5.20 Health data
 
-Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
+Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. The daily readiness check-in (four optional 1 to 5 scores and a note per local day) is stored as `measurements` rows too and served by `/api/check-ins`, with "today" decided by the server in the profile time zone. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
-- **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
-- **UI:** `/settings/health-profile`, `/health`, the Today body snapshot card
+- **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/api/src/check-ins/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
+- **UI:** `/settings/health-profile`, `/health` (tiles and Daily check-in section), the Today body snapshot and Readiness cards
 - **Permissions:** `health_data:read`, `health_data:write`
 - **Read more:** [specs/health-data.md](specs/health-data.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#7-audit-logging-and-security-tables)
 
@@ -363,7 +363,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `AiRun` | `ai_runs` | Background AI runs (response, image, transcription, speech) |
 | AI | `AiUsageEvent` | `ai_usage_events` | One row per provider round trip, tokens, key source |
 | Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, time zone, bio, version |
-| Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete |
+| Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -447,8 +447,8 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
-| `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`, `GET /api/measurements*`); reach `/settings/health-profile` |
-| `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`) |
+| `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`, `GET /api/measurements*`, `GET /api/check-ins*`); reach `/settings/health-profile` |
+| `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`, `PUT/DELETE /api/check-ins/:date`) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 

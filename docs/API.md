@@ -269,6 +269,7 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `admin/telemetry` | Telemetry policy, status, SQL explorer, export, AI assistant stream | `telemetry:read/write/query` (assistant also needs `ai:use`) | [telemetry](specs/telemetry.md) |
 | `health-profile` | The caller's own health profile | `health_data:read/write` | [health-data](specs/health-data.md) |
 | `measurements` | The caller's own measurements: metric catalog, entries, latest, series | `health_data:read/write` | [health-data](specs/health-data.md) |
+| `check-ins` | The caller's own daily check-in: today, recent days, replace or delete a day (tag "Check-ins") | `health_data:read/write` | [health-data](specs/health-data.md#215-daily-check-ins) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 
 Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with
