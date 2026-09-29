@@ -7,22 +7,16 @@ import { PrismaService } from '../prisma/prisma.service';
 // =============================================================================
 //
 // `DELETE /api/exercises/:id` refuses with 409 `EXERCISE_IN_USE` while this
-// reports any reference. Keeping the question behind one method lets the
-// delete path exist before the tables that reference exercises do.
+// reports any reference; the `workout_exercises` foreign key (Restrict)
+// backs it up against a concurrent insert.
 // =============================================================================
 
 @Injectable()
 export class ExerciseUsageRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * How many logged workout exercises reference `exerciseId`.
-   *
-   * No table references exercises yet, so the answer is always 0. Workout
-   * logging (E4.2) adds `workout_exercises` and makes this count its rows;
-   * `prisma` is injected now so that change is local to this method.
-   */
-  async countWorkoutReferences(_exerciseId: string): Promise<number> {
-    return 0;
+  /** How many logged workout exercises (`workout_exercises` rows, any user) reference `exerciseId`. */
+  async countWorkoutReferences(exerciseId: string): Promise<number> {
+    return this.prisma.workoutExercise.count({ where: { exerciseId } });
   }
 }

@@ -199,6 +199,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'per-gym availability. Gated on `exercises:read`/`exercises:write`; a custom exercise is ' +
           'visible only to its owner, and an AI-proposed one waits for the owner\'s approval.',
       },
+      {
+        name: 'Workouts',
+        description:
+          'Logged workouts: start (one in progress per user), exercises in order, sets with weight, reps, ' +
+          'time, distance, RPE, RIR, rest and pain flags, then finish with a summary. Weights are ' +
+          'kilograms and distances metres; clients convert for display. Gated on ' +
+          '`workouts:read`/`workouts:write`; owner-scoped.',
+      },
     ],
   },
   {
