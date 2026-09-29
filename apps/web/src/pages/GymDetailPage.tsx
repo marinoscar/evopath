@@ -13,6 +13,9 @@
  * Navigation state it reads (set by the scan page): `openPicker` opens the
  * equipment picker ("Continue manually"), `flash` shows a one-off message
  * ("3 added, 1 already there. Photos saved to this gym.").
+ *
+ * The Location section (E3.5) sets or clears the optional GPS position through
+ * `PUT/DELETE /gyms/:id/location`; the edit dialog leaves it alone.
  */
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -52,6 +55,7 @@ import { GymPhotoLightbox } from '../components/gyms/GymPhotoLightbox';
 import { useCompactDialog } from '../components/gyms/useCompactDialog';
 import { deleteGymMessage } from '../components/gyms/gymCopy';
 import { ScanGymButton } from '../components/gyms/ScanGymButton';
+import { GymLocationField } from '../components/gyms/GymLocationField';
 import type { GymDetailLocationState } from '../services/gymScan';
 
 const EDIT_FORM_ID = 'gym-edit-form';
@@ -256,6 +260,19 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
             onAdd={g.addPhoto}
             onOpen={(photo) => setOpenPhotoId(photo.id)}
             onRemove={(photo) => setPending({ kind: 'photo', photo })}
+          />
+        </Paper>
+
+        <Paper component="section" variant="outlined" aria-labelledby="gym-location-heading" sx={{ p: { xs: 2, sm: 3 } }}>
+          <Typography id="gym-location-heading" variant="h5" component="h2" sx={{ mb: 2 }}>
+            Location
+          </Typography>
+          <GymLocationField
+            latitude={gym.latitude}
+            longitude={gym.longitude}
+            canWrite={canWrite}
+            onSave={g.setLocation}
+            onClear={g.clearLocation}
           />
         </Paper>
       </Stack>

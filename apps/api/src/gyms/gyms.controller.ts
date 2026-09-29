@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -25,7 +26,8 @@ import {
   ListGymsQueryDto,
   UpdateGymDto,
 } from './dto/gym.dto';
-import { MAX_GYMS_PER_USER } from './gyms.constants';
+import { GymLocationResult, SetGymLocationDto } from './dto/gym-location.dto';
+import { GYM_LOCATION_ACCURACY_MAX_METERS, MAX_GYMS_PER_USER } from './gyms.constants';
 import { GymsService } from './gyms.service';
 
 // =============================================================================
@@ -177,5 +179,55 @@ export class GymsController {
   })
   setDefault(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.gyms.setDefault(userId, id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Location (E3.5). Coordinates are personal data: stored rounded to 5
+  // decimals, returned to their owner, never logged or sent to AI.
+  // ---------------------------------------------------------------------------
+
+  @Put(':id/location')
+  @Auth({ permissions: [PERMISSIONS.GYMS_WRITE] })
+  @ApiOperation({
+    summary: 'Set my gym\'s location',
+    description:
+      'Sets the gym\'s GPS position without resending the gym. Both coordinates are required and ' +
+      'are stored rounded to 5 decimals (about 1 m). `accuracyMeters` (0..' +
+      `${GYM_LOCATION_ACCURACY_MAX_METERS}) is validated and echoed in the response, never stored. ` +
+      'Coordinates are never logged and never sent to an AI provider.',
+  })
+  @ApiParam(GYM_ID_PARAM)
+  @ApiDataResponse(GymLocationResult, { description: 'The gym with its stored (rounded) position' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error (`details.issues` names each field), or the id is not a UUID',
+    type: ErrorDto,
+  })
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse(NO_GYMS_WRITE)
+  @ApiResponse(GYM_NOT_FOUND)
+  setLocation(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetGymLocationDto,
+  ) {
+    return this.gyms.setLocation(userId, id, dto);
+  }
+
+  @Delete(':id/location')
+  @Auth({ permissions: [PERMISSIONS.GYMS_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Clear my gym\'s location',
+    description: 'Sets both coordinates to null. Clearing a gym with no position is a no-op.',
+  })
+  @ApiParam(GYM_ID_PARAM)
+  @ApiDataResponse(GymLocationResult, { description: 'The gym, now without a position (`accuracyMeters` null)' })
+  @ApiResponse(BAD_ID)
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse(NO_GYMS_WRITE)
+  @ApiResponse(GYM_NOT_FOUND)
+  clearLocation(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.gyms.clearLocation(userId, id);
   }
 }

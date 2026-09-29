@@ -12,6 +12,7 @@
 // catalog) is proven in `gyms-api.db.spec.ts`.
 // =============================================================================
 
+import { Logger } from '@nestjs/common';
 import request from 'supertest';
 
 import { IntakeKindRegistry } from '../../src/intake/intake-kind.registry';
@@ -157,7 +158,7 @@ describe('Gyms (integration)', () => {
   // ---------------------------------------------------------------------------
 
   const ROUTES: Array<{
-    method: 'get' | 'post' | 'patch' | 'delete';
+    method: 'get' | 'post' | 'put' | 'patch' | 'delete';
     path: string;
     permission: string;
     body?: unknown;
@@ -168,6 +169,8 @@ describe('Gyms (integration)', () => {
     { method: 'patch', path: `/api/gyms/${GYM}`, permission: 'gyms:write', body: { name: 'G' } },
     { method: 'delete', path: `/api/gyms/${GYM}`, permission: 'gyms:write' },
     { method: 'post', path: `/api/gyms/${GYM}/default`, permission: 'gyms:write' },
+    { method: 'put', path: `/api/gyms/${GYM}/location`, permission: 'gyms:write', body: { latitude: 9.934, longitude: -84.08 } },
+    { method: 'delete', path: `/api/gyms/${GYM}/location`, permission: 'gyms:write' },
     { method: 'get', path: `/api/gyms/${GYM}/equipment`, permission: 'gyms:read' },
     { method: 'post', path: `/api/gyms/${GYM}/equipment`, permission: 'gyms:write', body: { equipmentTypeId: TYPE } },
     { method: 'patch', path: `/api/gyms/${GYM}/equipment/${EQUIPMENT}`, permission: 'gyms:write', body: { quantity: 3 } },
@@ -511,15 +514,200 @@ describe('Gyms (integration)', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Location (E3.5): PUT/DELETE /api/gyms/:id/location
+  // ---------------------------------------------------------------------------
+
+  describe('location', () => {
+    const issuePaths = (body: any): string[] => (body.details?.issues ?? []).map((issue: any) => issue.path);
+
+    /** An owned gym whose stored position follows the last `updateMany`. */
+    function ownedGym(userId: string) {
+      let stored: Record<string, unknown> = {};
+      prisma.gym.updateMany.mockImplementation(async ({ data }: any) => {
+        stored = { ...stored, ...data };
+        return { count: 1 };
+      });
+      prisma.gym.findFirst.mockImplementation(async () => ({
+        ...gymRow(userId, stored),
+        equipment: [],
+        photos: [],
+      }));
+    }
+
+    it.each([
+      ['latitude 91', { latitude: 91, longitude: 0 }, 'latitude'],
+      ['latitude -90.000001', { latitude: -90.000001, longitude: 0 }, 'latitude'],
+      ['longitude -181', { latitude: 0, longitude: -181 }, 'longitude'],
+      ['a missing longitude', { latitude: 10 }, 'longitude'],
+      ['a missing latitude', { longitude: 10 }, 'latitude'],
+      ['a string latitude', { latitude: '10.1', longitude: 0 }, 'latitude'],
+      ['null coordinates (DELETE clears)', { latitude: null, longitude: null }, 'latitude'],
+      ['accuracyMeters -1', { latitude: 0, longitude: 0, accuracyMeters: -1 }, 'accuracyMeters'],
+      ['accuracyMeters 100001', { latitude: 0, longitude: 0, accuracyMeters: 100_001 }, 'accuracyMeters'],
+      ['a string accuracyMeters', { latitude: 0, longitude: 0, accuracyMeters: '25' }, 'accuracyMeters'],
+      ['an unknown field', { latitude: 0, longitude: 0, altitude: 1200 }, ''],
+    ])('PUT with %s is 400 and writes nothing', async (_label, body, path) => {
+      const user = await createMockContributorUser(context);
+
+      const response = await request(server())
+        .put(`/api/gyms/${GYM}/location`)
+        .set(authHeader(user.accessToken))
+        .send(body)
+        .expect(400);
+
+      expect(response.body.code).toBe('BAD_REQUEST');
+      if (path) expect(issuePaths(response.body)).toContain(path);
+      expect(prisma.gym.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('PUT with no body is 400', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(server()).put(`/api/gyms/${GYM}/location`).set(authHeader(user.accessToken)).expect(400);
+
+      expect(prisma.gym.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('PUT with a non-UUID id is 400', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(server())
+        .put('/api/gyms/not-a-uuid/location')
+        .set(authHeader(user.accessToken))
+        .send({ latitude: 0, longitude: 0 })
+        .expect(400);
+    });
+
+    it('PUT stores both coordinates rounded to 5 decimals, owner-scoped, and echoes accuracyMeters', async () => {
+      const user = await createMockContributorUser(context);
+      ownedGym(user.id);
+
+      const response = await request(server())
+        .put(`/api/gyms/${GYM}/location`)
+        .set(authHeader(user.accessToken))
+        .send({ latitude: 9.934123456, longitude: -84.080126789, accuracyMeters: 25.5 })
+        .expect(200);
+
+      expect(prisma.gym.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: user.id },
+        data: { latitude: 9.93412, longitude: -84.08013 },
+      });
+      expect(response.body.data).toEqual(
+        expect.objectContaining({
+          id: GYM,
+          latitude: 9.93412,
+          longitude: -84.08013,
+          accuracyMeters: 25.5,
+          equipment: [],
+          photos: [],
+        }),
+      );
+    });
+
+    it('PUT never stores accuracyMeters', async () => {
+      const user = await createMockContributorUser(context);
+      ownedGym(user.id);
+
+      await request(server())
+        .put(`/api/gyms/${GYM}/location`)
+        .set(authHeader(user.accessToken))
+        .send({ latitude: 1, longitude: 2, accuracyMeters: 100_000 })
+        .expect(200);
+
+      const [{ data }] = prisma.gym.updateMany.mock.calls[0];
+      expect(Object.keys(data).sort()).toEqual(['latitude', 'longitude']);
+    });
+
+    it('PUT accepts the range bounds and omits accuracyMeters as null', async () => {
+      const user = await createMockContributorUser(context);
+      ownedGym(user.id);
+
+      const response = await request(server())
+        .put(`/api/gyms/${GYM}/location`)
+        .set(authHeader(user.accessToken))
+        .send({ latitude: -90, longitude: 180 })
+        .expect(200);
+
+      expect(response.body.data).toEqual(expect.objectContaining({ latitude: -90, longitude: 180, accuracyMeters: null }));
+    });
+
+    it('DELETE sets both coordinates to null and returns the gym', async () => {
+      const user = await createMockContributorUser(context);
+      ownedGym(user.id);
+
+      const response = await request(server())
+        .delete(`/api/gyms/${GYM}/location`)
+        .set(authHeader(user.accessToken))
+        .expect(200);
+
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: user.id },
+        data: { latitude: null, longitude: null },
+      });
+      expect(response.body.data).toEqual(
+        expect.objectContaining({ id: GYM, latitude: null, longitude: null, accuracyMeters: null }),
+      );
+    });
+
+    it('never writes the coordinates to a log line', async () => {
+      const user = await createMockContributorUser(context);
+      ownedGym(user.id);
+      const writes: string[] = [];
+      const capture = (chunk: unknown) => {
+        writes.push(String(chunk));
+        return true;
+      };
+      const stdout = jest.spyOn(process.stdout, 'write').mockImplementation(capture as never);
+      const stderr = jest.spyOn(process.stderr, 'write').mockImplementation(capture as never);
+      const record = (...args: unknown[]) => {
+        writes.push(args.map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '));
+      };
+      const consoleSpies = [
+        ...(['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
+          jest.spyOn(console, method).mockImplementation(record),
+        ),
+        ...(['log', 'warn', 'error', 'debug', 'verbose', 'fatal'] as const).map((method) =>
+          jest.spyOn(Logger.prototype, method).mockImplementation(record),
+        ),
+      ];
+
+      try {
+        await request(server())
+          .put(`/api/gyms/${GYM}/location`)
+          .set(authHeader(user.accessToken))
+          .send({ latitude: 9.93417, longitude: -84.08017, accuracyMeters: 4321 })
+          .expect(200);
+        await request(server())
+          .put(`/api/gyms/${GYM}/location`)
+          .set(authHeader(user.accessToken))
+          .send({ latitude: 9.93417, longitude: 181, accuracyMeters: 4321 })
+          .expect(400);
+      } finally {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        consoleSpies.forEach((spy) => spy.mockRestore());
+      }
+
+      const logged = writes.join('\n');
+      expect(logged).not.toContain('9.93417');
+      expect(logged).not.toContain('84.08017');
+      expect(logged).not.toContain('4321');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Owner scoping: a foreign id is a 404 on every route
   // ---------------------------------------------------------------------------
 
   describe('owner scoping', () => {
-    const FOREIGN_GYM_ROUTES: Array<{ method: 'get' | 'post' | 'patch' | 'delete'; path: string; body?: unknown }> = [
+    const FOREIGN_GYM_ROUTES: Array<{ method: 'get' | 'post' | 'put' | 'patch' | 'delete'; path: string; body?: unknown }> = [
       { method: 'get', path: `/api/gyms/${GYM}` },
       { method: 'patch', path: `/api/gyms/${GYM}`, body: { name: 'Mine now' } },
       { method: 'delete', path: `/api/gyms/${GYM}` },
       { method: 'post', path: `/api/gyms/${GYM}/default` },
+      { method: 'put', path: `/api/gyms/${GYM}/location`, body: { latitude: 9.934, longitude: -84.08 } },
+      { method: 'delete', path: `/api/gyms/${GYM}/location` },
       { method: 'get', path: `/api/gyms/${GYM}/equipment` },
       { method: 'post', path: `/api/gyms/${GYM}/equipment`, body: { equipmentTypeId: TYPE } },
       { method: 'patch', path: `/api/gyms/${GYM}/equipment/${EQUIPMENT}`, body: { quantity: 3 } },

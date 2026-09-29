@@ -79,6 +79,12 @@ export const EQUIPMENT_TYPE_NAME_MAX = 80;
 export const EQUIPMENT_TYPE_CAPABILITIES_MAX = 12;
 export const EQUIPMENT_TYPES_LIMIT_MAX = 200;
 export const GYM_PHOTOS_MAX = 100;
+export const LATITUDE_MIN = -90;
+export const LATITUDE_MAX = 90;
+export const LONGITUDE_MIN = -180;
+export const LONGITUDE_MAX = 180;
+/** `accuracyMeters` bounds on `PUT /gyms/:id/location` (echoed, never stored). */
+export const LOCATION_ACCURACY_MAX = 100000;
 export const PHOTO_CAPTION_MAX = 500;
 /** Client-side upload cap for a gym photo (the API refuses more). */
 export const GYM_PHOTO_MAX_BYTES = 20 * 1024 * 1024;
@@ -195,6 +201,9 @@ export interface GymInput {
   description?: string | null;
   notes?: string | null;
   isTemporary?: boolean;
+  /** Set together with `longitude`, or both omitted/null (E3.5). */
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export type GymUpdate = Partial<GymInput>;
@@ -269,6 +278,27 @@ export async function deleteGym(id: string): Promise<void> {
 /** `POST /gyms/:id/default` (`gyms:write`). */
 export function setDefaultGym(id: string): Promise<GymDetail> {
   return api.post<GymDetail>(`${gymPath(id)}/default`);
+}
+
+/** `PUT /gyms/:id/location` body (E3.5). */
+export interface GymLocationInput {
+  latitude: number;
+  longitude: number;
+  /** Only echoed back by the API; never stored or logged. */
+  accuracyMeters?: number;
+}
+
+/**
+ * `PUT /gyms/:id/location` (`gyms:write`): set the gym's position. The API
+ * rounds both values to 5 decimals (about 1 m).
+ */
+export async function setGymLocation(id: string, input: GymLocationInput): Promise<void> {
+  await api.put<unknown>(`${gymPath(id)}/location`, input);
+}
+
+/** `DELETE /gyms/:id/location` (`gyms:write`): clear both coordinates. */
+export async function clearGymLocation(id: string): Promise<void> {
+  await api.delete<void>(`${gymPath(id)}/location`);
 }
 
 // -----------------------------------------------------------------------------

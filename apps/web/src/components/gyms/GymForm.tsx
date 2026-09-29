@@ -1,7 +1,8 @@
 /**
  * Create or edit a gym (E3.3): name, type, description, notes and the
- * "temporary" switch. Used by `/gyms/new` and by the edit dialog on the gym
- * page. The bounds mirror the API's Zod schema so a problem is explained
+ * "temporary" switch, plus (E3.5, `showLocation`) the optional position. Used
+ * by `/gyms/new` and by the edit dialog on the gym page; the gym page has its
+ * own Location section, so its edit dialog hides the field. The bounds mirror the API's Zod schema so a problem is explained
  * before the round trip; the API decides, and its message is shown verbatim.
  */
 import { useId, useState, type FormEvent } from 'react';
@@ -14,6 +15,7 @@ import {
   Stack,
   Switch,
   TextField,
+  Typography,
 } from '@mui/material';
 import {
   GYM_DESCRIPTION_MAX,
@@ -25,6 +27,7 @@ import {
   type GymInput,
   type GymType,
 } from '../../services/gyms';
+import { GymLocationField } from './GymLocationField';
 
 export interface GymFormValues {
   name: string;
@@ -32,6 +35,8 @@ export interface GymFormValues {
   description: string;
   notes: string;
   isTemporary: boolean;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface GymFormProps {
@@ -41,6 +46,8 @@ export interface GymFormProps {
     description: string | null;
     notes: string | null;
     isTemporary: boolean;
+    latitude: number | null;
+    longitude: number | null;
   }>;
   submitLabel: string;
   /** Rejects with the API error to show it. */
@@ -51,18 +58,28 @@ export interface GymFormProps {
   /** Hide the built-in buttons (the host renders its own submit for `formId`). */
   hideActions?: boolean;
   onSubmittingChange?: (submitting: boolean) => void;
+  /**
+   * Show the optional location field (E3.5). The pair set there is sent with
+   * the gym; when hidden, the gym's position is left untouched.
+   */
+  showLocation?: boolean;
 }
 
-function toInput(values: GymFormValues): GymInput {
+function toInput(values: GymFormValues, withLocation: boolean): GymInput {
   const description = values.description.trim();
   const notes = values.notes.trim();
-  return {
+  const input: GymInput = {
     name: values.name.trim(),
     type: values.type,
     description: description === '' ? null : description,
     notes: notes === '' ? null : notes,
     isTemporary: values.isTemporary,
   };
+  if (withLocation && values.latitude !== null && values.longitude !== null) {
+    input.latitude = values.latitude;
+    input.longitude = values.longitude;
+  }
+  return input;
 }
 
 export function GymForm({
@@ -73,6 +90,7 @@ export function GymForm({
   formId,
   hideActions = false,
   onSubmittingChange,
+  showLocation = false,
 }: GymFormProps) {
   const generatedId = useId();
   const id = formId ?? `gym-form-${generatedId}`;
@@ -82,6 +100,8 @@ export function GymForm({
     description: initial?.description ?? '',
     notes: initial?.notes ?? '',
     isTemporary: initial?.isTemporary ?? false,
+    latitude: initial?.latitude ?? null,
+    longitude: initial?.longitude ?? null,
   });
   const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -110,7 +130,7 @@ export function GymForm({
     onSubmittingChange?.(true);
     setError(null);
     try {
-      await onSubmit(toInput(values));
+      await onSubmit(toInput(values, showLocation));
     } catch (err) {
       setError(gymErrorMessage(err, 'Could not save the gym'));
     } finally {
@@ -177,6 +197,26 @@ export function GymForm({
           }
           label="Temporary (a hotel or a trip)"
         />
+        {showLocation && (
+          <Box component="fieldset" sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
+            <Typography component="legend" variant="subtitle1" sx={{ mb: 1 }}>
+              Location
+            </Typography>
+            <GymLocationField
+              latitude={values.latitude}
+              longitude={values.longitude}
+              saveLabel="Set location"
+              savedPrefix="Location"
+              emptyLabel="No location set"
+              onSave={async ({ latitude, longitude }) => {
+                setValues((prev) => ({ ...prev, latitude, longitude }));
+              }}
+              onClear={async () => {
+                setValues((prev) => ({ ...prev, latitude: null, longitude: null }));
+              }}
+            />
+          </Box>
+        )}
         {!hideActions && (
           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             {onCancel && (

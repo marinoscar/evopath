@@ -194,6 +194,26 @@ export function statefulGymsApi(initial: GymDetail[] = [], types: EquipmentType[
       if (gym.isDefault && state.gyms[0]) state.gyms[0].isDefault = true;
       return new HttpResponse(null, { status: 204 });
     }),
+    http.put(`${API}/gyms/:id/location`, async ({ request, params }) => {
+      const body = (await record(request, `/gyms/${params.id}/location`)) as {
+        latitude: number;
+        longitude: number;
+        accuracyMeters?: number;
+      };
+      const gym = find(String(params.id));
+      if (!gym) return notFound();
+      gym.latitude = Math.round(body.latitude * 1e5) / 1e5;
+      gym.longitude = Math.round(body.longitude * 1e5) / 1e5;
+      return HttpResponse.json({ data: { ...gym, accuracyMeters: body.accuracyMeters ?? null } });
+    }),
+    http.delete(`${API}/gyms/:id/location`, async ({ request, params }) => {
+      await record(request, `/gyms/${params.id}/location`);
+      const gym = find(String(params.id));
+      if (!gym) return notFound();
+      gym.latitude = null;
+      gym.longitude = null;
+      return HttpResponse.json({ data: gym });
+    }),
     http.post(`${API}/gyms/:id/default`, async ({ request, params }) => {
       await record(request, `/gyms/${params.id}/default`);
       const gym = find(String(params.id));

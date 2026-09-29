@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   addGymEquipment,
+  clearGymLocation,
   deleteGym,
   deleteGymEquipment,
   deleteGymPhoto,
@@ -8,6 +9,7 @@ import {
   gymErrorMessage,
   isNotFound,
   setDefaultGym,
+  setGymLocation,
   updateGym,
   updateGymEquipment,
   updateGymPhoto,
@@ -16,6 +18,7 @@ import {
   type EquipmentUpdate,
   type GymDetail,
   type GymEquipment,
+  type GymLocationInput,
   type GymPhoto,
   type GymUpdate,
   type PhotoUpdate,
@@ -33,6 +36,10 @@ export interface UseGymReturn {
   update: (input: GymUpdate) => Promise<void>;
   setDefault: () => Promise<void>;
   remove: () => Promise<void>;
+  /** `PUT /gyms/:id/location`, then refetch (E3.5). */
+  setLocation: (input: GymLocationInput) => Promise<void>;
+  /** `DELETE /gyms/:id/location`, then refetch. */
+  clearLocation: () => Promise<void>;
   addEquipment: (input: EquipmentInput) => Promise<GymEquipment>;
   updateEquipment: (equipmentId: string, input: EquipmentUpdate) => Promise<void>;
   removeEquipment: (equipmentId: string) => Promise<void>;
@@ -101,6 +108,19 @@ export function useGym(gymId: string | undefined): UseGymReturn {
     await deleteGym(requireId());
   }, [requireId]);
 
+  const setLocation = useCallback(
+    async (input: GymLocationInput) => {
+      await setGymLocation(requireId(), input);
+      await refresh();
+    },
+    [requireId, refresh],
+  );
+
+  const clearLocation = useCallback(async () => {
+    await clearGymLocation(requireId());
+    await refresh();
+  }, [requireId, refresh]);
+
   const addEquipment = useCallback(
     async (input: EquipmentInput) => {
       const row = await addGymEquipment(requireId(), input);
@@ -160,6 +180,8 @@ export function useGym(gymId: string | undefined): UseGymReturn {
     update,
     setDefault,
     remove,
+    setLocation,
+    clearLocation,
     addEquipment,
     updateEquipment,
     removeEquipment,

@@ -28,6 +28,7 @@ export default function GymNewPage() {
           <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
             <GymForm
               submitLabel="Save"
+              showLocation
               onCancel={() => navigate('/gyms')}
               onSubmit={async (input) => {
                 await createGym(input);

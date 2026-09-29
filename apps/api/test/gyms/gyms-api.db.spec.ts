@@ -354,4 +354,32 @@ describeWithDb('gyms services (real Postgres)', () => {
       }),
     ).rejects.toThrow();
   });
+
+  // ---------------------------------------------------------------------------
+  // Location (E3.5)
+  // ---------------------------------------------------------------------------
+
+  it('sets a location rounded to 5 decimals, clears it, and 404s for another user', async () => {
+    const userId = await makeUser('location');
+    const otherId = await makeUser('location-other');
+    const gym = await gyms.create(userId, { name: 'Home', type: 'home' });
+
+    const set = await gyms.setLocation(userId, gym.id, { latitude: 9.934123456, longitude: -84.080126789, accuracyMeters: 12 });
+    expect(set).toEqual(expect.objectContaining({ latitude: 9.93412, longitude: -84.08013, accuracyMeters: 12 }));
+    expect(await client.gym.findUniqueOrThrow({ where: { id: gym.id }, select: { latitude: true, longitude: true } })).toEqual({
+      latitude: 9.93412,
+      longitude: -84.08013,
+    });
+
+    await expect(gyms.setLocation(otherId, gym.id, { latitude: 0, longitude: 0 })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(gyms.clearLocation(otherId, gym.id)).rejects.toBeInstanceOf(NotFoundException);
+
+    const cleared = await gyms.clearLocation(userId, gym.id);
+    expect(cleared).toEqual(expect.objectContaining({ latitude: null, longitude: null, accuracyMeters: null }));
+    expect(await client.gym.findUniqueOrThrow({ where: { id: gym.id }, select: { latitude: true, longitude: true } })).toEqual({
+      latitude: null,
+      longitude: null,
+    });
+  });
 });
+
