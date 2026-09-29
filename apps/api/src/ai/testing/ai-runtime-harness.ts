@@ -400,7 +400,13 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
       db.keys.find((k) => k.userId === userId && k.provider === provider)?.secret ?? null,
     ),
   };
-  const resolver = new AiKeyResolver(userKeys as never, aiConfig);
+  // Who holds `ai_config:write` (#593, resolver rule 2). Nobody by default, so
+  // every suite that predates the rule keeps its non-administrator semantics.
+  const aiConfigWriters = new Set<string>();
+  const configWriters = {
+    holdsAiConfigWrite: jest.fn(async (userId: string) => aiConfigWriters.has(userId)),
+  };
+  const resolver = new AiKeyResolver(userKeys as never, aiConfig, configWriters as never);
   const usableModels = new UsableModelsService(prisma as never, aiConfig, registry, resolver);
   const recorder = new AiUsageRecorder(prisma as never);
   const runs = new AiRunsService(prisma as never, jobs as never);
@@ -455,6 +461,16 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     },
     setOrgKey(value: string | null) {
       orgKey = value;
+    },
+    configWriters,
+    /** Grant (true) or revoke (false) `ai_config:write` for `userId` (#593). */
+    setAiConfigWriter(userId: string, holds: boolean) {
+      if (holds) aiConfigWriters.add(userId);
+      else aiConfigWriters.delete(userId);
+    },
+    /** Nobody holds `ai_config:write` any more (the default). */
+    clearAiConfigWriters() {
+      aiConfigWriters.clear();
     },
     setDefaultModel(userId: string, value: { provider: string; modelId: string } | null) {
       settings.set(userId, { theme: 'system', ai: { defaultModel: value } });

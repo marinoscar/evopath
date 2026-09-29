@@ -160,9 +160,11 @@ export class UserAiKeysController {
     description:
       'Every model you can call right now: admin-enabled, not deprecated, and reachable ' +
       'with **your** key for its provider (`keySource: "user"`). When you have no key for ' +
-      'a provider and the deployment\'s key policy is `byok_with_org_fallback` with an ' +
-      'organisation key stored, every admin-enabled model of that provider is listed with ' +
-      '`keySource: "org"`. Otherwise that provider contributes nothing. Sorted by provider, ' +
+      'a provider and an organisation key is stored for it, every admin-enabled model of ' +
+      'that provider is listed with `keySource: "org"` when the deployment\'s key policy is ' +
+      '`byok_with_org_fallback`, or — under either policy — when you hold `ai_config:write` ' +
+      '(the administrator who configured the organisation key). Otherwise that provider ' +
+      'contributes nothing. Sorted by provider, ' +
       'then model id. `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
   })
   @ApiDataResponse(UsableAiModelDto, { isArray: true, description: 'The models you can use' })

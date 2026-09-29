@@ -26,8 +26,10 @@ export const aiPublicProviderSchema = z.object({
   enabled: z.boolean(),
   /**
    * Whether an admin (org) key is stored for this provider. Whether it can
-   * actually serve THIS user is a function of `keyPolicy`: only under
-   * `byok_with_org_fallback`.
+   * actually serve THIS user depends on `keyPolicy` and the user: under
+   * `byok_with_org_fallback` it serves everyone without a key of their own;
+   * under either policy it serves a holder of `ai_config:write` (#593). The
+   * per-user answer is `GET /api/ai/models`' `keySource`.
    */
   hasOrgKey: z.boolean(),
   /**
