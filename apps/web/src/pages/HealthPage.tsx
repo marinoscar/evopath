@@ -22,6 +22,7 @@ import {
 } from '../components/health/LatestMeasurementTiles';
 import { LogMeasurementDialog } from '../components/health/LogMeasurementDialog';
 import { LogMeasurementButton } from '../components/health/LogMeasurementButton';
+import { CheckInSection } from '../components/health/CheckInSection';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -90,6 +91,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
             />
           </Box>
         )}
+        {/* E2.4 (#56): today's check-in and the recent ones. */}
+        {!forbidden && <CheckInSection canWrite={canLog} />}
       </Stack>
 
       <LogMeasurementDialog

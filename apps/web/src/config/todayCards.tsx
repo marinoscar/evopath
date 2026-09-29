@@ -6,6 +6,7 @@ import MonitorWeightIcon from '@mui/icons-material/MonitorWeight';
 import PlaceIcon from '@mui/icons-material/Place';
 import type { RoadmapArea } from './roadmap';
 import { TodayBodySnapshot } from '../components/today/TodayBodySnapshot';
+import { TodayReadiness } from '../components/today/TodayReadiness';
 
 /**
  * Cards on the Today page. Append-only order: workout, readiness, body, gym.
@@ -43,6 +44,8 @@ export const TODAY_CARDS: readonly TodayCardDef[] = [
     to: '/health',
     linkLabel: 'Open Health',
     area: 'health',
+    // E2.4 (#56): today's check-in scores, and the check-in dialog.
+    Content: TodayReadiness,
   },
   {
     key: 'body',
