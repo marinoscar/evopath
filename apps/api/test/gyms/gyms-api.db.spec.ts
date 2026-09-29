@@ -13,8 +13,10 @@
 // row (the provider is not what is under test).
 //
 // THIS IS A `*.db.spec.ts` FILE — skipped with a warning when no Postgres is
-// reachable; see `test/jobs/db-test-support.ts`. Needs a database migrated
-// AND seeded (the catalog search reads seeded rows).
+// reachable; see `test/jobs/db-test-support.ts`. Needs a database migrated;
+// it does not need it seeded: CI runs `test:db` before `prisma:seed`, so
+// `beforeAll` idempotently writes the catalog rows it reads (the same rows the
+// seed writes, from `prisma/seed-data.ts`, so a later seed run is consistent).
 // =============================================================================
 
 import { randomUUID } from 'node:crypto';
@@ -29,6 +31,7 @@ import { GymStorageService } from '../../src/gyms/gym-storage.service';
 import { GymsService } from '../../src/gyms/gyms.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { ObjectsService } from '../../src/storage/objects/objects.service';
+import { CAPABILITY_CATALOG, EQUIPMENT_CATALOG } from '../../prisma/seed-data';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('gyms-api.db.spec');
@@ -70,8 +73,53 @@ describeWithDb('gyms services (real Postgres)', () => {
     return client.equipmentType.findUniqueOrThrow({ where: { slug } });
   }
 
-  beforeAll(() => {
+  // Mirrors `seedCatalogs()` in prisma/seed.ts, insert-only: existing rows
+  // (seeded or not) are left alone, so this never fights the seed suite.
+  async function ensureCatalog() {
+    await client.capability.createMany({
+      data: CAPABILITY_CATALOG.map((cap) => ({
+        slug: cap.slug,
+        name: cap.name,
+        movementPattern: cap.movementPattern,
+        primaryMuscles: cap.primaryMuscles,
+        description: cap.description ?? null,
+        sortOrder: cap.sortOrder,
+      })),
+      skipDuplicates: true,
+    });
+    await client.equipmentType.createMany({
+      data: EQUIPMENT_CATALOG.map((item) => ({
+        slug: item.slug,
+        name: item.name,
+        category: item.category,
+        aliases: item.aliases,
+        description: item.description ?? null,
+        sortOrder: item.sortOrder,
+      })),
+      skipDuplicates: true,
+    });
+    const capabilityIds = new Map(
+      (await client.capability.findMany({ select: { id: true, slug: true } })).map((c) => [c.slug, c.id]),
+    );
+    const typeIds = new Map(
+      (await client.equipmentType.findMany({ where: { ownerUserId: null }, select: { id: true, slug: true } })).map(
+        (t) => [t.slug, t.id],
+      ),
+    );
+    await client.equipmentTypeCapability.createMany({
+      data: EQUIPMENT_CATALOG.flatMap((item) =>
+        item.capabilities.map((slug) => ({
+          equipmentTypeId: typeIds.get(item.slug)!,
+          capabilityId: capabilityIds.get(slug)!,
+        })),
+      ),
+      skipDuplicates: true,
+    });
+  }
+
+  beforeAll(async () => {
     client = createDbClient();
+    await ensureCatalog();
     const prisma = client as unknown as PrismaService;
     const objects = {
       delete: async (id: string) => {
