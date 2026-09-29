@@ -5,6 +5,7 @@ import BatteryChargingFullIcon from '@mui/icons-material/BatteryChargingFull';
 import MonitorWeightIcon from '@mui/icons-material/MonitorWeight';
 import PlaceIcon from '@mui/icons-material/Place';
 import type { RoadmapArea } from './roadmap';
+import { TodayBodySnapshot } from '../components/today/TodayBodySnapshot';
 
 /**
  * Cards on the Today page. Append-only order: workout, readiness, body, gym.
@@ -51,6 +52,8 @@ export const TODAY_CARDS: readonly TodayCardDef[] = [
     to: '/health',
     linkLabel: 'Open Health',
     area: 'health',
+    // E2.3 (#53): the latest weight, body fat and waist, and quick entry.
+    Content: TodayBodySnapshot,
   },
   {
     key: 'gym',
