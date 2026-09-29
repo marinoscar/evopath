@@ -511,7 +511,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Access | Routes |
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
-| Signed in | `/` (home), `/activate` (device approval), `/ai` (AI Playground, `ai:use` and AI enabled), `/settings` hub and its pages |
+| Signed in | `/` (Today), `/train`, `/health`, `/gyms` (placeholder pages until their features ship), `/activate` (device approval), `/ai` (AI Playground, `ai:use` and AI enabled), `/settings` hub and its pages |
 | Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
@@ -552,6 +552,8 @@ Cards gate reachability; pages gate their own write controls (for example, a `jo
 ### 9.3 Layout and breakpoint
 
 The layout switches between a phone treatment (bottom navigation, compact AppBar, drill-down settings list) and a wider treatment (navigation rail, card grid) at MUI's `sm` breakpoint, 600px. Five gates move together: `showRail` in `apps/web/src/components/common/Layout.tsx`, the self-gate in `components/navigation/BottomNav.tsx`, `<main>`'s bottom padding in `Layout.tsx`, and `isCompactWindow` in both `components/settings/SettingsHub.tsx` and `components/navigation/AppBar.tsx`. Change one only after checking all five. See [specs/settings-ui.md](specs/settings-ui.md).
+
+Destinations are declared once, in `apps/web/src/config/destinations.ts`; the rail, the bottom bar and the user menu all read that list. Four are `primary`: Today, Train, Health and Gyms. They make up the phone bottom bar, and `PRIMARY_DESTINATION_LIMIT` (4) caps how many may be, because more labelled tabs do not fit at 360px; a test enforces the ceiling. The other destinations (Settings, Console, AI) are not in the bottom bar. On phones they are entries in the user menu; at `sm` and up they sit in the rail, with Console pinned at its foot.
 
 ### 9.4 Contexts and API client
 

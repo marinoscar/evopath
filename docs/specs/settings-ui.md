@@ -8,7 +8,7 @@ Every settings surface in the app, admin or per-user, is a searchable, permissio
 
 A settings page in an app built from this template is a **card in a registry**, not a route left to find its own way. The problem this solves: when a route, a tab, a sidebar entry and a menu entry are each declared separately with their own permission check, they drift. A page ends up reachable by URL but missing from search, absent from the rail, and titled wrongly in the compact header, because none of those consumers has any way to know it exists.
 
-The same fix already applies one level up. `apps/web/src/config/destinations.ts` makes the sidebar, the bottom bar and the user menu read one `DESTINATIONS` array through one `isDestinationVisible` predicate. Its header records the casualty that motivated it: a Contributor holding `system_settings:read` once had a working System Settings page, a menu entry pointing at it, and no sidebar row. Three gates, three answers. The settings registries apply that fix inside `/admin/settings` and `/settings`.
+The same fix already applies one level up: the app's navigation destinations are declared once, in `apps/web/src/config/destinations.ts`, and every surface reads that list through one visibility predicate. Its header records the casualty that motivated it: a Contributor holding `system_settings:read` once had a working System Settings page, a menu entry pointing at it, and no sidebar row. Three gates, three answers. Which destinations exist and where each appears is described in [ARCHITECTURE §9.3](../ARCHITECTURE.md#93-layout-and-breakpoint). The settings registries apply the same fix inside `/admin/settings` and `/settings`.
 
 What it is not:
 

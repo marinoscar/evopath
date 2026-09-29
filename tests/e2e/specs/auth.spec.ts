@@ -15,7 +15,7 @@ test.describe('Test Authentication', () => {
   test('can login as viewer (default role)', async ({ page }) => {
     await loginAsTestUser(page, { email: 'viewer-test@test.local' });
 
-    // Should be redirected to home page
+    // Should be redirected to the Today page
     await expect(page).toHaveURL('/');
 
     // Should be logged in
@@ -25,7 +25,7 @@ test.describe('Test Authentication', () => {
   test('can login as admin', async ({ page }) => {
     await loginAsAdmin(page, 'admin-test@test.local');
 
-    // Should be redirected to home page
+    // Should be redirected to the Today page
     await expect(page).toHaveURL('/');
 
     // Should be logged in
@@ -38,7 +38,7 @@ test.describe('Test Authentication', () => {
     // Navigate to admin page
     await page.goto('/admin/users');
 
-    // Should be able to access admin page
-    await expect(page).toHaveURL('/admin/users');
+    // Should be able to access admin page (/admin/users redirects to the Users settings page)
+    await expect(page).toHaveURL('/admin/settings/users');
   });
 });
