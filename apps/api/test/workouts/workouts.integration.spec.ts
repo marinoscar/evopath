@@ -566,7 +566,25 @@ describe('Workouts (integration)', () => {
         .send({ notes: 'Good' })
         .expect(200);
 
-      expect(response.body.data.summary).toEqual({ durationSeconds: 3000, exerciseCount: 1, setCount: 1, volumeKg: 317.5 });
+      // No earlier workout (the grouped PR query finds no rows): the set is a first time.
+      expect(response.body.data.summary).toEqual({
+        durationSeconds: 3000,
+        exerciseCount: 1,
+        setCount: 1,
+        volumeKg: 317.5,
+        prs: [
+          {
+            exerciseId: EXERCISE,
+            exerciseName: 'Bench press',
+            workoutExerciseId: WE,
+            setId: SET,
+            setNumber: 1,
+            type: 'first_time',
+            value: 31.75,
+            previous: null,
+          },
+        ],
+      });
       expect(prisma.setLog.deleteMany.mock.calls[0][0].where).toEqual({
         workoutExercise: { workoutId: WORKOUT },
         completed: false,
