@@ -17,6 +17,8 @@ export interface HarnessOptions {
   theme?: 'light' | 'dark';
   /** Becomes `user.roles`. Default `['admin']`. */
   roles?: string[];
+  /** Mount the real `AiConfigProvider` (`?ai=on`); the spec answers `/api/ai/config`. Default off. */
+  ai?: boolean;
 }
 
 /**
@@ -30,6 +32,7 @@ export function harnessUrl(options: HarnessOptions = {}): string {
   if (options.perms) params.set('perms', options.perms.join(','));
   if (options.theme) params.set('theme', options.theme);
   if (options.roles) params.set('roles', options.roles.join(','));
+  if (options.ai) params.set('ai', 'on');
   const query = params.toString();
   return query ? `/?${query}` : '/';
 }
