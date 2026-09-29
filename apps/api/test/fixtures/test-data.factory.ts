@@ -264,6 +264,17 @@ export const mockPermissions = {
     name: 'exercises:write',
     description: 'Create, edit and delete own custom exercises',
   },
+  // E4.2 — own workout logging; seeded to all three roles.
+  workoutsRead: {
+    id: randomUUID(),
+    name: 'workouts:read',
+    description: 'Read own workouts, exercises and sets',
+  },
+  workoutsWrite: {
+    id: randomUUID(),
+    name: 'workouts:write',
+    description: 'Create, edit and delete own workouts, exercises and sets',
+  },
 };
 
 export const mockRoles = {
@@ -596,6 +607,8 @@ export const rolePermissionsMap = {
     mockPermissions.gymsWrite,
     mockPermissions.exercisesRead,
     mockPermissions.exercisesWrite,
+    mockPermissions.workoutsRead,
+    mockPermissions.workoutsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -612,6 +625,8 @@ export const rolePermissionsMap = {
     mockPermissions.gymsWrite,
     mockPermissions.exercisesRead,
     mockPermissions.exercisesWrite,
+    mockPermissions.workoutsRead,
+    mockPermissions.workoutsWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -635,6 +650,8 @@ export const rolePermissionsMap = {
     mockPermissions.gymsWrite,
     mockPermissions.exercisesRead,
     mockPermissions.exercisesWrite,
+    mockPermissions.workoutsRead,
+    mockPermissions.workoutsWrite,
   ],
 };
 

@@ -208,6 +208,10 @@ export const PERMISSIONS = {
   // Exercise library (E4.1): library read plus own custom exercises.
   EXERCISES_READ: 'exercises:read',
   EXERCISES_WRITE: 'exercises:write',
+
+  // Workout logging (E4.2): the caller's own workouts, self-service.
+  WORKOUTS_READ: 'workouts:read',
+  WORKOUTS_WRITE: 'workouts:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
