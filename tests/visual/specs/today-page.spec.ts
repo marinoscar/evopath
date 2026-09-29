@@ -21,6 +21,8 @@ import { mockHealthApi } from '../support/health';
  * `/api/measurements/*` and `/api/health-profile` calls are answered by
  * `support/health.ts` (the `data` scenario, an imperial user), so the card
  * renders the same three values on every run instead of a failed fetch.
+ * The Readiness card shows today's check-in since #56 (E2.4): the same
+ * fixture answers `/api/check-ins/today` with four scores and a note.
  */
 
 test.use({ timezoneId: 'UTC', locale: 'en-US' });
@@ -42,6 +44,7 @@ async function openToday(page: Page, options: { theme?: 'light' | 'dark' } = {})
     await expect(main.getByRole('region', { name })).toBeVisible();
   }
   await expect(main.getByRole('region', { name: 'Body snapshot' }).getByText('208.4 lb')).toBeVisible();
+  await expect(main.getByRole('region', { name: 'Readiness' }).getByText('Energy 4')).toBeVisible();
 }
 
 test.describe('Today page', () => {
