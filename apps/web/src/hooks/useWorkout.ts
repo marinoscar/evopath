@@ -40,12 +40,26 @@ export interface UseWorkoutReturn {
   updateExercise: (weId: string, input: UpdateWorkoutExerciseInput) => Promise<WorkoutExerciseView>;
   removeExercise: (weId: string) => Promise<void>;
   /** An empty body lets the server copy weight/reps/time/distance from the previous set. */
-  addSet: (weId: string, input?: SetInput) => Promise<SetLogView>;
+  addSet: (weId: string, input?: SetInput, options?: AddSetOptions) => Promise<SetLogView>;
   /** Optimistic; reconciles with the server's answer, reverts on failure and rejects. */
   updateSet: (setId: string, input: SetInput) => Promise<SetLogView>;
   deleteSet: (setId: string) => Promise<void>;
   /** Resolves once every mutation in flight has settled. */
   settle: () => Promise<void>;
+  /**
+   * Deletes the rows added automatically after a completed set that are
+   * still untouched and not done; resolves with their ids.
+   */
+  discardUntouchedAutoSets: () => Promise<string[]>;
+}
+
+export interface AddSetOptions {
+  /**
+   * The client added this row by itself (after the previous set was
+   * completed). Until the user edits it, Finish discards it instead of
+   * asking about it.
+   */
+  auto?: boolean;
 }
 
 /** How long after an edit to a completed workout its totals are read again. */
@@ -111,6 +125,7 @@ export function useWorkout(id: string | undefined): UseWorkoutReturn {
   const confirmed = useRef(new Map<string, SetLogView>());
   const latestSetRequest = useRef(new Map<string, number>());
   const requestSeq = useRef(0);
+  const autoAdded = useRef(new Set<string>());
   const summaryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const remember = useCallback((w: Workout) => {
@@ -317,9 +332,10 @@ export function useWorkout(id: string | undefined): UseWorkoutReturn {
   );
 
   const addSet = useCallback(
-    async (weId: string, input: SetInput = {}) => {
+    async (weId: string, input: SetInput = {}, options: AddSetOptions = {}) => {
       const set = await track(addSetCall(requireId(), weId, input));
       confirmed.current.set(set.id, set);
+      if (options.auto) autoAdded.current.add(set.id);
       if (isMounted()) {
         setWorkout((prev) =>
           prev
@@ -343,6 +359,8 @@ export function useWorkout(id: string | undefined): UseWorkoutReturn {
       const workoutId = requireId();
       const requestId = ++requestSeq.current;
       latestSetRequest.current.set(setId, requestId);
+      // Any edit makes an auto-added row the user's own.
+      autoAdded.current.delete(setId);
       setWorkout((prev) => (prev ? mapSets(prev, (s) => (s.id === setId ? applySetInput(s, input) : s)) : prev));
       try {
         const saved = await track(updateSetCall(workoutId, setId, input));
@@ -370,6 +388,7 @@ export function useWorkout(id: string | undefined): UseWorkoutReturn {
       try {
         await track(deleteSetCall(workoutId, setId));
         confirmed.current.delete(setId);
+        autoAdded.current.delete(setId);
         scheduleSummaryRefresh();
       } catch (err) {
         if (isMounted() && !isWorkoutNotFound(err)) await load(true);
@@ -378,6 +397,27 @@ export function useWorkout(id: string | undefined): UseWorkoutReturn {
     },
     [requireId, track, isMounted, load, scheduleSummaryRefresh],
   );
+
+  const discardUntouchedAutoSets = useCallback(async () => {
+    const current = workoutRef.current;
+    if (!current) return [];
+    const ids: string[] = [];
+    for (const entry of current.exercises) {
+      for (const set of entry.sets) {
+        if (autoAdded.current.has(set.id) && !set.completed) ids.push(set.id);
+      }
+    }
+    const discarded: string[] = [];
+    for (const setId of ids) {
+      try {
+        await deleteSet(setId);
+        discarded.push(setId);
+      } catch {
+        // Kept: it is then asked about like any other pending set.
+      }
+    }
+    return discarded;
+  }, [deleteSet]);
 
   return {
     workout,
@@ -396,6 +436,7 @@ export function useWorkout(id: string | undefined): UseWorkoutReturn {
     updateSet,
     deleteSet,
     settle,
+    discardUntouchedAutoSets,
   };
 }
 

@@ -89,18 +89,41 @@ describe('WorkoutPage', () => {
     await user.click(within(card).getByRole('button', { name: 'Complete set 3' }));
     await within(card).findByRole('textbox', { name: 'Set 4 weight in lb' });
 
+    // The untouched prefilled row 4 is dropped, not asked about.
     await user.click(screen.getByRole('button', { name: 'Finish' }));
-    const confirm = await screen.findByRole('dialog', { name: 'Finish workout?' });
-    expect(confirm).toHaveTextContent('1 set is not marked done. Mark it done, or leave it?');
-    await user.click(within(confirm).getByRole('button', { name: 'Leave them' }));
-
     const summary = await screen.findByRole('dialog', { name: 'Workout finished' });
+    expect(screen.queryByRole('dialog', { name: 'Finish workout?' })).toBeNull();
+    expect(api.calls.filter((c) => c.method === 'DELETE' && c.path.includes('/sets/'))).toHaveLength(1);
+    expect(api.workouts[0].exercises[0].sets).toHaveLength(3);
     expect(summary).toHaveTextContent('Sets3');
     expect(summary).toHaveTextContent('Exercises1');
     expect(summary).toHaveTextContent(`Volume${(2030).toLocaleString()} lb`);
     await user.click(within(summary).getByRole('button', { name: 'Done' }));
     expect(await screen.findByText('Completed')).toBeInTheDocument();
     expect(api.workouts[0].status).toBe('completed');
+  });
+
+  it('an auto-added row the user edited but did not mark done still asks', async () => {
+    const workout = mockWorkout({
+      exercises: [mockEntry(bench, { sets: [mockSet({ weightKg: 50, reps: 5 })] })],
+    });
+    const api = statefulWorkoutsApi([workout], { exercises: LIBRARY });
+    const user = userEvent.setup();
+    renderPage(workout.id);
+    await user.click(await screen.findByRole('button', { name: 'Complete set 1' }));
+    const reps2 = await screen.findByRole('textbox', { name: 'Set 2 reps' });
+    await user.clear(reps2);
+    await user.type(reps2, '4');
+    await user.tab();
+    await waitFor(() => expect(api.calls.some((c) => (c.body as { reps?: number })?.reps === 4)).toBe(true));
+    await user.click(screen.getByRole('button', { name: 'Finish' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Finish workout?' });
+    expect(confirm).toHaveTextContent('1 set is not marked done. Mark it done, or leave it?');
+    expect(api.calls.some((c) => c.method === 'DELETE')).toBe(false);
+    await user.click(within(confirm).getByRole('button', { name: 'Leave them' }));
+    const summary = await screen.findByRole('dialog', { name: 'Workout finished' });
+    expect(summary).toHaveTextContent('Sets1');
+    expect(api.workouts[0].exercises[0].sets).toHaveLength(2);
   });
 
   it('Mark done completes the pending sets before finishing', async () => {

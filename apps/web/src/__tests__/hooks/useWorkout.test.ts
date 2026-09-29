@@ -112,6 +112,32 @@ describe('useWorkout', () => {
     expect(sets[1]).toMatchObject({ setNumber: 2, weightKg: 31.751, reps: 10, completed: false });
   });
 
+  it('discards only untouched auto-added rows that are not done', async () => {
+    const { workout, weId, api } = seeded();
+    const { result } = await renderLoaded(workout.id);
+    let untouched = '';
+    let edited = '';
+    let manual = '';
+    await act(async () => {
+      untouched = (await result.current.addSet(weId, {}, { auto: true })).id;
+      edited = (await result.current.addSet(weId, {}, { auto: true })).id;
+      manual = (await result.current.addSet(weId)).id;
+    });
+    await act(async () => {
+      await result.current.updateSet(edited, { reps: 4 });
+    });
+    let discarded: string[] = [];
+    await act(async () => {
+      discarded = await result.current.discardUntouchedAutoSets();
+    });
+    expect(discarded).toEqual([untouched]);
+    const ids = result.current.workout!.exercises[0].sets.map((s) => s.id);
+    expect(ids).toContain(edited);
+    expect(ids).toContain(manual);
+    expect(ids).not.toContain(untouched);
+    expect(api.calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+  });
+
   it('deletes a set and renumbers the rest locally', async () => {
     const { workout, weId, setId } = seeded();
     const { result } = await renderLoaded(workout.id);

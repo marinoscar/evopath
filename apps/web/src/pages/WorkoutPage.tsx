@@ -227,9 +227,13 @@ export default function WorkoutPage() {
   };
 
   const handleFinish = async () => {
-    const pending = unfinishedValuedSets(workout);
+    const valued = unfinishedValuedSets(workout);
     setFinishing(true);
     await w.settle();
+    // The prefilled row added after the last completed set is a suggestion:
+    // untouched, it is dropped rather than asked about.
+    const discarded = new Set(await w.discardUntouchedAutoSets());
+    const pending = valued.filter((id) => !discarded.has(id));
     setFinishing(false);
     if (pending.length > 0) setConfirmFinish(pending);
     else await doFinish([]);

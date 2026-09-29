@@ -53,7 +53,7 @@ export interface WorkoutExerciseCardProps {
   onMove: (weId: string, direction: -1 | 1) => void;
   onRemove: (entry: WorkoutExerciseView) => void;
   onUpdateEntry: (weId: string, input: UpdateWorkoutExerciseInput) => Promise<unknown>;
-  onAddSet: (weId: string, input?: SetInput) => Promise<SetLogView>;
+  onAddSet: (weId: string, input?: SetInput, options?: { auto?: boolean }) => Promise<SetLogView>;
   onSaveSet: (setId: string, input: SetInput) => Promise<SetLogView>;
   onDeleteSet: (setId: string) => void;
 }
@@ -207,12 +207,13 @@ export function WorkoutExerciseCard({
   const headingId = `exercise-${entry.id}-heading`;
   const atLimit = entry.sets.length >= MAX_SETS_PER_EXERCISE;
 
-  const addSet = async () => {
+  /** `auto`: added by itself after the last set was completed (Finish may discard it). */
+  const addSet = async (auto = false) => {
     if (adding) return;
     setAdding(true);
     setAddError(null);
     try {
-      const created = await onAddSet(entry.id);
+      const created = await onAddSet(entry.id, {}, { auto });
       setFocusSetId(created.id);
     } catch (err) {
       setAddError(workoutErrorMessage(err, 'Could not add a set'));
@@ -224,7 +225,7 @@ export function WorkoutExerciseCard({
   const onCompleted = (saved: SetLogView) => {
     const sets = entryRef.current.sets;
     const last = sets[sets.length - 1];
-    if (last && last.id === saved.id && sets.length < MAX_SETS_PER_EXERCISE) void addSet();
+    if (last && last.id === saved.id && sets.length < MAX_SETS_PER_EXERCISE) void addSet(true);
   };
 
   const closeMenu = () => setMenuAnchor(null);
