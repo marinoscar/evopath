@@ -8,6 +8,8 @@ import {
   PERMISSIONS,
   ROLE_PERMISSIONS,
   DEFAULT_SYSTEM_SETTINGS,
+  CAPABILITY_CATALOG,
+  EQUIPMENT_CATALOG,
 } from './seed-data';
 
 // Prisma 7 requires a driver adapter — PrismaClient can no longer be
@@ -97,6 +99,91 @@ async function seedRolePermissions() {
   console.log(`✓ Seeded ${count} role-permission mappings`);
 }
 
+/**
+ * Upsert the capability and seeded equipment catalogs by `slug` (E3.2).
+ *
+ * Idempotent: name, category, aliases, description and sortOrder are refreshed
+ * and each equipment type's capability links are re-synced to the catalog.
+ * Never deletes a row, and never touches a custom equipment type
+ * (`ownerUserId != null`): a catalog slug only ever addresses the seeded row.
+ * An unknown capability slug throws before any equipment is written.
+ */
+async function seedCatalogs() {
+  console.log('Seeding capability and equipment catalogs...');
+
+  const capabilityIds = new Map<string, string>();
+  for (const cap of CAPABILITY_CATALOG) {
+    const data = {
+      name: cap.name,
+      movementPattern: cap.movementPattern,
+      primaryMuscles: cap.primaryMuscles,
+      description: cap.description ?? null,
+      sortOrder: cap.sortOrder,
+    };
+    const row = await prisma.capability.upsert({
+      where: { slug: cap.slug },
+      update: data,
+      create: { slug: cap.slug, ...data },
+      select: { id: true },
+    });
+    capabilityIds.set(cap.slug, row.id);
+  }
+
+  // Typo guard: resolve every reference before writing any equipment.
+  for (const item of EQUIPMENT_CATALOG) {
+    for (const slug of item.capabilities) {
+      if (!capabilityIds.has(slug)) {
+        throw new Error(
+          `Equipment "${item.slug}" references unknown capability "${slug}"`,
+        );
+      }
+    }
+  }
+
+  for (const item of EQUIPMENT_CATALOG) {
+    const data = {
+      name: item.name,
+      category: item.category,
+      aliases: item.aliases,
+      description: item.description ?? null,
+      sortOrder: item.sortOrder,
+    };
+    // `slug` is unique across custom and seeded rows; custom slugs are
+    // 'custom-<random>' so they cannot collide with the catalog.
+    const existing = await prisma.equipmentType.findUnique({
+      where: { slug: item.slug },
+      select: { id: true, ownerUserId: true },
+    });
+    if (existing && existing.ownerUserId !== null) {
+      throw new Error(
+        `Catalog slug "${item.slug}" is taken by a user-owned equipment type`,
+      );
+    }
+    const row = await prisma.equipmentType.upsert({
+      where: { slug: item.slug },
+      update: data,
+      create: { slug: item.slug, ...data },
+      select: { id: true },
+    });
+
+    const wanted = item.capabilities.map((slug) => capabilityIds.get(slug)!);
+    await prisma.equipmentTypeCapability.deleteMany({
+      where: { equipmentTypeId: row.id, capabilityId: { notIn: wanted } },
+    });
+    await prisma.equipmentTypeCapability.createMany({
+      data: wanted.map((capabilityId) => ({
+        equipmentTypeId: row.id,
+        capabilityId,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  console.log(
+    `✓ Seeded ${CAPABILITY_CATALOG.length} capabilities and ${EQUIPMENT_CATALOG.length} equipment types`,
+  );
+}
+
 async function seedSystemSettings() {
   console.log('Seeding system settings...');
 
@@ -142,6 +229,7 @@ async function main() {
   await seedRoles();
   await seedPermissions();
   await seedRolePermissions();
+  await seedCatalogs();
   await seedSystemSettings();
   await seedInitialAdminAllowlist();
 

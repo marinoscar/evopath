@@ -146,7 +146,7 @@ Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the c
 
 ### 5.2 Role-based access control
 
-Three roles (Admin, Contributor, Viewer) grant 32 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
+Three roles (Admin, Contributor, Viewer) grant 37 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
 
 - **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts`
 - **Matrix:** [§7](#7-authorization)
@@ -347,7 +347,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
 | RBAC | `Role` | `roles` | Admin, Contributor, Viewer |
-| RBAC | `Permission` | `permissions` | The 32 `resource:action` permissions |
+| RBAC | `Permission` | `permissions` | The 37 `resource:action` permissions |
 | RBAC | `RolePermission` | `role_permissions` | Role-to-permission grants |
 | RBAC | `UserRole` | `user_roles` | User-to-role assignments |
 | Settings | `SystemSettings` | `system_settings` | Keyed JSONB rows for deployment settings |
@@ -375,6 +375,13 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Intake | `PhotoIntake` | `photo_intakes` | One photo-to-draft flow per row: kind, status, kind-specific context, chosen provider and model, analyze job, error, result metadata |
 | Intake | `PhotoIntakePhoto` | `photo_intake_photos` | Link from an intake to a `storage_objects` row, unique per `(intakeId, storageObjectId)`, with sort order |
 | Intake | `DraftItem` | `draft_items` | One reviewable item: origin, status, confidence, uncertainty, source photos, `userVerified`, current `value`, write-once `originalAiValue` |
+| Gyms | `Gym` | `gyms` | One place a user trains: name, type, optional coordinates, `isDefault` (at most one per user, enforced by the raw-SQL partial unique index `gyms_user_default_uniq_idx`), `isTemporary` |
+| Gyms | `EquipmentType` | `equipment_types` | Equipment catalog row keyed by a permanent `slug`: category, aliases; `ownerUserId` null for seeded rows, set for a user's custom equipment |
+| Gyms | `Capability` | `capabilities` | A movement an equipment type enables, keyed by a permanent `slug`: movement pattern and primary muscles |
+| Gyms | `EquipmentTypeCapability` | `equipment_type_capabilities` | Join of equipment type to capability (composite key) |
+| Gyms | `GymEquipment` | `gym_equipment` | Equipment present in a gym: type, quantity (1 to 99), brand, model, origin, confidence, `userVerified`, write-once `originalAiValue` |
+| Gyms | `GymPhoto` | `gym_photos` | Link from a gym to a `storage_objects` row, with caption and taken-at time |
+| Gyms | `GymEquipmentPhoto` | `gym_equipment_photos` | Join of a gym equipment row to the gym photos that show it (composite key) |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -462,10 +469,12 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`, `PUT/DELETE /api/check-ins/:date`) |
 | `intakes:read` | ✓ | ✓ | ✓ | Read own photo intakes and their draft items (`GET /api/intakes*`) |
 | `intakes:write` | ✓ | ✓ | ✓ | Create, edit, apply and discard own photo intakes (`POST/PATCH/DELETE /api/intakes*`); `POST /api/intakes/:id/analyze` also needs `ai:use` |
+| `gyms:read` | ✓ | ✓ | ✓ | Read own gyms, their equipment and the equipment catalog |
+| `gyms:write` | ✓ | ✓ | ✓ | Create, edit and delete own gyms, equipment and custom equipment types |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 

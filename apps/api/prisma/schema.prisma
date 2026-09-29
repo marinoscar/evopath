@@ -37,6 +37,8 @@ model User {
   deviceCodes            DeviceCode[]            @relation("UserDeviceCodes")
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
   photoIntakes           PhotoIntake[]
+  gyms                   Gym[]
+  equipmentTypes         EquipmentType[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
@@ -388,6 +390,7 @@ model StorageObject {
   uploadedBy   User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
   chunks       StorageObjectChunk[]
   intakePhotos PhotoIntakePhoto[]
+  gymPhotos    GymPhoto[]
 
   @@index([uploadedById])
   @@index([status])
@@ -2685,4 +2688,141 @@ model DraftItem {
 
   @@index([intakeId, sortOrder])
   @@map("draft_items")
+}
+
+// =============================================================================
+// Gyms, equipment catalog and capabilities (E3.2)
+// =============================================================================
+//
+// INTENTIONAL DRIFT: `gyms_user_default_uniq_idx` (one default gym per user),
+// the lat/lng CHECKs on `gyms` and the quantity CHECK on `gym_equipment` exist
+// only in the migration SQL. Prisma cannot express a partial unique index or a
+// CHECK constraint. Never "fix" them with `@@unique` and never replace the
+// index with a `findFirst` pre-check.
+
+enum GymType {
+  home
+  club
+  office
+  hotel
+  apartment
+  outdoor
+  other
+}
+
+model Gym {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  name        String // 1..80, validated in Zod
+  type        GymType  @default(other)
+  description String?
+  notes       String?
+  latitude    Float?   @db.DoublePrecision // -90..90 (CHECK in migration SQL)
+  longitude   Float?   @db.DoublePrecision // -180..180 (CHECK in migration SQL)
+  isDefault   Boolean  @default(false) @map("is_default")
+  isTemporary Boolean  @default(false) @map("is_temporary")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment GymEquipment[]
+  photos    GymPhoto[]
+
+  @@index([userId])
+  @@map("gyms")
+}
+
+model Capability {
+  id              String   @id @default(uuid()) @db.Uuid
+  slug            String   @unique // permanent once seeded
+  name            String
+  movementPattern String   @map("movement_pattern") // squat|hinge|horizontal_push|vertical_push|horizontal_pull|vertical_pull|lunge|carry|core|isolation|cardio
+  primaryMuscles  String[] @map("primary_muscles")
+  description     String?
+  sortOrder       Int      @default(0) @map("sort_order")
+
+  equipmentTypes EquipmentTypeCapability[]
+
+  @@map("capabilities")
+}
+
+model EquipmentType {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique // permanent once seeded; custom rows get 'custom-<8 random chars>'
+  name        String
+  category    String // free_weights|benches_racks|plate_loaded|selectorized|cable|cardio|bodyweight|accessories
+  aliases     String[] @default([])
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  ownerUserId String?  @map("owner_user_id") @db.Uuid // null = seeded catalog; set = that user's custom equipment
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  owner        User?                     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  capabilities EquipmentTypeCapability[]
+  gymEquipment GymEquipment[]
+
+  @@index([ownerUserId])
+  @@map("equipment_types")
+}
+
+model EquipmentTypeCapability {
+  equipmentTypeId String @map("equipment_type_id") @db.Uuid
+  capabilityId    String @map("capability_id") @db.Uuid
+
+  equipmentType EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Cascade)
+  capability    Capability    @relation(fields: [capabilityId], references: [id], onDelete: Restrict)
+
+  @@id([equipmentTypeId, capabilityId])
+  @@map("equipment_type_capabilities")
+}
+
+model GymEquipment {
+  id              String   @id @default(uuid()) @db.Uuid
+  gymId           String   @map("gym_id") @db.Uuid
+  equipmentTypeId String   @map("equipment_type_id") @db.Uuid
+  quantity        Int      @default(1) // 1..99 (CHECK in migration SQL)
+  brand           String?
+  model           String?
+  notes           String?
+  origin          String   @default("manual") // 'manual' | 'ai'
+  confidence      String? // 'high'|'medium'|'low', AI only
+  userVerified    Boolean  @default(true) @map("user_verified")
+  originalAiValue Json?    @map("original_ai_value")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  gym           Gym                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  equipmentType EquipmentType       @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  photos        GymEquipmentPhoto[]
+
+  @@index([gymId])
+  @@index([equipmentTypeId])
+  @@map("gym_equipment")
+}
+
+model GymPhoto {
+  id              String    @id @default(uuid()) @db.Uuid
+  gymId           String    @map("gym_id") @db.Uuid
+  storageObjectId String    @unique @map("storage_object_id") @db.Uuid
+  caption         String?
+  takenAt         DateTime? @map("taken_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  gym           Gym                 @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  storageObject StorageObject       @relation(fields: [storageObjectId], references: [id], onDelete: Cascade)
+  equipment     GymEquipmentPhoto[]
+
+  @@index([gymId])
+  @@map("gym_photos")
+}
+
+model GymEquipmentPhoto {
+  gymEquipmentId String @map("gym_equipment_id") @db.Uuid
+  gymPhotoId     String @map("gym_photo_id") @db.Uuid
+
+  gymEquipment GymEquipment @relation(fields: [gymEquipmentId], references: [id], onDelete: Cascade)
+  gymPhoto     GymPhoto     @relation(fields: [gymPhotoId], references: [id], onDelete: Cascade)
+
+  @@id([gymEquipmentId, gymPhotoId])
+  @@map("gym_equipment_photos")
 }
