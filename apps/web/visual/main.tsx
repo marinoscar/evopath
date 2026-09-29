@@ -135,6 +135,12 @@ const DEFAULT_PERMISSIONS = [
   // stopped containing it — green, and wrong.
   'storage_config:read',
   'storage_config:write',
+  // The per-user `Health Profile` card (#47, E2.1) is gated on
+  // `health_data:read`; without it the `user-hub` baseline would silently
+  // regenerate without the `Health` group. `health_data:write` keeps the
+  // harness a user who can edit the form, like every seeded role.
+  'health_data:read',
+  'health_data:write',
   // The `About` card (#401, epic #397) needs NO new string here: it mirrors
   // `system_settings:read`, already first in this list, because that is the
   // literal permission `about/about.controller.ts` enforces. Noted rather than

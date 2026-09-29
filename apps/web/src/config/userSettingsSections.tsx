@@ -24,6 +24,7 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -106,6 +107,24 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         path: '/settings/ai',
         permission: 'ai:use',
         feature: 'ai',
+      },
+    ],
+  },
+  {
+    // Issue #47 (E2.1). A new group, appended after `Security`. Health data is
+    // its own class of data with its own grant: `health_data:read` is the exact
+    // string `GET /api/health-profile` enforces, and a deployment can withhold
+    // it from a role without also blocking theme changes. Writes are gated
+    // inside the page on `health_data:write`, not by a second card.
+    label: 'Health',
+    cards: [
+      {
+        title: 'Health Profile',
+        description:
+          'Date of birth, sex at birth, height, units and time zone, used to interpret your measurements.',
+        Icon: MonitorHeartIcon,
+        path: '/settings/health-profile',
+        permission: 'health_data:read',
       },
     ],
   },
