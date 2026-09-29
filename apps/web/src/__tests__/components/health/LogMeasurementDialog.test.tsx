@@ -20,6 +20,7 @@ import type { HealthProfile, LatestItem } from '../../../services/health';
 import { mockHealthProfileEmpty, mockHealthProfileSaved } from '../../mocks/fixtures/health';
 import { mockLatest, mockMeasurement } from '../../mocks/fixtures/measurements';
 import { toDateTimeLocalValue } from '../../../utils/measurementDates';
+import { groupByEntry, type HistoryEntry } from '../../../utils/measurementSeries';
 
 const IMPERIAL: HealthProfile = mockHealthProfileSaved;
 const METRIC: HealthProfile = { ...mockHealthProfileSaved, unitSystem: 'metric' };
@@ -477,5 +478,212 @@ describe('LogMeasurementDialog', () => {
       rules: { 'color-contrast': { enabled: false } },
     });
     expect(results).toHaveNoViolations();
+  });
+});
+
+// =============================================================================
+// Edit mode (issue #60, E2.5)
+// =============================================================================
+
+type PatchBody = {
+  measuredAt?: string;
+  notes?: string | null;
+  readings?: Array<{ metricKey: string; value: number; unit: string; method?: string }>;
+};
+
+/** Records every PATCH; answers 200 (echo) unless `respond` says otherwise. */
+function capturePatches(respond?: () => Response) {
+  const calls: Array<{ entryId: string; body: PatchBody }> = [];
+  server.use(
+    http.patch('*/api/measurements/entries/:entryId', async ({ request, params }) => {
+      const body = (await request.json()) as PatchBody;
+      calls.push({ entryId: String(params.entryId), body });
+      if (respond) return respond();
+      return HttpResponse.json({
+        data: {
+          entryId: String(params.entryId),
+          items: (body.readings ?? []).map((r) => mockMeasurement(r.metricKey, r.value, { revision: 2, edited: true })),
+        },
+      });
+    }),
+  );
+  return calls;
+}
+
+const AT = '2026-09-20T08:30:00.000Z';
+
+function weightEntry(overrides: Partial<Parameters<typeof mockMeasurement>[2]> = {}): HistoryEntry {
+  return groupByEntry([
+    mockMeasurement('weight', 80, { entryId: 'entry-w', measuredAt: AT, method: 'scale', notes: 'Morning', ...overrides }),
+  ])[0];
+}
+
+function renderEdit(entry: HistoryEntry, props: Partial<LogMeasurementDialogProps> = {}) {
+  return renderDialog({ entry, profile: METRIC, ...props });
+}
+
+describe('LogMeasurementDialog in edit mode', () => {
+  beforeEach(() => {
+    resetMeasurementCatalogCache();
+  });
+
+  it('is titled "Edit entry" and prefills only the entry\'s metrics, method, time and note', async () => {
+    const entry = groupByEntry([
+      mockMeasurement('weight', 80, { entryId: 'e', measuredAt: AT, method: 'scale', notes: 'Morning' }),
+      mockMeasurement('body_fat_pct', 27.8, { entryId: 'e', measuredAt: AT, method: 'smart_scale', notes: 'Morning' }),
+    ])[0];
+    renderEdit(entry);
+    expect(await screen.findByRole('dialog', { name: 'Edit entry' })).toBeInTheDocument();
+    expect(await field('Weight')).toHaveValue('80.0');
+    expect(screen.getByRole('textbox', { name: 'Body fat' })).toHaveValue('27.8');
+    expect(screen.queryByRole('textbox', { name: 'Waist' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Systolic' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Resting heart rate' })).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Weight method' })).toHaveTextContent('Scale');
+    expect(screen.getByRole('combobox', { name: 'Body fat method' })).toHaveTextContent('Smart scale');
+    expect(screen.getByLabelText('Date and time')).toHaveValue(toDateTimeLocalValue(new Date(AT)));
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Morning');
+  });
+
+  it('prefills in the user unit (imperial)', async () => {
+    renderEdit(weightEntry({ value: 94.5327 }), { profile: IMPERIAL });
+    expect(await field('Weight')).toHaveValue('208.4');
+  });
+
+  it('PATCHes only the changed value, shows "Was …", and reports the saved items', async () => {
+    const calls = capturePatches();
+    const { user, onSaved, onClose } = renderEdit(weightEntry());
+    const weight = await field('Weight');
+    await user.clear(weight);
+    await user.type(weight, '81');
+    expect(screen.getByText('Was 80.0 kg')).toBeInTheDocument();
+    await user.click(save());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls).toEqual([
+      { entryId: 'entry-w', body: { readings: [{ metricKey: 'weight', value: 81, unit: 'kg' }] } },
+    ]);
+    expect(onSaved).toHaveBeenCalledWith([expect.objectContaining({ metricKey: 'weight', value: 81 })]);
+  });
+
+  it('a note-only edit sends only the note and no reading', async () => {
+    const calls = capturePatches();
+    const { user, onClose } = renderEdit(weightEntry());
+    const note = await screen.findByRole('textbox', { name: 'Note' });
+    await user.clear(note);
+    await user.type(note, 'Evening');
+    await user.click(save());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.map((c) => c.body)).toEqual([{ notes: 'Evening' }]);
+  });
+
+  it('clearing the note sends notes: null', async () => {
+    const calls = capturePatches();
+    const { user, onClose } = renderEdit(weightEntry());
+    await user.clear(await screen.findByRole('textbox', { name: 'Note' }));
+    await user.click(save());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.map((c) => c.body)).toEqual([{ notes: null }]);
+  });
+
+  it('a method-only change sends the stored canonical value, never a re-rounded one', async () => {
+    const calls = capturePatches();
+    const { user, onClose } = renderEdit(weightEntry({ value: 94.5327 }), { profile: IMPERIAL });
+    await field('Weight');
+    await user.click(screen.getByRole('combobox', { name: 'Weight method' }));
+    await user.click(await screen.findByRole('option', { name: 'Smart scale' }));
+    await user.click(save());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.map((c) => c.body)).toEqual([
+      { readings: [{ metricKey: 'weight', value: 94.5327, unit: 'kg', method: 'smart_scale' }] },
+    ]);
+  });
+
+  it('saving an unchanged form closes without a request', async () => {
+    const calls = capturePatches();
+    const { user, onClose, onSaved } = renderEdit(weightEntry());
+    await field('Weight');
+    await user.click(save());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls).toEqual([]);
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('a value typed back to the original is not a change', async () => {
+    const calls = capturePatches();
+    const { user, onClose } = renderEdit(weightEntry());
+    const weight = await field('Weight');
+    await user.clear(weight);
+    await user.type(weight, '80');
+    expect(screen.queryByText(/^Was /)).toBeNull();
+    await user.click(save());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses an emptied value (a reading cannot be removed by editing)', async () => {
+    const calls = capturePatches();
+    const { user } = renderEdit(weightEntry());
+    await user.clear(await field('Weight'));
+    await user.click(save());
+    expect(await screen.findByText('Enter a value')).toBeInTheDocument();
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps the blood-pressure rule on an edited pair', async () => {
+    const calls = capturePatches();
+    const entry = groupByEntry([
+      mockMeasurement('bp_systolic', 128, { entryId: 'bp', measuredAt: AT }),
+      mockMeasurement('bp_diastolic', 84, { entryId: 'bp', measuredAt: AT }),
+    ])[0];
+    const { user } = renderEdit(entry);
+    const systolic = await field('Systolic');
+    await waitFor(() => expect(systolic).toHaveFocus());
+    await user.clear(systolic);
+    await user.type(systolic, '80');
+    await user.click(save());
+    expect(await screen.findByText('Systolic must be higher than diastolic')).toBeInTheDocument();
+    expect(calls).toEqual([]);
+  });
+
+  it('on 404 closes and reports the entry as gone', async () => {
+    capturePatches(() => HttpResponse.json({ message: 'Not found' }, { status: 404 }));
+    const onStale = vi.fn();
+    const { user, onClose, onSaved } = renderEdit(weightEntry(), { onStale });
+    const weight = await field('Weight');
+    await user.clear(weight);
+    await user.type(weight, '81');
+    await user.click(save());
+    await waitFor(() => expect(onStale).toHaveBeenCalledWith('gone'));
+    expect(onClose).toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('on 409 closes and asks the caller to reload', async () => {
+    capturePatches(() => HttpResponse.json({ message: 'Conflict' }, { status: 409 }));
+    const onStale = vi.fn();
+    const { user } = renderEdit(weightEntry(), { onStale });
+    const weight = await field('Weight');
+    await user.clear(weight);
+    await user.type(weight, '81');
+    await user.click(save());
+    await waitFor(() => expect(onStale).toHaveBeenCalledWith('conflict'));
+  });
+
+  it('maps a validation 400 onto the field', async () => {
+    capturePatches(() =>
+      HttpResponse.json(
+        {
+          message: 'Validation failed',
+          details: { issues: [{ path: 'readings.0.value', message: 'value is outside the allowed range' }] },
+        },
+        { status: 400 },
+      ),
+    );
+    const { user } = renderEdit(weightEntry());
+    const weight = await field('Weight');
+    await user.clear(weight);
+    await user.type(weight, '81');
+    await user.click(save());
+    expect(await screen.findByText('value is outside the allowed range')).toBeInTheDocument();
   });
 });

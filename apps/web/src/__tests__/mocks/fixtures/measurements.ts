@@ -10,8 +10,11 @@
 import type {
   LatestItem,
   MeasurementDto,
+  MeasurementPage,
+  MeasurementSeries,
   MetricCatalog,
   MetricDef,
+  SeriesPoint,
 } from '../../../services/health';
 
 const BODY_WEIGHT_METHODS = ['unspecified', 'scale', 'smart_scale', 'clinical', 'other'];
@@ -220,3 +223,41 @@ export function mockLatest(
 
 /** A user with nothing logged yet. */
 export const mockLatestEmpty: LatestItem[] = mockLatest();
+
+// -----------------------------------------------------------------------------
+// History and trends (#60, E2.5)
+// -----------------------------------------------------------------------------
+
+/** One `GET /api/measurements/series` point; `value` is canonical. */
+export function mockSeriesPoint(
+  measuredAt: string,
+  value: number,
+  method = 'unspecified',
+): SeriesPoint {
+  return { id: uuid(), measuredAt, value, method, origin: 'manual' };
+}
+
+/** A `GET /api/measurements/series` answer. */
+export function mockSeries(
+  metricKey: string,
+  points: SeriesPoint[],
+  options: { truncated?: boolean } = {},
+): MeasurementSeries {
+  return {
+    metricKey,
+    unit: CANONICAL_UNIT[metricKey] ?? 'score',
+    points,
+    truncated: options.truncated ?? false,
+  };
+}
+
+/** A `GET /api/measurements` page (flat pagination). */
+export function mockListPage(
+  items: MeasurementDto[],
+  options: { page?: number; pageSize?: number; total?: number; totalPages?: number } = {},
+): MeasurementPage {
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? 100;
+  const total = options.total ?? items.length;
+  return { items, total, page, pageSize, totalPages: options.totalPages ?? Math.ceil(total / pageSize) };
+}
