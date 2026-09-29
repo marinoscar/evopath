@@ -72,6 +72,9 @@ const MIGRATIONS_AT_288 = [
   // E2.1 (#47): `health_profiles` — one health profile per user. A schema
   // change about health data, not notifications.
   '20260929125915_add_health_profile',
+  // E2.2 (#50): `measurements` — generic longitudinal health-value store.
+  // A schema change about health data, not notifications.
+  '20260929131912_add_measurements',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
