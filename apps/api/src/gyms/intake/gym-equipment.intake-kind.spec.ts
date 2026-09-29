@@ -109,7 +109,7 @@ describe('GymEquipmentIntakeKind', () => {
       const { kind } = setup();
       const value = gymEquipmentValueSchema.parse({ ...base, capabilitySlugs: ['back_squat'], targetMuscles: ['chest'] });
 
-      expect(await kind.normalizeValue(value, { gymId: GYM })).toMatchObject({
+      expect(await kind.normalizeValue(value, { gymId: GYM }, 'user')).toMatchObject({
         name: 'Leg curl machine',
         capabilitySlugs: ['leg_curl'],
         targetMuscles: ['hamstrings'],
@@ -120,7 +120,7 @@ describe('GymEquipmentIntakeKind', () => {
       const { kind } = setup();
       const value = gymEquipmentValueSchema.parse({ ...base, name: 'Old leg curl' });
 
-      expect((await kind.normalizeValue(value, { gymId: GYM })).name).toBe('Old leg curl');
+      expect((await kind.normalizeValue(value, { gymId: GYM }, 'user')).name).toBe('Old leg curl');
     });
 
     it('keeps an unidentified item\'s capabilities to the vocabulary, drops full_body next to others', async () => {
@@ -132,7 +132,7 @@ describe('GymEquipmentIntakeKind', () => {
         capabilitySlugs: ['made_up', 'steady_state_cardio', 'leg_press'],
       });
 
-      expect(await kind.normalizeValue(value, { gymId: GYM })).toMatchObject({
+      expect(await kind.normalizeValue(value, { gymId: GYM }, 'user')).toMatchObject({
         capabilitySlugs: ['leg_press', 'steady_state_cardio'],
         targetMuscles: ['quads', 'glutes'],
       });
@@ -146,7 +146,7 @@ describe('GymEquipmentIntakeKind', () => {
       });
 
       const custom = gymEquipmentValueSchema.parse({ ...base, equipmentTypeSlug: 'custom-abcd1234' });
-      expect(await kind.normalizeValue(custom, { gymId: GYM })).toMatchObject({
+      expect(await kind.normalizeValue(custom, { gymId: GYM }, 'user')).toMatchObject({
         name: 'Sled',
         capabilitySlugs: ['leg_press'],
       });
@@ -155,7 +155,43 @@ describe('GymEquipmentIntakeKind', () => {
       );
 
       const unknown = gymEquipmentValueSchema.parse({ ...base, equipmentTypeSlug: 'hovercraft' });
-      await expect(kind.normalizeValue(unknown, { gymId: GYM })).rejects.toBeInstanceOf(BadRequestException);
+      await expect(kind.normalizeValue(unknown, { gymId: GYM }, 'user')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('never throws for an analyzer item with an unknown slug: keeps it as a named "other"', async () => {
+      const { kind } = setup();
+      const stale = gymEquipmentValueSchema.parse({
+        ...base,
+        equipmentTypeSlug: 'removed_machine',
+        name: 'Removed machine',
+        capabilitySlugs: Array.from({ length: 15 }, (_, i) => (i === 0 ? 'leg_press' : `cap_${i}`)),
+      });
+
+      const normalized = await kind.normalizeValue(stale, { gymId: GYM }, 'analyzer');
+
+      expect(normalized).toMatchObject({
+        equipmentTypeSlug: null,
+        name: 'Removed machine',
+        capabilitySlugs: ['leg_press'],
+        targetMuscles: ['quads', 'glutes'],
+      });
+      // Still a valid stored value (the null-slug rules hold).
+      expect(gymEquipmentValueSchema.safeParse(normalized).success).toBe(true);
+
+      const nameless = gymEquipmentValueSchema.parse({ ...base, equipmentTypeSlug: 'hovercraft' });
+      expect(await kind.normalizeValue(nameless, { gymId: GYM }, 'analyzer')).toMatchObject({
+        equipmentTypeSlug: null,
+        name: 'hovercraft',
+      });
+    });
+
+    it('treats an analyzer catalog item exactly like a user one', async () => {
+      const { kind } = setup();
+      const value = gymEquipmentValueSchema.parse(base);
+
+      expect(await kind.normalizeValue(value, { gymId: GYM }, 'analyzer')).toEqual(
+        await kind.normalizeValue(value, { gymId: GYM }, 'user'),
+      );
     });
   });
 });

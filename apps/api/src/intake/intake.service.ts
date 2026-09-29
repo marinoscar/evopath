@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -23,9 +24,17 @@ import {
   DRAFT_ITEM_CONFIDENCES,
   type AiDraftInput,
   type DraftItemStatus,
+  type IntakeAccess,
   type IntakeKind,
   type IntakeStatus,
 } from './intake-kind.interface';
+
+/**
+ * The caller's resolved permissions (`RequestUser.permissions`, what
+ * `PermissionsGuard` checked). Checked against a kind's `requiredPermissions`;
+ * `undefined` holds none.
+ */
+export type CallerPermissions = readonly string[] | undefined;
 import { IntakeKindRegistry } from './intake-kind.registry';
 import { StorageObjectReferences } from './storage-object-references';
 import {
@@ -255,8 +264,9 @@ export class IntakeService {
   // Intakes
   // ---------------------------------------------------------------------------
 
-  async create(userId: string, input: CreateIntakeInput): Promise<PhotoIntakeViewData> {
+  async create(userId: string, input: CreateIntakeInput, permissions?: CallerPermissions): Promise<PhotoIntakeViewData> {
     const kind = this.registry.require(input.kind);
+    assertKindPermissions(kind, 'write', permissions);
     const context = parseWith(kind.contextSchema, input.context, 'context');
 
     if (kind.assertContext) {
@@ -280,11 +290,21 @@ export class IntakeService {
     return toPhotoIntakeView(intake);
   }
 
-  async list(userId: string, query: ListIntakesQuery): Promise<PhotoIntakeSummaryData[]> {
+  async list(userId: string, query: ListIntakesQuery, permissions?: CallerPermissions): Promise<PhotoIntakeSummaryData[]> {
+    // Kinds the caller may not read (`requiredPermissions.read`) are left out;
+    // naming one explicitly is a 403.
+    const hidden = this.registry
+      .list()
+      .filter((name) => missingKindPermissions(this.registry.get(name), 'read', permissions).length > 0);
+
+    if (query.kind && hidden.includes(query.kind)) {
+      assertKindPermissions(this.registry.get(query.kind)!, 'read', permissions);
+    }
+
     const rows = await this.prisma.photoIntake.findMany({
       where: {
         userId,
-        ...(query.kind ? { kind: query.kind } : {}),
+        ...(query.kind ? { kind: query.kind } : hidden.length > 0 ? { kind: { notIn: hidden } } : {}),
         ...(query.subjectId ? { subjectId: query.subjectId } : {}),
         ...(query.status ? { status: { in: query.status } } : {}),
       },
@@ -300,7 +320,7 @@ export class IntakeService {
     }));
   }
 
-  async get(userId: string, intakeId: string): Promise<PhotoIntakeViewData> {
+  async get(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<PhotoIntakeViewData> {
     const intake = await this.prisma.photoIntake.findFirst({
       where: { id: intakeId, userId },
       include: INTAKE_DETAIL_INCLUDE,
@@ -310,6 +330,9 @@ export class IntakeService {
       throw intakeNotFound();
     }
 
+    const kind = this.registry.get(intake.kind);
+    if (kind) assertKindPermissions(kind, 'read', permissions);
+
     return toPhotoIntakeView(intake);
   }
 
@@ -317,8 +340,8 @@ export class IntakeService {
    * Discards an intake (anything but `applied`), then deletes, best effort,
    * each of its storage objects that no other intake still links.
    */
-  async discard(userId: string, intakeId: string): Promise<void> {
-    const intake = await this.findOwned(userId, intakeId);
+  async discard(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<void> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (intake.status === 'applied') {
       throw stateConflict(intake.status, 'discard');
@@ -349,8 +372,13 @@ export class IntakeService {
   // Photos
   // ---------------------------------------------------------------------------
 
-  async attachPhoto(userId: string, intakeId: string, storageObjectId: string): Promise<PhotoIntakePhotoViewData> {
-    const intake = await this.findOwned(userId, intakeId);
+  async attachPhoto(
+    userId: string,
+    intakeId: string,
+    storageObjectId: string,
+    permissions?: CallerPermissions,
+  ): Promise<PhotoIntakePhotoViewData> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (!PHOTO_ATTACHABLE.includes(intake.status as IntakeStatus)) {
       throw stateConflict(intake.status, 'add photos to');
@@ -416,8 +444,13 @@ export class IntakeService {
     }
   }
 
-  async detachPhoto(userId: string, intakeId: string, storageObjectId: string): Promise<void> {
-    const intake = await this.findOwned(userId, intakeId);
+  async detachPhoto(
+    userId: string,
+    intakeId: string,
+    storageObjectId: string,
+    permissions?: CallerPermissions,
+  ): Promise<void> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (!PHOTO_DETACHABLE.includes(intake.status as IntakeStatus)) {
       throw stateConflict(intake.status, 'remove photos from');
@@ -448,8 +481,13 @@ export class IntakeService {
    * written in ONE transaction, so a queued job always has a `scanning`
    * intake and a `scanning` intake always has its job.
    */
-  async analyze(userId: string, intakeId: string, input: AnalyzeIntakeInput): Promise<IntakeAnalyzeStartedData> {
-    const intake = await this.findOwned(userId, intakeId);
+  async analyze(
+    userId: string,
+    intakeId: string,
+    input: AnalyzeIntakeInput,
+    permissions?: CallerPermissions,
+  ): Promise<IntakeAnalyzeStartedData> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
     const kind = this.registry.require(intake.kind);
 
     if (!ANALYZABLE.includes(intake.status as IntakeStatus)) {
@@ -520,8 +558,13 @@ export class IntakeService {
   // Draft items
   // ---------------------------------------------------------------------------
 
-  async addItem(userId: string, intakeId: string, input: CreateDraftItemInput): Promise<DraftItemViewData> {
-    const intake = await this.findOwned(userId, intakeId);
+  async addItem(
+    userId: string,
+    intakeId: string,
+    input: CreateDraftItemInput,
+    permissions?: CallerPermissions,
+  ): Promise<DraftItemViewData> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (intake.status === 'applied') {
       throw stateConflict(intake.status, 'add items to');
@@ -557,8 +600,9 @@ export class IntakeService {
     intakeId: string,
     itemId: string,
     input: UpdateDraftItemInput,
+    permissions?: CallerPermissions,
   ): Promise<DraftItemViewData> {
-    const intake = await this.findOwned(userId, intakeId);
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (intake.status === 'applied') {
       throw stateConflict(intake.status, 'edit items of');
@@ -601,8 +645,8 @@ export class IntakeService {
     }
   }
 
-  async deleteItem(userId: string, intakeId: string, itemId: string): Promise<void> {
-    const intake = await this.findOwned(userId, intakeId);
+  async deleteItem(userId: string, intakeId: string, itemId: string, permissions?: CallerPermissions): Promise<void> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (intake.status === 'applied') {
       throw stateConflict(intake.status, 'delete items of');
@@ -618,8 +662,8 @@ export class IntakeService {
   }
 
   /** Accepts every `pending` item; returns the items it changed. */
-  async acceptAll(userId: string, intakeId: string): Promise<DraftItemViewData[]> {
-    const intake = await this.findOwned(userId, intakeId);
+  async acceptAll(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<DraftItemViewData[]> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (intake.status === 'applied') {
       throw stateConflict(intake.status, 'accept items of');
@@ -658,14 +702,16 @@ export class IntakeService {
    * conditional, so it doubles as the lock: a concurrent apply waits on the
    * row and then answers 409; a throw from the kind rolls both back.
    */
-  async apply(userId: string, intakeId: string): Promise<unknown> {
+  async apply(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<unknown> {
     const result = await this.prisma.$transaction(async (tx) => {
       const intake = await tx.photoIntake.findFirst({ where: { id: intakeId, userId } });
 
       if (!intake) throw intakeNotFound();
-      if (!APPLICABLE.includes(intake.status as IntakeStatus)) throw stateConflict(intake.status, 'apply');
 
       const kind = this.registry.require(intake.kind);
+      assertKindPermissions(kind, 'write', permissions);
+
+      if (!APPLICABLE.includes(intake.status as IntakeStatus)) throw stateConflict(intake.status, 'apply');
 
       const pending = await tx.draftItem.count({ where: { intakeId, status: 'pending' } });
 
@@ -757,7 +803,7 @@ export class IntakeService {
         continue;
       }
 
-      const value = kind.normalizeValue ? await kind.normalizeValue(parsed.data, context) : parsed.data;
+      const value = kind.normalizeValue ? await kind.normalizeValue(parsed.data, context, 'analyzer') : parsed.data;
       valid.push({ input, value });
     }
 
@@ -837,6 +883,21 @@ export class IntakeService {
   // Internals
   // ---------------------------------------------------------------------------
 
+  /** `findOwned`, then the kind's own `requiredPermissions` for `access` (a 403). */
+  private async findOwnedFor(
+    userId: string,
+    intakeId: string,
+    access: IntakeAccess,
+    permissions: CallerPermissions,
+  ): Promise<PhotoIntake> {
+    const intake = await this.findOwned(userId, intakeId);
+    const kind = this.registry.get(intake.kind);
+
+    if (kind) assertKindPermissions(kind, access, permissions);
+
+    return intake;
+  }
+
   private async findOwned(userId: string, intakeId: string): Promise<PhotoIntake> {
     const intake = await this.prisma.photoIntake.findFirst({ where: { id: intakeId, userId } });
 
@@ -875,7 +936,7 @@ export class IntakeService {
   private async validateValue(kind: IntakeKind<any, any>, intake: PhotoIntake, raw: unknown): Promise<unknown> {
     const value = parseWith(kind.valueSchema, raw, 'value');
 
-    return kind.normalizeValue ? kind.normalizeValue(value, this.contextOf(kind, intake)) : value;
+    return kind.normalizeValue ? kind.normalizeValue(value, this.contextOf(kind, intake), 'user') : value;
   }
 
   /**
@@ -898,6 +959,32 @@ export class IntakeService {
         );
       }
     }
+  }
+}
+
+/**
+ * The permissions a kind requires for `access` that the caller lacks. A
+ * caller whose permissions are unknown (`undefined`) holds none, so a kind
+ * that declares requirements fails closed for it.
+ */
+function missingKindPermissions(
+  kind: IntakeKind<any, any> | undefined,
+  access: IntakeAccess,
+  permissions: CallerPermissions,
+): string[] {
+  const required = kind?.requiredPermissions?.[access] ?? [];
+  return required.filter((permission) => !(permissions ?? []).includes(permission));
+}
+
+/** 403 in the `PermissionsGuard` wording, with `details.reason: MISSING_KIND_PERMISSIONS`. */
+function assertKindPermissions(kind: IntakeKind<any, any>, access: IntakeAccess, permissions: CallerPermissions): void {
+  const missing = missingKindPermissions(kind, access, permissions);
+
+  if (missing.length > 0) {
+    throw new ForbiddenException({
+      message: `Missing permissions: ${missing.join(', ')}`,
+      details: { reason: 'MISSING_KIND_PERMISSIONS', kind: kind.kind, permissions: missing },
+    });
   }
 }
 

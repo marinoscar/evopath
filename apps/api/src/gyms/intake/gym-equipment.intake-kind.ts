@@ -2,13 +2,14 @@ import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma, type DraftItem } from '@prisma/client';
 import { z } from 'zod';
 
-import type { IntakeApplyArgs, IntakeKind } from '../../intake/intake-kind.interface';
+import type { IntakeApplyArgs, IntakeKind, IntakeValueSource } from '../../intake/intake-kind.interface';
 import { IntakeKindRegistry } from '../../intake/intake-kind.registry';
 import { PrismaService } from '../../prisma/prisma.service';
 import { customSlug } from '../equipment-types.service';
 import {
   CUSTOM_SLUG_PREFIX,
   EQUIPMENT_TYPE_CAPABILITIES_MAX,
+  EQUIPMENT_TYPE_NAME_MAX,
   GYM_REFUSALS,
   MAX_CUSTOM_EQUIPMENT_TYPES_PER_USER,
   MAX_PHOTOS_PER_GYM,
@@ -126,7 +127,17 @@ export class GymEquipmentIntakeKind
     return { subjectType: GYM_INTAKE_SUBJECT_TYPE, subjectId: context.gymId };
   }
 
-  async normalizeValue(value: GymEquipmentValue, context: GymEquipmentIntakeContext): Promise<GymEquipmentValue> {
+  /**
+   * Re-derives the catalog fields. An unknown slug is a 400 for a user's add
+   * or edit; for an analyzer item (`source: 'analyzer'`, e.g. a catalog row
+   * removed mid-scan) it never throws: the item is kept as a named "other"
+   * (slug `null`), so the review still shows it and the user decides.
+   */
+  async normalizeValue(
+    value: GymEquipmentValue,
+    context: GymEquipmentIntakeContext,
+    source: IntakeValueSource,
+  ): Promise<GymEquipmentValue> {
     const vocab = await this.vocabulary.load();
     const slug = value.equipmentTypeSlug;
 
@@ -136,11 +147,25 @@ export class GymEquipmentIntakeKind
 
     const resolved = resolveCatalogType(vocab, slug) ?? (await this.customTypeOfGymOwner(context.gymId, slug));
 
-    if (!resolved) {
+    if (resolved) {
+      return normalizeEquipmentValue(value, vocab, resolved);
+    }
+
+    if (source === 'user') {
       throw invalidSlug(slug);
     }
 
-    return normalizeEquipmentValue(value, vocab, resolved);
+    return normalizeEquipmentValue(
+      {
+        ...value,
+        equipmentTypeSlug: null,
+        name: (value.name || slug).slice(0, EQUIPMENT_TYPE_NAME_MAX),
+        // The null-slug cap, so the stored value still passes `valueSchema`.
+        capabilitySlugs: value.capabilitySlugs.slice(0, EQUIPMENT_TYPE_CAPABILITIES_MAX),
+      },
+      vocab,
+      null,
+    );
   }
 
   async apply({ tx, userId, intake, context, accepted }: IntakeApplyArgs<GymEquipmentIntakeContext>): Promise<GymEquipmentApplyResult> {

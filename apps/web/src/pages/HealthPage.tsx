@@ -7,6 +7,11 @@
  * enables the Log buttons. Later stories append sections below the tiles in
  * the same plain stack, no tabs: tiles, Daily check-in (E2.4), then Trend and
  * History (E2.5, #60, `HealthHistorySections`).
+ *
+ * E2.6 (#64): "Read from photo" sits next to "Log measurement" (and inside the
+ * quick-entry dialog) when AI and the needed permissions allow it
+ * (`useCanReadFromPhoto`); it opens `PhotoReadDialog`, which saves one entry
+ * through the photo-intake apply and refreshes the tiles and History.
  */
 
 import { useState } from 'react';
@@ -25,6 +30,8 @@ import { LogMeasurementDialog } from '../components/health/LogMeasurementDialog'
 import { LogMeasurementButton } from '../components/health/LogMeasurementButton';
 import { CheckInSection } from '../components/health/CheckInSection';
 import { HealthHistorySections } from '../components/health/HealthHistorySections';
+import { PhotoReadButton } from '../components/health/PhotoReadButton';
+import { PhotoReadDialog } from '../components/health/PhotoReadDialog';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -37,6 +44,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
   const latest = useLatestMeasurements();
   const { profile, isLoading: profileLoading } = useHealthProfile();
   const [dialog, setDialog] = useState<{ open: boolean; focusMetric?: MetricKey }>({ open: false });
+  // E2.6 (#64): the photo-read dialog, opened from the header or over the quick-entry dialog.
+  const [photoOpen, setPhotoOpen] = useState(false);
   // Bumped after every change to readings: the Trend chart and History refetch.
   const [readingsVersion, setReadingsVersion] = useState(0);
   const readingsChanged = () => {
@@ -45,6 +54,11 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
   };
 
   const openDialog = (focusMetric?: MetricKey) => setDialog({ open: true, focusMetric });
+  // "Enter manually": the quick-entry dialog, left as it was when it is already open.
+  const enterManually = () => {
+    setPhotoOpen(false);
+    setDialog((prev) => (prev.open ? prev : { open: true }));
+  };
   const forbidden = latest.forbidden || errorStatus === 403;
   // A refetch after a save keeps the tiles on screen; only the first load shows skeletons.
   const loading = catalogLoading || profileLoading || (latest.isLoading && latest.items.length === 0);
@@ -65,9 +79,12 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
           <Typography color="text.secondary">Your body and how you feel</Typography>
         </Box>
         {!forbidden && (
-          <LogMeasurementButton variant="contained" startIcon={<AddIcon />} canLog={canLog} onClick={() => openDialog()}>
-            Log measurement
-          </LogMeasurementButton>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            <PhotoReadButton onClick={() => setPhotoOpen(true)} />
+            <LogMeasurementButton variant="contained" startIcon={<AddIcon />} canLog={canLog} onClick={() => openDialog()}>
+              Log measurement
+            </LogMeasurementButton>
+          </Box>
         )}
       </Box>
 
@@ -120,6 +137,15 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         latest={latest.items}
         profile={profile}
         onClose={() => setDialog((prev) => ({ ...prev, open: false }))}
+        onSaved={readingsChanged}
+        onReadFromPhoto={() => setPhotoOpen(true)}
+      />
+
+      <PhotoReadDialog
+        open={photoOpen && !forbidden}
+        profile={profile}
+        onClose={() => setPhotoOpen(false)}
+        onEnterManually={enterManually}
         onSaved={readingsChanged}
       />
     </>

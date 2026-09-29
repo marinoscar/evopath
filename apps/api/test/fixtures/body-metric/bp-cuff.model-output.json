@@ -1,0 +1,33 @@
+{
+  "readable": true,
+  "deviceKind": "bp_cuff",
+  "readings": [
+    {
+      "metricKey": "bp_systolic",
+      "value": 128,
+      "unit": "mmHg",
+      "confidence": "high",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [1]
+    },
+    {
+      "metricKey": "bp_diastolic",
+      "value": 82,
+      "unit": "mm Hg",
+      "confidence": "high",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [1]
+    },
+    {
+      "metricKey": "resting_hr",
+      "value": 71,
+      "unit": "BPM",
+      "confidence": "medium",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [1]
+    }
+  ]
+}

@@ -130,6 +130,103 @@ describe('MeasurementsService', () => {
 
       expect(result.items[0]).toMatchObject({ origin: 'ai', sourceRef });
     });
+
+    it('takes one provenance per reading, in reading order (photo intake, E2.6)', async () => {
+      echoCreate(prisma);
+      const ai = { kind: 'photo_intake', intakeId: 'i-1', draftItemId: 'd-1' };
+      const manual = { kind: 'photo_intake', intakeId: 'i-1' };
+
+      const result = await service.createEntryInTransaction(
+        prisma as unknown as Prisma.TransactionClient,
+        USER_ID,
+        createMeasurementEntrySchema.parse({
+          readings: [
+            { metricKey: 'weight', value: 80 },
+            { metricKey: 'body_fat_pct', value: 20 },
+          ],
+        }),
+        [
+          { origin: 'ai', sourceRef: ai },
+          { origin: 'manual', sourceRef: manual },
+        ],
+      );
+
+      expect(result.items.map((item) => [item.metricKey, item.origin, item.sourceRef])).toEqual([
+        ['weight', 'ai', ai],
+        ['body_fat_pct', 'manual', manual],
+      ]);
+    });
+
+    it('refuses a provenance list that does not match the readings', async () => {
+      await expect(
+        service.createEntryInTransaction(
+          prisma as unknown as Prisma.TransactionClient,
+          USER_ID,
+          createMeasurementEntrySchema.parse({ readings: [{ metricKey: 'weight', value: 80 }] }),
+          [],
+        ),
+      ).rejects.toThrow('one provenance per reading');
+      expect(prisma.measurement.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateEntry on a photo-read row (E2.6)', () => {
+    // The AI read 208.4 lb (94.5286 kg canonical) and the user saved it unedited.
+    const aiDraft = { metricKey: 'weight', value: 208.4, unit: 'lb', method: 'scale' };
+    const sourceRef = {
+      kind: 'photo_intake',
+      intakeId: 'i-1',
+      draftItemId: 'd-1',
+      storageObjectIds: ['obj-1'],
+      aiDraft,
+      confidence: 'high',
+      userEdited: false,
+    };
+
+    async function patch(existing: ReturnType<typeof row>, body: Record<string, unknown>) {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([existing]);
+      (prisma.measurement.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      echoCreate(prisma);
+      return service.updateEntry(USER_ID, ENTRY_ID, updateMeasurementEntrySchema.parse(body));
+    }
+
+    it('keeps origin ai and flips userEdited to true when the value changes', async () => {
+      const result = await patch(row({ value: 94.5286, origin: 'ai', sourceRef }), {
+        readings: [{ metricKey: 'weight', value: 95 }],
+      });
+
+      expect(result.items[0]).toMatchObject({
+        origin: 'ai',
+        sourceRef: { ...sourceRef, userEdited: true },
+      });
+    });
+
+    it('flips userEdited back to false when the value is edited back to the AI reading, in any unit', async () => {
+      const edited = row({ value: 95, origin: 'ai', sourceRef: { ...sourceRef, userEdited: true } });
+
+      const inPounds = await patch(edited, { readings: [{ metricKey: 'weight', value: 208.4, unit: 'lb' }] });
+      expect(inPounds.items[0].sourceRef).toEqual({ ...sourceRef, userEdited: false });
+
+      const inKg = await patch(edited, { readings: [{ metricKey: 'weight', value: 94.5286 }] });
+      expect(inKg.items[0].sourceRef).toEqual({ ...sourceRef, userEdited: false });
+    });
+
+    it('leaves sourceRef untouched when the edit does not change the reading (notes only)', async () => {
+      const result = await patch(row({ value: 95, origin: 'ai', sourceRef: { ...sourceRef, userEdited: true } }), {
+        notes: 'after run',
+      });
+
+      expect(result.items[0].sourceRef).toEqual({ ...sourceRef, userEdited: true });
+    });
+
+    it('leaves a manual row and its sourceRef alone', async () => {
+      const manualRef = { kind: 'photo_intake', intakeId: 'i-1' };
+      const result = await patch(row({ value: 80, origin: 'manual', sourceRef: manualRef }), {
+        readings: [{ metricKey: 'weight', value: 81 }],
+      });
+
+      expect(result.items[0]).toMatchObject({ origin: 'manual', sourceRef: manualRef });
+    });
   });
 
   describe('updateEntry', () => {

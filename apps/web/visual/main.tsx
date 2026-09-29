@@ -38,6 +38,10 @@
  *                              than permission, confirmed by reading both files
  *                              rather than assumed. No current spec relies on
  *                              this param.
+ *   ?ai=on                     Mount the real `AiConfigProvider` (issue #64),
+ *                              so AI-gated surfaces read `GET /api/ai/config`;
+ *                              the spec answers it with `page.route()`.
+ *                              Omitted, AI is off and nothing is fetched.
  *
  * WHY THE `/api` FETCHES BELOW ARE SAFE TO IGNORE
  * -------------------------------------------------------------------------
@@ -68,6 +72,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
 import { AuthContext } from '../src/contexts/AuthContext';
+import { AiConfigProvider } from '../src/contexts/AiConfigContext';
 import { ThemeContextProvider, useThemeContext } from '../src/contexts/ThemeContext';
 import { ProtectedRoute } from '../src/components/common/ProtectedRoute';
 import { RequirePermission } from '../src/components/common/RequirePermission';
@@ -163,6 +168,7 @@ interface HarnessParams {
   permissions: string[];
   theme: 'light' | 'dark';
   roles: Role[];
+  ai: boolean;
 }
 
 function parseHarnessParams(): HarnessParams {
@@ -190,10 +196,16 @@ function parseHarnessParams(): HarnessParams {
       : ['admin']
   ).map((name) => ({ name }));
 
-  return { route, permissions, theme, roles };
+  // Issue #64 (E2.6): `?ai=on` mounts the real `AiConfigProvider`, so the
+  // page reads `GET /api/ai/config` like the app does (the spec answers it
+  // with `page.route()`). Omitted, no provider is mounted and every AI
+  // surface is off with no request, exactly as before this parameter existed.
+  const ai = search.get('ai') === 'on';
+
+  return { route, permissions, theme, roles, ai };
 }
 
-const { route, permissions, theme, roles } = parseHarnessParams();
+const { route, permissions, theme, roles, ai } = parseHarnessParams();
 
 // MUST happen before `createRoot(...).render(...)` — `ThemeContextProvider`
 // reads this key synchronously in its `useState` initializer.
@@ -295,7 +307,13 @@ function Inner() {
       <CssBaseline />
       <ErrorBoundary>
         <Suspense fallback={<LoadingSpinner fullScreen />}>
-          <HarnessRoutes />
+          {ai ? (
+            <AiConfigProvider>
+              <HarnessRoutes />
+            </AiConfigProvider>
+          ) : (
+            <HarnessRoutes />
+          )}
         </Suspense>
       </ErrorBoundary>
     </ThemeProvider>

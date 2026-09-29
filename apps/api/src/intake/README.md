@@ -96,9 +96,10 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
 | `analyzeJobType` | The server-only `ai.*` job type, or `null`. A `null` kind answers `analyze` with 400 `MANUAL_ONLY_KIND`. |
 | `maxPhotos` | Optional; default 48 (`DEFAULT_INTAKE_MAX_PHOTOS`). |
 | `itemKinds` | Optional allow-list for `DraftItem.kind`. Omitted means any non-empty string. |
+| `requiredPermissions` | Optional `{ read?, write? }`: permissions this kind needs on top of the routes' `intakes:read` / `intakes:write`. See [Kind Permissions](#kind-permissions). |
 | `assertContext` | Optional. Checks the context against the caller; another user's record is a 404, never a 403. Runs on create. |
 | `subjectOf` | Optional. Derives `subjectType`/`subjectId` from the context (e.g. the gym); when defined it wins over what the client sent, so the list filter `subjectId` finds the intake. |
-| `normalizeValue` | Optional. Recomputes derived fields; runs after `valueSchema` on every stored value. |
+| `normalizeValue` | Optional. Recomputes derived fields; runs after `valueSchema` on every stored value. Its third argument, `source`, is `'user'` (a route add or edit: throw a 400 naming the field) or `'analyzer'` (`replaceAiDrafts`: be lenient and never throw, so a doubtful AI item is shown flagged rather than dropped; `apply` refuses it until the user resolves it). |
 | `apply` | Turns `accepted` items into real rows. The return value is the `apply` route's response. |
 
 ### 2. Register It in `onModuleInit`
@@ -229,6 +230,36 @@ service maintains its provenance; a kind never writes these fields itself.
 Deleting is asymmetric on purpose: `DELETE` removes a user item, and an AI
 item answers 409 `USE_REJECT` so its provenance survives; reject it instead.
 
+## Kind Permissions
+
+The routes check only `intakes:read` / `intakes:write` (and `ai:use` for
+analyze), because the module does not know what a kind writes. A kind whose
+`apply` writes data guarded by its own permission declares it, so an intake
+cannot become a side door around that permission:
+
+```typescript
+readonly requiredPermissions = {
+  read: [PERMISSIONS.HEALTH_DATA_READ],   // GET /intakes/:id, and GET /intakes
+  write: [PERMISSIONS.HEALTH_DATA_WRITE], // create, photos, analyze, items, discard, apply
+};
+```
+
+`IntakeService` checks it against the caller's resolved permissions (the
+`RequestUser.permissions` that `PermissionsGuard` checked, passed by the
+controller as each method's last argument):
+
+- a missing permission is a 403 `Missing permissions: <list>` with
+  `details.reason: MISSING_KIND_PERMISSIONS`, `details.kind` and
+  `details.permissions`, before anything is read into a response or written;
+- `GET /intakes` leaves out the kinds the caller may not read, and a
+  `?kind=` naming one is a 403;
+- ownership comes first: another user's intake is still a 404;
+- a server-side caller that passes no permissions holds none, so a kind that
+  declares requirements fails closed for it. Kinds without
+  `requiredPermissions` behave exactly as before.
+
+`body_metric_reading` (`measurements/photo/`) is the worked example.
+
 ## Error Reasons
 
 Refusals carry a machine-readable `details.reason` next to the message.
@@ -245,6 +276,7 @@ Refusals carry a machine-readable `details.reason` next to the message.
 | `PENDING_ITEMS` | 400 | `apply` while items are still `pending`; `details.count` says how many. |
 | `DUPLICATE_PHOTO` | 409 | The object is already attached to this intake. |
 | `INTAKE_SCANNING` | 409 | The intake (or its analyze job) is already in flight. |
+| `MISSING_KIND_PERMISSIONS` | 403 | The caller lacks a permission the kind's `requiredPermissions` names (`details.permissions`). |
 | `ALREADY_APPLIED` | 409 | The intake was applied; nothing changes. |
 | `INVALID_INTAKE_STATUS` | 409 | The operation does not fit the current status (`details.status`). |
 | `NOT_SCANNING` | 409 | `replaceAiDrafts` on an intake that is no longer `scanning`. |
@@ -257,8 +289,9 @@ An analyze refused by the AI gates uses the AI platform's reasons
 ## Ownership
 
 Every route filters by the JWT user. Another user's intake, item or photo is a
-404, never a 403. Analyzer jobs act on an intake id they were queued with and
-read the owner from the row.
+404, never a 403. (A 403 on your own intake means a missing permission: the
+route's, or the kind's `requiredPermissions`.) Analyzer jobs act on an intake
+id they were queued with and read the owner from the row.
 
 ## Testing a Kind
 
