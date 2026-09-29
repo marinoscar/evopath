@@ -23,6 +23,7 @@ import {
   type UpdateMeasurementEntryInput,
 } from './dto/measurement.dto';
 import { ACTIVE } from './measurement-active';
+import { withRecomputedUserEdited } from './photo/photo-source-ref';
 import {
   BP_DIASTOLIC,
   BP_SYSTOLIC,
@@ -69,8 +70,9 @@ const LATEST_METRIC_KEYS = MEASUREMENT_METRIC_KEYS;
 
 /**
  * Server-side provenance for a new entry. Clients can never supply it: the
- * HTTP route always writes `manual`; photo intake (E2.6) passes `ai` and a
- * `sourceRef` through {@link MeasurementsService.createEntryInTransaction}.
+ * HTTP route always writes `manual`; photo intake (E2.6) passes one per
+ * reading (`ai` or `manual`, each with a `sourceRef` derived from the intake
+ * rows) through {@link MeasurementsService.createEntryInTransaction}.
  */
 export interface EntryProvenance {
   origin: MeasurementOrigin;
@@ -103,19 +105,26 @@ export class MeasurementsService {
    * Inserts one entry inside the caller's transaction. Exposed for server-side
    * writers (photo intake applies accepted drafts atomically with its own
    * bookkeeping). `input` must already be validated and canonical — parse it
-   * with `createMeasurementEntrySchema` first.
+   * with `createMeasurementEntrySchema` first. `provenance` is one for the
+   * whole entry, or one per reading in `input.readings` order.
    */
   async createEntryInTransaction(
     tx: Prisma.TransactionClient,
     userId: string,
     input: CreateMeasurementEntryInput,
-    provenance: EntryProvenance,
+    provenance: EntryProvenance | readonly EntryProvenance[],
   ): Promise<MeasurementEntry> {
     const entryId = randomUUID();
     const measuredAt = input.measuredAt ?? new Date();
     const rows: MeasurementRow[] = [];
+    const perReading = isProvenanceList(provenance) ? provenance : null;
 
-    for (const reading of input.readings) {
+    if (perReading && perReading.length !== input.readings.length) {
+      throw new Error('createEntryInTransaction: one provenance per reading is required');
+    }
+
+    for (const [index, reading] of input.readings.entries()) {
+      const { origin, sourceRef } = perReading ? perReading[index] : (provenance as EntryProvenance);
       rows.push(
         await tx.measurement.create({
           data: {
@@ -126,9 +135,9 @@ export class MeasurementsService {
             unit: reading.unit,
             measuredAt,
             method: reading.method ?? DEFAULT_METHOD,
-            origin: provenance.origin,
+            origin,
             notes: input.notes,
-            sourceRef: provenance.sourceRef ?? Prisma.DbNull,
+            sourceRef: sourceRef ?? Prisma.DbNull,
           },
         }),
       );
@@ -216,6 +225,16 @@ export class MeasurementsService {
 
         for (const reading of merged) {
           const { row } = reading;
+          // A photo-read row keeps its provenance; `userEdited` follows the
+          // value (compared canonically with the AI's original reading), so
+          // editing back to what the photo said clears it again.
+          const sourceRef = changes.has(row.metricKey)
+            ? withRecomputedUserEdited(row.sourceRef, {
+                metricKey: row.metricKey,
+                value: reading.value,
+                unit: reading.unit,
+              })
+            : row.sourceRef;
           rows.push(
             await tx.measurement.create({
               data: {
@@ -229,7 +248,10 @@ export class MeasurementsService {
                 method: reading.method,
                 // Provenance is copied forward; only server code changes it.
                 origin: row.origin,
-                sourceRef: row.sourceRef === null ? Prisma.DbNull : (row.sourceRef as Prisma.InputJsonValue),
+                sourceRef:
+                  sourceRef === null || sourceRef === undefined
+                    ? Prisma.DbNull
+                    : (sourceRef as Prisma.InputJsonValue),
                 notes: input.notes === undefined ? row.notes : input.notes,
                 revision: row.revision + 1,
                 supersedesId: row.id,
@@ -385,6 +407,12 @@ export class MeasurementsService {
       );
     }
   }
+}
+
+function isProvenanceList(
+  provenance: EntryProvenance | readonly EntryProvenance[],
+): provenance is readonly EntryProvenance[] {
+  return Array.isArray(provenance);
 }
 
 function entryNotFound(): NotFoundException {
