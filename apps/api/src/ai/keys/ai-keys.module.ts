@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { JobsModule } from '../../jobs/jobs.module';
 import { AiConfigModule } from '../config/ai-config.module';
 import { AiCoreModule } from '../core/ai-core.module';
+import { AiConfigWriterLookup } from './ai-config-writer.lookup';
 import { AiKeyResolver } from './ai-key-resolver.service';
 import { AiKeysCatalogListener } from './ai-keys-catalog.listener';
 import { AiKeysRecheckHandler } from './ai-keys-recheck.handler';
@@ -29,6 +30,7 @@ import { UserAiKeysService } from './user-ai-keys.service';
   controllers: [UserAiKeysController],
   providers: [
     UserAiKeysService,
+    AiConfigWriterLookup,
     AiKeyResolver,
     UsableModelsService,
     AiKeysRecheckHandler,

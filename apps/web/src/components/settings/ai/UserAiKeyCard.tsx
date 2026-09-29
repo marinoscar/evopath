@@ -50,7 +50,11 @@ export interface UserAiKeyCardProps {
   provider: UserAiKeyCardProvider;
   /** The masked view for this provider; absent until the list has loaded. */
   keyView?: UserAiKey;
-  /** The organisation's key covers this provider (fallback policy + org key). */
+  /**
+   * The organisation's key covers the caller for this provider: an org key
+   * exists and either the policy is `byok_with_org_fallback` or the caller is
+   * an AI administrator (`ai_config:write`, #593).
+   */
   orgFallback: boolean;
   onSave: (provider: string, apiKey: string) => Promise<UserAiKey>;
   onTest: (provider: string, apiKey?: string) => Promise<AiProbeResult>;

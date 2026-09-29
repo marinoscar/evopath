@@ -6,12 +6,15 @@ import { FakeAiProvider } from '../testing/fake-ai-provider';
 import { AiKeyResolver } from './ai-key-resolver.service';
 
 // =============================================================================
-// AiKeyResolver (issue #431) — the full resolution matrix
+// AiKeyResolver (issue #431, #593) — the full resolution matrix
 //
 //   {user key yes/no} × {policy byok / byok_with_org_fallback} × {org key yes/no}
+//   × {holds ai_config:write yes/no}
 //
 // plus the invariant the whole platform rests on (docs/specs/ai-platform.md §2.2):
-// under `byok` the org key is never returned — and never even READ.
+// under `byok` the org key is never returned to a NON-administrator — and never
+// even READ. An administrator (`ai_config:write`, #593) is served by the org key
+// they configured under either policy, unless they have a key of their own.
 // =============================================================================
 
 const USER_KEY = 'sk-user-own-key-1111';
@@ -23,18 +26,30 @@ interface Case {
   userKey: boolean;
   keyPolicy: Policy;
   orgKey: boolean;
+  admin?: boolean;
   expected: 'user' | 'org' | 'AI_KEY_REQUIRED';
 }
 
 const MATRIX: Case[] = [
-  { userKey: true, keyPolicy: 'byok', orgKey: true, expected: 'user' },
-  { userKey: true, keyPolicy: 'byok', orgKey: false, expected: 'user' },
-  { userKey: true, keyPolicy: 'byok_with_org_fallback', orgKey: true, expected: 'user' },
-  { userKey: true, keyPolicy: 'byok_with_org_fallback', orgKey: false, expected: 'user' },
-  { userKey: false, keyPolicy: 'byok', orgKey: true, expected: 'AI_KEY_REQUIRED' },
-  { userKey: false, keyPolicy: 'byok', orgKey: false, expected: 'AI_KEY_REQUIRED' },
-  { userKey: false, keyPolicy: 'byok_with_org_fallback', orgKey: true, expected: 'org' },
-  { userKey: false, keyPolicy: 'byok_with_org_fallback', orgKey: false, expected: 'AI_KEY_REQUIRED' },
+  // A user without `ai_config:write` — the pre-#593 matrix, unchanged.
+  { userKey: true, keyPolicy: 'byok', orgKey: true, admin: false, expected: 'user' },
+  { userKey: true, keyPolicy: 'byok', orgKey: false, admin: false, expected: 'user' },
+  { userKey: true, keyPolicy: 'byok_with_org_fallback', orgKey: true, admin: false, expected: 'user' },
+  { userKey: true, keyPolicy: 'byok_with_org_fallback', orgKey: false, admin: false, expected: 'user' },
+  { userKey: false, keyPolicy: 'byok', orgKey: true, admin: false, expected: 'AI_KEY_REQUIRED' },
+  { userKey: false, keyPolicy: 'byok', orgKey: false, admin: false, expected: 'AI_KEY_REQUIRED' },
+  { userKey: false, keyPolicy: 'byok_with_org_fallback', orgKey: true, admin: false, expected: 'org' },
+  { userKey: false, keyPolicy: 'byok_with_org_fallback', orgKey: false, admin: false, expected: 'AI_KEY_REQUIRED' },
+  // A holder of `ai_config:write` (#593): the org key serves them under either
+  // policy; their own key still wins; no org key still means AI_KEY_REQUIRED.
+  { userKey: true, keyPolicy: 'byok', orgKey: true, admin: true, expected: 'user' },
+  { userKey: true, keyPolicy: 'byok', orgKey: false, admin: true, expected: 'user' },
+  { userKey: true, keyPolicy: 'byok_with_org_fallback', orgKey: true, admin: true, expected: 'user' },
+  { userKey: true, keyPolicy: 'byok_with_org_fallback', orgKey: false, admin: true, expected: 'user' },
+  { userKey: false, keyPolicy: 'byok', orgKey: true, admin: true, expected: 'org' },
+  { userKey: false, keyPolicy: 'byok', orgKey: false, admin: true, expected: 'AI_KEY_REQUIRED' },
+  { userKey: false, keyPolicy: 'byok_with_org_fallback', orgKey: true, admin: true, expected: 'org' },
+  { userKey: false, keyPolicy: 'byok_with_org_fallback', orgKey: false, admin: true, expected: 'AI_KEY_REQUIRED' },
 ];
 
 function build(c: Omit<Case, 'expected'>, compatible: { requiresKey?: boolean } = {}) {
@@ -71,13 +86,14 @@ function build(c: Omit<Case, 'expected'>, compatible: { requiresKey?: boolean } 
     { getSecret, describe: describe_ } as never,
     registry,
   );
-  const resolver = new AiKeyResolver({ getDecrypted } as never, aiConfig);
+  const holdsAiConfigWrite = jest.fn(async () => c.admin === true);
+  const resolver = new AiKeyResolver({ getDecrypted } as never, aiConfig, { holdsAiConfigWrite } as never);
 
-  return { resolver, getDecrypted, getSecret, describe_ };
+  return { resolver, getDecrypted, getSecret, describe_, holdsAiConfigWrite };
 }
 
 const label = (c: Case) =>
-  `user key ${c.userKey ? 'yes' : 'no '} × ${c.keyPolicy.padEnd(22)} × org key ${c.orgKey ? 'yes' : 'no '} -> ${c.expected}`;
+  `${c.admin ? 'admin    ' : 'non-admin'} × user key ${c.userKey ? 'yes' : 'no '} × ${c.keyPolicy.padEnd(22)} × org key ${c.orgKey ? 'yes' : 'no '} -> ${c.expected}`;
 
 describe('AiKeyResolver', () => {
   describe.each(MATRIX.map((c) => [label(c), c] as const))('%s', (_name, c) => {
@@ -101,7 +117,7 @@ describe('AiKeyResolver', () => {
     it('sourceFor() agrees without decrypting anything', async () => {
       const { resolver, getDecrypted, getSecret } = build(c);
 
-      await expect(resolver.sourceFor('openai', c.userKey)).resolves.toBe(
+      await expect(resolver.sourceFor('user-1', 'openai', c.userKey)).resolves.toBe(
         c.expected === 'AI_KEY_REQUIRED' ? null : c.expected,
       );
       expect(getDecrypted).not.toHaveBeenCalled();
@@ -109,15 +125,62 @@ describe('AiKeyResolver', () => {
     });
   });
 
-  describe("⚠ under keyPolicy 'byok' the org key is never read", () => {
+  describe("⚠ under keyPolicy 'byok' the org key is never read for a non-administrator", () => {
     it.each([true, false])('user key %s', async (userKey) => {
-      const { resolver, getSecret, describe_ } = build({ userKey, keyPolicy: 'byok', orgKey: true });
+      const { resolver, getSecret, describe_ } = build({ userKey, keyPolicy: 'byok', orgKey: true, admin: false });
 
       await resolver.resolve('user-1', 'openai').catch(() => undefined);
-      await resolver.sourceFor('openai', userKey);
+      await resolver.sourceFor('user-1', 'openai', userKey);
 
       expect(getSecret).not.toHaveBeenCalled();
       expect(describe_).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('holders of ai_config:write (#593)', () => {
+    it('the permission is asked about the user being resolved', async () => {
+      const { resolver, holdsAiConfigWrite } = build({ userKey: false, keyPolicy: 'byok', orgKey: true, admin: true });
+
+      await resolver.resolve('user-42', 'openai');
+
+      expect(holdsAiConfigWrite).toHaveBeenCalledWith('user-42');
+    });
+
+    it('is not looked up when the user has a key of their own', async () => {
+      const { resolver, holdsAiConfigWrite, getSecret } = build({
+        userKey: true,
+        keyPolicy: 'byok',
+        orgKey: true,
+        admin: true,
+      });
+
+      await expect(resolver.resolve('user-1', 'openai')).resolves.toMatchObject({ keySource: 'user' });
+      await resolver.sourceFor('user-1', 'openai', true);
+
+      expect(holdsAiConfigWrite).not.toHaveBeenCalled();
+      expect(getSecret).not.toHaveBeenCalled();
+    });
+
+    it('is not looked up under the fallback policy, where it cannot change the answer', async () => {
+      const { resolver, holdsAiConfigWrite } = build({
+        userKey: false,
+        keyPolicy: 'byok_with_org_fallback',
+        orgKey: true,
+        admin: false,
+      });
+
+      await resolver.resolve('user-1', 'openai');
+
+      expect(holdsAiConfigWrite).not.toHaveBeenCalled();
+    });
+
+    it('sourceFor() uses a caller-supplied (memoised) permission answer instead of its own lookup', async () => {
+      const { resolver, holdsAiConfigWrite } = build({ userKey: false, keyPolicy: 'byok', orgKey: true, admin: false });
+      const supplied = jest.fn(async () => true);
+
+      await expect(resolver.sourceFor('user-1', 'openai', false, supplied)).resolves.toBe('org');
+      expect(supplied).toHaveBeenCalledTimes(1);
+      expect(holdsAiConfigWrite).not.toHaveBeenCalled();
     });
   });
 
@@ -150,7 +213,7 @@ describe('AiKeyResolver', () => {
           apiKey: AI_KEYLESS_API_KEY,
           keySource: 'none',
         });
-        await expect(resolver.sourceFor('openai-compatible', c.userKey)).resolves.toBe('none');
+        await expect(resolver.sourceFor('user-1', 'openai-compatible', c.userKey)).resolves.toBe('none');
         expect(getDecrypted).not.toHaveBeenCalled();
         expect(getSecret).not.toHaveBeenCalled();
         expect(describe_).not.toHaveBeenCalled();
@@ -163,7 +226,7 @@ describe('AiKeyResolver', () => {
         const error = await resolver.resolve('user-1', 'openai-compatible').catch((e: unknown) => e);
 
         expect((error as AiError).code).toBe('AI_KEY_REQUIRED');
-        await expect(resolver.sourceFor('openai-compatible', false)).resolves.toBeNull();
+        await expect(resolver.sourceFor('user-1', 'openai-compatible', false)).resolves.toBeNull();
       }
     });
 

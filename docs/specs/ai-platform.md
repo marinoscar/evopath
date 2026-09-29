@@ -1,6 +1,6 @@
 # AI Platform
 
-> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [apps/api/src/ai/README.md](../../apps/api/src/ai/README.md)
+> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [apps/api/src/ai/README.md](../../apps/api/src/ai/README.md)
 
 The AI platform gives an app built from this template one admin-governed,
 bring-your-own-key (BYOK), multi-provider AI capability. Feature code injects
@@ -25,7 +25,8 @@ Seven gates govern every call, in this order:
 3. **The operator enables providers.** A registered adapter is not reachable
    until `providers.<id>.enabled` is true.
 4. **The operator may store an admin (org) key per provider.** It discovers
-   models, and serves users only under the fallback policy.
+   models, and serves users only under the fallback policy (and an
+   administrator's own calls under either policy, §2.2).
 5. **The operator curates the model catalog.** Discovery never enables a
    model; only an administrator does (§2.17).
 6. **Each user brings their own key**, verified and checked for which models
@@ -91,7 +92,8 @@ Two keys can pay for a call:
 
 - **Admin (org) key:** one per provider. Catalog discovery and the admin
   connection test use it. It serves user requests **only** under
-  `byok_with_org_fallback`.
+  `byok_with_org_fallback`, and for a holder of `ai_config:write` under either
+  policy.
 - **User (BYOK) key:** one per user and provider, verified and checked for
   reachable models when it is set.
 
@@ -102,12 +104,21 @@ rule. Every caller goes through it:
 resolve(userId, provider): Promise<{ apiKey: string; keySource: 'user' | 'org' | 'none' }>
 // 0. provider slot has requiresKey: false            -> { none }  (AI_KEYLESS_API_KEY marker)
 // 1. user key exists                                 -> { user }
-// 2. 'byok_with_org_fallback' AND org key exists     -> { org }
-// 3. otherwise                                       -> throw AiError('AI_KEY_REQUIRED')
+// 2. user holds ai_config:write AND org key exists   -> { org }  (either policy)
+// 3. 'byok_with_org_fallback' AND org key exists     -> { org }
+// 4. otherwise                                       -> throw AiError('AI_KEY_REQUIRED')
 ```
 
-- **Under `byok` the org key is never returned.** This is the platform's
-  core security invariant.
+- **Under `byok` the org key is never returned to a non-administrator.** This
+  is the platform's core security invariant: strict `byok` promises every
+  other user that only their own provider account is billed.
+- **Rule 2 serves an administrator's own calls.** The org account is the
+  administrator's own, so the person who configured the org key needs no
+  personal copy at `/settings/ai`. They can still override with one (rule 1
+  precedes rule 2). The permission is read from the database on every
+  resolution (`AiConfigWriterLookup`), never from a token claim, and only when
+  the user has no key of their own; revoking the role ends rule 2 on the next
+  call. These calls record `keySource: 'org'`.
 - **Rule 0 is an administrator's opt-in**, only on the `openai-compatible`
   slot, for a self-hosted server that authenticates nobody. No key is read,
   the adapter sends no credential, and usage records `keySource: 'none'`. It
@@ -507,8 +518,9 @@ usable(user) = { enabled AND not deprecated } ∩ { reachable with the user's ke
 - With a user key: enabled models whose id is in the key's
   `reachableModelIds` (computed when the key is set, on the weekly
   `ai.keys.recheck`, and after a catalog sync).
-- With no user key under `byok_with_org_fallback`: every enabled model of a
-  provider with an org key, `keySource: 'org'`.
+- With no user key under `byok_with_org_fallback`, or for a holder of
+  `ai_config:write` under either policy: every enabled model of a provider with
+  an org key, `keySource: 'org'`.
 - On a keyless provider: every enabled model, `keySource: 'none'`.
 - `GET /api/ai/models` returns `{ provider, modelId, displayName, capabilities, keySource }[]`.
 
@@ -728,7 +740,10 @@ hosts are allowed; pointing at one is an administrator decision.
 ### 2.25 The Playground
 
 `/ai` (`apps/web/src/pages/AiPlaygroundPage.tsx`) is the reference browser
-client. It calls only the HTTP surface.
+client. It calls only the HTTP surface. It is an administrator tool: the route
+and its navigation entry require `ai:use` **and** `ai_config:read`, plus AI
+enabled. The consumer `/api/ai/*` endpoints stay on `ai:use`, since in-app
+features call them for ordinary users.
 
 - **Modes:** Chat, Image, Transcribe, Speech, Embeddings, Voice, each tied to
   one capability and listing only usable models that declare it

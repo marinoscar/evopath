@@ -49,7 +49,16 @@ export default function UserAiKeysPage() {
   }
 
   const providers = config.providers.filter((provider) => provider.enabled);
-  const fallbackPolicy = config.keyPolicy === 'byok_with_org_fallback';
+  // Whose calls the organisation's key covers when they have no key of their
+  // own. Everyone under `byok_with_org_fallback`; and an AI administrator
+  // (`ai_config:write`, the string `/api/admin/ai/*` enforces) under ANY
+  // policy — the API's key resolver serves them from the org key they
+  // configured (#593), and `/api/ai/models` reports those models with
+  // `keySource: 'org'`. This only shapes the copy; the API decides.
+  const isAiAdmin = hasPermission('ai_config:write');
+  const orgCoversCaller = config.keyPolicy === 'byok_with_org_fallback' || isAiAdmin;
+  const showAdminOrgKeyNotice =
+    isAiAdmin && providers.some((provider) => provider.requiresKey !== false && provider.hasOrgKey);
   const providerNames = Object.fromEntries(
     config.providers.map((provider) => [provider.id, provider.displayName]),
   );
@@ -77,6 +86,12 @@ export default function UserAiKeysPage() {
           <Alert severity="info">Your administrator hasn&apos;t enabled any AI provider yet.</Alert>
         ) : (
           <Stack spacing={3}>
+            {showAdminOrgKeyNotice && (
+              <Alert severity="info">
+                As an administrator, your AI calls use the organization key configured in Admin →
+                AI. Add a personal key below only if you want to use your own account instead.
+              </Alert>
+            )}
             {keysError && <Alert severity="error">{keysError}</Alert>}
 
             {providers.map((provider) =>
@@ -88,7 +103,7 @@ export default function UserAiKeysPage() {
                   key={provider.id}
                   provider={provider}
                   keyView={keys.find((entry) => entry.provider === provider.id)}
-                  orgFallback={fallbackPolicy && provider.hasOrgKey}
+                  orgFallback={orgCoversCaller && provider.hasOrgKey}
                   onSave={setKey}
                   onTest={testKey}
                   onRemove={deleteKey}

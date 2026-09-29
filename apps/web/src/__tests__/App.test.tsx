@@ -680,7 +680,7 @@ describe('App', () => {
       }
     );
 
-    it.each(['/admin/settings/ai', '/admin/settings/ai/models', '/admin/settings/ai/usage'])(
+    it.each(['/ai', '/admin/settings/ai', '/admin/settings/ai/models', '/admin/settings/ai/usage'])(
       'redirects %s for a user without ai_config:read, even with AI enabled',
       async (path) => {
         aiOn();
@@ -693,6 +693,9 @@ describe('App', () => {
             timeout: 5000,
           }
         );
+        expect(
+          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Models| Usage)?$/ })
+        ).not.toBeInTheDocument();
       }
     );
   });

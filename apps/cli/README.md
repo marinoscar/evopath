@@ -291,11 +291,11 @@ the deployment (`ai.enabled`, see
 [`docs/runbooks/ai-configuration.md`](../../docs/runbooks/ai-configuration.md)),
 and either a stored BYOK key for the target provider
 (`evopathcli api put /ai/keys/openai --data '{"apiKey":"sk-..."}'`) or an
-admin/org fallback key under `byok_with_org_fallback` — otherwise it answers
+admin/org fallback key under `byok_with_org_fallback` (or, for a holder of `ai_config:write`, under either policy) — otherwise it answers
 `403` with `details.reason: "AI_KEY_REQUIRED"` or `"AI_DISABLED"`. The
 streaming route (`POST /api/ai/responses/stream`) is not reachable through
 `evopathcli api`, which is built for a single request/response cycle, not
-Server-Sent Events — use the web Playground for a streamed response.
+Server-Sent Events — use the web Playground (admin-only) for a streamed response.
 
 ## Deploying to a server
 

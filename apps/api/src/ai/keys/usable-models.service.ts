@@ -25,7 +25,8 @@ import type { UsableAiModel } from './dto/usable-ai-model.dto';
 //     `deprecatedAt`;
 //   - the KEY's reach: the user's `reachableModelIds` (computed when the key
 //     was set, refreshed weekly and on every stored-key test), or — when the
-//     org fallback serves the provider — no restriction beyond the admin's.
+//     org key serves the provider (the fallback policy, or the caller holds
+//     `ai_config:write`, #593) — no restriction beyond the admin's.
 //
 // Which key serves a provider is `AiKeyResolver.sourceFor`'s answer, never
 // re-derived here, so the usable list and the runtime can never disagree
@@ -85,10 +86,19 @@ export class UsableModelsService {
       keyRows.map((row) => [row.provider, new Set(row.reachableModelIds)]),
     );
     const usable: UsableAiModel[] = [];
+    // Rule 2's permission lookup, at most once per listing — and only if some
+    // provider without a user key actually reaches that rule.
+    let writer: Promise<boolean> | undefined;
+    const holdsAiConfigWrite = () => (writer ??= this.resolver.holdsAiConfigWrite(userId));
 
     for (const provider of providers) {
       const reachable = reachableByProvider.get(provider);
-      const keySource = await this.resolver.sourceFor(provider, reachable !== undefined);
+      const keySource = await this.resolver.sourceFor(
+        userId,
+        provider,
+        reachable !== undefined,
+        holdsAiConfigWrite,
+      );
 
       if (!keySource) {
         continue;
@@ -157,7 +167,7 @@ export class UsableModelsService {
       where: { userId_provider: { userId, provider } },
       select: { reachableModelIds: true },
     });
-    const keySource = await this.resolver.sourceFor(provider, keyRow !== null);
+    const keySource = await this.resolver.sourceFor(userId, provider, keyRow !== null);
 
     if (!keySource) {
       throw keyRequired(provider);
