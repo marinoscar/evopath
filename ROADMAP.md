@@ -17,7 +17,7 @@ Where EvoPath is going and in what order. The product intent lives in [VISION.md
 | In progress | At least one child issue has an open branch |
 | Done | Merged and its "testable when" line holds |
 
-Every item below is **Planned**.
+E1, E2 and E3 are **Done** (merged on `main`). E4, E5, E6 and every item in Phases 2-6 are **Planned**.
 
 ## 2. Principles for every epic
 
@@ -33,7 +33,7 @@ Every item below is **Planned**.
 
 | Phase | Theme | Status |
 |---|---|---|
-| 1 | Workouts, basic health metrics, gyms, UI | Planned |
+| 1 | Workouts, basic health metrics, gyms, UI | In progress (E1-E3 done) |
 | 2 | Goals and weekly progress | Planned |
 | 3 | Health record depth | Planned |
 | 4 | Nutrition | Planned |
@@ -43,14 +43,16 @@ Every item below is **Planned**.
 
 ### Phase 1: Workouts, basic health metrics, gyms, UI
 
-Suggested build order: E1, E2 (E2.1-E2.5), E3, E2.6, E4, E5, E6. E2.6 waits for E3.1.
+E1, E2 and E3 are merged. E5 and E6 replace the original E5 (#28) and E6 (#46), which were superseded and closed as not planned, so old links to them point at the epics below.
+
+Suggested build order: E1, E2 (E2.1-E2.5), E3, E2.6 (done), E4, then E5 and E6. E5.0 and the E5.2/E5.3 foundations can start alongside E4 (see [What can run in parallel](#what-can-run-in-parallel)).
 
 ### E1. App shell & navigation redesign
 
 | | |
 |---|---|
 | Epic | [#26](https://github.com/marinoscar/evopath/issues/26) |
-| Status | Planned |
+| Status | Done |
 | Goal | Replace the template shell with a health-app shell: primary navigation for Today, Train, Health and Gyms, a Today dashboard with placeholder cards, and progressive disclosure so the first screen stays simple. |
 | Testable when | A new user signs in, sees the new navigation and an empty-state home, and reaches every Phase 1 area (as placeholders where the epic has not shipped) on desktop and phone widths. |
 | VISION | [§69](VISION.md#69-health-dashboard), [§70](VISION.md#70-progressive-disclosure), [§90](VISION.md#90-user-experience-principle-do-not-force-completion), [§91](VISION.md#91-user-experience-principle-preserve-momentum) |
@@ -62,19 +64,19 @@ Suggested build order: E1, E2 (E2.1-E2.5), E3, E2.6, E4, E5, E6. E2.6 waits for 
 | | |
 |---|---|
 | Epic | [#45](https://github.com/marinoscar/evopath/issues/45) |
-| Status | Planned |
+| Status | Done |
 | Goal | Capture the core profile (date of birth, sex at birth, height, units) and record basic body metrics (weight, body fat, waist) by quick entry, with an editable history and source recorded on every value. |
 | Testable when | A user completes the profile, logs and edits a weight entry by hand, sees the history and its units, and (E2.6) reads a scale or body-metric photo into a draft they can overwrite. |
 | VISION | [§6](VISION.md#6-user-health-profile), [§9](VISION.md#9-measurement-metadata), [§14](VISION.md#14-body-composition), [§15](VISION.md#15-body-composition--quick-entry), [§18](VISION.md#18-measurement-method), [§20](VISION.md#20-vital-signs-and-common-health-metrics) |
 | Depends on | E1. E2.6 also depends on E3.1 (photo intake). |
-| Children | E2.1 [#47](https://github.com/marinoscar/evopath/issues/47), E2.2 [#50](https://github.com/marinoscar/evopath/issues/50), E2.3 [#53](https://github.com/marinoscar/evopath/issues/53), E2.4 [#56](https://github.com/marinoscar/evopath/issues/56), E2.5 [#60](https://github.com/marinoscar/evopath/issues/60), E2.6 [#64](https://github.com/marinoscar/evopath/issues/64) (photo read, blocked by E3.1) |
+| Children | E2.1 [#47](https://github.com/marinoscar/evopath/issues/47), E2.2 [#50](https://github.com/marinoscar/evopath/issues/50), E2.3 [#53](https://github.com/marinoscar/evopath/issues/53), E2.4 [#56](https://github.com/marinoscar/evopath/issues/56), E2.5 [#60](https://github.com/marinoscar/evopath/issues/60), E2.6 [#64](https://github.com/marinoscar/evopath/issues/64) (photo read) |
 
 ### E3. Gyms, equipment & AI Scan Gym (vision)
 
 | | |
 |---|---|
 | Epic | [#27](https://github.com/marinoscar/evopath/issues/27) |
-| Status | Planned |
+| Status | Done |
 | Goal | Register training locations, keep an equipment catalog with capabilities and photos, and let a vision model draft the catalog from pictures of a gym. E3.1 is the photo-intake foundation that other epics reuse. |
 | Testable when | A user creates a gym by hand with equipment, then shares photos of a gym, reviews the AI-drafted equipment list, edits or rejects items, and saves; with AI off, manual entry still works end to end. |
 | VISION | [§35](VISION.md#35-training-locations), [§38](VISION.md#38-gym-equipment-catalog), [§39](VISION.md#39-equipment-capabilities), [§40](VISION.md#40-gym-equipment-photo-recognition), [§41](VISION.md#41-equipment-photos), [§87](VISION.md#87-photos-as-evidence) |
@@ -93,29 +95,38 @@ Suggested build order: E1, E2 (E2.1-E2.5), E3, E2.6, E4, E5, E6. E2.6 waits for 
 | Depends on | E1, E3 (gyms and equipment). E4.5 depends on E3.1. |
 | Children | E4.1 [#62](https://github.com/marinoscar/evopath/issues/62), E4.2 [#65](https://github.com/marinoscar/evopath/issues/65), E4.3 [#66](https://github.com/marinoscar/evopath/issues/66), E4.4 [#67](https://github.com/marinoscar/evopath/issues/67), E4.5 [#68](https://github.com/marinoscar/evopath/issues/68) (prefill from photo), E4.6 [#69](https://github.com/marinoscar/evopath/issues/69), E4.7 [#70](https://github.com/marinoscar/evopath/issues/70) |
 
-### E5. Training programs & Today's workout
+### E5. Agentic training plan (researcher, planner, critic, evaluator)
 
 | | |
 |---|---|
-| Epic | [#28](https://github.com/marinoscar/evopath/issues/28) |
+| Epic | [#92](https://github.com/marinoscar/evopath/issues/92) |
 | Status | Planned |
-| Goal | Persistent training programs built from the exercise library, with a Today's workout view that starts a logging session, progress tracking and progressive overload. |
-| Testable when | A user creates a program by hand, opens Today's workout, logs it through E4 logging, and sees progress against the plan. |
-| VISION | [§31](VISION.md#31-persistent-training-programs), [§33](VISION.md#33-training-progress), [§34](VISION.md#34-progressive-overload), [§43](VISION.md#43-time-aware-workouts) |
-| Depends on | E4. |
-| Children | E5.1 [#30](https://github.com/marinoscar/evopath/issues/30), E5.2 [#32](https://github.com/marinoscar/evopath/issues/32), E5.3 [#35](https://github.com/marinoscar/evopath/issues/35), E5.4 [#38](https://github.com/marinoscar/evopath/issues/38), E5.5 [#39](https://github.com/marinoscar/evopath/issues/39), E5.6 [#42](https://github.com/marinoscar/evopath/issues/42), E5.7 [#44](https://github.com/marinoscar/evopath/issues/44) |
+| Goal | Produce and continuously re-evaluate the training plan with a fully AI-driven, multi-agent workflow. Each agent role (researcher, planner, critic, evaluator) has its own model and reasoning-effort setting, so a frontier model can be chosen per role. The research agent uses web search (required) and cites its sources; a critic loop scores and revises each draft; the evaluator adapts the plan on its own after workouts and weekly. Autonomous changes are visible (change log, notification) and reversible (one-tap revert), with an "ask me first" switch. |
+| Testable when | A user sets models per agent, describes goal, days, time, limits and gym, watches the agents run live (research with cited sources, plan, critique, revise), gets an active multi-week plan with rationale, does workouts from Today, and after workouts and weekly the evaluator adapts the plan with a visible change log and one-tap revert. |
+| VISION | [§29](VISION.md#29-fitness-and-training), [§30](VISION.md#30-workout-types), [§31](VISION.md#31-persistent-training-programs), [§32](VISION.md#32-workout-logging), [§33](VISION.md#33-training-progress), [§34](VISION.md#34-progressive-overload), [§42](VISION.md#42-exercise-substitution), [§43](VISION.md#43-time-aware-workouts), [§61](VISION.md#61-agentic-ai-concept), [§62](VISION.md#62-ai-provider-choice), [§63](VISION.md#63-bring-your-own-key), [§64](VISION.md#64-ai-transparency), [§75](VISION.md#75-workout-safety), [§84](VISION.md#84-evopaths-core-intelligence-model), [§94](VISION.md#94-progress-reviews) |
+| Depends on | E4 ([#58](https://github.com/marinoscar/evopath/issues/58)) for E5.1, E5.5 and E5.8; E3 for equipment; the AI platform ([docs/specs/ai-platform.md](docs/specs/ai-platform.md)). |
+| Children | E5.0 [#93](https://github.com/marinoscar/evopath/issues/93) (LangGraph spike and decision record), E5.1 [#94](https://github.com/marinoscar/evopath/issues/94), E5.2 [#95](https://github.com/marinoscar/evopath/issues/95), E5.3 [#96](https://github.com/marinoscar/evopath/issues/96), E5.4 [#97](https://github.com/marinoscar/evopath/issues/97), E5.5 [#98](https://github.com/marinoscar/evopath/issues/98), E5.6 [#99](https://github.com/marinoscar/evopath/issues/99), E5.7 [#100](https://github.com/marinoscar/evopath/issues/100), E5.8 [#101](https://github.com/marinoscar/evopath/issues/101), E5.9 [#102](https://github.com/marinoscar/evopath/issues/102), E5.10 [#103](https://github.com/marinoscar/evopath/issues/103), E5.11 [#104](https://github.com/marinoscar/evopath/issues/104) |
 
-### E6. AI workout generation (language + vision)
+**Why LangGraph.js**
+
+- It orchestrates only (state graph, critic loop, checkpoints, resume, streaming). Every model call still goes through the platform AI service, so BYOK, the kill switch, usage accounting and the no-key-egress rules keep applying. No provider SDK package is added.
+- Checkpoints live in our own Prisma tables, not in tables the library creates, and the graph runs inside one server-only queue job.
+- Adoption is gated by the E5.0 spike; if it fails, a hand-rolled runner with the same state model is the fallback and the other stories do not change.
+- The full comparison with the alternatives is in issue [#93](https://github.com/marinoscar/evopath/issues/93).
+
+Note: "fully autonomous" is honoured as visible and reversible ([§4.3](VISION.md#43-ai-proposes-the-user-remains-in-control)). Server-side guardrails bound every change, and safety stops (pain, urgent symptoms, AI off) always win.
+
+### E6. Adaptive and travel workouts
 
 | | |
 |---|---|
-| Epic | [#46](https://github.com/marinoscar/evopath/issues/46) |
+| Epic | [#105](https://github.com/marinoscar/evopath/issues/105) |
 | Status | Planned |
-| Goal | Generate workouts and programs with a language model, grounded in the user's profile, equipment and history, and with vision input (photos of a gym or equipment) as context. The user reviews and edits every draft. |
-| Testable when | A user asks for a workout for a chosen gym, receives a draft that only uses that gym's equipment, edits it and saves it as a program or ad-hoc workout; with AI off, E4 and E5 remain fully usable. |
-| VISION | [§30](VISION.md#30-workout-types), [§31](VISION.md#31-persistent-training-programs), [§42](VISION.md#42-exercise-substitution), [§60](VISION.md#60-ai-coach-capabilities), [§62](VISION.md#62-ai-provider-choice), [§64](VISION.md#64-ai-transparency), [§75](VISION.md#75-workout-safety) |
-| Depends on | E3, E4, E5. |
-| Children | E6.1 [#49](https://github.com/marinoscar/evopath/issues/49), E6.2 [#52](https://github.com/marinoscar/evopath/issues/52), E6.3 [#54](https://github.com/marinoscar/evopath/issues/54), E6.4 [#57](https://github.com/marinoscar/evopath/issues/57), E6.5 [#59](https://github.com/marinoscar/evopath/issues/59), E6.6 [#61](https://github.com/marinoscar/evopath/issues/61), E6.7 [#63](https://github.com/marinoscar/evopath/issues/63) |
+| Goal | Adapt today's workout from the active plan when circumstances change (little time, soreness, a hotel or temporary gym), on the E5 agent runtime, with a scan flow for temporary gyms and visible usage by agent role. |
+| Testable when | "I have 30 minutes", "I'm sore" or "I'm at a hotel gym" produces an adapted workout for today from the active plan; a hotel-gym photo scan offers to save the gym; usage and cost are visible by role. |
+| VISION | [§37](VISION.md#37-temporary-training-locations), [§42](VISION.md#42-exercise-substitution), [§43](VISION.md#43-time-aware-workouts), [§64](VISION.md#64-ai-transparency), [§75](VISION.md#75-workout-safety) |
+| Depends on | E5.3 (runtime), E5.5 (planner and critic), E3.4 (gym scan). |
+| Children | E6.1 [#106](https://github.com/marinoscar/evopath/issues/106) (quick adaptation agent), E6.2 [#107](https://github.com/marinoscar/evopath/issues/107) (hotel and temporary gym flow), E6.3 [#108](https://github.com/marinoscar/evopath/issues/108) (usage by agent role), E6.4 [#109](https://github.com/marinoscar/evopath/issues/109) (e2e and docs) |
 
 ### Dependency diagram (Phase 1)
 
@@ -126,9 +137,34 @@ E1 App shell
         │  E3.1 photo intake ──> E2.6 photo read of body metrics
         │                   └──> E4.5 workout prefill from photo
         └──> E4 Exercise library & logging   (also needs E1)
-               └──> E5 Programs & Today's workout
-                      └──> E6 AI workout generation   (also needs E3, E4)
+               │
+AI platform ──> E5.0 spike ──> E5.2 agent model settings ─┐
+                          └──> E5.3 agent runtime kit ────┤
+                                                          ├──> E5.4 research
+E4.2 ──> E5.1 plan model ─────────────────────────────────┤
+E3.2 + E4.1 ──────────────────────────────────────────────┴──> E5.5 planner + critic
+                                                                  ├──> E5.6 / E5.7 intake, Today
+E4 logging ───────────────────────────────────────────────────────┴──> E5.8 evaluation (+ E5.9, E5.10, E5.11)
+E5.3 + E5.5 + E3.4 ──> E6 Adaptive and travel workouts
 ```
+
+### What can run in parallel
+
+- **E5.0** (LangGraph spike) runs first in the E5 track and can start next to E4.
+- **E5.2** (agent model settings) and **E5.3** (runtime kit) need only the AI platform and E5.0, so they can run alongside E4.
+- **E5.1** (plan model) needs E4.2. **E5.4** (research) needs E5.2 and E5.3.
+- **E5.5** (planner and critic) needs E5.1, E5.3 and E4.1. **E5.6** and **E5.7** follow E5.5 and E5.1.
+- **E5.8** (evaluation and adaptation) needs E5.5 and E4 workout logging.
+- **E6** starts after E5.5 (and E3.4).
+
+Serialize work that touches these hotspots, one branch at a time:
+
+- `schema.prisma` and migrations
+- permission seeds
+- `App.tsx` routes
+- the Today card registry
+- the AI kill-switch payload map (`ai-kill-switch.integration.spec.ts`)
+- `settings.schema.ts`
 
 ### Phase 2: Goals and weekly progress
 
@@ -178,7 +214,11 @@ Each item is filed as an epic before work starts.
 | Per-capability model choice | Choose different models for extraction, reasoning and vision | [§62](VISION.md#62-ai-provider-choice), [§63](VISION.md#63-bring-your-own-key) | AI health coach | A user selects a model per capability and calls use it |
 | Personal baseline | Compare the user to their own history | [§85](VISION.md#85-personal-baseline) | Phase 3 vitals | A metric is shown relative to the user's own baseline |
 | Weekly and monthly reviews | Periodic AI-assisted reviews of what is working | [§84](VISION.md#84-evopaths-core-intelligence-model) | Phase 2 weekly review | A review cites the data behind each statement |
+| Provider-neutral web search tool | A web search tool for the research agent that works with any provider (today only OpenAI hosted web search exists) | [§62](VISION.md#62-ai-provider-choice), [§64](VISION.md#64-ai-transparency) | E5.4 | The researcher role runs on a non-OpenAI model and still returns cited sources |
+| Real-world outcome tracking | Measure whether plans improve strength and body composition over months | [§33](VISION.md#33-training-progress), [§84](VISION.md#84-evopaths-core-intelligence-model) | E2, E5, Weekly and monthly reviews | Outcome trends per plan version are shown with the data behind them |
 | Gamification | XP, streaks, badges and quests, within the safety limits | [§65](VISION.md#65-gamification)-[§67](VISION.md#67-gamification-safety) | Phases 1-2 | Streaks and badges update from real activity; no reward encourages unsafe behaviour |
+
+AI workout planning is not in this phase: it moved to E5 (agentic training plan) in Phase 1.
 
 Each item is filed as an epic before work starts.
 
@@ -227,3 +267,4 @@ Phase 1 comes first; Phase 2 builds on its logging and gyms. Phases 3 and 4 both
 ## 6. Change log
 
 - 2026-09-29: first version; Phase 1 epics E1-E6 filed, Phases 2-6 scoped.
+- 2026-09-29: E5/E6 replaced by agentic training-plan epics; E1-E3 done.
