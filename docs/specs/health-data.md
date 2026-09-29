@@ -1,6 +1,6 @@
 # Health Data
 
-> **Status:** shipped (health profile, measurements, quick entry, daily check-ins) · **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/api/src/check-ins/`, `apps/web/src/components/health/` · **API:** `/api/health-profile`, `/api/measurements/*`, `/api/check-ins/*` (see `/api/docs`, tags "Health Profile", "Measurements" and "Check-ins") · **Admin UI:** none (user pages `/settings/health-profile` and `/health`) · **Runbook:** none · **Recipe:** [section 4](#4-extending-it-in-a-fork)
+> **Status:** shipped (health profile, measurements, quick entry, daily check-ins, history and trends) · **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/`, `apps/api/src/check-ins/`, `apps/web/src/components/health/` · **API:** `/api/health-profile`, `/api/measurements/*`, `/api/check-ins/*` (see `/api/docs`, tags "Health Profile", "Measurements" and "Check-ins") · **Admin UI:** none (user pages `/settings/health-profile` and `/health`) · **Runbook:** none · **Recipe:** [section 4](#4-extending-it-in-a-fork)
 
 Health data is per-user data an app built from this template interprets in context: a weight or a heart rate reads differently with an age, a sex at birth and a height, and its day boundaries depend on a time zone. It lives in its own tables, behind its own permission family (`health_data:read`, `health_data:write`), and is only ever reachable by its owner. It has three parts. The **health profile** is one row per user with date of birth, sex at birth, height, unit system, time zone and a short bio. **Measurements** are one longitudinal table of values (weight, body fat, waist, blood pressure, resting heart rate, and daily wellness scores) with a unit, a method, a source and a history of corrections, described by an in-code metric registry. The **daily check-in** is four self-reported wellness scores and a note per local day, stored as measurement rows behind its own thin API. Later health features add tables and routes under the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
@@ -229,7 +229,7 @@ After a successful delete the service writes one `audit_events` row, best-effort
 | Both | Full flow |
 | API `403` | Treated as no read grant, with the same message |
 
-Later stories append sections below the tiles in the same plain stack. The Health page has no tab strip: the tiles are one glance, not parallel tasks.
+The Daily check-in ([2.15](#215-daily-check-ins)) and Trend and History ([2.16](#216-history-and-trends)) follow the tiles in the same plain stack. The Health page has no tab strip: the tiles are one glance, not parallel tasks.
 
 ### 2.15 Daily check-ins
 
@@ -292,6 +292,53 @@ A check-in is `{ date, energy, sleepQuality, soreness, stress, note, updatedAt }
 - `TodayReadiness` is the `Content` of the `readiness` entry in `apps/web/src/config/todayCards.tsx`: the same chips and an **Edit check-in** button, or "How are you feeling today? Takes a few seconds." and **Check in**. It opens the same dialog.
 - Permission states follow [2.14](#214-quick-entry-and-the-health-page): without `health_data:read` both surfaces show "Health data is not available for your account"; with read only, the button is disabled with the tooltip "You don't have permission to log health data"; the dialog does not open without `health_data:write`.
 
+### 2.16 History and trends
+
+Below the tiles and the Daily check-in, `/health` stacks two sections in one column, each an `h2`: **Trend** (`MeasurementTrendChart`) and **History** (`MeasurementHistory`). `HealthHistorySections` mounts both plus the edit and delete dialogs. There are no tabs: the chart and the list are two views of the same readings, and the list is the chart's text equivalent, so neither is hidden behind the other. The page order is tiles, Daily check-in, Trend, History.
+
+**Refresh contract.** The page owns `readingsVersion`. A log, an edit or a delete refreshes the latest tiles and bumps it; the chart and the list refetch when it changes. Nothing updates optimistically.
+
+**Trend: method is shown, never merged.**
+- The metric selector groups Body, Vitals and How you feel (the four check-in scores). Range chips are 30, 90 (default), 180 and 365 days. Each range asks `GET /api/measurements/series` with `from` = now minus the range; `from` is computed once per metric or range change.
+- One line per **method**, from `toChartSeries` in `apps/web/src/utils/measurementSeries.ts`: the x axis is the sorted union of instants, and a method's series holds `null` where only another method has a reading. `connectNulls` joins a method's own points across those gaps. A line never runs from one method to another, because they are different series.
+- Two readings at the same instant with different methods are both plotted. Duplicate instants within one method keep the later-saved point; the earlier one stays in History.
+- **Mixed-methods note.** When the visible range holds more than one method, an info alert reads "This range mixes measurement methods (Scale, Smart scale). Values from different methods are not directly comparable." It names the methods present, in catalog order, and is absent for one method.
+- **Blood pressure** is one choice and two requests (`bp_systolic`, `bp_diastolic`): a Systolic and a Diastolic series, each split per method.
+- **Check-in scores** use a fixed 1 to 5 axis with integer ticks. The other metrics pad the y-domain 5% around the data (1 unit either side of a flat series) and never force zero. The axis label is the display unit.
+- **Uncertainty is visible.** No reading in range shows an empty state with a Log button (check-in metrics point to the check-in instead). One reading shows "Log at least two readings to see a trend"; the reading is still in History. A response marked `truncated` shows "Showing your most recent 1000 readings." (the API returns at most 1000 points and keeps the newest).
+- **Accessible name.** The chart wrapper is `role="img"` with a summary such as "Weight, last 90 days, 12 readings, latest 208.4 lb, range 205.0 to 212.3 lb"; blood pressure gives the latest as `128/84 mmHg` and both ranges. The tooltip lists value with unit, method and the reading's local date and time.
+- **Time zone.** Ticks, tooltips and History dates use the browser's locale and zone. The profile time zone only decides check-in days.
+- **Stale answers.** A metric or range change aborts the request in flight and a request-id guard drops any late answer, so a slow response never overwrites a newer one. The previous data is dropped on a metric or range change and kept on a refresh.
+
+**History.**
+- One row per **entry**, newest first: a blood-pressure pair is one `128/84 mmHg` line, weight plus body fat is one row with both. The list endpoint pages readings, so `groupByEntry` groups in the client and merges an entry that straddles two pages once both are loaded (`Load more`, `pageSize` 100).
+- A row shows the date and time, each reading in the user's unit, a method chip per reading (none for `unspecified`), an **Edited** chip when `revision` is above 1, the origin (`Manual`), the note, and Edit and Delete icon buttons (44px targets, accessible names such as "Edit weight entry from Sep 29, 8:00 AM").
+- The filter is All or one metric; blood pressure filters on both halves. Check-in scores are not listed here (the list endpoint serves body and vital readings; check-ins have their own section).
+
+**Edit.** `LogMeasurementDialog` takes an `entry` prop: it opens prefilled in the user's unit with only that entry's metrics, its methods, time and note, titled "Edit entry". It sends `PATCH /api/measurements/entries/:entryId` with only what changed; an unchanged form closes without a request. A changed value shows "Was 80.0 kg", read from the row the dialog opened with. The API supersedes the entry's rows, so the old rows stay as revisions and the row now shows **Edited**.
+
+**Delete.** `DeleteEntryDialog` names what goes ("Weight 208.4 lb from Sep 29") and asks for confirmation; Cancel and Escape change nothing. `DELETE` soft-deletes every reading of the entry, there is no undo in the UI and no restore endpoint, so the confirmation is the guard. A snackbar says "Entry deleted".
+
+**Stale entries.**
+
+| Answer | Behaviour |
+|---|---|
+| Edit or delete `404` | The entry is already gone: neutral snackbar "That entry was already removed. Your history has been reloaded.", the dialog closes, everything refreshes |
+| Edit `409` | Snackbar "That entry was changed elsewhere and has been reloaded. Try your edit again.", the dialog closes, everything refreshes |
+| Other `4xx` or a network error | The dialog stays open with the message; typed values are kept |
+
+**Permission states.**
+
+| State | Behaviour |
+|---|---|
+| No `health_data:read` | The page shows the unavailable message and neither section mounts |
+| `health_data:read` only | Both sections render; every Edit and Delete button is disabled with the tooltip "You don't have permission to change health data"; the chart's Log button is disabled |
+| Section `403` | That section shows "Health data is not available for your account" |
+
+Sections show skeletons on first load and a per-section error alert with Retry.
+
+**Chart palette and layout.** Series colours come from the categorical `rainbowSurgePalette` of `@mui/x-charts/colorPalettes` for the current theme mode, indexed by the method's catalog position, so a method keeps its colour across ranges; no literal colours. The chart is 280px high on compact windows (`down('sm')`) and 360px otherwise, a local choice and not one of the five coupled breakpoint gates in [settings-ui.md](settings-ui.md#breakpoint-gates). `skipAnimation` is set under `prefers-reduced-motion`.
+
 ## 3. Configuration and permissions
 
 There are no settings keys and no environment variables. Storage, AI and other runtime services are not involved.
@@ -302,8 +349,8 @@ Both are held by Admin, Contributor and Viewer: the data is the user's own, self
 
 | Permission | Enforced by |
 |---|---|
-| `health_data:read` | `GET /api/health-profile`; every `GET /api/measurements*` route; every `GET /api/check-ins*` route; the Health Profile card; the `/settings/health-profile` route; the tiles and check-in section on `/health`; the Today body and readiness cards |
-| `health_data:write` | `PUT /api/health-profile`; `POST`, `PATCH` and `DELETE` on `/api/measurements`; `PUT` and `DELETE` on `/api/check-ins/:date`; the enabled state of the profile form's inputs; the enabled state of every Log and Check in button |
+| `health_data:read` | `GET /api/health-profile`; every `GET /api/measurements*` route; every `GET /api/check-ins*` route; the Health Profile card; the `/settings/health-profile` route; the tiles, check-in, Trend and History sections on `/health`; the Today body and readiness cards |
+| `health_data:write` | `PUT /api/health-profile`; `POST`, `PATCH` and `DELETE` on `/api/measurements`; `PUT` and `DELETE` on `/api/check-ins/:date`; the enabled state of the profile form's inputs; the enabled state of every Log, Check in, Edit and Delete button |
 
 An existing deployment gets the two permissions and their grants by re-running `npm run prisma:seed` (from `apps/api`, or through the API container as in the development loop); the seed upserts, so it adds the new rows without duplicating grants. Until then, every user of that deployment receives `403` from the health routes and does not see the card.
 
@@ -395,20 +442,26 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 | `apps/web/src/__tests__/App.test.tsx` | The route redirects a user without `health_data:read` |
 | `apps/web/src/__tests__/utils/measurementUnits.test.ts` | Conversion and rounding from catalog factors, `parseDecimal`, inward-rounded bounds, `bmi`, deltas |
 | `apps/web/src/__tests__/hooks/useMeasurementCatalog.test.ts` | One request shared per session; a failure is not cached |
-| `apps/web/src/__tests__/components/health/LogMeasurementDialog.test.tsx` | Request bodies in the displayed unit, validation messages, the 25% soft warning and Save anyway, method defaults, server `400` mapping, kept values on a network error |
+| `apps/web/src/__tests__/components/health/LogMeasurementDialog.test.tsx` | Request bodies in the displayed unit, validation messages, the 25% soft warning and Save anyway, method defaults, server `400` mapping, kept values on a network error; edit mode: prefill, a PATCH body with only the changes, no request when unchanged, the "Was" hint, `404` and `409` |
 | `apps/web/src/__tests__/components/health/MeasurementTile.test.tsx`, `LatestMeasurementTiles.test.tsx` | Dates, method chip, neutral delta, blood-pressure combination, BMI states, empty and permission states |
-| `apps/web/src/__tests__/pages/HealthPage.test.tsx`, `components/today/TodayBodySnapshot.test.tsx` | Loading, empty, error and forbidden states; a save refetches |
+| `apps/web/src/__tests__/pages/HealthPage.test.tsx`, `components/today/TodayBodySnapshot.test.tsx` | Loading, empty, error and forbidden states; a save refetches; tiles, Trend, then History as `h2` sections with no tabs; an edit or delete refreshes row, tile and chart; no enabled Edit or Delete without write |
 | `apps/web/src/__tests__/config/todayCards.test.ts` | The `body` and `readiness` entries have `Content`; `workout` and `gym` do not |
 | `apps/api/src/check-ins/local-date.spec.ts` | Local day in zones ahead of and behind UTC around midnight, DST days, `Pacific/Kiritimati`, an invalid zone, the window |
 | `apps/api/src/check-ins/check-ins.service.spec.ts` | Field-to-key mapping, create, no-op when unchanged, replace with omissions, the window in the profile zone, conflict mapping, delete and audit with count only, audit failure swallowed |
 | `apps/api/test/health-data/check-ins.integration.spec.ts` | `401`, `403`, `400`, `404`, `409`, `200`, `204` per route, the Auckland `today`, route order, the note never echoed |
 | `apps/api/test/health-data/check-ins.db.spec.ts` | One active row per (user, day, key) after repeated saves, concurrent first saves and concurrent edits leave one winner (`409` for the other), time-zone filtering, soft delete with audit, other users cannot read or change a day |
 | `apps/web/src/__tests__/components/health/ScoreField.test.tsx`, `CheckInDialog.test.tsx`, `CheckInSection.test.tsx` | Select, clear, keyboard and aria; create, edit, delete confirmation, validation, `409` and network messages; the section states; no axe violations |
+| `apps/web/src/__tests__/utils/measurementSeries.test.ts` | Grouping across pages, per-method series over the union of instants, nulls, duplicate instants, y-domain, summary label, unit conversion |
+| `apps/web/src/__tests__/components/health/MeasurementTrendChart.test.tsx` | One series and legend entry per method, the mixed-methods alert only for more than one method, the accessible name, range and metric refetches, out-of-order responses, blood pressure as two series, the 1 to 5 axis, empty and one-reading states, the truncation note, 403 and error states, no axe violations |
+| `apps/web/src/__tests__/components/health/MeasurementHistory.test.tsx` | Entry grouping, newest first, method and Edited chips, filter, Load more merging a split entry, action names, disabled without write, empty and error states, no axe violations |
+| `apps/web/src/__tests__/components/health/DeleteEntryDialog.test.tsx` | The entry is named, Cancel sends nothing, `204` and `404` handling, a network failure keeps the dialog open |
+| `apps/web/src/__tests__/hooks/useMeasurementSeries.test.ts`, `useMeasurements.test.ts` | `from` = now minus days, one request per metric key, a late answer never lands, refresh keeps data, Load more and refresh across pages, 403 |
 | `apps/web/src/__tests__/components/today/TodayReadiness.test.tsx` | Prompt, scores, check in from the card, permission and error states |
 | `apps/web/src/__tests__/hooks/useCheckIn.test.ts`, `services/checkIns.test.ts` | The server's day, save and remove updating state, request shapes |
 | `tests/e2e/specs/health-check-in.spec.ts` | A viewer checks in from Health, sees it on Today, edits the same day, reloads, then deletes it |
 | `tests/e2e/specs/health-log-weight.spec.ts` | A viewer logs a weight with type and Enter; the tile and Today show it and it survives a reload; an out-of-range weight is blocked |
-| `tests/visual/specs/health-page.spec.ts` | The Health page at 1440x900 dark with data and a check-in, at 390x844 light with nothing logged, and the full-screen check-in dialog at 375x812 light |
+| `tests/e2e/specs/health-history.spec.ts` | A viewer logs two weights, sees both in History and the chart, edits one (Edited chip, tile and chart follow), deletes the other after a confirmation, and it survives a reload |
+| `tests/visual/specs/health-page.spec.ts` | The full Health page at 1440x900 dark with data, check-in, Trend and History; at 390x844 light with nothing logged; the full-screen check-in dialog at 375x812 light; and the Trend section alone (two methods, the mixed-methods note) at 1440x900 dark and 390x844 light |
 
 ## 6. Design decisions
 
@@ -436,6 +489,13 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 - **Neutral deltas.** Whether a change is good depends on a goal, and no goal exists here.
 - **BMI derived on read.** Storing it would duplicate weight and height and go stale when either is edited.
 - **Entry-level edit and delete.** A blood-pressure pair edited row by row can be left half-edited.
+- **`LineChart`, not composition primitives.** One plot, one y-axis and a time x-axis are what the high-level `LineChart` of `@mui/x-charts` packages; `ApiTimelineChart` composes bars and a line on two axes, which buys nothing here. No charting dependency is added.
+- **One series per method, never one blended line.** The same body fat from a smart scale and from a DEXA differs by design; a joined line would suggest a change that is only a change of instrument. The mixed-methods note says so in words.
+- **The MUI categorical palette, indexed by method.** Theme-aware in both modes with no literal colours, and a method keeps its colour across ranges and metrics.
+- **Raw readings, not daily averages.** Smoothing hides the outlier a user wants to correct. Aggregation belongs to a later analytics feature.
+- **Sections, not tabs.** The list is the chart's text equivalent and is best seen with it.
+- **Delete is confirm-then-soft-delete, no undo.** There is no restore endpoint; a named confirmation is the guard and an operator can recover the rows.
+- **Group entries in the client.** The list endpoint pages readings; grouping after merging pages lets a split entry become one row without a new endpoint.
 - **`Float`, not `Decimal`.** Conversion already produces non-decimal values; the API rounds to 4 decimals.
 - **`origin` and `sourceRef` are server-only.** A client that could send them could label a typed value as AI or device data.
 
@@ -444,7 +504,7 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 ```bash
 npm test --workspace=api -- health-profile measurements metric-registry health-data seed-data http-exception openapi-document check-ins local-date
 npm run test:db --workspace=api -- health-profile measurements check-ins
-npm run test:run --workspace=web -- HealthProfile userSettingsSections measurement HealthPage TodayBodySnapshot todayCards CheckIn ScoreField TodayReadiness checkIns
+npm run test:run --workspace=web -- HealthProfile userSettingsSections measurement HealthPage TodayBodySnapshot todayCards CheckIn ScoreField TodayReadiness checkIns DeleteEntryDialog
 npm run openapi:dump && npm run openapi:lint
 ```
 
@@ -470,7 +530,10 @@ Manually, signed in as any seeded role:
 18. `GET /api/check-ins?days=7` lists at most 7 days, newest first; `days=0` and `days=400` are `400`.
 19. `DELETE /api/check-ins/<today>`: `204`; a repeat is `404`. Query `audit_events` for `check_in:delete`: `meta` is `{ "scoreCount": 1 }`.
 20. Open `/health`, choose **Check in**, tap four scores, add a note and Save: the section and the Today Readiness card show the chips. Reopen, tap a selected score to clear it, and Save: still one check-in. Clear every score: Save is disabled.
-21. Run the browser suites: `cd tests/e2e && npm test -- health-log-weight health-check-in`, and the visual `health-page` spec as in [TESTING.md](../TESTING.md#visual-regression).
+21. On `/health`, log five to ten weights on different days (Details, Date and time), alternating method Scale and Smart scale. Under Trend, pick Weight and 30 days: two coloured series, two legend entries and the mixed-methods note; hover a point for value, method and date. Switch to 365 days. With one method only, the note is absent; with one reading, "Log at least two readings to see a trend".
+22. Under History, edit a weight: the row gains **Edited**, and the Weight tile and the chart follow. Delete another and confirm: the snackbar says "Entry deleted" and the tile falls back to the previous reading. Choose Blood pressure under Trend: two series. Filter History to Body fat.
+23. At 375px wide the controls wrap, the chart fits without horizontal scroll and the Edit and Delete buttons are at least 44px. Change the unit system in Health Profile and reload: values, axis label and tooltips use the new unit.
+24. Run the browser suites: `cd tests/e2e && npm test -- health-log-weight health-check-in health-history`, and the visual `health-page` spec as in [TESTING.md](../TESTING.md#visual-regression).
 
 ## History
 
@@ -478,3 +541,4 @@ Manually, signed in as any seeded role:
 - #50: `measurements` table, metric registry and catalog endpoint, `/api/measurements` create, list, latest, series, edit and delete, and the validation `details.issues` shape.
 - #53: the Health page tiles, the quick-entry dialog, the Today body snapshot, and the web hooks and unit helpers behind them.
 - #56: the daily check-in: `/api/check-ins`, the local-day helpers, `check_in:delete` audit, the check-in dialog, the Health page section and the Today Readiness card.
+- #60: History list and Trend chart on `/health` with the method shown, entry edit through `LogMeasurementDialog`, confirmed delete, and their tests and visual baselines.

@@ -135,6 +135,50 @@ export const handlers = [
     return HttpResponse.json({ data: { items: mockLatestEmpty } });
   }),
 
+  // History and trends (#60, E2.5): nothing logged yet (an empty first page,
+  // an empty series), a PATCH that echoes the changes as revision 2, and a
+  // 204 DELETE. Tests that need data override these with `server.use`.
+  http.get(`${API_BASE}/measurements/series`, ({ request }) => {
+    const metricKey = new URL(request.url).searchParams.get('metricKey') ?? 'weight';
+    const unit = mockMetricCatalog.metrics.find((m) => m.key === metricKey)?.canonicalUnit ?? 'kg';
+    return HttpResponse.json({ data: { metricKey, unit, points: [], truncated: false } });
+  }),
+
+  http.get(`${API_BASE}/measurements`, ({ request }) => {
+    const url = new URL(request.url);
+    const page = Number(url.searchParams.get('page') ?? '1');
+    const pageSize = Number(url.searchParams.get('pageSize') ?? '20');
+    return HttpResponse.json({ data: { items: [], total: 0, page, pageSize, totalPages: 0 } });
+  }),
+
+  http.patch(`${API_BASE}/measurements/entries/:entryId`, async ({ request, params }) => {
+    const body = (await request.json()) as {
+      notes?: string | null;
+      measuredAt?: string;
+      readings?: Array<{ metricKey: string; value: number; method?: string }>;
+    };
+    const entryId = String(params.entryId);
+    return HttpResponse.json({
+      data: {
+        entryId,
+        items: (body.readings ?? []).map((reading) =>
+          mockMeasurement(reading.metricKey, reading.value, {
+            entryId,
+            method: reading.method ?? 'unspecified',
+            notes: body.notes ?? null,
+            revision: 2,
+            edited: true,
+            ...(body.measuredAt ? { measuredAt: body.measuredAt } : {}),
+          }),
+        ),
+      },
+    });
+  }),
+
+  http.delete(`${API_BASE}/measurements/entries/:entryId`, () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.post(`${API_BASE}/measurements`, async ({ request }) => {
     const body = (await request.json()) as {
       measuredAt?: string;

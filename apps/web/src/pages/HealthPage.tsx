@@ -4,8 +4,9 @@
  *
  * `health_data:read` decides whether there is anything to show (the API
  * enforces it on every call; this only avoids asking); `health_data:write`
- * enables the Log buttons. Later stories (E2.4 check-in, E2.5 history and
- * trends) append sections below the tiles in the same plain stack: no tabs.
+ * enables the Log buttons. Later stories append sections below the tiles in
+ * the same plain stack, no tabs: tiles, Daily check-in (E2.4), then Trend and
+ * History (E2.5, #60, `HealthHistorySections`).
  */
 
 import { useState } from 'react';
@@ -23,6 +24,7 @@ import {
 import { LogMeasurementDialog } from '../components/health/LogMeasurementDialog';
 import { LogMeasurementButton } from '../components/health/LogMeasurementButton';
 import { CheckInSection } from '../components/health/CheckInSection';
+import { HealthHistorySections } from '../components/health/HealthHistorySections';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -35,6 +37,12 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
   const latest = useLatestMeasurements();
   const { profile, isLoading: profileLoading } = useHealthProfile();
   const [dialog, setDialog] = useState<{ open: boolean; focusMetric?: MetricKey }>({ open: false });
+  // Bumped after every change to readings: the Trend chart and History refetch.
+  const [readingsVersion, setReadingsVersion] = useState(0);
+  const readingsChanged = () => {
+    void latest.refresh();
+    setReadingsVersion((n) => n + 1);
+  };
 
   const openDialog = (focusMetric?: MetricKey) => setDialog({ open: true, focusMetric });
   const forbidden = latest.forbidden || errorStatus === 403;
@@ -93,6 +101,17 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         )}
         {/* E2.4 (#56): today's check-in and the recent ones. */}
         {!forbidden && <CheckInSection canWrite={canLog} />}
+
+        {!forbidden && catalog && !loading && (
+          <HealthHistorySections
+            catalog={catalog}
+            profile={profile}
+            canWrite={canLog}
+            refreshToken={readingsVersion}
+            onChanged={readingsChanged}
+            onLog={openDialog}
+          />
+        )}
       </Stack>
 
       <LogMeasurementDialog
@@ -101,7 +120,7 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         latest={latest.items}
         profile={profile}
         onClose={() => setDialog((prev) => ({ ...prev, open: false }))}
-        onSaved={() => void latest.refresh()}
+        onSaved={readingsChanged}
       />
     </>
   );

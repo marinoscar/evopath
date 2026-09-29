@@ -537,7 +537,7 @@ tests/e2e/
 ├── playwright.config.ts      # baseURL http://localhost:3535, Chromium
 ├── helpers/auth.helper.ts    # loginAsTestUser, loginAsAdmin/Contributor/Viewer, isLoggedIn, logout
 ├── fixtures/auth.fixture.ts  # adminPage / viewerPage fixtures
-└── specs/                    # auth, example, health-check-in, health-log-weight, shell-navigation and telemetry-dashboard specs
+└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, shell-navigation and telemetry-dashboard specs
 ```
 
 It is not run in CI. Run it against a local stack:
@@ -600,7 +600,7 @@ rail caption or a card grid with the wrong column count.
   on port 5183, disables animations, allows at most **4 differing pixels**
   (`maxDiffPixels`, an absolute count) with a pixelmatch `threshold` of 0.05,
   and never retries.
-- 31 baselines across 10 spec files, in `tests/visual/specs/*-snapshots/`.
+- 33 baselines across 10 spec files, in `tests/visual/specs/*-snapshots/`.
   Most are full-page shots that include the AppBar wordmark, so renaming the
   product changes them.
 - The Telemetry Dashboard spec (`telemetry-dashboard.spec.ts`, #579) is the

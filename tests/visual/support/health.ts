@@ -1,14 +1,17 @@
 import type { Page, Route } from '@playwright/test';
 
 /**
- * Fixture API for the Health page, the Today body snapshot (issue #53, E2.3)
- * and the daily check-in (issue #56, E2.4), epic E2.
+ * Fixture API for the Health page, the Today body snapshot (issue #53, E2.3),
+ * the daily check-in (issue #56, E2.4) and the Trend and History sections
+ * (issue #60, E2.5), epic E2.
  *
  * The harness (`apps/web/visual/main.tsx`) has no API behind it. These pages
  * ARE their data, so this answers `/api/measurements/metrics`,
- * `/api/measurements/latest` and `/api/health-profile` with `page.route()`,
- * and `/api/check-ins/*` (the check-in section, the dialog and the Today
- * Readiness card), the approach of `support/telemetryDashboard.ts`. Anything else falls through
+ * `/api/measurements/latest`, `/api/measurements` (History),
+ * `/api/measurements/series` (Trend) and `/api/health-profile` with
+ * `page.route()`, and `/api/check-ins/*` (the check-in section, the dialog and
+ * the Today Readiness card), the approach of `support/telemetryDashboard.ts`.
+ * Anything else falls through
  * to the harness's Vite server (`route.fallback()`).
  *
  * Every timestamp is a pure function of {@link FIXED_NOW}; specs pin the page
@@ -169,8 +172,16 @@ const UNITS: Record<string, string> = {
 };
 
 let n = 0;
-function reading(metricKey: string, value: number, msAgo: number, entry: string, method = 'unspecified') {
+function reading(
+  metricKey: string,
+  value: number,
+  msAgo: number,
+  entry: string,
+  method = 'unspecified',
+  extra: { revision?: number; notes?: string | null } = {},
+) {
   n += 1;
+  const revision = extra.revision ?? 1;
   return {
     id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
     entryId: `00000000-0000-4000-9000-${entry.padStart(12, '0')}`,
@@ -180,10 +191,10 @@ function reading(metricKey: string, value: number, msAgo: number, entry: string,
     measuredAt: iso(msAgo),
     method,
     origin: 'manual',
-    notes: null,
+    notes: extra.notes ?? null,
     sourceRef: null,
-    revision: 1,
-    edited: false,
+    revision,
+    edited: revision > 1,
   };
 }
 
@@ -235,6 +246,70 @@ function checkIns(scenario: HealthScenario) {
   ];
 }
 
+/**
+ * Every stored reading of the `data` scenario, newest first (History and the
+ * Trend series read this). Twelve weights over four weeks alternating "Scale"
+ * and "Smart scale", so the chart draws two series and the mixed-methods note;
+ * the weight 16 days ago was edited (revision 2, the Edited chip). The newest
+ * two weights and the other metrics are the tiles' latest/previous readings.
+ */
+function history(scenario: HealthScenario) {
+  if (scenario === 'empty') return [];
+  const hours = 60 * 60 * 1000;
+  const weights: Array<[msAgo: number, kg: number, method: string, entry: string, revision?: number]> = [
+    [4 * hours, 94.5327, 'smart_scale', '1'],
+    [3 * DAY_MS, 94.7595, 'smart_scale', '2'],
+    [6 * DAY_MS, 94.8, 'smart_scale', '10'],
+    [8 * DAY_MS, 95.0, 'scale', '11'],
+    [10 * DAY_MS, 94.9, 'smart_scale', '12'],
+    [13 * DAY_MS, 95.2, 'scale', '13'],
+    [16 * DAY_MS, 95.1, 'smart_scale', '14', 2],
+    [18 * DAY_MS, 95.4, 'scale', '15'],
+    [21 * DAY_MS, 95.3, 'smart_scale', '16'],
+    [23 * DAY_MS, 95.7, 'scale', '17'],
+    [26 * DAY_MS, 95.6, 'smart_scale', '18'],
+    [28 * DAY_MS, 95.8, 'scale', '19'],
+  ];
+  const note = 'Morning, before breakfast';
+  const rows = weights.map(([msAgo, kg, method, entry, revision]) =>
+    reading('weight', kg, msAgo, entry, method, { revision, notes: entry === '1' ? note : null }),
+  );
+  rows.push(
+    reading('body_fat_pct', 27.8, 4 * hours, '1', 'smart_scale', { notes: note }),
+    reading('body_fat_pct', 28.1, 3 * DAY_MS, '2', 'smart_scale'),
+    reading('waist_circumference', 86.36, 3 * DAY_MS, '2', 'tape'),
+    reading('bp_systolic', 128, 1 * DAY_MS, '3', 'bp_cuff'),
+    reading('bp_diastolic', 84, 1 * DAY_MS, '3', 'bp_cuff'),
+    reading('resting_hr', 58, 1 * DAY_MS, '4'),
+    reading('resting_hr', 58, 8 * DAY_MS, '5'),
+  );
+  return rows.sort((a, b) => Date.parse(b.measuredAt) - Date.parse(a.measuredAt));
+}
+
+function listPage(scenario: HealthScenario, url: URL) {
+  const metricKey = url.searchParams.get('metricKey');
+  const page = Number(url.searchParams.get('page') ?? '1');
+  const pageSize = Number(url.searchParams.get('pageSize') ?? '20');
+  const rows = history(scenario).filter((row) => !metricKey || row.metricKey === metricKey);
+  return {
+    items: rows.slice((page - 1) * pageSize, page * pageSize),
+    total: rows.length,
+    page,
+    pageSize,
+    totalPages: Math.ceil(rows.length / pageSize),
+  };
+}
+
+function series(scenario: HealthScenario, url: URL) {
+  const metricKey = url.searchParams.get('metricKey') ?? 'weight';
+  const from = url.searchParams.get('from');
+  const points = history(scenario)
+    .filter((row) => row.metricKey === metricKey && (!from || Date.parse(row.measuredAt) >= Date.parse(from)))
+    .reverse()
+    .map(({ id, measuredAt, value, method, origin }) => ({ id, measuredAt, value, method, origin }));
+  return { metricKey, unit: UNITS[metricKey] ?? 'score', points, truncated: false };
+}
+
 function answer(route: Route, data: unknown) {
   return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data }) });
 }
@@ -248,6 +323,10 @@ export async function mockHealthApi(page: Page, scenario: HealthScenario): Promi
         return answer(route, CATALOG);
       case '/api/measurements/latest':
         return answer(route, { items: latest(scenario) });
+      case '/api/measurements':
+        return answer(route, listPage(scenario, url));
+      case '/api/measurements/series':
+        return answer(route, series(scenario, url));
       case '/api/health-profile':
         return answer(route, PROFILE);
       case '/api/check-ins/today':
