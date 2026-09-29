@@ -40,6 +40,8 @@ const GymsPage = lazy(() => import('./pages/GymsPage'));
 // destination through the `/gyms` prefix.
 const GymNewPage = lazy(() => import('./pages/GymNewPage'));
 const GymDetailPage = lazy(() => import('./pages/GymDetailPage'));
+// E3.4: "Scan gym", photos to an AI-drafted equipment list the user reviews.
+const GymScanPage = lazy(() => import('./pages/GymScanPage'));
 // User settings — the hub (#96) plus one route per card in
 // `config/userSettingsSections.tsx` (#91, epic #90). These replace the single
 // stacked `UserSettingsPage`, which is deleted rather than left unrouted.
@@ -199,6 +201,7 @@ function AppRoutes() {
                   <Route path="/gyms" element={<GymsPage />} />
                   <Route path="/gyms/new" element={<GymNewPage />} />
                   <Route path="/gyms/:gymId" element={<GymDetailPage />} />
+                  <Route path="/gyms/:gymId/scan" element={<GymScanPage />} />
                   {/* The per-user settings surface (#96, epic #90) — the same
                       hub component `/admin/settings` renders, over
                       `USER_SETTINGS_SECTIONS`, plus one route per card.

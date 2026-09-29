@@ -26,6 +26,8 @@ import {
 } from '../mocks/fixtures/gyms';
 
 const CONTRIBUTOR = { ...mockUser, permissions: [...mockUser.permissions, 'storage:write'] };
+/** Holds everything "Scan gym" needs (E3.4). */
+const SCANNER = { ...CONTRIBUTOR, permissions: [...CONTRIBUTOR.permissions, 'intakes:read', 'intakes:write'] };
 const GYM_ID = '00000000-0000-4000-8000-a00000000999';
 
 function renderDetail(options: { user?: typeof mockUser; gymId?: string } = {}) {
@@ -86,7 +88,7 @@ describe('GymDetailPage', () => {
     expect(within(dumbbells).getByText('You verified')).toBeInTheDocument();
 
     const legCurl = screen.getByRole('listitem', { name: 'Leg curl machine' });
-    expect(within(legCurl).getByText('Not yet verified')).toBeInTheDocument();
+    expect(within(legCurl).getByText('AI guess')).toBeInTheDocument();
     expect(within(legCurl).getByText('Low confidence')).toBeInTheDocument();
   });
 
@@ -294,17 +296,83 @@ describe('GymDetailPage', () => {
     expect(await screen.findByText('This gym does not exist or was deleted.')).toBeInTheDocument();
   });
 
-  it('shows no AI-branded control with AI off', async () => {
+  it('with AI off, Scan gym is disabled with the reason and the manual path is unaffected (E3.4)', async () => {
     statefulGymsApi([mockGymDetail({ id: GYM_ID, equipment: [mockEquipment(DUMBBELLS)] })]);
     render(
       <Routes>
         <Route path="/gyms/:gymId" element={<GymDetailPage />} />
       </Routes>,
-      { wrapperOptions: { route: `/gyms/${GYM_ID}`, user: CONTRIBUTOR, aiEnabled: false } },
+      { wrapperOptions: { route: `/gyms/${GYM_ID}`, user: SCANNER, aiEnabled: false } },
     );
     await screen.findByRole('listitem', { name: 'Dumbbells' });
-    expect(screen.queryByRole('button', { name: /scan|\bAI\b/i })).toBeNull();
-    expect(screen.queryByText(/\bAI\b/)).toBeNull();
+    const scan = await screen.findByRole('button', { name: 'Scan gym' });
+    expect(scan).toBeDisabled();
+    expect(scan).toHaveAccessibleDescription('AI is turned off for this app.');
+    expect(screen.getByRole('button', { name: 'Add equipment' })).toBeEnabled();
+    expect(screen.queryByRole('link', { name: 'Scan gym' })).toBeNull();
+  });
+
+  it('links "Scan gym" to the scan page when AI can read photos (E3.4)', async () => {
+    statefulGymsApi([mockGymDetail({ id: GYM_ID })]);
+    render(
+      <Routes>
+        <Route path="/gyms/:gymId" element={<GymDetailPage />} />
+      </Routes>,
+      { wrapperOptions: { route: `/gyms/${GYM_ID}`, user: SCANNER, aiEnabled: true } },
+    );
+    expect(await screen.findByRole('link', { name: 'Scan gym' })).toHaveAttribute('href', `/gyms/${GYM_ID}/scan`);
+  });
+
+  it('opens the picker when the scan page hands back "Continue manually" (E3.4)', async () => {
+    statefulGymsApi([mockGymDetail({ id: GYM_ID })]);
+    render(
+      <Routes>
+        <Route path="/gyms/:gymId" element={<GymDetailPage />} />
+      </Routes>,
+      { wrapperOptions: { route: `/gyms/${GYM_ID}`, routeState: { openPicker: true }, user: CONTRIBUTOR } },
+    );
+    expect(await screen.findByRole('dialog', { name: 'Add equipment' })).toBeInTheDocument();
+  });
+
+  it('shows the apply summary the scan page hands back (E3.4)', async () => {
+    statefulGymsApi([mockGymDetail({ id: GYM_ID })]);
+    render(
+      <Routes>
+        <Route path="/gyms/:gymId" element={<GymDetailPage />} />
+      </Routes>,
+      {
+        wrapperOptions: {
+          route: `/gyms/${GYM_ID}`,
+          routeState: { flash: '3 added, 1 already there. Photos saved to this gym.' },
+          user: CONTRIBUTOR,
+        },
+      },
+    );
+    expect(await screen.findByText('3 added, 1 already there. Photos saved to this gym.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Add equipment' })).toBeNull();
+  });
+
+  it('an edited scan row says "You verified" and what the AI said (E3.4)', async () => {
+    const user = userEvent.setup();
+    statefulGymsApi([
+      mockGymDetail({
+        id: GYM_ID,
+        equipment: [
+          mockEquipment(ELLIPTICAL, {
+            origin: 'ai',
+            confidence: 'medium',
+            userVerified: true,
+            quantity: 4,
+            originalAiValue: { equipmentTypeId: ELLIPTICAL.id, name: 'Elliptical', quantity: 3, brand: 'Precor', model: null, notes: null },
+          }),
+        ],
+      }),
+    ]);
+    renderDetail();
+    const elliptical = await screen.findByRole('listitem', { name: 'Elliptical' });
+    expect(within(elliptical).getByText('You verified')).toBeInTheDocument();
+    await user.click(within(elliptical).getByRole('button', { name: 'AI said…' }));
+    expect(await screen.findByRole('dialog', { name: 'What the AI proposed' })).toHaveTextContent('AI said: Elliptical ×3, Precor');
   });
 
   it('has no axe violations', async () => {

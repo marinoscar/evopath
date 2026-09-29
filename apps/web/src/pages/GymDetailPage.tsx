@@ -6,10 +6,16 @@
  *
  * `gyms:write` enables every mutation; photo upload additionally needs
  * `storage:write` (the viewer role has neither the upload nor the control).
- * Nothing on this page needs AI.
+ * Nothing on this page needs AI: "Scan gym" (E3.4) is a secondary way to
+ * fill the equipment list, disabled with its reason when the scan cannot
+ * run, and the manual "Add equipment" never depends on it.
+ *
+ * Navigation state it reads (set by the scan page): `openPicker` opens the
+ * equipment picker ("Continue manually"), `flash` shows a one-off message
+ * ("3 added, 1 already there. Photos saved to this gym.").
  */
-import { useState } from 'react';
-import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -22,6 +28,7 @@ import {
   DialogTitle,
   Paper,
   Skeleton,
+  Snackbar,
   Stack,
   Typography,
 } from '@mui/material';
@@ -44,6 +51,8 @@ import { GymPhotos } from '../components/gyms/GymPhotos';
 import { GymPhotoLightbox } from '../components/gyms/GymPhotoLightbox';
 import { useCompactDialog } from '../components/gyms/useCompactDialog';
 import { deleteGymMessage } from '../components/gyms/gymCopy';
+import { ScanGymButton } from '../components/gyms/ScanGymButton';
+import type { GymDetailLocationState } from '../services/gymScan';
 
 const EDIT_FORM_ID = 'gym-edit-form';
 
@@ -55,11 +64,14 @@ type Pending =
 
 function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: boolean; canUpload: boolean }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const fullScreen = useCompactDialog();
   const g = useGym(gymId);
+  const incoming = (location.state ?? null) as GymDetailLocationState | null;
   const [editOpen, setEditOpen] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(Boolean(incoming?.openPicker) && canWrite);
+  const [flash, setFlash] = useState<string | null>(incoming?.flash ?? null);
   const [editing, setEditing] = useState<GymEquipment | null>(null);
   const [openPhotoId, setOpenPhotoId] = useState<string | null>(null);
   // The target outlives `pendingOpen` so the dialog keeps its text while it closes.
@@ -73,6 +85,14 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
   const [actionError, setActionError] = useState<string | null>(null);
 
   const { gym } = g;
+
+  // Navigation state is one-shot: drop it so a reload or Back does not replay it.
+  useEffect(() => {
+    if (incoming?.openPicker || incoming?.flash) {
+      navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+    }
+    // Only on arrival.
+  }, []);
 
   if (g.notFound) {
     return (
@@ -202,9 +222,12 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
               Equipment
             </Typography>
             {canWrite && (
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setPickerOpen(true)}>
-                Add equipment
-              </Button>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' }, width: { xs: '100%', sm: 'auto' } }}>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setPickerOpen(true)}>
+                  Add equipment
+                </Button>
+                <ScanGymButton gymId={gym.id} />
+              </Stack>
             )}
           </Box>
           {gym.equipment.length === 0 ? (
@@ -300,6 +323,16 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
         onClose={() => setPending(null)}
         onConfirm={confirmPending}
       />
+      <Snackbar
+        open={flash !== null}
+        autoHideDuration={6000}
+        onClose={() => setFlash(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" variant="filled" onClose={() => setFlash(null)} sx={{ width: '100%' }}>
+          {flash}
+        </Alert>
+      </Snackbar>
     </>
   );
 }
