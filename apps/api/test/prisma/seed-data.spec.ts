@@ -3,7 +3,15 @@ import {
   PERMISSIONS,
   ROLE_PERMISSIONS,
   DEFAULT_SYSTEM_SETTINGS as SEEDED_SYSTEM_SETTINGS,
+  MUSCLES as SEEDED_MUSCLES,
+  MOVEMENT_PATTERNS as SEEDED_MOVEMENT_PATTERNS,
+  EXERCISE_TRACKING_MODES as SEEDED_TRACKING_MODES,
 } from '../../prisma/seed-data';
+import {
+  EXERCISE_TRACKING_MODES,
+  MOVEMENT_PATTERNS,
+  MUSCLES,
+} from '../../src/common/constants/training.constants';
 import { PERMISSIONS as PERMISSION_CONSTANTS } from '../../src/common/constants/roles.constants';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { systemSettingsSchema } from '../../src/common/schemas/settings.schema';
@@ -318,6 +326,19 @@ describe('seed data', () => {
       expect(() =>
         systemSettingsSchema.parse(SEEDED_SYSTEM_SETTINGS),
       ).not.toThrow();
+    });
+  });
+
+  describe('training vocabularies', () => {
+    /**
+     * Same reason as the system settings above: the seed cannot import
+     * `src/common/constants/training.constants.ts`, so it keeps a copy, and
+     * this is what keeps the copy honest.
+     */
+    it('match the API constants exactly', () => {
+      expect(SEEDED_MUSCLES).toEqual(MUSCLES);
+      expect(SEEDED_MOVEMENT_PATTERNS).toEqual(MOVEMENT_PATTERNS);
+      expect(SEEDED_TRACKING_MODES).toEqual(EXERCISE_TRACKING_MODES);
     });
   });
 });

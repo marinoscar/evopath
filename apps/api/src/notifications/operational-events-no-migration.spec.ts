@@ -81,6 +81,12 @@ const MIGRATIONS_AT_288 = [
   // E3.2: `gyms`, `gym_equipment`, `gym_photos`, `equipment_types`, `capabilities`
   // and join tables. A schema change about gyms, not notifications.
   '20260929164626_add_gyms_equipment',
+  // E4.1: `exercises` and `exercise_requirements`. A schema change about the
+  // exercise library, not notifications.
+  '20260929212013_add_exercise_library',
+  // E4.1: re-creates the `exercises.primary_muscles` CHECK with cardinality(),
+  // because array_length() of an empty array is NULL and the check passed.
+  '20260929220000_fix_exercise_primary_muscles_check',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

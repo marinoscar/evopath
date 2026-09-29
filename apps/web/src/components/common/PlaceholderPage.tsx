@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Box, Container, Grid, Paper, Typography } from '@mui/material';
 import type { SvgIconComponent } from '@mui/icons-material';
 import type { RoadmapArea } from '../../config/roadmap';
@@ -20,9 +21,11 @@ interface PlaceholderPageProps {
   /** The target layout, 2-4 items. */
   sections: PlaceholderSection[];
   note?: string;
+  /** Optional links to what already works in this area, shown under the chip. */
+  actions?: ReactNode;
 }
 
-export function PlaceholderPage({ title, subtitle, area, sections, note }: PlaceholderPageProps) {
+export function PlaceholderPage({ title, subtitle, area, sections, note, actions }: PlaceholderPageProps) {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
@@ -35,6 +38,7 @@ export function PlaceholderPage({ title, subtitle, area, sections, note }: Place
         <Box sx={{ mb: 3 }}>
           <ComingInChip area={area} />
         </Box>
+        {actions && <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', gap: 1 }}>{actions}</Box>}
         {sections.length > 0 && (
           <Grid container spacing={2}>
             {sections.map((section) => (

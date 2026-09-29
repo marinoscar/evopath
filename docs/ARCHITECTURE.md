@@ -337,6 +337,15 @@ A gym is a named place a user trains (type, description, notes, `isTemporary`), 
 - **Routes:** `/api/gyms` (including `/:id/equipment` and `/:id/photos`), `/api/equipment-types`, `/api/capabilities`; details in `/api/docs` (tags "Gyms", "Equipment", "Capabilities")
 - **Permissions:** `gyms:read`, `gyms:write`; photo attach and remove also need `storage:write`
 
+### 5.23 Exercise library
+
+The exercise library is the shared vocabulary workouts are built from. `exercises` holds the seeded catalog (94 rows keyed by a permanent `slug`, `ownerUserId` null, `origin` `seed`) and each user's own custom exercises (`custom-` slug prefix, `origin` `user` or `ai`). Every exercise names its primary and secondary muscles, a movement pattern, and a tracking mode (`weight_reps`, `bodyweight_reps`, `time`, `distance_time`); the vocabularies live in `apps/api/src/common/constants/training.constants.ts`. What an exercise needs is `exercise_requirements`: rows sharing a `groupIndex` are alternatives (OR), and every group must be satisfied (AND). Each row names an equipment type or a capability, never both (a CHECK constraint). `ExerciseAvailabilityService` evaluates the groups against a gym's equipment types and the capabilities they enable, so `GET /api/exercises` with `gymId` marks each item `available` and lists what is `missing`; `availableOnly` filters to the available ones. Library rows are read-only (`LIBRARY_EXERCISE_READ_ONLY`), another user's custom exercise answers `404`, and deleting an exercise that workouts use is refused (`EXERCISE_IN_USE`). An exercise with `status` `pending_review` is hidden from lists until its owner approves it (`POST /api/exercises/:id/approve`) or deletes it. The seed upserts by slug and re-syncs requirement rows for seeded exercises only. Limits and refusal reasons live in `apps/api/src/exercises/exercises.constants.ts`.
+
+- **Code:** `apps/api/src/exercises/` (`ExercisesModule`), `apps/web/src/pages/TrainExercisesPage.tsx`, `apps/web/src/components/train/CustomExerciseDialog.tsx`
+- **Routes:** `/api/exercises` (including `/:id` and `/:id/approve`); details in `/api/docs` (group "Training", tag "Exercises")
+- **UI:** `/train/exercises`
+- **Permissions:** `exercises:read`, `exercises:write`
+
 ---
 
 ## 6. Data architecture
@@ -390,6 +399,8 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Gyms | `GymEquipment` | `gym_equipment` | Equipment present in a gym: type, quantity (1 to 99), brand, model, origin, confidence, `userVerified`, write-once `originalAiValue` |
 | Gyms | `GymPhoto` | `gym_photos` | Link from a gym to a `storage_objects` row, with caption and taken-at time |
 | Gyms | `GymEquipmentPhoto` | `gym_equipment_photos` | Join of a gym equipment row to the gym photos that show it (composite key) |
+| Training | `Exercise` | `exercises` | Exercise keyed by a permanent `slug`: muscles, movement pattern, tracking mode, `origin` (`seed`, `user`, `ai`), `status` (`active`, `pending_review`), nullable `proposedByRunId` (no foreign key); `ownerUserId` null for the seeded library, set for a user's custom exercise |
+| Training | `ExerciseRequirement` | `exercise_requirements` | One option of one requirement group: `groupIndex`, and an equipment type or a capability (a CHECK allows exactly one); groups are ANDed, options inside a group ORed |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -479,10 +490,12 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `intakes:write` | ✓ | ✓ | ✓ | Create, edit, apply and discard own photo intakes (`POST/PATCH/DELETE /api/intakes*`); `POST /api/intakes/:id/analyze` also needs `ai:use`, and a kind's own `requiredPermissions.write` is also needed (`body_metric_reading`: `health_data:write`, `gym_equipment`: `gyms:write`) |
 | `gyms:read` | ✓ | ✓ | ✓ | Read own gyms, their equipment and the equipment catalog (`GET /api/gyms*`, `GET /api/equipment-types`, `GET /api/capabilities`) |
 | `gyms:write` | ✓ | ✓ | ✓ | Create, edit and delete own gyms, equipment and custom equipment types (`POST/PATCH/DELETE /api/gyms*`, `/api/equipment-types*`); gym photo attach and remove also need `storage:write` |
+| `exercises:read` | ✓ | ✓ | ✓ | Read the exercise library and own custom exercises (`GET /api/exercises*`) |
+| `exercises:write` | ✓ | ✓ | ✓ | Create, edit, approve and delete own custom exercises (`POST/PATCH/DELETE /api/exercises*`, `POST /api/exercises/:id/approve`) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`, `exercises:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 
@@ -556,7 +569,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Access | Routes |
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
-| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/gyms` (placeholder pages until their features ship), `/activate` (device approval), `/settings` hub and its pages |
+| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train` and `/train/exercises` (the exercise library; see [§5.23](#523-exercise-library)), `/gyms` (`/train` and `/gyms` are placeholder pages until their features ship), `/activate` (device approval), `/settings` hub and its pages |
 | Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
