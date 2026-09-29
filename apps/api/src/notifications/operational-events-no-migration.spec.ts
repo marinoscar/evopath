@@ -81,6 +81,9 @@ const MIGRATIONS_AT_288 = [
   // E3.2: `gyms`, `gym_equipment`, `gym_photos`, `equipment_types`, `capabilities`
   // and join tables. A schema change about gyms, not notifications.
   '20260929164626_add_gyms_equipment',
+  // E4.1: `exercises` and `exercise_requirements`. A schema change about the
+  // exercise library, not notifications.
+  '20260929212013_add_exercise_library',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

@@ -39,6 +39,7 @@ model User {
   photoIntakes           PhotoIntake[]
   gyms                   Gym[]
   equipmentTypes         EquipmentType[]
+  exercises              Exercise[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
@@ -2742,6 +2743,7 @@ model Capability {
   sortOrder       Int      @default(0) @map("sort_order")
 
   equipmentTypes EquipmentTypeCapability[]
+  exerciseRequirements ExerciseRequirement[]
 
   @@map("capabilities")
 }
@@ -2760,6 +2762,7 @@ model EquipmentType {
   owner        User?                     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   capabilities EquipmentTypeCapability[]
   gymEquipment GymEquipment[]
+  exerciseRequirements ExerciseRequirement[]
 
   @@index([ownerUserId])
   @@map("equipment_types")
@@ -2825,4 +2828,57 @@ model GymEquipmentPhoto {
 
   @@id([gymEquipmentId, gymPhotoId])
   @@map("gym_equipment_photos")
+}
+
+// =============================================================================
+// Exercise library (E4.1)
+// =============================================================================
+
+// Seeded library rows have ownerUserId = null; a user's custom (or AI-proposed)
+// exercise carries that user. CHECK constraints (primary muscles >= 1, tracking
+// mode, origin, status) live in the migration SQL.
+model Exercise {
+  id               String   @id @default(uuid()) @db.Uuid
+  slug             String   @unique // permanent once seeded; custom rows get 'custom-<8 random chars>'
+  name             String
+  ownerUserId      String?  @map("owner_user_id") @db.Uuid // null = seeded library; set = that user's custom exercise
+  primaryMuscles   String[] @map("primary_muscles") // vocabulary from E3.2, min 1
+  secondaryMuscles String[] @default([]) @map("secondary_muscles")
+  movementPattern  String   @map("movement_pattern") // squat|hinge|horizontal_push|vertical_push|horizontal_pull|vertical_pull|lunge|carry|core|isolation|cardio
+  trackingMode     String   @default("weight_reps") @map("tracking_mode") // weight_reps|bodyweight_reps|time|distance_time
+  isUnilateral     Boolean  @default(false) @map("is_unilateral")
+  isBodyweight     Boolean  @default(false) @map("is_bodyweight")
+  aliases          String[] @default([])
+  notes            String?
+  origin           String   @default("user") // seed|user|ai
+  status           String   @default("active") // active|pending_review
+  proposedByRunId  String?  @map("proposed_by_run_id") @db.Uuid // AI proposals only; deliberately not a foreign key
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  owner        User?                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  requirements ExerciseRequirement[]
+
+  @@index([ownerUserId])
+  @@index([movementPattern])
+  @@map("exercises")
+}
+
+// A requirement GROUP is satisfied when the gym has ANY listed equipment type
+// OR any equipment that provides ANY listed capability. An exercise is
+// available at a gym when EVERY group is satisfied. No rows = needs nothing.
+// Exactly one of equipmentTypeId / capabilityId is set (CHECK in migration SQL).
+model ExerciseRequirement {
+  id              String  @id @default(uuid()) @db.Uuid
+  exerciseId      String  @map("exercise_id") @db.Uuid
+  groupIndex      Int     @map("group_index")
+  equipmentTypeId String? @map("equipment_type_id") @db.Uuid
+  capabilityId    String? @map("capability_id") @db.Uuid
+
+  exercise      Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  equipmentType EquipmentType? @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  capability    Capability?    @relation(fields: [capabilityId], references: [id], onDelete: Restrict)
+
+  @@index([exerciseId, groupIndex])
+  @@map("exercise_requirements")
 }
