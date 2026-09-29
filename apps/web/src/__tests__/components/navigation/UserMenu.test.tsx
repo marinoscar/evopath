@@ -458,8 +458,8 @@ describe('UserMenu', () => {
       expect(screen.queryByRole('menuitem', { name: 'Console' })).not.toBeInTheDocument();
     });
 
-    it('omits Home — the AppBar brand already routes there', async () => {
-      // A menu row duplicating on-screen chrome is the bloat this epic removes.
+    it('omits the primary destinations — the bottom bar and rail show them', async () => {
+      // A menu row duplicating on-screen chrome is bloat.
       const user = userEvent.setup();
       setPermissions(['users:read', 'system_settings:read'], true);
 
@@ -469,7 +469,9 @@ describe('UserMenu', () => {
       await waitFor(() => {
         expect(screen.getByRole('menu')).toBeInTheDocument();
       });
-      expect(screen.queryByRole('menuitem', { name: 'Home' })).not.toBeInTheDocument();
+      for (const name of ['Today', 'Train', 'Health', 'Gyms']) {
+        expect(screen.queryByRole('menuitem', { name })).not.toBeInTheDocument();
+      }
     });
 
     it('labels and targets every entry from the destination table', async () => {
@@ -485,7 +487,7 @@ describe('UserMenu', () => {
 
       // Feature-gated destinations (`ai`, #425) are absent with no feature
       // provider above the menu — AI is off, failing closed.
-      const expected = DESTINATIONS.filter((d) => d.key !== 'home' && !d.feature).map(
+      const expected = DESTINATIONS.filter((d) => !d.primary && !d.feature).map(
         (d) => d.label,
       );
       for (const label of expected) {

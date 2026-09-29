@@ -96,6 +96,10 @@ vi.mock('../pages/UserNotificationsPage', () => ({
   default: () => <h1>User Notifications Page</h1>,
 }));
 
+vi.mock('../pages/TrainPage', () => ({ default: () => <h1>Train Page</h1> }));
+vi.mock('../pages/HealthPage', () => ({ default: () => <h1>Health Page</h1> }));
+vi.mock('../pages/GymsPage', () => ({ default: () => <h1>Gyms Page</h1> }));
+
 const API_BASE = '*/api';
 
 /** Overrides `GET /auth/me` for one test, so the route tree sees this user. */
@@ -113,8 +117,8 @@ function signInAs(permissions: string[], roles: string[] = ['viewer']) {
           isActive: true,
           createdAt: new Date().toISOString(),
         },
-      }),
-    ),
+      })
+    )
   );
 }
 
@@ -123,7 +127,7 @@ describe('App', () => {
     render(
       <BrowserRouter>
         <App />
-      </BrowserRouter>,
+      </BrowserRouter>
     );
 
     // Wait for lazy loaded component to render
@@ -135,7 +139,7 @@ describe('App', () => {
         const homeText = screen.queryByText(/Home Page/i);
         expect(welcomeText || homeText).toBeTruthy();
       },
-      { timeout: 5000 },
+      { timeout: 5000 }
     );
   });
 
@@ -161,7 +165,7 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
@@ -176,7 +180,7 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings/users']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
@@ -191,15 +195,13 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () =>
-          expect(
-            screen.getByRole('heading', { name: /admin settings hub/i }),
-          ).toBeInTheDocument(),
-        { timeout: 5000 },
+          expect(screen.getByRole('heading', { name: /admin settings hub/i })).toBeInTheDocument(),
+        { timeout: 5000 }
       );
     });
 
@@ -212,15 +214,13 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () =>
-          expect(
-            screen.getByRole('heading', { name: /admin settings hub/i }),
-          ).toBeInTheDocument(),
-        { timeout: 5000 },
+          expect(screen.getByRole('heading', { name: /admin settings hub/i })).toBeInTheDocument(),
+        { timeout: 5000 }
       );
     });
 
@@ -237,15 +237,13 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () =>
-          expect(
-            screen.getByRole('heading', { name: /admin settings hub/i }),
-          ).toBeInTheDocument(),
-        { timeout: 5000 },
+          expect(screen.getByRole('heading', { name: /admin settings hub/i })).toBeInTheDocument(),
+        { timeout: 5000 }
       );
     });
 
@@ -255,12 +253,12 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings/users']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () => expect(screen.getByRole('heading', { name: 'Admin Users' })).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
   });
@@ -282,6 +280,29 @@ describe('App', () => {
    * behaviour — this file only proves `App.tsx` wires the path to it and
    * carries no gate.
    */
+  describe('Product routes', () => {
+    it.each([
+      ['/train', 'Train Page'],
+      ['/health', 'Health Page'],
+      ['/gyms', 'Gyms Page'],
+    ])('renders %s for a signed-in user', async (path, heading) => {
+      signInAs(['user_settings:read']);
+
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      );
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
+    });
+  });
+
   describe('User settings routes', () => {
     it.each([
       ['/settings', 'User Settings Hub'],
@@ -295,12 +316,15 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={[path]}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
 
       // Isolation: reaching one of these routes must render exactly that
       // page's stand-in, never a sibling's.
@@ -328,33 +352,31 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/settings/profile']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () =>
-          expect(
-            screen.getByRole('heading', { name: 'User Profile Page' }),
-          ).toBeInTheDocument(),
-        { timeout: 5000 },
+          expect(screen.getByRole('heading', { name: 'User Profile Page' })).toBeInTheDocument(),
+        { timeout: 5000 }
       );
     });
 
-    it('reaches /settings/notifications with an empty permission set - it renders every user\'s own preferences, not an admin-only surface', async () => {
+    it("reaches /settings/notifications with an empty permission set - it renders every user's own preferences, not an admin-only surface", async () => {
       signInAs([]);
 
       render(
         <MemoryRouter initialEntries={['/settings/notifications']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () =>
           expect(
-            screen.getByRole('heading', { name: 'User Notifications Page' }),
+            screen.getByRole('heading', { name: 'User Notifications Page' })
           ).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
   });
@@ -377,12 +399,15 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={[path]}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
-      await waitFor(() => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(), {
-        timeout: 5000,
-      });
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(),
+        {
+          timeout: 5000,
+        }
+      );
     });
 
     it.each(['/admin/settings/notifications', '/admin/settings/maintenance'])(
@@ -393,13 +418,13 @@ describe('App', () => {
         render(
           <MemoryRouter initialEntries={[path]}>
             <App />
-          </MemoryRouter>,
+          </MemoryRouter>
         );
 
         await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
           timeout: 5000,
         });
-      },
+      }
     );
   });
 
@@ -416,12 +441,12 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/users']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () => expect(screen.getByRole('heading', { name: 'Admin Users' })).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
 
@@ -431,15 +456,13 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () =>
-          expect(
-            screen.getByRole('heading', { name: 'Admin Settings Hub' }),
-          ).toBeInTheDocument(),
-        { timeout: 5000 },
+          expect(screen.getByRole('heading', { name: 'Admin Settings Hub' })).toBeInTheDocument(),
+        { timeout: 5000 }
       );
     });
 
@@ -449,12 +472,12 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings/deployment']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(
         () => expect(screen.getByRole('heading', { name: 'Admin About' })).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
 
@@ -464,7 +487,7 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/settings/deployment']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
@@ -481,7 +504,7 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={['/admin/users']}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
 
       await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
@@ -504,8 +527,8 @@ describe('App', () => {
     function aiOn() {
       server.use(
         http.get(`${API_BASE}/ai/config`, () =>
-          HttpResponse.json({ data: mockAiPublicConfigEnabled }),
-        ),
+          HttpResponse.json({ data: mockAiPublicConfigEnabled })
+        )
       );
     }
 
@@ -513,7 +536,7 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={[path]}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
     }
 
@@ -527,9 +550,12 @@ describe('App', () => {
           timeout: 5000,
         });
         expect(
-          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models| Usage)?$/ }),
+          screen.queryByRole('heading', {
+            level: 1,
+            name: /^AI( Playground| Keys| Models| Usage)?$/,
+          })
         ).not.toBeInTheDocument();
-      },
+      }
     );
 
     it('keeps /admin/settings/ai reachable while AI is disabled — it is where AI is switched on', async () => {
@@ -538,7 +564,7 @@ describe('App', () => {
 
       await waitFor(
         () => expect(screen.getByRole('heading', { level: 1, name: 'AI' })).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
 
@@ -555,7 +581,7 @@ describe('App', () => {
 
       await waitFor(
         () => expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
 
@@ -570,9 +596,12 @@ describe('App', () => {
           timeout: 5000,
         });
         expect(
-          screen.queryByRole('heading', { level: 1, name: /^AI( Playground| Keys| Models| Usage)?$/ }),
+          screen.queryByRole('heading', {
+            level: 1,
+            name: /^AI( Playground| Keys| Models| Usage)?$/,
+          })
         ).not.toBeInTheDocument();
-      },
+      }
     );
 
     it.each(['/admin/settings/ai', '/admin/settings/ai/models', '/admin/settings/ai/usage'])(
@@ -585,17 +614,22 @@ describe('App', () => {
         await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
           timeout: 5000,
         });
-      },
+      }
     );
   });
   describe('Telemetry routes (#537)', () => {
-    const TELEMETRY_ALL = ['user_settings:read', 'telemetry:read', 'telemetry:write', 'telemetry:query'];
+    const TELEMETRY_ALL = [
+      'user_settings:read',
+      'telemetry:read',
+      'telemetry:write',
+      'telemetry:query',
+    ];
 
     function telemetryOn() {
       server.use(
         http.get(`${API_BASE}/telemetry/config`, () =>
-          HttpResponse.json({ data: mockTelemetryPublicConfigEnabled }),
-        ),
+          HttpResponse.json({ data: mockTelemetryPublicConfigEnabled })
+        )
       );
     }
 
@@ -603,7 +637,7 @@ describe('App', () => {
       render(
         <MemoryRouter initialEntries={[path]}>
           <App />
-        </MemoryRouter>,
+        </MemoryRouter>
       );
     }
 
@@ -612,8 +646,11 @@ describe('App', () => {
       renderAt('/admin/settings/telemetry');
 
       await waitFor(
-        () => expect(screen.getByRole('heading', { level: 1, name: 'Admin Telemetry' })).toBeInTheDocument(),
-        { timeout: 5000 },
+        () =>
+          expect(
+            screen.getByRole('heading', { level: 1, name: 'Admin Telemetry' })
+          ).toBeInTheDocument(),
+        { timeout: 5000 }
       );
     });
 
@@ -625,7 +662,7 @@ describe('App', () => {
         timeout: 5000,
       });
       expect(
-        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Explorer' }),
+        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Explorer' })
       ).not.toBeInTheDocument();
     });
 
@@ -637,9 +674,9 @@ describe('App', () => {
       await waitFor(
         () =>
           expect(
-            screen.getByRole('heading', { level: 1, name: 'Admin Telemetry Explorer' }),
+            screen.getByRole('heading', { level: 1, name: 'Admin Telemetry Explorer' })
           ).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
 
@@ -651,9 +688,9 @@ describe('App', () => {
       await waitFor(
         () =>
           expect(
-            screen.getByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' }),
+            screen.getByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' })
           ).toBeInTheDocument(),
-        { timeout: 5000 },
+        { timeout: 5000 }
       );
     });
 
@@ -664,7 +701,7 @@ describe('App', () => {
         timeout: 5000,
       });
       expect(
-        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' }),
+        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' })
       ).not.toBeInTheDocument();
     });
 
@@ -676,7 +713,7 @@ describe('App', () => {
         timeout: 5000,
       });
       expect(
-        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' }),
+        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' })
       ).not.toBeInTheDocument();
     });
 

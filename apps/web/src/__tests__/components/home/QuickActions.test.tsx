@@ -719,7 +719,7 @@ describe('QuickActions', () => {
       render(<QuickActions />, { wrapperOptions: { user: mockAdminUser } });
 
       for (const destination of DESTINATIONS) {
-        if (destination.key === 'home') continue;
+        if (destination.primary) continue;
         // Feature-gated (`ai`, #425): hidden while AI is off, which is what an
         // absent feature provider means.
         if (destination.feature) continue;
