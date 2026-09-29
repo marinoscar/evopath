@@ -75,6 +75,10 @@ describe('GymEquipmentIntakeKind', () => {
     expect(gyms.findOwned).toHaveBeenCalledWith(USER, GYM);
   });
 
+  it('requires gyms:read to see and gyms:write to change an intake of this kind', () => {
+    expect(setup().kind.requiredPermissions).toEqual({ read: ['gyms:read'], write: ['gyms:write'] });
+  });
+
   it('the subject is the gym', () => {
     expect(setup().kind.subjectOf({ gymId: GYM })).toEqual({ subjectType: 'gym', subjectId: GYM });
   });

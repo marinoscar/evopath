@@ -2,7 +2,13 @@ import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma, type DraftItem } from '@prisma/client';
 import { z } from 'zod';
 
-import type { IntakeApplyArgs, IntakeKind, IntakeValueSource } from '../../intake/intake-kind.interface';
+import { PERMISSIONS } from '../../common/constants/roles.constants';
+import type {
+  IntakeApplyArgs,
+  IntakeKind,
+  IntakeKindPermissions,
+  IntakeValueSource,
+} from '../../intake/intake-kind.interface';
 import { IntakeKindRegistry } from '../../intake/intake-kind.registry';
 import { PrismaService } from '../../prisma/prisma.service';
 import { customSlug } from '../equipment-types.service';
@@ -52,6 +58,9 @@ import {
 //   4. the equipment row is linked to the gym photos of its `sourcePhotoIds`.
 //
 // Result: `{ gymId, created, merged, photosAttached, photosSkipped }`.
+//
+// PERMISSIONS. `requiredPermissions` adds `gyms:read` / `gyms:write` to the
+// intake routes' `intakes:*` (a 403 `MISSING_KIND_PERMISSIONS` otherwise).
 // =============================================================================
 
 export const GYM_EQUIPMENT_INTAKE_KIND = 'gym_equipment';
@@ -107,6 +116,14 @@ export class GymEquipmentIntakeKind
   readonly analyzeJobType = EQUIPMENT_SCAN_JOB_TYPE;
   readonly maxPhotos = GYM_EQUIPMENT_INTAKE_MAX_PHOTOS;
   readonly itemKinds = [EQUIPMENT_ITEM_KIND] as const;
+  /**
+   * `apply` writes the gym's equipment and photos, which the gym routes guard
+   * with `gyms:*`; an intake must not be a side door around them.
+   */
+  readonly requiredPermissions: IntakeKindPermissions = {
+    read: [PERMISSIONS.GYMS_READ],
+    write: [PERMISSIONS.GYMS_WRITE],
+  };
 
   constructor(
     private readonly registry: IntakeKindRegistry,

@@ -67,6 +67,8 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
   readonly valueSchema = valueSchema;
   readonly analyzeJobType = 'ai.equipment.scan'; // null = manual-only kind
   readonly itemKinds = ['equipment'] as const;
+  // apply writes gym rows: the gym routes' permissions, on top of intakes:*
+  readonly requiredPermissions = { read: [PERMISSIONS.GYMS_READ], write: [PERMISSIONS.GYMS_WRITE] };
 
   constructor(
     private readonly registry: IntakeKindRegistry,
@@ -258,7 +260,10 @@ controller as each method's last argument):
   declares requirements fails closed for it. Kinds without
   `requiredPermissions` behave exactly as before.
 
-`body_metric_reading` (`measurements/photo/`) is the worked example.
+The registered kinds both declare one: `body_metric_reading` (`measurements/photo/`)
+requires `health_data:read` / `health_data:write`, and `gym_equipment`
+(`gyms/intake/`) requires `gyms:read` / `gyms:write`. `body_metric_reading` is
+the worked example.
 
 ## Error Reasons
 

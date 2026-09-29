@@ -35,7 +35,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import type { Job, PrismaClient } from '@prisma/client';
 
 import { CAPABILITY_CATALOG, EQUIPMENT_CATALOG } from '../../prisma/seed-data';
@@ -47,6 +47,7 @@ import { GymEquipmentIntakeKind } from '../../src/gyms/intake/gym-equipment.inta
 import { GymPhotoObjectReferences } from '../../src/gyms/intake/gym-photo-references';
 import { EquipmentScanHandler } from '../../src/gyms/scan/equipment-scan.handler';
 import { EquipmentVocabularyService } from '../../src/gyms/scan/equipment-vocabulary';
+import { PERMISSIONS } from '../../src/common/constants/roles.constants';
 import { IntakeKindRegistry } from '../../src/intake/intake-kind.registry';
 import { IntakeService } from '../../src/intake/intake.service';
 import { StorageObjectReferences } from '../../src/intake/storage-object-references';
@@ -57,6 +58,10 @@ import { loadExpectedDrafts, loadModelOutput, type GymScanExample } from '../fix
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('gym-equipment-scan.db.spec');
+
+/** What the routes pass for a caller holding every role default: the intake routes' and the kind's own. */
+const INTAKE_PERMISSIONS = [PERMISSIONS.INTAKES_READ, PERMISSIONS.INTAKES_WRITE];
+const SCAN_PERMISSIONS = [...INTAKE_PERMISSIONS, PERMISSIONS.GYMS_READ, PERMISSIONS.GYMS_WRITE];
 
 /** The seeded catalog, upserted by slug, for a database `prisma:seed` has not run on. */
 async function ensureCatalog(client: PrismaClient): Promise<void> {
@@ -146,17 +151,22 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
 
   /** create -> attach -> analyze -> run the queued job; returns the intake id and photo ids. */
   async function scan(userId: string, gymId: string, example: GymScanExample, photoCount = 1) {
-    const intake = await intakes.create(userId, { kind: 'gym_equipment', context: { gymId } });
+    const intake = await intakes.create(userId, { kind: 'gym_equipment', context: { gymId } }, SCAN_PERMISSIONS);
     const photoIds: string[] = [];
 
     for (let i = 0; i < photoCount; i += 1) {
       const id = await makePhoto(userId, `${example}-${i}.jpg`);
-      await intakes.attachPhoto(userId, intake.id, id);
+      await intakes.attachPhoto(userId, intake.id, id, SCAN_PERMISSIONS);
       photoIds.push(id);
     }
 
     nextOutput = loadModelOutput(example);
-    const { jobId } = await intakes.analyze(userId, intake.id, { provider: HARNESS_PROVIDER, modelId: HARNESS_MODEL });
+    const { jobId } = await intakes.analyze(
+      userId,
+      intake.id,
+      { provider: HARNESS_PROVIDER, modelId: HARNESS_MODEL },
+      SCAN_PERMISSIONS,
+    );
     const job = await client.job.findUniqueOrThrow({ where: { id: jobId } });
     expect(job).toMatchObject({ type: 'ai.equipment.scan', subjectType: 'photo_intake', subjectId: intake.id });
 
@@ -225,7 +235,7 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       const gymId = await makeGym(userId);
 
       const { intakeId, photoIds } = await scan(userId, gymId, example);
-      const view = await intakes.get(userId, intakeId);
+      const view = await intakes.get(userId, intakeId, SCAN_PERMISSIONS);
 
       expect(view.status).toBe('ready');
       expect(view.subjectType).toBe('gym');
@@ -235,12 +245,11 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       expect(view.resultMeta).toMatchObject({ promptVersion: 1, chunks: 1, photoCount: 1, failedChunks: [] });
       expect(harness.usageEvents.filter((row) => row.userId === userId)).toHaveLength(1);
 
-      const listed = await intakes.list(userId, {
-        kind: 'gym_equipment',
-        subjectId: gymId,
-        status: ['draft', 'scanning', 'ready'],
-        limit: 20,
-      });
+      const listed = await intakes.list(
+        userId,
+        { kind: 'gym_equipment', subjectId: gymId, status: ['draft', 'scanning', 'ready'], limit: 20 },
+        SCAN_PERMISSIONS,
+      );
       expect(listed.map((row) => row.id)).toEqual([intakeId]);
     },
   );
@@ -251,8 +260,38 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
     const gymId = await makeGym(owner);
 
     await expect(
-      intakes.create(stranger, { kind: 'gym_equipment', context: { gymId } }),
+      intakes.create(stranger, { kind: 'gym_equipment', context: { gymId } }, SCAN_PERMISSIONS),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('refuses a caller without gyms:write with 403 on create and apply, writing nothing', async () => {
+    const userId = await makeUser('no-gyms-write');
+    const gymId = await makeGym(userId);
+    const readOnly = [...INTAKE_PERMISSIONS, PERMISSIONS.GYMS_READ];
+
+    const createError = await intakes
+      .create(userId, { kind: 'gym_equipment', context: { gymId } }, readOnly)
+      .catch((error: unknown) => error);
+    expect(createError).toBeInstanceOf(ForbiddenException);
+    expect(((createError as ForbiddenException).getResponse() as { details: unknown }).details).toEqual({
+      reason: 'MISSING_KIND_PERMISSIONS',
+      kind: 'gym_equipment',
+      permissions: [PERMISSIONS.GYMS_WRITE],
+    });
+    expect(await client.photoIntake.count({ where: { userId } })).toBe(0);
+
+    // An intake made while the caller still held gyms:write, then applied without it.
+    const { intakeId } = await scan(userId, gymId, 'leg-curl-placard');
+    await intakes.acceptAll(userId, intakeId, SCAN_PERMISSIONS);
+
+    await expect(intakes.apply(userId, intakeId, readOnly)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(intakes.apply(userId, intakeId, INTAKE_PERMISSIONS)).rejects.toBeInstanceOf(ForbiddenException);
+    expect((await client.photoIntake.findUniqueOrThrow({ where: { id: intakeId } })).status).toBe('ready');
+    expect(await client.gymEquipment.count({ where: { gymId } })).toBe(0);
+    expect(await client.gymPhoto.count({ where: { gymId } })).toBe(0);
+
+    // Reading needs gyms:read.
+    await expect(intakes.get(userId, intakeId, INTAKE_PERMISSIONS)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('apply: provenance, rejected items, photos, links, merge with an identical row, one custom type', async () => {
@@ -267,23 +306,31 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
     });
 
     const { intakeId, photoIds } = await scan(userId, gymId, 'cardio-row-wide');
-    const items = (await intakes.get(userId, intakeId)).items;
+    const items = (await intakes.get(userId, intakeId, SCAN_PERMISSIONS)).items;
     const [ellipticalItem, matrixBike, precorBike, unknown] = items;
 
     // Edit the elliptical (4 instead of 3), reject the Precor bike, accept the rest.
-    await intakes.updateItem(userId, intakeId, ellipticalItem.id, {
-      value: { ...(ellipticalItem.value as object), quantity: 4 },
-      status: 'accepted',
-    });
-    await intakes.updateItem(userId, intakeId, precorBike.id, { status: 'rejected' });
-    await intakes.acceptAll(userId, intakeId);
+    await intakes.updateItem(
+      userId,
+      intakeId,
+      ellipticalItem.id,
+      { value: { ...(ellipticalItem.value as object), quantity: 4 }, status: 'accepted' },
+      SCAN_PERMISSIONS,
+    );
+    await intakes.updateItem(userId, intakeId, precorBike.id, { status: 'rejected' }, SCAN_PERMISSIONS);
+    await intakes.acceptAll(userId, intakeId, SCAN_PERMISSIONS);
     // A user item for the same unidentified machine name: one custom type, reused.
-    await intakes.addItem(userId, intakeId, {
-      kind: 'equipment',
-      value: { equipmentTypeSlug: null, name: 'UNIDENTIFIED MACHINE (partly out of frame)', quantity: 1, brand: 'Acme' },
-    });
+    await intakes.addItem(
+      userId,
+      intakeId,
+      {
+        kind: 'equipment',
+        value: { equipmentTypeSlug: null, name: 'UNIDENTIFIED MACHINE (partly out of frame)', quantity: 1, brand: 'Acme' },
+      },
+      SCAN_PERMISSIONS,
+    );
 
-    const result = await intakes.apply(userId, intakeId);
+    const result = await intakes.apply(userId, intakeId, SCAN_PERMISSIONS);
 
     expect(result).toEqual({ gymId, created: 3, merged: 1, photosAttached: 1, photosSkipped: 0 });
 
@@ -352,12 +399,12 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
     const gymId = await makeGym(userId);
 
     const first = await scan(userId, gymId, 'cardio-row-wide');
-    await intakes.acceptAll(userId, first.intakeId);
-    expect(await intakes.apply(userId, first.intakeId)).toMatchObject({ created: 4, merged: 0, photosAttached: 1 });
+    await intakes.acceptAll(userId, first.intakeId, SCAN_PERMISSIONS);
+    expect(await intakes.apply(userId, first.intakeId, SCAN_PERMISSIONS)).toMatchObject({ created: 4, merged: 0, photosAttached: 1 });
 
     const second = await scan(userId, gymId, 'both', 2);
-    await intakes.acceptAll(userId, second.intakeId);
-    expect(await intakes.apply(userId, second.intakeId)).toEqual({
+    await intakes.acceptAll(userId, second.intakeId, SCAN_PERMISSIONS);
+    expect(await intakes.apply(userId, second.intakeId, SCAN_PERMISSIONS)).toEqual({
       gymId,
       created: 1, // the leg curl
       merged: 4,
@@ -383,8 +430,8 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       const userId = await makeUser('cleanup-photo');
       const gymId = await makeGym(userId);
       const { intakeId, photoIds } = await scan(userId, gymId, 'leg-curl-placard');
-      await intakes.acceptAll(userId, intakeId);
-      await intakes.apply(userId, intakeId);
+      await intakes.acceptAll(userId, intakeId, SCAN_PERMISSIONS);
+      await intakes.apply(userId, intakeId, SCAN_PERMISSIONS);
 
       const [photo] = await client.gymPhoto.findMany({ where: { gymId } });
       expect(await client.photoIntakePhoto.count({ where: { storageObjectId: photoIds[0] } })).toBe(1);
@@ -393,7 +440,7 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
 
       expect(await objectExists(photoIds[0])).toBe(false);
       expect(await client.photoIntakePhoto.count({ where: { storageObjectId: photoIds[0] } })).toBe(0);
-      const view = await intakes.get(userId, intakeId);
+      const view = await intakes.get(userId, intakeId, SCAN_PERMISSIONS);
       expect(view.status).toBe('applied');
       expect(view.photos).toEqual([]);
       expect(view.items[0].sourcePhotoIds).toEqual([photoIds[0]]);
@@ -403,8 +450,8 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       const userId = await makeUser('cleanup-gym');
       const gymId = await makeGym(userId);
       const { intakeId, photoIds } = await scan(userId, gymId, 'both', 2);
-      await intakes.acceptAll(userId, intakeId);
-      await intakes.apply(userId, intakeId);
+      await intakes.acceptAll(userId, intakeId, SCAN_PERMISSIONS);
+      await intakes.apply(userId, intakeId, SCAN_PERMISSIONS);
 
       await gyms.remove(userId, gymId);
 
@@ -419,7 +466,7 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       const { intakeId, photoIds } = await scan(userId, gymId, 'both', 2);
       const photo = await client.gymPhoto.create({ data: { gymId, storageObjectId: photoIds[0] } });
 
-      await intakes.discard(userId, intakeId);
+      await intakes.discard(userId, intakeId, SCAN_PERMISSIONS);
 
       expect(await client.photoIntake.count({ where: { id: intakeId } })).toBe(0);
       expect(await objectExists(photoIds[0])).toBe(true);
@@ -434,11 +481,11 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       const { intakeId, photoIds } = await scan(userId, gymId, 'leg-curl-placard');
       const photo = await client.gymPhoto.create({ data: { gymId, storageObjectId: photoIds[0] } });
 
-      await intakes.detachPhoto(userId, intakeId, photoIds[0]);
+      await intakes.detachPhoto(userId, intakeId, photoIds[0], SCAN_PERMISSIONS);
 
       expect(await objectExists(photoIds[0])).toBe(true);
       expect(await client.gymPhoto.count({ where: { id: photo.id } })).toBe(1);
-      expect((await intakes.get(userId, intakeId)).photos).toEqual([]);
+      expect((await intakes.get(userId, intakeId, SCAN_PERMISSIONS)).photos).toEqual([]);
     });
 
     it('an unapplied intake still holds its photo: the object survives the gym photo removal', async () => {
@@ -451,7 +498,7 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       await gymPhotos.remove(userId, gymId, photo.id);
 
       expect(await objectExists(photoIds[0])).toBe(true);
-      expect((await intakes.get(userId, intakeId)).photos.map((p) => p.storageObjectId)).toEqual(photoIds);
+      expect((await intakes.get(userId, intakeId, SCAN_PERMISSIONS)).photos.map((p) => p.storageObjectId)).toEqual(photoIds);
     });
   });
 
@@ -461,9 +508,9 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
 
     const { intakeId, photoIds } = await scan(userId, gymId, 'leg-curl-placard');
     const preexisting = await client.gymPhoto.create({ data: { gymId, storageObjectId: photoIds[0] } });
-    await intakes.acceptAll(userId, intakeId);
+    await intakes.acceptAll(userId, intakeId, SCAN_PERMISSIONS);
 
-    expect(await intakes.apply(userId, intakeId)).toMatchObject({ created: 1, photosAttached: 0 });
+    expect(await intakes.apply(userId, intakeId, SCAN_PERMISSIONS)).toMatchObject({ created: 1, photosAttached: 0 });
 
     const row = await client.gymEquipment.findFirstOrThrow({ where: { gymId }, include: { photos: true } });
     expect(row.photos.map((link) => link.gymPhotoId)).toEqual([preexisting.id]);
