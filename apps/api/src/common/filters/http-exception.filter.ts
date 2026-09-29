@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ZodValidationException } from 'nestjs-zod';
 import { hasVerbatimErrorBody } from '../exceptions/verbatim-error-body.exception';
 
 interface ErrorResponse {
@@ -78,6 +79,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const resp = exceptionResponse as Record<string, unknown>;
         message = (resp.message as string) || message;
         details = resp.details;
+      }
+
+      // A body/query that failed the global `ZodValidationPipe` names the
+      // failing fields under `details.issues` (`{ path, message }` each). Only
+      // the path and Zod's (or the schema's own) message are published — never
+      // the submitted value, which may be health data or free text.
+      if (exception instanceof ZodValidationException && details === undefined) {
+        details = zodIssueDetails(exception.getZodError());
       }
 
       // `code` is ALWAYS derived from the status, and a `code` on the thrown
@@ -207,4 +216,20 @@ function retryAfterSecondsOf(details: unknown): number | undefined {
   const ms = (details as { retryAfterMs?: unknown }).retryAfterMs;
 
   return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? Math.max(1, Math.ceil(ms / 1000)) : undefined;
+}
+
+/** `{ issues: [{ path: 'readings.0.unit', message }] }`, or undefined. */
+function zodIssueDetails(error: unknown): { issues: Array<{ path: string; message: string }> } | undefined {
+  const issues = (error as { issues?: unknown } | null)?.issues;
+
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return undefined;
+  }
+
+  return {
+    issues: issues.map((issue: { path?: unknown; message?: unknown }) => ({
+      path: Array.isArray(issue.path) ? issue.path.map(String).join('.') : '',
+      message: typeof issue.message === 'string' ? issue.message : 'Invalid value',
+    })),
+  };
 }

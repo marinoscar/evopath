@@ -77,6 +77,8 @@ model User {
   // Health profile (E2.1, #47). Cascade: person-level health facts have no
   // meaning once the account is gone — see `HealthProfile`.
   healthProfile          HealthProfile?
+  // Measurements (E2.2, #50). Cascade, like `healthProfile`.
+  measurements           Measurement[]
 
   @@map("users")
 }
@@ -2565,4 +2567,44 @@ model HealthProfile {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("health_profiles")
+}
+
+// Measurements (E2.2, #50). One generic longitudinal store for health values.
+// `metricKey`, `method` and `origin` are plain strings: the metric registry and
+// Zod own the vocabulary. `value` is always in the metric's canonical unit.
+// Rows saved together share an `entryId`. Edits insert a superseding row
+// (`revision + 1`, `supersedesId` = old row) and stamp `supersededAt` on the
+// old one; deletes set `deletedAt`. "Active" = both null, enforced by a query
+// predicate, deliberately NOT a raw-SQL partial index. The unique
+// `supersedesId` means two concurrent edits cannot both win. Cascade: no
+// reader once the user is gone.
+model Measurement {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  entryId      String    @map("entry_id") @db.Uuid
+  metricKey    String    @map("metric_key")
+  value        Float
+  unit         String
+  measuredAt   DateTime  @map("measured_at") @db.Timestamptz
+  localDate    DateTime? @map("local_date") @db.Date
+  method       String    @default("unspecified")
+  origin       String    @default("manual") // manual | calculated | ai | device
+  notes        String?
+  sourceRef    Json?     @map("source_ref")
+  revision     Int       @default(1)
+  supersedesId String?   @unique @map("supersedes_id") @db.Uuid
+  supersededAt DateTime? @map("superseded_at") @db.Timestamptz
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supersedes   Measurement? @relation("MeasurementRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy Measurement? @relation("MeasurementRevisions")
+
+  @@index([userId, metricKey, measuredAt(sort: Desc)])
+  @@index([userId, entryId])
+  @@index([userId, localDate])
+  @@map("measurements")
 }

@@ -2,6 +2,8 @@ import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { HttpExceptionFilter } from './http-exception.filter';
 import { withVerbatimErrorBody } from '../exceptions/verbatim-error-body.exception';
 import { DatabaseSeedException } from '../exceptions/database-seed.exception';
+import { ZodValidationException } from 'nestjs-zod';
+import { z } from 'zod';
 
 /**
  * The closed `code` enum published by `common/dto/error.dto.ts`. Kept as a
@@ -456,6 +458,38 @@ describe('HttpExceptionFilter', () => {
         missingData: 'Role "default"',
         seedCommand: 'npm run prisma:seed',
       });
+    });
+  });
+
+  describe('ZodValidationException (global ZodValidationPipe)', () => {
+    it('names each failing field under details.issues without echoing the value', () => {
+      const schema = z
+        .object({ readings: z.array(z.object({ unit: z.enum(['kg', 'lb']) })) })
+        .strict();
+      const result = schema.safeParse({ readings: [{ unit: 'secret-stone' }], origin: 'ai' });
+      expect(result.success).toBe(false);
+
+      filter.catch(new ZodValidationException(result.error), mockHost);
+
+      expect(mockResponse.code).toHaveBeenCalledWith(400);
+      const body = mockResponse.send.mock.calls[0][0];
+      expect(body).toMatchObject({ statusCode: 400, code: 'BAD_REQUEST', message: 'Validation failed' });
+      expect(body.details.issues.map((issue: { path: string }) => issue.path).sort()).toEqual([
+        '',
+        'readings.0.unit',
+      ]);
+      expect(JSON.stringify(body)).not.toContain('secret-stone');
+    });
+
+    it('keeps explicit details a thrown exception already carries', () => {
+      const exception = new HttpException(
+        { message: 'Validation failed', details: { field: 'x' } },
+        HttpStatus.BAD_REQUEST,
+      );
+
+      filter.catch(exception, mockHost);
+
+      expect(mockResponse.send.mock.calls[0][0].details).toEqual({ field: 'x' });
     });
   });
 });
