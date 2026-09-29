@@ -102,6 +102,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'separately from `user_settings:*`.',
       },
       {
+        name: 'Measurements',
+        description:
+          'The calling user\'s health measurements (weight, body fat, waist, blood pressure, ' +
+          'resting heart rate): the metric catalog with unit conversion factors, entries of ' +
+          'readings saved together, latest values, and chart series. Values are stored in each ' +
+          'metric\'s canonical unit; edits create superseding revisions and deletes are soft. ' +
+          'Gated on `health_data:read`/`:write`; owner-scoped (a foreign id is a 404).',
+      },
+      {
         name: 'System Settings',
         description:
           'Deployment-wide configuration, stored as a JSON document. Readable by any signed-in user; ' +
