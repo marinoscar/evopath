@@ -179,6 +179,11 @@ export const PERMISSIONS = [
     name: 'telemetry:query',
     description: 'Run SQL, export and use the AI assistant against telemetry',
   },
+
+  // Health data (E2.1, #47) — separate from `user_settings:*` so a deployment
+  // can withhold health data from a role without blocking theme changes.
+  { name: 'health_data:read', description: 'Read own health data' },
+  { name: 'health_data:write', description: 'Modify own health data' },
 ] as const;
 
 // Role to permissions mapping
@@ -244,6 +249,12 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'telemetry:read',
     'telemetry:write',
     'telemetry:query',
+    // E2.1, #47 — `health_data:*` is separate from `user_settings:*` (health
+    // data is a different class of data than UI preferences, so a deployment
+    // can withhold it from a role). All three roles hold both: it is the
+    // user's own data, self-service like `user_settings:*`.
+    'health_data:read',
+    'health_data:write',
   ],
   contributor: [
     'user_settings:read',
@@ -254,11 +265,23 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // call AI with their own saved key, and has no say over whether AI is
     // enabled for anyone else or under which policy.
     'ai:use',
+    // E2.1, #47 — `health_data:*` is separate from `user_settings:*` (health
+    // data is a different class of data than UI preferences, so a deployment
+    // can withhold it from a role). All three roles hold both: it is the
+    // user's own data, self-service like `user_settings:*`.
+    'health_data:read',
+    'health_data:write',
   ],
   viewer: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
+    // E2.1, #47 — `health_data:*` is separate from `user_settings:*` (health
+    // data is a different class of data than UI preferences, so a deployment
+    // can withhold it from a role). All three roles hold both: it is the
+    // user's own data, self-service like `user_settings:*`.
+    'health_data:read',
+    'health_data:write',
     // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
     // is the DEFAULT role every new user lands in (see `ROLES` above and
     // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto
