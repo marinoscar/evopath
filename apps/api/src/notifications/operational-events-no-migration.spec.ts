@@ -90,6 +90,9 @@ const MIGRATIONS_AT_288 = [
   // E4.2: `workouts`, `workout_exercises`, `set_logs`. A schema change about
   // workout logging, not notifications.
   '20260929230000_add_workout_logging',
+  // E4.5: `workout_photos` — the photos a workout was prefilled from. A
+  // schema change about workout logging, not notifications.
+  '20260929230548_add_workout_photos',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

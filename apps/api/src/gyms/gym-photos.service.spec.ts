@@ -145,6 +145,18 @@ describe('GymStorageService', () => {
     prisma = mockDeep<PrismaClient>();
     objects = { delete: jest.fn().mockResolvedValue(undefined) };
     service = new GymStorageService(prisma as unknown as PrismaService, objects as unknown as ObjectsService);
+    prisma.workoutPhoto.count.mockResolvedValue(0);
+  });
+
+  it('keeps an object that is also a workout photo (E4.5)', async () => {
+    prisma.gymPhoto.count.mockResolvedValue(0);
+    prisma.photoIntakePhoto.count.mockResolvedValue(0);
+    prisma.workoutPhoto.count.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+
+    await service.deleteObjects(USER, ['a', 'b']);
+
+    expect(objects.delete).toHaveBeenCalledTimes(1);
+    expect(objects.delete).toHaveBeenCalledWith('b', USER);
   });
 
   it('looks up only the caller\'s objects', async () => {

@@ -391,8 +391,9 @@ model StorageObject {
   // Relations
   uploadedBy   User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
   chunks       StorageObjectChunk[]
-  intakePhotos PhotoIntakePhoto[]
-  gymPhotos    GymPhoto[]
+  intakePhotos  PhotoIntakePhoto[]
+  gymPhotos     GymPhoto[]
+  workoutPhotos WorkoutPhoto[]
 
   @@index([uploadedById])
   @@index([status])
@@ -2910,10 +2911,30 @@ model Workout {
   user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   gym       Gym?              @relation(fields: [gymId], references: [id], onDelete: SetNull)
   exercises WorkoutExercise[]
+  photos    WorkoutPhoto[]
 
   @@index([userId, date(sort: Desc)])
   @@index([userId, status])
   @@map("workouts")
+}
+
+// Photos that helped create a workout (E4.5, "Prefill from photo"): every
+// photo of an applied `workout_prefill` intake is attached here, so the
+// workout keeps the pictures it was drafted from. One storage object is one
+// workout photo at most (`@unique`); deleting the workout or the object
+// removes the row by cascade.
+model WorkoutPhoto {
+  id              String   @id @default(uuid()) @db.Uuid
+  workoutId       String   @map("workout_id") @db.Uuid
+  storageObjectId String   @unique @map("storage_object_id") @db.Uuid
+  caption         String?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workout       Workout       @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  storageObject StorageObject @relation(fields: [storageObjectId], references: [id], onDelete: Cascade)
+
+  @@index([workoutId])
+  @@map("workout_photos")
 }
 
 model WorkoutExercise {

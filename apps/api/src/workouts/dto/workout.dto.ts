@@ -347,6 +347,15 @@ export const workoutTotalsSchema = z.object({
 export type WorkoutPrSummaryData = WorkoutTotalsData['prs'][number];
 export type WorkoutTotalsData = z.infer<typeof workoutTotalsSchema>;
 
+export const workoutPhotoViewSchema = z.object({
+  id: z.uuid(),
+  storageObjectId: z.uuid().meta({ description: 'View it through `GET /api/storage/objects/{id}/download`.' }),
+  caption: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+});
+
+export type WorkoutPhotoViewData = z.infer<typeof workoutPhotoViewSchema>;
+
 export const workoutViewSchema = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -361,6 +370,9 @@ export const workoutViewSchema = z.object({
   programWorkoutId: z.uuid().nullable().meta({ description: 'Reserved for programs; always null for now.' }),
   readinessSnapshot: readinessSnapshotSchema.nullable(),
   exercises: z.array(workoutExerciseViewSchema).meta({ description: 'In `position` order.' }),
+  photos: z
+    .array(workoutPhotoViewSchema)
+    .meta({ description: 'Photos the workout was prefilled from ("Prefill from photo"), oldest first.' }),
   summary: workoutTotalsSchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
