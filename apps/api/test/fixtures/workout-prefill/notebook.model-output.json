@@ -1,0 +1,72 @@
+{
+  "sourceKind": "notebook",
+  "suggestedName": "Push day",
+  "items": [
+    {
+      "exerciseSlug": "barbell_bench_press",
+      "otherName": null,
+      "rawText": "Bench 135 x 10, 10, 8",
+      "sets": [
+        { "reps": 10, "weight": 135, "weightUnit": null, "durationSeconds": null, "distanceMeters": null },
+        { "reps": 10, "weight": 135, "weightUnit": null, "durationSeconds": null, "distanceMeters": null },
+        { "reps": 8, "weight": 135, "weightUnit": null, "durationSeconds": null, "distanceMeters": null }
+      ],
+      "confidence": "medium",
+      "uncertain": true,
+      "note": "Bench is read as barbell bench press; the weight unit is not written.",
+      "sourcePhotoIndexes": [0]
+    },
+    {
+      "exerciseSlug": "incline_dumbbell_press",
+      "otherName": null,
+      "rawText": "Incline DB press 50 x 12 x 3",
+      "sets": [
+        { "reps": 12, "weight": 50, "weightUnit": null, "durationSeconds": null, "distanceMeters": null },
+        { "reps": 12, "weight": 50, "weightUnit": null, "durationSeconds": null, "distanceMeters": null },
+        { "reps": 12, "weight": 50, "weightUnit": null, "durationSeconds": null, "distanceMeters": null }
+      ],
+      "confidence": "medium",
+      "uncertain": true,
+      "note": "Read as 50 x 12 for 3 sets; the notation order is ambiguous and the unit is not written.",
+      "sourcePhotoIndexes": [0]
+    },
+    {
+      "exerciseSlug": "triceps_pushdown",
+      "otherName": null,
+      "rawText": "Tricep pushdown 40 x 15, 15",
+      "sets": [
+        { "reps": 15, "weight": 40, "weightUnit": null, "durationSeconds": null, "distanceMeters": null },
+        { "reps": 15, "weight": 40, "weightUnit": null, "durationSeconds": null, "distanceMeters": null }
+      ],
+      "confidence": "high",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [0]
+    },
+    {
+      "exerciseSlug": "plank",
+      "otherName": null,
+      "rawText": "Plank 60s",
+      "sets": [
+        { "reps": null, "weight": null, "weightUnit": null, "durationSeconds": 60, "distanceMeters": null }
+      ],
+      "confidence": "high",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [0]
+    },
+    {
+      "exerciseSlug": "other",
+      "otherName": "Unreadable cable exercise",
+      "rawText": "Cbl r? 25x12",
+      "sets": [
+        { "reps": 12, "weight": 25, "weightUnit": null, "durationSeconds": null, "distanceMeters": null }
+      ],
+      "confidence": "low",
+      "uncertain": true,
+      "note": "Handwriting is unclear; it might be a cable row.",
+      "sourcePhotoIndexes": [0]
+    }
+  ],
+  "ignoredNotes": ["Push day heading"]
+}

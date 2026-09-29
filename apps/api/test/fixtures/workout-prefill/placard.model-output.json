@@ -1,0 +1,17 @@
+{
+  "sourceKind": "machine_placard",
+  "suggestedName": null,
+  "items": [
+    {
+      "exerciseSlug": "leg_curl",
+      "otherName": null,
+      "rawText": "LEG CURL",
+      "sets": [],
+      "confidence": "high",
+      "uncertain": false,
+      "note": "The placard reads LEG CURL under a PRECOR logo; it shows no weights or reps, so no sets are drafted.",
+      "sourcePhotoIndexes": [0]
+    }
+  ],
+  "ignoredNotes": []
+}

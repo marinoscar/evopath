@@ -430,6 +430,21 @@ describe('Workouts (integration)', () => {
   });
 
   describe('GET /api/workouts/:id', () => {
+    it('lists the photos the workout was prefilled from (E4.5), oldest first, as storage object ids', async () => {
+      const user = await createMockContributorUser(context);
+      const OBJECT = '77777777-7777-4777-8777-777777777777';
+      prisma.workout.findFirst.mockResolvedValue(
+        workoutRow(user.id, { photos: [{ id: EQUIPMENT, storageObjectId: OBJECT, caption: null, createdAt: NOW }] }),
+      );
+
+      const response = await request(server()).get(`/api/workouts/${WORKOUT}`).set(authHeader(user.accessToken)).expect(200);
+
+      expect(response.body.data.photos).toEqual([
+        { id: EQUIPMENT, storageObjectId: OBJECT, caption: null, createdAt: NOW.toISOString() },
+      ]);
+      expect(prisma.workout.findFirst.mock.calls[0][0].include.photos).toBeDefined();
+    });
+
     it('returns exercises in position order with sets, kg as numbers', async () => {
       const user = await createMockContributorUser(context);
       prisma.workout.findFirst.mockResolvedValue(
@@ -635,6 +650,7 @@ describe('Workouts (integration)', () => {
     it('deletes only the caller\'s row (204) and 404s when nothing matched', async () => {
       const user = await createMockContributorUser(context);
       prisma.workout.deleteMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+      prisma.workoutPhoto.findMany.mockResolvedValue([]);
 
       await request(server()).delete(`/api/workouts/${WORKOUT}`).set(authHeader(user.accessToken)).expect(204);
       expect(prisma.workout.deleteMany.mock.calls[0][0]).toEqual({ where: { id: WORKOUT, userId: user.id } });

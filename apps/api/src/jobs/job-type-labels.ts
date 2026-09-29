@@ -117,6 +117,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // One "Scan gym" analysis of a `gym_equipment` photo intake (E3.4), from
   // `POST /api/intakes/:id/analyze`.
   'ai.equipment.scan': 'AI gym scan',
+  // One "Prefill from photo" analysis of a `workout_prefill` photo intake
+  // (E4.5), from `POST /api/intakes/:id/analyze`.
+  'ai.workout.prefill': 'AI workout prefill',
   // Daily deletion of `ai_usage_events` past `ai.usageRetentionDays` (#443).
   'ai.usage.purge': 'AI usage purge',
   // Reads a scale or blood-pressure-cuff display off a photo intake into draft
