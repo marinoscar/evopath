@@ -59,8 +59,12 @@ import configuration from './config/configuration';
     // Scheduling (must be at root level for NestJS 11)
     ScheduleModule.forRoot(),
 
-    // Event emitter for async events
-    EventEmitterModule.forRoot(),
+    // Event emitter for async events. `maxListeners` is raised above the
+    // default 10 because `JOB_SETTLED_EVENT` legitimately has one listener per
+    // job-owning feature (AI runs, intake analyzers, node secrets, failure
+    // notifiers, ...); past the limit eventemitter2's leak warning throws a
+    // TypeError on this Node version and aborts `app.init()`.
+    EventEmitterModule.forRoot({ maxListeners: 50 }),
 
     // Database
     PrismaModule,
