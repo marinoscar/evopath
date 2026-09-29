@@ -85,6 +85,9 @@ export const mockUser: MockUser = {
     // `exercises:*` (E4.1): seeded to all three roles.
     'exercises:read',
     'exercises:write',
+    // `workouts:*` (E4.2): seeded to all three roles.
+    'workouts:read',
+    'workouts:write',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),

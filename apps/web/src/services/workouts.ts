@@ -400,3 +400,5 @@ export function workoutErrorMessage(err: unknown, fallback: string): string {
 export function isWorkoutNotFound(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404;
 }
+
+export const WORKOUTS_UNAVAILABLE = 'Workout logging is not available for your account.';

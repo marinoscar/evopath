@@ -804,6 +804,12 @@ export const handlers = [
   // library install their own stateful API (`fixtures/exercises.ts`).
   http.get(`${API_BASE}/exercises`, () => HttpResponse.json({ data: [] })),
 
+  // Workouts (E4.3): none yet. Suites that log workouts install their own
+  // stateful API (`fixtures/workouts.ts`).
+  http.get(`${API_BASE}/workouts`, () =>
+    HttpResponse.json({ data: { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 } }),
+  ),
+
   // Storage objects (#445 playground inputs/outputs): an upload answers
   // `processing`, a read answers `ready`, and a download is a signed URL.
   http.post(`${API_BASE}/storage/objects`, () => {

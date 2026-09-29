@@ -14,7 +14,7 @@ const sections = [
 const baseProps = {
   title: 'Train',
   subtitle: 'Where you log your training.',
-  area: 'workouts' as const,
+  area: 'programs' as const,
   sections,
 };
 
@@ -29,7 +29,7 @@ describe('PlaceholderPage', () => {
   it('renders the subtitle and the coming-in chip', () => {
     render(<PlaceholderPage {...baseProps} />);
     expect(screen.getByText('Where you log your training.')).toBeInTheDocument();
-    expect(screen.getByText('Coming in E4')).toBeInTheDocument();
+    expect(screen.getByText('Coming in E5')).toBeInTheDocument();
   });
 
   it('renders one heading per section', () => {
@@ -48,7 +48,7 @@ describe('PlaceholderPage', () => {
   it('renders header and chip without crashing when sections is empty', () => {
     render(<PlaceholderPage {...baseProps} sections={[]} />);
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-    expect(screen.getByText('Coming in E4')).toBeInTheDocument();
+    expect(screen.getByText('Coming in E5')).toBeInTheDocument();
     expect(screen.queryAllByRole('heading', { level: 2 })).toHaveLength(0);
   });
 

@@ -9,7 +9,6 @@ export type EpicId = 'E2' | 'E3' | 'E4' | 'E5';
 export const ROADMAP = {
   health: 'E2', // health profile, body metrics, readiness check-in
   gyms: 'E3', // gyms, equipment, photo intake foundation
-  workouts: 'E4', // workout logging (Train page)
   programs: 'E5', // programs and Today's workout
 } as const satisfies Record<string, EpicId>;
 
