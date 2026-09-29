@@ -25,4 +25,10 @@ describe('TODAY_CARDS', () => {
       expect(Object.keys(ROADMAP)).toContain(card.area);
     }
   });
+
+  it('gives the body card its Content (#53) and leaves readiness a placeholder', () => {
+    const byKey = Object.fromEntries(TODAY_CARDS.map((c) => [c.key, c]));
+    expect(byKey.body.Content).toBeDefined();
+    expect(byKey.readiness.Content).toBeUndefined();
+  });
 });

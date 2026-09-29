@@ -35,6 +35,7 @@ import {
   mockTelemetryStatus,
 } from './fixtures/telemetry';
 import { mockHealthProfileEmpty } from './fixtures/health';
+import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -120,6 +121,40 @@ export const handlers = [
     return HttpResponse.json({
       data: { ...body, version, updatedAt: new Date().toISOString() },
     });
+  }),
+
+  // Measurements (#53, E2.3): the catalog, a user with nothing logged, and a
+  // POST that echoes each reading back with the value as sent (no unit
+  // conversion; a test that cares about canonical values overrides it).
+  http.get(`${API_BASE}/measurements/metrics`, () => {
+    return HttpResponse.json({ data: mockMetricCatalog });
+  }),
+
+  http.get(`${API_BASE}/measurements/latest`, () => {
+    return HttpResponse.json({ data: { items: mockLatestEmpty } });
+  }),
+
+  http.post(`${API_BASE}/measurements`, async ({ request }) => {
+    const body = (await request.json()) as {
+      measuredAt?: string;
+      readings: Array<{ metricKey: string; value: number; method?: string }>;
+    };
+    const entryId = '00000000-0000-4000-8000-00000000e001';
+    return HttpResponse.json(
+      {
+        data: {
+          entryId,
+          items: body.readings.map((reading) =>
+            mockMeasurement(reading.metricKey, reading.value, {
+              entryId,
+              method: reading.method ?? 'unspecified',
+              measuredAt: body.measuredAt ?? new Date().toISOString(),
+            }),
+          ),
+        },
+      },
+      { status: 201 },
+    );
   }),
 
   http.get(`${API_BASE}/user-settings`, () => {
