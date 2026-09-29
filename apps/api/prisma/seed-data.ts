@@ -188,6 +188,10 @@ export const PERMISSIONS = [
   // Photo intake (E3.1)
   { name: 'intakes:read', description: 'Read own photo intakes and their draft items' },
   { name: 'intakes:write', description: 'Create, edit, analyze and apply own photo intakes' },
+
+  // Gyms and equipment (E3.2): the caller's own gyms, self-service.
+  { name: 'gyms:read', description: 'Read own gyms and their equipment' },
+  { name: 'gyms:write', description: 'Create, edit and delete own gyms and equipment' },
 ] as const;
 
 // Role to permissions mapping
@@ -263,6 +267,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // needs `ai:use` (Viewer lacks it).
     'intakes:read',
     'intakes:write',
+    // E3.2 — own gyms and equipment, self-service; all three roles.
+    'gyms:read',
+    'gyms:write',
   ],
   contributor: [
     'user_settings:read',
@@ -283,6 +290,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // needs `ai:use` (Viewer lacks it).
     'intakes:read',
     'intakes:write',
+    // E3.2 — own gyms and equipment, self-service; all three roles.
+    'gyms:read',
+    'gyms:write',
   ],
   viewer: [
     'user_settings:read',
@@ -298,6 +308,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // needs `ai:use` (Viewer lacks it).
     'intakes:read',
     'intakes:write',
+    // E3.2 — own gyms and equipment, self-service; all three roles.
+    'gyms:read',
+    'gyms:write',
     // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
     // is the DEFAULT role every new user lands in (see `ROLES` above and
     // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto
@@ -499,3 +512,435 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     },
   },
 };
+
+// =============================================================================
+// Gyms, equipment catalog and capabilities (E3.2)
+// =============================================================================
+//
+// Slugs are PERMANENT once seeded: the seed upserts by slug, `EquipmentType`
+// rows are referenced by `gym_equipment`, and a fork that renames a row keeps
+// its slug. Never delete or repurpose a slug. Custom (user-owned) equipment
+// types are not part of this catalog and the seed never touches them.
+
+export const MOVEMENT_PATTERNS = [
+  'squat', 'hinge', 'horizontal_push', 'vertical_push', 'horizontal_pull',
+  'vertical_pull', 'lunge', 'carry', 'core', 'isolation', 'cardio',
+] as const;
+export type MovementPattern = (typeof MOVEMENT_PATTERNS)[number];
+
+export const MUSCLES = [
+  'chest', 'upper_back', 'lats', 'traps', 'shoulders', 'rear_delts', 'biceps',
+  'triceps', 'forearms', 'abs', 'obliques', 'lower_back', 'glutes', 'quads',
+  'hamstrings', 'calves', 'hip_flexors', 'adductors', 'abductors', 'full_body',
+] as const;
+export type Muscle = (typeof MUSCLES)[number];
+
+export const EQUIPMENT_CATEGORIES = [
+  'free_weights', 'benches_racks', 'plate_loaded', 'selectorized', 'cable',
+  'cardio', 'bodyweight', 'accessories',
+] as const;
+export type EquipmentCategory = (typeof EQUIPMENT_CATEGORIES)[number];
+
+export interface CapabilitySeed {
+  slug: string;
+  name: string;
+  movementPattern: MovementPattern;
+  primaryMuscles: Muscle[];
+  description?: string;
+  sortOrder: number;
+}
+
+export interface EquipmentSeed {
+  slug: string;
+  name: string;
+  category: EquipmentCategory;
+  aliases: string[];
+  description?: string;
+  sortOrder: number;
+  /** Capability slugs; an unknown slug makes the seed throw. */
+  capabilities: string[];
+}
+
+export const CAPABILITY_CATALOG: CapabilitySeed[] = [
+  { slug: 'back_squat', name: 'Back squat', movementPattern: 'squat', primaryMuscles: ['quads', 'glutes'], sortOrder: 10 },
+  { slug: 'front_squat', name: 'Front squat', movementPattern: 'squat', primaryMuscles: ['quads'], sortOrder: 20 },
+  { slug: 'smith_squat', name: 'Smith squat', movementPattern: 'squat', primaryMuscles: ['quads', 'glutes'], sortOrder: 30 },
+  { slug: 'leg_press', name: 'Leg press', movementPattern: 'squat', primaryMuscles: ['quads', 'glutes'], sortOrder: 40 },
+  { slug: 'hack_squat', name: 'Hack squat', movementPattern: 'squat', primaryMuscles: ['quads'], sortOrder: 50 },
+  { slug: 'goblet_squat', name: 'Goblet squat', movementPattern: 'squat', primaryMuscles: ['quads', 'glutes'], sortOrder: 60 },
+  { slug: 'lunge_loaded', name: 'Loaded lunge', movementPattern: 'lunge', primaryMuscles: ['quads', 'glutes'], sortOrder: 70 },
+  { slug: 'step_up', name: 'Step up', movementPattern: 'lunge', primaryMuscles: ['quads', 'glutes'], sortOrder: 80 },
+  { slug: 'hip_hinge_loaded', name: 'Loaded hip hinge', movementPattern: 'hinge', primaryMuscles: ['hamstrings', 'glutes', 'lower_back'], sortOrder: 90 },
+  { slug: 'hip_thrust', name: 'Hip thrust', movementPattern: 'hinge', primaryMuscles: ['glutes'], sortOrder: 100 },
+  { slug: 'back_extension', name: 'Back extension', movementPattern: 'hinge', primaryMuscles: ['lower_back', 'glutes'], sortOrder: 110 },
+  { slug: 'barbell_bench_press', name: 'Barbell bench press', movementPattern: 'horizontal_push', primaryMuscles: ['chest', 'triceps'], sortOrder: 120 },
+  { slug: 'dumbbell_bench_press', name: 'Dumbbell bench press', movementPattern: 'horizontal_push', primaryMuscles: ['chest', 'triceps'], sortOrder: 130 },
+  { slug: 'incline_press', name: 'Incline press', movementPattern: 'horizontal_push', primaryMuscles: ['chest', 'shoulders'], sortOrder: 140 },
+  { slug: 'shoulder_press', name: 'Shoulder press', movementPattern: 'vertical_push', primaryMuscles: ['shoulders', 'triceps'], sortOrder: 150 },
+  { slug: 'chest_fly', name: 'Chest fly', movementPattern: 'isolation', primaryMuscles: ['chest'], sortOrder: 160 },
+  { slug: 'pec_deck', name: 'Pec deck', movementPattern: 'isolation', primaryMuscles: ['chest'], sortOrder: 170 },
+  { slug: 'chest_press', name: 'Chest press', movementPattern: 'horizontal_push', primaryMuscles: ['chest', 'triceps'], sortOrder: 180 },
+  { slug: 'machine_shoulder_press', name: 'Machine shoulder press', movementPattern: 'vertical_push', primaryMuscles: ['shoulders', 'triceps'], sortOrder: 190 },
+  { slug: 'reverse_pec_deck', name: 'Reverse pec deck', movementPattern: 'isolation', primaryMuscles: ['rear_delts'], sortOrder: 200 },
+  { slug: 'cable_fly', name: 'Cable fly', movementPattern: 'isolation', primaryMuscles: ['chest'], sortOrder: 210 },
+  { slug: 'push_up', name: 'Push-up', movementPattern: 'horizontal_push', primaryMuscles: ['chest', 'triceps'], sortOrder: 220 },
+  { slug: 'dip', name: 'Dip', movementPattern: 'vertical_push', primaryMuscles: ['chest', 'triceps'], sortOrder: 230 },
+  { slug: 'pull_up', name: 'Pull-up', movementPattern: 'vertical_pull', primaryMuscles: ['lats', 'biceps'], sortOrder: 240 },
+  { slug: 'assisted_pull_up', name: 'Assisted pull-up', movementPattern: 'vertical_pull', primaryMuscles: ['lats', 'biceps'], sortOrder: 250 },
+  { slug: 'lat_pulldown', name: 'Lat pulldown', movementPattern: 'vertical_pull', primaryMuscles: ['lats', 'biceps'], sortOrder: 260 },
+  { slug: 'seated_row', name: 'Seated row', movementPattern: 'horizontal_pull', primaryMuscles: ['upper_back', 'lats'], sortOrder: 270 },
+  { slug: 'cable_row', name: 'Cable row', movementPattern: 'horizontal_pull', primaryMuscles: ['upper_back', 'lats'], sortOrder: 280 },
+  { slug: 'barbell_row', name: 'Barbell row', movementPattern: 'horizontal_pull', primaryMuscles: ['upper_back', 'lats'], sortOrder: 290 },
+  { slug: 'dumbbell_row', name: 'Dumbbell row', movementPattern: 'horizontal_pull', primaryMuscles: ['upper_back', 'lats'], sortOrder: 300 },
+  { slug: 'face_pull', name: 'Face pull', movementPattern: 'horizontal_pull', primaryMuscles: ['rear_delts', 'upper_back'], sortOrder: 310 },
+  { slug: 'lateral_raise', name: 'Lateral raise', movementPattern: 'isolation', primaryMuscles: ['shoulders'], sortOrder: 320 },
+  { slug: 'rear_delt_raise', name: 'Rear delt raise', movementPattern: 'isolation', primaryMuscles: ['rear_delts'], sortOrder: 330 },
+  { slug: 'biceps_curl', name: 'Biceps curl', movementPattern: 'isolation', primaryMuscles: ['biceps'], sortOrder: 340 },
+  { slug: 'triceps_extension', name: 'Triceps extension', movementPattern: 'isolation', primaryMuscles: ['triceps'], sortOrder: 350 },
+  { slug: 'triceps_pushdown', name: 'Triceps pushdown', movementPattern: 'isolation', primaryMuscles: ['triceps'], sortOrder: 360 },
+  { slug: 'leg_extension', name: 'Leg extension', movementPattern: 'isolation', primaryMuscles: ['quads'], sortOrder: 370 },
+  { slug: 'leg_curl', name: 'Leg curl', movementPattern: 'isolation', primaryMuscles: ['hamstrings'], sortOrder: 380 },
+  { slug: 'calf_raise', name: 'Calf raise', movementPattern: 'isolation', primaryMuscles: ['calves'], sortOrder: 390 },
+  { slug: 'hip_abduction', name: 'Hip abduction', movementPattern: 'isolation', primaryMuscles: ['abductors', 'glutes'], sortOrder: 400 },
+  { slug: 'hip_adduction', name: 'Hip adduction', movementPattern: 'isolation', primaryMuscles: ['adductors'], sortOrder: 410 },
+  { slug: 'shrug', name: 'Shrug', movementPattern: 'isolation', primaryMuscles: ['traps'], sortOrder: 420 },
+  { slug: 'kettlebell_swing', name: 'Kettlebell swing', movementPattern: 'hinge', primaryMuscles: ['glutes', 'hamstrings'], sortOrder: 430 },
+  { slug: 'hanging_leg_raise', name: 'Hanging leg raise', movementPattern: 'core', primaryMuscles: ['abs', 'hip_flexors'], sortOrder: 440 },
+  { slug: 'ab_crunch', name: 'Ab crunch', movementPattern: 'core', primaryMuscles: ['abs'], sortOrder: 450 },
+  { slug: 'farmer_carry', name: 'Farmer carry', movementPattern: 'carry', primaryMuscles: ['forearms', 'traps', 'abs'], sortOrder: 460 },
+  { slug: 'band_resistance', name: 'Band resistance', movementPattern: 'isolation', primaryMuscles: ['full_body'], sortOrder: 470 },
+  { slug: 'steady_state_cardio', name: 'Steady-state cardio', movementPattern: 'cardio', primaryMuscles: ['full_body'], sortOrder: 480 },
+  { slug: 'interval_cardio', name: 'Interval cardio', movementPattern: 'cardio', primaryMuscles: ['full_body'], sortOrder: 490 },
+  { slug: 'low_impact_cardio', name: 'Low-impact cardio', movementPattern: 'cardio', primaryMuscles: ['full_body'], sortOrder: 500 },
+];
+
+export const EQUIPMENT_CATALOG: EquipmentSeed[] = [
+  {
+    slug: 'dumbbells',
+    name: 'Dumbbells',
+    category: 'free_weights',
+    aliases: ['fixed dumbbells', 'hand weights', 'free weights'],
+    sortOrder: 10,
+    capabilities: ['dumbbell_bench_press', 'dumbbell_row', 'incline_press', 'shoulder_press', 'biceps_curl', 'lateral_raise', 'rear_delt_raise', 'goblet_squat', 'lunge_loaded', 'hip_hinge_loaded', 'shrug', 'step_up', 'farmer_carry', 'triceps_extension', 'chest_fly'],
+  },
+  {
+    slug: 'adjustable_dumbbells',
+    name: 'Adjustable dumbbells',
+    category: 'free_weights',
+    aliases: ['powerblock', 'selectorized dumbbells', 'dial dumbbells'],
+    sortOrder: 20,
+    capabilities: ['dumbbell_bench_press', 'dumbbell_row', 'incline_press', 'shoulder_press', 'biceps_curl', 'lateral_raise', 'rear_delt_raise', 'goblet_squat', 'lunge_loaded', 'hip_hinge_loaded', 'shrug', 'step_up', 'farmer_carry', 'triceps_extension', 'chest_fly'],
+  },
+  {
+    slug: 'barbell',
+    name: 'Barbell',
+    category: 'free_weights',
+    aliases: ['olympic bar', 'straight bar', 'bar'],
+    sortOrder: 30,
+    capabilities: ['back_squat', 'front_squat', 'hip_hinge_loaded', 'barbell_row', 'barbell_bench_press', 'shoulder_press', 'hip_thrust', 'lunge_loaded', 'shrug', 'biceps_curl'],
+  },
+  {
+    slug: 'ez_bar',
+    name: 'EZ curl bar',
+    category: 'free_weights',
+    aliases: ['curl bar', 'ez bar', 'easy bar'],
+    sortOrder: 40,
+    capabilities: ['biceps_curl', 'triceps_extension'],
+  },
+  {
+    slug: 'weight_plates',
+    name: 'Weight plates',
+    category: 'free_weights',
+    aliases: ['plates', 'bumper plates', 'iron plates'],
+    sortOrder: 50,
+    capabilities: [],
+  },
+  {
+    slug: 'kettlebells',
+    name: 'Kettlebells',
+    category: 'free_weights',
+    aliases: ['kettlebell', 'girya', 'cast iron bell'],
+    sortOrder: 60,
+    capabilities: ['kettlebell_swing', 'goblet_squat', 'hip_hinge_loaded', 'farmer_carry'],
+  },
+  {
+    slug: 'adjustable_bench',
+    name: 'Adjustable bench',
+    category: 'benches_racks',
+    aliases: ['incline bench', 'utility bench', 'multi-position bench'],
+    sortOrder: 70,
+    capabilities: ['dumbbell_bench_press', 'incline_press', 'dumbbell_row', 'step_up'],
+  },
+  {
+    slug: 'flat_bench',
+    name: 'Flat bench',
+    category: 'benches_racks',
+    aliases: ['weight bench', 'bench', 'flat weight bench'],
+    sortOrder: 80,
+    capabilities: ['dumbbell_bench_press', 'barbell_bench_press', 'step_up'],
+  },
+  {
+    slug: 'squat_rack',
+    name: 'Squat rack',
+    category: 'benches_racks',
+    aliases: ['squat stand', 'half rack', 'squat stands'],
+    sortOrder: 90,
+    capabilities: ['back_squat', 'front_squat', 'barbell_bench_press', 'shoulder_press'],
+  },
+  {
+    slug: 'power_rack',
+    name: 'Power rack',
+    category: 'benches_racks',
+    aliases: ['power cage', 'full rack', 'squat cage'],
+    sortOrder: 100,
+    capabilities: ['back_squat', 'front_squat', 'barbell_bench_press', 'shoulder_press', 'pull_up'],
+  },
+  {
+    slug: 'smith_machine',
+    name: 'Smith machine',
+    category: 'plate_loaded',
+    aliases: ['smith rack', 'guided barbell', 'smith press'],
+    sortOrder: 110,
+    capabilities: ['smith_squat', 'barbell_bench_press', 'incline_press', 'shoulder_press', 'lunge_loaded', 'hip_thrust', 'shrug', 'calf_raise'],
+  },
+  {
+    slug: 'leg_press',
+    name: 'Leg press',
+    category: 'plate_loaded',
+    aliases: ['45 degree leg press', 'sled leg press', 'seated leg press'],
+    sortOrder: 120,
+    capabilities: ['leg_press', 'calf_raise'],
+  },
+  {
+    slug: 'hack_squat_machine',
+    name: 'Hack squat machine',
+    category: 'plate_loaded',
+    aliases: ['hack squat', 'hack sled', 'reverse hack squat'],
+    sortOrder: 130,
+    capabilities: ['hack_squat'],
+  },
+  {
+    slug: 'landmine',
+    name: 'Landmine attachment',
+    category: 'plate_loaded',
+    aliases: ['landmine', 'landmine post', 'barbell pivot'],
+    sortOrder: 140,
+    capabilities: ['shoulder_press', 'barbell_row'],
+  },
+  {
+    slug: 'cable_machine',
+    name: 'Cable machine',
+    category: 'cable',
+    aliases: ['cable station', 'cable tower', 'pulley machine'],
+    sortOrder: 150,
+    capabilities: ['cable_fly', 'cable_row', 'lat_pulldown', 'triceps_pushdown', 'triceps_extension', 'biceps_curl', 'face_pull', 'lateral_raise', 'rear_delt_raise'],
+  },
+  {
+    slug: 'functional_trainer',
+    name: 'Functional trainer',
+    category: 'cable',
+    aliases: ['dual cable machine', 'cable crossover', 'dual adjustable pulley'],
+    sortOrder: 160,
+    capabilities: ['cable_row', 'cable_fly', 'lat_pulldown', 'triceps_pushdown', 'triceps_extension', 'biceps_curl', 'lateral_raise', 'face_pull', 'rear_delt_raise'],
+  },
+  {
+    slug: 'lat_pulldown',
+    name: 'Lat pulldown machine',
+    category: 'selectorized',
+    aliases: ['pulldown machine', 'lat pull machine', 'lat machine'],
+    sortOrder: 170,
+    capabilities: ['lat_pulldown'],
+  },
+  {
+    slug: 'seated_row_machine',
+    name: 'Seated row machine',
+    category: 'selectorized',
+    aliases: ['row machine', 'low row machine', 'seated cable row'],
+    sortOrder: 180,
+    capabilities: ['seated_row'],
+  },
+  {
+    slug: 'chest_press_machine',
+    name: 'Chest press machine',
+    category: 'selectorized',
+    aliases: ['machine chest press', 'seated chest press', 'bench press machine'],
+    sortOrder: 190,
+    capabilities: ['chest_press'],
+  },
+  {
+    slug: 'shoulder_press_machine',
+    name: 'Shoulder press machine',
+    category: 'selectorized',
+    aliases: ['machine shoulder press', 'seated shoulder press', 'overhead press machine'],
+    sortOrder: 200,
+    capabilities: ['machine_shoulder_press'],
+  },
+  {
+    slug: 'pec_deck_machine',
+    name: 'Pec deck / rear delt machine',
+    category: 'selectorized',
+    aliases: ['pec deck', 'butterfly machine', 'rear delt fly machine', 'chest fly machine'],
+    sortOrder: 210,
+    capabilities: ['pec_deck', 'reverse_pec_deck'],
+  },
+  {
+    slug: 'leg_extension_machine',
+    name: 'Leg extension machine',
+    category: 'selectorized',
+    aliases: ['leg extension', 'quad extension', 'quad machine'],
+    sortOrder: 220,
+    capabilities: ['leg_extension'],
+  },
+  {
+    slug: 'leg_curl_machine',
+    name: 'Leg curl machine',
+    category: 'selectorized',
+    aliases: ['hamstring curl machine', 'seated leg curl', 'lying leg curl'],
+    sortOrder: 230,
+    capabilities: ['leg_curl'],
+  },
+  {
+    slug: 'hip_abductor_machine',
+    name: 'Hip abductor/adductor machine',
+    category: 'selectorized',
+    aliases: ['hip abduction machine', 'inner outer thigh machine', 'adductor machine'],
+    sortOrder: 240,
+    capabilities: ['hip_abduction', 'hip_adduction'],
+  },
+  {
+    slug: 'calf_raise_machine',
+    name: 'Calf raise machine',
+    category: 'selectorized',
+    aliases: ['standing calf raise', 'seated calf raise', 'calf machine'],
+    sortOrder: 250,
+    capabilities: ['calf_raise'],
+  },
+  {
+    slug: 'assisted_pullup_machine',
+    name: 'Assisted pull-up / dip machine',
+    category: 'selectorized',
+    aliases: ['assisted pull up machine', 'gravitron', 'assisted dip machine'],
+    sortOrder: 260,
+    capabilities: ['assisted_pull_up'],
+  },
+  {
+    slug: 'back_extension_bench',
+    name: 'Back extension bench',
+    category: 'benches_racks',
+    aliases: ['hyperextension bench', 'roman chair', 'back extension'],
+    sortOrder: 270,
+    capabilities: ['back_extension'],
+  },
+  {
+    slug: 'treadmill',
+    name: 'Treadmill',
+    category: 'cardio',
+    aliases: ['running machine', 'walking machine', 'jogging machine'],
+    sortOrder: 280,
+    capabilities: ['steady_state_cardio', 'interval_cardio'],
+  },
+  {
+    slug: 'stationary_bike',
+    name: 'Stationary bike',
+    category: 'cardio',
+    aliases: ['exercise bike', 'spin bike', 'upright bike', 'recumbent bike'],
+    sortOrder: 290,
+    capabilities: ['steady_state_cardio', 'interval_cardio', 'low_impact_cardio'],
+  },
+  {
+    slug: 'elliptical',
+    name: 'Elliptical',
+    category: 'cardio',
+    aliases: ['elliptical trainer', 'cross trainer', 'elliptical machine'],
+    sortOrder: 300,
+    capabilities: ['steady_state_cardio', 'interval_cardio', 'low_impact_cardio'],
+  },
+  {
+    slug: 'rowing_machine',
+    name: 'Rowing machine',
+    category: 'cardio',
+    aliases: ['rower', 'ergometer', 'erg'],
+    sortOrder: 310,
+    capabilities: ['steady_state_cardio', 'interval_cardio', 'low_impact_cardio'],
+  },
+  {
+    slug: 'stair_climber',
+    name: 'Stair climber',
+    category: 'cardio',
+    aliases: ['stair stepper', 'stairmaster', 'step mill'],
+    sortOrder: 320,
+    capabilities: ['steady_state_cardio', 'interval_cardio'],
+  },
+  {
+    slug: 'pull_up_bar',
+    name: 'Pull-up bar',
+    category: 'bodyweight',
+    aliases: ['chin-up bar', 'doorway pull-up bar', 'pull up station'],
+    sortOrder: 330,
+    capabilities: ['pull_up'],
+  },
+  {
+    slug: 'dip_station',
+    name: 'Dip station',
+    category: 'bodyweight',
+    aliases: ['parallel bars', 'dip bars', 'dip stand'],
+    sortOrder: 340,
+    capabilities: ['dip', 'hanging_leg_raise'],
+  },
+  {
+    slug: 'captains_chair',
+    name: "Captain's chair",
+    category: 'bodyweight',
+    aliases: ['vertical knee raise', 'leg raise station', 'knee raise tower'],
+    sortOrder: 350,
+    capabilities: ['hanging_leg_raise'],
+  },
+  {
+    slug: 'plyo_box',
+    name: 'Plyo box / step',
+    category: 'accessories',
+    aliases: ['plyometric box', 'jump box', 'aerobic step'],
+    sortOrder: 360,
+    capabilities: ['step_up'],
+  },
+  {
+    slug: 'resistance_bands',
+    name: 'Resistance bands',
+    category: 'accessories',
+    aliases: ['exercise bands', 'loop bands', 'tube bands'],
+    sortOrder: 370,
+    capabilities: ['band_resistance'],
+  },
+  {
+    slug: 'suspension_trainer',
+    name: 'Suspension trainer (TRX)',
+    category: 'accessories',
+    aliases: ['trx', 'suspension straps', 'gymnastic rings'],
+    sortOrder: 380,
+    capabilities: ['push_up', 'seated_row'],
+  },
+  {
+    slug: 'ab_wheel',
+    name: 'Ab wheel',
+    category: 'accessories',
+    aliases: ['ab roller', 'roller wheel', 'core wheel'],
+    sortOrder: 390,
+    capabilities: ['ab_crunch'],
+  },
+  {
+    slug: 'medicine_ball',
+    name: 'Medicine ball',
+    category: 'accessories',
+    aliases: ['med ball', 'slam ball', 'weighted ball'],
+    sortOrder: 400,
+    capabilities: [],
+  },
+  {
+    slug: 'yoga_mat',
+    name: 'Mat',
+    category: 'accessories',
+    aliases: ['yoga mat', 'exercise mat', 'floor mat'],
+    sortOrder: 410,
+    capabilities: ['ab_crunch', 'push_up'],
+  },
+];

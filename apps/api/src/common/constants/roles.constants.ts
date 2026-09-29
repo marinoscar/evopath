@@ -200,6 +200,10 @@ export const PERMISSIONS = {
   // `health_data:*`. Analyzing additionally needs `ai:use`.
   INTAKES_READ: 'intakes:read',
   INTAKES_WRITE: 'intakes:write',
+
+  // Gyms and equipment (E3.2): the caller's own gyms, self-service.
+  GYMS_READ: 'gyms:read',
+  GYMS_WRITE: 'gyms:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
