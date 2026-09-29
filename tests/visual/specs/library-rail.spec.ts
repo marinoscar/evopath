@@ -13,7 +13,7 @@ import { harnessUrl, waitForInter } from '../support/harness';
  *   - expanded tier (≥ `lg`, 1920px here).
  *
  * Scoped to the `nav` element, not a full-page screenshot: `/`'s body
- * (`HomePage` → `UserProfileCard`) makes its own `/api` calls this harness
+ * (the Today page) makes its own `/api` calls this harness
  * does not control the timing of (see `main.tsx`'s header comment). The rail
  * itself has no such race — `useNavigationPrefs`' fetch failing resolves to
  * the same `railCollapsed: false` result from the very first render, so its

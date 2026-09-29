@@ -12,8 +12,8 @@
  *    real gate; this only decides what is worth showing.
  *
  * 2. ONE FETCH PER SHELL. The answer gates the settings hubs, the Console
- *    rail, the AppBar title, the rail/bottom-bar/user-menu destinations, the
- *    quick actions and four routes. Each of those calling the endpoint on its
+ *    rail, the AppBar title, the rail/bottom-bar/user-menu destinations
+ *    and four routes. Each of those calling the endpoint on its
  *    own would be half a dozen identical requests per page load, so
  *    `AiConfigProvider` (`contexts/AiConfigContext.tsx`) fetches once around
  *    the authenticated shell and `useAiConfig()` reads that when present. With
@@ -113,8 +113,7 @@ export interface AiFeatureFlags {
  * `settingsPageTitle`, `isDestinationVisible`) take — read from the shell's
  * provider ONLY, never fetched.
  *
- * For the navigation chrome (rail, bottom bar, user menu, quick actions,
- * AppBar), which renders on every page and in many isolated tests: without a
+ * For the navigation chrome (rail, bottom bar, user menu, AppBar), which renders on every page and in many isolated tests: without a
  * provider it answers "AI off" with no request, which is the correct fail-closed
  * answer and keeps those components free of network side effects.
  */

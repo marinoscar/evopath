@@ -3,8 +3,8 @@
  *
  * Issue #55, epic #51. This file is the SINGLE source of truth for the app's
  * navigation targets. Before it existed the same four menu paths were spelled
- * out in four places (`App.tsx`, `Sidebar.tsx`, `UserMenu.tsx`,
- * `home/QuickActions.tsx`), each with its own idea of who was allowed to see
+ * out in four places (`App.tsx`, `Sidebar.tsx`, `UserMenu.tsx` and
+ * a quick-actions card), each with its own idea of who was allowed to see
  * them — which is how a Contributor holding `system_settings:read` ended up
  * with a working System Settings page, a menu entry pointing at it, and no
  * sidebar row: three gates, three answers.
@@ -192,7 +192,7 @@ export interface Destination {
  * Is `destination` visible to a user with this `hasPermission` predicate?
  *
  * EVERY surface calls this rather than testing `destination.permission`
- * inline. Four surfaces (rail, bottom bar, user menu, quick actions) each ran
+ * inline. Three surfaces (rail, bottom bar, user menu) each ran
  * their own `!destination.permission || hasPermission(...)` expression, and
  * every one of them silently ignored `anyPermission` the moment it was added —
  * the `console` row would have appeared for everyone. One function is the same
