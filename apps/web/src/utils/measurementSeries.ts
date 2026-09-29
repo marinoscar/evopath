@@ -45,7 +45,7 @@ export interface HistoryEntry {
   notes: string | null;
   /** Any reading has `revision > 1`. */
   edited: boolean;
-  /** `manual` today; `ai_read` arrives with E2.6. */
+  /** The first reading's origin: `manual`, or `ai` for one read off a photo (E2.6). */
   origin: string;
 }
 

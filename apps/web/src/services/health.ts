@@ -455,3 +455,93 @@ export function isEntryGone(err: unknown): boolean {
 export function isEntryConflict(err: unknown): boolean {
   return err instanceof ApiError && err.status === 409;
 }
+
+// =============================================================================
+// Read from photo, issue #64 (E2.6)
+// =============================================================================
+//
+// A scale, smart scale or blood-pressure cuff display is read by the E3.1
+// photo-intake kit (`services/intake.ts`) with the `body_metric_reading` kind.
+// Each draft item is ONE reading as displayed on the device (the device's
+// unit); the API converts it once, at apply. Provenance (`origin`,
+// `sourceRef`) is derived by the API from the intake rows inside apply; the
+// browser only reads it back.
+
+/** The intake kind (`POST /api/intakes { kind }`). Permanent on the server. */
+export const BODY_METRIC_READING_KIND = 'body_metric_reading';
+
+/** The one draft item kind inside it (`POST /api/intakes/:id/items { kind }`). */
+export const BODY_METRIC_READING_ITEM_KIND = 'reading';
+
+/** Photos one reading intake takes (the kind's `maxPhotos`). */
+export const BODY_METRIC_READING_MAX_PHOTOS = 4;
+
+/** One draft item value: a reading as displayed on the device. */
+export interface BodyMetricReadingValue {
+  metricKey: MetricKey;
+  /** The number as displayed, in `unit`. */
+  value: number;
+  /** One of the metric's catalog units, as displayed (`kg`, `lb`, `%`, `mmHg`, `bpm`). */
+  unit: string;
+  /** One of the metric's catalog methods; omitted = `unspecified`. */
+  method?: string;
+}
+
+/** `POST /api/intakes/:id/apply` for this kind: the one entry it created (`null` when nothing was accepted). */
+export interface BodyMetricReadingApplyResult {
+  entryId: string | null;
+  items: MeasurementDto[];
+}
+
+/** What the analyzer recorded for a reading intake (`PhotoIntakeView.resultMeta`). */
+export interface BodyMetricReadingResultMeta {
+  promptVersion?: number;
+  deviceKind?: string | null;
+  /** The model said no digit on the display was legible. */
+  unreadable?: boolean;
+  readingsFlagged?: number;
+}
+
+/** True when the scan finished but could not read any value off the display. */
+export function isUnreadableResult(resultMeta: Record<string, unknown> | null | undefined): boolean {
+  return (resultMeta as BodyMetricReadingResultMeta | null | undefined)?.unreadable === true;
+}
+
+/** The `sourceRef.kind` of a reading saved from a photo. */
+export const PHOTO_INTAKE_SOURCE_KIND = 'photo_intake';
+
+/**
+ * `MeasurementDto.sourceRef` of a reading saved from a photo. An AI-read row
+ * carries every field; a row the user added by hand in the same review
+ * carries only `kind` and `intakeId`.
+ */
+export interface PhotoIntakeSourceRef {
+  kind: typeof PHOTO_INTAKE_SOURCE_KIND;
+  intakeId: string;
+  draftItemId?: string;
+  /** The photos the reading was read from (private storage objects of the owner). */
+  storageObjectIds?: string[];
+  /** What the AI read, as displayed on the device. */
+  aiDraft?: BodyMetricReadingValue;
+  confidence?: string | null;
+  /** The saved value differs from `aiDraft`. */
+  userEdited?: boolean;
+}
+
+/** The row's `sourceRef` when it is a photo intake's, else `null`. Never throws on unexpected shapes. */
+export function photoSourceRef(row: Pick<MeasurementDto, 'sourceRef'>): PhotoIntakeSourceRef | null {
+  const ref = row.sourceRef;
+  if (!ref || typeof ref !== 'object') return null;
+  if (ref.kind !== PHOTO_INTAKE_SOURCE_KIND || typeof ref.intakeId !== 'string') return null;
+  const ids = Array.isArray(ref.storageObjectIds)
+    ? ref.storageObjectIds.filter((id): id is string => typeof id === 'string')
+    : undefined;
+  return {
+    ...(ref as unknown as PhotoIntakeSourceRef),
+    storageObjectIds: ids,
+    userEdited: ref.userEdited === true,
+  };
+}
+
+/** The measurement origin of a reading the AI read off a photo (a hand-added one is `manual`). */
+export const AI_READ_ORIGIN = 'ai';

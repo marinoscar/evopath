@@ -17,6 +17,10 @@
  * unchanged form closes without a request. A changed value shows what it was
  * ("Was 80.0 kg"), read off the row the dialog was opened with.
  *
+ * Read from photo (issue #64, E2.6): a new entry offers a link-style "Read
+ * from photo" at the top when the photo flow is available; the page opens
+ * `PhotoReadDialog` over this one, so nothing typed here is lost.
+ *
  * Nothing typed here goes to the URL, the console or analytics.
  */
 
@@ -79,6 +83,7 @@ import {
   withUnit,
 } from '../../utils/measurementUnits';
 import type { HistoryEntry } from '../../utils/measurementSeries';
+import { PhotoReadButton } from './PhotoReadButton';
 import {
   parseDateTimeLocalValue,
   toDateTimeLocalValue,
@@ -152,6 +157,13 @@ export interface LogMeasurementDialogProps {
    * `409` (changed elsewhere). The dialog closes; the caller reloads and says so.
    */
   onStale?: (reason: 'gone' | 'conflict') => void;
+  /**
+   * Issue #64 (E2.6): open the photo-read flow on top of this dialog (what
+   * was typed here stays). A link-style "Read from photo" is shown at the top
+   * of a NEW entry when given and `useCanReadFromPhoto()` holds; never in
+   * edit mode.
+   */
+  onReadFromPhoto?: () => void;
 }
 
 /** What a submit sends: a new entry, or the changes to an existing one. */
@@ -172,6 +184,7 @@ export function LogMeasurementDialog({
   profile = null,
   entry = null,
   onStale,
+  onReadFromPhoto,
 }: LogMeasurementDialogProps) {
   const isEdit = entry !== null;
   const theme = useTheme();
@@ -642,6 +655,17 @@ export function LogMeasurementDialog({
 
             {catalog && (
               <Stack spacing={2}>
+                {!isEdit && onReadFromPhoto && (
+                  <Box>
+                    <PhotoReadButton
+                      variant="text"
+                      size="small"
+                      onClick={onReadFromPhoto}
+                      disabled={saving}
+                      sx={{ px: 0.5 }}
+                    />
+                  </Box>
+                )}
                 {profileMissing && (
                   <Typography variant="body2" color="text.secondary">
                     Using metric units.{' '}

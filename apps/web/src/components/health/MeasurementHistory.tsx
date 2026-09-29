@@ -7,6 +7,13 @@
  * in the user's units, a method chip per reading (none for `unspecified`),
  * `Edited` when revised, the origin, the note, and Edit/Delete.
  *
+ * Photo provenance (issue #64, E2.6): an entry with a reading the AI read
+ * off a photo (`origin: 'ai'`) shows "Read from photo" instead of the origin,
+ * "You edited" when a saved value differs from what the AI read
+ * (`sourceRef.userEdited`, kept current by the API on every edit), and
+ * "View photo", which shows the first source photo through a short-lived
+ * signed URL (`GET /api/storage/objects/:id/download`).
+ *
  * This list is also the text equivalent of the Trend chart above it.
  * `health_data:write` only enables the actions; the API enforces it.
  */
@@ -17,7 +24,13 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
+  Link,
   List,
   ListItem,
   MenuItem,
@@ -30,7 +43,17 @@ import {
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import HistoryIcon from '@mui/icons-material/History';
-import { HEALTH_DATA_UNAVAILABLE, type MetricDef, type UnitSystem } from '../../services/health';
+import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
+import {
+  AI_READ_ORIGIN,
+  HEALTH_DATA_UNAVAILABLE,
+  photoSourceRef,
+  type MetricDef,
+  type UnitSystem,
+} from '../../services/health';
+import { ApiError } from '../../services/api';
+import { getStorageObjectDownloadUrl } from '../../services/storage';
 import { useMeasurements } from '../../hooks/useMeasurements';
 import { EmptyState } from '../common/EmptyState';
 import {
@@ -43,8 +66,93 @@ import { formatDateTime, formatShortDate, formatShortTime } from '../../utils/me
 
 export const NO_EDIT_PERMISSION_TOOLTIP = "You don't have permission to change health data";
 
-/** What an origin reads as; `manual` for everything today, AI-read with E2.6. */
+/** What an origin reads as. An AI-read entry shows the "Read from photo" chip instead. */
 const ORIGIN_LABELS: Record<string, string> = { manual: 'Manual' };
+
+export const READ_FROM_PHOTO_CHIP = 'Read from photo';
+export const USER_EDITED_CHIP = 'You edited';
+
+/** The photo provenance of an entry: any AI-read reading, edited or not, and its first photo. */
+export function entryPhotoProvenance(entry: HistoryEntry): {
+  readFromPhoto: boolean;
+  userEdited: boolean;
+  photoId: string | null;
+} {
+  const aiRows = entry.readings.filter((reading) => reading.origin === AI_READ_ORIGIN);
+  const refs = aiRows.map((reading) => photoSourceRef(reading)).filter((ref) => ref !== null);
+  return {
+    readFromPhoto: aiRows.length > 0,
+    userEdited: refs.some((ref) => ref.userEdited === true),
+    photoId: refs.flatMap((ref) => ref.storageObjectIds ?? [])[0] ?? null,
+  };
+}
+
+/**
+ * The stored photo of an entry, in a dialog. The signed URL is fetched when it
+ * opens and lives in this component's state only (it is a bearer credential
+ * for its lifetime).
+ */
+function PhotoViewerDialog({
+  storageObjectId,
+  label,
+  onClose,
+}: {
+  storageObjectId: string | null;
+  label: string;
+  onClose: () => void;
+}) {
+  const titleId = useId();
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUrl(null);
+    setError(null);
+    if (!storageObjectId) return;
+    let cancelled = false;
+    getStorageObjectDownloadUrl(storageObjectId).then(
+      ({ url: signed }) => {
+        if (!cancelled) setUrl(signed);
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        setError(
+          err instanceof ApiError && err.status === 404
+            ? 'This photo is no longer available.'
+            : 'Could not load the photo. Try again later.',
+        );
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [storageObjectId]);
+
+  return (
+    <Dialog open={storageObjectId !== null} onClose={onClose} fullWidth maxWidth="sm" aria-labelledby={titleId}>
+      <DialogTitle id={titleId}>Photo</DialogTitle>
+      <DialogContent dividers>
+        {error ? (
+          <Alert severity="error">{error}</Alert>
+        ) : url ? (
+          <Box component="img" src={url} alt={label} sx={{ display: 'block', maxWidth: '100%', maxHeight: '70vh', mx: 'auto' }} />
+        ) : (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress aria-label="Loading photo" />
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        {url && (
+          <Link href={url} target="_blank" rel="noopener noreferrer" sx={{ mr: 'auto', ml: 1 }}>
+            Open in a new tab
+          </Link>
+        )}
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
 export interface MeasurementHistoryProps {
   metrics: readonly MetricDef[];
@@ -110,6 +218,8 @@ function HistoryRow({
   const views = describeEntry(entry, metricsByKey, unitSystem);
   const what = spokenList(views.map((view) => view.label));
   const when = `${formatShortDate(entry.measuredAt)}, ${formatShortTime(entry.measuredAt)}`;
+  const provenance = entryPhotoProvenance(entry);
+  const [viewing, setViewing] = useState(false);
 
   return (
     <ListItem
@@ -144,10 +254,32 @@ function HistoryRow({
           ))}
         </Stack>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 0.75 }}>
-          <Typography variant="caption" color="text.secondary">
-            {ORIGIN_LABELS[entry.origin] ?? entry.origin}
-          </Typography>
+          {provenance.readFromPhoto ? (
+            <Chip
+              size="small"
+              variant="outlined"
+              color="secondary"
+              icon={<PhotoCameraOutlinedIcon />}
+              label={READ_FROM_PHOTO_CHIP}
+            />
+          ) : (
+            <Typography variant="caption" color="text.secondary">
+              {ORIGIN_LABELS[entry.origin] ?? entry.origin}
+            </Typography>
+          )}
+          {provenance.userEdited && <Chip size="small" variant="outlined" label={USER_EDITED_CHIP} />}
           {entry.edited && <Chip size="small" label="Edited" />}
+          {provenance.photoId && (
+            <Button
+              size="small"
+              startIcon={<ImageOutlinedIcon />}
+              onClick={() => setViewing(true)}
+              aria-label={`View photo for ${what} entry from ${when}`}
+              sx={{ minHeight: 32 }}
+            >
+              View photo
+            </Button>
+          )}
         </Box>
         {entry.notes && (
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>
@@ -163,6 +295,13 @@ function HistoryRow({
           <DeleteOutlineIcon />
         </ActionButton>
       </Box>
+      {provenance.photoId && (
+        <PhotoViewerDialog
+          storageObjectId={viewing ? provenance.photoId : null}
+          label={`Photo the ${what} entry from ${when} was read from`}
+          onClose={() => setViewing(false)}
+        />
+      )}
     </ListItem>
   );
 }

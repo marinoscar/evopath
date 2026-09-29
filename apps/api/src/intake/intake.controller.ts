@@ -17,6 +17,7 @@ import { ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags }
 import { AiEnabledGuard } from '../ai/config/ai-enabled.guard';
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { RequestUser } from '../auth/interfaces/authenticated-user.interface';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { ErrorDto } from '../common/dto/error.dto';
@@ -54,8 +55,16 @@ import { IntakeService } from './intake.service';
 const ID_PARAM = { name: 'id', type: String, format: 'uuid', description: 'The intake id.' } as const;
 const ITEM_PARAM = { name: 'itemId', type: String, format: 'uuid' } as const;
 const UNAUTHENTICATED = { status: 401, description: 'Not authenticated', type: ErrorDto } as const;
-const NO_READ = { status: 403, description: 'Missing intakes:read', type: ErrorDto } as const;
-const NO_WRITE = { status: 403, description: 'Missing intakes:write', type: ErrorDto } as const;
+const NO_READ = {
+  status: 403,
+  description: "Missing intakes:read, or a permission the intake's kind requires (`details.reason: MISSING_KIND_PERMISSIONS`)",
+  type: ErrorDto,
+} as const;
+const NO_WRITE = {
+  status: 403,
+  description: "Missing intakes:write, or a permission the intake's kind requires (`details.reason: MISSING_KIND_PERMISSIONS`)",
+  type: ErrorDto,
+} as const;
 const NOT_FOUND = { status: 404, description: 'No intake with this id for the caller', type: ErrorDto } as const;
 const STATE_CONFLICT = {
   status: 409,
@@ -84,8 +93,8 @@ export class IntakesController {
   })
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(NO_WRITE)
-  create(@CurrentUser('id') userId: string, @Body() dto: CreateIntakeDto) {
-    return this.intakes.create(userId, dto);
+  create(@CurrentUser() user: RequestUser, @Body() dto: CreateIntakeDto) {
+    return this.intakes.create(user.id, dto, user.permissions);
   }
 
   @Get()
@@ -114,8 +123,8 @@ export class IntakesController {
   @ApiResponse({ status: 400, description: 'Invalid filter', type: ErrorDto })
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(NO_READ)
-  list(@CurrentUser('id') userId: string, @Query() query: ListIntakesQueryDto) {
-    return this.intakes.list(userId, query);
+  list(@CurrentUser() user: RequestUser, @Query() query: ListIntakesQueryDto) {
+    return this.intakes.list(user.id, query, user.permissions);
   }
 
   // ---------------------------------------------------------------------------
@@ -134,8 +143,8 @@ export class IntakesController {
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(NO_READ)
   @ApiResponse(NOT_FOUND)
-  get(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.intakes.get(userId, id);
+  get(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.intakes.get(user.id, id, user.permissions);
   }
 
   @Delete(':id')
@@ -153,8 +162,8 @@ export class IntakesController {
   @ApiResponse(NO_WRITE)
   @ApiResponse(NOT_FOUND)
   @ApiResponse({ status: 409, description: '`details.reason: ALREADY_APPLIED`', type: ErrorDto })
-  async discard(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
-    await this.intakes.discard(userId, id);
+  async discard(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.intakes.discard(user.id, id, user.permissions);
   }
 
   @Post(':id/photos')
@@ -183,11 +192,11 @@ export class IntakesController {
     type: ErrorDto,
   })
   attachPhoto(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AttachPhotoDto,
   ) {
-    return this.intakes.attachPhoto(userId, id, dto.storageObjectId);
+    return this.intakes.attachPhoto(user.id, id, dto.storageObjectId, user.permissions);
   }
 
   @Delete(':id/photos/:storageObjectId')
@@ -207,11 +216,11 @@ export class IntakesController {
   @ApiResponse({ status: 404, description: 'No such intake, or the photo is not attached', type: ErrorDto })
   @ApiResponse(STATE_CONFLICT)
   async detachPhoto(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('storageObjectId', ParseUUIDPipe) storageObjectId: string,
   ): Promise<void> {
-    await this.intakes.detachPhoto(userId, id, storageObjectId);
+    await this.intakes.detachPhoto(user.id, id, storageObjectId, user.permissions);
   }
 
   @Post(':id/items')
@@ -230,11 +239,11 @@ export class IntakesController {
   @ApiResponse(NOT_FOUND)
   @ApiResponse(STATE_CONFLICT)
   addItem(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateDraftItemDto,
   ) {
-    return this.intakes.addItem(userId, id, dto);
+    return this.intakes.addItem(user.id, id, dto, user.permissions);
   }
 
   @Post(':id/items/accept-all')
@@ -250,8 +259,8 @@ export class IntakesController {
   @ApiResponse(NO_WRITE)
   @ApiResponse(NOT_FOUND)
   @ApiResponse(STATE_CONFLICT)
-  acceptAll(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.intakes.acceptAll(userId, id);
+  acceptAll(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.intakes.acceptAll(user.id, id, user.permissions);
   }
 
   @Patch(':id/items/:itemId')
@@ -273,12 +282,12 @@ export class IntakesController {
   @ApiResponse({ status: 404, description: 'No such intake or item for the caller', type: ErrorDto })
   @ApiResponse(STATE_CONFLICT)
   updateItem(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,
     @Body() dto: UpdateDraftItemDto,
   ) {
-    return this.intakes.updateItem(userId, id, itemId, dto);
+    return this.intakes.updateItem(user.id, id, itemId, dto, user.permissions);
   }
 
   @Delete(':id/items/:itemId')
@@ -302,11 +311,11 @@ export class IntakesController {
     type: ErrorDto,
   })
   async deleteItem(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,
   ): Promise<void> {
-    await this.intakes.deleteItem(userId, id, itemId);
+    await this.intakes.deleteItem(user.id, id, itemId, user.permissions);
   }
 
   @Post(':id/apply')
@@ -334,8 +343,8 @@ export class IntakesController {
   @ApiResponse(NO_WRITE)
   @ApiResponse(NOT_FOUND)
   @ApiResponse(STATE_CONFLICT)
-  apply(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.intakes.apply(userId, id);
+  apply(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.intakes.apply(user.id, id, user.permissions);
   }
 }
 
@@ -382,10 +391,10 @@ export class IntakeAnalyzeController {
     type: ErrorDto,
   })
   analyze(
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AnalyzeIntakeDto,
   ) {
-    return this.intakes.analyze(userId, id, dto);
+    return this.intakes.analyze(user.id, id, dto, user.permissions);
   }
 }

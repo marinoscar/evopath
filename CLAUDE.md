@@ -62,7 +62,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: browser notifications and Web Push | [docs/specs/browser-notifications.md](docs/specs/browser-notifications.md) |
 | Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
-| Spec: health data (health profile, measurements, check-ins, `health_data` permissions) | [docs/specs/health-data.md](docs/specs/health-data.md) |
+| Spec: health data (health profile, measurements, check-ins, photo readings, `health_data` permissions) | [docs/specs/health-data.md](docs/specs/health-data.md) |
 | Spec: background job queue | [docs/specs/job-queue.md](docs/specs/job-queue.md) |
 | Spec: maintenance mode | [docs/specs/maintenance-mode.md](docs/specs/maintenance-mode.md) |
 | Spec: admin broadcasts | [docs/specs/notification-broadcasts.md](docs/specs/notification-broadcasts.md) |

@@ -198,6 +198,8 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.catalog.refresh': { providerId: 'openai' },
       'ai.keys.recheck': { provider: 'openai' },
       'ai.usage.purge': {},
+      // E2.6 (#64): reads a scale/cuff display off a photo intake; filled in per-test.
+      'ai.health.body_metric_reading': null,
     };
 
     let registry: JobHandlerRegistry;
@@ -345,6 +347,43 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       const stored = app.harness.runRows.find((r) => r.id === created.id);
       expect(stored?.status).toBe('failed');
       expect(stored?.errorCode).toBe('AI_DISABLED');
+    });
+
+    it('ai.health.body_metric_reading: disabled makes zero provider calls, intake fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.health.body_metric_reading');
+      expect(handler).toBeDefined();
+
+      const photo = app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'image/jpeg' });
+      (app.harness.storage.provider.download as jest.Mock).mockClear();
+      const intakeId = '99999999-9999-4999-8999-999999999999';
+      const prisma = app.context.prismaMock as any;
+
+      // A `scanning` intake the way `POST /api/intakes/:id/analyze` leaves it.
+      prisma.photoIntake.findUnique.mockResolvedValueOnce({
+        id: intakeId,
+        userId: HARNESS_USER,
+        kind: 'body_metric_reading',
+        status: 'scanning',
+        provider: 'openai',
+        modelId: 'fake-model',
+        jobId: 'job-kill-switch',
+        photos: [{ storageObjectId: photo.id }],
+      });
+      prisma.photoIntake.updateMany.mockResolvedValueOnce({ count: 1 });
+
+      await expect(
+        handler!.process({ id: 'job-kill-switch', payload: { intakeId } } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.harness.storage.provider.download).not.toHaveBeenCalled();
+      expect(prisma.draftItem.createMany).not.toHaveBeenCalled();
+      expect(prisma.photoIntake.updateMany).toHaveBeenCalledWith({
+        where: { id: intakeId, status: 'scanning' },
+        data: expect.objectContaining({ status: 'failed', errorCode: 'AI_DISABLED' }),
+      });
     });
 
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {
