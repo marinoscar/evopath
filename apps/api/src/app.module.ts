@@ -36,6 +36,7 @@ import { TelemetryModule } from './telemetry/telemetry.module';
 import { HealthProfileModule } from './health-profile/health-profile.module';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
+import { IntakeModule } from './intake/intake.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -215,6 +216,11 @@ import configuration from './config/configuration';
     // `health_data:*`, stored as wellness `measurements` rows with `localDate`.
     // Exports `CheckInsService` (`getToday`, `getForDate`) for E5.
     CheckInsModule,
+
+    // Photo intakes (E3.1): `/api/intakes` under `intakes:*` (analyze also
+    // behind `AiEnabledGuard` + `ai:use`). Exports `IntakeKindRegistry` and
+    // `IntakeService` for the features that register an intake kind.
+    IntakeModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

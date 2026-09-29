@@ -120,6 +120,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '`health_data:read`/`:write`; owner-scoped.',
       },
       {
+        name: 'Intakes',
+        description:
+          'The calling user\'s photo intakes: share photos instead of typing, let a vision model ' +
+          'draft structured items, review them (edit, accept, reject, add missing), then apply the ' +
+          'accepted items to real data. Each flow is a registered intake kind. Provenance is kept: ' +
+          'the AI\'s original value, confidence and a verified flag. Gated on `intakes:read`/`:write`; ' +
+          'analyze also needs `ai:use` and AI switched on. Owner-scoped (a foreign id is a 404).',
+      },
+      {
         name: 'System Settings',
         description:
           'Deployment-wide configuration, stored as a JSON document. Readable by any signed-in user; ' +
