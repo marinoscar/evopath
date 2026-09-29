@@ -312,7 +312,7 @@ function AppRoutes() {
                       answer the same question ("may this user reach the admin
                       surface?") on two different surfaces, and #92 left them
                       disagreeing: the Console row appeared in the rail, bottom
-                      bar, user menu and quick actions for a `users:read`-only
+                      bar and user menu for a `users:read`-only
                       user, whose click then bounced straight back to `/`. That
                       split brain is exactly what `config/destinations.ts`'s
                       header says the destination model exists to prevent, so the

@@ -407,7 +407,7 @@ describe('admin sections — registry against the live routes', () => {
 
 /**
  * Issue #92 regression. The `console` destination becomes VISIBLE (a rail row,
- * a menu entry, a quick action) whenever the user holds either permission in
+ * a menu entry) whenever the user holds either permission in
  * `anyPermission` — but the `/admin/settings` route itself once kept only
  * `system_settings:read`. A user holding `users:read` alone saw the row,
  * clicked it, and was bounced straight back to `/`: the destination said "you

@@ -214,8 +214,8 @@ describe('App', () => {
 
     it('gates on the permission, not the admin role', async () => {
       // A Contributor granted `system_settings:read` gets in. That user is
-      // precisely the one the old three-idiom gating stranded: a menu entry and
-      // a quick action pointing at a page whose only route in was the URL bar.
+      // precisely the one the old three-idiom gating stranded: a menu entry
+      // pointing at a page whose only route in was the URL bar.
       signInAs(['user_settings:read', 'system_settings:read'], ['contributor']);
 
       render(
