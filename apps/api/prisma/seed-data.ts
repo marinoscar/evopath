@@ -536,6 +536,10 @@ export const DEFAULT_SYSTEM_SETTINGS = {
 // its slug. Never delete or repurpose a slug. Custom (user-owned) equipment
 // types are not part of this catalog and the seed never touches them.
 
+// MOVEMENT_PATTERNS, MUSCLES and EXERCISE_TRACKING_MODES are a deliberate copy
+// of `src/common/constants/training.constants.ts` (the API's one home for them):
+// this file runs under ts-node where `src/` may not exist (the production image
+// ships `prisma/` only). `test/prisma/seed-data.spec.ts` asserts they are equal.
 export const MOVEMENT_PATTERNS = [
   'squat', 'hinge', 'horizontal_push', 'vertical_push', 'horizontal_pull',
   'vertical_pull', 'lunge', 'carry', 'core', 'isolation', 'cardio',

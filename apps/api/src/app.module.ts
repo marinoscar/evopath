@@ -38,6 +38,7 @@ import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
 import { GymsModule } from './gyms/gyms.module';
+import { ExercisesModule } from './exercises/exercises.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -227,6 +228,11 @@ import configuration from './config/configuration';
     // and `/api/capabilities` under `gyms:*` (photo attach/remove also
     // `storage:write`). Manual only; no AI import.
     GymsModule,
+
+    // Exercise library (E4.1): `/api/exercises` under `exercises:*`: the seeded
+    // library plus custom exercises, with per-gym availability. Exports
+    // `ExercisesService` and `ExerciseAvailabilityService` for E4.2+ and E5.
+    ExercisesModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

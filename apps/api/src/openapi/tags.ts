@@ -189,6 +189,19 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
     ],
   },
   {
+    name: 'Training',
+    tags: [
+      {
+        name: 'Exercises',
+        description:
+          'The exercise library (seeded, read-only) plus the caller\'s custom exercises: muscles, ' +
+          'movement pattern, tracking mode and the equipment or capability groups each needs, with ' +
+          'per-gym availability. Gated on `exercises:read`/`exercises:write`; a custom exercise is ' +
+          'visible only to its owner, and an AI-proposed one waits for the owner\'s approval.',
+      },
+    ],
+  },
+  {
     name: 'Storage',
     tags: [
       {
