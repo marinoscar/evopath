@@ -96,6 +96,11 @@ vi.mock('../pages/UserNotificationsPage', () => ({
   default: () => <h1>User Notifications Page</h1>,
 }));
 
+// Issue #47 (E2.1). Stood in for the same reason as the settings pages above.
+vi.mock('../pages/UserHealthProfilePage', () => ({
+  default: () => <h1>User Health Profile Page</h1>,
+}));
+
 vi.mock('../pages/TodayPage', () => ({ default: () => <h1>Today Page</h1> }));
 vi.mock('../pages/TrainPage', () => ({ default: () => <h1>Train Page</h1> }));
 vi.mock('../pages/HealthPage', () => ({ default: () => <h1>Health Page</h1> }));
@@ -386,6 +391,48 @@ describe('App', () => {
           ).toBeInTheDocument(),
         { timeout: 5000 }
       );
+    });
+  });
+
+  /**
+   * Issue #47 (E2.1). `/settings/health-profile` is gated on
+   * `health_data:read`, the exact string `GET /api/health-profile` enforces.
+   */
+  describe('Health profile route (#47)', () => {
+    it('renders the page for a user holding health_data:read', async () => {
+      signInAs(['user_settings:read', 'health_data:read']);
+
+      render(
+        <MemoryRouter initialEntries={['/settings/health-profile']}>
+          <App />
+        </MemoryRouter>
+      );
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole('heading', { name: 'User Health Profile Page' })
+          ).toBeInTheDocument(),
+        { timeout: 5000 }
+      );
+    });
+
+    it('redirects to / for a user without health_data:read, even holding health_data:write', async () => {
+      signInAs(['user_settings:read', 'user_settings:write', 'health_data:write']);
+
+      render(
+        <MemoryRouter initialEntries={['/settings/health-profile']}>
+          <App />
+        </MemoryRouter>
+      );
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        { timeout: 5000 }
+      );
+      expect(
+        screen.queryByRole('heading', { name: 'User Health Profile Page' })
+      ).not.toBeInTheDocument();
     });
   });
 

@@ -33,7 +33,7 @@ Each registry is an ordered list of groups, each group an ordered list of cards.
 
 `ADMIN_SECTIONS` has four groups, appended in this order: **General**, **Access**, **Operations**, **AI**. Groups and cards are append-only because the hub, the rail and the drill-down list render the array in declaration order; inserting a card moves every existing card for a reader who has learnt where they are. The full inventory of pages and their permissions lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-`USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to all three roles. The exception is the `AI Keys` card (`/settings/ai`), which declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (Admin and Contributor, not Viewer).
+`USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to all three roles. Two cards are the exception. `AI Keys` (`/settings/ai`) declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (Admin and Contributor, not Viewer). `Health Profile` (`/settings/health-profile`, group Health) declares `permission: 'health_data:read'`, because health data is a separate grant a deployment can withhold from any role; see [health-data.md](health-data.md).
 
 ### Consumers
 

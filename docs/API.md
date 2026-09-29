@@ -266,6 +266,7 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `admin/ai` | AI kill switch, key policy, providers, model catalog, usage | `ai_config:*` | [ai-platform](specs/ai-platform.md) |
 | `telemetry` | Public telemetry feature flag | authenticated (any user) | [telemetry](specs/telemetry.md) |
 | `admin/telemetry` | Telemetry policy, status, SQL explorer, export, AI assistant stream | `telemetry:read/write/query` (assistant also needs `ai:use`) | [telemetry](specs/telemetry.md) |
+| `health-profile` | The caller's own health profile | `health_data:read/write` | [health-data](specs/health-data.md) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 
 Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with

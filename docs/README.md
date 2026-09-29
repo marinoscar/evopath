@@ -41,6 +41,7 @@ In this order:
 | [specs/database-restore.md](specs/database-restore.md) | Restore and rollback from a backup | you change restore gates or outcomes |
 | [specs/maintenance-mode.md](specs/maintenance-mode.md) | The 503 maintenance window | you change maintenance behaviour or its layers |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
+| [specs/health-data.md](specs/health-data.md) | Per-user health data: the health profile and the `health_data` permissions | you add a health feature or read the profile (units, time zone, height) |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 

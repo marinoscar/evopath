@@ -158,7 +158,8 @@ describe('visibleSettingsSections — search', () => {
 describe('visibleSettingsSections — works identically against USER_SETTINGS_SECTIONS', () => {
   it('shows every user-settings card that declares no permission and no feature, with no permissions held', () => {
     // Since #425 one user card (`AI Keys`) declares both a permission (`ai:use`)
-    // and a feature (`ai`); every other one is still open to any signed-in user.
+    // and a feature (`ai`), and since #47 `Health Profile` declares
+    // `health_data:read`; every other one is still open to any signed-in user.
     const result = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false);
     const ungated = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards)
       .filter((card) => !card.permission && !card.feature)
@@ -166,6 +167,8 @@ describe('visibleSettingsSections — works identically against USER_SETTINGS_SE
 
     expect(titlesOf(result).sort()).toEqual(ungated.sort());
     expect(titlesOf(result)).not.toContain('AI Keys');
+    // #47 (E2.1): gated on `health_data:read`.
+    expect(titlesOf(result)).not.toContain('Health Profile');
   });
 
   it('shows every user-settings card once the permission is held and AI is on', () => {

@@ -95,6 +95,7 @@ const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
 // Issue #444, epic #420 — AI usage aggregates.
 const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
+const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
@@ -204,9 +205,9 @@ function AppRoutes() {
                       settings, which the API grants to all three roles, and
                       `config/userSettingsSections.tsx` correspondingly declares no
                       `permission` on their cards. A gate here would deny a Viewer
-                      their own display name. (The single exception, `/settings/ai`
-                      below, gates on a grant the API really does withhold — see
-                      its own comment.)
+                      their own display name. (The exceptions, `/settings/ai` and
+                      `/settings/health-profile` below, gate on grants the API
+                      really does withhold — see their own comments.)
 
                       As above, declaration order does not matter — React Router
                       v6 ranks by specificity, so `/settings/profile` beats
@@ -219,7 +220,7 @@ function AppRoutes() {
                       itself `@Auth()` with no permission for the same reason. */}
                   <Route path="/settings/notifications" element={<UserNotificationsPage />} />
                   <Route path="/settings/tokens" element={<UserTokensPage />} />
-                  {/* Issue #425, epic #419. THE ONE GATED `/settings/*` ROUTE,
+                  {/* Issue #425, epic #419. THE FIRST GATED `/settings/*` ROUTE,
                       and the exception is real: `ai:use` is a grant a
                       deployment can withhold from a role, and the
                       `/api/ai/keys` controller enforces exactly that string —
@@ -236,6 +237,21 @@ function AppRoutes() {
                         <RequireAiEnabled>
                           <UserAiKeysPage />
                         </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #47 (E2.1). Gated on `health_data:read`, the exact
+                      string `GET /api/health-profile` enforces and the
+                      `Health Profile` card declares: health data is a grant a
+                      deployment can withhold from a role. */}
+                  <Route
+                    path="/settings/health-profile"
+                    element={
+                      <RequirePermission
+                        permission="health_data:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <UserHealthProfilePage />
                       </RequirePermission>
                     }
                   />

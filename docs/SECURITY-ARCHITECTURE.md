@@ -481,6 +481,17 @@ target and time. Actions are `<area>:<verb>` strings, for example
 `storage:object:delete`, `storage_config:test`, `ai_config:set_key`.
 Audit `meta` never contains key material.
 
+### Health data
+
+Health data (`health_profiles`: date of birth, sex at birth, height, unit system, time zone, bio) is personal data with its own permission family, `health_data:read/write`, separate from `user_settings:*` so a deployment can withhold it from a role. Handling rules:
+
+- **Owner scoped.** Every route and service method takes the id from the access token. No route or method accepts another user's id, so no code path reaches another user's row. An administrator has no route to it.
+- **No values in logs.** Values and the free-text bio never reach a log line, an exception message or a validation message.
+- **Audit carries field names only.** A save writes `health_profile:update` with `meta.fields` listing the names of the fields that changed; never a value, never the bio. A save that changes nothing writes no row.
+- **Removed with the account.** The row is deleted with its user (`ON DELETE CASCADE`).
+
+Design and guardrails: [specs/health-data.md](specs/health-data.md).
+
 ---
 
 ## 8. File storage security
@@ -930,6 +941,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | Admin bootstrap | `apps/api/src/common/services/admin-bootstrap.service.ts` |
 | Roles and permissions | `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts` |
 | Allowlist | `apps/api/src/allowlist/` |
+| Health data | `apps/api/src/health-profile/` |
 | PATs | `apps/api/src/pat/` |
 | Device flow | `apps/api/src/device-auth/` |
 | Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |

@@ -218,6 +218,19 @@ export const mockPermissions = {
     name: 'telemetry:query',
     description: 'Run SQL, export and use the AI assistant against telemetry',
   },
+  // E2.1, #47 — the caller's own health data. Seeded to ALL THREE roles in
+  // `prisma/seed-data.ts` and mirrored that way below; kept separate from
+  // `user_settings:*` so a spec can withhold it on its own.
+  healthDataRead: {
+    id: randomUUID(),
+    name: 'health_data:read',
+    description: 'Read own health data',
+  },
+  healthDataWrite: {
+    id: randomUUID(),
+    name: 'health_data:write',
+    description: 'Modify own health data',
+  },
 };
 
 export const mockRoles = {
@@ -542,6 +555,8 @@ export const rolePermissionsMap = {
     mockPermissions.telemetryRead,
     mockPermissions.telemetryWrite,
     mockPermissions.telemetryQuery,
+    mockPermissions.healthDataRead,
+    mockPermissions.healthDataWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -550,6 +565,8 @@ export const rolePermissionsMap = {
     // #516 — read + write, mirroring `prisma/seed-data.ts`; never `delete_any`.
     mockPermissions.storageRead,
     mockPermissions.storageWrite,
+    mockPermissions.healthDataRead,
+    mockPermissions.healthDataWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -565,6 +582,8 @@ export const rolePermissionsMap = {
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
     mockPermissions.storageRead,
+    mockPermissions.healthDataRead,
+    mockPermissions.healthDataWrite,
   ],
 };
 

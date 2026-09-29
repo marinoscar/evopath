@@ -33,6 +33,7 @@ import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
+import { HealthProfileModule } from './health-profile/health-profile.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -198,6 +199,11 @@ import configuration from './config/configuration';
     // server-only `telemetry.retention.apply` job. The explorer (#535) and the
     // assistant (#536) add their services inside this module.
     TelemetryModule,
+
+    // The caller's health profile (E2.1, #47): `GET`/`PUT /api/health-profile`
+    // under `health_data:*`. Exports `HealthProfileService` for later health
+    // features (time zone for day boundaries).
+    HealthProfileModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

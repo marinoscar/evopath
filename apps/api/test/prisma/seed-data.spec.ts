@@ -278,6 +278,17 @@ describe('seed data', () => {
 
       expect(leaked).toEqual([]);
     });
+
+    it('grants health_data:read and health_data:write to every seeded role (E2.1, #47)', () => {
+      // A person's OWN health data: every role holds both halves, like
+      // `user_settings:*`, yet as separate strings so a deployment can
+      // withhold health data from a role without touching its UI preferences.
+      for (const role of ROLES.map((r) => r.name)) {
+        expect(ROLE_PERMISSIONS[role as keyof typeof ROLE_PERMISSIONS]).toEqual(
+          expect.arrayContaining(['health_data:read', 'health_data:write']),
+        );
+      }
+    });
   });
 
   describe('seeded system settings', () => {

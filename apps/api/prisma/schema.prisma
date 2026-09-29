@@ -74,6 +74,9 @@ model User {
   // Per-user encrypted credentials (issue #387). Cascade: a user-owned
   // secret has no meaning once its owner is gone — see `UserCredential`.
   userCredentials        UserCredential[]        @relation("UserCredentials")
+  // Health profile (E2.1, #47). Cascade: person-level health facts have no
+  // meaning once the account is gone — see `HealthProfile`.
+  healthProfile          HealthProfile?
 
   @@map("users")
 }
@@ -2535,4 +2538,31 @@ model AiUsageEvent {
   // accounting/billing query, independent of any one user.
   @@index([createdAt])
   @@map("ai_usage_events")
+}
+
+// Health profile (E2.1, #47): one row per user with the person-level facts the
+// health features interpret measurements against (age, sex at birth, height)
+// and how values are entered and grouped (unit system, time zone). A dedicated
+// table rather than a `user_settings` namespace: typed columns the server
+// computes with, and a different lifecycle than UI preferences.
+// `sexAtBirth` and `unitSystem` are plain strings validated by Zod, like the
+// other state-machine columns. `heightMm` is integer millimetres so imperial
+// entry (5 ft 10 in = 1778 mm) is exact. Cascade: no reader once the user is gone.
+model HealthProfile {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @map("user_id") @db.Uuid
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  sexAtBirth  String?   @map("sex_at_birth") // female | male | prefer_not_to_say
+  heightMm    Int?      @map("height_mm")
+  unitSystem  String    @default("metric") @map("unit_system") // metric | imperial
+  timeZone    String?   @map("time_zone") // IANA name
+  bio         String?
+  version     Int       @default(1)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_profiles")
 }

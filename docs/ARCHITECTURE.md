@@ -146,7 +146,7 @@ Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the c
 
 ### 5.2 Role-based access control
 
-Three roles (Admin, Contributor, Viewer) grant 28 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
+Three roles (Admin, Contributor, Viewer) grant 30 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
 
 - **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts`
 - **Matrix:** [§7](#7-authorization)
@@ -312,13 +312,22 @@ The API is instrumented with OpenTelemetry for traces, metrics and logs, and log
 
 The API uses Jest and Supertest for mocked integration tests (`*.integration.spec.ts`) and real-PostgreSQL tests (`*.db.spec.ts`, `npm run test:db`). The web app and CLI use Vitest. Playwright end-to-end tests live in `tests/e2e`; pixel-baseline visual tests live in `tests/visual`, with their harness in `apps/web/visual`. See [TESTING.md](TESTING.md).
 
+### 5.20 Health data
+
+Per-user health facts live in their own table, `health_profiles`, one row per user, with its own permission family `health_data:read/write` (held by all three roles, withholdable per role). Today it holds the health profile: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. Later health features build on the same permissions and read the profile through `HealthProfileService`.
+
+- **Code:** `apps/api/src/health-profile/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
+- **UI:** `/settings/health-profile`
+- **Permissions:** `health_data:read`, `health_data:write`
+- **Read more:** [specs/health-data.md](specs/health-data.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#7-audit-logging-and-security-tables)
+
 ---
 
 ## 6. Data architecture
 
 ### 6.1 Prisma models
 
-The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 31 models, grouped by subsystem:
+The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 32 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|
@@ -330,7 +339,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
 | RBAC | `Role` | `roles` | Admin, Contributor, Viewer |
-| RBAC | `Permission` | `permissions` | The 28 `resource:action` permissions |
+| RBAC | `Permission` | `permissions` | The 30 `resource:action` permissions |
 | RBAC | `RolePermission` | `role_permissions` | Role-to-permission grants |
 | RBAC | `UserRole` | `user_roles` | User-to-role assignments |
 | Settings | `SystemSettings` | `system_settings` | Keyed JSONB rows for deployment settings |
@@ -353,6 +362,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `UserAiKey` | `user_ai_keys` | Encrypted BYOK key per `(userId, provider)`, reachable models |
 | AI | `AiRun` | `ai_runs` | Background AI runs (response, image, transcription, speech) |
 | AI | `AiUsageEvent` | `ai_usage_events` | One row per provider round trip, tokens, key source |
+| Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, time zone, bio, version |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -436,10 +446,12 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
+| `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`); reach `/settings/health-profile` |
+| `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 
@@ -546,6 +558,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
+| `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
 

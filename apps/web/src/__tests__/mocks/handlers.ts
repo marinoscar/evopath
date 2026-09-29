@@ -34,6 +34,7 @@ import {
   mockTelemetryStackRunning,
   mockTelemetryStatus,
 } from './fixtures/telemetry';
+import { mockHealthProfileEmpty } from './fixtures/health';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -106,6 +107,21 @@ export const handlers = [
   }),
 
   // User settings endpoints
+  // Health profile (#47, E2.1): a user with no row, and a PUT that echoes the
+  // body back as the saved row with the next version.
+  http.get(`${API_BASE}/health-profile`, () => {
+    return HttpResponse.json({ data: mockHealthProfileEmpty });
+  }),
+
+  http.put(`${API_BASE}/health-profile`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const ifMatch = request.headers.get('If-Match');
+    const version = (ifMatch === null ? 0 : Number(ifMatch)) + 1;
+    return HttpResponse.json({
+      data: { ...body, version, updatedAt: new Date().toISOString() },
+    });
+  }),
+
   http.get(`${API_BASE}/user-settings`, () => {
     return HttpResponse.json({ data: mockUserSettings });
   }),
