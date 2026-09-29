@@ -536,8 +536,9 @@ running application with Playwright.
 tests/e2e/
 ├── playwright.config.ts      # baseURL http://localhost:3535, Chromium
 ├── helpers/auth.helper.ts    # loginAsTestUser, loginAsAdmin/Contributor/Viewer, isLoggedIn, logout
+├── helpers/ai.helper.ts      # configureFakeVisionProvider, setFakeFixture (fake vision provider)
 ├── fixtures/auth.fixture.ts  # adminPage / viewerPage fixtures
-└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, health-photo-read, shell-navigation and telemetry-dashboard specs
+└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation and telemetry-dashboard specs
 ```
 
 It is not run in CI. Run it against a local stack:
@@ -550,6 +551,20 @@ npm test                 # headless
 npm run test:headed      # watch the browser
 npm run test:ui          # Playwright UI mode
 ```
+
+The `gyms` spec covers the manual path and needs nothing extra. The `gym-scan`
+spec drives "Scan gym" against the fake vision server
+(`tests/e2e/support/fake-vision-server.mjs`), started by the `fake-ai.compose.yml`
+overlay, and skips itself with a message when `http://localhost:4010/v1/models`
+is unreachable. Start the stack with the overlay, migrate and seed, then:
+
+```bash
+cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fake-ai.compose.yml up
+cd tests/e2e && npx playwright test gyms gym-scan
+```
+
+The helper configures the provider through the admin API; how the fake works is
+in [the gyms spec](specs/gyms-and-equipment.md#212-the-fake-vision-server).
 
 Outside CI the config starts the dev stack itself
 (`docker compose -f base.compose.yml -f dev.compose.yml up`) and waits for
