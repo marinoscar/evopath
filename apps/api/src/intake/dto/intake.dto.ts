@@ -61,6 +61,25 @@ export class CreateIntakeDto extends createZodDto(createIntakeSchema) {}
 export type CreateIntakeInput = z.output<typeof createIntakeSchema>;
 
 // -----------------------------------------------------------------------------
+// PATCH /api/intakes/:id
+// -----------------------------------------------------------------------------
+
+export const updateIntakeSchema = z
+  .object({
+    context: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .meta({
+        description:
+          "The new kind-specific inputs, replacing the old ones whole; validated by the kind's context schema as on create.",
+      }),
+  })
+  .strict();
+
+export class UpdateIntakeDto extends createZodDto(updateIntakeSchema) {}
+export type UpdateIntakeInput = z.output<typeof updateIntakeSchema>;
+
+// -----------------------------------------------------------------------------
 // GET /api/intakes
 // -----------------------------------------------------------------------------
 

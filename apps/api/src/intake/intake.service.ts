@@ -42,6 +42,7 @@ import {
   type AnalyzeIntakeInput,
   type CreateDraftItemInput,
   type CreateIntakeInput,
+  type UpdateIntakeInput,
   type DraftItemViewData,
   type IntakeAnalyzeStartedData,
   type ListIntakesQuery,
@@ -87,6 +88,8 @@ const PHOTO_ATTACHABLE: readonly IntakeStatus[] = ['draft', 'ready', 'failed'];
 const PHOTO_DETACHABLE: readonly IntakeStatus[] = ['draft', 'ready', 'failed'];
 /** Statuses from which `apply` may run: the manual path applies a `draft` or `failed` intake. */
 const APPLICABLE: readonly IntakeStatus[] = ['draft', 'ready', 'failed'];
+/** Statuses in which `context` may be changed (not while a job reads it, never once applied). */
+const CONTEXT_EDITABLE: readonly IntakeStatus[] = ['draft', 'ready', 'failed'];
 
 const ERROR_CODE_MAX = 64;
 const UNCERTAINTY_NOTE_MAX = 500;
@@ -288,6 +291,49 @@ export class IntakeService {
     });
 
     return toPhotoIntakeView(intake);
+  }
+
+  /**
+   * Replaces the intake's `context` (for example a source hint the analyzer
+   * reads), in `draft`, `ready` or `failed`. Validated and checked by the kind
+   * exactly as on create; the subject is re-derived when the kind defines
+   * `subjectOf`. Photos and items are untouched.
+   */
+  async updateContext(
+    userId: string,
+    intakeId: string,
+    input: UpdateIntakeInput,
+    permissions?: CallerPermissions,
+  ): Promise<PhotoIntakeViewData> {
+    const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
+
+    if (!CONTEXT_EDITABLE.includes(intake.status as IntakeStatus)) {
+      throw stateConflict(intake.status, 'change the context of');
+    }
+
+    const kind = this.registry.require(intake.kind);
+    const context = parseWith(kind.contextSchema, input.context, 'context');
+
+    if (kind.assertContext) {
+      await kind.assertContext(userId, context);
+    }
+
+    const subject = kind.subjectOf?.(context) ?? null;
+    const { count } = await this.prisma.photoIntake.updateMany({
+      where: { id: intakeId, userId, status: { in: [...CONTEXT_EDITABLE] } },
+      data: {
+        context: nullableJson(context),
+        ...(subject ? { subjectType: subject.subjectType, subjectId: subject.subjectId } : {}),
+      },
+    });
+
+    if (count === 0) {
+      const now = await this.prisma.photoIntake.findFirst({ where: { id: intakeId, userId }, select: { status: true } });
+      if (!now) throw intakeNotFound();
+      throw stateConflict(now.status, 'change the context of');
+    }
+
+    return this.get(userId, intakeId, permissions);
   }
 
   async list(userId: string, query: ListIntakesQuery, permissions?: CallerPermissions): Promise<PhotoIntakeSummaryData[]> {
