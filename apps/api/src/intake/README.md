@@ -18,6 +18,7 @@ intake/
   intake.module.ts           # Exports IntakeKindRegistry and IntakeService
   intake-kind.interface.ts   # IntakeKind, IntakeApplyArgs, AiDraftInput, status enums
   intake-kind.registry.ts    # IntakeKindRegistry: register(), get(), require(), list()
+  intake-analyzer.ts         # Shared chunk loop, photo content and error handling for analyzer jobs
   intake.service.ts          # Routes' logic + replaceAiDrafts / failIntake for jobs
   storage-object-references.ts # StorageObjectReferences: consumers that still use an intake photo
   intake.controller.ts       # /api/intakes (analyze sits behind AiEnabledGuard)
@@ -40,6 +41,7 @@ draft --analyze--> scanning --replaceAiDrafts--> ready --apply--> applied
 - `analyze` and `apply` run from `draft`, `ready` and `failed`, so a fully manual intake
   applies without ever scanning, and a re-scan starts from `ready` or `failed`.
 - Items can be added and edited in any status except `applied`.
+- `PATCH /api/intakes/:id` replaces the `context` (for example a source hint the analyzer reads) in `draft`, `ready` and `failed`; the kind validates it as on create. It answers 409 `INVALID_INTAKE_STATUS` while the intake is `scanning` or `applied`. Photos and items are untouched.
 - `apply` needs no `pending` item; accepted items reach the kind, rejected ones do not.
 
 ## Adding a Kind
@@ -157,6 +159,17 @@ await this.intakes.replaceAiDrafts(
 );
 ```
 
+Chunked vision analyzers do not hand-roll the loop. `intake-analyzer.ts`
+exports the shared pieces: `chunkPhotos` (16 photos per request, the platform's
+stored-input cap), `buildPhotoContent` (`Photo 0:`, image, ... plus a closing
+reminder), the `photo_intake` subject type and payload schema, and the error
+policy. A rate limit is thrown for a clean re-run, a terminal `AI_RUN_TERMINAL_CODES`
+code on the first chunk fails the intake, a terminal code on a later chunk is
+recorded in `failedChunks` and the earlier drafts are kept, and any other error
+fails the intake and is thrown. The registered analyzers, `ai.equipment.scan`
+(`gym_equipment`) and `ai.workout.prefill` (`workout_prefill`), both sit on it;
+read either as the worked example.
+
 Rules for the handler:
 
 - **Server-only.** Implement neither `nodeResultSchema` nor
@@ -164,6 +177,7 @@ Rules for the handler:
   types. A user's key never reaches a worker node.
 - **Declare a `profile`** (`{ maxRuntimeMs, maxAttempts }`) or take the global
   default.
+- **Settle safety net.** Listen to `JOB_SETTLED_EVENT` and fail an intake still `scanning` when its job settled, so a crashed run never leaves it stuck.
 - **Never drop items.** Pass every item the model returned, including
   low-confidence and uncertain ones. Do not filter by confidence.
 - **`resultMeta` is diagnostics only:** prompt version, batch counts, ignored
@@ -260,10 +274,11 @@ controller as each method's last argument):
   declares requirements fails closed for it. Kinds without
   `requiredPermissions` behave exactly as before.
 
-The registered kinds both declare one: `body_metric_reading` (`measurements/photo/`)
-requires `health_data:read` / `health_data:write`, and `gym_equipment`
-(`gyms/intake/`) requires `gyms:read` / `gyms:write`. `body_metric_reading` is
-the worked example.
+The registered kinds each declare one: `body_metric_reading` (`measurements/photo/`)
+requires `health_data:read` / `health_data:write`, `gym_equipment`
+(`gyms/intake/`) requires `gyms:read` / `gyms:write`, and `workout_prefill`
+(`workouts/intake/`) requires `workouts:read` and `workouts:write` plus
+`exercises:write`. `body_metric_reading` is the worked example.
 
 ## Error Reasons
 
