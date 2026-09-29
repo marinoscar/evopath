@@ -16,6 +16,7 @@ In this order:
 4. [DEVELOPMENT.md](DEVELOPMENT.md): the dev loop and Fastify, Prisma and Passport gotchas.
 5. [TESTING.md](TESTING.md): test layers, helpers and how to run each suite.
 6. [RENAMING.md](RENAMING.md): turning the template into your own product.
+7. [../ROADMAP.md](../ROADMAP.md): what is planned next and in what order (product intent: [../VISION.md](../VISION.md)).
 
 ## Guides
 
