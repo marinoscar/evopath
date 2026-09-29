@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { isRealDate } from '../../check-ins/local-date';
 import { EXERCISE_STATUSES, EXERCISE_TRACKING_MODES } from '../../common/constants/training.constants';
 import { optionalText, requiredName } from '../../gyms/dto/fields';
+import { PR_TYPES } from '../workout-records';
 import {
   MAX_EXERCISES_PER_WORKOUT,
   SET_BOUNDS,
@@ -229,6 +230,22 @@ export type UpdateSetInput = z.output<typeof updateSetSchema>;
 // Responses
 // -----------------------------------------------------------------------------
 
+export const setPrSchema = z
+  .object({
+    type: z.enum(PR_TYPES).meta({
+      description:
+        '`weight`: heaviest working set so far; `reps`: most reps at this weight or heavier; `e1rm`: best ' +
+        'estimated 1RM (Epley, 1..12 reps); `first_time`: the first working set of this exercise ever.',
+    }),
+    value: z.number().meta({
+      description: 'Kilograms for `weight` and `e1rm` (e1RM rounded to 0.1), reps for `reps`, the set\'s kg for `first_time`.',
+    }),
+    previous: z.number().nullable().meta({ description: 'The prior best it beats, in the same unit; null for `first_time`.' }),
+  })
+  .meta({ description: 'A personal record a completed working set earns, computed on read.' });
+
+export type SetPrData = z.infer<typeof setPrSchema>;
+
 export const setLogViewSchema = z.object({
   id: z.uuid(),
   workoutExerciseId: z.uuid(),
@@ -246,6 +263,11 @@ export const setLogViewSchema = z.object({
   painFlag: z.boolean(),
   painNote: z.string().nullable(),
   notes: z.string().nullable(),
+  prs: z.array(setPrSchema).meta({
+    description:
+      'The PRs this set earns against the caller\'s earlier completed workouts and the earlier sets of this ' +
+      'workout. Empty for an uncompleted or warm-up set and for time/distance exercises.',
+  }),
 });
 
 export class SetLogView extends createZodDto(setLogViewSchema) {}
@@ -302,8 +324,27 @@ export const workoutTotalsSchema = z.object({
   exerciseCount: z.number().int(),
   setCount: z.number().int().meta({ description: 'Completed working (non-warm-up) sets.' }),
   volumeKg: z.number().meta({ description: 'Sum of weightKg x reps over completed working sets.' }),
+  prs: z
+    .array(
+      z.object({
+        exerciseId: z.uuid(),
+        exerciseName: z.string(),
+        workoutExerciseId: z.uuid(),
+        setId: z.uuid(),
+        setNumber: z.number().int(),
+        type: z.enum(PR_TYPES),
+        value: z.number(),
+        previous: z.number().nullable(),
+      }),
+    )
+    .meta({
+      description:
+        'The best set per PR type per exercise in this workout (highest value, earliest on a tie), ' +
+        'in exercise order. Each set\'s own `prs` lists everything it earns.',
+    }),
 });
 
+export type WorkoutPrSummaryData = WorkoutTotalsData['prs'][number];
 export type WorkoutTotalsData = z.infer<typeof workoutTotalsSchema>;
 
 export const workoutViewSchema = z.object({

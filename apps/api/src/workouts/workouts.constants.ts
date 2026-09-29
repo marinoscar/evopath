@@ -54,3 +54,7 @@ export const WORKOUT_REFUSALS = {
   WORKOUT_SET_LIMIT: 'WORKOUT_SET_LIMIT',
   EXERCISE_PENDING_REVIEW: 'EXERCISE_PENDING_REVIEW',
 } as const;
+
+/** `GET /api/exercises/:id/history` `limit` (recent workouts). */
+export const EXERCISE_HISTORY_LIMIT_DEFAULT = 3;
+export const EXERCISE_HISTORY_LIMIT_MAX = 10;

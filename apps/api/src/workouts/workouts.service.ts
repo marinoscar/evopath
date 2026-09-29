@@ -19,6 +19,7 @@ import type {
 import {
   WORKOUT_INCLUDE,
   WORKOUT_LIST_INCLUDE,
+  type WorkoutWithRelations,
   defaultWorkoutName,
   denseRenumber,
   durationBetween,
@@ -27,6 +28,7 @@ import {
   workoutNotFound,
   workoutRefusal,
 } from './workout-mapper';
+import { WorkoutHistoryService } from './workout-history.service';
 import { lockOwnedWorkout } from './workout-lock';
 import { WORKOUT_DATE_WINDOW_DAYS, WORKOUT_FUTURE_SKEW_MS, WORKOUT_REFUSALS } from './workouts.constants';
 
@@ -55,6 +57,7 @@ export class WorkoutsService {
     private readonly prisma: PrismaService,
     private readonly gyms: GymsService,
     private readonly checkIns: CheckInsService,
+    private readonly history: WorkoutHistoryService,
   ) {}
 
   /**
@@ -102,7 +105,7 @@ export class WorkoutsService {
     for (let attempt = 0; ; attempt += 1) {
       try {
         const created = await this.prisma.workout.create({ data, include: WORKOUT_INCLUDE });
-        return { ...toWorkoutView(created), existing: false };
+        return { ...(await this.view(userId, created)), existing: false };
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
 
@@ -111,7 +114,7 @@ export class WorkoutsService {
           include: WORKOUT_INCLUDE,
         });
         if (winner) {
-          return { ...toWorkoutView(winner), existing: true };
+          return { ...(await this.view(userId, winner)), existing: true };
         }
         if (attempt >= 1) throw error;
       }
@@ -158,7 +161,7 @@ export class WorkoutsService {
       throw workoutNotFound();
     }
 
-    return toWorkoutView(workout);
+    return this.view(userId, workout);
   }
 
   /** Edits a workout, in progress or completed. */
@@ -289,6 +292,11 @@ export class WorkoutsService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /** The view with each completed set's `prs` and the `summary.prs` (E4.4). */
+  private async view(userId: string, workout: WorkoutWithRelations): Promise<WorkoutViewData> {
+    return toWorkoutView(workout, await this.history.prsForWorkout(userId, workout));
+  }
 
   /**
    * Today's readiness check-in copied by value, or null. Informational only:

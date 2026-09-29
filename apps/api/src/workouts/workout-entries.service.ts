@@ -12,6 +12,7 @@ import type {
   UpdateWorkoutExerciseInput,
   WorkoutExerciseViewData,
 } from './dto/workout.dto';
+import { WorkoutHistoryService } from './workout-history.service';
 import { lockOwnedWorkout } from './workout-lock';
 import {
   WORKOUT_EXERCISE_INCLUDE,
@@ -44,7 +45,10 @@ const COPIED_FIELDS = ['weightKg', 'reps', 'durationSeconds', 'distanceMeters'] 
 
 @Injectable()
 export class WorkoutEntriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly history: WorkoutHistoryService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Exercises
@@ -110,7 +114,7 @@ export class WorkoutEntriesService {
       return created.id;
     });
 
-    return this.exerciseView(id);
+    return this.exerciseView(userId, workoutId, id);
   }
 
   /** Reorders (dense 0..n-1), and edits notes or the equipment used. */
@@ -153,7 +157,7 @@ export class WorkoutEntriesService {
       }
     });
 
-    return this.exerciseView(workoutExerciseId);
+    return this.exerciseView(userId, workoutId, workoutExerciseId);
   }
 
   /** Removes the exercise and its sets; the remaining positions are renumbered. */
@@ -256,15 +260,16 @@ export class WorkoutEntriesService {
         return toSetLogView(created);
       });
 
+    let view: SetLogViewData;
     try {
-      return await attempt();
+      view = await attempt();
     } catch (error) {
       // The workout lock serializes allocation; one retry covers anything else.
-      if (isUniqueViolation(error)) {
-        return attempt();
-      }
-      throw error;
+      if (!isUniqueViolation(error)) throw error;
+      view = await attempt();
     }
+
+    return this.withPrs(userId, workoutId, view);
   }
 
   /**
@@ -279,7 +284,7 @@ export class WorkoutEntriesService {
     input: UpdateSetInput,
     now: Date = new Date(),
   ): Promise<SetLogViewData> {
-    return this.prisma.$transaction(async (tx) => {
+    const view = await this.prisma.$transaction(async (tx) => {
       await lockOwnedWorkout(tx, userId, workoutId);
 
       const set = await tx.setLog.findFirst({ where: { id: setId, workoutExercise: { workoutId } } });
@@ -315,6 +320,8 @@ export class WorkoutEntriesService {
       const updated = await tx.setLog.update({ where: { id: setId }, data });
       return toSetLogView(updated);
     });
+
+    return this.withPrs(userId, workoutId, view);
   }
 
   /** Deletes a set; the exercise's remaining set numbers are renumbered 1..n. */
@@ -345,7 +352,16 @@ export class WorkoutEntriesService {
 
   // ---------------------------------------------------------------------------
 
-  private async exerciseView(workoutExerciseId: string): Promise<WorkoutExerciseViewData> {
+  /**
+   * The written set with its `prs`, read after the write committed (E4.4). An
+   * uncompleted set earns none and costs no query.
+   */
+  private async withPrs(userId: string, workoutId: string, view: SetLogViewData): Promise<SetLogViewData> {
+    if (!view.completed) return view;
+    return { ...view, prs: await this.history.prsForSet(userId, workoutId, view.workoutExerciseId, view.id) };
+  }
+
+  private async exerciseView(userId: string, workoutId: string, workoutExerciseId: string): Promise<WorkoutExerciseViewData> {
     const row = await this.prisma.workoutExercise.findUnique({
       where: { id: workoutExerciseId },
       include: WORKOUT_EXERCISE_INCLUDE,
@@ -355,7 +371,9 @@ export class WorkoutEntriesService {
       throw workoutExerciseNotFound();
     }
 
-    return toWorkoutExerciseView(row);
+    const hasCompleted = row.sets.some((set) => set.completed);
+    const prs = hasCompleted ? await this.history.prsForWorkoutExercise(userId, workoutId, workoutExerciseId) : undefined;
+    return toWorkoutExerciseView(row, prs);
   }
 
   /** A catalog equipment type or the caller's custom one; otherwise 404. */

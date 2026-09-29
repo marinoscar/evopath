@@ -11,7 +11,13 @@ import type {
   WorkoutTotalsData,
   WorkoutViewData,
 } from './dto/workout.dto';
+import { bestPerType, type EarnedPr, type SetPr } from './workout-records';
 import { REST_DERIVATION_WINDOW_SECONDS, type WorkoutStatus } from './workouts.constants';
+
+/** The PRs each set earns, by set id (from `WorkoutHistoryService`); a missing id means none. */
+export type PrsBySet = ReadonlyMap<string, SetPr[]>;
+
+const NO_PRS: PrsBySet = new Map();
 
 // =============================================================================
 // Workouts (E4.2) — Prisma includes, row-to-view mappers, pure rules, errors
@@ -160,7 +166,7 @@ export function durationBetween(startedAt: Date, endedAt: Date): number {
 // Mappers
 // -----------------------------------------------------------------------------
 
-export function toSetLogView(set: WorkoutExerciseWithRelations['sets'][number]): SetLogViewData {
+export function toSetLogView(set: WorkoutExerciseWithRelations['sets'][number], prs: SetPr[] = []): SetLogViewData {
   return {
     id: set.id,
     workoutExerciseId: set.workoutExerciseId,
@@ -178,10 +184,11 @@ export function toSetLogView(set: WorkoutExerciseWithRelations['sets'][number]):
     painFlag: set.painFlag,
     painNote: set.painNote,
     notes: set.notes,
+    prs,
   };
 }
 
-export function toWorkoutExerciseView(row: WorkoutExerciseWithRelations): WorkoutExerciseViewData {
+export function toWorkoutExerciseView(row: WorkoutExerciseWithRelations, prsBySet: PrsBySet = NO_PRS): WorkoutExerciseViewData {
   return {
     id: row.id,
     workoutId: row.workoutId,
@@ -201,7 +208,7 @@ export function toWorkoutExerciseView(row: WorkoutExerciseWithRelations): Workou
       isCustom: row.exercise.ownerUserId !== null,
       status: row.exercise.status as ExerciseStatus,
     },
-    sets: row.sets.map(toSetLogView),
+    sets: row.sets.map((set) => toSetLogView(set, prsBySet.get(set.id) ?? [])),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -211,12 +218,35 @@ function readinessOf(value: Prisma.JsonValue | null): ReadinessSnapshotData | nu
   return value as unknown as ReadinessSnapshotData;
 }
 
-export function toWorkoutTotals(workout: WorkoutWithRelations): WorkoutTotalsData {
+export function toWorkoutTotals(workout: WorkoutWithRelations, prsBySet: PrsBySet = NO_PRS): WorkoutTotalsData {
   const totals = computeTotals(workout.exercises.flatMap((exercise) => exercise.sets));
-  return { durationSeconds: workout.durationSeconds, exerciseCount: workout.exercises.length, ...totals };
+
+  const earned: EarnedPr[] = [];
+  for (const entry of workout.exercises) {
+    for (const set of entry.sets) {
+      for (const pr of prsBySet.get(set.id) ?? []) {
+        earned.push({
+          exerciseId: entry.exerciseId,
+          exerciseName: entry.exercise.name,
+          workoutExerciseId: entry.id,
+          setId: set.id,
+          setNumber: set.setNumber,
+          position: entry.position,
+          pr,
+        });
+      }
+    }
+  }
+
+  return {
+    durationSeconds: workout.durationSeconds,
+    exerciseCount: workout.exercises.length,
+    ...totals,
+    prs: bestPerType(earned),
+  };
 }
 
-export function toWorkoutView(workout: WorkoutWithRelations): WorkoutViewData {
+export function toWorkoutView(workout: WorkoutWithRelations, prsBySet: PrsBySet = NO_PRS): WorkoutViewData {
   return {
     id: workout.id,
     name: workout.name,
@@ -230,8 +260,8 @@ export function toWorkoutView(workout: WorkoutWithRelations): WorkoutViewData {
     notes: workout.notes,
     programWorkoutId: workout.programWorkoutId,
     readinessSnapshot: readinessOf(workout.readinessSnapshot),
-    exercises: workout.exercises.map(toWorkoutExerciseView),
-    summary: toWorkoutTotals(workout),
+    exercises: workout.exercises.map((entry) => toWorkoutExerciseView(entry, prsBySet)),
+    summary: toWorkoutTotals(workout, prsBySet),
     createdAt: workout.createdAt.toISOString(),
     updatedAt: workout.updatedAt.toISOString(),
   };
