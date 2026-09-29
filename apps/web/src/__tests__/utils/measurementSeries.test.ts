@@ -223,6 +223,9 @@ describe('metricChoices', () => {
       ['Vitals', 'blood_pressure'],
       ['Vitals', 'resting_hr'],
       ['How you feel', 'energy'],
+      ['How you feel', 'sleep_quality'],
+      ['How you feel', 'muscle_soreness'],
+      ['How you feel', 'stress'],
     ]);
     expect(choices[3].metricKeys).toEqual(['bp_systolic', 'bp_diastolic']);
   });
