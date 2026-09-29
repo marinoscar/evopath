@@ -346,6 +346,23 @@ The exercise library is the shared vocabulary workouts are built from. `exercise
 - **UI:** `/train/exercises`
 - **Permissions:** `exercises:read`, `exercises:write`
 
+### 5.24 Workout logging
+
+A workout is one logged training session. `workouts` holds the session (name, the user's local calendar `date`, `status` `in_progress` or `completed`, start and end times, `durationSeconds`, optional gym, notes, a `readinessSnapshot` and a reserved `programWorkoutId` with no foreign key). `workout_exercises` orders exercises inside it by a dense 0-based `position`, with an optional equipment type actually used. `set_logs` holds the sets: weight, reps, time, distance, RPE, RIR, rest, `isWarmup`, `completed`, `painFlag` and notes, numbered densely from 1 per exercise.
+
+- **One workout in progress per user.** The raw-SQL partial unique index `workouts_user_in_progress_uniq_idx` decides. `POST /api/workouts` catches the unique violation and answers `200` with the winning workout and `existing: true`; a new workout answers `201`. There is no `findFirst` pre-check. Finishing a workout frees the slot.
+- **Kilograms and metres only.** The API stores and returns `weightKg` and `distanceMeters`; the web converts for display from the Health Profile `unitSystem`. Decimals are returned as JSON numbers.
+- **Ownership.** Every route filters by the caller's id; another user's workout, exercise or set answers `404`. The gym must be the caller's, and the exercise a library exercise or the caller's own custom one (a `pending_review` exercise is refused with `EXERCISE_PENDING_REVIEW`).
+- **Per-workout lock.** Writes to a workout's exercises and sets first take `SELECT ... FOR UPDATE` on the workout row (`workout-lock.ts`). That serializes `setNumber` allocation, the limits (30 exercises per workout, 40 sets per exercise) and the dense renumbering after a delete or reorder.
+- **Set rules.** Adding a set with omitted `weightKg` and `reps` copies them from the previous set. Completing a set stamps `completedAt` and derives `restSeconds` only when the previous completion is under 15 minutes old; un-completing clears `completedAt`. Field bounds are enforced by Zod and mirrored by the `set_logs_ranges_chk` CHECK.
+- **Finish.** `POST /api/workouts/:id/finish` is idempotent. It sets `endedAt` and `durationSeconds` and deletes uncompleted sets that hold no value; uncompleted sets with values stay. `volumeKg` and `setCount` count completed, non-warm-up sets only.
+- **Readiness snapshot.** At start the workout copies today's check-in by value from `CheckInsService` (null when there is none), so later edits of the check-in do not rewrite history. It never blocks starting.
+- **Deletion.** Deleting a workout cascades to its exercises and sets. Deleting a gym sets `gymId` to null. Deleting an exercise that a workout uses is refused (`EXERCISE_IN_USE`).
+
+- **Code:** `apps/api/src/workouts/` (`WorkoutsModule`; limits and refusal reasons in `workouts.constants.ts`)
+- **Routes:** `/api/workouts` (including `/:id/finish`, `/:id/exercises` and `/:id/sets`); details in `/api/docs` (group "Training", tag "Workouts")
+- **Permissions:** `workouts:read`, `workouts:write`
+
 ---
 
 ## 6. Data architecture
@@ -401,10 +418,13 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Gyms | `GymEquipmentPhoto` | `gym_equipment_photos` | Join of a gym equipment row to the gym photos that show it (composite key) |
 | Training | `Exercise` | `exercises` | Exercise keyed by a permanent `slug`: muscles, movement pattern, tracking mode, `origin` (`seed`, `user`, `ai`), `status` (`active`, `pending_review`), nullable `proposedByRunId` (no foreign key); `ownerUserId` null for the seeded library, set for a user's custom exercise |
 | Training | `ExerciseRequirement` | `exercise_requirements` | One option of one requirement group: `groupIndex`, and an equipment type or a capability (a CHECK allows exactly one); groups are ANDed, options inside a group ORed |
+| Training | `Workout` | `workouts` | One logged session: `date`, `status` (`in_progress`, `completed`), start and end times, `durationSeconds`, optional `gymId` (set null when the gym is deleted), `readinessSnapshot` JSON, reserved `programWorkoutId` (no foreign key); at most one `in_progress` row per user, enforced by the raw-SQL partial unique index `workouts_user_in_progress_uniq_idx` |
+| Training | `WorkoutExercise` | `workout_exercises` | One exercise in a workout at a dense 0-based `position`, with an optional equipment type used; the exercise reference restricts deletion of an exercise in use |
+| Training | `SetLog` | `set_logs` | One set: `setNumber` (dense from 1, unique per workout exercise), `weightKg`, `reps`, time, `distanceMeters`, RPE, RIR, rest, `isWarmup`, `completed`, `painFlag`; value ranges guarded by the `set_logs_ranges_chk` CHECK |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
-Two indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`) and `database_backup_runs_active_uniq_idx` (at most one active backup run). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
+Four indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `gyms_user_default_uniq_idx` (one default gym per user) and `workouts_user_in_progress_uniq_idx` (one in-progress workout per user). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
 
 ### 6.2 Settings storage
 
@@ -492,10 +512,12 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `gyms:write` | ✓ | ✓ | ✓ | Create, edit and delete own gyms, equipment and custom equipment types (`POST/PATCH/DELETE /api/gyms*`, `/api/equipment-types*`); gym photo attach and remove also need `storage:write` |
 | `exercises:read` | ✓ | ✓ | ✓ | Read the exercise library and own custom exercises (`GET /api/exercises*`) |
 | `exercises:write` | ✓ | ✓ | ✓ | Create, edit, approve and delete own custom exercises (`POST/PATCH/DELETE /api/exercises*`, `POST /api/exercises/:id/approve`) |
+| `workouts:read` | ✓ | ✓ | ✓ | Read own workouts, exercises and sets (`GET /api/workouts*`) |
+| `workouts:write` | ✓ | ✓ | ✓ | Start, edit, finish and delete own workouts, their exercises and sets (`POST/PATCH/DELETE /api/workouts*`) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`, `exercises:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`, `exercises:*`, `workouts:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 
