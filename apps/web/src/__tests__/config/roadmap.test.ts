@@ -5,7 +5,6 @@ describe('roadmap', () => {
   it.each([
     ['health', 'Coming in E2'],
     ['gyms', 'Coming in E3'],
-    ['workouts', 'Coming in E4'],
     ['programs', 'Coming in E5'],
   ] as const)('comingInLabel(%s) is "%s"', (area, label) => {
     expect(comingInLabel(area)).toBe(label);
