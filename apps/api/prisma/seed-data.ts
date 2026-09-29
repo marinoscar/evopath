@@ -197,6 +197,10 @@ export const PERMISSIONS = [
   // write only own custom exercises.
   { name: 'exercises:read', description: 'Read the exercise library and own custom exercises' },
   { name: 'exercises:write', description: 'Create, edit and delete own custom exercises' },
+
+  // Workout logging (E4.2): the caller's own workouts, self-service.
+  { name: 'workouts:read', description: 'Read own workouts, exercises and sets' },
+  { name: 'workouts:write', description: 'Create, edit and delete own workouts, exercises and sets' },
 ] as const;
 
 // Role to permissions mapping
@@ -278,6 +282,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.1 — exercise library; all three roles (custom exercises are own-only).
     'exercises:read',
     'exercises:write',
+    // E4.2 — own workout logging, self-service; all three roles.
+    'workouts:read',
+    'workouts:write',
   ],
   contributor: [
     'user_settings:read',
@@ -304,6 +311,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.1 — exercise library; all three roles (custom exercises are own-only).
     'exercises:read',
     'exercises:write',
+    // E4.2 — own workout logging, self-service; all three roles.
+    'workouts:read',
+    'workouts:write',
   ],
   viewer: [
     'user_settings:read',
@@ -325,6 +335,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.1 — exercise library; all three roles (custom exercises are own-only).
     'exercises:read',
     'exercises:write',
+    // E4.2 — own workout logging, self-service; all three roles.
+    'workouts:read',
+    'workouts:write',
     // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
     // is the DEFAULT role every new user lands in (see `ROLES` above and
     // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto

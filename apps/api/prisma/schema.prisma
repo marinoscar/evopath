@@ -40,6 +40,7 @@ model User {
   gyms                   Gym[]
   equipmentTypes         EquipmentType[]
   exercises              Exercise[]
+  workouts               Workout[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
@@ -2728,6 +2729,7 @@ model Gym {
   user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   equipment GymEquipment[]
   photos    GymPhoto[]
+  workouts  Workout[]
 
   @@index([userId])
   @@map("gyms")
@@ -2763,6 +2765,7 @@ model EquipmentType {
   capabilities EquipmentTypeCapability[]
   gymEquipment GymEquipment[]
   exerciseRequirements ExerciseRequirement[]
+  workoutExercises WorkoutExercise[]
 
   @@index([ownerUserId])
   @@map("equipment_types")
@@ -2858,6 +2861,7 @@ model Exercise {
 
   owner        User?                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   requirements ExerciseRequirement[]
+  workoutExercises WorkoutExercise[]
 
   @@index([ownerUserId])
   @@index([movementPattern])
@@ -2881,4 +2885,76 @@ model ExerciseRequirement {
 
   @@index([exerciseId, groupIndex])
   @@map("exercise_requirements")
+}
+
+// Workout logging (E4.2). Weights are canonical kilograms, distances metres;
+// the web converts for display. Raw SQL in the migration (intentional drift,
+// never `@@unique`): `workouts_user_in_progress_uniq_idx` (one in_progress
+// workout per user), `workouts_status_chk` and `set_logs_ranges_chk`.
+model Workout {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  name              String // 1..80, validated in Zod
+  date              DateTime  @db.Date // the user's local calendar date
+  status            String    @default("in_progress") // in_progress|completed (CHECK in migration SQL)
+  startedAt         DateTime  @map("started_at") @db.Timestamptz
+  endedAt           DateTime? @map("ended_at") @db.Timestamptz
+  durationSeconds   Int?      @map("duration_seconds")
+  gymId             String?   @map("gym_id") @db.Uuid
+  notes             String?
+  programWorkoutId  String?   @map("program_workout_id") @db.Uuid // reserved for E5; deliberately not a foreign key
+  readinessSnapshot Json?     @map("readiness_snapshot") // copy of the latest check-in at start; informational
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gym       Gym?              @relation(fields: [gymId], references: [id], onDelete: SetNull)
+  exercises WorkoutExercise[]
+
+  @@index([userId, date(sort: Desc)])
+  @@index([userId, status])
+  @@map("workouts")
+}
+
+model WorkoutExercise {
+  id              String   @id @default(uuid()) @db.Uuid
+  workoutId       String   @map("workout_id") @db.Uuid
+  exerciseId      String   @map("exercise_id") @db.Uuid
+  position        Int // 0-based order in the workout
+  equipmentTypeId String?  @map("equipment_type_id") @db.Uuid
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  workout       Workout        @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise      Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  equipmentType EquipmentType? @relation(fields: [equipmentTypeId], references: [id], onDelete: SetNull)
+  sets          SetLog[]
+
+  @@index([workoutId, position])
+  @@index([exerciseId])
+  @@map("workout_exercises")
+}
+
+model SetLog {
+  id                String    @id @default(uuid()) @db.Uuid
+  workoutExerciseId String    @map("workout_exercise_id") @db.Uuid
+  setNumber         Int       @map("set_number") // 1-based, unique within the exercise
+  weightKg          Decimal?  @map("weight_kg") @db.Decimal(7, 3)
+  reps              Int?
+  durationSeconds   Int?      @map("duration_seconds")
+  distanceMeters    Decimal?  @map("distance_meters") @db.Decimal(9, 2)
+  rpe               Decimal?  @db.Decimal(3, 1) // 1.0..10.0, step 0.5 (Zod); range CHECK in migration SQL
+  rir               Int? // 0..10
+  restSeconds       Int?      @map("rest_seconds")
+  isWarmup          Boolean   @default(false) @map("is_warmup")
+  completed         Boolean   @default(false)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+  painFlag          Boolean   @default(false) @map("pain_flag")
+  painNote          String?   @map("pain_note")
+  notes             String?
+
+  workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([workoutExerciseId, setNumber])
+  @@map("set_logs")
 }

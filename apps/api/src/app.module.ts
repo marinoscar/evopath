@@ -39,6 +39,7 @@ import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
+import { WorkoutsModule } from './workouts/workouts.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -233,6 +234,7 @@ import configuration from './config/configuration';
     // library plus custom exercises, with per-gym availability. Exports
     // `ExercisesService` and `ExerciseAvailabilityService` for E4.2+ and E5.
     ExercisesModule,
+    WorkoutsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

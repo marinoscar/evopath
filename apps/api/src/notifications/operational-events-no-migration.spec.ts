@@ -87,6 +87,9 @@ const MIGRATIONS_AT_288 = [
   // E4.1: re-creates the `exercises.primary_muscles` CHECK with cardinality(),
   // because array_length() of an empty array is NULL and the check passed.
   '20260929220000_fix_exercise_primary_muscles_check',
+  // E4.2: `workouts`, `workout_exercises`, `set_logs`. A schema change about
+  // workout logging, not notifications.
+  '20260929230000_add_workout_logging',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
