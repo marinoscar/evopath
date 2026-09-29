@@ -75,6 +75,9 @@ const MIGRATIONS_AT_288 = [
   // E2.2 (#50): `measurements` — generic longitudinal health-value store.
   // A schema change about health data, not notifications.
   '20260929131912_add_measurements',
+  // E3.1: `photo_intakes`, `photo_intake_photos`, `draft_items` — photo
+  // intake staging. A schema change about intakes, not notifications.
+  '20260929161524_add_photo_intake',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

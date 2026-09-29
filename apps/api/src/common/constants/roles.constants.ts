@@ -195,6 +195,11 @@ export const PERMISSIONS = {
   // contributor, viewer) are seeded with both.
   HEALTH_DATA_READ: 'health_data:read',
   HEALTH_DATA_WRITE: 'health_data:write',
+
+  // Photo intake (E3.1): the caller's own intake drafts, self-service like
+  // `health_data:*`. Analyzing additionally needs `ai:use`.
+  INTAKES_READ: 'intakes:read',
+  INTAKES_WRITE: 'intakes:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

@@ -1,0 +1,737 @@
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
+import { z } from 'zod';
+
+import type { IntakeKind } from './intake-kind.interface';
+import { IntakeKindRegistry } from './intake-kind.registry';
+import { IntakeService } from './intake.service';
+
+// =============================================================================
+// IntakeService — the provenance and state invariants, over a mocked Prisma
+// =============================================================================
+//
+// A TEST-ONLY stub kind (`test_stub`) stands in for a real consumer: it has a
+// strict value schema, one item kind, a small photo cap and an `apply` that
+// records what it was given. Real-row semantics (cascades, the unique photo
+// link, concurrent writers, rollback) are proven in
+// `test/intake/intakes.db.spec.ts`.
+// =============================================================================
+
+const USER = '11111111-1111-4111-8111-111111111111';
+const INTAKE = '33333333-3333-4333-8333-333333333333';
+const ITEM = '44444444-4444-4444-8444-444444444444';
+const OBJECT = '55555555-5555-4555-8555-555555555555';
+
+const valueSchema = z.object({ name: z.string().min(1).max(100), count: z.number().int().min(0).optional() }).strict();
+type StubValue = z.infer<typeof valueSchema>;
+
+function stubKind(overrides: Partial<IntakeKind<unknown, StubValue>> = {}): IntakeKind<unknown, StubValue> {
+  return {
+    kind: 'test_stub',
+    contextSchema: z.object({ label: z.string().max(20) }).strict().optional(),
+    valueSchema,
+    analyzeJobType: 'test.intake.analyze',
+    maxPhotos: 3,
+    itemKinds: ['thing'],
+    normalizeValue: (value) => ({ ...value, name: value.name.trim() }),
+    apply: jest.fn(async ({ accepted }) => ({ applied: accepted.length })),
+    ...overrides,
+  };
+}
+
+function intakeRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: INTAKE,
+    userId: USER,
+    kind: 'test_stub',
+    status: 'ready',
+    subjectType: null,
+    subjectId: null,
+    context: null,
+    provider: null,
+    modelId: null,
+    jobId: null,
+    errorCode: null,
+    errorMessage: null,
+    resultMeta: null,
+    createdAt: new Date('2026-09-29T10:00:00.000Z'),
+    updatedAt: new Date('2026-09-29T10:00:00.000Z'),
+    completedAt: null,
+    ...overrides,
+  };
+}
+
+function itemRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: ITEM,
+    intakeId: INTAKE,
+    kind: 'thing',
+    origin: 'ai',
+    status: 'pending',
+    confidence: 'low',
+    uncertain: false,
+    uncertaintyNote: null,
+    sourcePhotoIds: [OBJECT],
+    userVerified: false,
+    value: { name: 'Leg press' },
+    originalAiValue: null,
+    sortOrder: 0,
+    createdAt: new Date('2026-09-29T10:00:00.000Z'),
+    updatedAt: new Date('2026-09-29T10:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function reasonOf(error: unknown): string | undefined {
+  const response = (error as { getResponse?: () => unknown }).getResponse?.() as { details?: { reason?: string } };
+  return response?.details?.reason;
+}
+
+async function caught(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected a rejection');
+}
+
+describe('IntakeService', () => {
+  let prisma: DeepMockProxy<PrismaClient>;
+  let registry: IntakeKindRegistry;
+  let jobs: { enqueueWithin: jest.Mock };
+  let usableModels: { assertUsable: jest.Mock };
+  let objects: { delete: jest.Mock };
+  let service: IntakeService;
+  let kind: IntakeKind<unknown, StubValue>;
+
+  beforeEach(() => {
+    prisma = mockDeep<PrismaClient>();
+    (prisma.$transaction as unknown as jest.Mock).mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
+    registry = new IntakeKindRegistry();
+    kind = stubKind();
+    registry.register(kind);
+    jobs = { enqueueWithin: jest.fn(async () => ({ id: '66666666-6666-4666-8666-666666666666' })) };
+    usableModels = { assertUsable: jest.fn(async () => ({})) };
+    objects = { delete: jest.fn(async () => undefined) };
+    service = new IntakeService(prisma as never, registry, jobs as never, usableModels as never, objects as never);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Create
+  // ---------------------------------------------------------------------------
+
+  describe('create', () => {
+    it('refuses an unregistered kind with 400 UNKNOWN_INTAKE_KIND', async () => {
+      const error = await caught(service.create(USER, { kind: 'nope' }));
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(reasonOf(error)).toBe('UNKNOWN_INTAKE_KIND');
+      expect(prisma.photoIntake.create).not.toHaveBeenCalled();
+    });
+
+    it("validates context with the kind's schema and names the field under details.issues", async () => {
+      const error = (await caught(service.create(USER, { kind: 'test_stub', context: { label: 5 } }))) as BadRequestException;
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error.getResponse() as any).details.issues[0].path).toBe('context.label');
+    });
+
+    it("runs the kind's assertContext and stops on its refusal", async () => {
+      registry.register(
+        stubKind({
+          assertContext: async () => {
+            throw new NotFoundException('Gym not found');
+          },
+        }),
+      );
+
+      await expect(service.create(USER, { kind: 'test_stub', context: { label: 'x' } })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.photoIntake.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a draft intake owned by the caller', async () => {
+      prisma.photoIntake.create.mockResolvedValue({ ...intakeRow({ status: 'draft' }), photos: [], items: [] } as never);
+
+      const view = await service.create(USER, { kind: 'test_stub', context: { label: 'x' } });
+
+      expect(prisma.photoIntake.create.mock.calls[0][0].data).toMatchObject({
+        userId: USER,
+        kind: 'test_stub',
+        status: 'draft',
+        context: { label: 'x' },
+      });
+      expect(view).toMatchObject({ id: INTAKE, status: 'draft', photos: [], items: [] });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Ownership
+  // ---------------------------------------------------------------------------
+
+  describe('ownership', () => {
+    beforeEach(() => {
+      prisma.photoIntake.findFirst.mockResolvedValue(null);
+    });
+
+    it.each([
+      ['get', (s: IntakeService) => s.get(USER, INTAKE)],
+      ['discard', (s: IntakeService) => s.discard(USER, INTAKE)],
+      ['attachPhoto', (s: IntakeService) => s.attachPhoto(USER, INTAKE, OBJECT)],
+      ['detachPhoto', (s: IntakeService) => s.detachPhoto(USER, INTAKE, OBJECT)],
+      ['analyze', (s: IntakeService) => s.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' })],
+      ['addItem', (s: IntakeService) => s.addItem(USER, INTAKE, { kind: 'thing', value: { name: 'x' } })],
+      ['updateItem', (s: IntakeService) => s.updateItem(USER, INTAKE, ITEM, { status: 'accepted' })],
+      ['deleteItem', (s: IntakeService) => s.deleteItem(USER, INTAKE, ITEM)],
+      ['acceptAll', (s: IntakeService) => s.acceptAll(USER, INTAKE)],
+      ['apply', (s: IntakeService) => s.apply(USER, INTAKE)],
+    ])('%s answers 404 for an intake the caller does not own, filtering by userId', async (_name, call) => {
+      await expect(call(service)).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.photoIntake.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: INTAKE, userId: USER }) }),
+      );
+    });
+
+    it('list filters by the caller and the given statuses, newest first', async () => {
+      prisma.photoIntake.findMany.mockResolvedValue([]);
+
+      await service.list(USER, { status: ['draft', 'ready'], limit: 20 });
+
+      expect(prisma.photoIntake.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: USER, status: { in: ['draft', 'ready'] } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 20,
+        }),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Photos
+  // ---------------------------------------------------------------------------
+
+  describe('attachPhoto', () => {
+    const readyImage = {
+      id: OBJECT,
+      name: 'machine.jpg',
+      status: 'ready',
+      mimeType: 'image/jpeg',
+      size: BigInt(1024),
+      uploadedById: USER,
+    };
+
+    beforeEach(() => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'draft' }) as never);
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+      prisma.photoIntakePhoto.aggregate.mockResolvedValue({ _max: { sortOrder: null } } as never);
+    });
+
+    it("answers 404 for another user's object", async () => {
+      prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, uploadedById: 'someone-else' } as never);
+
+      await expect(service.attachPhoto(USER, INTAKE, OBJECT)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it.each([
+      ['a non-ready object', { status: 'processing' }, 'OBJECT_NOT_READY'],
+      ['a non-image object', { mimeType: 'application/pdf' }, 'UNSUPPORTED_MEDIA_TYPE'],
+      ['a 21 MiB object', { size: BigInt(21 * 1024 * 1024) }, 'OBJECT_TOO_LARGE'],
+    ])('refuses %s with 400', async (_label, override, reason) => {
+      prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, ...override } as never);
+
+      const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(reasonOf(error)).toBe(reason);
+      expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses the photo past the kind's cap with 400 TOO_MANY_PHOTOS", async () => {
+      prisma.storageObject.findUnique.mockResolvedValue(readyImage as never);
+      prisma.photoIntakePhoto.count.mockResolvedValue(3);
+
+      const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+      expect(reasonOf(error)).toBe('TOO_MANY_PHOTOS');
+    });
+
+    it('maps the unique (intakeId, storageObjectId) violation to 409 DUPLICATE_PHOTO', async () => {
+      prisma.storageObject.findUnique.mockResolvedValue(readyImage as never);
+      prisma.photoIntakePhoto.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'x' }),
+      );
+
+      const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(reasonOf(error)).toBe('DUPLICATE_PHOTO');
+    });
+
+    it.each(['scanning', 'applied'])('refuses to attach while the intake is %s (409)', async (status) => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status }) as never);
+
+      await expect(service.attachPhoto(USER, INTAKE, OBJECT)).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('detachPhoto and discard', () => {
+    it('deletes the storage object once no intake links it', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.photoIntakePhoto.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+
+      await service.detachPhoto(USER, INTAKE, OBJECT);
+
+      expect(objects.delete).toHaveBeenCalledWith(OBJECT, USER);
+    });
+
+    it('keeps a storage object another intake still links', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.photoIntakePhoto.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntakePhoto.count.mockResolvedValue(1);
+
+      await service.detachPhoto(USER, INTAKE, OBJECT);
+
+      expect(objects.delete).not.toHaveBeenCalled();
+    });
+
+    it('a failing storage delete is best effort: discard still succeeds', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.photoIntakePhoto.findMany.mockResolvedValue([{ storageObjectId: OBJECT }] as never);
+      prisma.photoIntake.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+      objects.delete.mockRejectedValue(new Error('provider down'));
+
+      await expect(service.discard(USER, INTAKE)).resolves.toBeUndefined();
+      expect(objects.delete).toHaveBeenCalledWith(OBJECT, USER);
+    });
+
+    it('refuses to discard an applied intake with 409 ALREADY_APPLIED', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'applied' }) as never);
+
+      const error = await caught(service.discard(USER, INTAKE));
+
+      expect(reasonOf(error)).toBe('ALREADY_APPLIED');
+      expect(prisma.photoIntake.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Analyze
+  // ---------------------------------------------------------------------------
+
+  describe('analyze', () => {
+    beforeEach(() => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'draft' }) as never);
+      prisma.photoIntakePhoto.count.mockResolvedValue(2);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it("re-checks the model for vision and structured output, then flips to scanning and enqueues the kind's job in one transaction", async () => {
+      const started = await service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'vision-1' });
+
+      expect(usableModels.assertUsable).toHaveBeenCalledWith(USER, 'openai', 'vision-1', [
+        'vision_input',
+        'structured_output',
+      ]);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.photoIntake.updateMany.mock.calls[0][0]).toMatchObject({
+        where: { id: INTAKE, userId: USER },
+        data: { status: 'scanning', provider: 'openai', modelId: 'vision-1' },
+      });
+      expect(jobs.enqueueWithin).toHaveBeenCalledWith(prisma, {
+        type: 'test.intake.analyze',
+        reason: 'upload',
+        subjectType: 'photo_intake',
+        subjectId: INTAKE,
+        payload: { intakeId: INTAKE },
+      });
+      expect(prisma.photoIntake.update).toHaveBeenCalledWith({
+        where: { id: INTAKE },
+        data: { jobId: '66666666-6666-4666-8666-666666666666' },
+      });
+      expect(started).toEqual({ intakeId: INTAKE, jobId: '66666666-6666-4666-8666-666666666666' });
+    });
+
+    it('refuses a model the gate refuses, and queues nothing', async () => {
+      usableModels.assertUsable.mockRejectedValue(new Error('AI_CAPABILITY_UNSUPPORTED'));
+
+      await expect(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'text-only' })).rejects.toThrow(
+        'AI_CAPABILITY_UNSUPPORTED',
+      );
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+
+    it('refuses an intake without photos with 400 NO_PHOTOS', async () => {
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+
+      expect(reasonOf(await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' })))).toBe(
+        'NO_PHOTOS',
+      );
+    });
+
+    it('refuses a manual-only kind with 400 MANUAL_ONLY_KIND', async () => {
+      registry.register(stubKind({ analyzeJobType: null }));
+
+      expect(reasonOf(await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' })))).toBe(
+        'MANUAL_ONLY_KIND',
+      );
+    });
+
+    it.each([
+      ['scanning', 'INTAKE_SCANNING'],
+      ['applied', 'ALREADY_APPLIED'],
+    ])('answers 409 while %s', async (status, reason) => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status }) as never);
+
+      const error = await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' }));
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(reasonOf(error)).toBe(reason);
+      expect(usableModels.assertUsable).not.toHaveBeenCalled();
+    });
+
+    it('a concurrent analyze that won the status flip makes this one 409, with nothing queued', async () => {
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 0 });
+      prisma.photoIntake.findFirst
+        .mockResolvedValueOnce(intakeRow({ status: 'draft' }) as never)
+        .mockResolvedValueOnce({ status: 'scanning' } as never);
+
+      const error = await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' }));
+
+      expect(reasonOf(error)).toBe('INTAKE_SCANNING');
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Items — provenance
+  // ---------------------------------------------------------------------------
+
+  describe('addItem', () => {
+    beforeEach(() => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.draftItem.aggregate.mockResolvedValue({ _max: { sortOrder: 4 } } as never);
+      prisma.draftItem.create.mockImplementation((async (args: any) => itemRow(args.data)) as never);
+    });
+
+    it('stores a user item as accepted, verified, without confidence, value normalized', async () => {
+      const view = await service.addItem(USER, INTAKE, { kind: 'thing', value: { name: '  Bench  ' } });
+
+      expect(prisma.draftItem.create.mock.calls[0][0].data).toMatchObject({
+        origin: 'user',
+        status: 'accepted',
+        confidence: null,
+        userVerified: true,
+        value: { name: 'Bench' },
+        sortOrder: 5,
+      });
+      expect(view).toMatchObject({ origin: 'user', confidence: null, userVerified: true, originalAiValue: null });
+    });
+
+    it("refuses a value the kind's schema rejects, naming the field", async () => {
+      const error = (await caught(
+        service.addItem(USER, INTAKE, { kind: 'thing', value: { name: '' } }),
+      )) as BadRequestException;
+
+      expect((error.getResponse() as any).details.issues[0].path).toBe('value.name');
+      expect(prisma.draftItem.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses an item kind the intake kind does not declare", async () => {
+      await expect(service.addItem(USER, INTAKE, { kind: 'other', value: { name: 'x' } })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('updateItem', () => {
+    beforeEach(() => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.draftItem.update.mockImplementation((async (args: any) => itemRow(args.data)) as never);
+    });
+
+    it('the first value edit of an AI item copies the previous value into originalAiValue, write-once, and sets userVerified', async () => {
+      prisma.draftItem.findFirst.mockResolvedValue(itemRow() as never);
+
+      await service.updateItem(USER, INTAKE, ITEM, { value: { name: 'Seated leg press' } });
+
+      expect(prisma.draftItem.updateMany).toHaveBeenCalledWith({
+        where: { id: ITEM, intakeId: INTAKE, originalAiValue: { equals: Prisma.DbNull } },
+        data: { originalAiValue: { name: 'Leg press' } },
+      });
+      expect(prisma.draftItem.update.mock.calls[0][0].data).toEqual({
+        value: { name: 'Seated leg press' },
+        userVerified: true,
+      });
+    });
+
+    it('never touches originalAiValue in the main update, so a later edit cannot overwrite it', async () => {
+      prisma.draftItem.findFirst.mockResolvedValue(
+        itemRow({ value: { name: 'Second' }, originalAiValue: { name: 'Leg press' }, userVerified: true }) as never,
+      );
+
+      await service.updateItem(USER, INTAKE, ITEM, { value: { name: 'Third' } });
+
+      // The conditional write only matches while original_ai_value IS NULL;
+      // the unconditional update never names the column.
+      expect(prisma.draftItem.updateMany.mock.calls[0][0].where).toMatchObject({
+        originalAiValue: { equals: Prisma.DbNull },
+      });
+      expect(prisma.draftItem.update.mock.calls[0][0].data).not.toHaveProperty('originalAiValue');
+    });
+
+    it('a user item edit never writes originalAiValue', async () => {
+      prisma.draftItem.findFirst.mockResolvedValue(
+        itemRow({ origin: 'user', status: 'accepted', confidence: null, userVerified: true }) as never,
+      );
+
+      await service.updateItem(USER, INTAKE, ITEM, { value: { name: 'Mine' } });
+
+      expect(prisma.draftItem.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('accepting sets userVerified; rejecting keeps the row and does not verify; pending restores', async () => {
+      prisma.draftItem.findFirst.mockResolvedValue(itemRow() as never);
+
+      await service.updateItem(USER, INTAKE, ITEM, { status: 'accepted' });
+      await service.updateItem(USER, INTAKE, ITEM, { status: 'rejected' });
+      await service.updateItem(USER, INTAKE, ITEM, { status: 'pending' });
+
+      const updates = prisma.draftItem.update.mock.calls.map((call) => call[0].data);
+      expect(updates).toEqual([
+        { status: 'accepted', userVerified: true },
+        { status: 'rejected' },
+        { status: 'pending' },
+      ]);
+      expect(prisma.draftItem.delete).not.toHaveBeenCalled();
+      expect(prisma.draftItem.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for an item of another intake', async () => {
+      prisma.draftItem.findFirst.mockResolvedValue(null);
+
+      await expect(service.updateItem(USER, INTAKE, ITEM, { status: 'accepted' })).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('refuses edits once applied with 409 ALREADY_APPLIED', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'applied' }) as never);
+
+      expect(reasonOf(await caught(service.updateItem(USER, INTAKE, ITEM, { status: 'accepted' })))).toBe(
+        'ALREADY_APPLIED',
+      );
+    });
+  });
+
+  describe('deleteItem', () => {
+    beforeEach(() => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+    });
+
+    it('refuses an AI item with 409 USE_REJECT', async () => {
+      prisma.draftItem.findFirst.mockResolvedValue(itemRow() as never);
+
+      const error = await caught(service.deleteItem(USER, INTAKE, ITEM));
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(reasonOf(error)).toBe('USE_REJECT');
+      expect(prisma.draftItem.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('hard-deletes a user item', async () => {
+      prisma.draftItem.findFirst.mockResolvedValue(itemRow({ origin: 'user' }) as never);
+
+      await service.deleteItem(USER, INTAKE, ITEM);
+
+      expect(prisma.draftItem.deleteMany).toHaveBeenCalledWith({ where: { id: ITEM, intakeId: INTAKE, origin: 'user' } });
+    });
+  });
+
+  describe('acceptAll', () => {
+    it('accepts and verifies only the pending items and returns them', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.draftItem.findMany
+        .mockResolvedValueOnce([{ id: ITEM }] as never)
+        .mockResolvedValueOnce([itemRow({ status: 'accepted', userVerified: true })] as never);
+
+      const items = await service.acceptAll(USER, INTAKE);
+
+      expect(prisma.draftItem.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [ITEM] }, intakeId: INTAKE, status: 'pending' },
+        data: { status: 'accepted', userVerified: true },
+      });
+      expect(items).toEqual([expect.objectContaining({ id: ITEM, status: 'accepted', userVerified: true })]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Apply
+  // ---------------------------------------------------------------------------
+
+  describe('apply', () => {
+    beforeEach(() => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it('refuses while items are pending with 400 PENDING_ITEMS and the count', async () => {
+      prisma.draftItem.count.mockResolvedValue(2);
+
+      const error = (await caught(service.apply(USER, INTAKE))) as BadRequestException;
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error.getResponse() as any).details).toEqual({ reason: 'PENDING_ITEMS', count: 2 });
+      expect(kind.apply).not.toHaveBeenCalled();
+    });
+
+    it("runs the kind's apply inside the transaction with only the accepted items, then answers its result", async () => {
+      prisma.draftItem.count.mockResolvedValue(0);
+      const accepted = [itemRow({ status: 'accepted', userVerified: true })];
+      prisma.draftItem.findMany.mockResolvedValue(accepted as never);
+
+      const result = await service.apply(USER, INTAKE);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.draftItem.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { intakeId: INTAKE, status: 'accepted' } }),
+      );
+      expect(prisma.photoIntake.updateMany.mock.calls[0][0]).toMatchObject({
+        where: { id: INTAKE, userId: USER, status: 'ready' },
+        data: { status: 'applied' },
+      });
+      expect(kind.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ tx: prisma, userId: USER, accepted, intake: expect.objectContaining({ id: INTAKE }) }),
+      );
+      expect(result).toEqual({ applied: 1 });
+    });
+
+    it('a second apply answers 409 ALREADY_APPLIED and calls nothing', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'applied' }) as never);
+
+      const error = await caught(service.apply(USER, INTAKE));
+
+      expect(reasonOf(error)).toBe('ALREADY_APPLIED');
+      expect(kind.apply).not.toHaveBeenCalled();
+      expect(prisma.photoIntake.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('applies a draft intake too (the manual path needs no scan)', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'draft' }) as never);
+      prisma.draftItem.count.mockResolvedValue(0);
+      prisma.draftItem.findMany.mockResolvedValue([] as never);
+
+      await expect(service.apply(USER, INTAKE)).resolves.toEqual({ applied: 0 });
+    });
+
+    it('refuses while scanning with 409 INTAKE_SCANNING', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'scanning' }) as never);
+
+      expect(reasonOf(await caught(service.apply(USER, INTAKE)))).toBe('INTAKE_SCANNING');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // For analyzer jobs
+  // ---------------------------------------------------------------------------
+
+  describe('replaceAiDrafts (a stub analyzer)', () => {
+    beforeEach(() => {
+      prisma.photoIntake.findUnique.mockResolvedValue(intakeRow({ status: 'scanning' }) as never);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      prisma.draftItem.deleteMany.mockResolvedValue({ count: 2 });
+      prisma.draftItem.aggregate.mockResolvedValue({ _max: { sortOrder: 6 } } as never);
+    });
+
+    it('deletes ONLY untouched AI drafts, appends the new ones after the survivors, and moves to ready', async () => {
+      const result = await service.replaceAiDrafts(INTAKE, [
+        { kind: 'thing', value: { name: 'Cable row' }, confidence: 'high' },
+        { kind: 'thing', value: { name: ' Mystery ' }, confidence: 'low', uncertain: true, uncertaintyNote: 'Blurry' },
+      ]);
+
+      expect(prisma.draftItem.deleteMany).toHaveBeenCalledWith({
+        where: { intakeId: INTAKE, origin: 'ai', status: 'pending', userVerified: false },
+      });
+      expect(prisma.photoIntake.updateMany.mock.calls[0][0]).toMatchObject({
+        where: { id: INTAKE, status: 'scanning' },
+        data: { status: 'ready' },
+      });
+
+      const rows = (prisma.draftItem.createMany.mock.calls[0][0] as any).data;
+      expect(rows).toEqual([
+        expect.objectContaining({ origin: 'ai', status: 'pending', userVerified: false, confidence: 'high', sortOrder: 7 }),
+        // Low confidence and uncertain: stored like any other, never dropped.
+        expect.objectContaining({
+          confidence: 'low',
+          uncertain: true,
+          uncertaintyNote: 'Blurry',
+          value: { name: 'Mystery' },
+          sortOrder: 8,
+        }),
+      ]);
+      expect(result).toEqual({ inserted: 2, removed: 2, invalid: [] });
+    });
+
+    it('stores what passes validation and records what did not in resultMeta, by index and issue only', async () => {
+      const result = await service.replaceAiDrafts(
+        INTAKE,
+        [
+          { kind: 'thing', value: { name: 'Good' }, confidence: 'medium' },
+          { kind: 'thing', value: { name: 'secret-looking value', extra: true }, confidence: 'high' },
+          { kind: 'thing', value: { name: 'Bad confidence' }, confidence: 'certain' as never },
+        ],
+        { resultMeta: { promptVersion: 'v1' } },
+      );
+
+      expect(result.inserted).toBe(1);
+      expect(result.invalid.map((i) => i.index)).toEqual([1, 2]);
+
+      const meta = (prisma.photoIntake.updateMany.mock.calls[0][0] as any).data.resultMeta;
+      expect(meta).toMatchObject({ promptVersion: 'v1', itemsReturned: 3, itemsStored: 1 });
+      expect(meta.invalidItems).toHaveLength(2);
+      expect(JSON.stringify(meta)).not.toContain('secret-looking value');
+    });
+
+    it('refuses with 409 NOT_SCANNING when the intake left scanning, writing no items', async () => {
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 0 });
+      prisma.photoIntake.findUnique
+        .mockResolvedValueOnce(intakeRow({ status: 'scanning' }) as never)
+        .mockResolvedValueOnce({ status: 'ready' } as never);
+
+      expect(reasonOf(await caught(service.replaceAiDrafts(INTAKE, [])))).toBe('NOT_SCANNING');
+      expect(prisma.draftItem.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.draftItem.createMany).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the intake was discarded mid-scan', async () => {
+      prisma.photoIntake.findUnique.mockResolvedValue(null);
+
+      await expect(service.replaceAiDrafts(INTAKE, [])).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('failIntake', () => {
+    it('marks a scanning intake failed with a bounded code and message', async () => {
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+
+      await expect(service.failIntake(INTAKE, 'AI_PROVIDER_ERROR', 'x'.repeat(900))).resolves.toBe(true);
+
+      const args = prisma.photoIntake.updateMany.mock.calls[0][0] as any;
+      expect(args.where).toEqual({ id: INTAKE, status: 'scanning' });
+      expect(args.data).toMatchObject({ status: 'failed', errorCode: 'AI_PROVIDER_ERROR' });
+      expect(args.data.errorMessage).toHaveLength(500);
+    });
+
+    it('answers false and changes nothing for an intake that is not scanning', async () => {
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.failIntake(INTAKE, 'X', 'y')).resolves.toBe(false);
+    });
+  });
+});

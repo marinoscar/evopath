@@ -56,6 +56,11 @@ export async function getStorageObjectDownloadUrl(id: string): Promise<StorageDo
   return api.get<StorageDownloadUrl>(`/storage/objects/${encodeURIComponent(id)}/download`);
 }
 
+/** `DELETE /storage/objects/:id` — the caller's own object. */
+export async function deleteStorageObject(id: string): Promise<void> {
+  await api.delete<void>(`/storage/objects/${encodeURIComponent(id)}`);
+}
+
 /** Thrown when an uploaded object ends `failed` or never becomes `ready`. */
 export class StorageObjectNotReadyError extends Error {
   constructor(

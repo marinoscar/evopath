@@ -17,6 +17,7 @@
 import type { AddressInfo } from 'node:net';
 
 import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
+import { UsableModelsService } from '../../src/ai/keys/usable-models.service';
 import { AiService } from '../../src/ai/runtime/ai.service';
 import { AiRunsService } from '../../src/ai/runtime/ai-runs.service';
 import { AiOutputWriter } from '../../src/ai/storage/ai-output-writer';
@@ -62,7 +63,20 @@ const BASE_POLICY: Pick<AiPolicy, 'enabled' | 'keyPolicy' | 'logPromptContent' |
   limits: {},
 };
 
-export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): Promise<AiHttpTestApp> {
+export interface AiHttpTestAppExtras {
+  /**
+   * Also substitute the harness's `UsableModelsService` into the container,
+   * for a feature route outside `/api/ai/*` that gates a model itself (the
+   * photo-intake analyze route, E3.1). Off by default, so the AI suites keep
+   * the container's own instance.
+   */
+  harnessUsableModels?: boolean;
+}
+
+export async function createAiHttpTestApp(
+  opts: AiRuntimeHarnessOptions = {},
+  extras: AiHttpTestAppExtras = {},
+): Promise<AiHttpTestApp> {
   let current: FakeAiScript | undefined;
 
   const harness = createAiRuntimeHarness({
@@ -92,6 +106,7 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
       // the `ai.image.generate` handler read and write the same objects.
       { provide: AiStorageInputResolver, useValue: harness.inputs },
       { provide: AiOutputWriter, useValue: harness.outputs },
+      ...(extras.harnessUsableModels ? [{ provide: UsableModelsService, useValue: harness.usableModels }] : []),
     ],
   });
 

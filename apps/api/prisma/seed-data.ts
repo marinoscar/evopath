@@ -184,6 +184,10 @@ export const PERMISSIONS = [
   // can withhold health data from a role without blocking theme changes.
   { name: 'health_data:read', description: 'Read own health data' },
   { name: 'health_data:write', description: 'Modify own health data' },
+
+  // Photo intake (E3.1)
+  { name: 'intakes:read', description: 'Read own photo intakes and their draft items' },
+  { name: 'intakes:write', description: 'Create, edit, analyze and apply own photo intakes' },
 ] as const;
 
 // Role to permissions mapping
@@ -255,6 +259,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // user's own data, self-service like `user_settings:*`.
     'health_data:read',
     'health_data:write',
+    // E3.1 — own photo intakes, self-service; all three roles. Analyze also
+    // needs `ai:use` (Viewer lacks it).
+    'intakes:read',
+    'intakes:write',
   ],
   contributor: [
     'user_settings:read',
@@ -271,6 +279,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // user's own data, self-service like `user_settings:*`.
     'health_data:read',
     'health_data:write',
+    // E3.1 — own photo intakes, self-service; all three roles. Analyze also
+    // needs `ai:use` (Viewer lacks it).
+    'intakes:read',
+    'intakes:write',
   ],
   viewer: [
     'user_settings:read',
@@ -282,6 +294,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // user's own data, self-service like `user_settings:*`.
     'health_data:read',
     'health_data:write',
+    // E3.1 — own photo intakes, self-service; all three roles. Analyze also
+    // needs `ai:use` (Viewer lacks it).
+    'intakes:read',
+    'intakes:write',
     // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
     // is the DEFAULT role every new user lands in (see `ROLES` above and
     // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto
