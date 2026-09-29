@@ -15,6 +15,7 @@ import { resetMeasurementCatalogCache } from '../../hooks/useMeasurementCatalog'
 import type { LatestItem, MeasurementDto } from '../../services/health';
 import { mockHealthProfileSaved } from '../mocks/fixtures/health';
 import { catalogMetric, mockLatest, mockMeasurement } from '../mocks/fixtures/measurements';
+import { statefulCheckInApi } from '../mocks/fixtures/checkInApi';
 
 type PostBody = { readings: Array<{ metricKey: string; value: number; unit: string; method?: string }> };
 
@@ -136,6 +137,27 @@ describe('HealthPage', () => {
     expect(await screen.findByRole('combobox', { name: 'Body fat method' })).toHaveTextContent('Smart scale');
   });
 
+  it('has the Daily check-in section after the tiles (#56), checked in from the page', async () => {
+    statefulApi();
+    const checkIns = statefulCheckInApi();
+    const user = userEvent.setup();
+    render(<HealthPage />);
+    await screen.findByRole('region', { name: 'Weight' });
+    const section = screen.getByRole('region', { name: 'Daily check-in' });
+    const tiles = screen.getByRole('region', { name: 'Latest measurements' });
+    expect(tiles.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await within(section).findByText('Not done today')).toBeInTheDocument();
+
+    await user.click(within(section).getByRole('button', { name: 'Check in' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Daily check-in' });
+    const energy = await within(dialog).findByRole('group', { name: /^Energy/ });
+    await user.click(within(energy).getByRole('button', { name: '4' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await within(section).findByRole('list', { name: 'Scores' })).toHaveTextContent('Energy 4');
+    expect(checkIns.puts).toHaveLength(1);
+  });
+
   it('a viewer without health_data:write sees disabled Log buttons', async () => {
     statefulApi();
     render(<HealthPage />, {
@@ -144,6 +166,8 @@ describe('HealthPage', () => {
     await screen.findByRole('region', { name: 'Weight' });
     expect(screen.getByRole('button', { name: 'Log measurement' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Log weight' })).toBeDisabled();
+    const checkIn = screen.getByRole('region', { name: 'Daily check-in' });
+    expect(await within(checkIn).findByRole('button', { name: 'Check in' })).toBeDisabled();
   });
 
   it('a user without health_data:read sees the unavailable message and nothing is fetched', async () => {
