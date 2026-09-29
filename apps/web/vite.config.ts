@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin, type PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import { APP_NAME, THEME_COLOR } from '@app/shared';
+import { APP_NAME, APP_SLUG, THEME_COLOR } from '@app/shared';
 import { buildServiceWorkerOptions } from './pwa/service-worker';
 // `__APP_VERSION__` (issue #401, epic #397). ONE definition, spread by this
 // config, `vitest.config.ts` and `visual/vite.config.ts` — three files with no
@@ -100,10 +100,11 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // The dev VPS proxies appbase.dev.marin.cr to this server; without this
+    // The dev VPS proxies `<slug>.dev.marin.cr` to this server; without this
     // entry Vite 5+'s Host header check rejects the request and every page
-    // load is blocked.
-    allowedHosts: ['appbase.dev.marin.cr', 'localhost', '.localhost'],
+    // load is blocked. Derived from the product identity so a rename keeps it
+    // correct (issue #17).
+    allowedHosts: [`${APP_SLUG}.dev.marin.cr`, 'localhost', '.localhost'],
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
