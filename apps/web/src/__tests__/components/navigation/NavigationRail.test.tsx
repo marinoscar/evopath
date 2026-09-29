@@ -678,8 +678,15 @@ describe('NavigationRail', () => {
       expect(screen.queryByRole('link', { name: 'AI Playground' })).not.toBeInTheDocument();
     });
 
-    it('shows AI Playground → /ai in the library list with ai:use and AI on, active on /ai', () => {
-      setPermissions(['ai:use', ...ADMIN_PERMISSIONS], true);
+    it('shows no AI Playground row to a Contributor-like ai:use holder without ai_config:read (#593)', () => {
+      setPermissions(['ai:use']);
+      render(<NavigationRail />, { wrapperOptions: { aiEnabled: true } });
+
+      expect(screen.queryByRole('link', { name: 'AI Playground' })).not.toBeInTheDocument();
+    });
+
+    it('shows AI Playground → /ai in the library list with ai:use + ai_config:read and AI on, active on /ai', () => {
+      setPermissions(['ai:use', 'ai_config:read', ...ADMIN_PERMISSIONS], true);
       render(<NavigationRail />, {
         wrapperOptions: { aiEnabled: true, route: '/ai', user: mockAdminUser },
       });

@@ -262,7 +262,10 @@ function AppRoutes() {
                     }
                   />
                   {/* Issue #425, epic #419 — the `ai` destination. Gated
-                      exactly as the destination is: `ai:use` plus AI being on. */}
+                      exactly as the destination is: `ai:use` AND
+                      `ai_config:read` (#593 — the Playground is an operator
+                      tool, and `ai_config:read` is the string the admin
+                      `/api/admin/ai/*` controllers enforce) plus AI being on. */}
                   <Route
                     path="/ai"
                     element={
@@ -270,9 +273,14 @@ function AppRoutes() {
                         permission="ai:use"
                         fallback={<Navigate to="/" replace />}
                       >
-                        <RequireAiEnabled>
-                          <AiPlaygroundPage />
-                        </RequireAiEnabled>
+                        <RequirePermission
+                          permission="ai_config:read"
+                          fallback={<Navigate to="/" replace />}
+                        >
+                          <RequireAiEnabled>
+                            <AiPlaygroundPage />
+                          </RequireAiEnabled>
+                        </RequirePermission>
                       </RequirePermission>
                     }
                   />

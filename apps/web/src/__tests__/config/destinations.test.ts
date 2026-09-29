@@ -480,7 +480,7 @@ describe('destinations — the AI Playground (#425)', () => {
   const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
   const holding = (granted: string[]) => (permission: string) => granted.includes(permission);
 
-  it('declares ai → /ai on ai:use, feature-gated, not pinned', () => {
+  it('declares ai → /ai on ai:use AND ai_config:read, feature-gated, not pinned', () => {
     expect(byKey.ai).toMatchObject({
       label: 'AI Playground',
       compactLabel: 'AI',
@@ -489,7 +489,9 @@ describe('destinations — the AI Playground (#425)', () => {
       feature: 'ai',
     });
     expect(byKey.ai.pinned).toBeFalsy();
-    expect(byKey.ai.anyPermission).toBeUndefined();
+    // #593: the Playground is an operator tool — `ai_config:read` is the
+    // string `/api/admin/ai/*` enforces, Admin-only in the seed.
+    expect(byKey.ai.anyPermission).toEqual(['ai_config:read']);
   });
 
   it('owns /ai and its children, and nothing else', () => {
@@ -503,11 +505,20 @@ describe('destinations — the AI Playground (#425)', () => {
     expect(resolveActiveDestination('/admin/settings/ai/models')).toBe('console');
   });
 
-  it('is hidden unless the permission is held AND the feature is on', () => {
-    expect(isDestinationVisible(byKey.ai, holding(['ai:use']))).toBe(false);
-    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: false })).toBe(false);
+  it('is hidden unless both permissions are held AND the feature is on', () => {
+    const admin = ['ai:use', 'ai_config:read'];
+    expect(isDestinationVisible(byKey.ai, holding(admin))).toBe(false);
+    expect(isDestinationVisible(byKey.ai, holding(admin), { ai: false })).toBe(false);
     expect(isDestinationVisible(byKey.ai, holding([]), { ai: true })).toBe(false);
-    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: true })).toBe(true);
+    expect(isDestinationVisible(byKey.ai, holding(admin), { ai: true })).toBe(true);
+  });
+
+  it('is hidden from a Contributor-like user holding ai:use alone (#593)', () => {
+    expect(isDestinationVisible(byKey.ai, holding(['ai:use']), { ai: true })).toBe(false);
+  });
+
+  it('is hidden from someone holding ai_config:read without ai:use', () => {
+    expect(isDestinationVisible(byKey.ai, holding(['ai_config:read']), { ai: true })).toBe(false);
   });
 
   it('leaves destinations without a feature untouched by the feature map', () => {
@@ -521,7 +532,10 @@ describe('destinations — the AI Playground (#425)', () => {
     const source = readFileSync(APP_TSX, 'utf8');
     const chunk = source.split('<Route').find((c) => /^\s*path="\/ai"/.test(c));
     expect(chunk, '/ai has no route').toBeDefined();
-    expect(/permission="([^"]+)"/.exec(chunk ?? '')?.[1]).toBe(byKey.ai.permission);
+    const routePermissions = [...(chunk ?? '').matchAll(/permission="([^"]+)"/g)].map((m) => m[1]);
+    expect(routePermissions.sort()).toEqual(
+      [byKey.ai.permission, ...(byKey.ai.anyPermission ?? [])].sort(),
+    );
     expect(chunk).toContain('<RequireAiEnabled>');
   });
 });
