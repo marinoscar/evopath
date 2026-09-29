@@ -33,6 +33,9 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
+const TrainPage = lazy(() => import('./pages/TrainPage'));
+const HealthPage = lazy(() => import('./pages/HealthPage'));
+const GymsPage = lazy(() => import('./pages/GymsPage'));
 // User settings — the hub (#96) plus one route per card in
 // `config/userSettingsSections.tsx` (#91, epic #90). These replace the single
 // stacked `UserSettingsPage`, which is deleted rather than left unrouted.
@@ -186,6 +189,9 @@ function AppRoutes() {
                   }
                 >
                   <Route path="/" element={<HomePage />} />
+                  <Route path="/train" element={<TrainPage />} />
+                  <Route path="/health" element={<HealthPage />} />
+                  <Route path="/gyms" element={<GymsPage />} />
                   {/* The per-user settings surface (#96, epic #90) — the same
                       hub component `/admin/settings` renders, over
                       `USER_SETTINGS_SECTIONS`, plus one route per card.
