@@ -15,7 +15,8 @@
 import { useEffect } from 'react';
 import { Alert, AlertTitle, Button } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import type { AiErrorInfo } from '../../services/aiErrors';
+import { TRAINING_RUN_BUDGET_EXCEEDED, type AiErrorInfo } from '../../services/aiErrors';
+import { TOKEN_CAP_SETTINGS_PATH, tokenCapText } from '../settings/ai/aiErrorText';
 import { useAiConfig } from '../../hooks/useAiConfig';
 
 /** Where a user fixes their own key. */
@@ -180,6 +181,14 @@ export function aiErrorCopy(error: AiErrorInfo): AiErrorCopy {
         title: "File storage isn't available",
         body: 'This application has no file storage set up to keep AI inputs and results in. Ask your administrator to configure storage.',
         severity: 'error',
+      };
+    case TRAINING_RUN_BUDGET_EXCEEDED:
+      // E6.3: an agent run stopped at the user's own per-run token cap.
+      return {
+        title: 'Stopped at your token limit',
+        body: tokenCapText(error),
+        severity: 'warning',
+        action: { label: 'Change the limit', to: TOKEN_CAP_SETTINGS_PATH },
       };
     case 'AI_INVALID_REQUEST':
       return {
