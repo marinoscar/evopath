@@ -694,13 +694,15 @@ describe('the Operations group (#266)', () => {
 
   it('is a third group, and the first two are untouched', () => {
     // `AI` (#425) is APPENDED as a fourth group after it — see the AI suite —
-    // and `Observability` (#537) as a fifth after that.
+    // and `Observability` (#537) as a fifth after that, and `Danger Zone`
+    // (#211) as a sixth.
     expect(ADMIN_SECTIONS.map((section) => section.label)).toEqual([
       'General',
       'Access',
       'Operations',
       'AI',
       'Observability',
+      'Danger Zone',
     ]);
   });
 
@@ -1075,9 +1077,13 @@ describe('the AI group (#425)', () => {
   const cards = new Map((aiSection?.cards ?? []).map((card) => [card.title, card]));
 
   it('is APPENDED after Operations, leaving every earlier card in place', () => {
-    // It was the last group until `Observability` (#537) was appended after it.
+    // It was the last group until `Observability` (#537) was appended after
+    // it, and `Danger Zone` (#211) after that.
     expect(ADMIN_SECTIONS[3]).toBe(aiSection);
-    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability']);
+    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual([
+      'Observability',
+      'Danger Zone',
+    ]);
     // `AI Usage` (#444) is appended after `AI Models`, and `AI Model
     // Assignments` (#173) after it, never inserted.
     expect(aiSection?.cards.map((card) => card.title)).toEqual([
@@ -1173,8 +1179,10 @@ describe('the Observability group (#537)', () => {
   const titles = (hasPermission: (permission: string) => boolean, features = {}) =>
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
 
-  it('is APPENDED as the last group, with its cards in declaration order', () => {
-    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(observability);
+  it('is APPENDED after AI, with its cards in declaration order', () => {
+    // It was the last group until `Danger Zone` (#211) was appended after it.
+    expect(ADMIN_SECTIONS[4]).toBe(observability);
+    expect(ADMIN_SECTIONS.slice(5).map((section) => section.label)).toEqual(['Danger Zone']);
     // `Telemetry Dashboard` (#578) was appended after the Explorer, and
     // `Doctor` (#634) after the Dashboard.
     expect(observability?.cards.map((card) => card.title)).toEqual([
@@ -1237,9 +1245,9 @@ describe('the Observability group (#537)', () => {
     const dashboard = cards.get('Telemetry Dashboard');
     const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
 
-    it('was appended after the Explorer, not inserted — only Doctor (#634) follows it', () => {
-      expect(allCards[allCards.length - 2]).toBe(dashboard);
-      expect(allCards[allCards.length - 1]?.title).toBe('Doctor');
+    it('was appended after the Explorer, not inserted — only Doctor (#634) and Factory reset (#211) follow it', () => {
+      expect(allCards[allCards.length - 3]).toBe(dashboard);
+      expect(allCards.slice(-2).map((card) => card.title)).toEqual(['Doctor', 'Factory reset']);
       expect(dashboard?.disabled).toBeUndefined();
       expect(dashboard?.alwaysShow).toBeUndefined();
     });
@@ -1289,8 +1297,10 @@ describe('the Observability group (#537)', () => {
       expect(allCards.filter((card) => card.path === doctor?.path)).toHaveLength(1);
     });
 
-    it('is the LAST card of the last group (Observability) — appended, not inserted', () => {
-      expect(allCards[allCards.length - 1]).toBe(doctor);
+    it('is the LAST Observability card — appended, not inserted', () => {
+      // Only the `Danger Zone` group's `Factory reset` (#211) follows it.
+      expect(observability?.cards[observability.cards.length - 1]).toBe(doctor);
+      expect(allCards[allCards.length - 2]).toBe(doctor);
       const owner = ADMIN_SECTIONS.find((section) => section.cards.includes(doctor!));
       expect(owner?.label).toBe('Observability');
     });
@@ -1372,5 +1382,62 @@ describe('the Observability group (#537)', () => {
     expect(
       settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/telemetry'),
     ).toBe('Telemetry');
+  });
+});
+
+/**
+ * Issue #211 — the admin `Danger Zone` group and its one card, `Factory reset`.
+ * The permission is read off the API workspace on disk, the mechanical half of
+ * CLAUDE.md Settings UI Pattern rule 3.
+ */
+describe('the Danger Zone group (#211)', () => {
+  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  const rolesConstants = readFileSync(resolve(API_SRC, 'common/constants/roles.constants.ts'), 'utf8');
+  const dangerZone = ADMIN_SECTIONS.find((section) => section.label === 'Danger Zone');
+  const factoryReset = dangerZone?.cards.find((card) => card.title === 'Factory reset');
+  const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
+
+  const titles = (hasPermission: (permission: string) => boolean, features = {}) =>
+    titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
+
+  it('is APPENDED as the last group, holding exactly the Factory reset card', () => {
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(dangerZone);
+    expect(dangerZone?.cards.map((card) => card.title)).toEqual(['Factory reset']);
+    expect(allCards[allCards.length - 1]).toBe(factoryReset);
+  });
+
+  it('is routed to a unique /admin/settings/factory-reset path', () => {
+    expect(factoryReset?.path).toBe('/admin/settings/factory-reset');
+    expect(allCards.filter((card) => card.path === factoryReset?.path)).toHaveLength(1);
+    expect(factoryReset?.disabled).toBeUndefined();
+  });
+
+  it('carries no feature and no alwaysShow escape hatch', () => {
+    expect(factoryReset?.feature).toBeUndefined();
+    expect(factoryReset?.alwaysShow).toBeUndefined();
+  });
+
+  it('declares system:factory_reset, the exact permission the API defines', () => {
+    expect(factoryReset?.permission).toBe('system:factory_reset');
+    expect(rolesConstants).toContain("SYSTEM_FACTORY_RESET: 'system:factory_reset'");
+    // The controller is built in parallel with this page. Once it exists in
+    // the tree, it must enforce the same constant.
+    const controllerPath = resolve(API_SRC, 'admin-factory-reset/admin-factory-reset.controller.ts');
+    if (existsSync(controllerPath)) {
+      expect(readFileSync(controllerPath, 'utf8')).toContain('PERMISSIONS.SYSTEM_FACTORY_RESET');
+    }
+  });
+
+  it('is shown only to a system:factory_reset holder', () => {
+    expect(titles(() => true)).toContain('Factory reset');
+    expect(titles((permission) => permission === 'system:factory_reset')).toEqual(['Factory reset']);
+    const settingsAdmin = ['system_settings:read', 'system_settings:write', 'users:read'];
+    expect(titles((permission) => settingsAdmin.includes(permission))).not.toContain('Factory reset');
+  });
+
+  it('titles its route "Factory reset"', () => {
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/factory-reset'),
+    ).toBe('Factory reset');
   });
 });
