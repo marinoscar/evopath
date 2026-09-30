@@ -171,6 +171,7 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 - `apps/api/test/jobs/cron-enqueue-only.spec.ts` and `apps/api/test/jobs/on-event-no-io.spec.ts`: no long-running work outside the queue.
 - `apps/web/src/__tests__/components/intake/RetainFilesControl.test.tsx`: checked by default, helper text, health kinds only.
 - `apps/web/src/__tests__/components/health/PhotoReadDialog.test.tsx` and `apps/web/src/__tests__/components/health/MeasurementHistoryProvenance.test.tsx`: the choice reaches the requests, and **File deleted** replaces **View photo**.
+- `tests/visual/specs/health-photo-read.spec.ts`: the photo-step baseline includes the keep-or-delete control.
 
 ## 6. Design decisions
 
