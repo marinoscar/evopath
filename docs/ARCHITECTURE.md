@@ -236,9 +236,9 @@ In a real terminal with no arguments it opens an interactive ink menu. `evopathc
 
 The AI platform is an admin-governed, bring-your-own-key capability over five providers: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`. It offers responses (plain, streaming, structured output, function-calling tool loops), embeddings, image generation and editing, transcription, text-to-speech and realtime voice sessions, plus background runs and usage reporting.
 
-A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That client runs one gate pipeline for every call: kill switch, provider and model enablement, capability match, key resolution (the user's own key, or the org key under `byok_with_org_fallback` or for a holder of `ai_config:write`), rate limits and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `apps/api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
+Administrators alone choose models: the `ai.assignments` system setting names a default model and one per feature (photo features and training agents), and `AiFeatureModelResolver` (`apps/api/src/ai/assignments/`) resolves each feature for a caller (assignment, default, automatic pick, else a blocking state); `GET /api/ai/features` exposes it. A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That client runs one gate pipeline for every call: kill switch, provider and model enablement, capability match, key resolution (the user's own key, or the org key under `byok_with_org_fallback` or for a holder of `ai_config:write`), rate limits and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `apps/api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
 
-`TrainingAgentsModule` (`apps/api/src/training-agents/`) sits above the gateway: it runs agent graphs with LangGraph.js through `LangGraphRunner`, checkpointing to two Prisma-owned tables, and never calls a provider itself. Framework telemetry is forced off in code. Per-role model choice (researcher, planner, critic, evaluator) is resolved by `TrainingModelResolver` (`training-agents/models/`) from the user's `ai.taskModels` and the read-only `UsableModelsService`; `GET /api/ai/training/models` and `POST /api/ai/training/estimate` (`ai:use`, behind `AiEnabledGuard`) return the resolution and a token estimate, never a quote.
+`TrainingAgentsModule` (`apps/api/src/training-agents/`) sits above the gateway: it runs agent graphs with LangGraph.js through `LangGraphRunner`, checkpointing to two Prisma-owned tables, and never calls a provider itself. Framework telemetry is forced off in code. Per-role model choice (researcher, planner, critic, evaluator) is resolved by `TrainingModelResolver` (`training-agents/models/`) through the shared `AiFeatureModelResolver` from the administrator's `ai.assignments` and the read-only `UsableModelsService`; users choose no model; `GET /api/ai/training/models` and `POST /api/ai/training/estimate` (`ai:use`, behind `AiEnabledGuard`) return the resolution and a token estimate, never a quote.
 
 The runtime kit (`training-agents/runtime/`, `graph/`, `nodes/`) executes one graph run as one server-only job:
 
@@ -255,7 +255,7 @@ The `create` graph (`create` and `revise` runs) is `prepare_context` → `resear
 
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
 - **Plan screens.** The web app starts a `create` run from the intake wizard at `/train/plans/new` and follows it at `/train/plans/runs/:runId`. The wizard shows the estimate's `sentData` per agent, the token range and the cap before Start, and sends only the intake. The run view (`hooks/useTrainingRun.ts`) folds the stream into a view model idempotently by `seq` (`utils/reduceRunEvents.ts`) and reconnects with `?after=` the last contiguous `seq`, so a reload or a dropped connection replays without duplicates. Leaving the page never cancels the run. A plan's "Revise with AI" box starts a `revise` run. Every AI affordance is hidden while AI is off or without `ai:use`, and the two AI routes redirect to `/train/plans`.
-- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`, `/settings/ai/agents`, `/train/plans/new`, `/train/plans/runs/:runId`; admin-only Playground `/ai`
+- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/assignments`, `/admin/settings/ai/usage`; user `/settings/ai`, `/settings/ai/agents` (read-only), `/train/plans/new`, `/train/plans/runs/:runId`; admin-only Playground `/ai`
 - **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)
 - **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../apps/api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
 
@@ -497,7 +497,7 @@ Namespaces of the `global` document (`systemSettingsSchema`):
 
 Every read completes missing namespaces from built-in defaults, so the stored document is always whole.
 
-`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (default model, `taskModels` per training role, and `training` limits). An absent optional namespace means "use the defaults".
+`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (`training` limits only; models are chosen by administrators in the `ai.assignments` system setting). An absent optional namespace means "use the defaults".
 
 ---
 
@@ -544,8 +544,8 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `push:write` | ✓ | | | Generate, rotate, enable, remove VAPID keys |
 | `storage_config:read` | ✓ | | | View object-storage configuration |
 | `storage_config:write` | ✓ | | | Change storage configuration, test it, create the bucket |
-| `ai_config:read` | ✓ | | | View AI configuration, model catalog, usage report |
-| `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models; refresh the catalog |
+| `ai_config:read` | ✓ | | | View AI configuration, model catalog, model assignments, usage report |
+| `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models, model assignments; refresh the catalog |
 | `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
@@ -669,6 +669,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/about` | About | Operations | `system_settings:read` | |
 | `/admin/settings/ai` | AI | AI | `ai_config:read` | none (the page that turns AI on) |
 | `/admin/settings/ai/models` | AI Models | AI | `ai_config:read` | `ai` |
+| `/admin/settings/ai/assignments` | AI Model Assignments | AI | `ai_config:read` | `ai` |
 | `/admin/settings/ai/usage` | AI Usage | AI | `ai_config:read` | `ai` |
 | `/admin/settings/telemetry` | Telemetry | Observability | `telemetry:read` | none (the page that turns telemetry on) |
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
@@ -678,7 +679,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
-| `/settings/ai/agents` | Training agents | AI | `ai:use` | `ai` |
+| `/settings/ai/agents` | Training agents (read-only model view) | AI | `ai:use` | `ai` |
 | `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
