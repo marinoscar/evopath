@@ -104,12 +104,12 @@
 import { ExportResultCode, type ExportResult } from '@opentelemetry/core';
 import { resourceFromAttributes, type Resource } from '@opentelemetry/resources';
 import type { LogRecordExporter, ReadableLogRecord } from '@opentelemetry/sdk-logs';
-import type {
-  AggregationOption,
+import {
   AggregationTemporality,
   InstrumentType,
-  PushMetricExporter,
-  ResourceMetrics,
+  type AggregationOption,
+  type PushMetricExporter,
+  type ResourceMetrics,
 } from '@opentelemetry/sdk-metrics';
 import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
 
@@ -219,19 +219,32 @@ export class GatedLogRecordExporter implements LogRecordExporter {
  * Forwards metrics to `inner`, stamped with the instance id, only while the
  * telemetry gate is open.
  *
- * The optional aggregation selectors are delegated so the reader keeps the
- * inner exporter's temporality (OTLP defaults to cumulative) and aggregation
- * preferences; wrapping must not change what is measured, only whether it is
- * sent.
+ * The optional aggregation selector is delegated so the reader keeps the inner
+ * exporter's aggregation preferences, and so is its temporality (OTLP defaults
+ * to cumulative) for every instrument EXCEPT gauges: wrapping must not change
+ * what is measured, only whether it is sent.
+ *
+ * ⚠ GAUGES ARE SELECTED DELTA, AND THIS IS NOT A CHANGE TO THE DATA. An OTLP
+ * gauge carries no temporality on the wire; the choice only decides what the
+ * SDK keeps between collections. Under cumulative, `@opentelemetry/sdk-metrics`
+ * (2.x, verified) re-exports EVERY attribute set a gauge callback ever
+ * observed, at its last value, on every later collection — so a worker node
+ * that went offline, or a job type whose backlog drained, would keep reporting
+ * its final reading with a fresh timestamp for the life of the process. Under
+ * delta, a collection exports exactly what the callback observed this time.
+ * The `app.nodes.*` per-node gauges (#131) depend on it: a node dropping out of
+ * the exported set must disappear from the store, not freeze.
  */
 export class GatedPushMetricExporter implements PushMetricExporter {
-  readonly selectAggregationTemporality?: (instrumentType: InstrumentType) => AggregationTemporality;
+  readonly selectAggregationTemporality: (instrumentType: InstrumentType) => AggregationTemporality;
   readonly selectAggregation?: (instrumentType: InstrumentType) => AggregationOption;
 
   constructor(private readonly inner: PushMetricExporter) {
-    if (inner.selectAggregationTemporality) {
-      this.selectAggregationTemporality = inner.selectAggregationTemporality.bind(inner);
-    }
+    const innerTemporality = inner.selectAggregationTemporality?.bind(inner);
+    this.selectAggregationTemporality = (instrumentType) =>
+      instrumentType === InstrumentType.OBSERVABLE_GAUGE || instrumentType === InstrumentType.GAUGE
+        ? AggregationTemporality.DELTA
+        : (innerTemporality?.(instrumentType) ?? AggregationTemporality.CUMULATIVE);
     if (inner.selectAggregation) {
       this.selectAggregation = inner.selectAggregation.bind(inner);
     }

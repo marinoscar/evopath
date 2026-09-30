@@ -211,6 +211,17 @@ The route is a literal under `/nodes` and is declared before any `:id` route; ot
 
 List and detail reads call it with the same policy, so they cannot disagree. Per-node job counts come from one `groupBy(['claimedByNodeId', 'status'])`, not a count per node, because the fleet page polls.
 
+### Fleet metrics
+
+`NodeFleetMetrics` (`apps/api/src/nodes/node-fleet-metrics.service.ts`, #131) exports the fleet as `app.*` OpenTelemetry gauges, following the `AppMetricsService` conventions ([telemetry.md §11.13](telemetry.md#1113-application-metrics)): registered only with `OTEL_ENABLED`, no query while the telemetry gate is closed, one cached read (one `worker_nodes` `findMany` plus one `groupBy(type)` over due pending jobs) reused for 30 seconds, never throwing. It lives in `NodesModule`, not the global metrics module, because it reads `NodeOffloadService` and the fleet policy; it borrows the `app` meter and gate through `AppMetricsService.gaugeContext()`.
+
+- `app.nodes.count`: nodes by `status` and `health`, derived by `deriveNodeHealth` with `nodes.staleHeartbeatSeconds` exactly as the admin list derives it. All seven valid pairs are observed every time, zeros included.
+- Per-node vitals (`node_id`, `node_name`): only nodes that are not `offline` and whose `lastVitalsAt` is within 3 × `staleHeartbeatSeconds`, newest first, at most 200. The node's counters become one gauge, `app.nodes.counter`, labelled `counter` in snake_case. They are cumulative since the node process started and reset when it restarts.
+- `app.nodes.types.no_eligible_node`: for each offered type (`NodeOffloadService.offeredTypes()`) with due pending jobs, `1` when no `online`, `healthy` node lists it in `eligibleTypes`. It is not named "starved" on purpose: under the default `JOBS_WORKER_MODE=all` the server worker still claims offered types, so a `1` means only the server can run that backlog. Under `system` or `off` the server does not claim them, and a `1` that persists is real starvation.
+- Per-node lease reaps are not exported. The reaper clears `claimed_by_node_id` in the same statement that recovers the row, and requeues in bulk, so it never knows the node. The node's own `lease_renew_failures` counter is the nearest signal.
+
+Every value is self-reported and display-only, as on the Workers page.
+
 ### Fleet sweep and prune
 
 A crashed node never deregisters, so without a sweep its row stays `online` forever and retention (which selects `offline`) never reaches it. The two jobs are a pair with an order. Both crons only decide whether work is due and enqueue; the handlers in `apps/api/src/nodes/handlers/` do the work.
@@ -343,6 +354,7 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 | `apps/api/src/nodes/nodes.service.spec.ts` | Register-or-reattach incl. `P2002`; the three claim filters; lease guard's five conditions one at a time across `renew`/`result`/`failure` |
 | `apps/api/test/nodes/nodes.integration.spec.ts` | `409` on late submission, Zod issues in `details`, `claimToken` round trip, `400` for a non-uuid token; heartbeat vitals persisted and shown by the admin read, `400` for unknown or out-of-range vitals |
 | `apps/api/src/nodes/dto/node-control-plane.dto.spec.ts` | Vitals schema: strict at both levels, every bound, a pre-vitals heartbeat still parses |
+| `apps/api/src/nodes/node-fleet-metrics.service.spec.ts` | Fleet gauges: health derivation, vitals freshness and the 200-node cap, counter mapping, no-eligible-node computation, no query while the gate is closed or OTel is off |
 | `apps/api/test/nodes/node-claim-contention.db.spec.ts` | Real Postgres: a node and the in-process worker never claim the same row |
 | `apps/api/src/nodes/node-data-plane.service.spec.ts` | Guard reached, server-derived key, expiry clamp both ways, three input reasons, stale `claimToken` refused on both URL routes |
 | `apps/api/test/nodes/node-data-plane.integration.spec.ts` | `job-types` route order, valid JSON Schemas, `409`/`400`/`422`, no signed URL in logs |
@@ -406,3 +418,4 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - Epic #345: #348 `deriveOutputKey`; #349 per-job secret broker; #351/#352 `db.backup.run` on nodes; #353 fleet crons converted to queue jobs.
 - #364: claim token on the node control plane. #477: claim-conditional settle writes.
 - #129: node vitals on the heartbeat (`last_vitals`, `last_vitals_at`).
+- #131: fleet metrics (`app.nodes.*` gauges).

@@ -82,6 +82,8 @@ function node(overrides: Partial<WorkerNode> = {}): WorkerNode {
     lastHeartbeatAt: '2026-01-01T00:05:00.000Z',
     owner: { id: 'u1', email: 'ops@example.com', name: 'Ops' },
     jobCounts: { running: 1, pending: 2, succeeded: 30, failed: 1, total: 34 },
+    lastVitals: null,
+    lastVitalsAt: null,
     ...overrides,
   };
 }

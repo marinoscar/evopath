@@ -10,6 +10,8 @@ import {
 import {
   AggregationTemporality,
   InstrumentType,
+  MeterProvider,
+  MetricReader,
   type PushMetricExporter,
   type ResourceMetrics,
 } from '@opentelemetry/sdk-metrics';
@@ -271,11 +273,61 @@ describe('GatedPushMetricExporter aggregation selectors', () => {
     expect(inner.selectAggregation).toHaveBeenCalledWith(InstrumentType.HISTOGRAM);
   });
 
-  it('leaves the selectors undefined when the inner lacks them, so the reader keeps its defaults', () => {
+  it('falls back to cumulative for non-gauges and leaves the aggregation selector undefined when the inner lacks them', () => {
     const gated = new GatedPushMetricExporter(innerMock() as unknown as PushMetricExporter);
 
-    expect(gated.selectAggregationTemporality).toBeUndefined();
+    expect(gated.selectAggregationTemporality(InstrumentType.COUNTER)).toBe(
+      AggregationTemporality.CUMULATIVE,
+    );
+    expect(gated.selectAggregationTemporality(InstrumentType.HISTOGRAM)).toBe(
+      AggregationTemporality.CUMULATIVE,
+    );
     expect(gated.selectAggregation).toBeUndefined();
+  });
+
+  it('selects DELTA for gauges whatever the inner prefers, so an attribute set no longer observed stops being exported', async () => {
+    const inner = {
+      ...innerMock(),
+      selectAggregationTemporality: jest.fn(() => AggregationTemporality.CUMULATIVE),
+    };
+    const gated = new GatedPushMetricExporter(inner as unknown as PushMetricExporter);
+
+    expect(gated.selectAggregationTemporality(InstrumentType.OBSERVABLE_GAUGE)).toBe(
+      AggregationTemporality.DELTA,
+    );
+    expect(gated.selectAggregationTemporality(InstrumentType.GAUGE)).toBe(
+      AggregationTemporality.DELTA,
+    );
+    expect(gated.selectAggregationTemporality(InstrumentType.COUNTER)).toBe(
+      AggregationTemporality.CUMULATIVE,
+    );
+
+    // End to end through a real reader using this selector: a series observed
+    // once and then dropped by the callback is gone from the next collection.
+    class Reader extends MetricReader {
+      protected async onForceFlush(): Promise<void> {}
+      protected async onShutdown(): Promise<void> {}
+    }
+    const reader = new Reader({ aggregationTemporalitySelector: gated.selectAggregationTemporality });
+    const meter = new MeterProvider({ readers: [reader] }).getMeter('app');
+    const gauge = meter.createObservableGauge('g');
+    let round = 0;
+    meter.addBatchObservableCallback((result) => {
+      if (round === 0) result.observe(gauge, 1, { node_id: 'gone' });
+      result.observe(gauge, 10 + round, { node_id: 'kept' });
+      round += 1;
+    }, [gauge]);
+
+    const pointsOf = async () =>
+      (await reader.collect()).resourceMetrics.scopeMetrics[0].metrics[0].dataPoints.map((dp) => [
+        dp.attributes.node_id,
+        dp.value,
+      ]);
+    expect(await pointsOf()).toEqual([
+      ['gone', 1],
+      ['kept', 10],
+    ]);
+    expect(await pointsOf()).toEqual([['kept', 11]]);
   });
 });
 

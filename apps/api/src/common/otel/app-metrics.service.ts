@@ -8,6 +8,12 @@
 // here, so the metric names, units and attribute keys live in exactly one file
 // and a call site cannot invent a label.
 //
+// ONE SANCTIONED SIBLING: `nodes/node-fleet-metrics.service.ts` (#131) creates
+// the `app.nodes.*` gauges, because its callback needs `NodeOffloadService` and
+// the fleet policy, which this global module cannot import without a cycle. It
+// takes its meter, clock and gate from `gaugeContext()` and its names from
+// `APP_METRIC_NAMES` below, so the conventions still have one owner.
+//
 // -----------------------------------------------------------------------------
 // OFF MEANS NO-OP, FOR FREE
 // -----------------------------------------------------------------------------
@@ -117,6 +123,21 @@ export const APP_METRIC_NAMES = {
   aiTokens: 'app.ai.tokens',
   aiDuration: 'app.ai.request.duration',
   notificationDeliveries: 'app.notifications.deliveries',
+  // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
+  // through `gaugeContext()`, because they read the nodes module's services.
+  nodesCount: 'app.nodes.count',
+  nodesCpuUtilization: 'app.nodes.cpu.utilization',
+  nodesMemoryRss: 'app.nodes.memory.rss',
+  nodesHeapUsed: 'app.nodes.heap.used',
+  nodesHeapLimit: 'app.nodes.heap.limit',
+  nodesEventLoopDelayP99: 'app.nodes.event_loop.delay.p99',
+  nodesStateDirFree: 'app.nodes.state_dir.free',
+  nodesStateDirTotal: 'app.nodes.state_dir.total',
+  nodesSlotsUsed: 'app.nodes.slots.used',
+  nodesSlotsTotal: 'app.nodes.slots.total',
+  nodesUptime: 'app.nodes.uptime',
+  nodesCounter: 'app.nodes.counter',
+  nodesTypesNoEligibleNode: 'app.nodes.types.no_eligible_node',
 } as const;
 
 /** How long one gauge snapshot is reused across collections and callbacks. */
@@ -203,6 +224,33 @@ export interface GaugeSnapshot {
   depth: Array<{ type: string; status: string; count: number }>;
   oldestPendingAgeSeconds: Array<{ type: string; ageSeconds: number }>;
   backupLastSuccess: { finishedAtSeconds: number; sizeBytes: number } | null;
+}
+
+/**
+ * The SHAPE half of {@link AppMetricsService.boundLabel}, with no distinct-value
+ * budget: `unknown` when empty, `other` when the value is not identifier-shaped
+ * (≤ 64 chars of `[A-Za-z0-9_.:/@+-]`, never address-shaped), else the trimmed
+ * value. For a label that is functionally dependent on another, already-bounded
+ * one (a node's name beside its capped `node_id`), where a per-process budget
+ * would only fold real values into `other` without bounding anything.
+ */
+export function shapeLabel(value: unknown): string {
+  if (typeof value !== 'string') return UNKNOWN_LABEL;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return UNKNOWN_LABEL;
+  if (trimmed.length > MAX_LABEL_LENGTH || !LABEL_PATTERN.test(trimmed) || EMAIL_LIKE.test(trimmed)) {
+    return OTHER_LABEL;
+  }
+  return trimmed;
+}
+
+/** What a sibling gauge provider needs to follow this service's conventions. */
+export interface AppGaugeContext {
+  /** The `app` meter. */
+  meter: Meter;
+  now: () => number;
+  /** Whether the runtime export gate is open; a callback queries nothing while it is closed. */
+  gateOpen: () => boolean;
 }
 
 /** An enumerated value, or `other`. */
@@ -480,16 +528,8 @@ export class AppMetricsService implements OnModuleInit {
    * the `MAX_DISTINCT_VALUES + 1`-th distinct value for `key`.
    */
   boundLabel(key: string, value: unknown): string {
-    if (typeof value !== 'string') return UNKNOWN_LABEL;
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return UNKNOWN_LABEL;
-    if (
-      trimmed.length > MAX_LABEL_LENGTH ||
-      !LABEL_PATTERN.test(trimmed) ||
-      EMAIL_LIKE.test(trimmed)
-    ) {
-      return OTHER_LABEL;
-    }
+    const trimmed = shapeLabel(value);
+    if (trimmed === UNKNOWN_LABEL || trimmed === OTHER_LABEL) return trimmed;
 
     let seen = this.seen.get(key);
     if (!seen) {
@@ -506,12 +546,27 @@ export class AppMetricsService implements OnModuleInit {
   // Observable gauges
   // ===========================================================================
 
+  /** Whether DB-backed gauges may be registered in this process (`otel.enabled`). */
+  private gaugesEnabled(): boolean {
+    return this.gaugesForced ?? this.config?.get<boolean>('otel.enabled') === true;
+  }
+
+  /**
+   * The meter, clock and export gate for a SIBLING gauge provider that lives in
+   * a feature module (it needs that module's services, so it cannot live here
+   * without a module cycle) — `null` when gauges are off in this process, in
+   * which case the caller registers nothing. `NodeFleetMetrics` is the reader.
+   */
+  gaugeContext(): AppGaugeContext | null {
+    if (!this.gaugesEnabled()) return null;
+    return { meter: this.meter, now: this.now, gateOpen: this.gateOpen };
+  }
+
   /** Registers the DB-backed gauges once, only when OTel is enabled for this process. */
   registerGauges(): void {
     if (this.gaugesRegistered || !this.prisma) return;
 
-    const enabled = this.gaugesForced ?? this.config?.get<boolean>('otel.enabled') === true;
-    if (!enabled) return;
+    if (!this.gaugesEnabled()) return;
 
     try {
       const N = APP_METRIC_NAMES;

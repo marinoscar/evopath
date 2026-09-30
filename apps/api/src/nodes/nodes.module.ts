@@ -164,6 +164,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../settings/settings.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { NodeDataPlaneService } from './node-data-plane.service';
+import { NodeFleetMetrics } from './node-fleet-metrics.service';
 import { NodeLifecycleService } from './node-lifecycle.service';
 import { NodeSecretBrokerService } from './node-secret-broker.service';
 import { NodesAdminController } from './nodes-admin.controller';
@@ -199,6 +200,10 @@ import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
     NodeFleetPruneHandler,
     NodeSecretSweepTask,
     NodeSecretRevoker,
+    // #131: the `app.nodes.*` observable gauges. Here, not in the global
+    // `AppMetricsModule`, because the callback reads `NodeOffloadService` and
+    // the fleet policy; it borrows the meter and gate from `AppMetricsService`.
+    NodeFleetMetrics,
   ],
 })
 export class NodesModule {}

@@ -63,6 +63,7 @@ import {
   useWorkerNodes,
 } from '../../../hooks/useWorkerNodes';
 import WorkersPage from '../../../pages/Admin/WorkersPage';
+import { fullVitals, lowDiskVitals } from '../../mocks/fixtures/nodeVitals';
 
 const mockUseWorkerNodes = vi.mocked(useWorkerNodes);
 const mockUseNodeCredentials = vi.mocked(useNodeCredentials);
@@ -89,6 +90,8 @@ function node(overrides: Partial<WorkerNode> = {}): WorkerNode {
     lastHeartbeatAt: '2026-01-01T11:59:00.000Z',
     owner: { id: 'u1', email: 'ops@example.com', name: 'Ops' },
     jobCounts: { running: 1, pending: 2, succeeded: 30, failed: 3, total: 36 },
+    lastVitals: null,
+    lastVitalsAt: null,
     ...overrides,
   };
 }
@@ -332,16 +335,113 @@ describe('WorkersPage', () => {
   });
 
   // =========================================================================
+  // Vitals (#131) — self-reported, display only
+  // =========================================================================
+
+  describe('vitals', () => {
+    const reportingNode = node({
+      lastVitals: fullVitals,
+      lastVitalsAt: '2026-01-01T11:59:00.000Z',
+    });
+
+    it('shows compact vitals per node, and a muted "No vitals" for a node without any', async () => {
+      setNodesState([reportingNode, { ...staleNode, lastVitals: null }]);
+      renderPage();
+
+      const cell = await screen.findByTestId(`node-vitals-${reportingNode.id}`);
+      expect(cell).toHaveTextContent('CPU 42% · Slots 1/4');
+      expect(cell).toHaveTextContent('Mem 512 MB (heap 25%)');
+      expect(cell).toHaveTextContent('Disk 50% free');
+      expect(await screen.findByTestId(`node-vitals-${staleNode.id}`)).toHaveTextContent(
+        'No vitals',
+      );
+    });
+
+    it('greys a stale node’s vitals and labels them in words', async () => {
+      setNodesState([{ ...staleNode, lastVitals: fullVitals }]);
+      renderPage();
+
+      const cell = await screen.findByTestId(`node-vitals-${staleNode.id}`);
+      expect(cell).toHaveAttribute('data-stale', 'true');
+      expect(cell).toHaveTextContent('Stale · CPU 42%');
+    });
+
+    it('adds fleet saturation over HEALTHY nodes with vitals to the summary strip', async () => {
+      setNodesState([
+        node({ id: 'a', name: 'a', lastVitals: { slotsUsed: 3, slotsTotal: 4 } }),
+        node({ id: 'b', name: 'b', lastVitals: { slotsUsed: 1, slotsTotal: 4 } }),
+        // A stale node's last report is not counted.
+        { ...staleNode, lastVitals: { slotsUsed: 8, slotsTotal: 8 } },
+        { ...offlineNode, lastVitals: null },
+      ]);
+      renderPage();
+
+      const strip = await screen.findByLabelText('Fleet summary');
+      const tile = within(strip).getByText('Saturation').parentElement!;
+      expect(tile).toHaveTextContent('4 / 8');
+      expect(tile).toHaveTextContent('50% of slots in use');
+    });
+
+    it('shows saturation as unknown rather than 0% when no healthy node reports slots', async () => {
+      setNodesState([healthyNode, staleNode]);
+      renderPage();
+
+      const strip = await screen.findByLabelText('Fleet summary');
+      const tile = within(strip).getByText('Saturation').parentElement!;
+      expect(tile).toHaveTextContent('—');
+      expect(tile).toHaveTextContent('No healthy node reporting slots');
+    });
+
+    it('counts low-disk nodes (under 10% free) in the summary strip', async () => {
+      setNodesState([
+        node({ id: 'a', name: 'a', lastVitals: lowDiskVitals }),
+        { ...staleNode, lastVitals: lowDiskVitals },
+        node({ id: 'c', name: 'c', lastVitals: fullVitals }),
+        healthyNode,
+      ]);
+      renderPage();
+
+      const strip = await screen.findByLabelText('Fleet summary');
+      expect(within(strip).getByText('Low disk').nextSibling).toHaveTextContent('2');
+      expect(within(strip).getByText('Under 10% free')).toBeInTheDocument();
+    });
+
+    it('opens the full vitals from the View vitals row action, for a read-only holder too', async () => {
+      const user = userEvent.setup();
+      setNodesState([reportingNode]);
+      renderPage(READ_ONLY);
+
+      await user.click(
+        await screen.findByRole('button', {
+          name: `View vitals for ${reportingNode.name} (${reportingNode.hostname})`,
+        }),
+      );
+
+      const dialog = await screen.findByRole('dialog', {
+        name: `Vitals — ${reportingNode.name} (${reportingNode.hostname})`,
+      });
+      expect(within(dialog).getByRole('table', { name: 'Node counters' })).toBeInTheDocument();
+      expect(within(dialog).getByText(/^Vitals reported /)).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+  });
+
+  // =========================================================================
   // Deleting a node
   // =========================================================================
 
   describe('deleting a node', () => {
     async function openDeleteConfirm(user: ReturnType<typeof userEvent.setup>) {
+      // Two row actions (View vitals, Delete node) since #131, so the grid
+      // folds them into the row's overflow menu.
       await user.click(
         await screen.findByRole('button', {
-          name: `Delete node for ${healthyNode.name} (${healthyNode.hostname})`,
+          name: `Row actions for ${healthyNode.name} (${healthyNode.hostname})`,
         }),
       );
+      await user.click(await screen.findByRole('menuitem', { name: 'Delete node' }));
       return screen.findByRole('dialog');
     }
 
@@ -393,13 +493,20 @@ describe('WorkersPage', () => {
       await waitFor(() => expect(mockRemoveNode).toHaveBeenCalledWith(healthyNode.id));
     });
 
-    it('offers NO row action at all without nodes:write', async () => {
+    it('offers NO delete action without nodes:write — only the read-only View vitals', async () => {
       renderPage(READ_ONLY);
 
       await screen.findByText(healthyNode.name);
-      // The ARRAY is gated, not a rendered control — so nothing appears in the
-      // grid, the tablet expander or the phone card.
+      // The ARRAY is gated, not a rendered control — so delete appears in
+      // none of the grid, the tablet expander or the phone card. Viewing
+      // vitals is a read, so it stays, alone, as a plain icon button.
       expect(screen.queryByRole('button', { name: /Delete node for/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Row actions for/ })).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('button', {
+          name: `View vitals for ${healthyNode.name} (${healthyNode.hostname})`,
+        }),
+      ).toBeInTheDocument();
     });
   });
 
