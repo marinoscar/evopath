@@ -1566,6 +1566,14 @@ model WorkerNode {
   // claimed still shows up as stale when it stops heartbeating.
   lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
 
+  // The node's last self-reported vitals snapshot (load, memory, disk, ...)
+  // carried on the heartbeat (#129). Opaque JSONB like `capabilities`: it is
+  // displayed, never filtered or indexed. `lastVitalsAt` is when the API
+  // stored it, so a stale snapshot is distinguishable from a fresh one.
+  // Both NULL until a heartbeat carries vitals.
+  lastVitals   Json?     @map("last_vitals") @db.JsonB
+  lastVitalsAt DateTime? @map("last_vitals_at") @db.Timestamptz
+
   // The user who registered this node — see the long comment below for why
   // this is required (not nullable) and `onDelete: Cascade`.
   createdById String @map("created_by_id") @db.Uuid

@@ -451,6 +451,12 @@ export class NodesService {
    * behind "a runtime `set-concurrency` takes effect on the next claim": the
    * claim endpoint re-reads this row rather than caching anything, so a
    * heartbeat is all it takes.
+   *
+   * `vitals` (#129), when present, replaces `lastVitals` wholesale and stamps
+   * `lastVitalsAt` with the same server clock as `lastHeartbeatAt`, in this
+   * one update. The row written is ALWAYS the path id after `assertOwnership`
+   * — nothing in the body can name a node, so a node cannot report vitals
+   * onto another node's row.
    */
   async heartbeat(
     userId: string,
@@ -469,15 +475,23 @@ export class NodesService {
       );
     }
 
+    const now = new Date();
+
     return this.prisma.workerNode.update({
       where: { id: node.id },
       data: {
-        lastHeartbeatAt: new Date(),
+        lastHeartbeatAt: now,
         ...(dto.status && !operatorOwned ? { status: dto.status as NodeStatus } : {}),
         ...(dto.concurrency === undefined ? {} : { concurrency: dto.concurrency }),
         ...(dto.capabilities === undefined
           ? {}
           : { capabilities: dto.capabilities as Prisma.InputJsonValue }),
+        // The snapshot and its timestamp move together or not at all: a
+        // heartbeat without `vitals` (every pre-#129 node) leaves the last
+        // snapshot and its age intact rather than blanking the fleet page.
+        ...(dto.vitals === undefined
+          ? {}
+          : { lastVitals: dto.vitals as Prisma.InputJsonValue, lastVitalsAt: now }),
       },
     });
   }

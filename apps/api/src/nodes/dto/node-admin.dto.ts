@@ -63,6 +63,107 @@ export class NodeJobCountsDto {
   total!: number;
 }
 
+/**
+ * A node's cumulative counters since its process started (#129). Reset when
+ * the node restarts, so a drop is a restart, not a correction.
+ */
+export class NodeVitalsCountersDto {
+  @ApiPropertyOptional({ description: 'Claim calls that returned at least one job' })
+  claims?: number;
+
+  @ApiPropertyOptional({ description: 'Claim calls that returned no jobs' })
+  emptyPolls?: number;
+
+  @ApiPropertyOptional({ description: 'Claim calls that failed' })
+  claimFailures?: number;
+
+  @ApiPropertyOptional({ description: 'Jobs this process completed successfully' })
+  succeeded?: number;
+
+  @ApiPropertyOptional({ description: 'Jobs this process reported as failed' })
+  failed?: number;
+
+  @ApiPropertyOptional({ description: 'Jobs this process reported as rate-limited' })
+  rateLimited?: number;
+
+  @ApiPropertyOptional({ description: 'Successful lease renewals' })
+  leaseRenewals?: number;
+
+  @ApiPropertyOptional({ description: 'Lease renewals that failed' })
+  leaseRenewFailures?: number;
+
+  @ApiPropertyOptional({ description: 'Heartbeats that failed' })
+  heartbeatFailures?: number;
+
+  @ApiPropertyOptional({ description: 'Times the node’s job watchdog aborted a job' })
+  watchdogTrips?: number;
+}
+
+/**
+ * The last health snapshot a node reported on its heartbeat (#129).
+ *
+ * SELF-REPORTED AND UNTRUSTED: validated and bounded on the way in
+ * (`nodeVitalsSchema` in `node-control-plane.dto.ts`), but never used for a
+ * scheduling decision — display only. Every field is optional; a node reports
+ * what it can measure.
+ */
+export class NodeVitalsDto {
+  @ApiPropertyOptional({
+    description: 'Process CPU over the last interval; 100 = one full core',
+    maximum: 12800,
+  })
+  cpuPercent?: number;
+
+  @ApiPropertyOptional({ description: 'Resident set size, bytes' })
+  rssBytes?: number;
+
+  @ApiPropertyOptional({ description: 'V8 heap in use, bytes' })
+  heapUsedBytes?: number;
+
+  @ApiPropertyOptional({ description: 'V8 heap limit, bytes' })
+  heapLimitBytes?: number;
+
+  @ApiPropertyOptional({ description: 'Event-loop delay p99 over the last interval, milliseconds' })
+  eventLoopDelayP99Ms?: number;
+
+  @ApiPropertyOptional({
+    description: 'Free bytes on the filesystem holding the node’s state directory',
+  })
+  stateDirFreeBytes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Total bytes on the filesystem holding the node’s state directory',
+  })
+  stateDirTotalBytes?: number;
+
+  @ApiPropertyOptional({ description: 'Job slots in use', maximum: 64 })
+  slotsUsed?: number;
+
+  @ApiPropertyOptional({ description: 'Job slots available in total', maximum: 64 })
+  slotsTotal?: number;
+
+  @ApiPropertyOptional({ description: 'Node process uptime, seconds' })
+  uptimeSeconds?: number;
+
+  @ApiPropertyOptional({
+    description: 'Cumulative counters since the node process started',
+    type: NodeVitalsCountersDto,
+  })
+  counters?: NodeVitalsCountersDto;
+
+  @ApiPropertyOptional({ description: 'The node CLI’s version', maxLength: 64 })
+  cliVersion?: string;
+
+  @ApiPropertyOptional({ description: 'The Node.js runtime version', maxLength: 64 })
+  nodeVersion?: string;
+
+  @ApiPropertyOptional({
+    description: 'The `pg_dump` version on the node, when it has one',
+    maxLength: 64,
+  })
+  pgDumpVersion?: string;
+}
+
 /** One node as the admin fleet page sees it. */
 export class AdminNodeDto {
   @ApiProperty({ description: 'Node ID (UUID)' })
@@ -121,6 +222,24 @@ export class AdminNodeDto {
     nullable: true,
   })
   lastHeartbeatAt!: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'The last health snapshot the node reported on a heartbeat, or `null` if it has never ' +
+      'reported one. Self-reported and bounded, never trusted for scheduling; kept until the ' +
+      'next heartbeat that carries vitals replaces it.',
+    nullable: true,
+    type: NodeVitalsDto,
+  })
+  lastVitals!: NodeVitalsDto | null;
+
+  @ApiPropertyOptional({
+    description:
+      'ISO 8601 server timestamp of the heartbeat that carried `lastVitals`, or `null`. ' +
+      'Compare with `lastHeartbeatAt`: a node that heartbeats without vitals keeps an ageing snapshot.',
+    nullable: true,
+  })
+  lastVitalsAt!: string | null;
 
   @ApiProperty({ description: 'The user who registered this node', type: NodeOwnerDto })
   owner!: NodeOwnerDto;

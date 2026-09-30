@@ -27,7 +27,7 @@ Two node-eligible types ship today: `example.checksum` (the reference) and `db.b
 
 | Table / model | Holds |
 |---|---|
-| `worker_nodes` (`WorkerNode`) | Identity (`createdById` + `name`, unique together), `hostname`, `platform`, `cliVersion`, declared `eligibleTypes` and `concurrency`, self-reported `capabilities` (JSONB), `registeredAt`, `lastHeartbeatAt`, operator `status` |
+| `worker_nodes` (`WorkerNode`) | Identity (`createdById` + `name`, unique together), `hostname`, `platform`, `cliVersion`, declared `eligibleTypes` and `concurrency`, self-reported `capabilities` (JSONB), `registeredAt`, `lastHeartbeatAt`, operator `status`, the last self-reported vitals snapshot `lastVitals` (JSONB) and its server stamp `lastVitalsAt` |
 | `node_credentials` (`NodeCredential`) | sha256 hash of a `nod_` token, display prefix, owner, nullable `expiresAt`, `revokedAt`, `lastUsedAt` |
 | `job_node_secrets` (`JobNodeSecret`) | One row per brokered per-job credential: broker `kind`, the credential's **handle** (never its material), `expiresAt`, `revokedAt`; unique on `(jobId, kind)` |
 | `jobs.claimed_by_node_id` | The node holding a job; `onDelete: SetNull` |
@@ -75,6 +75,8 @@ Everything mounted under `/api/nodes` is reachable by an unattended, possibly mo
 `POST /api/nodes/{id}/heartbeat` stamps `lastHeartbeatAt` and may refresh `concurrency` and `capabilities`. A runtime `evopathcli node set-concurrency` takes effect this way.
 
 A node may report `online` or `offline` about itself. It can never report or clear `draining` or `disabled`; those are operator state. Liveness has exactly one writer: claim does not stamp `lastHeartbeatAt`.
+
+**Vitals (#129).** A heartbeat may carry an optional `vitals` snapshot: `cpuPercent`, `rssBytes`, `heapUsedBytes`, `heapLimitBytes`, `eventLoopDelayP99Ms`, `stateDirFreeBytes`, `stateDirTotalBytes`, `slotsUsed`, `slotsTotal`, `uptimeSeconds`, a `counters` object (`claims`, `emptyPolls`, `claimFailures`, `succeeded`, `failed`, `rateLimited`, `leaseRenewals`, `leaseRenewFailures`, `heartbeatFailures`, `watchdogTrips`), and the version banners `cliVersion`, `nodeVersion`, `pgDumpVersion`. The values are untrusted, so `nodeVitalsSchema` (`node-control-plane.dto.ts`) is strict at both levels (an unknown key is a `400`), every field is optional, every number is non-negative with a ceiling (CPU ≤ 12800%, memory ≤ 1 PiB, disk ≤ 2^64, slots ≤ `MAX_NODE_CONCURRENCY`, counters are integers ≤ 1e12), and each version is ≤ 64 version-shaped characters. The ceilings are deliberately generous: an out-of-range value fails the whole heartbeat, and a node whose heartbeats fail goes stale. When present, the snapshot replaces `last_vitals` and `last_vitals_at` is stamped with the heartbeat's server time, in the same single update; when absent, both are left untouched. The row written is always the path id after the ownership check. Vitals are display-only (the admin fleet read exposes `lastVitals`/`lastVitalsAt`); the node-facing `WorkerNodeDto` does not echo them, and no scheduling decision reads them.
 
 `POST /api/nodes/{id}/deregister` marks the node `offline`. It does **not** requeue held jobs: nothing proves the work stopped. Held jobs return through the lease reaper, the same path a crashed node takes.
 
@@ -282,7 +284,7 @@ CLI-side settings (`EVOPATHCLI_*`, including `EVOPATHCLI_HEAP_LIMIT_MB`) are doc
 | `GET /api/nodes` | List the caller's nodes | `nodes:read` |
 | `GET /api/nodes/{id}` | One node | `nodes:read` |
 | `POST /api/nodes/{id}/deregister` | Mark offline; held jobs are not requeued | `nodes:write` |
-| `POST /api/nodes/{id}/heartbeat` | Liveness, optional `status`/`concurrency`/`capabilities` | `nodes:write` |
+| `POST /api/nodes/{id}/heartbeat` | Liveness, optional `status`/`concurrency`/`capabilities`/`vitals` | `nodes:write` |
 | `POST /api/nodes/{id}/claim` | Claim up to `concurrency` jobs under a lease | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/renew` | Extend the lease | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/download-url` | Signed GET for the job's input | `nodes:write` |
@@ -339,7 +341,8 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 | `apps/api/src/common/maintenance/maintenance.guard.spec.ts` | `OPAQUE_BEARER_PREFIXES` contains `NODE_TOKEN_PREFIX` |
 | `apps/api/test/auth/pat-universality.integration.spec.ts` | A PAT stays universal (why nodes need their own family) |
 | `apps/api/src/nodes/nodes.service.spec.ts` | Register-or-reattach incl. `P2002`; the three claim filters; lease guard's five conditions one at a time across `renew`/`result`/`failure` |
-| `apps/api/test/nodes/nodes.integration.spec.ts` | `409` on late submission, Zod issues in `details`, `claimToken` round trip, `400` for a non-uuid token |
+| `apps/api/test/nodes/nodes.integration.spec.ts` | `409` on late submission, Zod issues in `details`, `claimToken` round trip, `400` for a non-uuid token; heartbeat vitals persisted and shown by the admin read, `400` for unknown or out-of-range vitals |
+| `apps/api/src/nodes/dto/node-control-plane.dto.spec.ts` | Vitals schema: strict at both levels, every bound, a pre-vitals heartbeat still parses |
 | `apps/api/test/nodes/node-claim-contention.db.spec.ts` | Real Postgres: a node and the in-process worker never claim the same row |
 | `apps/api/src/nodes/node-data-plane.service.spec.ts` | Guard reached, server-derived key, expiry clamp both ways, three input reasons, stale `claimToken` refused on both URL routes |
 | `apps/api/test/nodes/node-data-plane.integration.spec.ts` | `job-types` route order, valid JSON Schemas, `409`/`400`/`422`, no signed URL in logs |
@@ -402,3 +405,4 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - #270: fleet sweep and prune; #276: CLI capability probe; #274: CLI executors.
 - Epic #345: #348 `deriveOutputKey`; #349 per-job secret broker; #351/#352 `db.backup.run` on nodes; #353 fleet crons converted to queue jobs.
 - #364: claim token on the node control plane. #477: claim-conditional settle writes.
+- #129: node vitals on the heartbeat (`last_vitals`, `last_vitals_at`).

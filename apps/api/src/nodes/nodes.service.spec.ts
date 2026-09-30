@@ -349,6 +349,44 @@ describe('NodesService', () => {
       expect(data.capabilities).toEqual({ gpu: true });
     });
 
+    it('persists vitals and stamps lastVitalsAt in the SAME update as liveness', async () => {
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(makeNode());
+      const vitals = { cpuPercent: 12.5, slotsUsed: 1, slotsTotal: 2, counters: { claims: 3 } };
+
+      await service.heartbeat(USER, NODE_ID, { vitals } as HeartbeatNodeDto);
+
+      expect(prisma.workerNode.update).toHaveBeenCalledTimes(1);
+      const { where, data } = (prisma.workerNode.update as jest.Mock).mock.calls[0][0];
+      // Identity is the path id after the ownership check — nothing else.
+      expect(where).toEqual({ id: NODE_ID });
+      expect(data.lastVitals).toEqual(vitals);
+      expect(data.lastVitalsAt).toBeInstanceOf(Date);
+      // One server clock for both stamps.
+      expect(data.lastVitalsAt).toBe(data.lastHeartbeatAt);
+    });
+
+    it('leaves lastVitals and lastVitalsAt untouched when the heartbeat carries none', async () => {
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(makeNode());
+
+      await service.heartbeat(USER, NODE_ID, { status: 'online' } as HeartbeatNodeDto);
+
+      const data = (prisma.workerNode.update as jest.Mock).mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('lastVitals');
+      expect(data).not.toHaveProperty('lastVitalsAt');
+      expect(data.lastHeartbeatAt).toBeInstanceOf(Date);
+    });
+
+    it('writes no vitals for a node the caller does not own', async () => {
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(
+        makeNode({ createdById: 'someone-else' })
+      );
+
+      await expect(
+        service.heartbeat(USER, NODE_ID, { vitals: { cpuPercent: 1 } } as HeartbeatNodeDto)
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.workerNode.update).not.toHaveBeenCalled();
+    });
+
     it.each([['disabled'], ['draining']])(
       'refuses to let a heartbeat clear an operator’s `%s`',
       async (status) => {
