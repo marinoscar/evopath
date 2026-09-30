@@ -166,6 +166,10 @@ const DEFAULT_PERMISSIONS = [
   // literal permission `about/about.controller.ts` enforces. Noted rather than
   // left silent, so the next reader does not "fix" a missing `about:read` that
   // deliberately does not exist.
+  // The `Factory reset` card (#211), alone in the `Danger Zone` group. Same
+  // contract as every string above: without it the admin hub baselines would
+  // keep passing over a grid that silently lacks the group.
+  'system:factory_reset',
 ];
 
 interface HarnessParams {
