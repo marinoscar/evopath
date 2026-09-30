@@ -404,6 +404,11 @@ export class AdaptationService {
         throw this.raceRefusal(winner);
       }
       if (isUniqueViolation(error)) {
+        // Two taps at once: the other one created THIS adaptation's workout and committed first (the index
+        // only fires once it has), so this tap is the idempotent repeat, not a "another workout" conflict.
+        const current = await this.load(userId, id);
+        if (current.appliedAs === 'one_off' && current.appliedWorkoutId) return this.oneOffResult(current.appliedWorkoutId);
+
         const winner = await this.prisma.workout.findFirst({ where: { userId, status: 'in_progress' }, select: { id: true } });
         if (winner) {
           throw new ConflictException({
