@@ -22,6 +22,7 @@ const MODELS = [
   'programVersion',
   'programChangeLog',
   'workout',
+  'programSession',
   'exercise',
   'gym',
 ] as const;
@@ -33,6 +34,7 @@ const RELATIONS: Partial<Record<Model, Record<string, [Model, string]>>> = {
   programWorkout: { week: ['programWeek', 'weekId'] },
   programExercise: { programWorkout: ['programWorkout', 'programWorkoutId'] },
   workout: { programWorkout: ['programWorkout', 'programWorkoutId'] },
+  programSession: { programWorkout: ['programWorkout', 'programWorkoutId'] },
 };
 
 const OPERATORS = new Set(['in', 'not', 'lt', 'lte', 'gt', 'gte']);
@@ -195,12 +197,14 @@ export function createInMemoryProgramsPrisma() {
       drop('programBlock', 'programId');
       drop('programVersion', 'programId');
       drop('programChangeLog', 'programId');
+      drop('programSession', 'programId');
     }
     if (model === 'programBlock') drop('programWeek', 'blockId');
     if (model === 'programWeek') drop('programWorkout', 'weekId');
     if (model === 'programWorkout') {
       drop('programExercise', 'programWorkoutId');
       for (const w of tables.workout) if (ids.has(w.programWorkoutId)) w.programWorkoutId = null;
+      for (const s of tables.programSession) if (ids.has(s.programWorkoutId)) s.programWorkoutId = null;
     }
   }
 

@@ -377,10 +377,15 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 - **One write chokepoint:** `ProgramsService.applyChange` is the only writer of an existing tree; manual edits (`PUT /api/programs/:id/structure`), reverts and future agent adaptations all go through it. `createWithTree` is the only other writer (version 1). The write diffs the tree against the stored rows in one transaction and bumps the version with a conditional update on `currentVersion`, so a stale `If-Match` is a 409 `TRAINING_STALE_PLAN` and nothing changes. An archived program refuses edits (`PROGRAM_ARCHIVED`).
 - **Revert:** `POST /api/programs/:id/revert` restores a version's tree as a new version (`origin: revert`), or undoes the latest applied change by `changeLogId`, marking that entry `reverted`. History is never rewritten.
 - **Archive, not delete:** a workout, week or block that has logged workouts linked to it is archived (`archivedAt`) instead of deleted, so history keeps its link; `DELETE /api/programs/:id` refuses with `PROGRAM_HAS_HISTORY` when any logged workout links in.
+- **Today's workout:** the pure resolver `resolve-today.ts` picks the session from the active plan for the calendar day the client sends (its local day, never guessed by the server). A workout of plan week N occurs on the first day of that week's seven-day window whose ISO weekday matches.
+  - `GET /api/training/today?date=` (`programs:read`) answers one of the kinds `no_program`, `not_started`, `program_complete` (the plan is marked `completed`, once), `rest_day` (with the next occurrence within 14 days) or `workout` (with the hydrated session and `done` when a completed workout is linked).
+  - `POST /api/program-workouts/:id/start` (`programs:read` and `workouts:write`) starts the E4 logger prefilled through `WorkoutsService.startPrefilled` and writes the `ProgramSession` row with the plan version and a planned snapshot, in one transaction. It answers 201, or 200 with `existing: true` when the in-progress workout is already this planned workout (idempotent). 409 reasons in `details.reason`: `PROGRAM_NOT_ACTIVE`, `WORKOUT_IN_PROGRESS` (with `workoutId` to resume), `PROGRAM_WORKOUT_EMPTY`.
+  - Prefill rules follow each exercise's `loadGuidance`: `fixed` uses the target load (else the last top set), `from_history` the last top set, `choose_start` none. Sets are uncompleted with `reps = repMin`. The server computes no new prescription.
+  - The logged history that archives instead of deleting, and refuses `DELETE /api/programs/:id` with `PROGRAM_HAS_HISTORY`, includes `program_sessions` as well as `workouts.program_workout_id`.
 - **One active program per user:** the raw-SQL partial unique index `programs_one_active_per_user_uniq_idx` (see [§6.1](#61-prisma-models)). Lifecycle: `draft`, `active`, `paused`, `archived`, `completed`.
 
-- **Code:** `apps/api/src/programs/` (`ProgramsModule`; contracts in `contracts/`, refusal reasons in `programs.constants.ts`)
-- **Routes:** `/api/programs` (including `/:id/structure`, `/:id/activate`, `/:id/pause`, `/:id/archive`, `/:id/duplicate`, `/:id/versions`, `/:id/revert` and `/:id/change-log`); details in `/api/docs` (tag "Programs")
+- **Code:** `apps/api/src/programs/` (`ProgramsModule`; today's workout in `today/`; contracts in `contracts/`, refusal reasons in `programs.constants.ts`)
+- **Routes:** `/api/training/today`, `/api/program-workouts/:id/start` and `/api/programs` (including `/:id/structure`, `/:id/activate`, `/:id/pause`, `/:id/archive`, `/:id/duplicate`, `/:id/versions`, `/:id/revert` and `/:id/change-log`); details in `/api/docs` (tag "Programs")
 - **Permissions:** `programs:read`, `programs:write`
 
 ---
@@ -453,6 +458,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Training | `ProgramExercise` | `program_exercises` | One prescription: exercise, `position`, `isPriority`, target sets, rep range, optional load (kg) and RPE, rest, `loadGuidance`, evidence refs; value ranges guarded by the `program_exercises_ranges_chk` CHECK |
 | Training | `ProgramVersion` | `program_versions` | Immutable full snapshot of a program's tree per `versionNumber` (unique with `programId`), with `origin`, rationale, evidence, optional plain `runId` |
 | Training | `ProgramChangeLog` | `program_change_log` | One change to a program: `kind`, `actor`, `status` (`applied`, `reverted`, ...), from and to version, `operations`, `citations`, `revertsLogId`, `seenAt`; indexed by `(programId, createdAt DESC)` |
+| Training | `ProgramSession` | `program_sessions` | Link between a planned workout and the logged workout started from it: unique `workoutId` (cascade with the workout), `programWorkoutId` (set null on delete), the plan `versionNumber`, the `plannedSnapshot` JSON of the prescription taken at start, and `plannedFor` |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 

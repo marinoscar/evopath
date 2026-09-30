@@ -296,4 +296,97 @@ describe('TodayWorkout', () => {
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
   });
+  describe('with the active plan (E5.7, programs:read)', () => {
+    const withPrograms = [...mockUser.permissions, 'programs:read'];
+
+    it('shows the planned session above the E4 content, keeping Start workout', async () => {
+      serveSummary(EMPTY);
+      server.use(
+        http.get('*/api/training/today', () =>
+          HttpResponse.json({
+            data: {
+              kind: 'rest_day',
+              date: '2026-09-30',
+              program: { id: 'p1', name: 'Muscle gain' },
+              weekNumber: 1,
+              totalWeeks: 4,
+              next: null,
+            },
+          }),
+        ),
+      );
+      renderCard({ permissions: withPrograms });
+      expect(await screen.findByRole('heading', { name: 'Rest day' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Start workout' })).toBeInTheDocument();
+      expect(screen.getByText('No workouts yet.')).toBeInTheDocument();
+    });
+
+    it("keeps E4.6's Resume workout when the planned session is in progress", async () => {
+      serveSummary({
+        ...EMPTY,
+        inProgress: {
+          id: '00000000-0000-4000-8000-000000000123',
+          name: 'Upper A',
+          startedAt: WORKOUT_NOW,
+          gym: null,
+          exerciseCount: 1,
+          completedSetCount: 0,
+        },
+      });
+      server.use(
+        http.get('*/api/training/today', () =>
+          HttpResponse.json({
+            data: {
+              kind: 'workout',
+              date: '2026-09-30',
+              program: { id: 'p1', name: 'Muscle gain' },
+              programWorkout: { id: 'pw1', name: 'Upper A', weekday: 3, estimatedMinutes: null },
+              weekNumber: 1,
+              totalWeeks: 4,
+              isDeload: false,
+              done: false,
+              completedWorkoutId: null,
+              inProgressWorkoutId: '00000000-0000-4000-8000-000000000123',
+              session: {
+                programId: 'p1',
+                programName: 'Muscle gain',
+                programWorkoutId: 'pw1',
+                name: 'Upper A',
+                weekNumber: 1,
+                totalWeeks: 4,
+                isDeload: false,
+                estimatedMinutes: null,
+                planVersion: 1,
+                unseenChangeCount: 0,
+                lastChange: null,
+                exercises: [],
+              },
+            },
+          }),
+        ),
+      );
+      renderCard({ permissions: withPrograms });
+      expect(await screen.findByText('In progress')).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'Resume workout' })).toHaveAttribute(
+        'href',
+        '/train/workouts/00000000-0000-4000-8000-000000000123',
+      );
+      expect(screen.queryByRole('button', { name: 'Start planned workout' })).toBeNull();
+    });
+
+    it('asks nothing of the plan API without programs:read', async () => {
+      serveSummary(EMPTY);
+      let asked = false;
+      server.use(
+        http.get('*/api/training/today', () => {
+          asked = true;
+          return HttpResponse.json({ data: { kind: 'no_program', date: '2026-09-30' } });
+        }),
+      );
+      renderCard();
+      await screen.findByText('No workouts yet.');
+      expect(asked).toBe(false);
+      expect(screen.queryByTestId('today-plan')).toBeNull();
+    });
+  });
 });

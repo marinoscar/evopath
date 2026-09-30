@@ -2,7 +2,8 @@
  * The Today page's "Today's workout" card body (E4.6): Resume the workout in
  * progress, or Start one (the Train page's `StartWorkoutDialog`, mounted in
  * place, then the logger); the last completed workout at a glance; and this
- * week's count.
+ * week's count. With `programs:read`, the active plan's session for today
+ * (`TodayPlanCard`, shared with Train) comes first.
  *
  * Rendered inside `TodayCard`, which keeps the frame, the `h2` and the
  * "Open Train" link. Loading and failure are quiet and local: the other
@@ -23,6 +24,7 @@ import {
 import { formatWeight, type WeightUnit } from '../../utils/units';
 import { formatDaysAgo, formatDuration, formatVolume, pluralize } from '../../utils/workoutFormat';
 import { StartWorkoutDialog } from '../train/StartWorkoutDialog';
+import { TodayPlanCard } from '../training/TodayPlanCard';
 import { WORKOUT_IN_PROGRESS_NOTICE } from '../../pages/TrainPage';
 
 /** How often the in-progress elapsed time is re-rendered. */
@@ -208,10 +210,24 @@ function Training({ canWrite }: { canWrite: boolean }) {
 
 export function TodayWorkout() {
   const { hasPermission } = usePermissions();
+  const canWrite = hasPermission('workouts:write');
+  const plan = hasPermission('programs:read') ? (
+    <TodayPlanCard canStart={canWrite} canWritePrograms={hasPermission('programs:write')} />
+  ) : null;
   if (!hasPermission('workouts:read')) {
-    return <Typography color="text.secondary">{WORKOUTS_UNAVAILABLE}</Typography>;
+    return (
+      <>
+        {plan}
+        <Typography color="text.secondary">{WORKOUTS_UNAVAILABLE}</Typography>
+      </>
+    );
   }
-  return <Training canWrite={hasPermission('workouts:write')} />;
+  return (
+    <>
+      {plan}
+      <Training canWrite={canWrite} />
+    </>
+  );
 }
 
 export default TodayWorkout;

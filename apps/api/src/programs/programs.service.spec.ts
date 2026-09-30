@@ -225,6 +225,17 @@ describe('ProgramsService.applyChange', () => {
     expect(db.tables.programWorkout).toEqual([expect.objectContaining({ id: workoutId, archivedAt: null })]);
     expect(db.tables.programVersion.at(-1)).toMatchObject({ versionNumber: 4, origin: 'revert' });
   });
+
+  it('archives (never deletes) a removed workout that only a planned session points at', async () => {
+    const { db, service } = setup();
+    const { programId } = await manualProgram(service);
+    await service.applyChange(change(programId, 1, addWorkout(1)));
+    const workoutId = db.tables.programWorkout[0].id;
+    db.tables.programSession.push({ id: randomUUID(), userId: USER, programId, programWorkoutId: workoutId, workoutId: randomUUID() });
+
+    await service.applyChange(change(programId, 2, (tree) => ({ blocks: tree.blocks.map((b) => ({ ...b, weeks: b.weeks.map((w) => ({ ...w, workouts: [] })) })) })));
+    expect(db.tables.programWorkout).toEqual([expect.objectContaining({ id: workoutId, archivedAt: expect.any(Date) })]);
+  });
 });
 
 describe('ProgramsService.revert', () => {
@@ -339,6 +350,15 @@ describe('ProgramsService lifecycle', () => {
     await service.remove(USER, programId);
     expect(db.tables.program).toHaveLength(0);
     expect(db.tables.programVersion).toHaveLength(0);
+  });
+
+  it('refuses to delete a program a planned session points into (409)', async () => {
+    const { db, service } = setup();
+    const { programId } = await manualProgram(service);
+    db.tables.programSession.push({ id: randomUUID(), userId: USER, programId, programWorkoutId: null, workoutId: randomUUID() });
+
+    const error = await rejection(service.remove(USER, programId));
+    expect((error as ConflictException).getResponse()).toMatchObject({ details: { reason: 'PROGRAM_HAS_HISTORY' } });
   });
 });
 

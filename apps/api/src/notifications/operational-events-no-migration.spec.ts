@@ -109,6 +109,9 @@ const MIGRATIONS_AT_288 = [
   // `program_exercises`, `program_versions`, `program_change_log` and the
   // `workouts.program_workout_id` foreign key. Not about notifications.
   '20260930130000_add_training_programs',
+  // E5.7: `program_sessions` — a logged workout's link to the planned one,
+  // with the prescription snapshotted at start. Not about notifications.
+  '20260930140000_add_program_sessions',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

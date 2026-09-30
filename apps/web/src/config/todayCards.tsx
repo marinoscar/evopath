@@ -38,6 +38,7 @@ export const TODAY_CARDS: readonly TodayCardDef[] = [
     linkLabel: 'Open Train',
     area: 'programs',
     // E4.6: Start or Resume a workout, the last workout and this week's count.
+    // E5.7: the active plan's session for today (TodayPlanCard) comes first.
     Content: TodayWorkout,
   },
   {
