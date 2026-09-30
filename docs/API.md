@@ -270,6 +270,7 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `admin/maintenance` | Open or close the maintenance window | `system_settings:*` | [maintenance-mode](specs/maintenance-mode.md) |
 | `admin/db-backup` | Database backup, restore and rollback | `db_backup:read/write/restore` | [database-backup](specs/database-backup.md) |
 | `admin/about` | Deployed version and deploy history | `system_settings:read` | [vps-deploy](specs/vps-deploy.md) |
+| `admin/doctor` | Read-only configuration and health checks for every capability | `system_settings:read` | [doctor](specs/doctor.md) |
 | `ai` | AI config, BYOK keys, models, per-feature model resolution (`/api/ai/features`), responses, streaming, embeddings, training model resolution and token estimates | `ai:use` (`GET /api/ai/config`: any user) | [ai-platform](specs/ai-platform.md) |
 | `ai/images`, `ai/audio`, `ai/realtime` | Queued image/audio work, realtime sessions | `ai:use` | [ai-platform](specs/ai-platform.md) |
 | `ai/runs`, `ai/usage` | Background run status, caller's own usage | `ai:use` | [ai-platform](specs/ai-platform.md) |
