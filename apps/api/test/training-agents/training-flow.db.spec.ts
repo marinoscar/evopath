@@ -138,10 +138,14 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
 
   afterAll(async () => {
     Object.assign(TRAINING_GRAPH_READY, savedReady);
-    const jobIds = (await client.trainingPlanRun.findMany({ where: { userId: { in: userIds } }, select: { jobIds: true } }))
+    // Every job this suite caused, claimed or not (a follow-up evaluation can
+    // be enqueued and never run): leftovers would look stuck to the reaper in
+    // other real-Postgres suites.
+    const runs = await client.trainingPlanRun.findMany({ where: { userId: { in: userIds } }, select: { id: true, jobIds: true } });
+    const jobIds = runs
       .flatMap((r) => (Array.isArray(r.jobIds) ? r.jobIds : []))
       .filter((id): id is string => typeof id === 'string');
-    await client.job.deleteMany({ where: { id: { in: jobIds } } });
+    await client.job.deleteMany({ where: { OR: [{ id: { in: jobIds } }, { subjectId: { in: runs.map((r) => r.id) } }] } });
     await client.trainingRunCheckpointWrite.deleteMany({ where: { threadId: { in: threads } } });
     await client.trainingRunCheckpoint.deleteMany({ where: { threadId: { in: threads } } });
     await client.workout.deleteMany({ where: { userId: { in: userIds } } });
