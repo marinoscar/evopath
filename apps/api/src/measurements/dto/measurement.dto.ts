@@ -394,6 +394,14 @@ export const measurementSchema = z.object({
     .record(z.string(), z.unknown())
     .nullable()
     .meta({ description: 'Provenance written by server code (photo intake); null otherwise.' }),
+  fileDeleted: z
+    .boolean()
+    .nullable()
+    .meta({
+      description:
+        "Whether the file this reading was read from (`sourceRef.healthDocumentId`) was erased (delete after processing); " +
+        'null when the reading names no health document.',
+    }),
   revision: z.number().int(),
   edited: z.boolean().meta({ description: '`revision > 1`.' }),
 });

@@ -84,7 +84,8 @@ export class IntakesController {
     summary: 'Start a photo intake',
     description:
       'Creates a `draft` intake of a registered `kind`. `context` is validated by the kind (for ' +
-      'example that the gym it names is yours; a foreign id is a 404).',
+      'example that the gym it names is yours; a foreign id is a 404). `retainFiles` (default `true`) ' +
+      'is the keep-or-delete choice for the files of a health intake kind.',
   })
   @ApiDataResponse(PhotoIntakeView, { status: 201, description: 'The new intake' })
   @ApiResponse({
@@ -151,10 +152,12 @@ export class IntakesController {
   @Patch(':id')
   @Auth({ permissions: [PERMISSIONS.INTAKES_WRITE] })
   @ApiOperation({
-    summary: 'Change a photo intake\'s context',
+    summary: 'Change a photo intake\'s context or file retention',
     description:
       'Replaces `context` (for example a source hint the analyzer reads) in `draft`, `ready` or ' +
-      '`failed`. The kind validates it as on create; photos and items are untouched.',
+      '`failed`. The kind validates it as on create; photos and items are untouched. `retainFiles` ' +
+      'changes the keep-or-delete choice of the intake and of every file already attached; a body ' +
+      'with only `retainFiles` leaves `context` as it is.',
   })
   @ApiParam(ID_PARAM)
   @ApiDataResponse(PhotoIntakeView, { description: 'The intake' })
@@ -220,7 +223,9 @@ export class IntakesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AttachPhotoDto,
   ) {
-    return this.intakes.attachPhoto(user.id, id, dto.storageObjectId, user.permissions);
+    return this.intakes.attachPhoto(user.id, id, dto.storageObjectId, user.permissions, {
+      retainFiles: dto.retainFiles,
+    });
   }
 
   @Delete(':id/photos/:storageObjectId')

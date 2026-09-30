@@ -395,6 +395,9 @@ describe('/api/intakes over HTTP (E3.1)', () => {
         storageObjectId: OBJECT,
         name: 'rack.jpg',
         sortOrder: 0,
+        // `gym_equipment` is not a health intake kind: no health document.
+        healthDocumentId: null,
+        retention: null,
       });
     });
 

@@ -37,6 +37,7 @@ model User {
   deviceCodes            DeviceCode[]            @relation("UserDeviceCodes")
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
   photoIntakes           PhotoIntake[]
+  healthDocuments        HealthDocument[]
   gyms                   Gym[]
   equipmentTypes         EquipmentType[]
   exercises              Exercise[]
@@ -394,11 +395,12 @@ model StorageObject {
   updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  uploadedBy    User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
-  chunks        StorageObjectChunk[]
-  intakePhotos  PhotoIntakePhoto[]
-  gymPhotos     GymPhoto[]
-  workoutPhotos WorkoutPhoto[]
+  uploadedBy      User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
+  chunks          StorageObjectChunk[]
+  intakePhotos    PhotoIntakePhoto[]
+  gymPhotos       GymPhoto[]
+  workoutPhotos   WorkoutPhoto[]
+  healthDocuments HealthDocument[]
 
   @@index([uploadedById])
   @@index([status])
@@ -2663,18 +2665,51 @@ model PhotoIntake {
   jobId        String?   @map("job_id") @db.Uuid
   errorCode    String?   @map("error_code")
   errorMessage String?   @map("error_message")
+  retention    String    @default("keep") // keep | delete_after_processing; chosen at create, applied to photos attached later
   resultMeta   Json?     @map("result_meta") // promptVersion, batches, ignored objects; never keys/prompts/bytes
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   completedAt  DateTime? @map("completed_at") @db.Timestamptz
 
   // Relations
-  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  photos PhotoIntakePhoto[]
-  items  DraftItem[]
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photos          PhotoIntakePhoto[]
+  items           DraftItem[]
+  healthDocuments HealthDocument[]
 
   @@index([userId, kind, status])
   @@map("photo_intakes")
+}
+
+// A user's health document (lab report, body-metric photo). `kind` and
+// `retention` are plain strings validated by the API (keep |
+// delete_after_processing). `storageObjectId` is nulled, with `fileDeletedAt`
+// stamped, once the file is purged; SetNull on both file references means a
+// removed object or intake never deletes the row.
+model HealthDocument {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  kind            String // lab_report | body_metric
+  storageObjectId String?   @map("storage_object_id") @db.Uuid
+  originalName    String    @map("original_name")
+  mimeType        String    @map("mime_type")
+  sizeBytes       BigInt    @map("size_bytes")
+  retention       String    @default("keep")
+  intakeId        String?   @map("intake_id") @db.Uuid
+  documentDate    DateTime? @map("document_date") @db.Date
+  fileDeletedAt   DateTime? @map("file_deleted_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storageObject StorageObject? @relation(fields: [storageObjectId], references: [id], onDelete: SetNull)
+  intake        PhotoIntake?   @relation(fields: [intakeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([storageObjectId])
+  @@index([intakeId])
+  @@map("health_documents")
 }
 
 model PhotoIntakePhoto {
@@ -2751,11 +2786,11 @@ model Gym {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  equipment GymEquipment[]
-  photos    GymPhoto[]
-  workouts  Workout[]
-  programs  Program[]
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment          GymEquipment[]
+  photos             GymPhoto[]
+  workouts           Workout[]
+  programs           Program[]
   workoutAdaptations WorkoutAdaptation[]
 
   @@index([userId])
@@ -3103,29 +3138,29 @@ model TrainingPlanRun {
 // `workout_adaptations_active_per_user_uniq_idx` (migration SQL only; Prisma
 // cannot express it, never declare it as @@unique).
 model WorkoutAdaptation {
-  id                    String    @id @default(uuid()) @db.Uuid
-  userId                String    @map("user_id") @db.Uuid
-  status                String    @default("queued")
-  request               Json
-  gymId                 String?   @map("gym_id") @db.Uuid
-  baseRef               Json?     @map("base_ref") // { planId, planVersionId, planWorkoutId, date }
-  contextSnapshot       Json      @default("{}") @map("context_snapshot") // exact minimised context sent; key-free
-  proposal              Json?
-  guardrailReport       Json      @default("{}") @map("guardrail_report")
-  criticReport          Json?     @map("critic_report")
-  safety                Json      @default("{}")
-  models                Json      @default("{}")
-  runId                 String?   @map("run_id") @db.Uuid
-  jobId                 String?   @map("job_id") @db.Uuid
-  errorCode             String?   @map("error_code")
-  errorMessage          String?   @map("error_message")
-  appliedAs             String?   @map("applied_as") // one_off | plan_change
-  appliedWorkoutId      String?   @map("applied_workout_id") @db.Uuid
-  appliedPlanVersionId  String?   @map("applied_plan_version_id") @db.Uuid
-  appliedAt             DateTime? @map("applied_at") @db.Timestamptz
-  expiresAt             DateTime  @map("expires_at") @db.Timestamptz
-  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  id                   String    @id @default(uuid()) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  status               String    @default("queued")
+  request              Json
+  gymId                String?   @map("gym_id") @db.Uuid
+  baseRef              Json?     @map("base_ref") // { planId, planVersionId, planWorkoutId, date }
+  contextSnapshot      Json      @default("{}") @map("context_snapshot") // exact minimised context sent; key-free
+  proposal             Json?
+  guardrailReport      Json      @default("{}") @map("guardrail_report")
+  criticReport         Json?     @map("critic_report")
+  safety               Json      @default("{}")
+  models               Json      @default("{}")
+  runId                String?   @map("run_id") @db.Uuid
+  jobId                String?   @map("job_id") @db.Uuid
+  errorCode            String?   @map("error_code")
+  errorMessage         String?   @map("error_message")
+  appliedAs            String?   @map("applied_as") // one_off | plan_change
+  appliedWorkoutId     String?   @map("applied_workout_id") @db.Uuid
+  appliedPlanVersionId String?   @map("applied_plan_version_id") @db.Uuid
+  appliedAt            DateTime? @map("applied_at") @db.Timestamptz
+  expiresAt            DateTime  @map("expires_at") @db.Timestamptz
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   gym  Gym? @relation(fields: [gymId], references: [id], onDelete: SetNull)
@@ -3164,19 +3199,19 @@ model TrainingRunEvent {
 // weeks and workouts are archived (`archivedAt`), not deleted, so history and
 // logged workouts keep resolving.
 model Program {
-  id             String    @id @default(uuid()) @db.Uuid
-  userId         String    @map("user_id") @db.Uuid
-  name           String // 1..100, validated in Zod
-  goal           String // strength|hypertrophy|fat_loss|general|endurance|custom (CHECK in migration SQL)
-  status         String    @default("draft") // draft|active|paused|archived|completed (CHECK in migration SQL)
-  source         String    @default("manual") // ai|manual: how the first version was made
-  startDate      DateTime? @map("start_date") @db.Date
-  autonomy       String    @default("autonomous") // autonomous|ask_first (CHECK in migration SQL)
-  gymId          String?   @map("gym_id") @db.Uuid
-  intake         Json? // TrainingIntake snapshot for AI plans
-  currentVersion Int       @default(1) @map("current_version")
-  rationale      String? // <= 4000 chars, validated in Zod
-  notes          String?
+  id                     String    @id @default(uuid()) @db.Uuid
+  userId                 String    @map("user_id") @db.Uuid
+  name                   String // 1..100, validated in Zod
+  goal                   String // strength|hypertrophy|fat_loss|general|endurance|custom (CHECK in migration SQL)
+  status                 String    @default("draft") // draft|active|paused|archived|completed (CHECK in migration SQL)
+  source                 String    @default("manual") // ai|manual: how the first version was made
+  startDate              DateTime? @map("start_date") @db.Date
+  autonomy               String    @default("autonomous") // autonomous|ask_first (CHECK in migration SQL)
+  gymId                  String?   @map("gym_id") @db.Uuid
+  intake                 Json? // TrainingIntake snapshot for AI plans
+  currentVersion         Int       @default(1) @map("current_version")
+  rationale              String? // <= 4000 chars, validated in Zod
+  notes                  String?
   // Continuous evaluation (E5.8). `evaluationRequestedAt` is the coalescing
   // flag a deferred trigger leaves for the follow-up rule and the sweep;
   // `autonomyPausedReason` is safety_text|pain_pattern|user_paused (CHECK in
@@ -3186,8 +3221,8 @@ model Program {
   lastWeeklyEvaluationAt DateTime? @map("last_weekly_evaluation_at") @db.Timestamptz
   autonomyPausedAt       DateTime? @map("autonomy_paused_at") @db.Timestamptz
   autonomyPausedReason   String?   @map("autonomy_paused_reason")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   gym      Gym?               @relation(fields: [gymId], references: [id], onDelete: SetNull)

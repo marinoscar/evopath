@@ -1,3 +1,4 @@
+import { X509Certificate } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
@@ -736,12 +737,27 @@ export async function validateProxy(options: ProxyOptions): Promise<ValidationRe
 /** Reloads, never restarts: a restart drops every other site's connections. */
 export async function reloadProxy(options: ProxyOptions): Promise<void> {
   const container = proxyContainerOf(options);
-  const argv =
-    container === undefined
-      ? ['nginx', '-s', 'reload']
-      : ['docker', 'exec', container, 'nginx', '-s', 'reload'];
+  const argv = reloadArgv(container);
 
   await options.runCommand(argv, { cwd: process.cwd(), timeoutMs: 60_000 });
+}
+
+function reloadArgv(container: string | undefined): string[] {
+  return container === undefined
+    ? ['nginx', '-s', 'reload']
+    : ['docker', 'exec', container, 'nginx', '-s', 'reload'];
+}
+
+/**
+ * The exact remedy command an OPERATOR should run by hand, for THIS
+ * deployment's actual configured runtime (issue #205, #199) -- never a
+ * hardcoded container name. This repository is a template: a fork's proxy
+ * container can be named anything, or run on the host with none at all, and
+ * a remedy naming the wrong one sends an operator to fix someone else's site.
+ */
+export function describeReloadCommand(runtime: Pick<ResolvedProxyRuntime, 'mode' | 'container'>): string {
+  const container = runtime.mode === 'container' ? runtime.container : undefined;
+  return `sudo ${reloadArgv(container).join(' ')}`;
 }
 
 /** Removes a vhost this tool wrote. Used only to undo a failed install. */
@@ -881,6 +897,99 @@ export async function certificateExpiry(
     notAfter: expiry,
     daysRemaining,
     dueForRenewal: daysRemaining <= RENEW_WITHIN_DAYS,
+  };
+}
+
+export interface CertificateMatchResult {
+  /**
+   * False when there was nothing to compare: no certificate on disk, or the
+   * live probe itself could not complete for its OWN reasons (refused, DNS,
+   * timeout) -- those are the health probes' job to report, not this one's.
+   */
+  checked: boolean;
+  /** Only meaningful when `checked` is true. */
+  matches?: boolean | undefined;
+  servedIssuer?: string | undefined;
+  diskIssuer?: string | undefined;
+  /** Why `checked` is false, or why parsing failed after a successful connection. */
+  detail?: string | undefined;
+}
+
+/**
+ * Whether the certificate the proxy is ACTUALLY serving over the wire is the
+ * one on disk (issue #205).
+ *
+ * `issueCertificate`/`installVhost` keep disk and the running proxy in sync,
+ * but only in the SAME run that replaces a certificate -- nothing else in
+ * this CLI ever asks afterwards whether that actually took. And it cannot be
+ * inferred from the existing health probes: every loopback check
+ * (`/api/health/live`, `/ready`, `/`) talks plain HTTP to 127.0.0.1 and never
+ * goes through TLS at all, so a served/disk mismatch is invisible to every
+ * OTHER check this CLI runs. This is the one place that actually looks.
+ *
+ * Compares by fingerprint, not issuer or expiry text: two certificates can
+ * share an issuer and even an expiry down to the day while being genuinely
+ * different certificates (a reissued one for the same domain, differently
+ * keyed). The fingerprint is the one thing that only matches byte-identical
+ * DER.
+ */
+export async function certificateServedMatchesDisk(
+  target: ProxyTarget,
+  options: { runCommand: typeof runCommand; timeoutMs?: number | undefined },
+): Promise<CertificateMatchResult> {
+  const status = certificateStatus(target);
+  if (!status.exists) return { checked: false };
+
+  let disk: X509Certificate;
+  try {
+    disk = new X509Certificate(readFileSync(status.path));
+  } catch (error) {
+    return { checked: false, detail: `could not read ${status.path}: ${(error as Error).message}` };
+  }
+
+  let output: string;
+  try {
+    // stdio's stdin is 'ignore' (executor.ts), which is an immediately-closed
+    // /dev/null to the child -- equivalent to the familiar
+    // `openssl s_client ... </dev/null`, so this exits right after the
+    // handshake instead of hanging in s_client's interactive mode.
+    const result = await options.runCommand(
+      ['openssl', 's_client', '-connect', `${target.domain}:443`, '-servername', target.domain],
+      { cwd: target.proxyRoot, timeoutMs: options.timeoutMs ?? 15_000 },
+    );
+    output = result.stdout;
+  } catch (error) {
+    // s_client's own EOF-on-close can exit non-zero even after it already
+    // printed the certificate -- the printed chain is what matters, so a
+    // failure result is still read for it before being treated as "could not
+    // reach this domain at all".
+    const partial = (error as { result?: { stdout?: string } }).result?.stdout;
+    if (partial === undefined || !/BEGIN CERTIFICATE/.test(partial)) {
+      // Its own reasons to fail (refused, DNS, timeout) are the external
+      // health probe's job to report; this only compares when it could reach
+      // something.
+      return { checked: false, detail: `could not reach ${target.domain}:443: ${(error as Error).message}` };
+    }
+    output = partial;
+  }
+
+  const pem = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/.exec(output)?.[0];
+  if (pem === undefined) {
+    return { checked: false, detail: `${target.domain}:443 did not present a certificate` };
+  }
+
+  let served: X509Certificate;
+  try {
+    served = new X509Certificate(pem);
+  } catch (error) {
+    return { checked: false, detail: `could not parse the served certificate: ${(error as Error).message}` };
+  }
+
+  return {
+    checked: true,
+    matches: disk.fingerprint256 === served.fingerprint256,
+    diskIssuer: disk.issuer,
+    servedIssuer: served.issuer,
   };
 }
 

@@ -160,6 +160,12 @@ export interface MeasurementDto {
   origin: string;
   notes: string | null;
   sourceRef: Record<string, unknown> | null;
+  /**
+   * Whether the file this reading was read from (`sourceRef.healthDocumentId`)
+   * was erased (delete after processing, #185); `null` when the reading names
+   * no health document.
+   */
+  fileDeleted: boolean | null;
   revision: number;
   edited: boolean;
 }
@@ -526,6 +532,8 @@ export interface PhotoIntakeSourceRef {
   confidence?: string | null;
   /** The saved value differs from `aiDraft`. */
   userEdited?: boolean;
+  /** The health document the reading was read from (#185); its file may since have been erased. */
+  healthDocumentId?: string;
 }
 
 /** The row's `sourceRef` when it is a photo intake's, else `null`. Never throws on unexpected shapes. */

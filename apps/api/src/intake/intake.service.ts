@@ -7,6 +7,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { trace } from '@opentelemetry/api';
 import { DraftItem, PhotoIntake, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
@@ -16,6 +17,14 @@ import {
 } from '../ai/core/types/file-inputs.types';
 import { AiFeatureModelResolver } from '../ai/assignments/ai-feature-model-resolver.service';
 import { RUNNABLE_FEATURE_STATES } from '../ai/assignments/dto/ai-feature-resolution.dto';
+import {
+  type FileRetention,
+  HEALTH_DOCUMENT_PURGE_JOB_TYPE,
+  HEALTH_DOCUMENT_SUBJECT_TYPE,
+  RETENTION_SPAN_ATTRIBUTE,
+  retainsFiles,
+  retentionOf,
+} from '../health-documents/health-document.constants';
 import { UsableModelsService } from '../ai/keys/usable-models.service';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -42,6 +51,7 @@ import { StorageObjectReferences } from './storage-object-references';
 import {
   INTAKE_ERROR_MESSAGE_MAX,
   type AnalyzeIntakeInput,
+  type AttachPhotoInput,
   type CreateDraftItemInput,
   type CreateIntakeInput,
   type UpdateIntakeInput,
@@ -102,10 +112,12 @@ const INTAKE_DETAIL_INCLUDE = {
     include: { storageObject: { select: { name: true } } },
   },
   items: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
+  healthDocuments: { select: { id: true, storageObjectId: true, retention: true } },
 } satisfies Prisma.PhotoIntakeInclude;
 
 type IntakeWithDetail = Prisma.PhotoIntakeGetPayload<{ include: typeof INTAKE_DETAIL_INCLUDE }>;
-type PhotoWithName = IntakeWithDetail['photos'][number];
+type PhotoWithName = Pick<IntakeWithDetail['photos'][number], 'id' | 'storageObjectId' | 'sortOrder' | 'storageObject'>;
+type HealthDocumentLink = { id: string; storageObjectId: string | null; retention: string };
 
 // -----------------------------------------------------------------------------
 // Views
@@ -128,13 +140,24 @@ export function toDraftItemView(item: DraftItem): DraftItemViewData {
   };
 }
 
-function toPhotoView(photo: PhotoWithName): PhotoIntakePhotoViewData {
+function toPhotoView(photo: PhotoWithName, document?: HealthDocumentLink | null): PhotoIntakePhotoViewData {
   return {
     id: photo.id,
     storageObjectId: photo.storageObjectId,
     name: photo.storageObject.name,
     sortOrder: photo.sortOrder,
+    healthDocumentId: document?.id ?? null,
+    retention: document ? asRetention(document.retention) : null,
   };
+}
+
+function asRetention(retention: string | null | undefined): FileRetention {
+  return retainsFiles(retention ?? 'keep') ? 'keep' : 'delete_after_processing';
+}
+
+/** Sets the retention mode on the active span (the HTTP request's or the job's). */
+function recordRetention(retention: string): void {
+  trace.getActiveSpan()?.setAttribute(RETENTION_SPAN_ATTRIBUTE, asRetention(retention));
 }
 
 function intakeFields(intake: PhotoIntake) {
@@ -150,6 +173,8 @@ function intakeFields(intake: PhotoIntake) {
     jobId: intake.jobId,
     errorCode: intake.errorCode,
     errorMessage: intake.errorMessage,
+    retention: asRetention(intake.retention),
+    retainFiles: retainsFiles(intake.retention ?? 'keep'),
     resultMeta: (intake.resultMeta ?? null) as Record<string, unknown> | null,
     createdAt: intake.createdAt.toISOString(),
     updatedAt: intake.updatedAt.toISOString(),
@@ -158,9 +183,10 @@ function intakeFields(intake: PhotoIntake) {
 }
 
 export function toPhotoIntakeView(intake: IntakeWithDetail): PhotoIntakeViewData {
+  const documents = new Map((intake.healthDocuments ?? []).map((doc) => [doc.storageObjectId, doc]));
   return {
     ...intakeFields(intake),
-    photos: intake.photos.map(toPhotoView),
+    photos: intake.photos.map((photo) => toPhotoView(photo, documents.get(photo.storageObjectId))),
     items: intake.items.map(toDraftItemView),
   };
 }
@@ -280,6 +306,8 @@ export class IntakeService {
     }
 
     const subject = kind.subjectOf?.(context) ?? null;
+    const retention = retentionOf(input.retainFiles);
+    recordRetention(retention);
 
     const intake = await this.prisma.photoIntake.create({
       data: {
@@ -289,6 +317,7 @@ export class IntakeService {
         subjectType: subject?.subjectType ?? input.subjectType ?? null,
         subjectId: subject?.subjectId ?? input.subjectId ?? null,
         context: nullableJson(context),
+        retention,
       },
       include: INTAKE_DETAIL_INCLUDE,
     });
@@ -301,6 +330,11 @@ export class IntakeService {
    * reads), in `draft`, `ready` or `failed`. Validated and checked by the kind
    * exactly as on create; the subject is re-derived when the kind defines
    * `subjectOf`. Photos and items are untouched.
+   *
+   * `retainFiles` changes the keep-or-delete choice of the intake AND of every
+   * health document it holds, in the same conditional write's transaction. A
+   * body carrying only `retainFiles` leaves `context` alone; any other body
+   * (including `{}`) replaces it, as before.
    */
   async updateContext(
     userId: string,
@@ -315,19 +349,44 @@ export class IntakeService {
     }
 
     const kind = this.registry.require(intake.kind);
-    const context = parseWith(kind.contextSchema, input.context, 'context');
+    const replacesContext = input.context !== undefined || input.retainFiles === undefined;
+    const data: Prisma.PhotoIntakeUpdateManyMutationInput = {};
 
-    if (kind.assertContext) {
-      await kind.assertContext(userId, context);
+    if (replacesContext) {
+      const context = parseWith(kind.contextSchema, input.context, 'context');
+
+      if (kind.assertContext) {
+        await kind.assertContext(userId, context);
+      }
+
+      const subject = kind.subjectOf?.(context) ?? null;
+      data.context = nullableJson(context);
+      if (subject) {
+        data.subjectType = subject.subjectType;
+        data.subjectId = subject.subjectId;
+      }
     }
 
-    const subject = kind.subjectOf?.(context) ?? null;
-    const { count } = await this.prisma.photoIntake.updateMany({
-      where: { id: intakeId, userId, status: { in: [...CONTEXT_EDITABLE] } },
-      data: {
-        context: nullableJson(context),
-        ...(subject ? { subjectType: subject.subjectType, subjectId: subject.subjectId } : {}),
-      },
+    const retention = input.retainFiles === undefined ? null : retentionOf(input.retainFiles);
+    if (retention) {
+      data.retention = retention;
+      recordRetention(retention);
+    }
+
+    const count = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.photoIntake.updateMany({
+        where: { id: intakeId, userId, status: { in: [...CONTEXT_EDITABLE] } },
+        data,
+      });
+
+      if (updated.count > 0 && retention && kind.healthDocumentKind) {
+        await tx.healthDocument.updateMany({
+          where: { intakeId, userId, fileDeletedAt: null },
+          data: { retention },
+        });
+      }
+
+      return updated.count;
     });
 
     if (count === 0) {
@@ -388,6 +447,12 @@ export class IntakeService {
   /**
    * Discards an intake (anything but `applied`), then deletes, best effort,
    * each of its storage objects that no other intake still links.
+   *
+   * A health intake's documents outlive it (`intake_id` is SET NULL): a
+   * `keep` file stays, claimed by the `health_documents` reference checker,
+   * so the cleanup below leaves it alone; a `delete_after_processing` file is
+   * handed to `health.document.purge`, enqueued in the SAME transaction as the
+   * delete, so the intent is never lost and no worker sees it before commit.
    */
   async discard(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<void> {
     const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
@@ -396,14 +461,28 @@ export class IntakeService {
       throw stateConflict(intake.status, 'discard');
     }
 
+    recordRetention(intake.retention);
+    const kind = this.registry.get(intake.kind);
+
     const photos = await this.prisma.photoIntakePhoto.findMany({
       where: { intakeId },
       select: { storageObjectId: true },
     });
 
-    // Conditional on "not applied", so a concurrent apply cannot be undone.
-    const { count } = await this.prisma.photoIntake.deleteMany({
-      where: { id: intakeId, userId, status: { not: 'applied' } },
+    const count = await this.prisma.$transaction(async (tx) => {
+      // Read before the delete: the delete sets their `intake_id` to NULL.
+      const toPurge = kind?.healthDocumentKind ? await this.documentsToPurge(tx, userId, intakeId) : [];
+
+      // Conditional on "not applied", so a concurrent apply cannot be undone.
+      const deleted = await tx.photoIntake.deleteMany({
+        where: { id: intakeId, userId, status: { not: 'applied' } },
+      });
+
+      if (deleted.count > 0) {
+        await this.enqueuePurges(tx, toPurge);
+      }
+
+      return deleted.count;
     });
 
     if (count === 0) {
@@ -421,11 +500,19 @@ export class IntakeService {
   // Photos
   // ---------------------------------------------------------------------------
 
+  /**
+   * Links a photo. For a health intake kind (`healthDocumentKind`) the link
+   * and the file's `HealthDocument` are written in one transaction; the
+   * document's retention is `options.retainFiles` when given, else the
+   * intake's. The document takes name, type and size from the storage
+   * object (never logged).
+   */
   async attachPhoto(
     userId: string,
     intakeId: string,
     storageObjectId: string,
     permissions?: CallerPermissions,
+    options: Pick<AttachPhotoInput, 'retainFiles'> = {},
   ): Promise<PhotoIntakePhotoViewData> {
     const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
@@ -474,17 +561,38 @@ export class IntakeService {
       throw refuse(400, 'TOO_MANY_PHOTOS', `An intake holds at most ${maxPhotos} photos`, { maxPhotos });
     }
 
-    try {
-      const photo = await this.prisma.photoIntakePhoto.create({
-        data: {
-          intakeId,
-          storageObjectId,
-          sortOrder: (last._max.sortOrder ?? -1) + 1,
-        },
-        include: { storageObject: { select: { name: true } } },
-      });
+    const documentKind = this.registry.get(intake.kind)?.healthDocumentKind;
+    const retention = options.retainFiles === undefined ? asRetention(intake.retention) : retentionOf(options.retainFiles);
 
-      return toPhotoView(photo);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const photo = await tx.photoIntakePhoto.create({
+          data: {
+            intakeId,
+            storageObjectId,
+            sortOrder: (last._max.sortOrder ?? -1) + 1,
+          },
+          include: { storageObject: { select: { name: true } } },
+        });
+
+        if (!documentKind) return toPhotoView(photo);
+
+        const document = await tx.healthDocument.create({
+          data: {
+            userId,
+            kind: documentKind,
+            storageObjectId,
+            originalName: object.name,
+            mimeType: object.mimeType,
+            sizeBytes: object.size,
+            retention,
+            intakeId,
+          },
+          select: { id: true, storageObjectId: true, retention: true },
+        });
+
+        return toPhotoView(photo, document);
+      });
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw refuse(409, 'DUPLICATE_PHOTO', 'This photo is already attached to the intake', { storageObjectId });
@@ -505,8 +613,20 @@ export class IntakeService {
       throw stateConflict(intake.status, 'remove photos from');
     }
 
-    const { count } = await this.prisma.photoIntakePhoto.deleteMany({
-      where: { intakeId, storageObjectId },
+    const isHealthKind = Boolean(this.registry.get(intake.kind)?.healthDocumentKind);
+
+    // A removed file was never processed: its health document goes with the
+    // link (same transaction), so the cleanup below may delete the object.
+    const count = await this.prisma.$transaction(async (tx) => {
+      const removed = await tx.photoIntakePhoto.deleteMany({
+        where: { intakeId, storageObjectId },
+      });
+
+      if (removed.count > 0 && isHealthKind) {
+        await tx.healthDocument.deleteMany({ where: { intakeId, userId, storageObjectId, fileDeletedAt: null } });
+      }
+
+      return removed.count;
     });
 
     if (count === 0) {
@@ -791,6 +911,11 @@ export class IntakeService {
    * marks the intake `applied`. The status flip comes first and is
    * conditional, so it doubles as the lock: a concurrent apply waits on the
    * row and then answers 409; a throw from the kind rolls both back.
+   *
+   * A health intake's `delete_after_processing` documents get their
+   * `health.document.purge` job in the same transaction, after the kind's
+   * writes: nothing is purged unless the measurements committed, and a
+   * worker cannot claim the job before they have.
    */
   async apply(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<unknown> {
     const result = await this.prisma.$transaction(async (tx) => {
@@ -826,13 +951,29 @@ export class IntakeService {
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       });
 
-      return kind.apply({
+      recordRetention(intake.retention);
+      const healthDocuments = kind.healthDocumentKind
+        ? await tx.healthDocument.findMany({
+            where: { intakeId, userId },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true, storageObjectId: true },
+          })
+        : [];
+
+      const applied = await kind.apply({
         tx,
         userId,
         intake,
         context: this.contextOf(kind, intake),
         accepted,
+        healthDocuments,
       });
+
+      if (kind.healthDocumentKind) {
+        await this.enqueuePurges(tx, await this.documentsToPurge(tx, userId, intakeId));
+      }
+
+      return applied;
     });
 
     return result ?? null;
@@ -1002,6 +1143,33 @@ export class IntakeService {
     if (!item) throw itemNotFound();
 
     return item;
+  }
+
+  /** The intake's documents whose file is to be erased and still exists. */
+  private async documentsToPurge(tx: Prisma.TransactionClient, userId: string, intakeId: string): Promise<string[]> {
+    const rows = await tx.healthDocument.findMany({
+      where: { intakeId, userId, retention: 'delete_after_processing', fileDeletedAt: null },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * One `health.document.purge` job per document, inside the caller's
+   * transaction. `skipDedup`: a unique violation would abort that
+   * transaction, and the handler is idempotent anyway.
+   */
+  private async enqueuePurges(tx: Prisma.TransactionClient, healthDocumentIds: readonly string[]): Promise<void> {
+    for (const healthDocumentId of healthDocumentIds) {
+      await this.jobs.enqueueWithin(tx, {
+        type: HEALTH_DOCUMENT_PURGE_JOB_TYPE,
+        reason: 'upload',
+        subjectType: HEALTH_DOCUMENT_SUBJECT_TYPE,
+        subjectId: healthDocumentId,
+        payload: { healthDocumentId },
+        skipDedup: true,
+      });
+    }
   }
 
   private maxPhotosFor(kindName: string): number {

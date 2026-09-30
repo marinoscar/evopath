@@ -706,10 +706,22 @@ evopathcli deploy certs --renew --domain app.example.com
 budget. Why the window matters, and how automatic renewal is scheduled, is in
 [`docs/runbooks/deploy-to-vps.md`, "Inspecting and renewing the certificate directly"](../../docs/runbooks/deploy-to-vps.md#10-inspecting-and-renewing-the-certificate-directly).
 
-Exit codes: `0` reported, or renewed and the proxy reloaded; `1` the
-certificate is due or expired and `--renew` was not passed, or a renewal ran
-but the proxy's `nginx -t`/reload failed; `2` nothing is installed at
-`--root`.
+Every call — with or without `--renew` — also probes `<domain>:443` live and
+compares the fingerprint of the certificate the proxy is actually serving
+against the one on disk. This is the one check neither the expiry report
+above (only ever reads the file) nor the ordinary health checks (which never
+go through TLS at all) can catch, and it is what a plain, report-only `certs`
+call now answers: not just "is the file on disk due", but "is what is being
+served right now the file on disk". A mismatch prints the exact remedy
+command for this deployment's configured proxy runtime — for example `sudo
+docker exec proxy-nginx nginx -s reload` in container mode, or `sudo nginx -s
+reload` in host mode.
+
+Exit codes: `0` reported, or renewed and the proxy reloaded, and the served
+certificate matches disk; `1` the certificate is due or expired and
+`--renew` was not passed, a renewal ran but the proxy's `nginx -t`/reload
+failed, or the proxy is serving a certificate that does not match the one on
+disk; `2` nothing is installed at `--root`.
 
 ```
 Options:

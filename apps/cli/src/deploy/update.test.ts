@@ -2,11 +2,21 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { CommandResult, runCommand } from './executor.js';
+import type { HealthReport } from './health.js';
+import * as healthModule from './health.js';
 import { DeployStateError, NotInstalledError, deployStatePath } from './state.js';
 import { buildUpdateSteps, runUpdate } from './update.js';
+
+// The `verify` step's own logic (isHealthy/the #205 cert hint) is what the
+// tests below exercise -- `collectHealth` itself (a real docker/curl probe)
+// is replaced so a canned HealthReport can be fed straight in.
+vi.mock('./health.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./health.js')>();
+  return { ...actual, collectHealth: vi.fn() };
+});
 
 describe('the update pipeline', () => {
   const steps = buildUpdateSteps();
@@ -397,5 +407,92 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
     );
 
     await expect(preflightStep().run(context as never)).resolves.toBeUndefined();
+  });
+});
+
+// =============================================================================
+// The `verify` step's certificate hint (#205): see install.ts's equivalent
+// block's header comment -- same reasoning, same three cases, this file's
+// own `verify` step.
+// =============================================================================
+describe('the verify step: the certs hint on a failed external probe', () => {
+  function verifyStep() {
+    const step = buildUpdateSteps().find((candidate) => candidate.id === 'verify');
+    if (step === undefined) throw new Error('the "verify" step was removed or renamed');
+    return step;
+  }
+
+  const healthyProbe = { ok: true as const, durationMs: 1 };
+
+  function contextFor(root: string, report: HealthReport) {
+    vi.mocked(healthModule.collectHealth).mockResolvedValueOnce(report);
+    return {
+      options: { deployRoot: root, skipProxy: false },
+      state: { domain: 'app.example.test', bindPort: 3535 },
+      env: undefined,
+      runCommand: (async () => {
+        throw new Error('verify must not spawn directly; collectHealth is mocked');
+      }) as unknown as typeof runCommand,
+      journal: { line: () => undefined, redact: (text: string) => text },
+      hooks: undefined,
+      completed: new Set<string>(),
+    };
+  }
+
+  it('appends the certs hint when a domain was probed and the probe failed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-verify-'));
+    const context = contextFor(root, {
+      containers: [],
+      local: { live: healthyProbe, ready: healthyProbe, frontend: healthyProbe },
+      migrations: { pending: [], known: false },
+      external: {
+        url: 'https://app.example.test',
+        probe: { ok: false, durationMs: 1, error: 'certificate verify failed' },
+      },
+    });
+
+    const error = await verifyStep()
+      .run(context as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(
+      'evopathcli deploy certs --domain app.example.test',
+    );
+    expect((error as Error).message).toContain('certificate/SSL error');
+  });
+
+  it('does NOT append the hint when the probe succeeded, even though something else is unhealthy', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-verify-'));
+    const context = contextFor(root, {
+      containers: [],
+      local: { live: healthyProbe, ready: { ok: false, durationMs: 1, error: 'timeout' }, frontend: healthyProbe },
+      migrations: { pending: [], known: false },
+      external: { url: 'https://app.example.test', probe: healthyProbe },
+    });
+
+    const error = await verifyStep()
+      .run(context as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain('deploy certs');
+  });
+
+  it('does NOT append the hint when no domain was probed at all', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-verify-'));
+    const context = contextFor(root, {
+      containers: [],
+      local: { live: healthyProbe, ready: { ok: false, durationMs: 1, error: 'timeout' }, frontend: healthyProbe },
+      migrations: { pending: [], known: false },
+      external: undefined,
+    });
+
+    const error = await verifyStep()
+      .run(context as never)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain('deploy certs');
   });
 });
