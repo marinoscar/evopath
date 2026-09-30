@@ -1083,6 +1083,8 @@ export const AI_FEATURE_IDS = [
   'gym_scan',
   'workout_prefill',
   'body_metric_reading',
+  // H4 (#188): the `lab_report` intake kind's analyzer (`ai.health.lab_report`).
+  'lab_report',
   'training.researcher',
   'training.planner',
   'training.critic',
