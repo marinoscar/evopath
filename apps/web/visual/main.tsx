@@ -156,6 +156,11 @@ const DEFAULT_PERMISSIONS = [
   // keeps the harness a user who can add a gym, like every seeded role.
   'gyms:read',
   'gyms:write',
+  // The Today `Today's workout` card reads `GET /api/workouts/summary` only
+  // with `workouts:read`; `workouts:write` shows Start workout, like every
+  // seeded role.
+  'workouts:read',
+  'workouts:write',
   // The `About` card (#401, epic #397) needs NO new string here: it mirrors
   // `system_settings:read`, already first in this list, because that is the
   // literal permission `about/about.controller.ts` enforces. Noted rather than

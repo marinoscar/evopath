@@ -288,8 +288,11 @@ describe('WorkoutPrefillPage', () => {
     await user.click(screen.getByRole('button', { name: 'Add missing item' }));
     const add = screen.getByTestId('draft-item-add');
     await user.click(within(add).getByRole('combobox', { name: 'Exercise' }));
+    // The options come from a debounced `GET /exercises`; wait for the library to land so
+    // the listbox has stopped re-rendering before the custom option is clicked.
+    await screen.findByRole('option', { name: 'Barbell bench press' });
     await user.click(await screen.findByRole('option', { name: 'New custom exercise (type a name)' }));
-    await user.type(within(add).getByRole('textbox', { name: 'Exercise name' }), 'Cable row');
+    await user.type(await within(add).findByRole('textbox', { name: 'Exercise name' }), 'Cable row');
     await user.click(within(add).getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(api.calls.some((c) => c.method === 'POST' && c.path.endsWith('/items'))).toBe(true));
     const added = api.calls.find((c) => c.method === 'POST' && c.path.endsWith('/items'))?.body;

@@ -6,11 +6,13 @@ import {
   effortFromRir,
   effortOf,
   formatClock,
+  formatDaysAgo,
   formatDuration,
   formatVolume,
   parseClock,
   parseDistance,
   parseReps,
+  pluralize,
   setHasValues,
   weightInputText,
 } from '../../utils/workoutFormat';
@@ -80,5 +82,23 @@ describe('utils/workoutFormat', () => {
     const empty = { weightKg: null, reps: null, durationSeconds: null, distanceMeters: null };
     expect(setHasValues(empty)).toBe(false);
     expect(setHasValues({ ...empty, reps: 8 })).toBe(true);
+  });
+
+  it('reads days since a workout (E4.6)', () => {
+    expect(formatDaysAgo(0)).toBe('Today');
+    expect(formatDaysAgo(1)).toBe('Yesterday');
+    expect(formatDaysAgo(3)).toBe('3 days ago');
+    expect(formatDaysAgo(6)).toBe('6 days ago');
+    expect(formatDaysAgo(7)).toBe('1 week ago');
+    expect(formatDaysAgo(20)).toBe('2 weeks ago');
+    expect(formatDaysAgo(95)).toBe('3 months ago');
+    expect(formatDaysAgo(400)).toBe('1 year ago');
+    expect(formatDaysAgo(-2)).toBe('Today');
+  });
+
+  it('pluralizes counts', () => {
+    expect(pluralize(1, 'workout')).toBe('1 workout');
+    expect(pluralize(2, 'workout')).toBe('2 workouts');
+    expect(pluralize(0, 'set')).toBe('0 sets');
   });
 });
