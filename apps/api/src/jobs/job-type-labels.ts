@@ -128,8 +128,13 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // One agentic training run's graph (planner, critic, evaluator, ...), from
   // `POST /api/ai/training/runs`, a resume or a decision.
   'ai.training.plan.run': 'Training plan run',
+  // One quick "adjust today's workout" adaptation (E6.1): planner, light critic,
+  // at most one revise, from `POST /api/ai/training/adaptations`.
+  'ai.training.adapt.run': 'AI workout adaptation',
   // Daily deletion of finished training runs' events, checkpoints and rows past retention.
   'training.runs.purge': 'Training runs purge',
+  // Daily deletion of workout adaptations past `expires_at` (30 days).
+  'training.adaptations.purge': 'Workout adaptations purge',
   // Hourly: expires unanswered plan proposals and starts the weekly,
   // missed-sessions and deferred plan evaluations that are due.
   'training.evaluation.sweep': 'Training evaluation sweep',

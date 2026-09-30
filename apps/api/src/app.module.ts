@@ -43,6 +43,7 @@ import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 import { ProgramsModule } from './programs/programs.module';
 import { TrainingAgentsModule } from './training-agents/training-agents.module';
+import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -258,6 +259,11 @@ import configuration from './config/configuration';
     // a CommonJS/ESM mismatch fails the start, and forces framework telemetry
     // off in code.
     TrainingAgentsModule,
+
+    // Quick workout adaptation (E6.1): `/api/ai/training/adaptations` and the
+    // server-only `ai.training.adapt.run` job, hosted on the training agents'
+    // runtime kit; never imports LangGraph itself.
+    TrainingAdaptationModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
