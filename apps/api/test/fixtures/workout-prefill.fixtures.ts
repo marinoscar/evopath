@@ -27,7 +27,7 @@ import type { ExerciseVocabulary } from '../../src/workouts/prefill/exercise-voc
 
 export const WORKOUT_PREFILL_FIXTURE_DIR = join(__dirname, 'workout-prefill');
 
-export type WorkoutPrefillExample = 'placard' | 'notebook';
+export type WorkoutPrefillExample = 'placard' | 'notebook' | 'workout-empty';
 
 export function loadPrefillModelOutput(example: WorkoutPrefillExample): any {
   return JSON.parse(readFileSync(join(WORKOUT_PREFILL_FIXTURE_DIR, `${example}.model-output.json`), 'utf8'));
