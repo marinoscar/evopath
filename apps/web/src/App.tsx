@@ -75,6 +75,8 @@ const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
 // Issue #126, epic #109 — the per-user event x channel notification matrix.
 const UserNotificationsPage = lazy(() => import('./pages/UserNotificationsPage'));
 const UserTokensPage = lazy(() => import('./pages/UserTokensPage'));
+// Issue #202 — the per-user factory reset (Danger Zone).
+const UserDangerZonePage = lazy(() => import('./pages/UserDangerZonePage'));
 
 // Console — the hub (#93) plus one route per card in
 // `config/adminSections.tsx` (#92, epic #90).
@@ -332,6 +334,9 @@ function AppRoutes() {
                       itself `@Auth()` with no permission for the same reason. */}
                   <Route path="/settings/notifications" element={<UserNotificationsPage />} />
                   <Route path="/settings/tokens" element={<UserTokensPage />} />
+                  {/* Issue #202. Ungated like its siblings: the caller's own
+                      data, behind `user_settings:write`, which every role holds. */}
+                  <Route path="/settings/danger-zone" element={<UserDangerZonePage />} />
                   {/* Issue #425, epic #419. THE FIRST GATED `/settings/*` ROUTE,
                       and the exception is real: `ai:use` is a grant a
                       deployment can withhold from a role, and the

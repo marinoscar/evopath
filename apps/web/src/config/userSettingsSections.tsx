@@ -26,6 +26,7 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import PsychologyIcon from '@mui/icons-material/Psychology';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -145,6 +146,24 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         path: '/settings/ai/agents',
         permission: 'ai:use',
         feature: 'ai',
+      },
+    ],
+  },
+  {
+    // Issue #202. A new group, appended LAST (append, never insert) so the
+    // one irreversible action on this surface sits below everything else.
+    // NO `permission`: every user owns their own data, and
+    // `/api/user-data/*` enforces `user_settings:write`, which the API grants
+    // to all three roles. No `feature` either — a reset also deletes AI keys
+    // and runs, and must stay reachable while AI is switched off.
+    label: 'Danger Zone',
+    cards: [
+      {
+        title: 'Delete all my data',
+        description:
+          'Factory reset: permanently delete your workouts, programs, health data, photos and keys.',
+        Icon: DeleteForeverIcon,
+        path: '/settings/danger-zone',
       },
     ],
   },

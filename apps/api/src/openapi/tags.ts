@@ -94,6 +94,13 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '(`PUT`) and JSON Merge Patch (`PATCH`).',
       },
       {
+        name: 'User Data',
+        description:
+          'The calling user\'s own data as a whole: counts of what they own and a "factory reset" ' +
+          'that deletes all of it (a queued job) while keeping the account and its sign-in. ' +
+          'Gated on `user_settings:write`; a reset job is visible only to its owner.',
+      },
+      {
         name: 'Health Profile',
         description:
           'The calling user\'s health profile: date of birth, sex at birth, height, unit system, ' +

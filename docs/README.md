@@ -49,6 +49,7 @@ In this order:
 | [specs/training-signals.md](specs/training-signals.md) | Plan signals: adherence, frequency, hard sets per muscle, lift trends, effort, pain, readiness and body weight, computed deterministically for the user and for agents | you add or change a signal, read a user's adherence, or build an agent prompt from training facts |
 | [specs/ai-training-plans.md](specs/ai-training-plans.md) | AI training plans: the researcher, planner, critic and evaluator agents, the LangGraph graphs, run state machine, guardrails and adaptation envelope, quick workout adaptation and travel workouts (rules, minimised context, apply), events, limits, and the fake-provider scenarios | you change or extend the training agents, their guardrails, the adjust-workout flow or their tests |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
+| [specs/user-data-reset.md](specs/user-data-reset.md) | The per-user Danger Zone factory reset (`user.data_reset`): what is deleted and kept, confirmation, retry safety | you add a model with a user relation or change the reset |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 
 ## Runbooks
