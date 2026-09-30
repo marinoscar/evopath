@@ -4,6 +4,16 @@ import { Prisma } from '@prisma/client';
 // Training run constants: the job type, the status sets, the limits
 // =============================================================================
 
+/**
+ * The kind a quick workout adaptation's run records (E6.1, `training-adaptation/`).
+ * Such a run hosts the adaptation graph on this kit (events, SSE, cancel,
+ * checkpoints, usage) but is executed by `ai.training.adapt.run`, never by
+ * `ai.training.plan.run`; it cannot be started, resumed or listed through
+ * `/api/ai/training/runs`, and it does not count against the one-active-run
+ * index (migration `allow_adapt_training_run_kind`).
+ */
+export const ADAPT_RUN_KIND = 'adapt';
+
 /** The queue job that executes a run. PERMANENT once jobs of this type exist. */
 export const TRAINING_RUN_JOB_TYPE = 'ai.training.plan.run';
 

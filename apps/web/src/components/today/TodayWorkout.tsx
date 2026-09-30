@@ -25,6 +25,7 @@ import { formatWeight, type WeightUnit } from '../../utils/units';
 import { formatDaysAgo, formatDuration, formatVolume, pluralize } from '../../utils/workoutFormat';
 import { StartWorkoutDialog } from '../train/StartWorkoutDialog';
 import { TodayPlanCard } from '../training/TodayPlanCard';
+import { AdjustWorkoutEntry } from '../training/adapt/AdjustWorkoutEntry';
 import { WORKOUT_IN_PROGRESS_NOTICE } from '../../pages/TrainPage';
 
 /** How often the in-progress elapsed time is re-rendered. */
@@ -214,10 +215,13 @@ export function TodayWorkout() {
   const plan = hasPermission('programs:read') ? (
     <TodayPlanCard canStart={canWrite} canWritePrograms={hasPermission('programs:write')} />
   ) : null;
+  // E6.1: beside Start, never in its way; hidden with a reason when AI is off.
+  const adjust = <AdjustWorkoutEntry showResume sx={{ mb: 2 }} />;
   if (!hasPermission('workouts:read')) {
     return (
       <>
         {plan}
+        {adjust}
         <Typography color="text.secondary">{WORKOUTS_UNAVAILABLE}</Typography>
       </>
     );
@@ -225,6 +229,7 @@ export function TodayWorkout() {
   return (
     <>
       {plan}
+      {adjust}
       <Training canWrite={canWrite} />
     </>
   );

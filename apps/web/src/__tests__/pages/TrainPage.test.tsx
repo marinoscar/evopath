@@ -141,11 +141,14 @@ describe('TrainPage', () => {
     expect(screen.queryByRole('link', { name: 'Exercise library' })).toBeNull();
   });
 
-  it('never mentions AI', async () => {
+  it('mentions AI only in the "Adjust today\'s workout" entry (E6.1), which never replaces Start', async () => {
     statefulWorkoutsApi(completed(2));
     renderPage();
     await screen.findByRole('list', { name: 'Workout history' });
-    expect(document.body.textContent).not.toMatch(/\bAI\b/);
+    const entry = screen.getByTestId('adjust-unavailable');
+    expect(entry).toHaveTextContent("Adjust today's workout: AI is off");
+    expect((document.body.textContent ?? '').replace(entry.textContent ?? '', '')).not.toMatch(/\bAI\b/);
+    expect(screen.getByRole('button', { name: 'Start workout' })).toBeInTheDocument();
   });
 
   it('has no axe violations', async () => {

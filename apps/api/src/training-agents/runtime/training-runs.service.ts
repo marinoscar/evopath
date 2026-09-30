@@ -43,6 +43,7 @@ import { type SafetyScreen, TRAINING_SAFETY_SCREEN } from './safety-screen';
 import { TRAINING_RUN_AUDIT_ACTIONS, auditTrainingRun } from './training-run-audit';
 import {
   ACTIVE_RUN_STATUSES,
+  ADAPT_RUN_KIND,
   CANCELLABLE_RUN_STATUSES,
   MAX_RUN_RESUMES,
   TRAINING_REASONS,
@@ -215,7 +216,7 @@ export class TrainingRunsService {
       if (!isActiveRunConflict(error)) throw error;
 
       const existing = await this.prisma.trainingPlanRun.findFirst({
-        where: { userId, status: { in: [...ACTIVE_RUN_STATUSES] } },
+        where: { userId, status: { in: [...ACTIVE_RUN_STATUSES] }, kind: { not: ADAPT_RUN_KIND } },
         select: { id: true, status: true },
       });
 
@@ -253,6 +254,8 @@ export class TrainingRunsService {
   async list(userId: string, query: ListTrainingRunsQuery): Promise<TrainingRunListData> {
     const where: Prisma.TrainingPlanRunWhereInput = {
       userId,
+      // Quick adaptations' runs are read through their own routes.
+      kind: { not: ADAPT_RUN_KIND },
       ...(query.programId ? { programId: query.programId } : {}),
       ...(query.status ? { status: query.status } : {}),
     };
@@ -316,6 +319,14 @@ export class TrainingRunsService {
   /** Resumes an `interrupted` run from its checkpoint, in a new job. */
   async resume(userId: string, runId: string): Promise<TrainingRunViewData> {
     const run = await this.load(userId, runId);
+
+    if (run.kind === ADAPT_RUN_KIND) {
+      // A quick adaptation is never resumed: "Try again" starts a new one.
+      throw new ConflictException({
+        message: 'A workout adaptation cannot be resumed; start a new one instead.',
+        details: { reason: TRAINING_REASONS.NOT_RESUMABLE, status: run.status, resumeCount: run.resumeCount },
+      });
+    }
 
     if (run.status !== 'interrupted' || run.resumeCount >= MAX_RUN_RESUMES) {
       throw new ConflictException({

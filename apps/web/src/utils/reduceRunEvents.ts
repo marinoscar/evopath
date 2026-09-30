@@ -23,7 +23,12 @@ import type { TrainingRunEvent, TrainingRunStatus } from '../services/trainingAg
 export const RUN_STAGES = ['context', 'research', 'plan', 'guardrails', 'critique', 'ready'] as const;
 export type RunStage = (typeof RUN_STAGES)[number];
 
-/** Graph node name (`stage.*` events) to the stepper stage. */
+/**
+ * Graph node name (`stage.*` events) to the stepper stage. The plan graph
+ * (E5.6) and the quick adaptation graph (E6.1, run kind `adapt`: `context`,
+ * `adapt`, `guardrails`, `critic`, `finalize`) share the stages; `guardrails`
+ * and `finalize` are the same node names in both.
+ */
 export const NODE_STAGE: Record<string, RunStage> = {
   prepare_context: 'context',
   research: 'research',
@@ -31,6 +36,10 @@ export const NODE_STAGE: Record<string, RunStage> = {
   guardrails: 'guardrails',
   critique: 'critique',
   finalize: 'ready',
+  // E6.1 adaptation graph.
+  context: 'context',
+  adapt: 'plan',
+  critic: 'critique',
 };
 
 /** The agent that works in a stage, for "Researcher (model) is searching the web". */
@@ -120,6 +129,12 @@ export interface RunViewState {
   failedCode: string | null;
   interruptedReason: string | null;
   awaitingApproval: { kind: string; expiresAt: string } | null;
+  /**
+   * `run.deferred`: the provider asked to wait (a rate limit) and the job was
+   * put back in the queue; about this many milliseconds. Cleared when the run
+   * starts again.
+   */
+  deferredRetryAfterMs: number | null;
 }
 
 export function initialRunViewState(): RunViewState {
@@ -141,6 +156,7 @@ export function initialRunViewState(): RunViewState {
     failedCode: null,
     interruptedReason: null,
     awaitingApproval: null,
+    deferredRetryAfterMs: null,
   };
 }
 
@@ -176,11 +192,11 @@ function applyEvent(state: RunViewState, event: TrainingRunEvent): RunViewState 
       return { ...state, status: 'queued' };
     case 'run.started':
     case 'run.resumed':
-      return { ...state, status: 'running', interruptedReason: null, awaitingApproval: null };
+      return { ...state, status: 'running', interruptedReason: null, awaitingApproval: null, deferredRetryAfterMs: null };
     case 'stage.started': {
       const stage = NODE_STAGE[str(d.node)];
       if (!stage) return state;
-      const next = startStage(state, stage);
+      const next = { ...startStage(state, stage), deferredRetryAfterMs: null };
       return stage === 'critique' && num(d.round) > 0 ? { ...next, criticRound: num(d.round) } : next;
     }
     case 'stage.completed': {
@@ -298,7 +314,7 @@ function applyEvent(state: RunViewState, event: TrainingRunEvent): RunViewState 
     case 'run.interrupted':
       return { ...state, status: 'interrupted', interruptedReason: str(d.reason) || null };
     case 'run.deferred':
-      return { ...state, status: 'queued' };
+      return { ...state, status: 'queued', deferredRetryAfterMs: num(d.retryAfterMs) || null };
     case 'run.awaiting_approval':
       return { ...state, status: 'awaiting_approval', awaitingApproval: { kind: str(d.kind), expiresAt: str(d.expiresAt) } };
     default:

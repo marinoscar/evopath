@@ -116,6 +116,8 @@ const MIGRATIONS_AT_288 = [
   // automation pause) and the `missed_sessions` run trigger. About plan
   // evaluation, not notifications.
   '20260930150000_add_program_evaluation_state',
+  '20260930160000_add_workout_adaptations',
+  '20260930170000_allow_adapt_training_run_kind',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

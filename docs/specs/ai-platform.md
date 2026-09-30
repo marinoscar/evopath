@@ -559,6 +559,7 @@ org key must never be brokered to a worker node.
 | `ai.audio.speech` | `{ runId }` | 5 min, 2 attempts | A retry rewrites the same key. |
 | `ai.keys.recheck` | `{ provider }` | 30 min, 3 attempts | Weekly cron, and on catalog sync. |
 | `ai.usage.purge` | none | 30 min, 3 attempts | Daily at 05:00 via `enqueueHousekeepingJob`; 5000 ids per batch. |
+| `ai.training.adapt.run` | `{ adaptationId }` | 5 min, 1 attempt | One quick workout adaptation on a `training_plan_runs` row of kind `adapt`; a model call is not safe to retry blindly. |
 
 - Media jobs extend `AiMediaRunHandler` (claim, cancel, deadline, outcomes,
   retries, settle safety net).

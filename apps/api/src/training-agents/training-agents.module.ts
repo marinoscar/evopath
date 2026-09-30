@@ -78,6 +78,14 @@ import { TrainingRunsService } from './runtime/training-runs.service';
     TrainingProgramsPort,
     { provide: TRAINING_SAFETY_SCREEN, useClass: FreeTextSafetyScreen },
   ],
-  exports: [GraphRuntimeInfo, TrainingModelResolver, TrainingRunsService, RunEventsService, TrainingEvaluationScheduler],
+  exports: [
+    GraphRuntimeInfo,
+    TrainingModelResolver,
+    TrainingRunsService,
+    RunEventsService,
+    TrainingEvaluationScheduler,
+    // The quick adaptation module (E6.1) reads the exercise library through it.
+    PlannerContextLoader,
+  ],
 })
 export class TrainingAgentsModule {}

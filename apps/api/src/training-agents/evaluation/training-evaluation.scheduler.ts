@@ -6,7 +6,7 @@ import { isGraphReady } from '../graph/training-graphs';
 import { TrainingModelResolver } from '../models/training-model-resolver.service';
 import { runnable } from '../models/training-models.service';
 import { TRAINING_KIND_ROLES } from '../models/training-role-defaults';
-import { ACTIVE_RUN_STATUSES, TRAINING_REASONS } from '../runtime/training-runs.constants';
+import { ACTIVE_RUN_STATUSES, ADAPT_RUN_KIND, TRAINING_REASONS } from '../runtime/training-runs.constants';
 import { TrainingRunsService } from '../runtime/training-runs.service';
 import {
   AUTOMATIC_EVALUATION_TRIGGERS,
@@ -159,7 +159,8 @@ export class TrainingEvaluationScheduler {
         select: { id: true, autonomyPausedAt: true },
       }),
       this.prisma.trainingPlanRun.findFirst({
-        where: { userId, status: { in: [...ACTIVE_RUN_STATUSES] } },
+        // A quick workout adaptation's run never blocks an evaluation.
+        where: { userId, status: { in: [...ACTIVE_RUN_STATUSES] }, kind: { not: ADAPT_RUN_KIND } },
         select: { kind: true, status: true },
       }),
       this.prisma.trainingPlanRun.count({

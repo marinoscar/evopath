@@ -60,6 +60,14 @@ function isPermissionDenied(res: request.Response): boolean {
 
 const ROLES = ['admin', 'contributor', 'viewer'] as const;
 
+/**
+ * Feature write permissions an `/api/ai/*` route may declare AFTER `ai:use`,
+ * when it writes that feature's data: the quick adaptation's apply routes
+ * (`POST /api/ai/training/adaptations/{id}/apply/workout` and `/apply/plan`).
+ * A fixed list, so a new one is a reviewed change here.
+ */
+const FEATURE_WRITE_PERMISSIONS_ON_AI_ROUTES: readonly string[] = ['workouts:write', 'programs:write'];
+
 describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every role (#435)', () => {
   let app: AiHttpTestApp;
   let aiAndAdminRoutes: AiRoute[];
@@ -109,7 +117,7 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
     expect(aiAndAdminRoutes.filter((r) => r.permissions.length > 0).length).toBeGreaterThanOrEqual(10);
   });
 
-  it('every declared permission is one of the three literal AI permission strings — never invented, never dropped', () => {
+  it('every declared permission is one of the three literal AI permission strings (plus a listed feature write) — never invented, never dropped', () => {
     // Anchors the discovery itself: the role-vs-permission matrix below only
     // checks that DECLARED and ENFORCED agree with each other, so a route
     // that quietly lost its `@Auth({ permissions: [...] })` entirely would
@@ -117,7 +125,9 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
     // pins each route's declaration against a fixed, external expectation
     // instead: every `/api/admin/ai/*` route names `ai_config:read` or
     // `ai_config:write` and nothing else; every `/api/ai/*` route names
-    // `ai:use` and nothing else, except `GET /api/ai/config`, which names no
+    // `ai:use` (plus, for a route that writes a feature's data, that
+    // feature's write permission from `FEATURE_WRITE_PERMISSIONS_ON_AI_ROUTES`)
+    // and nothing else, except `GET /api/ai/config`, which names no
     // permission at all (any signed-in user).
     const failures: string[] = [];
 
@@ -137,8 +147,18 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
         continue;
       }
 
-      const ok = route.permissions.length === 1 && route.permissions[0] === 'ai:use';
-      if (!ok) failures.push(`${route.method} ${route.path}: expected exactly ['ai:use'], got ${JSON.stringify(route.permissions)}`);
+      // `ai:use` first; a route that also WRITES a feature's data (E6.1's
+      // `apply/workout` and `apply/plan`) adds exactly that feature's write
+      // permission, from this fixed list, and never an `ai_config:*` one.
+      const ok =
+        route.permissions[0] === 'ai:use' &&
+        route.permissions.slice(1).every((p) => FEATURE_WRITE_PERMISSIONS_ON_AI_ROUTES.includes(p)) &&
+        new Set(route.permissions).size === route.permissions.length;
+      if (!ok) {
+        failures.push(
+          `${route.method} ${route.path}: expected ['ai:use'] (plus at most a feature write permission), got ${JSON.stringify(route.permissions)}`,
+        );
+      }
     }
 
     expect(failures).toEqual([]);
