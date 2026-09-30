@@ -366,6 +366,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'it is how a client learns whether to show telemetry surfaces at all.',
       },
       {
+        name: 'Factory Reset',
+        description:
+          'Reset the whole application to a clean slate: a deployment-wide count of what would be ' +
+          'deleted, and a queued job that deletes every other user and all application data while ' +
+          'keeping the calling administrator, roles, system settings, deployment credentials, worker ' +
+          'nodes and database backups. Gated on `system:factory_reset` (Admin only); one factory ' +
+          'reset can be in flight per deployment.',
+      },
+      {
         name: 'Maintenance',
         description:
           'The maintenance window: turning it on, the message callers see while it is open, and ' +

@@ -47,6 +47,7 @@ import { TrainingAdaptationModule } from './training-adaptation/training-adaptat
 import { TrainingUsageModule } from './training-usage/training-usage.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { UserDataModule } from './user-data/user-data.module';
+import { AdminFactoryResetModule } from './admin-factory-reset/admin-factory-reset.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -282,6 +283,11 @@ import configuration from './config/configuration';
     // `user_settings:write`, and the server-only `user.data_reset` job that
     // deletes everything the caller owns and keeps the account.
     UserDataModule,
+
+    // The admin factory reset (#211): `/api/admin/factory-reset/*` under
+    // `system:factory_reset`, and the server-only `admin.factory_reset` job
+    // that deletes every other user and all application data.
+    AdminFactoryResetModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
