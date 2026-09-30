@@ -25,6 +25,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
+import PsychologyIcon from '@mui/icons-material/Psychology';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -125,6 +126,24 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         Icon: MonitorHeartIcon,
         path: '/settings/health-profile',
         permission: 'health_data:read',
+      },
+    ],
+  },
+  {
+    // A new group, appended after `Health`. `ai:use` is the exact string the
+    // `/api/ai/training` controller (and `/api/ai/keys`) enforces, and
+    // `feature: 'ai'` hides the card while AI is switched off. Its own group
+    // rather than under `Security`: it chooses models, it holds no credential.
+    label: 'AI',
+    cards: [
+      {
+        title: 'Training agents',
+        description:
+          'Choose the model and reasoning effort for each training-plan agent, and cap what a run may spend.',
+        Icon: PsychologyIcon,
+        path: '/settings/ai/agents',
+        permission: 'ai:use',
+        feature: 'ai',
       },
     ],
   },

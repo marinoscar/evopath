@@ -78,6 +78,64 @@ export type UserProfileSettingsPatchValue = z.infer<
  * later disabled or removed by an admin must remain a value this schema can
  * represent, even though nothing routes to it any more.
  */
+/**
+ * The training-plan agent roles a user may pick a model for (`ai.taskModels`).
+ * The single list: a later feature with its own agents appends its role keys
+ * here rather than adding a parallel setting.
+ */
+export const TRAINING_AGENT_ROLES = ['researcher', 'planner', 'critic', 'evaluator'] as const;
+
+export type TrainingAgentRole = (typeof TRAINING_AGENT_ROLES)[number];
+
+/**
+ * The reasoning efforts a user may request for a task. Mirrors
+ * `AI_REASONING_EFFORTS` in `ai/core/capabilities.ts` (kept as its own list so
+ * this schema file does not depend on the AI platform's internals).
+ */
+export const TASK_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+
+export type TaskReasoningEffort = (typeof TASK_REASONING_EFFORTS)[number];
+
+/**
+ * One role's model preference. `provider`/`modelId` are plain strings for the
+ * reason `defaultModel`'s are (a preference outlives a removed model);
+ * `reasoningEffort: null` means "the role's default effort".
+ */
+export const taskModelSchema = z.object({
+  provider: z.string().min(1).max(100),
+  modelId: z.string().min(1).max(200),
+  reasoningEffort: z.enum(TASK_REASONING_EFFORTS).nullable(),
+});
+
+export type TaskModelValue = z.infer<typeof taskModelSchema>;
+
+/** Bounds on `ai.training.maxRunTokens`; out of range is a 400 at the PATCH. */
+export const TRAINING_MIN_RUN_TOKENS = 10_000;
+export const TRAINING_MAX_RUN_TOKENS = 2_000_000;
+
+const maxRunTokensSchema = z.number().int().min(TRAINING_MIN_RUN_TOKENS).max(TRAINING_MAX_RUN_TOKENS);
+const maxCriticRoundsSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+
+export const userAiTaskModelsSchema = z.object({
+  researcher: taskModelSchema.optional(),
+  planner: taskModelSchema.optional(),
+  critic: taskModelSchema.optional(),
+  evaluator: taskModelSchema.optional(),
+});
+
+export type UserAiTaskModelsValue = z.infer<typeof userAiTaskModelsSchema>;
+
+/**
+ * Training-run limits. `maxRunTokens` null or absent means the server default
+ * per run kind; `maxCriticRounds` absent means 2.
+ */
+export const userAiTrainingSchema = z.object({
+  maxRunTokens: maxRunTokensSchema.nullable().optional(),
+  maxCriticRounds: maxCriticRoundsSchema.optional(),
+});
+
+export type UserAiTrainingValue = z.infer<typeof userAiTrainingSchema>;
+
 export const userAiSettingsSchema = z.object({
   defaultModel: z
     .object({
@@ -85,15 +143,21 @@ export const userAiSettingsSchema = z.object({
       modelId: z.string(),
     })
     .nullable(),
+  // Per-role model preferences for the training-plan agents. Optional, never
+  // `.default()`: every existing account is absent and resolves through the
+  // role defaults.
+  taskModels: userAiTaskModelsSchema.optional(),
+  training: userAiTrainingSchema.optional(),
 });
 
 export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
 
 /**
- * `ai`, PATCH counterpart. `defaultModel` stays required-but-nullable inside
- * the object (an explicit `{ "ai": { "defaultModel": null } }` clears the
- * selection back to "none chosen"; the whole `ai` object itself is optional
- * to send at all, matching `dataTables`/`navigation` above).
+ * `ai`, PATCH counterpart, merged as a JSON merge patch by
+ * `UserSettingsService.mergeAi`: a field that is absent keeps the stored
+ * value, `null` clears it, a value replaces it. `{ "ai": { "defaultModel":
+ * null } }` clears the default-model selection; `taskModels.<role>: null`
+ * clears one role; `training.<field>: null` clears one limit.
  */
 export const userAiSettingsPatchSchema = z.object({
   defaultModel: z
@@ -101,7 +165,24 @@ export const userAiSettingsPatchSchema = z.object({
       provider: z.string(),
       modelId: z.string(),
     })
-    .nullable(),
+    .nullable()
+    .optional(),
+  taskModels: z
+    .object({
+      researcher: taskModelSchema.nullable().optional(),
+      planner: taskModelSchema.nullable().optional(),
+      critic: taskModelSchema.nullable().optional(),
+      evaluator: taskModelSchema.nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  training: z
+    .object({
+      maxRunTokens: maxRunTokensSchema.nullable().optional(),
+      maxCriticRounds: maxCriticRoundsSchema.nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>;

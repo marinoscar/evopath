@@ -7,6 +7,10 @@
  * capability, #445 — `responses` by default) is shown DISABLED with the
  * reason, rather than hidden. The playground itself passes only the models
  * its current mode can use, so this is defence for any other caller.
+ *
+ * `capability` may also be a list (a training agent needs several at once);
+ * the reason then names the first one the model lacks. `disabledReason` lets
+ * a caller add a rule of its own on top (for example a provider restriction).
  */
 import { Box, ListItemText, MenuItem, TextField, Typography } from '@mui/material';
 import type { UsableAiModel } from '../../services/ai';
@@ -40,11 +44,30 @@ export function hasAiCapability(model: UsableAiModel | null | undefined, capabil
   return model?.capabilities.capabilities.includes(capability) ?? false;
 }
 
-/** Why a model cannot be picked for `capability`, or `null` when it can. */
-export function aiModelDisabledReason(model: UsableAiModel, capability = 'responses'): string | null {
-  if (hasAiCapability(model, capability)) return null;
-  if (capability === 'responses') return 'Does not support text responses';
-  return `Does not support ${aiCapabilityLabel(capability).toLowerCase()}`;
+/** One capability, or several a model must all have. */
+export type AiCapabilityRequirement = string | readonly string[];
+
+/** The first capability in `capability` the model lacks, or `null` when it has them all. */
+export function missingAiCapability(
+  model: UsableAiModel,
+  capability: AiCapabilityRequirement = 'responses',
+): string | null {
+  const required = typeof capability === 'string' ? [capability] : capability;
+  return required.find((entry) => !hasAiCapability(model, entry)) ?? null;
+}
+
+/**
+ * Why a model cannot be picked for `capability`, or `null` when it can. With a
+ * list, the reason names the first capability the model lacks.
+ */
+export function aiModelDisabledReason(
+  model: UsableAiModel,
+  capability: AiCapabilityRequirement = 'responses',
+): string | null {
+  const missing = missingAiCapability(model, capability);
+  if (missing === null) return null;
+  if (missing === 'responses') return 'Does not support text responses';
+  return `Does not support ${aiCapabilityLabel(missing).toLowerCase()}`;
 }
 
 export interface AiModelSelectProps {
@@ -53,11 +76,26 @@ export interface AiModelSelectProps {
   value: string;
   onChange: (key: string) => void;
   disabled?: boolean;
-  /** The capability a model needs to be pickable. Defaults to `responses`. */
-  capability?: string;
+  /**
+   * The capability (or every capability in a list) a model needs to be
+   * pickable. Defaults to `responses`.
+   */
+  capability?: AiCapabilityRequirement;
+  /** An extra rule on top of `capability`: a reason disables the model. */
+  disabledReason?: (model: UsableAiModel) => string | null;
+  /** The field label. Defaults to "Model". */
+  label?: string;
 }
 
-export function AiModelSelect({ models, value, onChange, disabled, capability = 'responses' }: AiModelSelectProps) {
+export function AiModelSelect({
+  models,
+  value,
+  onChange,
+  disabled,
+  capability = 'responses',
+  disabledReason,
+  label = 'Model',
+}: AiModelSelectProps) {
   const selected = models.find((model) => aiModelKey(model) === value) ?? null;
 
   return (
@@ -66,7 +104,7 @@ export function AiModelSelect({ models, value, onChange, disabled, capability = 
         select
         fullWidth
         size="small"
-        label="Model"
+        label={label}
         value={selected ? value : ''}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
@@ -80,7 +118,7 @@ export function AiModelSelect({ models, value, onChange, disabled, capability = 
         }}
       >
         {models.map((model) => {
-          const reason = aiModelDisabledReason(model, capability);
+          const reason = aiModelDisabledReason(model, capability) ?? disabledReason?.(model) ?? null;
           return (
             <MenuItem key={aiModelKey(model)} value={aiModelKey(model)} disabled={reason !== null}>
               <ListItemText

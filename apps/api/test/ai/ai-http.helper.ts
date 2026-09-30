@@ -31,6 +31,7 @@ import {
   type AiRuntimeHarnessOptions,
 } from '../../src/ai/testing/ai-runtime-harness';
 import type { FakeAiScript } from '../../src/ai/testing/fake-ai-provider';
+import { TrainingModelResolver } from '../../src/training-agents/models/training-model-resolver.service';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
@@ -71,6 +72,12 @@ export interface AiHttpTestAppExtras {
    * the container's own instance.
    */
   harnessUsableModels?: boolean;
+  /**
+   * Also substitute a `TrainingModelResolver` built over the harness (its
+   * in-memory key, model and settings tables), for the training agent model
+   * routes under `/api/ai/training`. Off by default.
+   */
+  harnessTrainingResolver?: boolean;
 }
 
 export async function createAiHttpTestApp(
@@ -107,6 +114,20 @@ export async function createAiHttpTestApp(
       { provide: AiStorageInputResolver, useValue: harness.inputs },
       { provide: AiOutputWriter, useValue: harness.outputs },
       ...(extras.harnessUsableModels ? [{ provide: UsableModelsService, useValue: harness.usableModels }] : []),
+      ...(extras.harnessTrainingResolver
+        ? [
+            {
+              provide: TrainingModelResolver,
+              useValue: new TrainingModelResolver(
+                harness.prisma as never,
+                harness.aiConfig,
+                harness.registry,
+                harness.resolver,
+                harness.usableModels,
+              ),
+            },
+          ]
+        : []),
     ],
   });
 

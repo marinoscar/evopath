@@ -238,10 +238,10 @@ The AI platform is an admin-governed, bring-your-own-key capability over five pr
 
 A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That client runs one gate pipeline for every call: kill switch, provider and model enablement, capability match, key resolution (the user's own key, or the org key under `byok_with_org_fallback` or for a holder of `ai_config:write`), rate limits and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `apps/api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
 
-`TrainingAgentsModule` (`apps/api/src/training-agents/`) sits above the gateway: it runs agent graphs with LangGraph.js through `LangGraphRunner`, checkpointing to two Prisma-owned tables, and never calls a provider itself. Framework telemetry is forced off in code.
+`TrainingAgentsModule` (`apps/api/src/training-agents/`) sits above the gateway: it runs agent graphs with LangGraph.js through `LangGraphRunner`, checkpointing to two Prisma-owned tables, and never calls a provider itself. Framework telemetry is forced off in code. Per-role model choice (researcher, planner, critic, evaluator) is resolved by `TrainingModelResolver` (`training-agents/models/`) from the user's `ai.taskModels` and the read-only `UsableModelsService`; `GET /api/ai/training/models` and `POST /api/ai/training/estimate` (`ai:use`, behind `AiEnabledGuard`) return the resolution and a token estimate, never a quote.
 
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
-- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; admin-only Playground `/ai`
+- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`, `/settings/ai/agents`; admin-only Playground `/ai`
 - **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)
 - **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../apps/api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
 
@@ -449,7 +449,7 @@ Namespaces of the `global` document (`systemSettingsSchema`):
 
 Every read completes missing namespaces from built-in defaults, so the stored document is always whole.
 
-`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (default model). An absent optional namespace means "use the defaults".
+`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (default model, `taskModels` per training role, and `training` limits). An absent optional namespace means "use the defaults".
 
 ---
 
@@ -625,6 +625,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
+| `/settings/ai/agents` | Training agents | AI | `ai:use` | `ai` |
 | `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.

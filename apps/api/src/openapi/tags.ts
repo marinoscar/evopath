@@ -253,6 +253,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'models you can actually call. Everything except `GET /api/ai/config` requires ' +
           '`ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
       },
+      {
+        name: 'AI Training',
+        description:
+          'The training-plan agents (researcher, planner, critic, evaluator): which model and ' +
+          'reasoning effort each role will use, or why it cannot run and where to fix it, and a ' +
+          'pre-run token estimate against your per-run cap (tokens only, never a price). ' +
+          'Requires `ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
+      },
     ],
   },
   {

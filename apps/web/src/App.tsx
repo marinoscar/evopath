@@ -108,6 +108,7 @@ const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
 // Issue #444, epic #420 — AI usage aggregates.
 const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
+const UserAgentModelsPage = lazy(() => import('./pages/UserAgentModelsPage'));
 const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
@@ -255,6 +256,22 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <UserAiKeysPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Training agents: gated exactly like `/settings/ai` above,
+                      on `ai:use` (the string `/api/ai/training/*` enforces and
+                      the `Training agents` card declares) plus AI being on. */}
+                  <Route
+                    path="/settings/ai/agents"
+                    element={
+                      <RequirePermission
+                        permission="ai:use"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <UserAgentModelsPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }

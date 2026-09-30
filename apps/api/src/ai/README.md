@@ -63,7 +63,7 @@ ai/
     ai-config-admin.service.ts, ai-models-admin.service.ts, ai-provider-test.service.ts
   keys/                    Per-user BYOK keys + which models a user can reach
     ai-key-resolver.service.ts   AiKeyResolver — the ONE place the byok/org/admin rule is decided
-    usable-models.service.ts    UsableModelsService — "which models can I call?"
+    usable-models.service.ts    UsableModelsService — "which models can I call?" (read-only seam; `TrainingAgentsModule` imports it through `AiKeysModule`, never key material)
     user-ai-keys.service.ts / .controller.ts   /api/ai/keys/*, /api/ai/models
     ai-keys-recheck.handler.ts / .task.ts       `ai.keys.recheck` job (server-only)
     ai-keys-catalog.listener.ts  Subscribes to AI_CATALOG_SYNCED_EVENT
