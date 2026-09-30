@@ -79,6 +79,11 @@ export interface AgentStructuredCall<S extends z.ZodTypeAny> extends AgentCallBa
   hostedTools?: AiHostedTool[];
 }
 
+export interface AgentTextCall extends AgentCallBase {
+  /** Provider-executed tools (`{ type: 'web_search' }`). No function tools: use `withTools`. */
+  hostedTools?: AiHostedTool[];
+}
+
 export interface AgentToolsCall extends AgentCallBase {
   tools: AiDefinedTool[];
   maxSteps: number;
@@ -177,6 +182,35 @@ export class AgentCaller {
     }
 
     return { parsed: response.parsed, response };
+  }
+
+  /**
+   * One free-text round-trip, optionally with hosted tools (the researcher's
+   * two-step mode searches this way, then shapes the notes with `structured`).
+   */
+  async respond(call: AgentTextCall): Promise<AiResponse> {
+    const model = this.prepare(call);
+    const maxOutputTokens = this.clamp(model, call.maxOutputTokens);
+    const tools = call.hostedTools ?? [];
+    const started = this.clock();
+
+    const response = await this.guard(() =>
+      this.deps.ai.respond(
+        {
+          ...this.base(call, model, maxOutputTokens),
+          ...(tools.length > 0 ? { tools } : {}),
+        },
+        { signal: this.deps.signal }
+      )
+    );
+
+    await this.charge(call, model, response, this.clock() - started);
+
+    if (response.finishReason === 'length') {
+      throw new AgentOutputTruncated(call.role, call.node, maxOutputTokens);
+    }
+
+    return response;
   }
 
   /** The function-calling loop (`runTools`); every round-trip is charged as it happens. */

@@ -13,8 +13,9 @@ import type { NodeFn } from '../graph/node-context';
 import { InMemoryRunEventLog } from '../testing/in-memory-run-event-log';
 import { createInMemoryTrainingPrisma } from '../testing/in-memory-training-prisma';
 import { createNodeContextHarness, HARNESS_FROZEN_MODEL } from '../testing/node-context-harness';
+import { STUB_AGENT_NODES } from '../testing/stub-agent-nodes';
 import { RunBudgetExceededError } from './run-budget';
-import { TrainingSafetyStopError } from './training-run-errors';
+import { TrainingRunFailedError, TrainingSafetyStopError } from './training-run-errors';
 import { TrainingPlanRunHandler, type TrainingRunHandlerOptions } from './training-plan-run.handler';
 import { TRAINING_RUN_JOB_TYPE } from './training-runs.constants';
 
@@ -36,7 +37,13 @@ function setup(opts: { options?: TrainingRunHandlerOptions; scripts?: Parameters
     harness.runtime.aiConfig,
     events as never,
     runs as never,
-    { checkpointer: () => saver, cancelPollMs: 10, heartbeatMs: 10_000, ...opts.options },
+    {
+      checkpointer: () => saver,
+      cancelPollMs: 10,
+      heartbeatMs: 10_000,
+      ...opts.options,
+      nodes: { ...STUB_AGENT_NODES, ...opts.options?.nodes },
+    },
   );
 
   const queued = (overrides: Parameters<typeof db.add>[0] = {}) =>
@@ -273,6 +280,28 @@ describe('TrainingPlanRunHandler', () => {
       await expect(t.handler.process(t.jobFor(run.id))).resolves.toBeUndefined();
 
       expect(t.db.get(run.id)).toMatchObject({ status: 'blocked_safety', errorCode: 'TRAINING_SAFETY_STOP' });
+    });
+
+    it('a node reason (TrainingRunFailedError): run failed with its code and fixed message, the job returns', async () => {
+      const t = setup({
+        options: {
+          nodes: {
+            research: throws(
+              new TrainingRunFailedError('TRAINING_RESEARCH_INSUFFICIENT', 'The research agent could not find enough reliable sources.'),
+            ),
+          },
+        },
+      });
+      const run = t.queued();
+
+      await expect(t.handler.process(t.jobFor(run.id))).resolves.toBeUndefined();
+
+      expect(t.db.get(run.id)).toMatchObject({
+        status: 'failed',
+        errorCode: 'TRAINING_RESEARCH_INSUFFICIENT',
+        errorMessage: 'The research agent could not find enough reliable sources.',
+      });
+      expect(stageNodes(t.events, run.id)).not.toContain('plan');
     });
 
     it('anything else: run failed INTERNAL_ERROR with a sanitised message, the job throws', async () => {

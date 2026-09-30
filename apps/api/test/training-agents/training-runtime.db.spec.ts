@@ -50,6 +50,7 @@ import { TrainingRunsService } from '../../src/training-agents/runtime/training-
 import { HARNESS_FROZEN_MODEL } from '../../src/training-agents/testing/node-context-harness';
 import { FAKE_TEXT_MODEL_CAPABILITIES } from '../../src/ai/testing/fake-ai-provider';
 import type { AgentScript } from '../../src/training-agents/testing/node-context-harness';
+import { STUB_AGENT_NODES } from '../../src/training-agents/testing/stub-agent-nodes';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AGENT_CALL_USAGE, AGENT_NODES, SCRIPTED_DRAFT, agentScripts, agentsCalled } from './agent-graph-support';
 
@@ -109,7 +110,7 @@ describeWithDb('training runtime (real Postgres)', () => {
       h.aiConfig,
       events,
       { requeue: jest.fn(async () => true) } as unknown as TrainingRunsService,
-      { cancelPollMs: 20, ...options },
+      { cancelPollMs: 20, ...options, nodes: { ...STUB_AGENT_NODES, ...options.nodes } },
     );
   }
 

@@ -221,3 +221,35 @@ async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<voi
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
+
+describe('AgentCaller.respond', () => {
+  it('sends free text with hosted tools from the frozen model, charges it, and throws AgentOutputTruncated on length', async () => {
+    let finishReason: 'stop' | 'length' = 'stop';
+    const h = createNodeContextHarness({
+      scripts: { researcher: () => ({ outputText: 'notes', usage: USAGE, finishReason }) },
+    });
+    const textCall = {
+      role: 'researcher' as const,
+      node: 'research',
+      instructions: 'SECRET-INSTRUCTIONS-CANARY',
+      input: 'SECRET-INPUT-CANARY',
+      hostedTools: [{ type: 'web_search' as const }],
+    };
+
+    const response = await h.context.agent.respond(textCall);
+
+    expect(response.outputText).toBe('notes');
+    expect(h.runtime.fake.calls[0].request).toMatchObject({
+      model: HARNESS_MODEL,
+      reasoning: { effort: 'medium' },
+      metadata: { agent: 'researcher', node: 'research' },
+      tools: [{ type: 'web_search' }],
+    });
+    expect(h.runtime.fake.calls[0].request?.structuredOutput).toBeUndefined();
+    expect(h.budget.used).toBe(150);
+
+    finishReason = 'length';
+    await expect(h.context.agent.respond(textCall)).rejects.toBeInstanceOf(AgentOutputTruncated);
+    expect(h.budget.used).toBe(300);
+  });
+});

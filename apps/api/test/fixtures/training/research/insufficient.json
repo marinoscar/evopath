@@ -1,0 +1,64 @@
+{
+  "description": "Only one returned source; the other cited URL is fabricated, so fewer than two verified sources remain.",
+  "queries": [
+    "beginner strength training"
+  ],
+  "searchSources": [
+    "https://www.acsm.org/education-resources/trending-topics-resources/resistance-training-guidelines"
+  ],
+  "citations": [],
+  "brief": {
+    "summary": "Short brief.",
+    "claims": [
+      {
+        "id": "E1",
+        "topic": "frequency",
+        "claim": "Twice weekly.",
+        "applicability": "Applies to a beginner training three days a week.",
+        "confidence": "moderate",
+        "sourceIds": [
+          "S1"
+        ]
+      },
+      {
+        "id": "E2",
+        "topic": "volume",
+        "claim": "Ten sets.",
+        "applicability": "Applies to a beginner training three days a week.",
+        "confidence": "moderate",
+        "sourceIds": [
+          "S2"
+        ]
+      },
+      {
+        "id": "E3",
+        "topic": "progression",
+        "claim": "Add load.",
+        "applicability": "Applies to a beginner training three days a week.",
+        "confidence": "moderate",
+        "sourceIds": [
+          "S2"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "S1",
+        "url": "https://www.acsm.org/education-resources/trending-topics-resources/resistance-training-guidelines",
+        "title": "ACSM resistance training guidelines",
+        "publisher": "ACSM",
+        "kind": "position_stand",
+        "year": 2021
+      },
+      {
+        "id": "S2",
+        "url": "https://fabricated.example.org/volume",
+        "title": "Volume",
+        "publisher": "Nobody",
+        "kind": "meta_analysis",
+        "year": 2020
+      }
+    ],
+    "cautions": []
+  }
+}

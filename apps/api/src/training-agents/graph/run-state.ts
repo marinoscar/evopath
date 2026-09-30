@@ -1,3 +1,4 @@
+import type { VerifiedEvidenceBrief } from '../agents/researcher/evidence-brief.contract';
 import type { TrainingRunKind } from '../models/token-estimate';
 
 // =============================================================================
@@ -48,8 +49,8 @@ export interface RunOutcome {
 export interface RunStateSeams {
   /** The minimised per-role context (context builder). */
   context: unknown | null;
-  /** The researcher's evidence brief. */
-  brief: unknown | null;
+  /** The researcher's verified evidence brief (`agents/researcher/evidence-brief.contract.ts`). */
+  brief: VerifiedEvidenceBrief | null;
   /** The planner's latest draft. */
   draft: unknown | null;
   /** The guardrail report on the latest draft. */

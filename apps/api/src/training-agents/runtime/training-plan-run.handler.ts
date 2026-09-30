@@ -28,6 +28,8 @@
 //   AI_RATE_LIMITED                   run back to `queued`, `run.deferred` job deferred
 //   RunBudgetExceededError            run `failed` TRAINING_RUN_BUDGET_EXCEEDED   job returns
 //   safety stop raised by a node      run `blocked_safety`                job returns
+//   TrainingRunFailedError (a node's  run `failed` with its code          job returns
+//     own reason, e.g. research)
 //   anything else                     run `failed` (sanitised)            job THROWS (visible to operators)
 //
 // SETTLE SAFETY NET. If a job settles `failed` while its run is still
@@ -69,7 +71,12 @@ import { ContextBudget, TrainingContextTooLargeError } from './context-budget';
 import { PrismaCheckpointSaver } from './prisma-checkpoint-saver';
 import { RunBudget, RunBudgetExceededError, countedTokens, parseRunUsage } from './run-budget';
 import { RunEventsService } from './run-events.service';
-import { TrainingRunAbort, type TrainingRunAbortReason, TrainingSafetyStopError } from './training-run-errors';
+import {
+  TrainingRunAbort,
+  type TrainingRunAbortReason,
+  TrainingRunFailedError,
+  TrainingSafetyStopError,
+} from './training-run-errors';
 import { TRAINING_RUN_AUDIT_ACTIONS, auditTrainingRun } from './training-run-audit';
 import {
   APPROVAL_TTL_MS,
@@ -559,7 +566,11 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
       return this.finish(run, ['running'], { status: 'blocked_safety', errorCode: cause.code, budget });
     }
 
-    if (cause instanceof TrainingContextTooLargeError || cause instanceof AgentOutputTruncated) {
+    if (
+      cause instanceof TrainingContextTooLargeError ||
+      cause instanceof AgentOutputTruncated ||
+      cause instanceof TrainingRunFailedError
+    ) {
       return this.finish(run, ['running'], {
         status: 'failed',
         errorCode: cause.code,
@@ -739,7 +750,8 @@ function knownCause(error: unknown): unknown {
       current instanceof RunBudgetExceededError ||
       current instanceof TrainingSafetyStopError ||
       current instanceof TrainingContextTooLargeError ||
-      current instanceof AgentOutputTruncated
+      current instanceof AgentOutputTruncated ||
+      current instanceof TrainingRunFailedError
     ) {
       return current;
     }

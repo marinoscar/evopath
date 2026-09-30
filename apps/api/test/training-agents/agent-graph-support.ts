@@ -1,13 +1,14 @@
 // Shared fixtures for the training-agents specs that drive the training
 // graphs with nodes that really call a model (through `AgentCaller` and the
-// real `AiService` over the scripted fake provider). The production nodes are
-// still stubs; these overrides stand in for the researcher, planner, critic
-// and evaluator so the runtime is exercised end to end. Not a `*.spec.ts`
+// real `AiService` over the scripted fake provider). These overrides stand in
+// for the researcher, planner, critic and evaluator nodes so the runtime is
+// exercised end to end without their contracts. Not a `*.spec.ts`
 // file, so Jest never runs it as a suite.
 
 import { z } from 'zod';
 
 import type { NodeFn } from '../../src/training-agents/graph/node-context';
+import type { RunState } from '../../src/training-agents/graph/run-state';
 import type { AgentScript } from '../../src/training-agents/testing/node-context-harness';
 import type { TrainingAgentRole } from '../../src/common/schemas/settings.schema';
 
@@ -66,7 +67,8 @@ export const AGENT_NODES: Record<string, NodeFn> = {
       input: 'goal',
       hostedTools: [{ type: 'web_search' }],
     });
-    return { brief: parsed };
+    // A stand-in brief, not a verified one: these specs exercise the runtime.
+    return { brief: parsed as unknown as RunState['brief'] };
   },
   plan: async (state, ctx) => {
     const round = state.roundCounters.critique ?? 0;
