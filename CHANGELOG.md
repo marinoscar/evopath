@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guided First-Time Setup**: `npm run setup` builds the CLI and runs `appctl init`, which creates `infra/compose/.env` interactively.
 - **Template Tooling**: rebrand a fork with `scripts/rename.mjs` and `scripts/new-project.mjs` (or the `/rename-app`/`/new-project` skills), which rewrite the product identity centralized in `packages/shared`. See `docs/RENAMING.md`.
 
+### Removed
+
+- **Web Push environment-variable fallback**: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` are retired; Web Push is now configured exclusively at `/admin/settings/push`. Breaking change: a deployment that relied on the env-var path with no admin-UI configuration ever saved loses Web Push until an administrator reconfigures it there. No auto-migration, matching how object storage and SES's AWS credential were retired. See `docs/specs/browser-notifications.md`.
+
 ## [1.1.0] - 2026-06-10
 
 ### Changed

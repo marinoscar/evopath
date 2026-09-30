@@ -41,9 +41,9 @@ publish and the OS toast are liveness on top of it. The admin kill switch
 (`browserEnabled: false`, or an event in `disabledEvents`) drops the browser
 channel for ordinary events, so they write no inbox row. A `mandatory` event
 keeps its row and arrives with `toast: false`. See `policyChannels` and
-`isBrowserToastAllowed` in `notification-policy.ts`. Web Push sends only while a VAPID key
-pair is active: one generated at `/admin/settings/push`, or, when none is
-stored, the `VAPID_*` environment variables.
+`isBrowserToastAllowed` in `notification-policy.ts`. Web Push sends only
+while a VAPID key pair is generated and enabled at `/admin/settings/push`;
+there is no environment-variable fallback.
 
 ## Adding a notification
 

@@ -226,12 +226,12 @@ channel:
 
 | Case | Result |
 |---|---|
-| No `webPush` row | Fall back to `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` env vars, if set. |
-| Row `enabled: true`, public key and credential present | The database wins, even over set env vars. |
-| Row `enabled: false` | Push off. No env fallback, so "disable" really disables. |
-| Row `enabled: true`, credential missing | Treated as disabled and logged loudly. Never silently reverts to env. |
+| No `webPush` row, or a row with `enabled: false` | Push off. Both mean the same thing: nothing is active. |
+| Row `enabled: true`, but no public key or the credential is missing | Treated as disabled and logged loudly. |
+| Row `enabled: true`, public key and credential present | The active config. |
 
-A fresh deployment has neither, so push ships disabled.
+There is no environment-variable fallback. A fresh deployment has no row, so
+push ships disabled until an administrator configures it.
 
 **Admin actions** (`/admin/settings/push`, `PushConfigPage.tsx`):
 
@@ -242,9 +242,9 @@ A fresh deployment has neither, so push ships disabled.
 - **Rotate**: replaces the key pair; `enabled` unchanged. Body
   `{ "confirmation": "ROTATE" }`. 400 if nothing is configured.
 - **Remove**: deletes the credential, then the row. Body
-  `{ "confirmation": "REMOVE" }`. With the row gone, env vars (if any) apply
-  again. Deleting the credential first means a partial failure lands in the
-  "credential missing" case (disabled), never on stale env keys.
+  `{ "confirmation": "REMOVE" }`. With the row gone, push is off, same as a
+  fresh deployment. Deleting the credential first means a partial failure
+  lands in the "credential missing" case (disabled), never on a stale row.
 
 The two confirmation words differ so a body copied from one route is rejected
 by the other. `PushConfigConfirmDialog` clears the typed text whenever it opens
@@ -271,7 +271,7 @@ administrator can fix, rather than a silently absent channel. Per send:
 sends a real, signed test push to the caller's own subscriptions only, never
 anyone else's. `push-test.service.ts` (`PushTestService`) builds the answer:
 
-- Config integrity: source (`admin`, `env` or `none`), whether the public and
+- Config integrity: source (`admin` or `none`), whether the public and
   private keys form a pair, whether the subject is valid.
 - Whether the browser's subscription key matches the server key (the request
   may carry this browser's `endpoint` and `applicationServerKey`).
@@ -551,9 +551,9 @@ Three independent checks in the page:
 
 ### Environment variables
 
-- `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`: optional fallback
-  key pair, used only while no `webPush` row exists (§2.7).
-- `SECRETS_ENCRYPTION_KEY`: required to store the VAPID private key.
+- `SECRETS_ENCRYPTION_KEY`: required to store the VAPID private key. There is
+  no environment variable for the key pair itself; it is configured
+  exclusively at `/admin/settings/push` (§2.7).
 
 ### Permissions
 
@@ -728,3 +728,9 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
 - Issue #521: `GET /api/notifications/events` gains `declaredChannels`, so the
   admin policy page keeps listing an event whose browser delivery it
   suppressed.
+- Issue #183 removed the `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
+  `VAPID_SUBJECT` environment-variable fallback, matching how object storage
+  (#377) and SES's AWS credential (#585) were retired once their own admin UI
+  shipped. `resolveActiveVapidConfig()` narrowed from four cases to three; a
+  deployment relying on the old env-var path must configure a key pair at
+  `/admin/settings/push` after upgrading.
