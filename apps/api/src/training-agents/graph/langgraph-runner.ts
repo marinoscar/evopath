@@ -17,13 +17,13 @@ import type {
 export interface InvokableGraph<State, Nodes extends string = string> {
   invoke(
     input: Partial<State> | Command<unknown, Partial<State>, Nodes> | null,
-    options: { configurable: { thread_id: string }; signal: AbortSignal },
+    options: { configurable: { thread_id: string }; signal: AbortSignal; durability: 'sync' },
   ): Promise<unknown>;
 }
 
 /**
- * `AgentGraphRunner` over a compiled LangGraph graph (skeleton; the
- * production training graph wires it).
+ * `AgentGraphRunner` over a compiled LangGraph graph (`create-graph.ts`,
+ * `evaluate-graph.ts`).
  *
  * - First start: `invoke(input)`.
  * - Resume an interrupt: `invoke(new Command({ resume }))`.
@@ -50,6 +50,7 @@ export class LangGraphRunner<State extends object, Nodes extends string = string
     const result = await this.graph.invoke(input, {
       configurable: { thread_id: args.threadId },
       signal: args.signal,
+      durability: 'sync',
     });
 
     return toRunResult<State>(result);
