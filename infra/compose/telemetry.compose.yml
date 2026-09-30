@@ -54,6 +54,21 @@ services:
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ../otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+      # Host metrics (issue #122): the hostmetrics receiver reads the host's
+      # /proc, /sys and mount table here (root_path: /hostfs), and the host's
+      # /etc/hostname for host.name. Read-only; the collector still runs as
+      # its image's unprivileged user (10001), with no privileged mode, no
+      # pid: host and no Docker socket. Propagation is left at Docker's
+      # default here because `rslave` fails outright on a host whose / is a
+      # private mount (Docker Desktop, some VMs); vps.telemetry.compose.yml
+      # adds it for VPS hosts, where / is shared.
+      - /:/hostfs:ro
+    # Hides the host's /run beneath /hostfs, and with it /run/docker.sock and
+    # /run/containerd: the hostmetrics scrapers never read it, and user 10001
+    # being outside the docker group should not be the only thing between
+    # the collector and the socket.
+    tmpfs:
+      - /hostfs/run:size=1m,mode=0555
     environment:
       - GREPTIME_DB=${GREPTIME_DB:-public}
       - GREPTIME_WRITER_USER=${GREPTIME_WRITER_USER:-writer}

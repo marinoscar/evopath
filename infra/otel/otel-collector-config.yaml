@@ -7,6 +7,13 @@
 # Traces need their own exporter: GreptimeDB rejects OTLP traces (HTTP 400)
 # unless they name an ingest pipeline (x-greptime-pipeline-name). Logs and
 # metrics must NOT carry that header, so they share a second exporter.
+#
+# Besides what the API pushes, the collector scrapes three things itself
+# (issue #122): the host it runs on (hostmetrics, through the read-only /hostfs
+# bind mount in telemetry.compose.yml), its own pipeline counters, and
+# GreptimeDB's /metrics. Those travel in their own pipeline, `metrics/local`,
+# because only there is it TRUE that the data describes this machine -- so only
+# there is host.name stamped with the host's real name.
 # =============================================================================
 
 receivers:
@@ -16,6 +23,113 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+
+  # The HOST, not the container. root_path makes every scraper read
+  # /hostfs/proc, /hostfs/sys and the host's mount table instead of the
+  # container's own view, so no privileged mode, pid: host or Docker socket is
+  # needed. CPU, memory, load, paging and disk counters are kernel-global and
+  # therefore genuinely the host's.
+  #
+  # NETWORK IS THE EXCEPTION (verified live, collector 0.145): the scraper
+  # reads /hostfs/proc/net/dev, and /proc/net is a symlink to /proc/self/net,
+  # which resolves to the net namespace of the process reading it -- the
+  # collector's. So system.network.* describe the collector container's
+  # interfaces (eth0 on the compose network, lo), NOT the host's NICs. They
+  # still answer "is the telemetry path moving bytes", which is why they stay;
+  # host NIC throughput would need network_mode: host, which this stack refuses
+  # (the collector must sit on the compose network, unpublished).
+  hostmetrics:
+    collection_interval: 30s
+    root_path: /hostfs
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      load:
+      paging:
+      disk:
+      network:
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+        # Real disks only. Without these, every container's overlay root,
+        # every tmpfs and every kernel pseudo-filesystem becomes a series --
+        # dozens of rows that all say "fine" and bury the one disk filling up.
+        exclude_fs_types:
+          match_type: strict
+          fs_types:
+            - autofs
+            - binfmt_misc
+            - bpf
+            - cgroup
+            - cgroup2
+            - configfs
+            - debugfs
+            - devpts
+            - devtmpfs
+            - efivarfs
+            - fuse.lxcfs
+            - fusectl
+            - hugetlbfs
+            - mqueue
+            - nsfs
+            - overlay
+            - proc
+            - pstore
+            - ramfs
+            - rpc_pipefs
+            - securityfs
+            - selinuxfs
+            - squashfs
+            - sysfs
+            - tmpfs
+            - tracefs
+        # Container runtimes bind-mount and overlay-mount beneath these; the
+        # disk behind them is already reported once through its real mount.
+        exclude_mount_points:
+          match_type: regexp
+          mount_points:
+            - ^/(dev|proc|sys|run)(/.*)?$
+            - ^/var/lib/(docker|containerd|kubelet)/.*
+            - ^/snap/.*
+            - ^/hostfs(/.*)?$
+
+  # The telemetry pipeline watching itself: the collector's own counters
+  # (accepted/refused/sent/failed points, queue size) exposed on loopback by
+  # service.telemetry below, and GreptimeDB's /metrics. Without these, a
+  # stalled export looks exactly like a quiet application.
+  prometheus/self:
+    config:
+      scrape_configs:
+        # Stored as job/service_name `otelcol-contrib`, not this job_name: the
+        # collector's own exposition carries its service.name, which wins.
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+        # /metrics answers without credentials even with the static user
+        # provider on (verified live, GreptimeDB v1.2.1), so no basic_auth: a
+        # password in a scrape config is one more place it could leak from.
+        - job_name: greptimedb
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["greptimedb:4000"]
+          # Every metric becomes its own table, and GreptimeDB exports ~130 of
+          # them (mito internals, opendal, metadata cache...) that would bury
+          # the explorer's table list. Kept: is it up and which version, what
+          # the HTTP/OTLP front door is doing (requests, latency, auth
+          # failures, rows ingested), whether writes are stalling or memory is
+          # at its limit, and the process's own CPU/RSS/fds.
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              action: keep
+              regex: greptime_app_version|greptime_(servers|frontend)_.*|greptime_mito_(write_stalling_count|write_buffer_bytes|region_count|flush_requests_total|flush_bytes_total)|greptime_table_operator_ingest_rows_total|greptime_(memory|cpu)_limit_.*|process_.*
 
 processors:
   batch:
@@ -42,6 +156,47 @@ processors:
       # Query strings can carry OAuth codes, state and device codes.
       - key: url.query
         action: delete
+
+  # The host's real name, for metrics this collector scraped itself. Inside a
+  # container every in-process source of a hostname -- os.Hostname(), the
+  # resourcedetection `system` detector, even /hostfs/proc/sys/kernel/hostname
+  # (the UTS namespace is the reader's) -- returns the container id, which
+  # changes on every recreate. The host's /etc/hostname, read through the
+  # /hostfs mount by the config's file provider at startup, is the one source
+  # that is right with zero configuration. Embedded in an OTTL string literal
+  # it is always a string, even for an all-digit hostname -- but it arrives
+  # byte for byte, trailing newline included (verified live: "vm\n"), hence
+  # the replace_pattern.
+  #
+  # Every systemd distribution has /etc/hostname; on a host without one the
+  # collector refuses to start and names the file, rather than silently
+  # labelling the host with a container id.
+  transform/host_name:
+    error_mode: ignore
+    metric_statements:
+      - context: resource
+        statements:
+          - set(resource.attributes["host.name"], "${file:/hostfs/etc/hostname}")
+          - replace_pattern(resource.attributes["host.name"], "\\s", "")
+
+  # GreptimeDB turns DATA POINT attributes into metric-table label columns,
+  # but of the resource attributes it keeps only a fixed few (service.name as
+  # service_name and job, service.version, deployment.environment,
+  # service.instance.id) and silently drops host.name and app.instance.id
+  # (verified live, v1.2.1). Copying those two down is what makes host_name
+  # and app_instance_id filterable columns on every metric table; a table that
+  # predates them gains the columns, NULL for old rows. service.name is NOT
+  # copied: a data point `service.name` lands in the SAME service_name column
+  # (verified), so it would add nothing but a second writer to it.
+  # `where ... != nil` keeps a source that lacks the attribute from gaining
+  # an empty label.
+  transform/promote_labels:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(datapoint.attributes["app.instance.id"], resource.attributes["app.instance.id"]) where resource.attributes["app.instance.id"] != nil
+          - set(datapoint.attributes["host.name"], resource.attributes["host.name"]) where resource.attributes["host.name"] != nil
 
 exporters:
   # Logs and metrics
@@ -81,7 +236,14 @@ service:
 
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, attributes/redact, batch]
+      processors: [memory_limiter, attributes/redact, transform/promote_labels, batch]
+      exporters: [otlphttp/greptime]
+
+    # Scraped by this collector, so host.name is stamped here and nowhere
+    # else: an OTLP sender keeps whatever host.name it reported itself.
+    metrics/local:
+      receivers: [hostmetrics, prometheus/self]
+      processors: [memory_limiter, attributes/redact, transform/host_name, transform/promote_labels, batch]
       exporters: [otlphttp/greptime]
 
     logs:
@@ -92,3 +254,14 @@ service:
   telemetry:
     logs:
       level: info
+    # Exposed on loopback only, for prometheus/self above: nothing else in the
+    # stack needs it, and on the compose network it would be one more
+    # unauthenticated endpoint.
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
