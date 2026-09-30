@@ -179,3 +179,24 @@ describe('HttpNodeApi — quoting the claim', () => {
     expect(assignment?.job).not.toHaveProperty('claimToken');
   });
 });
+
+describe('HttpNodeApi — heartbeat vitals (#130)', () => {
+  it('sends `vitals` on the heartbeat body when given, and no key when not', async () => {
+    const withVitals = harness();
+    await withVitals.api.heartbeat(NODE, {
+      status: 'online',
+      concurrency: 2,
+      vitals: { slotsUsed: 1, slotsTotal: 2, counters: { claims: 3 }, nodeVersion: '24.3.0' },
+    });
+    expect(withVitals.calls[0]?.url).toBe(`http://h/api/nodes/${NODE}/heartbeat`);
+    expect(JSON.parse(sentBody(withVitals.calls))).toEqual({
+      status: 'online',
+      concurrency: 2,
+      vitals: { slotsUsed: 1, slotsTotal: 2, counters: { claims: 3 }, nodeVersion: '24.3.0' },
+    });
+
+    const without = harness();
+    await without.api.heartbeat(NODE, { status: 'online', concurrency: 2, vitals: undefined });
+    expect(sentBody(without.calls)).not.toContain('vitals');
+  });
+});

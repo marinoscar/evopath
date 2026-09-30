@@ -148,10 +148,56 @@ export function claimTokenBody(claimToken: ClaimToken): { claimToken?: string } 
   return typeof claimToken === 'string' && claimToken.length > 0 ? { claimToken } : {};
 }
 
+/**
+ * Cumulative counters since this worker process started (#130). Mirrors the
+ * server's `nodeVitalsCountersSchema`, which is `.strict()`: a key not listed
+ * here is a 400 for the WHOLE heartbeat, so never add one on this side first.
+ */
+export interface NodeVitalsCounters {
+  claims?: number | undefined;
+  emptyPolls?: number | undefined;
+  claimFailures?: number | undefined;
+  succeeded?: number | undefined;
+  failed?: number | undefined;
+  rateLimited?: number | undefined;
+  leaseRenewals?: number | undefined;
+  leaseRenewFailures?: number | undefined;
+  heartbeatFailures?: number | undefined;
+  watchdogTrips?: number | undefined;
+}
+
+/**
+ * A health snapshot carried on the heartbeat (#129, #130). Mirrors the server's
+ * `nodeVitalsSchema` — also `.strict()`, and every value bounded. The CLI
+ * clamps or omits out-of-range values before they get here (`node-vitals.ts`);
+ * see that module for the bounds.
+ */
+export interface NodeVitals {
+  cpuPercent?: number | undefined;
+  rssBytes?: number | undefined;
+  heapUsedBytes?: number | undefined;
+  heapLimitBytes?: number | undefined;
+  eventLoopDelayP99Ms?: number | undefined;
+  stateDirFreeBytes?: number | undefined;
+  stateDirTotalBytes?: number | undefined;
+  slotsUsed?: number | undefined;
+  slotsTotal?: number | undefined;
+  uptimeSeconds?: number | undefined;
+  counters?: NodeVitalsCounters | undefined;
+  cliVersion?: string | undefined;
+  nodeVersion?: string | undefined;
+  pgDumpVersion?: string | undefined;
+}
+
 export interface HeartbeatRequest {
   status?: 'online' | 'offline' | undefined;
   concurrency?: number | undefined;
   capabilities?: Record<string, unknown> | undefined;
+  /**
+   * OPTIONAL, AND DROPPED FOR GOOD AFTER ONE 400 — an older control plane may
+   * refuse a key it does not know. See `NodeEngine.beat`.
+   */
+  vitals?: NodeVitals | undefined;
 }
 
 export interface ClaimRequest {

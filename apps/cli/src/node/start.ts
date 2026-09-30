@@ -5,7 +5,7 @@ import { NodeEngine } from './node-engine.js';
 import type { NodeEngineEvent } from './node-events.js';
 import { NodeLogger, readLogTail, formatLogRecord } from './logger.js';
 import { startDaemonHost, type DaemonHost } from './daemon.js';
-import { nodeLogPath, nodePidPath, nodeSocketPath, nodeTmpDir, type NodePathsContext } from './paths.js';
+import { nodeLogPath, nodePidPath, nodeSocketPath, nodeStateDir, nodeTmpDir, type NodePathsContext } from './paths.js';
 import { resolveNodeConfig, saveNodeConfig, type ResolvedNodeConfig } from './node-config.js';
 import {
   probeCapabilities,
@@ -17,6 +17,7 @@ import { MemoryWatchdog, memoryWatchdogEnabled } from './memory-watchdog.js';
 import { writeHeapSnapshot } from './heap-snapshot.js';
 import { resolveDefaultConcurrency } from './runtime-tuning.js';
 import { snapshotsDir } from './paths.js';
+import { NodeVitalsProvider } from './node-vitals.js';
 
 // =============================================================================
 // `node start`  (issue #275, epic #254)
@@ -63,6 +64,8 @@ export interface StartNodeOptions extends NodePathsContext {
   exit?: ((code: number) => never) | undefined;
   /** `false` disables the memory watchdog for this run (#277). */
   watchdog?: boolean | undefined;
+  /** `false` sends heartbeats without `vitals` (#130). Test seam; on by default. */
+  vitals?: boolean | undefined;
 }
 
 /** Exit code for "this node cannot do the work it advertised". */
@@ -158,6 +161,19 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
 
   let host: DaemonHost | undefined;
 
+  // The vitals provider (#130). The watchdog is built AFTER the engine (its
+  // valve stops the engine), so the provider reads it through this late-bound
+  // reference; until it is assigned — or when the watchdog is disabled — the
+  // heartbeat simply reports no `watchdogTrips`.
+  let watchdogRef: MemoryWatchdog | undefined;
+  const vitals =
+    options.vitals === false
+      ? undefined
+      : new NodeVitalsProvider({
+          stateDir: nodeStateDir(pathCtx),
+          watchdogState: () => watchdogRef?.getState(),
+        });
+
   const engine = new NodeEngine({
     api,
     nodeId,
@@ -166,6 +182,7 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     pollIntervalMs: config.node.pollIntervalMs,
     tmpDir: nodeTmpDir(pathCtx),
     capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },
+    ...(vitals !== undefined ? { collectVitals: (input) => vitals.collect(input) } : {}),
     persistConcurrency: (value) => {
       saveNodeConfig({ node: { concurrency: value } }, { ...pathCtx, degradeOnFailure: true });
     },
@@ -208,6 +225,7 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
           stop: () => engine.stop({ deregister: false }),
           log: (message, fields) => logger.warn(message, fields),
         });
+  watchdogRef = watchdog;
   watchdog?.start();
 
   const install =
@@ -229,11 +247,13 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     .run()
     .then(async () => {
       watchdog?.stop();
+      vitals?.stop();
       await host?.close();
     })
     .catch(async (error: unknown) => {
       logger.error('worker exited with an error', { error: error instanceof Error ? error.message : String(error) });
       watchdog?.stop();
+      vitals?.stop();
       await host?.close();
       throw error;
     });
@@ -288,6 +308,9 @@ function logEvent(logger: NodeLogger, event: NodeEngineEvent): void {
       return;
     case 'heartbeat-failed':
       logger.warn('heartbeat failed', { error: event.error });
+      return;
+    case 'vitals-disabled':
+      logger.warn('server refused heartbeat vitals; not sending them again this process', { error: event.error });
       return;
     case 'claim-failed':
       logger.warn('claim failed', { error: event.error });

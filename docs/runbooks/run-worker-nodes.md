@@ -326,6 +326,40 @@ passwords, and presigned storage URLs — recursively, through nested objects an
 arrays. That last one matters: a presigned URL is a bearer capability over an
 object, and log files are things people attach to issues.
 
+### 8.2 Vitals on the heartbeat
+
+Every heartbeat (every 15 s, and immediately after a concurrency change)
+carries a `vitals` snapshot of the worker process, so an administrator can spot
+a node that is alive but unwell before it stops heartbeating:
+
+| Field | What it is |
+|---|---|
+| `cpuPercent` | Process CPU since the previous heartbeat; `100` is one full core, so a busy multi-core worker can exceed it |
+| `rssBytes`, `heapUsedBytes`, `heapLimitBytes` | Process memory and the V8 heap ceiling (the same numbers the memory watchdog in §7 acts on) |
+| `eventLoopDelayP99Ms` | p99 event-loop delay since the previous heartbeat; a high value means something is blocking the worker |
+| `stateDirFreeBytes`, `stateDirTotalBytes` | The filesystem holding the state directory (`EVOPATHCLI_STATE_DIR`) |
+| `slotsUsed`, `slotsTotal` | Jobs running now / the current concurrency |
+| `uptimeSeconds` | How long this worker process has been running |
+| `counters` | Totals since the process started: `claims`, `emptyPolls`, `claimFailures`, `succeeded`, `failed`, `rateLimited`, `leaseRenewals`, `leaseRenewFailures`, `heartbeatFailures`, and `watchdogTrips` (0 or 1: the valve exits the process) |
+| `cliVersion`, `nodeVersion` | The `evopathcli` and Node.js versions |
+
+The counters reset on every restart. Each field is best-effort: one the worker
+cannot read (for example the disk figures on an unusual filesystem) is simply
+left out, and nothing about collecting vitals can stop a heartbeat. There is
+nothing to configure.
+
+**Where to see them.** The server stores the latest snapshot on the node's row:
+`GET /api/admin/nodes` and `GET /api/admin/nodes/{id}` (`nodes:read`) return it
+as `lastVitals`, stamped with the server's own `lastVitalsAt`. Vitals are for
+display only; no scheduling decision reads them.
+
+**Against an older server.** A server that predates vitals may refuse the
+unknown `vitals` key with a `400`. The worker then resends that heartbeat
+without vitals, stops sending them for the rest of the process, and logs one
+warning (`server refused heartbeat vitals; not sending them again this
+process`). The node stays online; upgrade the server and restart the worker to
+get vitals back.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | What to do |

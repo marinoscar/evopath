@@ -37,6 +37,8 @@ export type NodeEngineEvent =
   | { kind: 'lease-renew-failed'; at: string; jobId: string; error: string }
   | { kind: 'heartbeat'; at: string; concurrency: number }
   | { kind: 'heartbeat-failed'; at: string; error: string }
+  /** The server refused the heartbeat's `vitals` (400); they are not sent again this process (#130). */
+  | { kind: 'vitals-disabled'; at: string; error: string }
   | { kind: 'concurrency-changed'; at: string; concurrency: number }
   | { kind: 'claim-failed'; at: string; error: string }
   | { kind: 'draining'; at: string; inFlight: number }

@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ExecutorRegistry, type JobExecutionContext, type JobExecutor } from './executors/index.js';
 import { ExampleChecksumExecutor } from './executors/example-checksum.js';
-import type { ClaimToken, JobFailureReport, NodeApi, NodeJobAssignment } from './node-api.js';
+import type { ClaimToken, HeartbeatRequest, JobFailureReport, NodeApi, NodeJobAssignment } from './node-api.js';
+import type { EngineVitalsInput } from './node-vitals.js';
 import type { NodeEngineEvent } from './node-events.js';
 import { HISTORY_LIMIT, NodeEngine, type EngineScheduler } from './node-engine.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
@@ -1048,6 +1049,291 @@ describe('NodeEngine — the claim token', () => {
 
     executor.gate('superseded').resolve({ ok: true });
     await vi.waitFor(() => expect(rec.results).toHaveLength(1));
+
+    await engine.drain();
+    await run;
+  });
+});
+
+describe('NodeEngine — heartbeat vitals (#130)', () => {
+  function badRequest(): ApiError {
+    return new ApiError({
+      status: 400,
+      serverMessage: 'Validation failed',
+      code: 'VALIDATION_ERROR',
+      details: [{ path: ['vitals'], message: 'Unrecognized key' }],
+      method: 'POST',
+      url: 'http://h/api/nodes/node-1/heartbeat',
+      structured: true,
+      rawBody: undefined,
+    });
+  }
+
+  it('carries the collector’s vitals, fed with live slots and counters', async () => {
+    const rec = recorder();
+    const bodies: HeartbeatRequest[] = [];
+    const inputs: EngineVitalsInput[] = [];
+    const scheduler = fakeScheduler();
+    const executor = new ControlledExecutor();
+
+    const engine = new NodeEngine({
+      api: fakeApi([[assignment('j1')]], rec, {
+        async heartbeat(_nodeId, body) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 3,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+      collectVitals: (input) => {
+        inputs.push(input);
+        return { slotsUsed: input.slotsUsed, slotsTotal: input.slotsTotal, cpuPercent: 12.5 };
+      },
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['j1']));
+    await vi.waitFor(() => expect(engine.getVitalsCounters().emptyPolls).toBeGreaterThan(0));
+
+    scheduler.fireAll(); // heartbeat + lease renew
+    await vi.waitFor(() => expect(bodies.length).toBe(2));
+
+    expect(bodies[0]?.vitals).toEqual({ slotsUsed: 0, slotsTotal: 3, cpuPercent: 12.5 });
+    expect(bodies[1]).toMatchObject({ status: 'online', concurrency: 3, vitals: { slotsUsed: 1, slotsTotal: 3 } });
+    expect(inputs[1]?.counters).toMatchObject({ claims: 1, succeeded: 0, heartbeatFailures: 0 });
+    expect(inputs[1]?.counters.emptyPolls).toBeGreaterThan(0);
+    expect(inputs[1]?.counters).not.toHaveProperty('watchdogTrips');
+
+    executor.gate('j1').resolve({ ok: true });
+    await engine.drain();
+    await run;
+  });
+
+  it('sends no vitals key at all without a collector', async () => {
+    const rec = recorder();
+    const bodies: HeartbeatRequest[] = [];
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async heartbeat(_nodeId, body) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ControlledExecutor()),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(bodies.length).toBe(1));
+    expect(bodies[0]).not.toHaveProperty('vitals');
+    await engine.drain();
+    await run;
+  });
+
+  it('still heartbeats, without vitals, when the collector throws', async () => {
+    const rec = recorder();
+    const bodies: HeartbeatRequest[] = [];
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async heartbeat(_nodeId, body) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ControlledExecutor()),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      collectVitals: () => {
+        throw new Error('collector broke');
+      },
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(engine.getSnapshot().lastHeartbeatAt).not.toBeNull());
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).not.toHaveProperty('vitals');
+    await engine.drain();
+    await run;
+  });
+
+  it('on a 400 to vitals, retries once without them and never sends them again', async () => {
+    const rec = recorder();
+    const bodies: HeartbeatRequest[] = [];
+    const events: NodeEngineEvent[] = [];
+    const scheduler = fakeScheduler();
+
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async heartbeat(_nodeId, body) {
+          bodies.push(body);
+          // An older control plane: any `vitals` key is a validation error.
+          if (body.vitals !== undefined) throw badRequest();
+          return {} as never;
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ControlledExecutor()),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      onEvent: (event) => events.push(event),
+      collectVitals: () => ({ slotsTotal: 1 }),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(bodies.length).toBe(2));
+    expect(bodies[0]).toHaveProperty('vitals');
+    expect(bodies[1]).not.toHaveProperty('vitals');
+    expect(bodies[1]).toMatchObject({ status: 'online', concurrency: 1 });
+
+    // The retried beat counts as a SUCCESSFUL heartbeat, not a failure.
+    await vi.waitFor(() => expect(engine.getSnapshot().lastHeartbeatAt).not.toBeNull());
+    expect(engine.getVitalsCounters().heartbeatFailures).toBe(0);
+
+    scheduler.fireAll();
+    await vi.waitFor(() => expect(bodies.length).toBe(3));
+    expect(bodies[2]).not.toHaveProperty('vitals');
+
+    // Announced exactly once.
+    expect(events.filter((event) => event.kind === 'vitals-disabled')).toHaveLength(1);
+    expect(events.filter((event) => event.kind === 'heartbeat-failed')).toHaveLength(0);
+
+    await engine.drain();
+    await run;
+  });
+
+  it('treats a non-400 failure as an ordinary heartbeat failure and keeps vitals on', async () => {
+    const rec = recorder();
+    const bodies: HeartbeatRequest[] = [];
+    const scheduler = fakeScheduler();
+    let fail = true;
+
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async heartbeat(_nodeId, body) {
+          bodies.push(body);
+          if (fail) throw new Error('ECONNRESET');
+          return {} as never;
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ControlledExecutor()),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      collectVitals: () => ({ slotsTotal: 1 }),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(engine.getVitalsCounters().heartbeatFailures).toBe(1));
+    expect(bodies).toHaveLength(1); // no retry
+
+    fail = false;
+    scheduler.fireAll();
+    await vi.waitFor(() => expect(engine.getSnapshot().lastHeartbeatAt).not.toBeNull());
+    expect(bodies[1]).toHaveProperty('vitals');
+    expect(engine.getVitalsCounters().heartbeatFailures).toBe(1);
+
+    await engine.drain();
+    await run;
+  });
+
+  it('counts a heartbeat failure when the retry without vitals fails too', async () => {
+    const rec = recorder();
+    const events: NodeEngineEvent[] = [];
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async heartbeat() {
+          throw badRequest();
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ControlledExecutor()),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      onEvent: (event) => events.push(event),
+      collectVitals: () => ({ slotsTotal: 1 }),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(engine.getVitalsCounters().heartbeatFailures).toBe(1));
+    expect(events.some((event) => event.kind === 'vitals-disabled')).toBe(true);
+    expect(events.some((event) => event.kind === 'heartbeat-failed')).toBe(true);
+    expect(engine.getSnapshot().lastHeartbeatAt).toBeNull();
+
+    await engine.drain();
+    await run;
+  });
+
+  it('counts claim failures, empty polls, outcomes and lease renewals', async () => {
+    const rec = recorder();
+    const scheduler = fakeScheduler();
+    const executor = new ControlledExecutor();
+    let claimCalls = 0;
+    let renewCalls = 0;
+    const queue: NodeJobAssignment[][] = [[assignment('ok')], [assignment('bad')]];
+
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async claim() {
+          claimCalls += 1;
+          if (claimCalls === 1) throw new Error('API restarting');
+          return queue.shift() ?? [];
+        },
+        async renewLease(_nodeId, jobId) {
+          renewCalls += 1;
+          if (renewCalls === 1) return { jobId, leaseExpiresAt: '2026-01-01T00:10:00.000Z' };
+          throw new Error('lease lost');
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 2,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler,
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['ok', 'bad']));
+
+    scheduler.fireAll(); // heartbeat + one renew per job: one succeeds, one fails
+    await vi.waitFor(() => expect(renewCalls).toBe(2));
+
+    executor.gate('ok').resolve({ ok: true });
+    executor.gate('bad').reject(new ProviderRateLimitError('throttled', { retryAfterMs: 1_000 }));
+    await vi.waitFor(() => expect(engine.getVitalsCounters().failed).toBe(1));
+    await vi.waitFor(() => expect(engine.getVitalsCounters().emptyPolls).toBeGreaterThan(0));
+
+    expect(engine.getVitalsCounters()).toMatchObject({
+      claims: 2,
+      claimFailures: 1,
+      succeeded: 1,
+      failed: 1,
+      rateLimited: 1,
+      leaseRenewals: 1,
+      leaseRenewFailures: 1,
+      heartbeatFailures: 0,
+    });
+    // The snapshot's own counters keep their shape.
+    expect(Object.keys(engine.getSnapshot().counters).sort()).toEqual(['claimed', 'failed', 'rateLimited', 'succeeded']);
 
     await engine.drain();
     await run;
