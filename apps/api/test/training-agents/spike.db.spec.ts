@@ -194,8 +194,14 @@ describeWithDb('spike graph on real Postgres', () => {
       expect(handler.cancel(id)).toBe(false);
       expect(timeouts()).toBeLessThanOrEqual(timersBefore);
 
-      // The graph's input checkpoint (written before any node ran) is there.
-      expect(await latestValues(id)).toMatchObject({ __start__: { goal: 'Run a 5k' } });
+      // The input survived and no node completed. The latest checkpoint is either the
+      // step -1 input checkpoint (`__start__`) or the step 0 one (input applied as
+      // channels, round 0); which one is latest depends on when the abort landed.
+      const values = await latestValues(id);
+      expect(values?.__start__ ?? values).toMatchObject({ goal: 'Run a 5k' });
+      expect(values?.brief ?? null).toBeNull();
+      expect(values?.drafts ?? []).toEqual([]);
+      expect(values?.round ?? 0).toBe(0);
     });
 
     it('aborts mid-node after completed nodes, keeps their checkpoint, and resumes to the interrupt without repeating them', async () => {
