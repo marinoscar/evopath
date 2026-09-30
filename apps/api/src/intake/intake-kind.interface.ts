@@ -3,6 +3,7 @@ import type { z } from 'zod';
 
 import type { AiFeatureId } from '../common/schemas/settings.schema';
 import type { HealthDocumentKind } from '../health-documents/health-document.constants';
+import type { IntakeInputKind } from './intake-inputs';
 
 // =============================================================================
 // IntakeKind — what one photo-intake flow plugs in (E3.1)
@@ -102,6 +103,18 @@ export interface IntakeKind<TContext = unknown, TValue = unknown> {
   readonly aiFeature?: AiFeatureId;
   /** The most photos one intake may hold. Default 48. */
   readonly maxPhotos?: number;
+  /**
+   * The kinds of file this kind accepts (H2, #186): `['image']` (the default
+   * when omitted) or `['image', 'pdf']`. A PDF is refused with 400
+   * `UNSUPPORTED_MEDIA_TYPE` on a kind that does not list `'pdf'`. The
+   * registry refuses an empty list, an unknown entry or a duplicate.
+   */
+  readonly acceptedInputs?: readonly IntakeInputKind[];
+  /**
+   * The most pages one PDF input may have, for a kind that accepts PDFs.
+   * Default `INTAKE_PDF_MAX_PAGES` (20); a positive integer.
+   */
+  readonly maxPdfPages?: number;
   /**
    * Allowed `DraftItem.kind` values. Omitted = any non-empty string. A kind
    * with one item kind declares it so a typo is a 400 rather than a row.

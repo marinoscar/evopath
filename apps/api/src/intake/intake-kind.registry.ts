@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import type { IntakeKind } from './intake-kind.interface';
+import { INTAKE_INPUT_KINDS } from './intake-inputs';
 
 // =============================================================================
 // IntakeKindRegistry — the registered photo-intake kinds (E3.1)
@@ -23,6 +24,8 @@ export class IntakeKindRegistry {
     if (kind.analyzeJobType && !kind.aiFeature) {
       throw new Error(`Intake kind "${kind.kind}" has an analyzer but no \`aiFeature\``);
     }
+
+    assertAcceptedInputs(kind);
 
     const existing = this.kinds.get(kind.kind);
 
@@ -56,5 +59,32 @@ export class IntakeKindRegistry {
 
   list(): string[] {
     return [...this.kinds.keys()];
+  }
+}
+
+/** H2 (#186): `acceptedInputs` and `maxPdfPages` are declarations a typo must not weaken. */
+function assertAcceptedInputs(kind: IntakeKind<any, any>): void {
+  const accepted = kind.acceptedInputs;
+
+  if (accepted !== undefined) {
+    if (accepted.length === 0) {
+      throw new Error(`Intake kind "${kind.kind}" declares no \`acceptedInputs\`; omit it for images only`);
+    }
+
+    for (const input of accepted) {
+      if (!(INTAKE_INPUT_KINDS as readonly string[]).includes(input)) {
+        throw new Error(
+          `Intake kind "${kind.kind}" accepts unknown input "${input}"; expected one of ${INTAKE_INPUT_KINDS.join(', ')}`,
+        );
+      }
+    }
+
+    if (new Set(accepted).size !== accepted.length) {
+      throw new Error(`Intake kind "${kind.kind}" lists an input twice in \`acceptedInputs\``);
+    }
+  }
+
+  if (kind.maxPdfPages !== undefined && (!Number.isInteger(kind.maxPdfPages) || kind.maxPdfPages < 1)) {
+    throw new Error(`Intake kind "${kind.kind}" has an invalid \`maxPdfPages\` (a positive integer)`);
   }
 }
