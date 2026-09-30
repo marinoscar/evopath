@@ -23,7 +23,9 @@ import { type AdaptationCritiqueEntry, contextOf, guardrailReportOf, proposalOf 
 //
 // `schemaName: 'training_adaptation_critique'`. Skipped, keeping the checked
 // proposal, when the run's token cap is spent (`token_cap`) or the critic's
-// answer is unusable (`error`: truncated or invalid structured output); the
+// answer is unusable (`error`: truncated or invalid structured output); a
+// critic answer cut off because its output was clamped to the last tokens of
+// the cap is `token_cap` too (the budget is spent after the charge). The
 // warning `critic_skipped` records it and the review page shows "Not
 // reviewed by the critic". Any other error (a throttle, a key, the kill
 // switch) propagates to the handler.
@@ -31,7 +33,7 @@ import { type AdaptationCritiqueEntry, contextOf, guardrailReportOf, proposalOf 
 
 export const CRITIC_NODE = 'critic';
 
-function isBudgetStop(err: unknown): boolean {
+export function isBudgetStop(err: unknown): boolean {
   let current: unknown = err;
   for (let depth = 0; depth < 5 && current; depth += 1) {
     if (current instanceof RunBudgetExceededError) return true;
@@ -72,6 +74,7 @@ export async function runCriticNode(state: AdaptRunState, ctx: AdaptationNodeCon
     }));
   } catch (err) {
     if (isBudgetStop(err)) return skip('token_cap');
+    if (err instanceof AgentOutputTruncated && ctx.budget.remaining() <= 0) return skip('token_cap');
     if (err instanceof AgentOutputTruncated || isInvalidStructuredOutput(err)) return skip('error');
     throw err;
   }

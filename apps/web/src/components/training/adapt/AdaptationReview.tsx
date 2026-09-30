@@ -52,7 +52,20 @@ export const PLAN_CHANGED_NOTICE = 'Your plan changed since this was adjusted; t
 const WARNING_TEXT: Record<string, string> = {
   revision_rejected: "The critic's revision broke a rule, so the first version was kept.",
   critic_skipped: 'The critic did not review this workout.',
+  revision_skipped_token_cap:
+    'The critic asked for changes, but your token limit was reached, so the first checked version was kept.',
 };
+
+const tokenCount = new Intl.NumberFormat('en-US');
+
+/**
+ * The critic was skipped (or cut short) by the per-run token cap (E6.3). The
+ * proposal already passed the guardrails, so it stays usable.
+ */
+export function notReviewedTokenCapText(limitTokens: number | null | undefined): string {
+  const limit = typeof limitTokens === 'number' ? ` (${tokenCount.format(limitTokens)})` : '';
+  return `${NOT_REVIEWED}: your token limit${limit} was reached`;
+}
 
 export interface AdaptationReviewProps {
   adaptation: AdaptationView;
@@ -74,6 +87,8 @@ export interface AdaptationReviewProps {
   onRefetch: () => void;
   /** Move focus to the heading on mount (the run just finished). */
   focusOnMount?: boolean;
+  /** The run's per-run token cap, when known (for "your token limit (N) was reached"). */
+  tokenLimit?: number | null;
 }
 
 const ROW_META: Record<DiffRow['kind'], { label: string; icon: ReactElement }> = {
@@ -169,6 +184,7 @@ export function AdaptationReview({
   onCopyExercises,
   onRefetch,
   focusOnMount = false,
+  tokenLimit = null,
 }: AdaptationReviewProps) {
   const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -333,6 +349,12 @@ export function AdaptationReview({
         )}
         <CriticVerdict adaptation={adaptation} />
       </Stack>
+
+      {adaptation.criticReport?.skipped === 'token_cap' && (
+        <Alert severity="info" sx={{ mb: 2 }} data-testid="critic-skipped-token-cap">
+          {notReviewedTokenCapText(tokenLimit)}. It still passed the safety, time and equipment checks.
+        </Alert>
+      )}
 
       {adaptation.status === 'applied' && (
         <Alert

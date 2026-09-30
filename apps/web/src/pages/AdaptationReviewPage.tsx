@@ -28,6 +28,8 @@ import { AdaptWorkoutSheet } from '../components/training/adapt/AdaptWorkoutShee
 import { adaptationFailureCopy, exercisesAsText } from '../components/training/adapt/adaptationCopy';
 import type { PlannedExercise } from '../components/training/adapt/adaptationDiff';
 import { ACTIVE_ADAPTATION_STATUSES } from '../services/trainingAdaptation';
+import { useAgentRunUsage } from '../hooks/useAgentUsage';
+import { AgentUsagePanel } from '../components/training/usage';
 
 export const COPY_EXERCISES_NOTICE = 'The adjusted exercises were copied. Add them from the exercise library.';
 
@@ -73,6 +75,14 @@ export default function AdaptationReviewPage({ runOptions, previewDelayMs }: Ada
       : null;
 
   const onEnded = useCallback(() => void refetch(), [refetch]);
+
+  // What the run used (E6.3), read once the run has settled: the panel below
+  // the review, the cap's limit in "Not reviewed by the critic" and the cap's
+  // numbers in the failure message. Nothing is read while the run is working
+  // (the live view shows its own progress); the first settled render reads it.
+  const usageRunId = adaptation && !working && adaptation.status !== 'blocked_safety' ? adaptation.runId : null;
+  const runUsage = useAgentRunUsage(usageRunId);
+  const cap = runUsage.usage?.cap ?? null;
 
   const adjustAgain = () => {
     setSheetMounted(true);
@@ -138,7 +148,7 @@ export default function AdaptationReviewPage({ runOptions, previewDelayMs }: Ada
       <Typography role="status">Waiting to start…</Typography>
     );
   } else if (adaptation.status === 'failed') {
-    const copy = adaptationFailureCopy(adaptation.errorCode, adaptation.errorMessage);
+    const copy = adaptationFailureCopy(adaptation.errorCode, adaptation.errorMessage, { cap });
     body = (
       <Alert severity="error" data-testid="adapt-failed">
         <AlertTitle>{copy.title}</AlertTitle>
@@ -187,6 +197,7 @@ export default function AdaptationReviewPage({ runOptions, previewDelayMs }: Ada
         onCopyExercises={copyExercises}
         onRefetch={onEnded}
         focusOnMount={justFinished}
+        tokenLimit={cap?.limitTokens ?? null}
       />
     );
   }
@@ -199,6 +210,11 @@ export default function AdaptationReviewPage({ runOptions, previewDelayMs }: Ada
           Adjusted workout
         </Typography>
         {body}
+        {usageRunId && (
+          <Box sx={{ mt: 3 }}>
+            <AgentUsagePanel runId={usageRunId} state={runUsage} />
+          </Box>
+        )}
         {sheetMounted && (
           <AdaptWorkoutSheet
             open={sheetOpen}

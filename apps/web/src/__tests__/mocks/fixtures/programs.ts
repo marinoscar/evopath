@@ -244,6 +244,7 @@ export function mockRun(overrides: Partial<TrainingRunView> = {}): TrainingRunVi
       critic: { provider: 'openai', modelId: 'frontier-1', effort: 'high', keySource: 'org' },
     },
     tokenCap: 400000,
+    cap: { limitTokens: 400000, usedTokens: 0, reached: false },
     usage: {
       byRole: {},
       byNode: {},

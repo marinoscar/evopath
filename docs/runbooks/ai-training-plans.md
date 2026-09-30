@@ -109,11 +109,11 @@ The agents page and the wizard show each role's state. A run that needs a blocke
 
 ## 6. Control cost
 
-- **Per-run token cap.** Each user's cap is `ai.training.maxRunTokens` (default 400,000 tokens for create and revise, 150,000 for evaluate; between 10,000 and 2,000,000). It is frozen on the run at start and counts input, output and reasoning tokens across every agent. A run that spends it fails with `TRAINING_RUN_BUDGET_EXCEEDED`, except that a critique or revision the budget cannot pay for ships the already-checked draft with a warning. The cap is a per-user setting; there is no admin override.
+- **Per-run token cap.** Each user's cap is `ai.training.maxRunTokens` (default 400,000 tokens for create and revise, 150,000 for evaluate; between 10,000 and 2,000,000). It is frozen on the run at start and counts input, output and reasoning tokens across every agent. A run that spends it fails with `TRAINING_RUN_BUDGET_EXCEEDED`, except that a critique or revision the budget cannot pay for ships the already-checked draft with a warning. A quick adaptation whose critic or revision the cap stops ends ready with the checked proposal ("Not reviewed by the critic"); one stopped before any proposal fails. The cap is a per-user setting; there is no admin override.
 - **Critic rounds.** `ai.training.maxCriticRounds` (1 to 3, default 2) bounds how many reviews a draft gets.
 - **Platform limits.** `ai.limits` (section 12 of ai-configuration.md) applies to every agent call: per-user and per-model request rates, organisation-key caps, and per-model `maxOutputTokens`, which also bounds each agent call's output.
 - **Automatic evaluations** are capped per user: 3 automatic runs per UTC day, 30 minutes between automatic runs, 30 minutes after a manual one. These are code constants in `apps/api/src/training-agents/evaluation/evaluation.constants.ts`; the only global off is the AI kill switch.
-- **Where to read usage.** `/admin/settings/ai/usage` shows AI usage; each run also records tokens per agent (the run view shows them). The Jobs page (`/admin/settings/jobs`) lists `ai.training.plan.run` jobs, `training.evaluation.sweep` and `training.runs.purge`.
+- **Where to read usage.** `/admin/settings/ai/usage` shows AI usage; each user sees tokens per agent role, model and key source on the run view and in the usage section of `/settings/ai` (never a currency). To trace one run, filter the usage report by the run's job. Details: [spec §2.12](../specs/ai-training-plans.md#212-usage-by-agent-role). The Jobs page (`/admin/settings/jobs`) lists `ai.training.plan.run` jobs, `training.evaluation.sweep` and `training.runs.purge`.
 
 ## 7. Monitor runs
 

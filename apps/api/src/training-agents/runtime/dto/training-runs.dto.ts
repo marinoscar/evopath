@@ -164,6 +164,17 @@ export const trainingRunViewSchema = z.object({
     }),
   ),
   tokenCap: z.number().int(),
+  /**
+   * The cap as a meter (E6.3): `usedTokens` counts input, output and reasoning
+   * tokens, exactly what the budget enforces; `reached` when the count is at
+   * or over `limitTokens` or the run failed `TRAINING_RUN_BUDGET_EXCEEDED`.
+   */
+  cap: z.object({
+    limitTokens: z.number().int(),
+    usedTokens: z.number().int(),
+    reached: z.boolean(),
+    reason: z.literal('token_cap').optional(),
+  }),
   usage: z.object({
     byRole: z.record(z.string(), usageTotalsSchema),
     byNode: z.record(z.string(), usageTotalsSchema),

@@ -278,6 +278,12 @@ export interface TrainingRunView {
     >
   >;
   tokenCap: number;
+  /**
+   * The cap as a meter (E6.3): `usedTokens` counts what the budget enforces
+   * (input, output and reasoning); `reached` when the count is at or over the
+   * limit or the run failed `TRAINING_RUN_BUDGET_EXCEEDED`.
+   */
+  cap: { limitTokens: number; usedTokens: number; reached: boolean; reason?: 'token_cap' };
   usage: {
     byRole: Record<string, TrainingUsageTotals>;
     byNode: Record<string, TrainingUsageTotals>;
