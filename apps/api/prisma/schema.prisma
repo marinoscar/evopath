@@ -2624,6 +2624,10 @@ model Measurement {
   method       String    @default("unspecified")
   origin       String    @default("manual") // manual | calculated | ai | device
   notes        String?
+  referenceLow  Float?   @map("reference_low")
+  referenceHigh Float?   @map("reference_high")
+  referenceText String?  @map("reference_text")
+  flag          String?  // low | normal | high | critical | unknown (validated in the API)
   sourceRef    Json?     @map("source_ref")
   revision     Int       @default(1)
   supersedesId String?   @unique @map("supersedes_id") @db.Uuid
