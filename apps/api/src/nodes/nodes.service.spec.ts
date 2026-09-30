@@ -60,6 +60,7 @@ import {
 } from './dto/node-control-plane.dto';
 import { NodeOffloadService } from '../jobs/node-offload.service';
 import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { NodeSettlementLedger } from './node-settlement-ledger';
 import { NodesService } from './nodes.service';
 
 describe('NodesService', () => {
@@ -89,6 +90,7 @@ describe('NodesService', () => {
   let persistNodeResult: jest.Mock;
   let offload: NodeOffloadService;
   let getNodesPolicy: jest.Mock;
+  let ledger: NodeSettlementLedger;
   let service: NodesService;
 
   /** A `ConfigService` that answers nothing, so every default is the shipped one. */
@@ -201,7 +203,10 @@ describe('NodesService', () => {
       // brokering off — because that is what a deployment that has never
       // touched the setting reads, and because this suite's types carry no
       // broker, so the filter it drives is a no-op here by construction.
-      offload
+      offload,
+      // The span relay's settle ledger (#133) — real, so the cases below can
+      // read what a settle recorded.
+      (ledger = new NodeSettlementLedger())
     );
   });
 
@@ -1318,6 +1323,71 @@ describe('NodesService', () => {
       });
       expect(prisma.job.updateMany).not.toHaveBeenCalled();
       expect(prisma.job.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // The span relay's settle ledger (#133)
+  // ===========================================================================
+
+  describe('settlement ledger', () => {
+    beforeEach(() => {
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(makeNode());
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(makeJob());
+    });
+
+    it('records the node when its result settles the job', async () => {
+      await service.submitResult(USER, NODE_ID, JOB_ID, {
+        type: NODE_TYPE,
+        result: { ok: true },
+      } as NodeJobResultDto);
+
+      expect(ledger.settledRecentlyBy(JOB_ID, NODE_ID)).toBe(true);
+      expect(ledger.settledRecentlyBy(JOB_ID, 'node-other')).toBe(false);
+    });
+
+    it('records the node when its failure settles the job', async () => {
+      await service.reportFailure(USER, NODE_ID, JOB_ID, { error: 'boom' } as NodeJobFailureDto);
+
+      expect(ledger.settledRecentlyBy(JOB_ID, NODE_ID)).toBe(true);
+    });
+
+    it('records the node when persisting throws and the server settles the failure', async () => {
+      persistNodeResult.mockRejectedValue(new Error('disk full'));
+
+      await expect(
+        service.submitResult(USER, NODE_ID, JOB_ID, {
+          type: NODE_TYPE,
+          result: { ok: true },
+        } as NodeJobResultDto)
+      ).rejects.toThrow();
+
+      expect(ledger.settledRecentlyBy(JOB_ID, NODE_ID)).toBe(true);
+    });
+
+    it('records nothing when the node does not hold the job', async () => {
+      (prisma.job.findUnique as jest.Mock).mockResolvedValue(
+        makeJob({ claimedByNodeId: 'node-other' })
+      );
+
+      await expect(
+        service.reportFailure(USER, NODE_ID, JOB_ID, { error: 'boom' } as NodeJobFailureDto)
+      ).rejects.toThrow(ConflictException);
+
+      expect(ledger.size).toBe(0);
+    });
+
+    it('records nothing when the claim is lost mid-settle', async () => {
+      terminal.completeSucceeded.mockResolvedValue('claim-lost');
+
+      await expect(
+        service.submitResult(USER, NODE_ID, JOB_ID, {
+          type: NODE_TYPE,
+          result: { ok: true },
+        } as NodeJobResultDto)
+      ).rejects.toThrow(ConflictException);
+
+      expect(ledger.size).toBe(0);
     });
   });
 });

@@ -227,7 +227,7 @@ export class DatabaseBackupRunExecutor implements JobExecutor {
 
     const fetchImpl = this.options.fetchImpl ?? globalThis.fetch;
 
-    const upload = (async () => {
+    const putArchive = async (): Promise<void> => {
       const response = await fetchImpl(target.url, {
         method: 'PUT',
         headers: { 'content-type': BACKUP_CONTENT_TYPE },
@@ -243,7 +243,18 @@ export class DatabaseBackupRunExecutor implements JobExecutor {
           `Uploading the backup for job ${job.id} failed with HTTP ${response.status}.`,
         );
       }
-    })();
+    };
+
+    // Timed as the relayed `job.upload` phase (#133) when the engine offers
+    // it. The byte count is read when the PUT completes, by which point the
+    // meter has seen the whole archive; past 2^53 it is omitted rather than
+    // rounded.
+    const upload =
+      context.phase !== undefined
+        ? context.phase('job.upload', putArchive, () =>
+            bytes <= BigInt(Number.MAX_SAFE_INTEGER) ? { bytes: Number(bytes) } : undefined,
+          )
+        : putArchive();
 
     // ...AND A DEAD UPLOAD MUST TEAR THE DUMP DOWN, or `pg_dump` reads a whole
     // database to produce an archive nobody is storing.

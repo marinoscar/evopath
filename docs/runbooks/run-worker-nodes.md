@@ -360,6 +360,47 @@ warning (`server refused heartbeat vitals; not sending them again this
 process`). The node stays online; upgrade the server and restart the worker to
 get vitals back.
 
+### 8.3 Job spans sent to the server
+
+After each job settles, the worker sends the server the timing of the job's
+phases. The server records them as trace spans under the request that queued
+the job, so a trace in the explorer shows the node's work next to the
+server's:
+
+| Span | Covers | Attributes |
+|---|---|---|
+| `job.download` | Fetching the input object (types with an input) | `bytes` |
+| `job.secret` | Obtaining the job's brokered credential (e.g. `db.backup.run`) | none |
+| `job.execute` | Running the job | `attempt` |
+| `job.upload` | The streamed upload (`db.backup.run`) | `bytes` |
+| `job.submit` | Posting the result, or reporting the failure | none |
+
+Each span holds only a start time, a duration, `ok`/`error`, and the numbers
+above. A failed phase adds the error's class name, plus an HTTP status or
+system error code (`MissingJobInputError`, `ApiError.409`,
+`Error.ECONNREFUSED`). It never carries the error message, a URL, a path or
+the credential. The server takes the node's identity from the authenticated
+route, not from anything the worker sends.
+
+Sending is best-effort and never delays or fails a job. Spans wait in a
+bounded in-memory queue (500 spans, oldest dropped first) and go out in
+batches of up to 50. A refused batch (`400`, `403`, `429`) or a network error
+is dropped silently. There is nothing to configure.
+
+**Against an older server.** A server without the relay answers `404`. The
+worker then stops sending spans for the rest of the process and logs one
+warning (`server has no span relay (older API); not sending job spans again
+this process`). Jobs are unaffected; upgrade the server and restart the worker
+to get node spans.
+
+**Spans missing from a trace.** The server keeps spans only for a job the node
+holds, or settled in the last 10 minutes, on the same API replica that
+recorded the settle. A batch is refused when a span ends more than five minutes
+in the future by the server's clock (a worker clock running ahead) or started
+more than 24 hours ago, and when one node sends more than 60 batches or 1000
+spans a minute. Check the worker's clock (NTP) first. Tracing must also be on at the
+server (`OTEL_ENABLED`); see [telemetry.md](telemetry.md).
+
 ## Troubleshooting
 
 | Symptom | Likely cause | What to do |

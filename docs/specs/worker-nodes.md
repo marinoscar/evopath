@@ -95,7 +95,7 @@ A node id belonging to another owner answers `403`, not `404`. Node ids are prin
 - A `disabled` node gets `403`: its answer will not change by polling.
 - A `draining` node gets an empty list: it is in a normal state and must keep heartbeating and renewing while it finishes.
 
-The claim response carries, per assignment, `{ job, params, renewIntervalMs, claimToken, traceparent }`. `claimToken` sits beside the job DTO, not inside it (`dto/node-response.dto.ts`). `traceparent` (#132) is the W3C trace context of the span that enqueued the job (`jobs.trace_context`, see [job-queue.md, Trace context](job-queue.md#trace-context)), re-validated by `toNodeJobAssignment` and `null` when nothing was traced; it is correlation data, not a credential. It is optional for a node: an older CLI ignores the unknown key, and the CLI mirror (`NodeJobAssignment` in `apps/cli/src/node/node-api.ts`) declares it but does not use it yet. `params` is a separate bag so a server-minted value is never mistaken for a column. The lease length is derived by `resolveJobLeaseMs` in `job.worker.ts`, the single derivation both executors read.
+The claim response carries, per assignment, `{ job, params, renewIntervalMs, claimToken, traceparent }`. `claimToken` sits beside the job DTO, not inside it (`dto/node-response.dto.ts`). `traceparent` (#132) is the W3C trace context of the span that enqueued the job (`jobs.trace_context`, see [job-queue.md, Trace context](job-queue.md#trace-context)), re-validated by `toNodeJobAssignment` and `null` when nothing was traced; it is correlation data, not a credential. It is optional for a node: an older CLI ignores the unknown key, and the CLI mirror (`NodeJobAssignment` in `apps/cli/src/node/node-api.ts`) declares it but does not read it: the node relays its phase spans to the server, which parents them on the stored context itself ([Span relay](#span-relay)). `params` is a separate bag so a server-minted value is never mistaken for a column. The lease length is derived by `resolveJobLeaseMs` in `job.worker.ts`, the single derivation both executors read.
 
 ### Lease and claim token
 
@@ -222,6 +222,32 @@ List and detail reads call it with the same policy, so they cannot disagree. Per
 
 Every value is self-reported and display-only, as on the Workers page.
 
+### Span relay
+
+A node records the phases of each job it runs and hands them to `POST /api/nodes/{id}/telemetry` (#133). The server re-emits each phase as an OpenTelemetry span through its own tracer, so a node never holds a collector address or exporter credential. `NodeTelemetryService` (`apps/api/src/nodes/node-telemetry.service.ts`) handles the route in this order:
+
+1. **Ownership.** `assertOwnership` runs first: `404` for a missing node, `403` for another owner's. No job is read before it passes.
+2. **Rate limit.** `NodeTelemetryRateLimiter` keeps two in-memory token buckets per node, 60 requests and 1000 spans a minute. A batch either bucket cannot cover is refused whole with `429` (`details.reason: "rate_limited"`). The buckets are per API replica, so N replicas allow up to N times the budget. The limit stops a runaway node; it does not meter one.
+3. **Attribution, per span.** A span is accepted only when its job is held by this node now (`claimedByNodeId` is the path id), or when this node settled the job within the last 10 minutes. A span that fails both checks is dropped and counted in `dropped`, never accepted. Dropping one span does not reject the rest of the batch.
+4. **Emission.** The span's parent is the job's stored `trace_context` (#132, `jobParentContext`). A job with none becomes a root span, like a server-run job. The span carries `node.id` and `node.name` from the path and the node row, `job.id` and `job.type` from the job row, `job.executor: node` and `telemetry.relay: node`. Allowlisted attributes are renamed on the way through: `bytes` → `job.phase.bytes`, `attempt` → `job.attempt`, `exitCode` → `process.exit_code`, `httpStatus` → `http.response.status_code`. An errored phase gets status `ERROR` and `error.type`. Emission never throws. With OTel off, an accepted span is dropped by the no-op tracer and still counts as accepted.
+
+Settling a job clears `claimed_by_node_id`, and `executor` records only *that* a node ran the job, not which one. So `NodesService` records `jobId → nodeId` in `NodeSettlementLedger` (`apps/api/src/nodes/node-settlement-ledger.ts`) whenever a node's result or failure settles a job it held, including the persist-failure path where the server settles. The ledger is in memory, holds at most 10,000 entries (oldest evicted first), and forgets an entry after 10 minutes. A span that lands on a different replica, or after a restart, is dropped rather than misattributed.
+
+The body is untrusted input and is `.strict()` at every level:
+
+- `spans`: 1 to 50.
+- `name`: one of `job.download`, `job.execute`, `job.upload`, `job.submit`, `job.secret`.
+- `jobId`: a uuid.
+- `startTimeUnixMs`: an integer no older than 24 hours. The span may end at most 5 minutes in the future.
+- `durationMs`: 0 to 24 hours.
+- `status`: `ok` or `error`.
+- `errorType` (optional): at most 64 characters matching `[A-Za-z0-9_.-]`. It is a class or code name, never a message.
+- `attributes` (optional): integers only, keys `bytes`, `attempt`, `exitCode`, `httpStatus`.
+
+The body never carries a node id, trace id, span id or parent. Anything outside this contract is `400` for the whole request. The response is `{ accepted, dropped }`.
+
+The CLI side is `apps/cli/src/node/node-span-relay.ts`. `NodeEngine` records download, execute (with `attempt`), and submit (the result or the failure report). It records `job.secret` around the executor's `api.jobSecret`, and `job.upload` where an executor calls `context.phase` (the backup executor times its streamed PUT, with `bytes`). An errored phase's `errorType` is the error's class name, plus an HTTP status (`ApiError.409`) or a string `code` (`Error.ECONNREFUSED`). The engine queues a job's spans after the job settles and never awaits the send. The relay sends one request at a time in batches of at most 50, and keeps at most 500 queued spans, dropping the oldest first. `stop()` flushes the queue. On a `404` (an older server) the relay turns itself off for the rest of the process and logs `telemetry-disabled` once. On `400`, `403`, `429` or a network error it drops the batch silently. No environment variable controls it; `NodeEngine`'s `relaySpans: false` is the programmatic switch.
+
 ### Fleet sweep and prune
 
 A crashed node never deregisters, so without a sweep its row stays `online` forever and retention (which selects `offline`) never reaches it. The two jobs are a pair with an order. Both crons only decide whether work is due and enqueue; the handlers in `apps/api/src/nodes/handlers/` do the work.
@@ -303,6 +329,7 @@ CLI-side settings (`EVOPATHCLI_*`, including `EVOPATHCLI_HEAP_LIMIT_MB`) are doc
 | `POST /api/nodes/{id}/jobs/{jobId}/secret` | Issue the job's brokered credential | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/result` | Submit a validated result; settles the job | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/failure` | Report failure (`rateLimited` defers) | `nodes:write` |
+| `POST /api/nodes/{id}/telemetry` | Relay job phase spans; `{ accepted, dropped }`, `429` over budget ([Span relay](#span-relay)) | `nodes:write` |
 
 **`/api/node-credentials`** — session or `pat_` only; a `nod_` token cannot reach it.
 
@@ -364,6 +391,12 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 | `apps/api/src/nodes/node-secret-broker.service.spec.ts`, `apps/api/test/nodes/node-job-secret.integration.spec.ts` | Secret route outcomes (`403`/`404`/`503`), lease-bounded grants |
 | `apps/cli/src/node/executors/db-backup-run.test.ts` | The backup executor imports no config writer (secret never persisted) |
 | `apps/cli/src/node/capabilities.test.ts` | Required vs. degradable capability outcomes |
+| `apps/api/src/nodes/dto/node-telemetry.dto.spec.ts` | Span relay body: strict at every level, phase-name enum, integer-only attribute allowlist, identifier-only `errorType`, batch cap, time window |
+| `apps/api/src/nodes/node-telemetry.service.spec.ts` | Held job accepted; foreign, missing and expired-grace jobs dropped and never emitted; ownership before any job read; one query per batch; `429` before any job read; parent is the stored `traceparent`; `node.id` from the path; attribute renaming; emission never throws |
+| `apps/api/src/nodes/node-telemetry-rate-limiter.spec.ts` | Request and span buckets, refill, per-node isolation; settlement ledger grace window and bound |
+| `apps/api/src/nodes/nodes.service.spec.ts` (settlement ledger) | A settle records the node, including the persist-failure path; a refused or lost settle records nothing |
+| `apps/api/test/nodes/node-telemetry.integration.spec.ts` | `nod_` admitted with no guard change; `401`/`403` RBAC; another owner's node `403`; missing node `404`; eight `400` bodies; `429` with `TOO_MANY_REQUESTS` |
+| `apps/cli/src/node/node-span-relay.test.ts`, `node-engine.test.ts` (span relay) | `errorType` never carries a message; batches of 50; oldest dropped first; `404` disables once; `400`/`403`/`429`/`500` drop the batch; a hanging relay never holds a job slot |
 | `apps/api/test/nodes/node-fleet-lifecycle.spec.ts` | Sweep then prune in sequence: crashed node, never-heartbeated node, `disabled` untouched, busy node deferred |
 | `apps/api/test/nodes/node-fleet-lifecycle.db.spec.ts` | Real Postgres: `NULL < cutoff` is not true, `SetNull`, reaper requeues a deleted node's job |
 | `apps/api/src/nodes/handlers/node-fleet-sweep.handler.spec.ts`, `node-fleet-prune.handler.spec.ts` | The statements each handler sends |
@@ -420,3 +453,4 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - #129: node vitals on the heartbeat (`last_vitals`, `last_vitals_at`).
 - #131: fleet metrics (`app.nodes.*` gauges).
 - #132: `traceparent` on each claim assignment.
+- #133: span relay (`POST /api/nodes/{id}/telemetry`), node phase spans in the CLI.

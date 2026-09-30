@@ -2,13 +2,14 @@
 // /api/nodes — the routes a worker node talks to (issues #268 & #269, epic #254)
 // =============================================================================
 //
-// Twelve routes, two services, and a controller that binds, documents and
+// Fourteen routes, four services, and a controller that binds, documents and
 // authorizes — nothing else. Every decision about what a request MEANS lives
-// in `nodes.service.ts` (the control plane) and `node-data-plane.service.ts`
-// (#269's presigned IO), including both guards; this file must not grow a
-// second opinion about ownership or about a lease, because a check written
-// here would be a check the services' own callers (and their tests) do not
-// get. The data plane's two routes go through the SAME
+// in `nodes.service.ts` (the control plane), `node-data-plane.service.ts`
+// (#269's presigned IO), `node-secret-broker.service.ts` (#349) and
+// `node-telemetry.service.ts` (#133's span relay), including both guards;
+// this file must not grow a second opinion about ownership or about a lease,
+// because a check written here would be a check the services' own callers
+// (and their tests) do not get. The data plane's two routes go through the SAME
 // `assertJobHeldByNode` the control plane's do — reused, never reimplemented.
 //
 // -----------------------------------------------------------------------------
@@ -122,8 +123,10 @@ import {
   NodeJobSecretRequestDto,
   NodeJobSecretResponseDto,
 } from './dto/node-job-secret.dto';
+import { NodeTelemetryDto, NodeTelemetryResponseDto } from './dto/node-telemetry.dto';
 import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodeSecretBrokerService } from './node-secret-broker.service';
+import { NodeTelemetryService } from './node-telemetry.service';
 import { NodesService } from './nodes.service';
 
 @ApiTags('Worker Nodes')
@@ -132,7 +135,8 @@ export class NodesController {
   constructor(
     private readonly nodes: NodesService,
     private readonly dataPlane: NodeDataPlaneService,
-    private readonly secrets: NodeSecretBrokerService
+    private readonly secrets: NodeSecretBrokerService,
+    private readonly telemetry: NodeTelemetryService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -554,5 +558,46 @@ export class NodesController {
     @CurrentUser('id') userId: string
   ): Promise<JobSettlementResponseDto> {
     return this.nodes.reportFailure(userId, id, jobId, dto);
+  }
+
+  // ---------------------------------------------------------------------------
+  // The span relay (#133) — a node's phase spans, re-emitted by this server.
+  //
+  // Under the same `nod_` prefix allowlist as every route here, by
+  // construction: nothing in `jwt-auth.guard.ts` changed. `nodes:write`, like
+  // every other node-originated write on this controller — it writes into the
+  // deployment's trace store.
+  // ---------------------------------------------------------------------------
+
+  @Post(':id/telemetry')
+  @Auth({ permissions: [PERMISSIONS.NODES_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Relay a node’s job phase spans into the server’s traces',
+    description:
+      'A node reports the phases of jobs it ran (`job.download`, `job.execute`, `job.upload`, ' +
+      '`job.submit`, `job.secret`) and the server re-emits each as an OpenTelemetry span, ' +
+      'parented on the span that enqueued the job, with `node.id`/`node.name` taken from the ' +
+      'PATH and the node row — never from the body. The body is strict and bounded: at most ' +
+      '50 spans, an enum of phase names, integer-only allowlisted attributes, an ' +
+      'identifier-shaped `errorType` (never a message), and times no older than 24 hours nor ' +
+      'ending more than 5 minutes in the future; anything else is `400`. A span whose job is ' +
+      'neither held by this node nor settled by it within the last 10 minutes is DROPPED and ' +
+      'counted in `dropped`, never accepted. `429` when this node exceeds its relay budget ' +
+      '(per node: 60 requests and 1000 spans a minute); drop the batch. Best-effort by design: ' +
+      'a node must never delay or fail a job over this call.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'How many spans were accepted and dropped', type: NodeTelemetryResponseDto })
+  @ApiResponse({ status: 400, description: 'The body failed validation' })
+  @ApiResponse({ status: 403, description: 'This node belongs to another user' })
+  @ApiResponse({ status: 404, description: 'No such node' })
+  @ApiResponse({ status: 429, description: 'This node exceeded its span relay budget' })
+  async relayTelemetry(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: NodeTelemetryDto,
+    @CurrentUser('id') userId: string
+  ): Promise<NodeTelemetryResponseDto> {
+    return this.telemetry.relay(userId, id, dto);
   }
 }

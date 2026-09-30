@@ -219,3 +219,18 @@ describe('HttpNodeApi — heartbeat vitals (#130)', () => {
     expect(sentBody(without.calls)).not.toContain('vitals');
   });
 });
+
+describe('HttpNodeApi — span relay (#133)', () => {
+  it('posts the batch to /nodes/:id/telemetry and returns the counts', async () => {
+    const { api, calls } = harness({ accepted: 1, dropped: 0 });
+    const spans = [
+      { jobId: JOB, name: 'job.execute' as const, startTimeUnixMs: 1_000, durationMs: 5, status: 'ok' as const },
+    ];
+
+    const result = await api.telemetry(NODE, { spans });
+
+    expect(calls[0]?.url).toBe(`http://h/api/nodes/${NODE}/telemetry`);
+    expect(JSON.parse(sentBody(calls))).toEqual({ spans });
+    expect(result).toEqual({ accepted: 1, dropped: 0 });
+  });
+});

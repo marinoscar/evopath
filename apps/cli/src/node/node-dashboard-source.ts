@@ -222,6 +222,8 @@ export function describeEvent(event: NodeEngineEvent): string {
       return `! heartbeat failed: ${event.error}`;
     case 'vitals-disabled':
       return `! server refused vitals; no longer sending them: ${event.error}`;
+    case 'telemetry-disabled':
+      return `! server has no span relay; no longer sending job spans: ${event.error}`;
     case 'concurrency-changed':
       return `concurrency now ${event.concurrency}`;
     case 'claim-failed':

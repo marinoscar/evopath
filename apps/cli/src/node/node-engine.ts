@@ -10,6 +10,7 @@ import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapsh
 import { ExecutorRegistry } from './executors/index.js';
 import { defaultExecutors } from './executors/example-checksum.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
+import { JobSpanRecorder, NodeSpanRelay } from './node-span-relay.js';
 import type { EngineVitalsInput } from './node-vitals.js';
 import { ApiError } from '../errors.js';
 
@@ -105,6 +106,12 @@ export interface NodeEngineOptions {
    * one beat, never the beat.
    */
   collectVitals?: ((input: EngineVitalsInput) => NodeVitals) | undefined;
+  /**
+   * Whether to relay per-job phase spans to the server (#133). Default on;
+   * it is a no-op when `api` has no `telemetry` method, and it turns itself
+   * off for the process on the first 404 (an older server).
+   */
+  relaySpans?: boolean | undefined;
 }
 
 /**
@@ -204,6 +211,8 @@ export class NodeEngine {
    * heartbeat that carried vitals with a 400 — see `beat()`.
    */
   private vitalsEnabled: boolean;
+  /** The span relay (#133), or `undefined` when disabled by option. */
+  private readonly spanRelay: NodeSpanRelay | undefined;
 
   constructor(options: NodeEngineOptions) {
     this.api = options.api;
@@ -225,6 +234,23 @@ export class NodeEngine {
     this.collectVitals = options.collectVitals;
     this.vitalsEnabled = options.collectVitals !== undefined;
     this.startedAtMs = this.now();
+    this.spanRelay =
+      options.relaySpans === false
+        ? undefined
+        : new NodeSpanRelay({
+            api: this.api,
+            nodeId: this.nodeId,
+            onDisabled: (reason) => this.emit({ kind: 'telemetry-disabled', at: this.iso(), error: reason }),
+          });
+  }
+
+  /**
+   * Resolves once every queued span has been sent or dropped. Never rejects.
+   * The engine never awaits this on a job's path; `stop()` does, briefly, so
+   * a clean shutdown does not throw away the last job's spans.
+   */
+  flushSpans(): Promise<void> {
+    return this.spanRelay?.flush() ?? Promise.resolve();
   }
 
   // ---------------------------------------------------------------------------
@@ -283,6 +309,7 @@ export class NodeEngine {
    */
   async stop(options?: { deregister?: boolean }): Promise<void> {
     await this.drain();
+    await this.flushSpans();
 
     if (this.heartbeatHandle !== undefined) {
       this.scheduler.clearInterval(this.heartbeatHandle);
@@ -450,6 +477,10 @@ export class NodeEngine {
     // then omits the key, and the server identifies this node exactly as it
     // did before. Nothing warns, and nothing should.
     const claimToken: ClaimToken = assignment.claimToken;
+    // THE JOB'S PHASE SPANS (#133): recorded as it runs, relayed after it
+    // settles. Recording is synchronous and cannot fail the job; sending is
+    // off this promise entirely (see `node-span-relay.ts`).
+    const spans = new JobSpanRecorder(job.id, this.now);
     const startedMs = this.now();
     const controller = new AbortController();
 
@@ -496,7 +527,11 @@ export class NodeEngine {
 
       let input: { objectId: string; size: string; mimeType: string } | undefined;
       if (executor.requiresInput) {
-        const resolved = await this.downloadInput(job.id, job.type, claimToken);
+        const resolved = await spans.phase(
+          'job.download',
+          () => this.downloadInput(job.id, job.type, claimToken),
+          (downloaded) => ({ bytes: Number(downloaded.meta.size) }),
+        );
         inputPath = resolved.path;
         input = resolved.meta;
         this.emit({
@@ -508,12 +543,13 @@ export class NodeEngine {
         });
       }
 
-      const result = await executor.execute({
+      const result = await spans.phase('job.execute', () => executor.execute({
         job,
         params,
         inputPath,
         input,
-        api: this.api,
+        // The same API, with `jobSecret` timed as the `job.secret` phase.
+        api: withSecretSpan(this.api, spans),
         nodeId: this.nodeId,
         // Handed on rather than kept private: `db.backup.run` asks for an
         // upload target and a database credential ITSELF, and those are calls
@@ -530,9 +566,14 @@ export class NodeEngine {
             ...(fields !== undefined ? { fields } : {}),
           });
         },
-      });
+        // For a phase only the executor can see — an upload streamed from
+        // inside `execute`. Same recorder, same never-fails contract.
+        phase: (name, work, attributes) => spans.phase(name, work, attributes),
+      }), { attempt: job.attempts });
 
-      const settlement = await this.api.submitResult(this.nodeId, job.id, job.type, result, claimToken);
+      const settlement = await spans.phase('job.submit', () =>
+        this.api.submitResult(this.nodeId, job.id, job.type, result, claimToken),
+      );
 
       this.counters.succeeded += 1;
       const durationMs = this.now() - startedMs;
@@ -552,10 +593,13 @@ export class NodeEngine {
         outcome: settlement.outcome,
       });
     } catch (error) {
-      await this.reportFailure(job.id, job.type, startedMs, error, claimToken);
+      await this.reportFailure(job.id, job.type, startedMs, error, claimToken, spans);
     } finally {
       if (record.renewHandle !== undefined) this.scheduler.clearInterval(record.renewHandle);
       this.activeJobs.delete(job.id);
+      // AFTER the settle, and not awaited: the relay queues and sends on its
+      // own time. A slow or absent telemetry route cannot hold this slot.
+      this.spanRelay?.enqueue(spans.drain());
       // ON SUCCESS, ON FAILURE AND ON DRAIN. A worker that leaks one temp file
       // per job fills its volume in a week, and the failure that follows looks
       // like a storage problem rather than a cleanup one.
@@ -575,6 +619,7 @@ export class NodeEngine {
     startedMs: number,
     error: unknown,
     claimToken: ClaimToken,
+    spans?: JobSpanRecorder,
   ): Promise<void> {
     const rateLimit = error instanceof ProviderRateLimitError ? error : null;
     const message = messageOf(error);
@@ -585,16 +630,18 @@ export class NodeEngine {
 
     let willRetry = true;
     try {
-      const settlement = await this.api.reportJobFailure(
-        this.nodeId,
-        jobId,
-        {
-          error: message,
-          willRetry: true,
-          ...(rateLimit !== null ? { rateLimited: true, retryAfterMs: rateLimit.retryAfterMs } : {}),
-        },
-        claimToken,
-      );
+      const report = () =>
+        this.api.reportJobFailure(
+          this.nodeId,
+          jobId,
+          {
+            error: message,
+            willRetry: true,
+            ...(rateLimit !== null ? { rateLimited: true, retryAfterMs: rateLimit.retryAfterMs } : {}),
+          },
+          claimToken,
+        );
+      const settlement = spans !== undefined ? await spans.phase('job.submit', report) : await report();
       willRetry = settlement.willRetry;
     } catch {
       // The job is already leased to us and the server's reaper is the
@@ -800,6 +847,23 @@ export class NodeEngine {
   private iso(): string {
     return new Date(this.now()).toISOString();
   }
+}
+
+/**
+ * `api` as an executor sees it: identical, except that `jobSecret` is timed as
+ * the `job.secret` phase (#133). A Proxy rather than a copied object because
+ * `HttpNodeApi`'s methods live on its prototype, which a spread would drop.
+ */
+function withSecretSpan(api: NodeApi, spans: JobSpanRecorder): NodeApi {
+  return new Proxy(api, {
+    get(target, property, receiver) {
+      if (property === 'jobSecret') {
+        return (...args: Parameters<NodeApi['jobSecret']>) => spans.phase('job.secret', () => target.jobSecret(...args));
+      }
+      const value: unknown = Reflect.get(target, property, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
 }
 
 function messageOf(error: unknown): string {

@@ -323,7 +323,16 @@ job row stores the enqueuing `traceparent` (`jobs.trace_context`), and the
 server worker's `job.process <type>` span is its child, so a request, the job it
 queued and the job's own database and HTTP spans share one `trace_id` in
 `opentelemetry_traces` (#132; [job-queue.md, Trace context](job-queue.md#trace-context)).
-Worker nodes receive the same `traceparent` on claim.
+Worker nodes receive the same `traceparent` on claim. A node never exports
+spans itself: it relays its job phases (`job.download`, `job.execute`,
+`job.upload`, `job.submit`, `job.secret`) to `POST /api/nodes/{id}/telemetry`,
+and the API re-emits each one through its own tracer as a child of the job's
+stored context, with `node.id`/`node.name` from the authenticated path and
+`telemetry.relay: node` marking it as reported rather than observed. Node spans
+therefore land in the same trace as the request that queued the job, through
+the same collector and gate. The relay's body is strict, bounded and
+rate-limited; spans for jobs the node did not hold are dropped (#133;
+[worker-nodes.md, Span relay](worker-nodes.md#span-relay)).
 
 ## 2. The two switches
 
@@ -1866,3 +1875,4 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nod
 - #131: worker-node fleet gauges (`app.nodes.*`), and delta temporality for every gauge (§11.13).
 - #124: the collector probes uptime and TLS expiry (`httpcheck` receiver on the app through nginx, the API directly and the public origin) and scrapes nginx's `stub_status` from an internal-only `:8081` listener (`nginx` receiver) (§11.2, §11.3, §11.12).
 - #132: trace context carried from enqueue to execution: `jobs.trace_context`, the server worker's `job.process` span as its child, and `traceparent` on node claim assignments (§1).
+- #133: node span relay: worker nodes post job phase spans to `POST /api/nodes/{id}/telemetry`, re-emitted by the API under the job's trace (§1).

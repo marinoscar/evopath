@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ExecutorRegistry, type JobExecutionContext, type JobExecutor } from './executors/index.js';
 import { ExampleChecksumExecutor } from './executors/example-checksum.js';
-import type { ClaimToken, HeartbeatRequest, JobFailureReport, NodeApi, NodeJobAssignment } from './node-api.js';
+import type { ClaimToken, HeartbeatRequest, JobFailureReport, NodeApi, NodeJobAssignment, NodeSpan } from './node-api.js';
 import type { EngineVitalsInput } from './node-vitals.js';
 import type { NodeEngineEvent } from './node-events.js';
 import { HISTORY_LIMIT, NodeEngine, type EngineScheduler } from './node-engine.js';
@@ -1337,5 +1337,236 @@ describe('NodeEngine — heartbeat vitals (#130)', () => {
 
     await engine.drain();
     await run;
+  });
+});
+
+// =============================================================================
+// Job phase spans (#133) — recorded per job, relayed after it settles
+// =============================================================================
+
+describe('NodeEngine — span relay', () => {
+  const payload = 'the quick brown fox';
+
+  function downloadable(): Partial<NodeApi> {
+    return {
+      downloadUrl: async () => ({
+        url: 'https://storage.example/signed',
+        expiresIn: 60,
+        expiresAt: '2026-01-01T00:01:00.000Z',
+        objectId: 'obj-1',
+        size: String(payload.length),
+        mimeType: 'application/octet-stream',
+      }),
+    };
+  }
+
+  it('records download, execute and submit for a successful job, and sends them after it settles', async () => {
+    const rec = recorder();
+    const batches: NodeSpan[][] = [];
+    const engine = new NodeEngine({
+      api: fakeApi([[assignment('sum', 'example.checksum', { attempts: 2 })]], rec, {
+        ...downloadable(),
+        telemetry: async (_nodeId, body) => {
+          batches.push(body.spans);
+          return { accepted: body.spans.length, dropped: 0 };
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ExampleChecksumExecutor()),
+      scheduler: fakeScheduler(),
+      tmpDir: join(tmp, 'work'),
+      sleep: tick,
+      pollIntervalMs: 1,
+      fetch: (async () => new Response(payload, { status: 200 })) as typeof globalThis.fetch,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(batches).toHaveLength(1));
+    await engine.drain();
+    await run;
+
+    const spans = batches[0] ?? [];
+    expect(spans.map((s) => s.name)).toEqual(['job.download', 'job.execute', 'job.submit']);
+    expect(spans.every((s) => s.jobId === 'sum' && s.status === 'ok')).toBe(true);
+    expect(spans[0]?.attributes).toEqual({ bytes: payload.length });
+    expect(spans[1]?.attributes).toEqual({ attempt: 2 });
+    // Sent AFTER the submission, never before it.
+    expect(rec.results).toHaveLength(1);
+  });
+
+  it('records a failed execute with its error CLASS, and the failure report as submit', async () => {
+    const rec = recorder();
+    const batches: NodeSpan[][] = [];
+    const executor = new ControlledExecutor();
+    const engine = new NodeEngine({
+      api: fakeApi([[assignment('bad')]], rec, {
+        telemetry: async (_nodeId, body) => {
+          batches.push(body.spans);
+          return { accepted: 0, dropped: 0 };
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['bad']));
+    executor.gate('bad').reject(new ProviderRateLimitError('throttled by https://provider/secret-path', { retryAfterMs: 1_000 }));
+    await vi.waitFor(() => expect(batches).toHaveLength(1));
+    await engine.drain();
+    await run;
+
+    const spans = batches[0] ?? [];
+    expect(spans.map((s) => [s.name, s.status])).toEqual([
+      ['job.execute', 'error'],
+      ['job.submit', 'ok'],
+    ]);
+    expect(spans[0]?.errorType).toBe('ProviderRateLimitError');
+    expect(JSON.stringify(spans)).not.toContain('secret-path');
+  });
+
+  it('records the secret fetch an executor makes as job.secret', async () => {
+    const rec = recorder();
+    const batches: NodeSpan[][] = [];
+    const secretExecutor: JobExecutor = {
+      type: 'test.secret',
+      requiresInput: false,
+      async execute(context) {
+        await context.api.jobSecret(context.nodeId, context.job.id, context.claimToken);
+        return { ok: true };
+      },
+    };
+    const engine = new NodeEngine({
+      api: fakeApi([[assignment('s1', 'test.secret')]], rec, {
+        jobSecret: async () => ({ kind: 'test', expiresAt: '2026-01-01T00:05:00.000Z', material: { password: 'hunter2' } }),
+        telemetry: async (_nodeId, body) => {
+          batches.push(body.spans);
+          return { accepted: 0, dropped: 0 };
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(secretExecutor),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(batches).toHaveLength(1));
+    await engine.drain();
+    await run;
+
+    expect(batches[0]?.map((s) => s.name)).toEqual(['job.secret', 'job.execute', 'job.submit']);
+    expect(JSON.stringify(batches)).not.toContain('hunter2');
+  });
+
+  it('on a 404, stops sending for the process and says so once — and jobs still succeed', async () => {
+    const rec = recorder();
+    const events: NodeEngineEvent[] = [];
+    let telemetryCalls = 0;
+    const executor = new ControlledExecutor();
+    const engine = new NodeEngine({
+      api: fakeApi([[assignment('a')], [assignment('b')]], rec, {
+        telemetry: async () => {
+          telemetryCalls += 1;
+          throw new ApiError({
+            status: 404,
+            serverMessage: 'Cannot POST /api/nodes/node-1/telemetry',
+            code: 'NOT_FOUND',
+            details: undefined,
+            method: 'POST',
+            url: 'http://h/api/nodes/node-1/telemetry',
+            structured: true,
+            rawBody: undefined,
+          });
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+      onEvent: (event) => events.push(event),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['a']));
+    executor.gate('a').resolve({ ok: true });
+    await vi.waitFor(() => expect(executor.started).toEqual(['a', 'b']));
+    await engine.flushSpans();
+    executor.gate('b').resolve({ ok: true });
+    await vi.waitFor(() => expect(rec.results).toHaveLength(2));
+    await engine.drain();
+    await engine.flushSpans();
+    await run;
+
+    expect(telemetryCalls).toBe(1);
+    expect(events.filter((event) => event.kind === 'telemetry-disabled')).toHaveLength(1);
+    expect(engine.getVitalsCounters().succeeded).toBe(2);
+  });
+
+  it('never holds a job slot on a telemetry call that hangs', async () => {
+    const rec = recorder();
+    const executor = new ControlledExecutor();
+    const engine = new NodeEngine({
+      api: fakeApi([[assignment('a')], [assignment('b')]], rec, {
+        telemetry: () => new Promise(() => undefined),
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['a']));
+    executor.gate('a').resolve({ ok: true });
+    // The single slot frees and the next job is claimed and run even though
+    // job a's span batch is still in flight, forever.
+    await vi.waitFor(() => expect(executor.started).toEqual(['a', 'b']));
+    executor.gate('b').resolve({ ok: true });
+    await vi.waitFor(() => expect(rec.results).toHaveLength(2));
+    await engine.drain();
+    await run;
+  });
+
+  it('sends nothing when relaySpans is false', async () => {
+    const rec = recorder();
+    const telemetry = vi.fn(async () => ({ accepted: 0, dropped: 0 }));
+    const executor = new ControlledExecutor();
+    const engine = new NodeEngine({
+      api: fakeApi([[assignment('a')]], rec, { telemetry }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(executor),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      pollIntervalMs: 1,
+      relaySpans: false,
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(executor.started).toEqual(['a']));
+    executor.gate('a').resolve({ ok: true });
+    await vi.waitFor(() => expect(rec.results).toHaveLength(1));
+    await engine.drain();
+    await engine.flushSpans();
+    await run;
+
+    expect(telemetry).not.toHaveBeenCalled();
   });
 });
