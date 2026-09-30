@@ -152,6 +152,15 @@ and `PUT` on `/api/email-settings`, `/api/admin/storage-config`,
 routes share the version of the single system-settings row, so a concurrent
 save of an unrelated setting can also cause a `409`.
 
+Training programs are stricter: `PUT /api/programs/:id/structure` and
+`POST /api/programs/:id/revert` **require** `If-Match` with the program's
+`currentVersion` (bare `4` or the ETag `"4"` that `GET /api/programs/:id`
+returns). A missing or unparseable value is a `400` with
+`details.reason: IF_MATCH_REQUIRED`; a stale one is a `409` with
+`details.reason: TRAINING_STALE_PLAN` and the `currentVersion`.
+`GET /api/programs/:id/change-log` is keyset-paginated: pass `nextCursor`
+back as `cursor` instead of `page`.
+
 ## Server-Sent Events
 
 Three routes stream `text/event-stream`:
