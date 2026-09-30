@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { FILE_RETENTIONS } from '../../health-documents/health-document.constants';
 import {
   DRAFT_ITEM_CONFIDENCES,
   DRAFT_ITEM_ORIGINS,
@@ -28,6 +29,8 @@ export const INTAKE_LIST_LIMIT_DEFAULT = 20;
 export const INTAKE_LIST_LIMIT_MAX = 50;
 export const INTAKE_ERROR_MESSAGE_MAX = 500;
 
+const retainFilesSchema = z.boolean().optional();
+
 const kindSchema = z
   .string()
   .trim()
@@ -54,6 +57,12 @@ export const createIntakeSchema = z
       .optional()
       .meta({ description: 'The record type this intake helps create or change, e.g. `gym`.' }),
     subjectId: z.uuid().optional().meta({ description: 'The id of that record.' }),
+    retainFiles: retainFilesSchema.meta({
+      description:
+        'Keep the uploaded files after processing (default `true`). `false` = for a health intake kind, each ' +
+        'file is erased once the intake is applied or discarded (its values and provenance stay). Stored as ' +
+        '`retention` and applied to every file attached later unless the attach names its own.',
+    }),
   })
   .strict();
 
@@ -71,8 +80,13 @@ export const updateIntakeSchema = z
       .optional()
       .meta({
         description:
-          "The new kind-specific inputs, replacing the old ones whole; validated by the kind's context schema as on create.",
+          "The new kind-specific inputs, replacing the old ones whole; validated by the kind's context schema as on create. " +
+          'Left untouched when the body carries only `retainFiles`.',
       }),
+    retainFiles: retainFilesSchema.meta({
+      description:
+        "Changes the keep-or-delete choice for the intake and every file already attached (until it is applied).",
+    }),
   })
   .strict();
 
@@ -116,10 +130,16 @@ export const attachPhotoSchema = z
     storageObjectId: z
       .uuid()
       .meta({ description: 'A `ready` image storage object the caller uploaded (PNG, JPEG, GIF or WebP, at most 20 MiB).' }),
+    retainFiles: retainFilesSchema.meta({
+      description:
+        "Keep this file after processing; omitted = the intake's choice (`retention`). Only a health intake kind " +
+        'records it (on the file\'s health document).',
+    }),
   })
   .strict();
 
 export class AttachPhotoDto extends createZodDto(attachPhotoSchema) {}
+export type AttachPhotoInput = z.output<typeof attachPhotoSchema>;
 
 // -----------------------------------------------------------------------------
 // POST /api/intakes/:id/analyze
@@ -230,6 +250,14 @@ export const intakePhotoViewSchema = z.object({
   storageObjectId: z.uuid(),
   name: z.string().meta({ description: "The storage object's file name." }),
   sortOrder: z.number().int(),
+  healthDocumentId: z
+    .uuid()
+    .nullable()
+    .meta({ description: 'The health document this file is, for a health intake kind; null otherwise.' }),
+  retention: z
+    .enum(FILE_RETENTIONS)
+    .nullable()
+    .meta({ description: "That health document's keep-or-delete choice; null when the file is not a health document." }),
 });
 
 export class PhotoIntakePhotoView extends createZodDto(intakePhotoViewSchema) {}
@@ -247,6 +275,11 @@ const intakeFields = {
   jobId: z.uuid().nullable().meta({ description: 'The analyze job, once queued.' }),
   errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
+  retention: z.enum(FILE_RETENTIONS).meta({
+    description:
+      '`keep` (default) or `delete_after_processing`: what happens to the files of a health intake once it is applied or discarded.',
+  }),
+  retainFiles: z.boolean().meta({ description: '`retention === "keep"`.' }),
   resultMeta: z
     .record(z.string(), z.unknown())
     .nullable()
