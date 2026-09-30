@@ -38,6 +38,24 @@
 # CANARY_TOKENS on this container only to override), so a test can prove data
 # minimisation from outside the API. The application has no such variable.
 #
+# Quick adaptation and the hotel scan (tests/e2e/specs/training-adaptation.spec.ts)
+# use the SAME server on port 4010 and the same `openai-compatible` slot. It also
+# lists fake-planner, fake-critic and fake-text-only (text and structured output;
+# classify them with the responses and structured_output capabilities) and picks
+# its answer by the structured-output schema name of each request. The planner's
+# answer is computed from the <context-json> block of the request, so no exercise
+# id is hard-coded. Scenarios (global, POST /__control/scenario; a request can
+# override with a SCENARIO:<name> token in its free text; default valid):
+#   valid, critic-revise, unknown-exercise, over-time, over-volume, malformed,
+#   rate-limit, slow, heavy-tokens, scan-hotel, scan-empty
+#   curl localhost:4010/__control/scenario     # current scenario and every description
+#   curl localhost:4010/__control/log          # per completion: schema name, scenario, image
+#                                              # count, status and message text (never bytes)
+# `npm test` in tests/e2e does the setup itself (training-adaptation.spec.ts).
+# The API must reach the server at the base URL the specs set (FAKE_AI_API_BASE_URL,
+# default http://fake-ai:4010/v1); the runner reaches it at FAKE_AI_URL (default
+# http://localhost:4010).
+#
 # Host port 4010:
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"leg-curl-placard"}'
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"workout-notebook"}'
