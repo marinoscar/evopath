@@ -59,10 +59,10 @@ export const notificationConfigSchema = z.object({
    * May this client subscribe to Web Push?
    *
    * `true` exactly when THIS DEPLOYMENT has an ACTIVE VAPID key pair right
-   * now — an admin-configured one saved through `/admin/push-config` and
-   * enabled, or, absent one, the `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env
-   * vars (see `PushConfigService.resolveActiveVapidConfig`, #355, for the
-   * full precedence; `PushSubscriptionService.isEnabled` is the one-line
+   * now — an admin-configured key pair saved through `/admin/push-config` and
+   * enabled. There is no environment-variable fallback (see
+   * `PushConfigService.resolveActiveVapidConfig`, #355/#183, for the full
+   * precedence; `PushSubscriptionService.isEnabled` is the one-line
    * delegation this field is built from). It says nothing about whether the
    * CALLER has subscribed; a client asks the browser for permission and
    * calls `pushManager.subscribe` only when this is `true`, then posts the
@@ -80,8 +80,8 @@ export const notificationConfigSchema = z.object({
    * The VAPID application server key a client needs to call
    * `pushManager.subscribe`, or `null` when `pushEnabled` is `false`.
    *
-   * Mirrors `pushEnabled`: non-null exactly when an active key pair exists —
-   * see that field's note for the admin-configured-or-env precedence. It is a
+   * Mirrors `pushEnabled`: non-null exactly when an active, admin-configured
+   * key pair exists — see that field's note for the precedence. It is a
    * PUBLIC key by definition — it is handed to every browser that subscribes
    * — so returning it here to any authenticated user gives nothing away; the
    * private half never leaves the server (it lives in the encrypted

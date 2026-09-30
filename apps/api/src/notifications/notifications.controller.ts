@@ -202,10 +202,10 @@ export class NotificationsController {
       'stream, so a long-lived tab holding a cached copy of this response can never re-enable ' +
       'something an administrator has muted.\n\n' +
       '`pushEnabled` reflects whether THIS DEPLOYMENT currently has an ACTIVE VAPID key pair — ' +
-      'an admin-configured one from `/admin/push-config` (`PushConfigService` ' +
-      '.resolveActiveVapidConfig()`, #355) when one exists and is enabled, falling back to the ' +
-      '`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` env vars only when no admin configuration has ever ' +
-      'been saved. It says nothing about this user’s own subscription state. When `true`, ' +
+      'an admin-configured, enabled key pair from `/admin/push-config` ' +
+      '(`PushConfigService.resolveActiveVapidConfig()`, #355), or `false` if none has been ' +
+      'generated or it is disabled. There is no environment-variable fallback (#183). It says ' +
+      'nothing about this user’s own subscription state. When `true`, ' +
       '`vapidPublicKey` carries the public key a client needs to call `pushManager.subscribe`; a ' +
       'client should not attempt that call while `pushEnabled` is `false`.',
   })
@@ -217,8 +217,8 @@ export class NotificationsController {
 
     // Both now resolve the ACTIVE key pair through `PushConfigService`
     // (#355): an admin-configured, enabled one from `/admin/push-config`
-    // when it exists, else the deploy-time env vars, else neither — see
-    // `PushSubscriptionService.isEnabled`/`.getVapidPublicKey` for the
+    // when it exists, else neither — there is no env-var fallback (#183).
+    // See `PushSubscriptionService.isEnabled`/`.getVapidPublicKey` for the
     // one-line delegation and `PushConfigService.resolveActiveVapidConfig`
     // for the full precedence.
     const [pushEnabled, vapidPublicKey] = await Promise.all([
