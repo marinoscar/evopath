@@ -1,6 +1,6 @@
 # Gyms and Equipment
 
-> **Status:** shipped (gyms, equipment catalog, custom equipment, photos, AI Scan Gym, optional GPS location) · **Code:** `apps/api/src/gyms/`, `apps/web/src/pages/Gym*.tsx`, `apps/web/src/components/gyms/` · **API:** `/api/gyms/*`, `/api/equipment-types/*`, `/api/capabilities` (see `/api/docs`, tags "Gyms", "Equipment" and "Capabilities"; the scan uses the "Intakes" routes) · **Admin UI:** none (user pages `/gyms`, `/gyms/new`, `/gyms/:gymId`, `/gyms/:gymId/scan`) · **Runbook:** none (AI setup: [ai-configuration](../runbooks/ai-configuration.md)) · **Recipe:** [section 4](#4-extending-it-in-a-fork)
+> **Status:** shipped (gyms, equipment catalog, custom equipment, photos, AI Scan Gym, optional GPS location with a map picker) · **Code:** `apps/api/src/gyms/`, `apps/web/src/pages/Gym*.tsx`, `apps/web/src/components/gyms/` · **API:** `/api/gyms/*`, `/api/equipment-types/*`, `/api/capabilities` (see `/api/docs`, tags "Gyms", "Equipment" and "Capabilities"; the scan uses the "Intakes" routes) · **Admin UI:** none (user pages `/gyms`, `/gyms/new`, `/gyms/:gymId`, `/gyms/:gymId/scan`) · **Runbook:** none (AI setup: [ai-configuration](../runbooks/ai-configuration.md)) · **Recipe:** [section 4](#4-extending-it-in-a-fork)
 
 A gym is a place a user trains: their home garage, a club, a hotel room. Each gym holds the equipment found there, chosen from a seeded catalog or from the user's own custom types, with a quantity, an optional brand and model, and photos. Every piece of data is created by hand first. **Scan gym** is an optional shortcut on top: the user shares photos of the room, a server-only AI job drafts the equipment list, and the user reviews, edits and applies it. Equipment written from an AI draft records that it came from AI and what the AI originally said, so nothing the user later relies on is silently a guess. A gym can also carry an optional position, typed or read once from the device. Later features (workout planning, hotel and temporary gyms) read a gym's equipment and the capabilities it enables.
 
@@ -150,6 +150,8 @@ Every `gym_equipment` row records where it came from.
 
 - A gym may carry `latitude` and `longitude`, set with `PUT /api/gyms/:id/location` and cleared with `DELETE /api/gyms/:id/location`. Both are one field pair on the row; there is no separate table.
 - The user types the coordinates (a pasted `lat, lng` pair splits into both fields) or presses **Use my location**. The button asks the browser **once**, from the click (`useGeolocationOnce`, never `watchPosition`), and only fills the fields; nothing is saved until the user saves. The button is hidden where the browser has no geolocation or the context is not secure; manual entry always works, including after a denied prompt.
+- **Pick on map** opens `GymMapPicker`, a lazy-loaded Leaflet dialog (`leaflet`, fetched only when opened). A tap drops a pin, dragging adjusts it, and **Use this pin** fills the same inputs; nothing is saved until the user saves. A picked pin sends no `accuracyMeters`. Tiles come from `tile.openstreetmap.org` with the attribution shown (`gymLocation.ts`); there is no API key and no environment variable, and the CSP `img-src https:` already allows the tiles. OpenStreetMap therefore sees tile requests for the area on screen; the pin's coordinates are never sent to it.
+- **Blocked location.** `useGeolocationOnce` reads the geolocation permission through the Permissions API (`permission`: `granted`, `prompt`, `denied`, `unknown`) and follows its `change` event. When the browser has remembered a block (`denied`, or a request that failed with a denial), the field shows "Location is blocked for this site" with the re-enable steps (site settings, Location, Allow; on Android the browser's app permission; device Location on) and **Try again**. The warning clears when the permission changes. The browser will not prompt again after a block, and the nginx policy below is not the cause. Where the Permissions API is missing the state is `unknown` and only a failed request shows the warning.
 - Stored coordinates are rounded to 5 decimals (about 1 m). `accuracyMeters` may accompany a write so the response can echo it; it is validated, **never stored and never logged**.
 - Coordinates are personal data: returned to their owner only, never logged, never a span attribute, never sent to an AI provider ([section 2.8](#28-the-kill-switch-and-what-is-sent-to-the-provider)).
 - The browser permission comes from the nginx `Permissions-Policy` header: `geolocation=(self)` grants it to the app origin and never to a frame (`infra/nginx/nginx.conf`). The camera stays denied.
@@ -256,7 +258,7 @@ Refusals carry `details.reason` (values in `GYM_REFUSALS`, `apps/api/src/gyms/gy
 - `apps/api/src/gyms/intake/gym-equipment.intake-kind.spec.ts`, `gym-photo-references.spec.ts`: value normalization, apply, and the photo-reference checker.
 - `apps/api/test/ai/ai-jobs-server-only.spec.ts`: `ai.equipment.scan` has no node hooks.
 - `apps/web/src/__tests__/infra/geolocation-browser-policy.test.ts`: the nginx policy grants `geolocation=(self)` and nothing broader.
-- `apps/web/src/__tests__/components/gyms/GymLocationField.test.tsx`, `hooks/useGeolocationOnce.test.ts`: one-shot location, manual entry after a denial.
+- `apps/web/src/__tests__/components/gyms/GymLocationField.test.tsx`, `hooks/useGeolocationOnce.test.ts`: one-shot location, the blocked-site guidance, manual entry after a denial, the map picker hand-off.
 - `apps/web/src/__tests__/pages/GymScanPage.test.tsx`, `GymDetailPage.test.tsx`, `components/gyms/ScanGymButton.test.tsx`: the scan states, "Continue manually", and the disabled-with-reason button.
 - `tests/e2e/specs/gyms.spec.ts`, `tests/e2e/specs/gym-scan.spec.ts`: the manual path and both reference examples against the running stack.
 
@@ -269,6 +271,7 @@ Refusals carry `details.reason` (values in `GYM_REFUSALS`, `apps/api/src/gyms/gy
 - **The database owns the default gym.** A partial unique index settles concurrent requests. Rejected: a `findFirst` pre-check (races) and a `@@unique` (would forbid several non-default gyms).
 - **A scan is never retried blindly.** `maxAttempts: 1`; a throttle defers, a terminal code ends. A later batch failing keeps the earlier batches so a partial result is not thrown away.
 - **Coordinates stay out of the AI request.** The scan needs no location, so the handler never loads the gym. This makes "never sent" a structural fact a test can check, not a filtering rule.
+- **A map picker over a geolocation-only field.** A blocked or absent GPS should not leave the user typing decimals. Leaflet over OpenStreetMap tiles needs no key and no setting, and is loaded lazily. Rejected: a keyed map provider (a credential to configure, against the runtime-config rule); embedding an OSM iframe (cannot return a pin).
 - **The accuracy is echoed, not stored.** It describes one fix, not the place; storing it would invite treating a stale number as current.
 
 ## 7. Verification
@@ -276,7 +279,7 @@ Refusals carry `details.reason` (values in `GYM_REFUSALS`, `apps/api/src/gyms/gy
 ```bash
 npm test --workspace=api -- gyms                 # unit and mocked integration
 npm run test:db --workspace=api                  # real-Postgres tier (default index, seed, scan end to end)
-npm run test:run --workspace=web                 # scan page, location field, geolocation policy
+npm run test:run --workspace=web                 # scan page, location field, map picker, geolocation policy
 npm run typecheck --workspace=api
 npm run openapi:dump && npm run openapi:lint
 ```
@@ -286,7 +289,8 @@ Then walk it in the app (`http://localhost:3535`, sign in at `/testing/login`):
 1. As a contributor open `/gyms`, create a gym, add "Elliptical" from the picker by searching "cross", add a custom item, attach a photo, reload. Everything persists and nothing asked for AI.
 2. Start the stack with the fake overlay ([section 2.12](#212-the-fake-vision-server)), choose `cardio-row-wide`, open **Scan gym**, upload `docs/examples/gym-scan/cardio-row-wide.jpg`, read the disclosure, scan. Four rows appear, the low-confidence one visible; edit the elliptical quantity, apply. The row shows "You verified" and "AI said: ×3".
 3. `curl localhost:4010/__control/requests` reports the image count and nothing else.
-4. Turn AI off at `/admin/settings/ai`: **Scan gym** is disabled with the reason and the manual path still works.
+4. On `/gyms/new`, open **Pick on map**, tap a spot, drag the pin, press **Use this pin**: the inputs fill and nothing is saved until you save. Block Location for the site in the browser and press **Use my location**: the "Location is blocked for this site" warning appears; allow it again and the warning clears.
+5. Turn AI off at `/admin/settings/ai`: **Scan gym** is disabled with the reason and the manual path still works.
 
 ## History
 
@@ -296,3 +300,4 @@ Then walk it in the app (`http://localhost:3535`, sign in at `/testing/login`):
 - AI Scan Gym: `ai.equipment.scan`, the vision prompt, draft review and the fake vision server: #48.
 - Optional GPS location on a gym: #51.
 - End-to-end tests and this spec: #55.
+- Location blocked guidance and the map picker: #121.

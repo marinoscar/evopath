@@ -1,6 +1,7 @@
 /**
  * A gym's optional GPS position (E3.5): the saved value with Clear, two manual
- * inputs with live validation, and, where the browser can, "Use my location".
+ * inputs with live validation, "Pick on map" (issue #121) and, where the
+ * browser can, "Use my location".
  *
  * Privacy rules this component keeps:
  * - Location is optional and never taken silently. "Use my location" asks the
@@ -13,15 +14,25 @@
  *   not a secure context); the manual inputs always work, including after a
  *   denied prompt.
  * - The accuracy is shown and sent only so the API can echo it; it is never
- *   stored.
+ *   stored. A pin picked on the map carries no accuracy.
+ * - When the browser remembers a block for this site (the permission reads
+ *   `denied`, or a request failed with PERMISSION_DENIED), it will never
+ *   prompt again, so a warning explains how to lift the block in the site and
+ *   device settings, with "Try again". "Use my location" stays visible: the
+ *   click works again once the user has changed the setting.
+ * - "Pick on map" opens `GymMapPicker` (lazy-loaded, so Leaflet is fetched only
+ *   when a user opens it). The map's tiles come from OpenStreetMap, which sees
+ *   the tile requests for the area viewed; the pin itself is never sent there.
+ *   The picked pin only fills the inputs; nothing is saved until save.
  *
  * The component does not call the API itself: the host passes `onSave` and
  * `onClear` (the gym page saves through `PUT/DELETE /gyms/:id/location`; the
  * new-gym form keeps the pair in its own state until the gym is created).
  */
-import { useId, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { lazy, Suspense, useId, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import {
   Alert,
+  AlertTitle,
   Box,
   Button,
   FormHelperText,
@@ -31,7 +42,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { MyLocation as MyLocationIcon } from '@mui/icons-material';
+import { Map as MapIcon, MyLocation as MyLocationIcon } from '@mui/icons-material';
 import { useGeolocationOnce } from '../../hooks/useGeolocationOnce';
 import { gymErrorMessage, LOCATION_ACCURACY_MAX, type GymLocationInput } from '../../services/gyms';
 import {
@@ -41,9 +52,14 @@ import {
   formatCoordinate,
   LOCATION_HELPER_TEXT,
   LOCATION_PROMPT_EXPLANATION,
+  MAP_PICK_EXPLANATION,
   openStreetMapUrl,
   splitCoordinatePair,
 } from './gymLocation';
+import type { MapPoint } from './GymMapPicker';
+
+// Leaflet (and its CSS) load only when someone opens the picker.
+const GymMapPicker = lazy(() => import('./GymMapPicker'));
 
 export interface GymLocationFieldProps {
   /** The saved position (both or neither). */
@@ -67,6 +83,12 @@ interface Fix {
   accuracy: number;
 }
 
+/** The inputs as filled from a picked pin, to tell whether they still hold it. */
+interface Picked {
+  latitude: string;
+  longitude: string;
+}
+
 export function GymLocationField({
   latitude,
   longitude,
@@ -83,6 +105,11 @@ export function GymLocationField({
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
   const [fix, setFix] = useState<Fix | null>(null);
+  const [picked, setPicked] = useState<Picked | null>(null);
+  // Mounted on first open and kept, so the dialog can play its exit transition.
+  const [pickerMounted, setPickerMounted] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerStart, setPickerStart] = useState<MapPoint | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +126,10 @@ export function GymLocationField({
   const invalid = Boolean(latFormat || lngFormat || latBlank || lngBlank);
   // The accuracy only describes the browser's fix while the inputs still hold it.
   const liveFix = fix && fix.latitude === lat && fix.longitude === lng ? fix : null;
+  const livePick = picked && picked.latitude === lat && picked.longitude === lng ? picked : null;
   const showButton = canWrite && geo.support === 'supported';
+  // The browser remembers a block and will not prompt again.
+  const blocked = geo.support === 'supported' && (geo.error?.code === 'denied' || geo.permission === 'denied');
 
   const edit = (axis: 'latitude' | 'longitude') => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
@@ -132,9 +162,36 @@ export function GymLocationField({
       setLat(next.latitude);
       setLng(next.longitude);
       setFix(next);
+      setPicked(null);
     } catch {
       // The hook holds the mapped message; the manual inputs stay usable.
     }
+  };
+
+  // Where the map starts: the typed position if valid, else the saved one.
+  const pickerInitial = (): MapPoint | null => {
+    if (!latBlank && !lngBlank && !latFormat && !lngFormat) {
+      return { latitude: Number(lat.trim()), longitude: Number(lng.trim()) };
+    }
+    if (saved) return { latitude: latitude!, longitude: longitude! };
+    return null;
+  };
+
+  const openPicker = () => {
+    setPickerStart(pickerInitial());
+    setPickerMounted(true);
+    setPickerOpen(true);
+  };
+
+  const pick = (point: MapPoint) => {
+    const next = { latitude: formatCoordinate(point.latitude), longitude: formatCoordinate(point.longitude) };
+    setLat(next.latitude);
+    setLng(next.longitude);
+    setPicked(next);
+    setFix(null);
+    setError(null);
+    geo.reset();
+    setPickerOpen(false);
   };
 
   const save = async () => {
@@ -151,6 +208,7 @@ export function GymLocationField({
       setLat('');
       setLng('');
       setFix(null);
+      setPicked(null);
       setAttempted(false);
       geo.reset();
     } catch (err) {
@@ -211,30 +269,79 @@ export function GymLocationField({
 
       {canWrite && (
         <>
-          {showButton && (
-            <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                {LOCATION_PROMPT_EXPLANATION}
-              </Typography>
-              <Button
-                type="button"
-                variant="outlined"
-                startIcon={<MyLocationIcon />}
-                onClick={() => void locate()}
-                disabled={geo.state === 'asking' || busy}
-              >
-                {geo.state === 'asking' ? 'Locating...' : 'Use my location'}
+          <Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              {showButton && <span>{LOCATION_PROMPT_EXPLANATION} </span>}
+              <span>{MAP_PICK_EXPLANATION}</span>
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {showButton && (
+                <Button
+                  type="button"
+                  variant="outlined"
+                  startIcon={<MyLocationIcon />}
+                  onClick={() => void locate()}
+                  disabled={geo.state === 'asking' || busy}
+                >
+                  {geo.state === 'asking' ? 'Locating...' : 'Use my location'}
+                </Button>
+              )}
+              <Button type="button" variant="outlined" startIcon={<MapIcon />} onClick={openPicker} disabled={busy}>
+                Pick on map
               </Button>
             </Box>
-          )}
-          {geo.error && (
-            <Alert severity="warning" role="alert">
-              {geo.error.message}
+          </Box>
+          {blocked ? (
+            <Alert
+              severity="warning"
+              role="alert"
+              action={
+                <Button
+                  type="button"
+                  color="inherit"
+                  size="small"
+                  onClick={() => void locate()}
+                  disabled={geo.state === 'asking' || busy}
+                >
+                  Try again
+                </Button>
+              }
+              sx={{ '& .MuiAlert-message': { minWidth: 0 } }}
+            >
+              <AlertTitle>Location is blocked for this site</AlertTitle>
+              {geo.error?.code === 'denied' && <Typography variant="body2">{geo.error.message}</Typography>}
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                Your browser will not ask again until you allow it:
+              </Typography>
+              <Box component="ol" sx={{ m: 0, pl: 2.5, typography: 'body2' }}>
+                <li>
+                  Tap the icon left of the address (site settings), then Permissions, Location, Allow.
+                </li>
+                <li>
+                  On Android, also check Settings, Apps, your browser, Permissions, Location, and that device
+                  Location is on.
+                </li>
+                <li>Then tap Try again.</li>
+              </Box>
+              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                You can also pick the gym on the map or type coordinates.
+              </Typography>
             </Alert>
+          ) : (
+            geo.error && (
+              <Alert severity="warning" role="alert">
+                {geo.error.message}
+              </Alert>
+            )
           )}
           {liveFix && (
             <Typography variant="body2" color="text.secondary" role="status">
               Filled from your device, accuracy {formatAccuracy(liveFix.accuracy)}. Not saved yet.
+            </Typography>
+          )}
+          {livePick && (
+            <Typography variant="body2" color="text.secondary" role="status">
+              Filled from the map. Not saved yet.
             </Typography>
           )}
           {liveFix && liveFix.accuracy > APPROXIMATE_ACCURACY_M && (
@@ -278,6 +385,17 @@ export function GymLocationField({
             </Button>
           </Box>
         </>
+      )}
+
+      {canWrite && pickerMounted && (
+        <Suspense fallback={null}>
+          <GymMapPicker
+            open={pickerOpen}
+            initial={pickerStart}
+            onClose={() => setPickerOpen(false)}
+            onPick={pick}
+          />
+        </Suspense>
       )}
 
       <Snackbar

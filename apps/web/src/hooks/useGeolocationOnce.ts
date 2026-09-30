@@ -18,6 +18,18 @@
  * (`infra/nginx/nginx.conf`); an empty allowlist would make every request fail
  * with `PERMISSION_DENIED`, whatever the user chose.
  *
+ * PERMISSION STATE (issue #121)
+ * -----------------------------
+ * `permission` mirrors the Permissions API (`navigator.permissions.query({
+ * name: 'geolocation' })`): `'granted'`, `'prompt'`, `'denied'`, or
+ * `'unknown'` where the API is missing or refuses (older Safari, jsdom). It is
+ * read once on mount and kept current through the status's `change` event, so
+ * a user who unblocks the site in the browser's settings sees the "blocked"
+ * guidance go away without a reload. It is purely what the API reports; a
+ * failed request's code is the separate `error`. Once a browser remembers a
+ * block it never prompts again, so the page needs `permission` to explain how
+ * to lift it. Reading the permission never asks the user anything.
+ *
  * Nothing here stores or logs the position: it is handed to the caller, which
  * fills the form, and is saved only when the user presses "Save location".
  */
@@ -28,6 +40,9 @@ export type GeolocationSupport = 'supported' | 'unsupported' | 'insecure';
 
 /** `request()`'s state: `asking` while the browser prompt or the fix is pending. */
 export type GeolocationRequestState = 'idle' | 'asking' | 'error';
+
+/** What the Permissions API reports for geolocation; `unknown` where it cannot tell. */
+export type GeolocationPermission = 'granted' | 'prompt' | 'denied' | 'unknown';
 
 /** Why a request failed. The first three map the browser's error codes 1..3. */
 export type GeolocationErrorCode = 'denied' | 'unavailable' | 'timeout' | 'unsupported';
@@ -89,8 +104,25 @@ function mapErrorCode(err: unknown): GeolocationErrorCode {
   return 'unavailable';
 }
 
+function toPermission(state: unknown): GeolocationPermission {
+  return state === 'granted' || state === 'prompt' || state === 'denied' ? state : 'unknown';
+}
+
+/** `navigator.permissions` when it has a callable `query`, else null. Never throws. */
+function readPermissionsApi(): Permissions | null {
+  try {
+    if (typeof navigator === 'undefined') return null;
+    const api = navigator.permissions;
+    return api && typeof api.query === 'function' ? api : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface UseGeolocationOnceResult {
   support: GeolocationSupport;
+  /** The browser's remembered geolocation permission for this site. */
+  permission: GeolocationPermission;
   state: GeolocationRequestState;
   /** The last failure, or null. Cleared by the next `request()` or `reset()`. */
   error: GeolocationRequestError | null;
@@ -103,7 +135,14 @@ export interface UseGeolocationOnceResult {
 export function useGeolocationOnce(): UseGeolocationOnceResult {
   const [support] = useState<GeolocationSupport>(readGeolocationSupport);
   const [state, setState] = useState<GeolocationRequestState>('idle');
-  const [error, setError] = useState<GeolocationRequestError | null>(null);
+  const [error, setErrorState] = useState<GeolocationRequestError | null>(null);
+  const [permission, setPermission] = useState<GeolocationPermission>('unknown');
+  // The current error, readable from the permission `change` listener.
+  const errorRef = useRef<GeolocationRequestError | null>(null);
+  const setError = useCallback((next: GeolocationRequestError | null) => {
+    errorRef.current = next;
+    setErrorState(next);
+  }, []);
   const mounted = useRef(true);
   // A second click while the prompt is open joins the pending request instead
   // of asking the browser again.
@@ -116,14 +155,63 @@ export function useGeolocationOnce(): UseGeolocationOnceResult {
     };
   }, []);
 
-  const fail = useCallback((code: GeolocationErrorCode) => {
-    const failure = new GeolocationRequestError(code);
-    if (mounted.current) {
-      setError(failure);
-      setState('error');
+  // Read the remembered permission and follow its changes. Every step is
+  // guarded: the API may be missing, `query` may throw or reject (Firefox
+  // before 46, jsdom), and the status may lack `addEventListener`.
+  useEffect(() => {
+    const api = readPermissionsApi();
+    if (!api) return undefined;
+    let cancelled = false;
+    let status: PermissionStatus | null = null;
+
+    const apply = () => {
+      if (cancelled || !status) return;
+      const next = toPermission(status.state);
+      setPermission(next);
+      // The user lifted the block (in site settings): the "denied" failure no
+      // longer describes the situation, so go back to idle.
+      if ((next === 'granted' || next === 'prompt') && errorRef.current?.code === 'denied') {
+        setError(null);
+        setState((prev) => (prev === 'error' ? 'idle' : prev));
+      }
+    };
+
+    let query: Promise<PermissionStatus>;
+    try {
+      query = api.query({ name: 'geolocation' as PermissionName });
+    } catch {
+      return undefined;
     }
-    return failure;
-  }, []);
+    Promise.resolve(query)
+      .then((result) => {
+        if (cancelled || !result) return;
+        status = result;
+        apply();
+        if (typeof result.addEventListener === 'function') result.addEventListener('change', apply);
+      })
+      .catch(() => {
+        // Stays 'unknown'.
+      });
+
+    return () => {
+      cancelled = true;
+      if (status && typeof status.removeEventListener === 'function') {
+        status.removeEventListener('change', apply);
+      }
+    };
+  }, [setError]);
+
+  const fail = useCallback(
+    (code: GeolocationErrorCode) => {
+      const failure = new GeolocationRequestError(code);
+      if (mounted.current) {
+        setError(failure);
+        setState('error');
+      }
+      return failure;
+    },
+    [setError],
+  );
 
   const request = useCallback((): Promise<GeolocationFix> => {
     if (inFlight.current) return inFlight.current;
@@ -153,12 +241,12 @@ export function useGeolocationOnce(): UseGeolocationOnceResult {
     });
     inFlight.current = pending;
     return pending;
-  }, [fail]);
+  }, [fail, setError]);
 
   const reset = useCallback(() => {
     setError(null);
     setState((prev) => (prev === 'asking' ? prev : 'idle'));
-  }, []);
+  }, [setError]);
 
-  return { support, state, error, request, reset };
+  return { support, permission, state, error, request, reset };
 }
