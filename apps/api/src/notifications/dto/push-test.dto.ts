@@ -77,7 +77,7 @@ export const PUSH_TEST_OVERALL = [
 
 export type PushTestOverall = (typeof PUSH_TEST_OVERALL)[number];
 
-export const PUSH_TEST_CONFIG_SOURCES = ['admin', 'env', 'none'] as const;
+export const PUSH_TEST_CONFIG_SOURCES = ['admin', 'none'] as const;
 
 export type PushTestConfigSource = (typeof PUSH_TEST_CONFIG_SOURCES)[number];
 
@@ -93,13 +93,11 @@ export type PushTestSendStatus = (typeof PUSH_TEST_SEND_STATUSES)[number];
 export const pushTestConfigDiagnosticsSchema = z.object({
   /**
    * Where the configuration comes from. `admin` = a `webPush`
-   * `system_settings` row exists (it wins, even over env vars, and an
-   * explicit disable there does NOT fall back to env); `env` = no row, the
-   * deploy-time `VAPID_*` env vars are active; `none` = neither.
+   * `system_settings` row exists; `none` = no row (push is off).
    */
   source: z.enum(PUSH_TEST_CONFIG_SOURCES),
 
-  /** The admin row's `enabled` flag. `null` for `env`/`none` (or an unreadable row). */
+  /** The admin row's `enabled` flag. `null` for `none` (or an unreadable row). */
   enabled: z.boolean().nullable(),
 
   /** A usable key pair is active right now (`resolveActiveVapidConfig() !== null`). */

@@ -4,7 +4,6 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
 import * as webpush from 'web-push';
 import type { z } from 'zod';
@@ -55,29 +54,34 @@ import type { UpdatePushConfigInput } from './dto/update-push-config.dto';
 // exactly like the SMTP password.
 //
 // -----------------------------------------------------------------------------
-// THE ENV-VAR FALLBACK, AND WHY IT LIVES IN EXACTLY ONE METHOD
+// PRECEDENCE: `resolveActiveVapidConfig()` IS THE ONE PLACE THIS IS DECIDED
 // -----------------------------------------------------------------------------
 //
 // `resolveActiveVapidConfig()` is the ONE place both `PushSubscriptionService`
 // and `PushNotificationChannel` ask "what VAPID key pair, if any, is active
-// right now" — see those files for why neither re-derives this logic. Four
+// right now" — see those files for why neither re-derives this logic. Three
 // cases, in order:
 //
-//   1. No `webPush` row at all -> fall back to `VAPID_PUBLIC_KEY` /
-//      `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` env vars. Existing deployments
-//      that never touch this admin surface keep working, zero action
-//      required.
-//   2. Row exists, `enabled: true`, both a `publicKey` and the private-key
-//      credential are present -> the DB wins, even over set env vars. Once an
-//      admin has touched the UI, it is the source of truth.
-//   3. Row exists, `enabled: false` -> push is off, full stop, NO env
-//      fallback. This is the one intentional asymmetry: an explicit disable
-//      must be able to override a stale env var, or "disable" would not
-//      actually disable anything on a deployment that also has env vars set.
-//   4. Row `enabled: true` but the credential is missing (corruption, a hand
-//      edit, a botched migration) -> treat as disabled, log loudly. Never
-//      silently revert to env — that would mask the corruption as ordinary
-//      "not configured".
+//   1. No `webPush` row at all, OR a row with `enabled: false` -> push is
+//      off, full stop. Both mean the same thing: nothing is active.
+//   2. Row exists, `enabled: true`, but the config is broken — no
+//      `publicKey`, or the private-key credential is missing (corruption, a
+//      hand edit, a botched migration) -> treat as disabled, log loudly.
+//   3. Row exists, `enabled: true`, `publicKey` present, private-key
+//      credential present -> the config.
+//
+// THERE IS NO ENV-VAR FALLBACK. Before issue #183, case 1 fell back to
+// `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` env vars for a
+// deployment that had never touched the admin page. That fallback was
+// retired in #183 to match how object storage (#377) and SES's AWS
+// credential (#585) were fully retired once their own admin UI shipped: this
+// repo's rule is that storage, AI, Web Push and SMTP are configured at
+// runtime in the admin UI and never get environment variables, because two
+// sources of truth for the same credential is exactly the failure that
+// invites. A deployment relying on env-set VAPID keys with no admin-UI
+// configuration must now generate a key pair at `/admin/settings/push`; this
+// is a deliberate, breaking cutover with no auto-migration, matching how
+// storage and SES were retired.
 // =============================================================================
 
 /** The `system_settings.key` this configuration is stored under. */
@@ -159,7 +163,6 @@ export class PushConfigService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
     // The VAPID private key's only home. See push-vapid-credential.constants.ts.
     // Only ever used through `setSecret` (write), `describe` (masked read) and
     // `deleteSecret` (remove). `getSecret` — the plaintext one — is called
@@ -211,12 +214,12 @@ export class PushConfigService {
   /**
    * The ONE place both `PushSubscriptionService` and `PushNotificationChannel`
    * ask "what VAPID key pair, if any, is active right now". See this file's
-   * header for the full four-case precedence this implements.
+   * header for the full three-case precedence this implements.
    *
-   * @returns `null` when push is not active for any reason — no config
-   *          anywhere, an explicit disable, or a corrupted/missing
-   *          credential. Callers treat `null` uniformly as "push is off";
-   *          they do not need to know WHY.
+   * @returns `null` when push is not active for any reason — no row, an
+   *          explicit disable, or a corrupted/missing credential. Callers
+   *          treat `null` uniformly as "push is off"; they do not need to
+   *          know WHY.
    */
   async resolveActiveVapidConfig(): Promise<ActiveVapidConfig | null> {
     const row = await this.prisma.systemSettings.findUnique({
@@ -224,18 +227,17 @@ export class PushConfigService {
       select: { value: true },
     });
 
-    // CASE 1 — no row at all: fall back to the env vars this deployment may
-    // have set at deploy time, exactly as it did before this feature existed.
+    // CASE 1 — no row at all: push has never been configured, which now
+    // means the same thing an explicit `enabled: false` means. There is no
+    // env-var fallback (see the header — retired in #183).
     if (!row) {
-      return this.resolveFromEnv();
+      return null;
     }
 
     const parsed = pushConfigSchema.safeParse(row.value);
 
     if (!parsed.success) {
-      // A corrupted/invalid row is treated as "push is off", loudly logged —
-      // never silently falling through to the env vars, which would mask a
-      // real data problem as ordinary "not configured".
+      // A corrupted/invalid row is treated as "push is off", loudly logged.
       const paths = describeInvalidPaths(parsed.error);
       this.logger.error(
         `Stored Web Push settings are invalid at: ${paths}. Push is disabled until the configuration is re-saved.`,
@@ -245,8 +247,7 @@ export class PushConfigService {
 
     const settings = parsed.data;
 
-    // CASE 3 — explicit disable. NO ENV FALLBACK: see the header for why this
-    // is the one intentional asymmetry in the precedence.
+    // CASE 1 (continued) — explicit disable.
     if (!settings.enabled) {
       return null;
     }
@@ -254,16 +255,17 @@ export class PushConfigService {
     if (!settings.publicKey) {
       // `enabled: true` with no public key is not a state `update`/`generate`
       // should ever produce (see their guards below), but a hand-edited row
-      // can still reach it — treat it the same as case 4: disabled, logged.
+      // can still reach it — treat it the same as the credential-missing
+      // case below: disabled, logged.
       this.logger.warn(
         'Web Push is enabled but no public key is stored; treating it as disabled until the configuration is repaired.',
       );
       return null;
     }
 
-    // CASE 4 — enabled, public key present, but the private-key credential is
+    // CASE 2 — enabled, public key present, but the private-key credential is
     // missing (corruption, a hand-deleted row, a botched migration). Treated
-    // as disabled and logged loudly, never silently reverted to env.
+    // as disabled and logged loudly.
     const privateKey = await this.credentials.getSecret(
       PUSH_VAPID_CREDENTIAL_PURPOSE,
       PUSH_VAPID_CREDENTIAL_NAME,
@@ -276,33 +278,11 @@ export class PushConfigService {
       return null;
     }
 
-    // CASE 2 — the DB wins, even over set env vars.
+    // CASE 3 — enabled and valid.
     return {
       publicKey: settings.publicKey,
       privateKey,
       subject: this.resolveSubject(settings.subject),
-    };
-  }
-
-  /**
-   * Case 1 of {@link resolveActiveVapidConfig}: no `webPush` row exists at
-   * all, so fall back to the deploy-time env vars — the ONLY behaviour this
-   * feature must not change for a deployment that never opens the admin page.
-   */
-  private resolveFromEnv(): ActiveVapidConfig | null {
-    const publicKey = this.config.get<string>('push.vapidPublicKey');
-    const privateKey = this.config.get<string>('push.vapidPrivateKey');
-
-    if (!publicKey || !privateKey) {
-      return null;
-    }
-
-    const subject = this.config.get<string>('push.vapidSubject');
-
-    return {
-      publicKey,
-      privateKey,
-      subject: this.resolveSubject(subject ?? null),
     };
   }
 

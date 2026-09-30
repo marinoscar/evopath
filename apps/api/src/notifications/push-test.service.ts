@@ -40,9 +40,9 @@ import type {
 // work" needs to know WHICH LINK fails, and there are several, each checked
 // here and reported separately:
 //
-//   1. CONFIG   — is a key pair active, where does it come from (admin row vs.
-//                 env), is the public key a real P-256 point, does the stored
-//                 private key actually derive that public key, is the subject
+//   1. CONFIG   — is a key pair active, is an admin row present at all, is
+//                 the public key a real P-256 point, does the stored private
+//                 key actually derive that public key, is the subject
 //                 something a push service will accept?
 //   2. BROWSER  — is the endpoint THIS browser holds registered for the
 //                 caller, and was it created against the key that is active
@@ -243,9 +243,9 @@ export class PushTestService {
   ): PushTestConfigDiagnostics {
     const problems: string[] = [];
 
-    // Source mirrors `resolveActiveVapidConfig`'s precedence: ANY `webPush`
-    // row makes the admin configuration authoritative (an explicit disable
-    // there does not fall back to env), and only its absence consults env.
+    // Source mirrors `resolveActiveVapidConfig`'s behavior: a `webPush` row
+    // present makes the admin configuration authoritative (an explicit
+    // disable there means push is off); its absence means push is off too.
     let source: PushTestConfigSource;
     let enabled: boolean | null = null;
 
@@ -271,12 +271,10 @@ export class PushTestService {
           );
         }
       }
-    } else if (active) {
-      source = 'env';
     } else {
       source = 'none';
       problems.push(
-        'No VAPID key pair is configured: there is no admin configuration and no VAPID_* environment variables.',
+        'No VAPID key pair is configured: there is no admin configuration for Web Push.',
       );
     }
 
@@ -642,9 +640,6 @@ export function buildHints(result: PushTestResponse): string[] {
       add('Set the VAPID subject to a real mailto: address (e.g. mailto:ops@yourdomain.com) or an https:// URL. Apple\'s push service rejects invalid subjects with 403 BadJwtToken.');
     } else if (config.subject === DEFAULT_VAPID_SUBJECT) {
       add('Set a real VAPID subject (your contact mailto: address). The generic fallback works with most push services but can be rejected.');
-    }
-    if (config.source === 'env') {
-      add('The keys come from VAPID_* environment variables. Generating keys on this page will take over from them.');
     }
   }
 
