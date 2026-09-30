@@ -18,6 +18,7 @@ import { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { resolveApiVersion } from '../openapi/version';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import {
   STORAGE_PROVIDER,
@@ -625,7 +626,9 @@ export class DatabaseBackupRunnerService {
     // one failure mode this subsystem must not have.
     private readonly jobs: JobsService,
     @Optional() @Inject(DB_BACKUP_ENGINE) engine?: DatabaseBackupEngine,
-    @Optional() @Inject(DB_BACKUP_TIMERS) timers?: BackupTimers
+    @Optional() @Inject(DB_BACKUP_TIMERS) timers?: BackupTimers,
+    // #125. Optional: see `fallbackAppMetrics`.
+    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics()
   ) {
     this.engine = engine ?? systemDatabaseBackupEngine;
     this.timers = timers ?? systemBackupTimers;
@@ -1461,7 +1464,7 @@ export class DatabaseBackupRunnerService {
   }): Promise<void> {
     const { runId, storageKey, bytes, executor, at } = input;
 
-    await this.prisma.databaseBackupRun.update({
+    const completed = await this.prisma.databaseBackupRun.update({
       where: { id: runId },
       data: {
         status: 'completed',
@@ -1480,6 +1483,10 @@ export class DatabaseBackupRunnerService {
         ...input.audit,
       },
     });
+
+    // #125. After the `completed` write, from the row it returned (a mocked
+    // client may return nothing — the metrics service tolerates a null).
+    this.metrics.backupSettled('completed', runDurationMs(completed?.startedAt, at), bytes);
 
     this.logger.log(
       `Database backup run ${runId} completed on the ${executor}: ${bytes} bytes at ` +
@@ -1904,6 +1911,8 @@ export class DatabaseBackupRunnerService {
       return;
     }
 
+    this.metrics.backupSettled('failed', runDurationMs(failed?.startedAt, failed?.finishedAt));
+
     // ⚠ AFTER THE COMMIT, AND OUTSIDE ANY TRANSACTION. The `failed` row above
     // is the fact; this is the report of it, and the report must not be able to
     // change or delay the fact. `notifyPermissionHolders` is detached and never
@@ -2015,4 +2024,11 @@ export class DatabaseBackupRunnerService {
   private async readLatestMigrationName(): Promise<string | null> {
     return readLatestAppliedMigration(this.prisma);
   }
+}
+
+/** A settled run's wall time in ms, or `null` when either instant is missing (#125). */
+function runDurationMs(startedAt: Date | null | undefined, finishedAt: Date | null | undefined): number | null {
+  return startedAt instanceof Date && finishedAt instanceof Date
+    ? finishedAt.getTime() - startedAt.getTime()
+    : null;
 }

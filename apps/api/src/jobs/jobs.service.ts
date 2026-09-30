@@ -62,10 +62,11 @@
 // `enqueue`'s own comments.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Job, JobReason, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
 import { buildDedupKey } from './job-keys';
 
 /**
@@ -270,7 +271,12 @@ function buildJobCreateData(
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // #125. Optional so hand-built instances in tests need no stub; the global
+    // `AppMetricsModule` always provides it in the application.
+    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+  ) {}
 
   /**
    * Queues a job, collapsing it into the one already in flight for the same
@@ -298,7 +304,11 @@ export class JobsService {
 
     for (let attempt = 1; attempt <= ENQUEUE_MAX_ATTEMPTS; attempt += 1) {
       try {
-        return await this.prisma.job.create({ data });
+        const created = await this.prisma.job.create({ data });
+        // Counted on an actual INSERT only — a dedup collapse below returns
+        // the existing row and is not a new job.
+        this.metrics.jobEnqueued(input.type);
+        return created;
       } catch (error) {
         // Any conflict that is NOT this index's is somebody else's problem
         // and must stay loud.
@@ -399,7 +409,12 @@ export class JobsService {
    * rather than assuming every failure here is a duplicate.
    */
   async enqueueWithin(tx: Prisma.TransactionClient, input: EnqueueJobInput): Promise<Job> {
-    return tx.job.create({ data: buildJobCreateData(input, resolveDedupKey(input)) });
+    const created = await tx.job.create({ data: buildJobCreateData(input, resolveDedupKey(input)) });
+    // Counted when the INSERT succeeds inside the caller's transaction; a
+    // later rollback of that transaction is not un-counted (rare, and the
+    // counter is a rate, not a ledger).
+    this.metrics.jobEnqueued(input.type);
+    return created;
   }
 
   /**

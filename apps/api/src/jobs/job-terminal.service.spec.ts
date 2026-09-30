@@ -39,6 +39,7 @@ import { JobTerminalService, rowMatchesWrite } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { CLASSIFY_RATE_LIMIT, RateLimitError, type RateLimitClassification } from './rate-limit.error';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { AppMetricsService } from '../common/otel/app-metrics.service';
 
 /** Pinned "now". Every expected timestamp below is derived from it. */
 const NOW = 1_700_000_000_000;
@@ -1290,6 +1291,52 @@ describe('JobTerminalService', () => {
 
       await wired.completeSucceeded(runningJob({ type: 'vision.tag' }));
       expect(realThrottle.isCoolingDown('vision.describe')).toBe(false);
+    });
+  });
+
+  // ===========================================================================
+  // Application metrics (#125)
+  // ===========================================================================
+  describe('application metrics', () => {
+    let jobSettled: jest.Mock;
+    let metered: JobTerminalService;
+
+    beforeEach(() => {
+      jobSettled = jest.fn();
+      metered = new JobTerminalService(
+        prismaStub(),
+        { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
+        throttle as unknown as ProviderThrottleService,
+        { emit } as unknown as EventEmitter2,
+        registry,
+        clock,
+        RAND_FLOOR,
+        { jobSettled } as unknown as AppMetricsService
+      );
+    });
+
+    it('records a success with its claim-to-settle duration and executor', async () => {
+      await metered.completeSucceeded(runningJob({ executor: 'node' }));
+
+      // `startedAt` is NOW - 1_000 and the frozen clock reads NOW.
+      expect(jobSettled).toHaveBeenCalledTimes(1);
+      expect(jobSettled).toHaveBeenCalledWith('vision.describe', 'succeeded', 1_000, 'node');
+    });
+
+    it('records the settle OUTCOME, including a scheduled retry and a permanent failure', async () => {
+      await metered.completeFailed(runningJob({ attempts: 1 }), new Error('transient'));
+      await metered.completeFailed(runningJob(), new Error('nope'), { permanent: true });
+
+      expect(jobSettled.mock.calls.map((call) => call[1])).toEqual(['retry-scheduled', 'failed']);
+    });
+
+    it('records a lost claim as such, and a missing startedAt as an unknown duration', async () => {
+      update.mockResolvedValue([]);
+      findUnique.mockResolvedValue(runningJob({ status: 'pending', claimToken: null }));
+
+      await metered.completeSucceeded(runningJob({ startedAt: null }));
+
+      expect(jobSettled).toHaveBeenCalledWith('vision.describe', 'claim-lost', null, 'server');
     });
   });
 });

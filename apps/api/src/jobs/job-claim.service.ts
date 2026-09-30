@@ -229,10 +229,11 @@
 // pairing down from the test side.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Job, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
 
 /**
  * Which side of the system is executing a claimed job. Written to
@@ -373,7 +374,11 @@ const FALLBACK_LEASE_MS = 3_600_000;
 export class JobClaimService {
   private readonly logger = new Logger(JobClaimService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // #125. Optional: see `fallbackAppMetrics`.
+    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+  ) {}
 
   /**
    * Atomically takes up to `limit` runnable jobs and marks them `running`.
@@ -476,6 +481,11 @@ export class JobClaimService {
     `);
 
     if (rows.length > 0) {
+      this.metrics.jobsClaimedBy(
+        executor,
+        rows.map((row) => row.type),
+      );
+
       this.logger.debug(
         `Claimed ${rows.length} job(s) as ${executor}` +
           `${nodeId ? ` (node ${nodeId})` : ''}: ` +

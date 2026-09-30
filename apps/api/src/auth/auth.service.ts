@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -8,6 +9,10 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  AppMetricsService,
+  fallbackAppMetrics,
+} from '../common/otel/app-metrics.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
 import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
@@ -42,6 +47,9 @@ export class AuthService {
     private readonly adminBootstrapService: AdminBootstrapService,
     private readonly allowlistService: AllowlistService,
     private readonly notifications: NotificationsService,
+    // #125. Optional: see `fallbackAppMetrics`.
+    @Optional()
+    private readonly metrics: AppMetricsService = fallbackAppMetrics(),
   ) {}
 
   /**
@@ -60,6 +68,7 @@ export class AuthService {
 
     if (!isAllowed && !isInitialAdmin) {
       this.logger.warn(`Login denied - email not in allowlist: ${email}`);
+      this.metrics.authLogin('allowlist_rejected');
       throw new ForbiddenException(
         'Your email is not authorized to access this application. Please contact an administrator.',
       );
@@ -160,6 +169,7 @@ export class AuthService {
     // Check if user is disabled
     if (!user.isActive) {
       this.logger.warn(`Login attempt by disabled user: ${user.email}`);
+      this.metrics.authLogin('disabled');
       throw new ForbiddenException('User account is disabled');
     }
 
@@ -167,6 +177,7 @@ export class AuthService {
     const tokens = await this.generateFullTokens(user);
 
     this.logger.log(`Login successful for user: ${user.email}`);
+    this.metrics.authLogin('success');
 
     // -------------------------------------------------------------------------
     // Trigger: `user.welcome` (#128, epic #109)
@@ -552,6 +563,7 @@ export class AuthService {
     });
 
     if (!storedToken) {
+      this.metrics.authRefresh('invalid');
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -569,6 +581,7 @@ export class AuthService {
         this.logger.warn(
           `Refresh attempted on revoked device session ${storedToken.deviceCodeId} for user: ${storedToken.userId}`,
         );
+        this.metrics.authRefresh('device_revoked');
         throw new UnauthorizedException('Refresh token has been revoked');
       }
 
@@ -577,16 +590,19 @@ export class AuthService {
       this.logger.warn(
         `Refresh token reuse detected for user: ${storedToken.userId}`,
       );
+      this.metrics.authRefresh('reuse_detected');
       throw new UnauthorizedException('Refresh token has been revoked');
     }
 
     // Check if expired
     if (storedToken.expiresAt < new Date()) {
+      this.metrics.authRefresh('expired');
       throw new UnauthorizedException('Refresh token has expired');
     }
 
     // Check if user is active
     if (!storedToken.user.isActive) {
+      this.metrics.authRefresh('user_inactive');
       throw new UnauthorizedException('User account is deactivated');
     }
 
@@ -604,6 +620,7 @@ export class AuthService {
       this.logger.warn(
         `Refresh refused: device session ${storedToken.deviceCodeId} is revoked or expired (user: ${storedToken.userId})`,
       );
+      this.metrics.authRefresh('device_revoked');
       throw new UnauthorizedException('Refresh token has been revoked');
     }
 
@@ -645,6 +662,8 @@ export class AuthService {
         deviceCodeId: storedToken.deviceCodeId,
       });
 
+      this.metrics.authRefresh('success');
+
       return {
         accessToken: accessToken.token,
         expiresIn: accessToken.expiresIn,
@@ -654,6 +673,7 @@ export class AuthService {
 
     const newRefreshToken = await this.createRefreshToken(storedToken.userId);
     const accessToken = this.generateAccessToken(storedToken.user);
+    this.metrics.authRefresh('success');
 
     return {
       accessToken: accessToken.token,
