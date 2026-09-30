@@ -409,6 +409,15 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 - **Permissions:** `system_settings:read`
 - **Read more:** [specs/doctor.md](specs/doctor.md), [runbooks/doctor.md](runbooks/doctor.md)
 
+### 5.27 First-run onboarding
+
+A one-time welcome dialog leads into a short checklist: a Setup guide for administrators and a Get started card on Today for everyone else. `GET /api/onboarding` derives every step from real state on each request and never writes; administrator steps reuse the [Doctor](#526-admin-doctor)'s checks. The only stored facts are `welcomeSeenAt`, `checklistDismissedAt` and an optional `goal` in the `onboarding` user-settings namespace, written through `PATCH /api/user-settings`.
+
+- **Code:** `apps/api/src/onboarding/`, `apps/web/src/components/onboarding/`, `apps/web/src/pages/Admin/SetupGuidePage.tsx`
+- **UI:** welcome dialog (every signed-in page), Today cards, `/admin/settings/setup`
+- **Permissions:** `user_settings:read` (the endpoint); the `admin` block and the Setup guide need `system_settings:read`
+- **Read more:** [specs/onboarding.md](specs/onboarding.md)
+
 ---
 
 ## 6. Data architecture
@@ -512,7 +521,7 @@ Namespaces of the `global` document (`systemSettingsSchema`):
 
 Every read completes missing namespaces from built-in defaults, so the stored document is always whole.
 
-`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (`training` limits only; models are chosen by administrators in the `ai.assignments` system setting). An absent optional namespace means "use the defaults".
+`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences), `ai` (`training` limits only; models are chosen by administrators in the `ai.assignments` system setting) and `onboarding` (`welcomeSeenAt`, `checklistDismissedAt`, `goal`: UI state only, step completion is derived; see [specs/onboarding.md](specs/onboarding.md)). An absent optional namespace means "use the defaults".
 
 ---
 
@@ -679,6 +688,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/push` | Web Push | General | `push:read` | |
 | `/admin/settings/storage` | Storage | General | `storage_config:read` | |
 | `/admin/settings/maintenance` | Maintenance | General | `system_settings:read` | |
+| `/admin/settings/setup` | Setup guide | General | `system_settings:read` | none (it is where AI gets switched on) |
 | `/admin/settings/users` | Users & Allowlist | Access | `users:read` | |
 | `/admin/settings/jobs` | Jobs | Operations | `jobs:read` | |
 | `/admin/settings/jobs/insights` | Job Insights | Operations | `jobs:read` | |
