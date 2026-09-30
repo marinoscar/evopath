@@ -287,9 +287,12 @@ timeout, and the admin needs the result inline. Nothing outlives the request.
 **Service worker.** A payload with `test: true` is always shown, even with a
 focused tab, and every window client gets a `push-test-received` message so
 the page can confirm end-to-end delivery. Clicking it navigates without
-marking a notification read. A real (non-test) payload shows no OS
-notification while an app tab is visible and focused: the worker hands it to
-the page, and the in-app SSE toast covers it, which avoids a duplicate.
+marking a notification read. A real (non-test) payload is also always shown as
+an OS notification, focused tab or not (issue #137). The page's SSE handler
+raises no OS toast for a focused tab (§2.12), so this is the only visible
+alert a focused user gets, not a duplicate. Known edge: a backgrounded but
+still open tab can raise its own SSE toast (tagged with the browser-channel
+row id) next to the push one (tagged with the push-channel row id).
 
 **Icon attribution.** Android attributes a notification to the app that posts
 it. From a browser tab that is the browser (for example Chrome), which a site
@@ -488,11 +491,12 @@ the next user of the device.
   until the browser killed it. `/api/docs` and download URLs must reach the
   server too.
 
-**Every `push` event ends in `showNotification` or a substitute.** A `push`
-handler that resolves without one makes Chrome show a generic "This site has
-been updated in the background" notice. If a client is visible and focused
-when a push arrives, that tab already showed the SSE toast, so the worker
-`postMessage`s the page instead; that counts as the substitute.
+**Every `push` event ends in `showNotification`.** A `push` handler that
+resolves without one makes Chrome show a generic "This site has been updated
+in the background" notice. A real push is shown whether or not a client is
+visible and focused (§2.7); a malformed payload gets a generic fallback
+notification. Only a test push whose `showNotification` throws falls back to
+its `push-test-received` ack as the substitute.
 
 **`pushsubscriptionchange`** resubscribes best-effort only and does not
 `POST` (it cannot authenticate). The page's boot-time sync (§2.8) is the real
@@ -504,6 +508,8 @@ Two independent checks in the page:
 
 - **Foreground suppression.** Show an OS notification only when no window is
   both `document.visibilityState === 'visible'` and `document.hasFocus()`.
+  This governs the page's SSE toast only; the service worker shows real Web
+  Push payloads regardless of focus (§2.7).
 - **Cross-tab dedup.** `showAppNotification` (`browserNotifications.ts`) calls
   `registration.getNotifications({ tag: notification.id })` and skips when a
   notification with that tag exists. Every tab receives the SSE frame; the
