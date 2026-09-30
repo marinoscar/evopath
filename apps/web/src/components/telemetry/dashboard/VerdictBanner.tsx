@@ -11,9 +11,13 @@
  *
  * `action` (#579) adds one button to the banner — the dashboard's "Explain
  * this", which opens the assistant with the verdict prefilled.
+ *
+ * `reasonAction` (#127) adds a link after a reason — "Show Database" — that
+ * takes the reader to the section the reason is about (the page decides which
+ * reasons have one, and only for sections on screen).
  */
 import { useId, useState } from 'react';
-import { Alert, Box, Button, ButtonBase, Skeleton, Typography, type AlertColor } from '@mui/material';
+import { Alert, Box, Button, ButtonBase, Link, Skeleton, Typography, type AlertColor } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
@@ -47,6 +51,8 @@ export interface VerdictBannerProps {
   compact?: boolean;
   /** One button on the banner (#579: "Explain this"). */
   action?: { label: string; onClick: () => void };
+  /** A link after a reason (#127: to the section it is about), or null for none. */
+  reasonAction?: (reason: string) => { label: string; onClick: () => void } | null;
 }
 
 export function VerdictBanner({
@@ -56,6 +62,7 @@ export function VerdictBanner({
   onRetry,
   compact = false,
   action,
+  reasonAction,
 }: VerdictBannerProps) {
   const [expanded, setExpanded] = useState(false);
   const reasonsId = useId();
@@ -73,11 +80,29 @@ export function VerdictBanner({
   const reasonList = (hidden: boolean) =>
     reasons.length > 0 && (
     <Box component="ul" id={reasonsId} hidden={hidden} sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
-      {reasons.map((reason, index) => (
-        <Typography key={`${index}-${reason}`} component="li" variant="body2" sx={{ wordBreak: 'break-word' }}>
-          {reason}
-        </Typography>
-      ))}
+      {reasons.map((reason, index) => {
+        const link = reasonAction?.(reason) ?? null;
+        return (
+          <Typography key={`${index}-${reason}`} component="li" variant="body2" sx={{ wordBreak: 'break-word' }}>
+            {reason}
+            {link && (
+              <>
+                {' '}
+                <Link
+                  component="button"
+                  type="button"
+                  variant="body2"
+                  color="inherit"
+                  onClick={link.onClick}
+                  sx={{ fontWeight: 600, verticalAlign: 'baseline', textAlign: 'left' }}
+                >
+                  {link.label}
+                </Link>
+              </>
+            )}
+          </Typography>
+        );
+      })}
     </Box>
   );
 

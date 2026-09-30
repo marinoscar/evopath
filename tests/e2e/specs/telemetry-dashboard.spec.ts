@@ -163,6 +163,20 @@ test.describe('Telemetry Dashboard on a desktop', () => {
     await expect(page.getByTestId('verdict-banner')).toBeVisible({ timeout: 15_000 });
   });
 
+  test('infrastructure sections render or are named as not collected (#127)', async ({ adminPage: page }) => {
+    await openDashboard(page);
+    await expect(page.locator('[data-testid^="panel-metrics-"][data-testid$="-skeleton"]')).toHaveCount(0, {
+      timeout: 15_000,
+    });
+    const notCollected = page.getByTestId('metrics-not-collected');
+    const hidden = (await notCollected.count()) > 0 ? ((await notCollected.textContent()) ?? '') : '';
+    for (const title of ['Infrastructure', 'Database', 'Job queue', 'Worker nodes', 'Uptime & dependencies', 'Telemetry pipeline']) {
+      const region = page.getByRole('region', { name: title, exact: true });
+      if (hidden.includes(title)) await expect(region).toHaveCount(0);
+      else await expect(region).toBeVisible();
+    }
+  });
+
   test('the Telemetry settings page links to the dashboard', async ({ adminPage: page }) => {
     await openDashboard(page);
     await page.goto('/admin/settings/telemetry');

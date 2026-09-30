@@ -20,6 +20,8 @@ import {
   type DashboardApiBucket,
   type DashboardEvent,
   type DashboardLogsBucket,
+  type DashboardMetricGroup,
+  type DashboardMetricTable,
   type DashboardRange,
   type DashboardSeverity,
   type DashboardTile,
@@ -27,7 +29,7 @@ import {
   type DashboardTopRoute,
   type DashboardVerdictLevel,
 } from '../../../services/telemetryDashboard';
-import { formatDuration, formatTileValue, toNumber } from './format';
+import { formatDuration, formatMetricValue, formatTileValue, toNumber } from './format';
 import { isTraceId } from './traceLink';
 
 export const ASSISTANT_PROMPT_MAX = 2000;
@@ -51,7 +53,17 @@ export type AssistantPanelContext =
   | { kind: 'logs'; title: string; buckets: DashboardLogsBucket[]; severities: DashboardSeverity[] }
   | { kind: 'routes'; title: string; items: DashboardTopRoute[] }
   | { kind: 'errors'; title: string; items: DashboardTopError[] }
-  | { kind: 'events'; title: string; items: DashboardEvent[]; severities: DashboardSeverity[]; q: string };
+  | { kind: 'events'; title: string; items: DashboardEvent[]; severities: DashboardSeverity[]; q: string }
+  /** An infrastructure section (#127): its tiles and tables, as `/metrics` returned them. */
+  | {
+      kind: 'metrics';
+      title: string;
+      group: DashboardMetricGroup;
+      tiles: DashboardTile[];
+      tables: DashboardMetricTable[];
+      /** For a hint when the section is partial. */
+      skipped?: string[];
+    };
 
 /** The dashboard's window and filters (a subset of `DashboardState`). */
 export interface AssistantQuestionContext {
@@ -60,6 +72,8 @@ export interface AssistantQuestionContext {
   to: string | null;
   service: string | null;
   instance: string | null;
+  /** The host filter (#127); mentioned for an infrastructure section only, the one place it applies. */
+  host?: string | null;
   /** For relative times ("Last data 2m ago"). Default `Date.now()`. */
   now?: number;
 }
@@ -82,10 +96,11 @@ function windowText(context: AssistantQuestionContext): string {
   return `the ${DASHBOARD_RANGE_LABELS[context.range].toLowerCase()}`;
 }
 
-function filtersText(context: AssistantQuestionContext): string {
+function filtersText(context: AssistantQuestionContext, withHost = false): string {
   const parts: string[] = [];
   if (context.service) parts.push(`service ${clip(context.service)}`);
   if (context.instance) parts.push(`instance ${clip(context.instance)}`);
+  if (withHost && context.host) parts.push(`host ${clip(context.host)}`);
   return parts.length > 0 ? parts.join(', ') : 'all services';
 }
 
@@ -189,6 +204,50 @@ function verdictState(verdict: { level: DashboardVerdictLevel; reasons: string[]
   return reasons.length > 0 ? `${label} — ${reasons.join('; ')}` : label;
 }
 
+/** A row is a problem when a status column says so: a failing URL or scrape job, a type with no eligible node. */
+function isProblemRow(row: DashboardMetricTable['rows'][number]): boolean {
+  return row.up === false || row.noEligibleNode === true;
+}
+
+/** `key — Label value, Label value` for up to four of the row's measured columns. */
+function rowText(table: DashboardMetricTable, row: DashboardMetricTable['rows'][number], now: number): string {
+  const cells = table.columns
+    .filter((column) => column.key !== 'key' && column.key !== 'lastSeenAt')
+    .filter((column) => row[column.key] !== null && row[column.key] !== undefined)
+    .slice(0, 4)
+    .map((column) => `${column.label} ${clip(formatMetricValue(row[column.key], column.unit, now), 80)}`);
+  const key = clip(String(row.key ?? '(unknown)'), 80);
+  return cells.length > 0 ? `${key} — ${cells.join(', ')}` : key;
+}
+
+/**
+ * A section's tiles (at most {@link ASSISTANT_PROMPT_TOP_N}), then at most
+ * {@link ASSISTANT_PROMPT_TOP_N} table rows in all, problem rows first.
+ */
+function metricsState(
+  tiles: DashboardTile[],
+  tables: DashboardMetricTable[],
+  skipped: string[],
+  now: number,
+): string {
+  const parts: string[] = [];
+  const shownTiles = tiles.slice(0, ASSISTANT_PROMPT_TOP_N).map((tile) => tileText(tile, now));
+  if (shownTiles.length > 0) parts.push(shownTiles.join('; '));
+  let budget = ASSISTANT_PROMPT_TOP_N;
+  for (const table of tables) {
+    if (budget <= 0) break;
+    const rows = [...table.rows].sort((a, b) => Number(isProblemRow(b)) - Number(isProblemRow(a))).slice(0, budget);
+    if (rows.length === 0) continue;
+    budget -= rows.length;
+    const more = table.rows.length - rows.length;
+    parts.push(
+      `${clip(table.label, 80)}: ${rows.map((row) => rowText(table, row, now)).join('; ')}${more > 0 ? ` (+${more} more)` : ''}`,
+    );
+  }
+  if (skipped.length > 0) parts.push(`${skipped.length} metric(s) of this section are not collected`);
+  return parts.length > 0 ? parts.join('; ') : 'nothing collected for this section in this window';
+}
+
 function stateText(panel: AssistantPanelContext, now: number): string {
   switch (panel.kind) {
     case 'verdict':
@@ -207,13 +266,15 @@ function stateText(panel: AssistantPanelContext, now: number): string {
       return errorsState(panel.items);
     case 'events':
       return eventsState(panel.items, panel.severities, panel.q);
+    case 'metrics':
+      return metricsState(panel.tiles, panel.tables, panel.skipped ?? [], now);
   }
 }
 
 /** The prefilled question for `panel` under the dashboard's `context`. */
 export function buildAssistantQuestion(panel: AssistantPanelContext, context: AssistantQuestionContext): string {
   const now = context.now ?? Date.now();
-  const opening = `Investigate "${clip(panel.title, 80)}" for ${windowText(context)} (${filtersText(context)}).`;
+  const opening = `Investigate "${clip(panel.title, 80)}" for ${windowText(context)} (${filtersText(context, panel.kind === 'metrics')}).`;
   const prefix = `${opening}\nCurrent state: `;
   const suffix = `.\n${CLOSING}`;
   const budget = ASSISTANT_PROMPT_MAX - prefix.length - suffix.length;

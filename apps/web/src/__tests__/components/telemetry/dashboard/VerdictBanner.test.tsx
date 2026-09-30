@@ -73,4 +73,20 @@ describe('VerdictBanner', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Explain this' }));
     expect(clicked).toBe(1);
   });
+
+  it('links a reason to its section when the page offers one (#127)', async () => {
+    const opened: string[] = [];
+    render(
+      <VerdictBanner
+        verdict={{ level: 'degraded', reasons: ['Disk 91% full (≥ 85%)', '5xx rate 3%'] }}
+        reasonAction={(reason) =>
+          reason.startsWith('Disk') ? { label: 'Show Infrastructure', onClick: () => opened.push(reason) } : null
+        }
+      />,
+    );
+    const links = screen.getAllByRole('button', { name: /^Show / });
+    expect(links).toHaveLength(1);
+    await userEvent.setup().click(links[0]);
+    expect(opened).toEqual(['Disk 91% full (≥ 85%)']);
+  });
 });

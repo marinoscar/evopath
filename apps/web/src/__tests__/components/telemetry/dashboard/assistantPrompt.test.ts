@@ -15,6 +15,7 @@ import {
   mockDashboardApiSeries,
   mockDashboardEvent,
   mockDashboardLogsSeries,
+  mockDashboardMetrics,
   mockDashboardSummary,
   mockDashboardTopErrors,
   mockDashboardTopRoutes,
@@ -159,6 +160,73 @@ describe('buildAssistantQuestion', () => {
     expect(text.length).toBeLessThanOrEqual(ASSISTANT_PROMPT_MAX);
     expect(text.endsWith('What is most likely causing this, and what should I check next?')).toBe(true);
     expect(lines(text)[1]).toMatch(/…\.$/);
+  });
+});
+
+describe('buildAssistantQuestion — infrastructure sections (#127)', () => {
+  const uptime = mockDashboardMetrics.uptime;
+
+  it('describes the tiles, then the table rows with failing ones first', () => {
+    const text = buildAssistantQuestion(
+      { kind: 'metrics', title: 'Uptime & dependencies', group: 'uptime', tiles: uptime.tiles, tables: uptime.tables },
+      HOUR,
+    );
+    const [opening, state, closing] = lines(text);
+    expect(opening).toBe('Investigate "Uptime & dependencies" for the last hour (all services).');
+    expect(state).toContain('TLS certificate days left 12 days (previous window 13 days)');
+    expect(state).toContain('Uptime targets: https://app.example.com/ — Duration 84 ms, TLS days left 12 days, Up No, Status 503');
+    expect(state.indexOf('https://app.example.com/')).toBeLessThan(state.indexOf('http://nginx/'));
+    expect(closing).toBe('What is most likely causing this, and what should I check next?');
+  });
+
+  it('names the host filter for a section, and only there', () => {
+    const withHost: AssistantQuestionContext = { ...HOUR, service: 'api', host: 'vps-1' };
+    const section = buildAssistantQuestion(
+      { kind: 'metrics', title: 'Infrastructure', group: 'host', tiles: mockDashboardMetrics.host.tiles, tables: [] },
+      withHost,
+    );
+    expect(lines(section)[0]).toContain('(service api, host vps-1)');
+    const panel = buildAssistantQuestion({ kind: 'api', title: 'API requests', buckets: [] }, withHost);
+    expect(lines(panel)[0]).toContain('(service api)');
+  });
+
+  it('keeps at most five tiles and five rows, and mentions what is not collected', () => {
+    const tiles = Array.from({ length: 8 }, (_, i) => ({ ...uptime.tiles[0], key: `k${i}`, label: `Tile ${i}` }));
+    const rows = Array.from({ length: 9 }, (_, i) => ({ ...uptime.tables[0].rows[0], key: `https://t${i}/` }));
+    const state = lines(
+      buildAssistantQuestion(
+        {
+          kind: 'metrics',
+          title: 'Uptime & dependencies',
+          group: 'uptime',
+          tiles,
+          tables: [{ ...uptime.tables[0], rows }],
+          skipped: ['a', 'b'],
+        },
+        HOUR,
+      ),
+    )[1];
+    expect(state).toContain('Tile 4');
+    expect(state).not.toContain('Tile 5');
+    expect(state).toContain('https://t4/');
+    expect(state).not.toContain('https://t5/');
+    expect(state).toContain('(+4 more)');
+    expect(state).toContain('2 metric(s) of this section are not collected');
+  });
+
+  it('stays within the overall bound with long values', () => {
+    const long = 'e'.repeat(5000);
+    const rows = Array.from({ length: 5 }, (_, i) => ({ ...uptime.tables[0].rows[1], key: `${long}${i}`, lastError: long }));
+    const text = buildAssistantQuestion(
+      { kind: 'metrics', title: 'Uptime & dependencies', group: 'uptime', tiles: [], tables: [{ ...uptime.tables[0], rows }] },
+      HOUR,
+    );
+    expect(text.length).toBeLessThanOrEqual(ASSISTANT_PROMPT_MAX);
+  });
+
+  it('says when a section has nothing collected', () => {
+    const text = buildAssistantQuestion({ kind: 'metrics', title: 'Database', group: 'database', tiles: [], tables: [] }, HOUR);
+    expect(lines(text)[1]).toBe('Current state: nothing collected for this section in this window.');
   });
 });
 

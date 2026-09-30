@@ -51,6 +51,12 @@ export interface DashboardPanelProps {
   title: string;
   /** Panel id for tests and deep links. */
   id: string;
+  /**
+   * DOM id of the panel's region, for in-page links (#127: a verdict reason
+   * scrolls to its section). The region is then focusable by script
+   * (`tabIndex=-1`), so moving focus there announces the section.
+   */
+  anchorId?: string;
   /** Beside the title: filters that belong to the panel (severity chips, a toggle). */
   headerExtra?: ReactNode;
   actions?: PanelAction[];
@@ -160,6 +166,7 @@ function PanelActions({
 export function DashboardPanel({
   title,
   id,
+  anchorId,
   headerExtra,
   actions = [],
   sql,
@@ -192,7 +199,16 @@ export function DashboardPanel({
       variant="outlined"
       aria-labelledby={headingId}
       data-testid={id}
-      sx={{ position: 'relative', p: { xs: 1.5, sm: 2 }, minWidth: 0, height: '100%', overflow: 'hidden' }}
+      {...(anchorId ? { id: anchorId, tabIndex: -1 } : {})}
+      sx={{
+        position: 'relative',
+        p: { xs: 1.5, sm: 2 },
+        minWidth: 0,
+        height: '100%',
+        overflow: 'hidden',
+        // Clear the sticky AppBar (and the phone filter bar) when scrolled to.
+        ...(anchorId && { scrollMarginTop: { xs: 112, sm: 80 } }),
+      }}
     >
       {isRefreshing && (
         <LinearProgress

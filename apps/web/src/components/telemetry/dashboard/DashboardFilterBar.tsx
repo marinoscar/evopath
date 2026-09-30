@@ -2,7 +2,8 @@
  * The Telemetry Dashboard's filter bar — issue #578, epic #576.
  *
  * Range (15m … 7d), service and instance (the values `/filters` reports for
- * the window), auto-refresh, "Updated Xs ago", and — while zoomed — a
+ * the window), host (#127: `/filters` `hosts`, applied by the infrastructure
+ * sections only; offered once the store has host metrics), auto-refresh, "Updated Xs ago", and — while zoomed — a
  * "Reset zoom" chip that drops `from`/`to` and returns to the preset.
  *
  * - Desktop (≥ lg): everything inline, range as a ToggleButtonGroup.
@@ -55,6 +56,8 @@ export interface DashboardFilterBarProps {
   onChange: (patch: Partial<DashboardState>) => void;
   services: string[];
   instances: string[];
+  /** Host names from `/filters`; the Host select is offered when there are any (or one is set). */
+  hosts?: string[];
   /** `Date.now()` of the latest summary, for "Updated Xs ago". */
   updatedAt: number | null;
   layout: DashboardLayout;
@@ -203,10 +206,31 @@ export function RangeSelect({
 
 /** How many non-default filters hide behind the Filters button. */
 function hiddenFilterCount(state: DashboardState): number {
-  return (state.service ? 1 : 0) + (state.instance ? 1 : 0) + (state.refresh ? 0 : 1);
+  return (state.service ? 1 : 0) + (state.instance ? 1 : 0) + (state.host ? 1 : 0) + (state.refresh ? 0 : 1);
 }
 
-function TabletFilterBar({ state, onChange, services, instances, updatedAt }: DashboardFilterBarProps) {
+/**
+ * The Host select (#127), shown once `/filters` reports a host (or the URL
+ * carries one): with no host metrics in the store it would filter nothing.
+ */
+function HostSelect({
+  value,
+  hosts,
+  onChange,
+  fullWidth,
+}: {
+  value: string | null;
+  hosts: string[];
+  onChange: (host: string | null) => void;
+  fullWidth?: boolean;
+}) {
+  if (hosts.length === 0 && !value) return null;
+  return (
+    <FilterSelect label="Host" allLabel="All hosts" value={value} options={hosts} onChange={onChange} fullWidth={fullWidth} />
+  );
+}
+
+function TabletFilterBar({ state, onChange, services, instances, hosts = [], updatedAt }: DashboardFilterBarProps) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const popoverId = useId();
   return (
@@ -261,6 +285,7 @@ function TabletFilterBar({ state, onChange, services, instances, updatedAt }: Da
             onChange={(instance) => onChange({ instance })}
             fullWidth
           />
+          <HostSelect value={state.host} hosts={hosts} onChange={(host) => onChange({ host })} fullWidth />
           <RefreshSwitch checked={state.refresh} onChange={(refresh) => onChange({ refresh })} />
         </Stack>
       </Popover>
@@ -268,7 +293,7 @@ function TabletFilterBar({ state, onChange, services, instances, updatedAt }: Da
   );
 }
 
-function PhoneFilterBar({ state, onChange, services, instances, updatedAt }: DashboardFilterBarProps) {
+function PhoneFilterBar({ state, onChange, services, instances, hosts = [], updatedAt }: DashboardFilterBarProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<DashboardState>(state);
   const titleId = useId();
@@ -285,13 +310,14 @@ function PhoneFilterBar({ state, onChange, services, instances, updatedAt }: Das
       to: draft.to,
       service: draft.service,
       instance: draft.instance,
+      host: draft.host,
       refresh: draft.refresh,
     });
     setOpen(false);
   };
   const reset = () => {
-    const { range, from, to, service, instance, refresh } = DEFAULT_DASHBOARD_STATE;
-    onChange({ range, from, to, service, instance, refresh });
+    const { range, from, to, service, instance, host, refresh } = DEFAULT_DASHBOARD_STATE;
+    onChange({ range, from, to, service, instance, host, refresh });
     setOpen(false);
   };
 
@@ -370,6 +396,7 @@ function PhoneFilterBar({ state, onChange, services, instances, updatedAt }: Das
               onChange={(instance) => patchDraft({ instance })}
               fullWidth
             />
+            <HostSelect value={draft.host} hosts={hosts} onChange={(host) => patchDraft({ host })} fullWidth />
             <RefreshSwitch checked={draft.refresh} onChange={(refresh) => patchDraft({ refresh })} />
           </Stack>
         </DialogContent>
@@ -392,7 +419,7 @@ export function DashboardFilterBar(props: DashboardFilterBarProps) {
   return <DesktopFilterBar {...props} />;
 }
 
-function DesktopFilterBar({ state, onChange, services, instances, updatedAt }: DashboardFilterBarProps) {
+function DesktopFilterBar({ state, onChange, services, instances, hosts = [], updatedAt }: DashboardFilterBarProps) {
   return (
     <Stack
       direction="row"
@@ -418,6 +445,7 @@ function DesktopFilterBar({ state, onChange, services, instances, updatedAt }: D
         options={instances}
         onChange={(instance) => onChange({ instance })}
       />
+      <HostSelect value={state.host} hosts={hosts} onChange={(host) => onChange({ host })} />
       <RefreshSwitch checked={state.refresh} onChange={(refresh) => onChange({ refresh })} />
       <UpdatedAgo updatedAt={updatedAt} />
     </Stack>

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getDashboardEvents,
   getDashboardFilters,
+  getDashboardMetrics,
   getDashboardSummary,
   getDashboardTimeseries,
   getDashboardTop,
@@ -27,6 +28,9 @@ import {
   type DashboardEvents,
   type DashboardEventsQuery,
   type DashboardFilters,
+  type DashboardMetricGroup,
+  type DashboardMetrics,
+  type DashboardMetricsQuery,
   type DashboardQuery,
   type DashboardSummary,
   type DashboardTimeseries,
@@ -141,7 +145,21 @@ export function useDashboardTop<K extends DashboardTopKind>(kind: K, query: Dash
   );
 }
 
-/** `GET …/filters` — the services and instances seen in the window. */
+/**
+ * `GET …/metrics?group=…` (#126) — one metric group per call, so each of the
+ * page's six infrastructure sections loads, fails and retries on its own,
+ * on the page's shared refresh tick.
+ */
+export function useDashboardMetrics(group: DashboardMetricGroup, query: DashboardMetricsQuery, tick: number) {
+  return useDashboardResource<DashboardMetrics>(
+    keyOf([group, query]),
+    (signal) => getDashboardMetrics(group, query, { signal }),
+    tick,
+    'Failed to load the metrics',
+  );
+}
+
+/** `GET …/filters` — the services, instances and hosts seen in the window. */
 export function useDashboardFilters(query: Pick<DashboardQuery, 'range' | 'from' | 'to'>, tick: number) {
   return useDashboardResource<DashboardFilters>(
     keyOf(query),

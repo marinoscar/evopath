@@ -218,7 +218,11 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       expect((within(dialog).getByRole('textbox', { name: 'Ask the assistant' }) as HTMLTextAreaElement).value).toContain('Investigate "Top failing routes"');
 
       await user.click(within(dialog).getByRole('button', { name: 'Close assistant' }));
-      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Assistant' })).not.toBeInTheDocument());
+      // The page also renders the infrastructure sections (#127): under a
+      // loaded full-suite run the exit transition can outlast the 1 s default.
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Assistant' })).not.toBeInTheDocument(), {
+        timeout: 5000,
+      });
       await waitFor(() => expect(menuButton).toHaveFocus());
     });
   });
