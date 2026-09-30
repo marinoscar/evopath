@@ -45,6 +45,7 @@ import { ProgramsModule } from './programs/programs.module';
 import { TrainingAgentsModule } from './training-agents/training-agents.module';
 import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
 import { TrainingUsageModule } from './training-usage/training-usage.module';
+import { DoctorModule } from './doctor/doctor.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -206,6 +207,12 @@ import configuration from './config/configuration';
     // settings or storage graphs. Registered after them all the same: it
     // reports on the application, so it is the application that owns it.
     AboutModule,
+
+    // `GET /api/admin/doctor` (#634): read-only configuration and health
+    // checks for every capability. `@Global()` so each feature module
+    // contributes its checks by providing them (they inject the registry and
+    // self-register) without importing this module; see `doctor.module.ts`.
+    DoctorModule,
 
     // The AI platform (epic #419). Since #424 this is only the
     // provider-agnostic core: contracts and an in-memory provider registry,
