@@ -926,8 +926,11 @@ guardrails below discover all of these automatically.
   agent-framework packages stay banned. `LangGraphRunner` is the runner that
   shipped (the hand-rolled fallback was not needed); its checkpoints live in
   the Prisma-owned `training_run_checkpoints` and
-  `training_run_checkpoint_writes` tables. The consumer of the runner is the
-  future spec ai-training-plans.md.
+  `training_run_checkpoint_writes` tables. It invokes with durability
+  `"sync"` (not LangGraph's default `"async"`), so a completed node's
+  checkpoint is persisted before the next node starts and a cancel or crash
+  mid-node never repeats a finished model call on resume. The consumer of the
+  runner is the future spec ai-training-plans.md.
 - **Responses-shaped, not lowest-common-denominator chat.** A bare
   `chat(messages)` cannot express reasoning, hosted tools, structured output
   or background semantics.

@@ -17,7 +17,7 @@ import type {
 export interface InvokableGraph<State, Nodes extends string = string> {
   invoke(
     input: Partial<State> | Command<unknown, Partial<State>, Nodes> | null,
-    options: { configurable: { thread_id: string }; signal: AbortSignal },
+    options: { configurable: { thread_id: string }; signal: AbortSignal; durability: 'sync' },
   ): Promise<unknown>;
 }
 
@@ -33,6 +33,13 @@ export interface InvokableGraph<State, Nodes extends string = string> {
  * The thread id is the training run id; the graph's checkpointer (the
  * `PrismaCheckpointSaver`) persists after every node, so a fresh runner over
  * a fresh graph and saver instance continues where the last one stopped.
+ *
+ * Durability is `"sync"`, not LangGraph's default `"async"`: a step's
+ * checkpoint is awaited before the next step starts. Under `"async"` it is
+ * written while the next node already runs, so a cancel or crash in that node
+ * can end the run before the completed node's checkpoint lands, and the resume
+ * repeats a finished model call. One checkpoint round trip per step is
+ * negligible next to a model call.
  */
 export class LangGraphRunner<State extends object, Nodes extends string = string>
   implements AgentGraphRunner<State>
@@ -50,6 +57,7 @@ export class LangGraphRunner<State extends object, Nodes extends string = string
     const result = await this.graph.invoke(input, {
       configurable: { thread_id: args.threadId },
       signal: args.signal,
+      durability: 'sync',
     });
 
     return toRunResult<State>(result);
