@@ -22,8 +22,9 @@
 # scenario suites replay). Point the `openai` provider slot at it at runtime:
 # base URL http://fake-ai-responses:4011/v1, any key of 8 or more characters;
 # refresh the catalog (fake-frontier, fake-fast), classify both with the
-# responses, reasoning, structured_output and hosted_tools capabilities and
-# reasoning efforts low, medium and high, enable them, and switch Web search on.
+# responses, reasoning and structured_output capabilities and reasoning efforts
+# low, medium and high, add hosted_tools to fake-frontier only (fake-fast cannot
+# search), enable them, and switch Web search on.
 # `npm test` in tests/e2e does all of that itself (training-plans.spec.ts).
 #
 # Host port 4011:

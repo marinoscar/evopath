@@ -53,7 +53,7 @@ prepare_context --create--> research -> plan -> guardrails -> critique -> route
 | `plan` | The planner drafts or revises; a revision also receives the critic's blockers and the server's repair list |
 | `guardrails` | `applyGuardrails` compiles and repairs the draft (G1 to G9) |
 | `critique` | The critic scores the repaired tree against the rubric |
-| `finalize` | Writes through the programs chokepoint, raises `training.plan_ready`, emits `plan.finalized` |
+| `finalize` | Writes through the programs chokepoint (`create`: `createWithTree`, a `draft` program with `source: 'ai'` and version 1; `revise`: `applyChange` with `expectedVersion` set to the run's base version), raises `training.plan_ready`, emits `plan.finalized` |
 
 - **Ship rule (server, never the critic).** A draft ships when the guardrails are not `blocked`, the verdict is `approve`, every score is at least 4 and there are no blockers. Otherwise the loop returns to `plan` while critique rounds remain (`maxCriticRounds`, default 2, at most 3). When rounds run out the draft ships with warnings if the guardrails did not block it, and the run ends rejected (`TRAINING_PLAN_REJECTED`, nothing written) if they did.
 - **Warning codes** (machine codes in `warnings`): `critic_open_notes` (rounds exhausted with the critic still asking for changes), `critic_skipped_budget` (budget spent after a valid draft existed), `critic_unavailable` (no valid verdict). The checked draft ships unreviewed or with open notes.
@@ -215,7 +215,7 @@ While automation is paused every non-forced operation is dropped. An operation's
 | One exercise flagged in 2 sessions in a row | Its unlocked future occurrences are removed (forced: applied in both autonomy modes and shown to the evaluator as already decided) |
 | 5 low-readiness days in a row | The run is marked recovery |
 
-All safety copy is fixed in code, never diagnoses and never says to train through pain (a test asserts it). The owner resumes paused automation with `POST /api/programs/:id/autonomy/resume`.
+All safety copy is fixed in code, never diagnoses and never says to train through pain (a test asserts it). The owner resumes paused automation from the banner on the plan viewer (see [§2.11](#211-web)) or with `POST /api/programs/:id/autonomy/resume` (`programs:write`, idempotent, no version bump, works with AI off).
 
 ### 2.7 Autonomy
 
@@ -234,7 +234,7 @@ Undo is `POST /api/programs/:id/revert` with the change log entry id, which rest
 | `missed_sessions` | The sweep, once a day per plan in the local 06:00 hour: `missedStreak` of 2 or more and the last evaluation at least 3 days old |
 | `manual` | "Re-evaluate now": `POST /api/ai/training/runs` with `kind: "evaluate"` |
 
-`evaluationGate` (`evaluation-gates.ts`) applies in order; the first failing gate is the answer. Skips (forget the request): `ai_disabled`, `graph_not_ready`, `no_active_program`, `automation_paused`, `evaluator_unavailable`, `proposal_pending`, `covered_by_queued_run`. Defers (remember it): `active_run`, `daily_cap` (3 automatic runs per UTC day), `manual_cooldown` (30 minutes after a manual run), `min_spacing` (30 minutes between automatic runs). A deferred `workout_finished` request stamps `programs.evaluation_requested_at`; when any run settles, a follow-up request honours the flag (exempt from the spacing), so a burst of workouts costs at most one extra run. A manual run inside the cooldown answers `409` with `details.reason: TRAINING_EVALUATION_COOLDOWN` and `retryAfterSeconds`. The limits are code constants in `evaluation.constants.ts`; the AI kill switch is the only global off.
+`evaluationGate` (`evaluation-gates.ts`) applies in order; the first failing gate is the answer. Skips (forget the request): `ai_disabled`, `graph_not_ready`, `no_active_program`, `automation_paused`, `evaluator_unavailable`, `proposal_pending`, `covered_by_queued_run`. Defers (remember it): `active_run`, `daily_cap` (3 automatic runs per UTC day), `manual_cooldown` (30 minutes after a manual run), `min_spacing` (30 minutes between automatic runs). A deferred `workout_finished` request stamps `programs.evaluation_requested_at`; when any run settles, a follow-up request honours the flag (exempt from the spacing), so a burst of workouts costs at most one extra run. Local time is the health profile's `timeZone`, UTC when unset. A manual run inside the cooldown answers `409` with `details.reason: TRAINING_EVALUATION_COOLDOWN` and `retryAfterSeconds`. The limits are code constants in `evaluation.constants.ts`; the AI kill switch is the only global off.
 
 The hourly sweep (`training.evaluation.sweep`, enqueued by a cron that only enqueues) also expires proposals past their deadline and serves due plans oldest-evaluated first, at most 200 users and 500 runs per pass.
 
@@ -274,7 +274,18 @@ A type is registered with a strict Zod schema (`registerRunEventType`); `append`
 
 ### 2.11 Web
 
-The wizard at `/train/plans/new` shows the estimate's `sentData` per agent, the token range and the cap before Start, and sends only the intake. The run view at `/train/plans/runs/:runId` (`hooks/useTrainingRun.ts`) shows stages, sources, guardrail repairs, critic scorecards and usage, and offers Cancel, Resume and Approve or Reject. The plan viewer shows rationale, how it was made, sources with evidence chips, the change log with Undo, and a "Revise with AI" box. `/settings/ai/agents` picks a model and effort per role and shows each role's resolution state. Every AI affordance is hidden while AI is off or without `ai:use`, and the two AI routes redirect to `/train/plans`.
+The wizard at `/train/plans/new` shows the estimate's `sentData` per agent, the token range and the cap before Start, and sends only the intake. The run view at `/train/plans/runs/:runId` (`hooks/useTrainingRun.ts`) shows stages, sources, guardrail repairs, critic scorecards and usage, and offers Cancel, Resume and Approve or Reject. The plan viewer shows rationale, how it was made, sources with evidence chips, the change log with Undo, and a "Revise with AI" box.
+
+Plan-viewer pieces (`apps/web/src/components/training/`):
+
+- `PlanAdjustedBanner`: shows an unseen autonomous change with one-tap Undo.
+- `ProposalCard`: Approve or Reject for an ask-first proposal.
+- `AutonomyControl`: switches the plan between autonomous and ask first.
+- `ReEvaluateButton`: starts a manual evaluation, disabled with a message during the 30-minute cooldown.
+- `AutomationPausedBanner`: shows the safety message and a Resume control that asks for confirmation, then calls `POST /api/programs/:id/autonomy/resume`.
+- A Progress link opens `/train/plans/:id/progress`.
+
+`/settings/ai/agents` picks a model and effort per role and shows each role's resolution state. Every AI affordance is hidden while AI is off or without `ai:use`, and the two AI routes redirect to `/train/plans`.
 
 ## 3. Configuration and permissions
 
