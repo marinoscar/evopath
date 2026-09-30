@@ -127,6 +127,59 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       data: { type: 'ai.training.plan.run', reason: 'rerun', subjectType: 'training_plan_run', subjectId: run.id },
     });
 
+    // Health documents: one kept file linked to an intake, one "delete after
+    // processing" file whose purge is still pending, one already purged (no
+    // file). The object is uploaded by B so only the document link can
+    // collect it; SET NULL on the object must not strand the file.
+    const intake = await client.photoIntake.create({
+      data: { userId: a, kind: 'body_metric_reading', status: 'applied' },
+    });
+    const keptDocObject = await storageObject(b, 'doc-kept');
+    await client.healthDocument.create({
+      data: {
+        userId: a,
+        kind: 'body_metric',
+        storageObjectId: keptDocObject.id,
+        originalName: 'scale.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: BigInt(10),
+        intakeId: intake.id,
+      },
+    });
+    const purgeDocObject = await storageObject(a, 'doc-purge');
+    const purgeDoc = await client.healthDocument.create({
+      data: {
+        userId: a,
+        kind: 'lab_report',
+        storageObjectId: purgeDocObject.id,
+        originalName: 'labs.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: BigInt(10),
+        retention: 'delete_after_processing',
+        intakeId: intake.id,
+      },
+    });
+    await client.healthDocument.create({
+      data: {
+        userId: a,
+        kind: 'body_metric',
+        originalName: 'old.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: BigInt(10),
+        retention: 'delete_after_processing',
+        fileDeletedAt: new Date(),
+      },
+    });
+    const pendingPurge = await client.job.create({
+      data: {
+        type: 'health.document.purge',
+        reason: 'upload',
+        subjectType: 'health_document',
+        subjectId: purgeDoc.id,
+        payload: { healthDocumentId: purgeDoc.id },
+      },
+    });
+
     await client.notification.create({ data: { userId: a, eventKey: 'x', title: 't', body: 'b' } });
     await client.personalAccessToken.create({
       data: {
@@ -142,6 +195,17 @@ describeWithDb('user.data_reset (real Postgres)', () => {
 
     // --- B's data, which must be untouched ---------------------------------
     await client.gym.create({ data: { userId: b, name: 'B gym' } });
+    const docObjectB = await storageObject(b, 'doc-b');
+    await client.healthDocument.create({
+      data: {
+        userId: b,
+        kind: 'body_metric',
+        storageObjectId: docObjectB.id,
+        originalName: 'b.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: BigInt(10),
+      },
+    });
     await client.notification.create({ data: { userId: b, eventKey: 'x', title: 't', body: 'b' } });
 
     // --- Run the reset -------------------------------------------------------
@@ -185,6 +249,11 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       ['equipment', await client.equipmentType.count({ where: { id: equipment.id } })],
       ['gymPhotoObject', await client.storageObject.count({ where: { id: gymPhotoObject.id } })],
       ['pendingJob', await client.job.count({ where: { id: pendingAboutRun.id } })],
+      ['healthDocuments', await client.healthDocument.count({ where: { userId: a } })],
+      ['photoIntakes', await client.photoIntake.count({ where: { id: intake.id } })],
+      ['keptDocObject', await client.storageObject.count({ where: { id: keptDocObject.id } })],
+      ['purgeDocObject', await client.storageObject.count({ where: { id: purgeDocObject.id } })],
+      ['pendingPurge', await client.job.count({ where: { id: pendingPurge.id } })],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -202,6 +271,12 @@ describeWithDb('user.data_reset (real Postgres)', () => {
     expect(await client.gym.count({ where: { userId: b } })).toBe(1);
     expect(await client.workout.count({ where: { userId: b } })).toBe(1);
     expect(await client.notification.count({ where: { userId: b } })).toBe(1);
+    expect(await client.healthDocument.count({ where: { userId: b, storageObjectId: docObjectB.id } })).toBe(1);
+    expect(await client.storageObject.count({ where: { id: docObjectB.id } })).toBe(1);
+    // Both document files reached the provider, not just the database.
+    expect(storage.delete).toHaveBeenCalledWith(keptDocObject.storageKey);
+    expect(storage.delete).toHaveBeenCalledWith(purgeDocObject.storageKey);
+    expect(storage.delete).not.toHaveBeenCalledWith(docObjectB.storageKey);
 
     // --- Result and audit ----------------------------------------------------
     const done = await client.job.findUniqueOrThrow({ where: { id: job.id } });
@@ -218,8 +293,10 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       notifications: 1,
       accessTokens: 1,
       userSettings: 1,
-      cancelledJobs: 1,
-      storageObjectsDeleted: 1,
+      healthDocuments: 3,
+      photoIntakes: 1,
+      cancelledJobs: 2,
+      storageObjectsDeleted: 3,
       storageObjectsFailed: 1,
     });
     expect(

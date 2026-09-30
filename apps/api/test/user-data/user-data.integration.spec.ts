@@ -105,6 +105,7 @@ describe('User data integration', () => {
         'photoIntake',
         'workoutAdaptation',
         'userCredential',
+        'healthDocument',
       ] as const) {
         (context.prismaMock as any)[model].count.mockResolvedValue(2);
       }
@@ -129,6 +130,7 @@ describe('User data integration', () => {
         photoIntakes: 2,
         workoutAdaptations: 2,
         userCredentials: 2,
+        healthDocuments: 2,
       });
       expect(context.prismaMock.workout.count).toHaveBeenCalledWith({ where: { userId: user.id } });
     });

@@ -22,6 +22,7 @@ function setup() {
     photoIntake: { count: jest.fn().mockResolvedValue(6) },
     workoutAdaptation: { count: jest.fn().mockResolvedValue(0) },
     userCredential: { count: jest.fn().mockResolvedValue(1) },
+    healthDocument: { count: jest.fn().mockResolvedValue(7) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
     job: { findFirst: jest.fn().mockResolvedValue(null) },
   };
@@ -67,6 +68,7 @@ describe('UserDataService', () => {
         photoIntakes: 6,
         workoutAdaptations: 0,
         userCredentials: 1,
+        healthDocuments: 7,
       });
 
       expect(prisma.workout.count).toHaveBeenCalledWith({ where: { userId: USER } });
@@ -78,6 +80,7 @@ describe('UserDataService', () => {
       expect(prisma.personalAccessToken.count).toHaveBeenCalledWith({
         where: { userId: USER, revokedAt: null },
       });
+      expect(prisma.healthDocument.count).toHaveBeenCalledWith({ where: { userId: USER } });
     });
   });
 
@@ -146,6 +149,7 @@ describe('toResetStatus', () => {
     measurements: 1,
     healthProfiles: 1,
     photoIntakes: 0,
+    healthDocuments: 2,
     programs: 0,
     programChangeLogs: 0,
     trainingRuns: 0,
@@ -187,6 +191,13 @@ describe('toResetStatus', () => {
       jobId: 'j',
       status: 'pending',
     });
+  });
+
+  it('reads a result written before healthDocuments existed as 0 documents, not as malformed', () => {
+    const { healthDocuments: _added, ...older } = result;
+    expect(
+      toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
+    ).toEqual({ jobId: 'j', status: 'succeeded', result: { ...older, healthDocuments: 0 } });
   });
 
   it('omits a malformed result rather than returning it', () => {
