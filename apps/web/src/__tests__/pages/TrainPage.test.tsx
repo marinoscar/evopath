@@ -156,4 +156,21 @@ describe('TrainPage', () => {
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
   });
+  it("shows Today's plan with programs:read, and not without it", async () => {
+    statefulWorkoutsApi([]);
+    server.use(
+      http.get('*/api/training/today', () =>
+        HttpResponse.json({ data: { kind: 'no_program', date: '2026-09-30' } }),
+      ),
+    );
+    const { unmount } = renderPage({ permissions: [...mockUser.permissions, 'programs:read'] });
+    const section = await screen.findByRole('region', { name: "Today's plan" });
+    expect(await within(section).findByRole('link', { name: 'Create a plan' })).toHaveAttribute('href', '/train/plans');
+    expect(screen.getByRole('button', { name: 'Start workout' })).toBeInTheDocument();
+    unmount();
+
+    renderPage();
+    await screen.findByText(HISTORY_EMPTY_TITLE);
+    expect(screen.queryByRole('region', { name: "Today's plan" })).toBeNull();
+  });
 });
