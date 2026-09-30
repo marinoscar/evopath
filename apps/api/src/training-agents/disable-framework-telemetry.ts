@@ -11,7 +11,7 @@
  * The libraries read `process.env` on every call (no caching in the installed
  * versions), so calling this before a graph is built is enough. It runs once
  * when this file is first imported and again whenever a graph is built
- * (`buildSpikeGraph`, `LangGraphRunner`), so a variable set later in the
+ * (`buildCreateGraph`, `buildEvaluateGraph`, `LangGraphRunner`), so a variable set later in the
  * process's life cannot turn tracing back on.
  */
 
