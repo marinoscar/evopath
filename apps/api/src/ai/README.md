@@ -515,6 +515,93 @@ Two things never leave the facade, both handled by
    no reconnect (a reconnect would re-submit the prompt) — see
    `apps/web/src/services/ai.ts` for how the AI chat surface uses it.
 
+## Adding a training agent or node
+
+Multi-agent workflows run as LangGraph graphs above this module, in
+`apps/api/src/training-agents/`. The design, guardrails and run state machine
+are in [the AI training plans spec](../../../../docs/specs/ai-training-plans.md);
+this is the recipe for extending it. A node never holds a provider client or a
+key: it calls a model only through `AgentCaller` (`ctx.agent`), which calls
+`AiService.forUser` under the hood.
+
+1. **A role.** Append it to `TRAINING_AGENT_ROLES` in
+   `common/schemas/settings.schema.ts`, then add its row to each table in
+   `training-agents/models/training-role-defaults.ts` (`TRAINING_ROLE_NEEDS`,
+   `TRAINING_ROLE_DEFAULT_EFFORT`, and the `TRAINING_KIND_ROLES` and
+   `TRAINING_KIND_OPTIONAL_ROLES` entries of the run kinds that use it). The
+   tables are keyed by the role list, so a missing row is a type error. The
+   resolver, `GET /api/ai/training/models`, the frozen `roleModels` and the
+   settings schema pick the role up from there.
+2. **A strict-mode contract.** A Zod schema in `agents/<role>/` whose every
+   property is required, with `nullable()` instead of `optional()` and closed
+   objects, because it is sent to the provider as the structured output
+   format. Bound every string and array. Treat every field as untrusted model
+   text until a sanitiser (`sanitizeModelText`) has run.
+3. **A prompt.** Build the instructions with `withSharedBlocks(roleText)` so the
+   fixed `SAFETY_BLOCK` and `UNTRUSTED_DATA_BLOCK` follow the role text, and
+   wrap user text, web content and tool output with `delimit('context' |
+   'evidence' | 'review', data)`. A test pins the blocks
+   (`prompt-blocks.spec.ts`); never weaken them.
+4. **A node function.** `nodes/<name>.node.ts` exports a `GraphNode`
+   (`{ name, run, implemented: true }`) whose `run` is a `NodeFn`:
+   `(state: RunState, ctx: NodeContext) => Promise<RunStateUpdate>`, with no
+   LangGraph import. Read only the state fields it needs, call the model
+   through `AgentCaller`, and return the fields it changed:
+
+   ```ts
+   const { parsed } = await ctx.agent.structured({
+     role: 'planner',            // a role the run froze a model for
+     node: 'plan',               // snake case; the stage name
+     round,                      // the loop round, when in a loop
+     schema, schemaName,         // the contract and its structured-output name
+     instructions, input,        // never logged, traced or put in an event
+     maxOutputTokens,            // further clamped by the model and the budget
+   });
+   ```
+
+   `AgentCaller` also offers `respond` (free text) and `withTools` (a bounded
+   function-tool loop), and accepts `hostedTools` such as `{ type: 'web_search' }`.
+   Let `RunBudgetExceededError`, `RunDeferredError` (a provider throttle) and an
+   abort propagate; retry an `AgentOutputTruncated` or an invalid structured
+   output once, more compactly. To fail the run with a chosen reason, throw
+   `TrainingRunFailedError(code, message)`; to stop it for safety, throw
+   `TrainingSafetyStopError`. A write node must be resume-safe: look for what
+   this run already wrote (by run id) before writing.
+5. **Events.** Register every event type next to the node with
+   `registerRunEventType('name.kind', z.object({...}).strict())` (dotted lower
+   case) and import that file from the node, so registration runs at load.
+   Payloads are identifiers, enums, counts, durations and codes; never prompt
+   text, model output, user text or keys. Emit with `ctx.emit(type, data)`,
+   which never throws. Add the type to `AGENT_EVENT_TYPES` in
+   `runtime/run-events.registry.ts` so call sites type-check.
+6. **Invariants in `guardrails/`.** Anything the model must not decide (shipping,
+   bounds, ids, URLs, loads) is a pure, idempotent function there, tested with
+   table tests and a hostile fixture. The model proposes; the server bounds.
+7. **Wire it.** Add the node to `nodes/index.ts` (and its name to
+   `CREATE_GRAPH_NODE_NAMES` or `EVALUATE_GRAPH_NODE_NAMES`), then its
+   `addNode` and edges in `graph/create-graph.ts` or `graph/evaluate-graph.ts`
+   with the conditional edge as a pure function in `graph/routes.ts`. Put
+   state it produces in `RunState` (`graph/run-state.ts`) and the channels in
+   `RunStateAnnotation`. State holds node outputs only, never a provider
+   message or response id.
+8. **Stubs while building.** `stubNode(name, run)` (`nodes/stub-node.ts`)
+   echoes canned state and never calls a model; `testing/stub-agent-nodes.ts`
+   holds stand-ins of implemented nodes for runtime-only specs. A new graph
+   answers `501 TRAINING_NOT_IMPLEMENTED` until its `TRAINING_GRAPH_READY` entry
+   in `graph/training-graphs.ts` (a code constant, not a setting) is `true`;
+   flip it in the commit that implements the graph's last node.
+9. **Tests.** Drive the node with `createNodeContextHarness()`
+   (`training-agents/testing/node-context-harness.ts`) and a function script
+   that routes on `req.metadata.agent` (the marker `AgentCaller` sets), as in
+   `training-agents/testing/agent-scripts.ts`. For a whole flow, add a scenario
+   fixture: see [TESTING.md](../../../../docs/TESTING.md#fake-responses-server-and-training-scenarios).
+   Jobs, routes and the new role are then covered by the `test/ai/` discovery
+   suites with no edit.
+
+Do not import `@langchain/langgraph` or `@langchain/core` outside
+`training-agents/`, and never from a node or an agent (only the graph files, the
+runner and the checkpoint saver build on it), and never add a provider or agent-framework package (`ai-orchestration-boundary.spec.ts`).
+
 ## Testing without a real provider
 
 - **`FakeAiProvider`** (`testing/fake-ai-provider.ts`) implements
