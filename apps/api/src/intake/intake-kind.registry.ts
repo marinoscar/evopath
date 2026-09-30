@@ -18,6 +18,12 @@ export class IntakeKindRegistry {
   private readonly kinds = new Map<string, IntakeKind<any, any>>();
 
   register(kind: IntakeKind<any, any>): void {
+    // #173: an analyzer's model is the administrator's assignment for a
+    // feature, so a kind that analyzes must name that feature.
+    if (kind.analyzeJobType && !kind.aiFeature) {
+      throw new Error(`Intake kind "${kind.kind}" has an analyzer but no \`aiFeature\``);
+    }
+
     const existing = this.kinds.get(kind.kind);
 
     if (existing) {

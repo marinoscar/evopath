@@ -24,6 +24,7 @@
 // `npm run test:db` against a migrated database.
 // =============================================================================
 
+import { stubFeatureResolver } from '../../src/ai/testing/feature-resolver.stub';
 import { randomUUID } from 'node:crypto';
 
 import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
@@ -148,6 +149,7 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
       new JobsService(prisma),
       { assertUsable: jest.fn(async () => ({})) } as never,
       { delete: jest.fn(async () => undefined) } as never,
+      stubFeatureResolver({ provider: 'openai', modelId: 'vision-model' }) as never,
     );
     const respondStructured = jest.fn(async () => ({ parsed: bodyMetricOutputSchema.parse(bodyMetricFixture(answer)) }));
     handler = new BodyMetricReadingHandler(

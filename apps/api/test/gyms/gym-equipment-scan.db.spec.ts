@@ -33,6 +33,7 @@
 // same writes the seed makes).
 // =============================================================================
 
+import { stubFeatureResolver } from '../../src/ai/testing/feature-resolver.stub';
 import { randomUUID } from 'node:crypto';
 
 import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
@@ -210,6 +211,7 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       new JobsService(prisma),
       { assertUsable: jest.fn(async () => ({})) } as never,
       objects as never,
+      stubFeatureResolver({ provider: HARNESS_PROVIDER, modelId: HARNESS_MODEL }) as never,
       references,
     );
     handler = new EquipmentScanHandler(new JobHandlerRegistry(), harness.ai, intakes, vocabulary, prisma);

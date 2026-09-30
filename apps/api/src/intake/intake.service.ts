@@ -14,6 +14,8 @@ import {
   AI_STORAGE_INPUT_IMAGE_MAX_BYTES,
   AI_STORAGE_INPUT_IMAGE_MIME_TYPES,
 } from '../ai/core/types/file-inputs.types';
+import { AiFeatureModelResolver } from '../ai/assignments/ai-feature-model-resolver.service';
+import { RUNNABLE_FEATURE_STATES } from '../ai/assignments/dto/ai-feature-resolution.dto';
 import { UsableModelsService } from '../ai/keys/usable-models.service';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -259,6 +261,7 @@ export class IntakeService {
     private readonly jobs: JobsService,
     private readonly usableModels: UsableModelsService,
     private readonly objects: ObjectsService,
+    private readonly features: AiFeatureModelResolver,
     // Optional so a hand-built service (tests) needs none; Nest always injects it.
     @Optional() private readonly references: StorageObjectReferences = new StorageObjectReferences(),
   ) {}
@@ -522,10 +525,16 @@ export class IntakeService {
 
   /**
    * Queues the kind's analyzer job. The AI kill switch and `ai:use` are the
-   * route's guards; here the model is re-checked for `vision_input` and
-   * `structured_output`, and the status flip, the enqueue and the job id are
-   * written in ONE transaction, so a queued job always has a `scanning`
-   * intake and a `scanning` intake always has its job.
+   * route's guards. The model is NOT the client's choice (#173): it is the
+   * administrator's assignment for the kind's `aiFeature`, resolved for the
+   * caller by `AiFeatureModelResolver` (assignment -> default -> auto pick).
+   * A blocked feature is a 409 `AI_FEATURE_UNAVAILABLE` naming the state; a
+   * client that still sends a model other than the resolved one is a 409
+   * `AI_MODEL_ASSIGNMENT_LOCKED`. The resolved model is re-checked with
+   * `assertUsable` for `vision_input` and `structured_output`, and the
+   * status flip, the enqueue and the job id are written in ONE transaction,
+   * so a queued job always has a `scanning` intake and a `scanning` intake
+   * always has its job.
    */
   async analyze(
     userId: string,
@@ -550,10 +559,9 @@ export class IntakeService {
       throw refuse(400, 'NO_PHOTOS', 'Attach at least one photo before analyzing');
     }
 
-    await this.usableModels.assertUsable(userId, input.provider, input.modelId, [
-      'vision_input',
-      'structured_output',
-    ]);
+    const { provider, modelId } = await this.resolveAnalyzeModel(userId, kind, input);
+
+    await this.usableModels.assertUsable(userId, provider, modelId, ['vision_input', 'structured_output']);
 
     const analyzeJobType = kind.analyzeJobType;
 
@@ -563,8 +571,8 @@ export class IntakeService {
           where: { id: intakeId, userId, status: { in: [...ANALYZABLE] } },
           data: {
             status: 'scanning',
-            provider: input.provider,
-            modelId: input.modelId,
+            provider,
+            modelId,
             errorCode: null,
             errorMessage: null,
             completedAt: null,
@@ -598,6 +606,42 @@ export class IntakeService {
       }
       throw error;
     }
+  }
+
+  /** The administrator-assigned model for `kind`'s AI feature, for this caller (#173). */
+  private async resolveAnalyzeModel(
+    userId: string,
+    kind: IntakeKind<any, any>,
+    input: AnalyzeIntakeInput,
+  ): Promise<{ provider: string; modelId: string }> {
+    if (!kind.aiFeature) {
+      // The registry refuses such a kind; this is the type narrowing's guard.
+      throw new Error(`Intake kind "${kind.kind}" has an analyzer but no aiFeature`);
+    }
+
+    const resolution = await this.features.resolve(userId, kind.aiFeature);
+
+    if (!RUNNABLE_FEATURE_STATES.includes(resolution.state) || !resolution.model) {
+      throw refuse(
+        409,
+        'AI_FEATURE_UNAVAILABLE',
+        `No AI model is available to analyze these photos (${resolution.state}).`,
+        { featureId: kind.aiFeature, state: resolution.state, fix: resolution.fix },
+      );
+    }
+
+    const { provider, modelId } = resolution.model;
+
+    if (input.provider !== undefined && (input.provider !== provider || input.modelId !== modelId)) {
+      throw refuse(
+        409,
+        'AI_MODEL_ASSIGNMENT_LOCKED',
+        'The AI model for this feature is chosen by your administrator; omit provider and modelId.',
+        { featureId: kind.aiFeature, provider, modelId },
+      );
+    }
+
+    return { provider, modelId };
   }
 
   // ---------------------------------------------------------------------------

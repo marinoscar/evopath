@@ -80,6 +80,7 @@ export class BodyMetricReadingIntakeKind implements IntakeKind<Context, BodyMetr
   readonly contextSchema = contextSchema;
   readonly valueSchema = bodyMetricReadingValueSchema;
   readonly analyzeJobType = BODY_METRIC_READING_JOB_TYPE;
+  readonly aiFeature = 'body_metric_reading' as const;
   readonly maxPhotos = BODY_METRIC_READING_MAX_PHOTOS;
   readonly itemKinds = [BODY_METRIC_READING_ITEM_KIND] as const;
   // The intake stages and writes health data: on top of `intakes:*`, seeing
