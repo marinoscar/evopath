@@ -65,7 +65,9 @@ export function errorCodeOf(err: unknown): string {
 export async function runLivePersona(persona: EvalPersona, deps: { live: AiUserClient; env: EvalEnv; tokenCap?: number }): Promise<LiveRunResult> {
   const started = Date.now();
 
-  if (persona.kind === 'safety') {
+  // Safety personas never reach a model; evaluate personas replay their
+  // scripted evaluator output (live evaluator runs are not wired yet).
+  if (persona.kind === 'safety' || persona.kind === 'evaluate') {
     const evaluation = await evaluatePersona(persona, { variant: 'good' });
     return { evaluation, error: null, judge: null, usage: {}, latencyMs: Date.now() - started };
   }

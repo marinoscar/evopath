@@ -350,3 +350,56 @@ describe('rationale_quality', () => {
     expect(outcome.details.join(' ')).toContain('evidence claims');
   });
 });
+
+describe('evaluator properties', () => {
+  const evalShipped = new Map<string, EvalArtifact>();
+
+  beforeAll(async () => {
+    for (const p of [...personas.values()].filter((x) => x.kind === 'evaluate')) {
+      evalShipped.set(p.id, (await runPersona(p, { variant: 'good' })).shipped!);
+    }
+  });
+
+  /** A copy of the good shipped evaluation of `id`, with `mutate` applied to the plan after. */
+  function worse(id: string, mutate: (tree: PlanTree) => void): EvalArtifact {
+    const source = evalShipped.get(id)!;
+    const copy: EvalArtifact = { ...source, tree: JSON.parse(JSON.stringify(source.tree)) as PlanTree };
+    mutate(copy.tree);
+    return copy;
+  }
+
+  it.each(['evaluator-plateau', 'evaluator-adherence-gap', 'evaluator-pain-pattern', 'evaluator-thin-data'])('%s: the good evaluation passes every property it expects', (id) => {
+    for (const expectation of persona(id).expect) {
+      const outcome = run(expectation.property, id, evalShipped.get(id)!);
+      expect({ property: expectation.property, pass: outcome.pass, details: outcome.details }).toMatchObject({ pass: true });
+    }
+  });
+
+  it('respects_frozen fails when a past workout changed', () => {
+    const outcome = run('respects_frozen', 'evaluator-plateau', worse('evaluator-plateau', (tree) => void (tree.blocks[0].weeks[1].workouts[0].exercises[0].targetSets = 5)));
+    expect(outcome.pass).toBe(false);
+  });
+
+  it('no_increase_after_pain fails for any increase while paused', () => {
+    const outcome = run('no_increase_after_pain', 'evaluator-pain-pattern', worse('evaluator-pain-pattern', (tree) => void (tree.blocks[0].weeks[3].workouts[1].exercises[0].targetSets = 4)));
+    expect(outcome.pass).toBe(false);
+    expect(outcome.details[0]).toMatch(/sets 3 -> 4/);
+  });
+
+  it('holds_on_thin_data fails for any change with fewer than 3 sessions', () => {
+    const outcome = run('holds_on_thin_data', 'evaluator-thin-data', worse('evaluator-thin-data', (tree) => void (tree.blocks[0].weeks[3].workouts[0].exercises[0].repMax = 10)));
+    expect(outcome.pass).toBe(false);
+  });
+
+  it('increases_on_plateau scores a small step 1, more than a step 0.5, nothing 0', () => {
+    const squat = (tree: PlanTree, kg: number) => void (tree.blocks[0].weeks[3].workouts[0].exercises[0].targetLoadKg = kg);
+    expect(run('increases_on_plateau', 'evaluator-plateau', evalShipped.get('evaluator-plateau')!).score).toBe(1);
+    expect(run('increases_on_plateau', 'evaluator-plateau', worse('evaluator-plateau', (tree) => squat(tree, 110))).score).toBe(0.5);
+    expect(run('increases_on_plateau', 'evaluator-plateau', worse('evaluator-plateau', (tree) => squat(tree, 100))).score).toBe(0);
+  });
+
+  it('adapts_to_adherence_gap scores 0 when volume is added', () => {
+    const outcome = run('adapts_to_adherence_gap', 'evaluator-adherence-gap', worse('evaluator-adherence-gap', (tree) => void (tree.blocks[0].weeks[4].workouts[0].exercises[0].targetSets = 6)));
+    expect(outcome.score).toBe(0);
+  });
+});

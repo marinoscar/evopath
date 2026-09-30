@@ -6,7 +6,7 @@ import { PROMPT_CHANGED_MESSAGE, PROMPT_FILES, PROMPT_VERSIONS, currentHashes, t
 
 describe('prompt versions', () => {
   it('every agent prompt module exports a PROMPT_VERSION', () => {
-    expect(Object.keys(PROMPT_VERSIONS).sort()).toEqual(['critic', 'planner', 'researcher']);
+    expect(Object.keys(PROMPT_VERSIONS).sort()).toEqual(['critic', 'critic_adaptation', 'evaluator', 'planner', 'researcher']);
     for (const version of Object.values(PROMPT_VERSIONS)) expect(version).toMatch(/^\S+$/);
   });
 

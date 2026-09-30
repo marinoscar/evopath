@@ -2,12 +2,16 @@
   "versions": {
     "planner": "1",
     "critic": "1",
-    "researcher": "1"
+    "researcher": "1",
+    "evaluator": "1",
+    "critic_adaptation": "1"
   },
   "files": {
     "src/training-agents/agents/planner/planner.prompt.ts": "42945300bbf270b323a56f197a81687bdd03368241b09d3e049a03335489afa4",
     "src/training-agents/agents/critic/critic.prompt.ts": "7dd784b5ef93c326c1d9cb960ab98549b3bbc30ac79ed98b4d036e5f95f6da63",
     "src/training-agents/agents/researcher/researcher.prompt.ts": "21c3ec8fb7969928368f6a9e72bd777a2d36945a021edb8f296c1704a28e5854",
+    "src/training-agents/agents/evaluator/evaluator.prompt.ts": "edc4ca97ca504ac425cc8c286a5c2278b7fb89227cb63276d1d1ef1e780fdf1d",
+    "src/training-agents/agents/critic/critic-adaptation.prompt.ts": "19821d46d42165fb0638bb494a309fcb1d53f7da85b9a6693b2e3f78f1ce95e0",
     "src/training-agents/agents/shared/prompt-blocks.ts": "c058199488915c19d7125cc8a56d2f2b893cad2320556753fc7887a8dcba8b17"
   }
 }

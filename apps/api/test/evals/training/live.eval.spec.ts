@@ -53,7 +53,7 @@ if (!readiness.ready) {
       const unknown = (env.personas ?? []).filter((id) => !all.some((p) => p.id === id));
       if (unknown.length > 0) throw new Error(`EVAL_PERSONAS names unknown personas: ${unknown.join(', ')}`);
 
-      const estimate = estimateLiveRun(selected.filter((p) => p.kind !== 'safety').length, env);
+      const estimate = estimateLiveRun(selected.filter((p) => p.kind === 'create').length, env);
       console.log(`Live eval: ${selected.length} persona(s) x ${env.samples} sample(s), about ${estimate.tokens} tokens (an estimate). Research: ${env.research}.`);
       if (estimate.needsConfirm && !env.confirm) {
         throw new Error(`This run is estimated at ${estimate.tokens} tokens: set EVAL_CONFIRM=1 to run it, or narrow it with EVAL_PERSONAS and EVAL_SAMPLES.`);
