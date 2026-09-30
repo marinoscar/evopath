@@ -25,6 +25,11 @@ import { MaintenanceGate } from './components/common/MaintenanceGate';
 import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { InstallPrompt } from './components/pwa/InstallPrompt';
 
+/** Where an AI plan route sends the user while AI is off or `ai:use` is missing. */
+const PLANS_AI_REDIRECT = {
+  notice: 'Creating a plan with AI is not available right now. You can still view, edit and build plans yourself.',
+};
+
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
@@ -37,6 +42,12 @@ const TrainPage = lazy(() => import('./pages/TrainPage'));
 // E4.1: the exercise library. Owned by the `train` destination through the
 // `/train` prefix.
 const TrainExercisesPage = lazy(() => import('./pages/TrainExercisesPage'));
+// E5.6: training plans, also under `/train` (owned by the `train` destination).
+const PlansPage = lazy(() => import('./pages/Train/PlansPage'));
+const PlanWizardPage = lazy(() => import('./pages/Train/PlanWizardPage'));
+const PlanRunPage = lazy(() => import('./pages/Train/PlanRunPage'));
+const PlanViewerPage = lazy(() => import('./pages/Train/PlanViewerPage'));
+const PlanHistoryPage = lazy(() => import('./pages/Train/PlanHistoryPage'));
 // E4.3: one workout (active logger or completed detail), also under `/train`.
 const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
 // E4.5: "Prefill from photo", photos to AI-drafted exercises the user reviews.
@@ -216,6 +227,58 @@ function AppRoutes() {
                     element={
                       <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
                         <PlanProgressPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E5.6: training plans. `programs:read` is the string
+                      `/api/programs` enforces. The AI routes (the wizard and
+                      the live run) add `ai:use` plus AI being on, and
+                      redirect to the list with a notice otherwise; the list,
+                      viewer, editor and history never need AI. Literal
+                      segments (`new`, `runs/...`) are declared before
+                      `:programId` for readers; React Router ranks by
+                      specificity either way. */}
+                  <Route
+                    path="/train/plans"
+                    element={
+                      <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
+                        <PlansPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/train/plans/new"
+                    element={
+                      <RequirePermission permission="ai:use" fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                        <RequireAiEnabled fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                          <PlanWizardPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/train/plans/runs/:runId"
+                    element={
+                      <RequirePermission permission="ai:use" fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                        <RequireAiEnabled fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                          <PlanRunPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/train/plans/:programId"
+                    element={
+                      <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
+                        <PlanViewerPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/train/plans/:programId/history"
+                    element={
+                      <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
+                        <PlanHistoryPage />
                       </RequirePermission>
                     }
                   />

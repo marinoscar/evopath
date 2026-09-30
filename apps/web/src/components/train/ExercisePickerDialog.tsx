@@ -52,8 +52,8 @@ export interface ExercisePickerDialogProps {
   onClose: () => void;
   /** The workout's gym; null offers everything. */
   gym: GymRef | null;
-  /** Resolves once added; rejects to show the API error in place. */
-  onAdd: (exerciseIds: string[]) => Promise<unknown>;
+  /** Resolves once added; rejects to show the API error in place. `names` maps each picked id to its name. */
+  onAdd: (exerciseIds: string[], names: Record<string, string>) => Promise<unknown>;
   /** `exercises:write`: offer "Create custom exercise". */
   canCreate: boolean;
 }
@@ -113,7 +113,7 @@ export function ExercisePickerDialog({ open, onClose, gym, onAdd, canCreate }: E
     setBusy(true);
     setError(null);
     try {
-      await onAdd(selected);
+      await onAdd(selected, names);
       onClose();
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Could not add the exercises');
