@@ -135,14 +135,17 @@ export class AdaptationContextBuilder implements AdaptationContextPort {
    */
   private async loadGym(userId: string, gymId: string | null, named: boolean): Promise<AdaptationContextSource['gym']> {
     let gym = gymId
-      ? await this.prisma.gym.findFirst({ where: { id: gymId, userId }, select: { id: true, type: true } })
+      ? await this.prisma.gym.findFirst({ where: { id: gymId, userId }, select: { id: true, type: true, isTemporary: true } })
       : null;
 
     if (!gym && named) {
       throw new AdaptationContextError('ADAPTATION_GYM_NOT_FOUND', 'Gym not found');
     }
     if (!gym) {
-      gym = await this.prisma.gym.findFirst({ where: { userId, isDefault: true }, select: { id: true, type: true } });
+      gym = await this.prisma.gym.findFirst({
+        where: { userId, isDefault: true },
+        select: { id: true, type: true, isTemporary: true },
+      });
     }
     if (!gym) return null;
 
@@ -161,6 +164,7 @@ export class AdaptationContextBuilder implements AdaptationContextPort {
     return {
       id: gym.id,
       type: gym.type ?? null,
+      isTemporary: gym.isTemporary,
       equipment: equipment.map((e) => ({ equipmentTypeId: e.equipmentTypeId, name: e.equipmentType.name, quantity: e.quantity })),
       capabilities: capabilities.map((c) => ({ equipmentTypeId: c.equipmentTypeId, id: c.capability.id, slug: c.capability.slug })),
     };

@@ -40,6 +40,7 @@ import { TrainingModelResolver } from '../../src/training-agents/models/training
 import { SCRIPT_USAGE } from '../../src/training-agents/testing/agent-scripts';
 import { ET, LIB, LIBRARY } from '../../src/training-agents/testing/context-fixtures';
 import { AdaptationService } from '../../src/training-adaptation/adaptation.service';
+import { AdaptationContextError } from '../../src/training-adaptation/context/adaptation-context.contract';
 import { effectiveInventory } from '../../src/training-adaptation/context/build-adaptation-context';
 import { supportedBy } from '../../src/training-agents/context/build-planner-context';
 import { parseContextBlock } from '../../src/training-adaptation/prompts/markers';
@@ -54,6 +55,7 @@ import {
 } from '../../src/training-adaptation/testing/adaptation-canary';
 import {
   ACCEPT,
+  ADAPT_FULL_GYM,
   ADAPT_GYM_ID,
   ADAPT_PROGRAM_ID,
   ADAPT_PROGRAM_WORKOUT_ID,
@@ -679,6 +681,77 @@ describe('/api/ai/training/adaptations', () => {
       await post('/context-preview', alice, { minutes: 30, gymId: '00000000-0000-4000-8000-00000000d00d' }).expect(404);
 
       expect(providerCalls()).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // Hotel / temporary gym (E6.2): scan -> confirm equipment -> adapt -> apply -> save
+  // ===========================================================================
+
+  describe('a temporary (hotel) gym', () => {
+    const TEMP = { ...ADAPT_FULL_GYM, isTemporary: true };
+    const EMPTY_TEMP = { ...TEMP, equipment: [], capabilities: [] };
+    const body = { minutes: 30, gymId: ADAPT_GYM_ID, soreness: { muscles: ['chest'], level: 'mild' } };
+
+    it('no equipment yet is 400 ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED on create and preview: nothing stored, no provider call', async () => {
+      rig.source = { gym: EMPTY_TEMP };
+
+      for (const path of ['', '/context-preview']) {
+        const res = await post(path, alice, body).expect(400);
+        expect(res.body.message).toBe('Confirm the equipment first');
+        expect(res.body.details).toEqual({
+          reason: 'ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED',
+          issues: [{ path: 'gymId', message: 'Confirm the equipment first' }],
+        });
+      }
+
+      expect(rig.db.adaptations.size).toBe(0);
+      expect(providerCalls()).toHaveLength(0);
+    });
+
+    it('bodyweight mode needs no equipment: accepted (202) on an empty temporary gym', async () => {
+      rig.source = { gym: EMPTY_TEMP };
+
+      await post('', alice, { ...body, equipment: { mode: 'bodyweight' } }).expect(202);
+    });
+
+    it('once the equipment is confirmed it is ready, applies as a workout, and saving the gym afterwards changes nothing about the adaptation', async () => {
+      rig.source = { gym: EMPTY_TEMP };
+      await post('', alice, body).expect(400);
+
+      rig.source = { gym: TEMP }; // the user applied the scanned equipment
+      const { adaptationId, view } = await adapt(body);
+      expect(view.status).toBe('ready');
+      expect(rig.db.getAdaptation(adaptationId)!.gymId).toBe(ADAPT_GYM_ID);
+
+      const applied = await post(`/${adaptationId}/apply/workout`, alice).expect(200);
+      expect(applied.body.data.workoutId).toEqual(expect.any(String));
+
+      // "Save this gym for future use?" -> PATCH isTemporary:false keeps the id, so the applied adaptation still reads back.
+      rig.source = { gym: { ...ADAPT_FULL_GYM, isTemporary: false } };
+      const after = (await get(adaptationId).expect(200)).body.data;
+      expect(after).toMatchObject({ status: 'applied', appliedAs: 'one_off', appliedWorkoutId: applied.body.data.workoutId });
+      expect(rig.db.getAdaptation(adaptationId)!.gymId).toBe(ADAPT_GYM_ID);
+    });
+
+    it('sends the equipment only: no provider request carries the gym id or an image part', async () => {
+      rig.source = { gym: TEMP };
+      await adapt(body);
+
+      const sent = JSON.stringify(providerCalls().map((c) => c.request));
+      expect(sent).not.toContain(ADAPT_GYM_ID);
+      expect(sent).not.toMatch(/image_url|input_image|data:image/);
+      expect(sent).not.toMatch(/isTemporary/i);
+    });
+
+    it('a gym that is not the caller\'s is a 404, temporary or not', async () => {
+      rig.contextPort.build = jest.fn(async () => {
+        throw new AdaptationContextError('ADAPTATION_GYM_NOT_FOUND', 'Gym not found');
+      });
+
+      await post('', alice, body).expect(404);
+      await post('/context-preview', alice, body).expect(404);
+      expect(rig.db.adaptations.size).toBe(0);
     });
   });
 

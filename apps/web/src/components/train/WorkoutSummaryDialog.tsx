@@ -2,7 +2,11 @@
  * After Finish (E4.3): duration, exercises, sets and volume in the display
  * unit, as the API totalled them, and (E4.4) the personal records of the
  * workout: the best set per PR type per exercise (`summary.prs`).
+ *
+ * `children` go under the records: the page puts the E6.2 "Save this gym
+ * for future use?" prompt there when the workout was at a temporary gym.
  */
+import type { ReactNode } from 'react';
 import {
   Box,
   Button,
@@ -112,9 +116,10 @@ export interface WorkoutSummaryDialogProps {
   workout: Workout | null;
   unit: WeightUnit;
   onClose: () => void;
+  children?: ReactNode;
 }
 
-export function WorkoutSummaryDialog({ open, workout, unit, onClose }: WorkoutSummaryDialogProps) {
+export function WorkoutSummaryDialog({ open, workout, unit, onClose, children }: WorkoutSummaryDialogProps) {
   return (
     <Dialog open={open && workout !== null} onClose={onClose} fullWidth maxWidth="xs" aria-labelledby="workout-summary-title">
       <DialogTitle id="workout-summary-title">Workout finished</DialogTitle>
@@ -126,6 +131,7 @@ export function WorkoutSummaryDialog({ open, workout, unit, onClose }: WorkoutSu
             <Box sx={{ mt: 2 }}>
               <PrSummaryList prs={workout.summary.prs} unit={unit} headingId="workout-summary-prs-heading" headingComponent="h3" />
             </Box>
+            {children && <Box sx={{ mt: 2 }}>{children}</Box>}
           </>
         )}
       </DialogContent>

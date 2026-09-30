@@ -73,4 +73,34 @@ export const GYM_REFUSALS = {
   UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
   OBJECT_TOO_LARGE: 'OBJECT_TOO_LARGE',
   EQUIPMENT_NOT_IN_GYM: 'EQUIPMENT_NOT_IN_GYM',
+  /** 409: a temporary gym cannot be the default; save it (`isTemporary: false`) first. */
+  TEMPORARY_GYM_NOT_DEFAULT: 'TEMPORARY_GYM_NOT_DEFAULT',
 } as const;
+
+// -----------------------------------------------------------------------------
+// Temporary gyms (E6.2): the hotel flow's lifecycle
+// -----------------------------------------------------------------------------
+
+/**
+ * Days a temporary gym may sit unchanged (`gyms.updated_at`) before the daily
+ * `gyms.temporary.purge` job deletes it, when nothing references it. A code
+ * constant on purpose: no env var and no system setting.
+ */
+export const TEMPORARY_GYM_RETENTION_DAYS = 30;
+export const TEMPORARY_GYM_RETENTION_MS = TEMPORARY_GYM_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+/** The purge's job type. PERMANENT once jobs of this type exist. */
+export const TEMPORARY_GYM_PURGE_JOB_TYPE = 'gyms.temporary.purge';
+/** Daily at 03:30 (server time). */
+export const TEMPORARY_GYM_PURGE_CRON = '30 3 * * *';
+/** Candidates read per batch; each is then deleted in its own transaction. */
+export const TEMPORARY_GYM_PURGE_BATCH_SIZE = 200;
+/** A safety stop per run (200 x 50 = 10,000 gyms); the next run continues. */
+export const TEMPORARY_GYM_PURGE_MAX_BATCHES = 50;
+/**
+ * Adaptation statuses that keep a temporary gym alive: the adaptation is still
+ * being made, or is ready to apply (both apply routes re-read the gym).
+ */
+export const TEMPORARY_GYM_LIVE_ADAPTATION_STATUSES = ['queued', 'running', 'ready'] as const;
+/** A `gym_equipment` intake in this status is being analysed right now. */
+export const TEMPORARY_GYM_LIVE_INTAKE_STATUSES = ['scanning'] as const;

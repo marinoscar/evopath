@@ -14,10 +14,12 @@ import { GymPhotosService } from './gym-photos.service';
 import { GymStorageService } from './gym-storage.service';
 import { GymsController } from './gyms.controller';
 import { GymsService } from './gyms.service';
+import { TemporaryGymPurgeHandler } from './handlers/temporary-gym-purge.handler';
 import { GymEquipmentIntakeKind } from './intake/gym-equipment.intake-kind';
 import { GymPhotoObjectReferences } from './intake/gym-photo-references';
 import { EquipmentScanHandler } from './scan/equipment-scan.handler';
 import { EquipmentVocabularyService } from './scan/equipment-vocabulary';
+import { TemporaryGymPurgeTask } from './tasks/temporary-gym-purge.task';
 
 /**
  * Gyms (E3.3): the caller's training locations, their equipment and photos,
@@ -32,6 +34,9 @@ import { EquipmentVocabularyService } from './scan/equipment-vocabulary';
  * `AiModule` for `AiService`), plus a `StorageObjectReferences` checker so
  * discarding an intake never deletes an object that is a gym photo. The
  * manual routes never touch AI and work with AI off. Exports the services for E4 (capability filters).
+ *
+ * Temporary gyms (E6.2): the daily `gyms.temporary.purge` job (server-only)
+ * deletes abandoned ones; its cron task only enqueues.
  */
 @Module({
   imports: [StorageModule, AiModule, JobsModule, IntakeModule],
@@ -52,6 +57,8 @@ import { EquipmentVocabularyService } from './scan/equipment-vocabulary';
     GymEquipmentIntakeKind,
     GymPhotoObjectReferences,
     EquipmentScanHandler,
+    TemporaryGymPurgeHandler,
+    TemporaryGymPurgeTask,
   ],
   exports: [GymsService, GymEquipmentService, GymPhotosService, EquipmentTypesService],
 })
