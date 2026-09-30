@@ -31,8 +31,8 @@ A plan is a tree (`Program` > block > week > workout > exercise) with immutable,
 
 - **One write chokepoint.** `ProgramsService.createWithTree` (version 1) and `ProgramsService.applyChange` (every later change) are the only writers. Manual edits, reverts and agent changes share them. An agent run reaches them through `training-agents/runtime/training-programs.port.ts`.
 - **Provenance.** An AI version stores `origin`, rationale, verified evidence and `meta` (models, efforts, critic rounds, tokens). The plan screen shows it as "how it was made".
-- **Runs.** `training_plan_runs` holds one row per agent run: `kind` (`create`, `revise`, `evaluate`), `trigger`, `status`, `stage`, the frozen `roleModels` and `tokenCap`, `usage`, `result`, `pendingDecision`, `resumeCount`. `programId` is a plain column, so a run outlives a deleted plan as an audit record.
-- **Partial unique indexes.** `training_plan_runs_active_per_user_uniq_idx` (one active run per user) and `programs_one_active_per_user_uniq_idx` (one active plan per user) exist only in migration SQL, like the other raw-SQL indexes listed in [ARCHITECTURE.md §6.1](../ARCHITECTURE.md#61-prisma-models). Never replace them with a `findFirst` pre-check: the database decides a race.
+- **Runs.** `training_plan_runs` holds one row per agent run: `kind` (`create`, `revise`, `evaluate`, `adapt`), `trigger`, `status`, `stage`, the frozen `roleModels` and `tokenCap`, `usage`, `result`, `pendingDecision`, `resumeCount`. `programId` is a plain column, so a run outlives a deleted plan as an audit record.
+- **Partial unique indexes.** `training_plan_runs_active_per_user_uniq_idx` (one active run per user; a run of kind `adapt` does not count, so a quick workout adaptation neither waits behind nor blocks a plan run) and `programs_one_active_per_user_uniq_idx` (one active plan per user) exist only in migration SQL, like the other raw-SQL indexes listed in [ARCHITECTURE.md §6.1](../ARCHITECTURE.md#61-prisma-models). Never replace them with a `findFirst` pre-check: the database decides a race.
 
 ### 2.2 Graphs and the run state machine
 
