@@ -17,7 +17,7 @@ import { TRAINING_AGENT_ROLES, type TrainingAgentRole } from '../../common/schem
 import type { AgentGraphRunResult } from '../graph/agent-graph-runner.interface';
 import type { GraphHooks } from '../graph/create-graph';
 import { trainingGraphRunner } from '../graph/graph-factory';
-import type { FrozenRoleModel, NodeContext, NodeFn, NodeInterruptRequest } from '../graph/node-context';
+import type { FrozenRoleModel, NodeContext, NodeFn, NodeInterruptRequest, NodePorts } from '../graph/node-context';
 import { initialRunState, type RunKind, type RunState } from '../graph/run-state';
 import { AgentCaller, type AgentUsageReport } from '../runtime/agent-caller';
 import { ContextBudget } from '../runtime/context-budget';
@@ -56,6 +56,10 @@ export interface NodeContextHarnessOptions {
   scripts?: Partial<Record<TrainingAgentRole, AgentScript>>;
   /** Extra runtime-harness options (policy, catalog); `fake.responses` is owned by `scripts`. */
   runtime?: AiRuntimeHarnessOptions;
+  /** The node ports (`prepare_context` reads through `plannerContext`). */
+  ports?: NodePorts;
+  /** The run clock (`ctx.now()`); default the real time. */
+  now?: () => Date;
 }
 
 export const HARNESS_FROZEN_MODEL: FrozenRoleModel = {
@@ -139,7 +143,8 @@ export function createNodeContextHarness(opts: NodeContextHarnessOptions = {}) {
     agent,
     budget,
     contextBudget: new ContextBudget(),
-    now: () => new Date(),
+    now: opts.now ?? (() => new Date()),
+    ports: opts.ports ?? {},
   };
 
   const hooks: GraphHooks = {

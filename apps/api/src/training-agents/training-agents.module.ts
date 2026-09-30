@@ -5,6 +5,7 @@ import { AiCoreModule } from '../ai/core/ai-core.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
 import { AiRuntimeModule } from '../ai/runtime/ai-runtime.module';
 import { JobsModule } from '../jobs/jobs.module';
+import { PlannerContextLoader } from './context/planner-context.loader';
 import { GraphRuntimeInfo } from './graph-runtime-info';
 import { TrainingModelResolver } from './models/training-model-resolver.service';
 import { TrainingModelsController } from './models/training-models.controller';
@@ -35,6 +36,8 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  *   `RunEventsService` (the sequenced event log), the `ai.training.plan.run`
  *   handler (the graph inside the queue, server-only), and the
  *   `training.runs.purge` handler with its enqueue-only daily task.
+ * - Context: `PlannerContextLoader` reads the caller's minimised context
+ *   for `prepare_context` (bound as a node port by the run handler).
  * - `TRAINING_SAFETY_SCREEN`: the pre-run safety screen (guardrail G0,
  *   `FreeTextSafetyScreen`): urgent-symptom text stops a run before any job.
  */
@@ -50,6 +53,7 @@ import { TrainingRunsService } from './runtime/training-runs.service';
     TrainingPlanRunHandler,
     TrainingRunsPurgeHandler,
     TrainingRunsPurgeTask,
+    PlannerContextLoader,
     { provide: TRAINING_SAFETY_SCREEN, useClass: FreeTextSafetyScreen },
   ],
   exports: [GraphRuntimeInfo, TrainingModelResolver, TrainingRunsService, RunEventsService],

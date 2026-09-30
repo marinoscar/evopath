@@ -34,7 +34,19 @@ export const STUB_VERIFIED_BRIEF: VerifiedEvidenceBrief = {
 /** The research node without a model: returns the canned brief. */
 export const STUB_RESEARCH_NODE: NodeFn = async () => ({ brief: STUB_VERIFIED_BRIEF });
 
-/** Every implemented agent node, stubbed. Spread your own overrides after it. */
+/** `prepare_context` without a database: a marker context (the research stub ignores it). */
+export const STUB_PREPARE_CONTEXT_NODE: NodeFn = async (state) => ({ context: { stub: true, kind: state.kind } });
+
+/** The planner without a model: a marker draft per round. */
+export const STUB_PLAN_NODE: NodeFn = async (state) => ({
+  draft: { stub: true, revision: state.roundCounters.critique ?? 0 },
+});
+
+/** The guardrails without a draft to check: a clean marker report. */
+export const STUB_GUARDRAILS_NODE: NodeFn = async () => ({ guardrailReport: { stub: true, violations: 0 } });
+
+/** Every implemented agent node, stubbed, in graph order. Spread your own overrides after it. */
 export const STUB_AGENT_NODES: Readonly<Record<string, NodeFn>> = {
+  prepare_context: STUB_PREPARE_CONTEXT_NODE,
   research: STUB_RESEARCH_NODE,
 };

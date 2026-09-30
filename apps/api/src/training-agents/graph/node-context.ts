@@ -1,5 +1,6 @@
 import type { TaskReasoningEffort, TrainingAgentRole } from '../../common/schemas/settings.schema';
 import type { AiKeySource } from '../../ai/keys/ai-key-resolver.service';
+import type { PlannerContextPort } from '../context/planner-context.loader';
 import type { AgentCaller } from '../runtime/agent-caller';
 import type { ContextBudget } from '../runtime/context-budget';
 import type { RunBudget } from '../runtime/run-budget';
@@ -39,6 +40,16 @@ export interface NodeInterruptRequest {
   payload?: Record<string, unknown>;
 }
 
+/**
+ * The read (and later write) services a node may reach, bound per job by the
+ * handler. Each agent story adds the port its node needs; a node whose port
+ * is missing fails the run (a wiring error, not a user error).
+ */
+export interface NodePorts {
+  /** `prepare_context`: the context builder's reads (`context/planner-context.loader.ts`). */
+  plannerContext?: PlannerContextPort;
+}
+
 export interface NodeContext {
   runId: string;
   userId: string;
@@ -59,6 +70,8 @@ export interface NodeContext {
   budget: RunBudget;
   contextBudget: ContextBudget;
   now(): Date;
+  /** Services the nodes read through (see `NodePorts`). */
+  ports?: NodePorts;
   /**
    * Pauses the run until the owner decides, and returns the decision on
    * resume. Call it at most once per node, as the node's first side effect

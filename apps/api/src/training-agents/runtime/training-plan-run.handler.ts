@@ -61,6 +61,7 @@ import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { RateLimitError } from '../../jobs/rate-limit.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlannerContextLoader } from '../context/planner-context.loader';
 import type { AgentGraphRunResult } from '../graph/agent-graph-runner.interface';
 import type { GraphHooks } from '../graph/create-graph';
 import { trainingGraphRunner } from '../graph/graph-factory';
@@ -151,6 +152,7 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
     private readonly events: RunEventsService,
     private readonly runs: TrainingRunsService,
     @Optional() @Inject(TRAINING_RUN_HANDLER_OPTIONS) options?: TrainingRunHandlerOptions,
+    @Optional() private readonly plannerContext?: PlannerContextLoader,
   ) {
     this.options = options ?? {};
   }
@@ -395,6 +397,7 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
       budget,
       contextBudget: new ContextBudget(),
       now: () => new Date(),
+      ports: { ...(this.plannerContext ? { plannerContext: this.plannerContext } : {}) },
     };
 
     const runner = trainingGraphRunner(kind, {
