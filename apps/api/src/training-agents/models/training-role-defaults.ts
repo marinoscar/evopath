@@ -1,5 +1,6 @@
 import type { AiCapability } from '../../ai/core/capabilities';
 import type { TaskReasoningEffort, TrainingAgentRole } from '../../common/schemas/settings.schema';
+import type { TrainingRunKind } from './token-estimate';
 
 // =============================================================================
 // Training agent roles: what each needs and what it defaults to
@@ -35,3 +36,10 @@ export const RESEARCHER_PROVIDERS: readonly string[] = ['openai'];
 
 /** Most models listed as `candidates` on a `missing_capability` resolution. */
 export const TRAINING_MAX_CANDIDATES = 5;
+
+/** The roles each run kind needs a model for before it may start. */
+export const TRAINING_KIND_ROLES: Readonly<Record<TrainingRunKind, readonly TrainingAgentRole[]>> = {
+  create: ['researcher', 'planner', 'critic', 'evaluator'],
+  revise: ['planner', 'critic'],
+  evaluate: ['evaluator'],
+};

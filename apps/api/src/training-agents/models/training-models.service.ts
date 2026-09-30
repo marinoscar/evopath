@@ -20,16 +20,11 @@ import {
   TRAINING_TYPICAL_CONTEXT_CHARS,
   type TrainingRunKind,
 } from './token-estimate';
+import { TRAINING_KIND_ROLES } from './training-role-defaults';
 import { TrainingModelResolver } from './training-model-resolver.service';
 
-/** The roles each run kind needs a model for before it may start. */
-const KIND_ROLES: Readonly<Record<TrainingRunKind, readonly TrainingAgentRole[]>> = {
-  create: ['researcher', 'planner', 'critic', 'evaluator'],
-  revise: ['planner', 'critic'],
-  evaluate: ['evaluator'],
-};
-
-function runnable(resolution: RoleResolution): boolean {
+/** Whether a resolved role has a model it can run on. */
+export function runnable(resolution: RoleResolution): boolean {
   return RUNNABLE_ROLE_STATES.includes(resolution.state) && resolution.model !== undefined;
 }
 
@@ -43,7 +38,7 @@ export class TrainingModelsService {
 
   async overview(userId: string): Promise<TrainingModelsViewData> {
     const [roles, policy] = await Promise.all([this.resolver.resolveAll(userId), this.aiConfig.resolve()]);
-    const can = (kind: TrainingRunKind) => KIND_ROLES[kind].every((role) => runnable(roles[role]));
+    const can = (kind: TrainingRunKind) => TRAINING_KIND_ROLES[kind].every((role) => runnable(roles[role]));
 
     return {
       roles,
