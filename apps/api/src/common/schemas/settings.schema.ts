@@ -136,16 +136,25 @@ export const userAiTrainingSchema = z.object({
 
 export type UserAiTrainingValue = z.infer<typeof userAiTrainingSchema>;
 
+/**
+ * The stored `ai` namespace, as READ. Lenient on purpose (#173): model
+ * selection moved to the administrator (`ai.assignments` in system settings),
+ * so `defaultModel` and `taskModels` are LEGACY fields. A document written
+ * before #173 still parses, and nothing resolves a model from them any more —
+ * they are ignored on read and dropped on the next write of the namespace.
+ * Only `training` (the per-run token cap and critic rounds) is still a user
+ * preference.
+ */
 export const userAiSettingsSchema = z.object({
+  /** @deprecated #173 — ignored; the administrator assigns models. */
   defaultModel: z
     .object({
       provider: z.string(),
       modelId: z.string(),
     })
-    .nullable(),
-  // Per-role model preferences for the training-plan agents. Optional, never
-  // `.default()`: every existing account is absent and resolves through the
-  // role defaults.
+    .nullable()
+    .optional(),
+  /** @deprecated #173 — ignored; the administrator assigns models and efforts. */
   taskModels: userAiTaskModelsSchema.optional(),
   training: userAiTrainingSchema.optional(),
 });
@@ -153,37 +162,35 @@ export const userAiSettingsSchema = z.object({
 export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
 
 /**
+ * `ai` on a user-settings PUT: what a user may still set (#173). STRICT, so a
+ * client that still sends `defaultModel` or `taskModels` gets a 400 rather
+ * than a save that silently does nothing.
+ */
+export const userAiSettingsWriteSchema = z
+  .object({
+    training: userAiTrainingSchema.optional(),
+  })
+  .strict();
+
+/**
  * `ai`, PATCH counterpart, merged as a JSON merge patch by
  * `UserSettingsService.mergeAi`: a field that is absent keeps the stored
- * value, `null` clears it, a value replaces it. `{ "ai": { "defaultModel":
- * null } }` clears the default-model selection; `taskModels.<role>: null`
- * clears one role; `training.<field>: null` clears one limit.
+ * value, `null` clears it, a value replaces it. `training: null` clears the
+ * limits; `training.<field>: null` clears one limit. STRICT for the reason
+ * `userAiSettingsWriteSchema` is: `defaultModel` and `taskModels` are no
+ * longer user settings (#173) and are refused with a 400.
  */
-export const userAiSettingsPatchSchema = z.object({
-  defaultModel: z
-    .object({
-      provider: z.string(),
-      modelId: z.string(),
-    })
-    .nullable()
-    .optional(),
-  taskModels: z
-    .object({
-      researcher: taskModelSchema.nullable().optional(),
-      planner: taskModelSchema.nullable().optional(),
-      critic: taskModelSchema.nullable().optional(),
-      evaluator: taskModelSchema.nullable().optional(),
-    })
-    .nullable()
-    .optional(),
-  training: z
-    .object({
-      maxRunTokens: maxRunTokensSchema.nullable().optional(),
-      maxCriticRounds: maxCriticRoundsSchema.nullable().optional(),
-    })
-    .nullable()
-    .optional(),
-});
+export const userAiSettingsPatchSchema = z
+  .object({
+    training: z
+      .object({
+        maxRunTokens: maxRunTokensSchema.nullable().optional(),
+        maxCriticRounds: maxCriticRoundsSchema.nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+  })
+  .strict();
 
 export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>;
 
@@ -220,12 +227,9 @@ export const userSettingsPatchSchema = z.object({
   // Three nullable levels, three different deletes: the namespace, one
   // channel, one event key. See notificationsPatchSchema.
   notifications: notificationsPatchSchema.nullable().optional(),
-  // The outer `.nullable()` clears the whole `ai` namespace (back to "no
-  // default model, no other AI preference set"); the inner nullability on
-  // `defaultModel` (see `userAiSettingsPatchSchema`) is what lets
-  // `{ "ai": { "defaultModel": null } }` clear just the selection while
-  // leaving the namespace itself present. Same two-level shape
-  // `dataTablesPatchSchema` uses.
+  // The outer `.nullable()` clears the whole `ai` namespace; the inner
+  // nullability on `training` (see `userAiSettingsPatchSchema`) clears just
+  // the run limits. Same two-level shape `dataTablesPatchSchema` uses.
   ai: userAiSettingsPatchSchema.nullable().optional(),
 });
 

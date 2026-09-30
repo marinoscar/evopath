@@ -350,17 +350,12 @@ export class UserSettingsService {
    *
    * - patch absent       -> keep the stored namespace untouched
    * - patch is `null`    -> clear the whole namespace
-   * - `defaultModel` present (object or `null`) -> replaces it; absent keeps it
-   * - `taskModels: null` -> clears every role; `taskModels.<role>` object
-   *   replaces that role (a role is one coherent choice, like a data table
-   *   entry), `null` deletes it, absent keeps it
    * - `training: null`   -> clears the limits; `training.<field>` likewise
    *
-   * Replacing the namespace wholesale (as this did when `defaultModel` was
-   * its only field) would drop the agent choices on every default-model save
-   * and vice versa. An emptied `taskModels` or `training` collapses to
-   * absent; `defaultModel` is always emitted (`null` = none chosen), which
-   * keeps the stored shape `userAiSettingsSchema` has always had.
+   * #173: the legacy `defaultModel` and `taskModels` are no longer user
+   * settings (the administrator assigns models), so the patch cannot carry
+   * them and the merged value drops any stored copy. An emptied namespace
+   * collapses to absent.
    */
   private mergeAi(
     current: UserAiSettingsValue | undefined,
@@ -374,22 +369,9 @@ export class UserSettingsService {
       return undefined;
     }
 
-    const merged: UserAiSettingsValue = {
-      defaultModel:
-        patch.defaultModel !== undefined ? patch.defaultModel : (current?.defaultModel ?? null),
-    };
-
-    const taskModels = mergeFields(current?.taskModels, patch.taskModels);
-    if (taskModels !== undefined) {
-      merged.taskModels = taskModels;
-    }
-
     const training = mergeFields(current?.training, patch.training);
-    if (training !== undefined) {
-      merged.training = training;
-    }
 
-    return merged;
+    return training !== undefined ? { training } : undefined;
   }
 
   /**

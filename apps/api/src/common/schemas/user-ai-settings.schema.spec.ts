@@ -3,6 +3,7 @@ import {
   TRAINING_MIN_RUN_TOKENS,
   userAiSettingsPatchSchema,
   userAiSettingsSchema,
+  userAiSettingsWriteSchema,
   userSettingsPatchSchema,
 } from './settings.schema';
 
@@ -12,7 +13,7 @@ import {
 describe('user ai settings schemas', () => {
   const planner = { provider: 'openai', modelId: 'gpt-x', reasoningEffort: 'high' };
 
-  it('an existing stored value with only defaultModel stays valid', () => {
+  it('a legacy stored value with only defaultModel still parses (ignored since #173)', () => {
     expect(userAiSettingsSchema.safeParse({ defaultModel: null }).success).toBe(true);
     expect(
       userAiSettingsSchema.safeParse({ defaultModel: { provider: 'openai', modelId: 'm' } }).success,
@@ -38,19 +39,19 @@ describe('user ai settings schemas', () => {
     ).toBe(false);
   });
 
-  it('the patch accepts a body without defaultModel (it is optional now)', () => {
-    expect(userAiSettingsPatchSchema.parse({ taskModels: { planner } })).toEqual({
-      taskModels: { planner },
-    });
+  it('the patch refuses the legacy defaultModel and taskModels (#173: models are admin-assigned)', () => {
+    expect(userAiSettingsPatchSchema.safeParse({ defaultModel: null }).success).toBe(false);
+    expect(userAiSettingsPatchSchema.safeParse({ taskModels: { planner } }).success).toBe(false);
+    expect(userSettingsPatchSchema.safeParse({ ai: { defaultModel: { provider: 'openai', modelId: 'm' } } }).success).toBe(false);
   });
 
-  it('the patch accepts null for one role, for taskModels, for training and for each training field', () => {
-    for (const body of [
-      { taskModels: { planner: null } },
-      { taskModels: null },
-      { training: null },
-      { training: { maxRunTokens: null, maxCriticRounds: null } },
-    ]) {
+  it('the PUT schema refuses them too and accepts training', () => {
+    expect(userAiSettingsWriteSchema.safeParse({ defaultModel: null }).success).toBe(false);
+    expect(userAiSettingsWriteSchema.safeParse({ training: { maxCriticRounds: 2 } }).success).toBe(true);
+  });
+
+  it('the patch accepts null for training and for each training field', () => {
+    for (const body of [{ training: null }, { training: { maxRunTokens: null, maxCriticRounds: null } }]) {
       expect(userAiSettingsPatchSchema.safeParse(body).success).toBe(true);
     }
   });
