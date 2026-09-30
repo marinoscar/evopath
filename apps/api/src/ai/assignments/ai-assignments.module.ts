@@ -9,6 +9,7 @@ import { AiAssignmentsAdminService } from './ai-assignments-admin.service';
 import { AiFeatureModelResolver } from './ai-feature-model-resolver.service';
 import { AiFeaturesController } from './ai-features.controller';
 import { AiFeatureAssignmentsDoctorCheck } from './doctor/ai-feature-assignments.doctor-check';
+import { AiWebSearchDoctorCheck } from './doctor/ai-web-search.doctor-check';
 
 /**
  * Administrator model assignments per AI feature (#173): the admin routes,
@@ -24,6 +25,7 @@ import { AiFeatureAssignmentsDoctorCheck } from './doctor/ai-feature-assignments
     AiAssignmentsAdminService,
     // Doctor checks (#182): assignments view and key STATUS only — no model call.
     AiFeatureAssignmentsDoctorCheck,
+    AiWebSearchDoctorCheck,
   ],
   exports: [AiFeatureModelResolver],
 })
