@@ -176,7 +176,7 @@ The first shows an uncertain count, brand evidence from lettering, a partly visi
 
 For owner testing and e2e, `tests/e2e/support/fake-vision-server.mjs` is a dependency-free, OpenAI-compatible server that answers every chat completion with a canned fixture, so the real gate pipeline, storage resolution and job path run with no key and no cost. Its routes are documented in the file header.
 
-The overlay mounts all of `apps/api/test/fixtures` read-only and the server reads `*.model-output.json` from its `gym-scan/` and `workout-prefill/` folders. Besides the gym-scan fixtures below, it serves `workout-placard` and `workout-notebook` for "Prefill from photo" ([5.24 in ARCHITECTURE](../ARCHITECTURE.md#524-workout-logging)).
+The overlay mounts all of `apps/api/test/fixtures` read-only and the server reads `*.model-output.json` from its `gym-scan/` and `workout-prefill/` folders. Besides the gym-scan fixtures below, it serves `workout-placard` and `workout-notebook` for "Prefill from photo" ([the workouts spec](workouts.md#29-the-workout_prefill-intake-kind)).
 
 1. Start the stack with the overlay (`infra/compose/fake-ai.compose.yml`, service `fake-ai`, host port 4010):
 
