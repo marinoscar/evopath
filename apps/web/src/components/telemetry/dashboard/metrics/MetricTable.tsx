@@ -10,11 +10,20 @@
  *
  * The table is labelled by its caption; it scrolls sideways inside its own
  * box on a narrow screen, never the page.
+ *
+ * Opt-in "Top N" (issue #176): with `topN`, a compact select on the caption
+ * row limits how many rows are drawn (after `sortRows`, so the API's order is
+ * kept) and a line under the table says how many of how many are shown. The
+ * select appears only when the table has more rows than the smallest option —
+ * a small table has nothing to cut. The choice is per viewer, in
+ * `localStorage` (`topNPreference.ts`).
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Box,
   LinearProgress,
+  MenuItem,
+  Select,
   Table,
   TableBody,
   TableCell,
@@ -31,6 +40,7 @@ import type {
   DashboardMetricTable,
 } from '../../../../services/telemetryDashboard';
 import { formatMetricValue, formatTimestamp } from '../format';
+import { readTopN, writeTopN, type TopNOption } from './topNPreference';
 
 type Row = Record<string, DashboardMetricCell>;
 
@@ -54,6 +64,25 @@ export interface MetricTableProps {
   emptyMessage?: string;
   /** For relative "Last reading" times. */
   now?: number;
+  /** Offer a "Top N" row limit. Absent: every row is drawn. */
+  topN?: MetricTableTopN;
+}
+
+export interface MetricTableTopN {
+  /** Ascending counts, optionally ending in `'all'`. */
+  options: readonly TopNOption[];
+  default: TopNOption;
+}
+
+const topNLabel = (option: TopNOption) => (option === 'all' ? 'All' : `Top ${option}`);
+
+function useTopN(tableKey: string, topN: MetricTableTopN | undefined) {
+  const [value, setValue] = useState<TopNOption | null>(() => (topN ? (readTopN(tableKey, topN.options) ?? topN.default) : null));
+  const choose = (next: TopNOption) => {
+    setValue(next);
+    writeTopN(tableKey, next);
+  };
+  return [value, choose] as const;
 }
 
 const NUMERIC_UNITS = new Set(['%', 'bytes', 'bytes/s', 'count', 'per_s', 'per_min', 'ms', 'seconds', 'hours', 'days', 'cores', 'load']);
@@ -137,6 +166,7 @@ export function MetricTable({
   sortRows,
   emptyMessage = 'nothing reported in this window.',
   now = Date.now(),
+  topN,
 }: MetricTableProps) {
   const byKey = new Map(table.columns.map((column) => [column.key, column]));
   const specs: MetricTableColumnSpec[] = (
@@ -144,8 +174,15 @@ export function MetricTable({
   ).filter(
     (spec) => (spec.render ? (spec.requires ?? []).every((key) => byKey.has(key)) : byKey.has(spec.key)),
   );
-  const rows = sortRows ? [...table.rows].sort(sortRows) : table.rows;
+  const allRows = sortRows ? [...table.rows].sort(sortRows) : table.rows;
   const captionId = `metric-table-${table.key}`;
+  const [limit, setLimit] = useTopN(table.key, topN);
+  const smallest = topN?.options.find((option): option is number => typeof option === 'number');
+  const offerTopN = topN !== undefined && limit !== null && smallest !== undefined && allRows.length > smallest;
+  const rows = offerTopN && limit !== 'all' ? allRows.slice(0, limit) : allRows;
+  const selectLabel = `Rows to show for ${table.label}`;
+
+  const shownNote = rows.length < allRows.length ? `Showing ${rows.length} of ${allRows.length}` : null;
 
   if (rows.length === 0) {
     return (
@@ -157,11 +194,48 @@ export function MetricTable({
 
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography id={captionId} variant="subtitle2" component="h3" sx={{ mb: 0.5 }}>
-        {table.label}
-      </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          columnGap: 1,
+          rowGap: 0.5,
+          mb: 0.5,
+          minHeight: offerTopN ? 32 : undefined,
+        }}
+      >
+        <Typography id={captionId} variant="subtitle2" component="h3" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+          {table.label}
+        </Typography>
+        {offerTopN && (
+          <Select
+            size="small"
+            value={limit}
+            onChange={(event) => {
+              const raw = event.target.value;
+              setLimit(raw === 'all' ? 'all' : Number(raw));
+            }}
+            inputProps={{ 'aria-label': selectLabel, 'aria-controls': `${captionId}-table` }}
+            data-testid={`metric-table-topn-${table.key}`}
+            sx={{ ml: 'auto', fontSize: 'body2.fontSize', '& .MuiSelect-select': { py: 0.5 } }}
+          >
+            {topN.options.map((option) => (
+              <MenuItem key={String(option)} value={option}>
+                {topNLabel(option)}
+              </MenuItem>
+            ))}
+          </Select>
+        )}
+      </Box>
       <TableContainer sx={{ overflowX: 'auto', maxWidth: '100%' }}>
-        <Table size="small" aria-labelledby={captionId} data-testid={`metric-table-${table.key}`}>
+        <Table
+          id={`${captionId}-table`}
+          size="small"
+          aria-labelledby={captionId}
+          data-testid={`metric-table-${table.key}`}
+        >
           <TableHead>
             <TableRow>
               {specs.map((spec) => {
@@ -213,6 +287,17 @@ export function MetricTable({
           </TableBody>
         </Table>
       </TableContainer>
+      {shownNote && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          component="p"
+          sx={{ mt: 0.5, mb: 0 }}
+          data-testid={`metric-table-shown-${table.key}`}
+        >
+          {shownNote}
+        </Typography>
+      )}
     </Box>
   );
 }

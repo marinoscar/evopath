@@ -36,6 +36,7 @@ import {
   StatusCell,
   UtilizationBar,
   type MetricTableColumnSpec,
+  type MetricTableTopN,
 } from './MetricTable';
 import { metricPanelId, metricSectionAnchor, metricSectionTitle } from './metricSections';
 
@@ -53,6 +54,8 @@ interface TableSpec {
   key: string;
   columns?: MetricTableColumnSpec[];
   sortRows?: (a: Row, b: Row) => number;
+  /** Offer a "Top N" row limit (applied after `sortRows`). */
+  topN?: MetricTableTopN;
 }
 
 interface SectionSpec {
@@ -97,7 +100,7 @@ export const SECTION_SPECS: Record<DashboardMetricGroup, SectionSpec> = {
   database: {
     tiles: ['dbConnectionUtilization', 'dbSize', 'dbCommits', 'dbCacheHitRatio'],
     charts: [{ title: 'Connections and the connection limit', keys: ['dbConnections', 'dbConnectionMax'] }],
-    tables: [{ key: 'largestTables' }],
+    tables: [{ key: 'largestTables', topN: { options: [10, 20, 50, 'all'], default: 10 } }],
   },
   queue: {
     tiles: ['queueDepth.pending', 'oldestPendingAge', 'jobFailureRatio', 'jobDurationP95', 'backupAge'],
@@ -280,7 +283,13 @@ function SectionBody({
           ))}
           {tables.map(({ table, tableSpec }) => (
             <Grid key={table.key} size={{ xs: 12, lg: both ? 7 : 12 }} sx={{ minWidth: 0 }}>
-              <MetricTable table={table} columns={tableSpec.columns} sortRows={tableSpec.sortRows} now={now} />
+              <MetricTable
+                table={table}
+                columns={tableSpec.columns}
+                sortRows={tableSpec.sortRows}
+                topN={tableSpec.topN}
+                now={now}
+              />
             </Grid>
           ))}
         </Grid>
