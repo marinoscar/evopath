@@ -124,6 +124,7 @@ describe('renderVhost', () => {
 
   it('gives the AI response stream its own unbuffered block', () => {
     const block = rendered.slice(rendered.indexOf('location /api/ai/responses/stream'));
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
     expect(block).toContain('proxy_buffering off;');
     expect(block).toContain('proxy_read_timeout 600s;');
     expect(block).toContain("proxy_set_header Connection        '';");
@@ -132,6 +133,7 @@ describe('renderVhost', () => {
   it('gives the telemetry assistant stream its own unbuffered block', () => {
     const block = rendered.slice(rendered.indexOf('location /api/admin/telemetry/assistant/stream'));
     expect(rendered).toContain('location /api/admin/telemetry/assistant/stream {');
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
     expect(block).toContain('proxy_buffering off;');
     expect(block).toContain('proxy_read_timeout 600s;');
     expect(block).toContain("proxy_set_header Connection        '';");
@@ -140,12 +142,24 @@ describe('renderVhost', () => {
   it('gives the training run stream its own unbuffered block', () => {
     const block = rendered.slice(rendered.indexOf('location /api/ai/training/stream {'));
     expect(rendered).toContain('location /api/ai/training/stream {');
+    // Regression for #194: this line was `proxy_pass http://127.0.0.1:\${target.bindPort};`
+    // in the template - the escaped `$` meant nginx received the literal text
+    // `${target.bindPort}` instead of a port number and refused to start.
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
     expect(block).toContain('proxy_buffering off;');
     expect(block).toContain('proxy_cache off;');
     expect(block).toContain('chunked_transfer_encoding off;');
     expect(block).toContain('proxy_read_timeout 600s;');
     expect(block).toContain('proxy_send_timeout 600s;');
     expect(block).toContain("proxy_set_header Connection        '';");
+  });
+
+  it('never leaks an unresolved template-literal placeholder into the rendered config', () => {
+    // A stray backslash before a `${...}` interpolation in the template (like
+    // the #194 bug above) survives as literal `${...}` text in the output,
+    // which nginx's config parser then chokes on. Catch that failure mode
+    // regardless of which block it recurs in.
+    expect(rendered).not.toMatch(/\$\{/);
   });
 
   it('is deterministic, so a re-run produces no spurious diff', () => {
