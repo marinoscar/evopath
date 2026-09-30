@@ -826,6 +826,21 @@ export const handlers = [
     return HttpResponse.json({ data: { runId: 'run_speech_1', jobId: 'job-ai-audio-2' } }, { status: 202 });
   }),
 
+  // Onboarding (#203): by default the welcome has been seen and the checklist
+  // dismissed, so no existing suite is interrupted by the welcome dialog or a
+  // Today card. Suites that exercise onboarding install their own handler.
+  http.get(`${API_BASE}/onboarding`, () =>
+    HttpResponse.json({
+      data: {
+        welcomeSeenAt: '2026-01-01T00:00:00.000Z',
+        checklistDismissedAt: '2026-01-01T00:00:00.000Z',
+        goal: null,
+        user: { steps: [], completed: 0, total: 0 },
+        admin: null,
+      },
+    }),
+  ),
+
   // Gyms (E3.3): nobody has a gym yet, and the catalog is empty. Suites that
   // exercise the gym pages install their own stateful API
   // (`fixtures/gyms.ts`).
