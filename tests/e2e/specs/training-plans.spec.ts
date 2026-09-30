@@ -14,6 +14,7 @@ import {
   lastRequestSeq,
   resetFakeResponses,
   setAiEnabled,
+  assignFakeTrainingModels,
   setupFakeAi,
   setupFakeAiForUser,
   teardownFakeAi,
@@ -346,12 +347,19 @@ test.describe('Training plans with the fake Responses provider', () => {
     expect(requests.every((r) => r.hasAuthorization && r.status === 200)).toBe(true);
   });
 
-  test('a blocked role: the researcher on a model without hosted tools shows the blocker and Start is disabled', async ({ page, owner }) => {
-    await setupFakeAiForUser(owner.api, { researcher: { modelId: FAKE_FAST, reasoningEffort: 'medium' } });
-    await fillWizardToReview(page);
+  test('a blocked role: the researcher on a model without hosted tools shows the blocker and Start is disabled', async ({ page, owner: _owner, browser, baseURL }) => {
+    // The administrator assigns a model without hosted tools to the researcher.
+    await withAdmin(browser, baseURL, (admin) =>
+      assignFakeTrainingModels(admin, { researcher: { modelId: FAKE_FAST, reasoningEffort: 'medium' } }),
+    );
+    try {
+      await fillWizardToReview(page);
 
-    await expect(page.getByText(/needs web search/)).toBeVisible();
-    await expect(page.getByTestId('wizard-start')).toBeDisabled();
+      await expect(page.getByText(/needs web search/)).toBeVisible();
+      await expect(page.getByTestId('wizard-start')).toBeDisabled();
+    } finally {
+      await withAdmin(browser, baseURL, (admin) => assignFakeTrainingModels(admin));
+    }
   });
 
   test('Today: start the planned workout, log, finish; Today shows it done', async ({ page, owner }) => {

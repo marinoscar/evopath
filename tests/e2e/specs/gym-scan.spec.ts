@@ -324,7 +324,7 @@ test.describe('Gym scan with the fake vision provider', () => {
 test.describe('Gym scan without a usable vision model', () => {
   test('the scan page says so and offers Continue manually', async ({ page }) => {
     // AI on, but the caller has no model at all: the "add a key" notice.
-    await stubAiState(page, { enabled: true, models: [] });
+    await stubAiState(page, { enabled: true, features: 'no_key' });
     const { api } = await signIn(page, 'contributor', 'scan-no-model');
     const gymId = await createGym(api, 'No Model Room');
 

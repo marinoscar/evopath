@@ -293,6 +293,24 @@ export interface FakeAiSnapshot {
   enabled: boolean;
   webSearch: boolean;
   openai: { enabled: boolean; baseUrl: string | null; hadAdminKey: boolean };
+  /** The stored model assignments (#173), put back verbatim by `teardownFakeAi`. */
+  assignments: AiAssignmentsBody;
+}
+
+/** `PUT /api/admin/ai/assignments` body: the administrator's model choices (#173). */
+interface AiAssignmentsBody {
+  default: { provider: string; modelId: string } | null;
+  features: Record<string, { provider: string; modelId: string; reasoningEffort?: string | null } | null>;
+}
+
+interface AiAssignmentsView {
+  assignments: AiAssignmentsBody;
+  version: number;
+}
+
+async function putAssignments(admin: AuthedApi, assignments: AiAssignmentsBody): Promise<void> {
+  const current = await admin.get<AiAssignmentsView>('/api/admin/ai/assignments');
+  await admin.request('PUT', '/api/admin/ai/assignments', assignments, { 'If-Match': String(current.version) });
 }
 
 interface AdminAiConfigFull extends AdminAiConfig {
@@ -348,6 +366,7 @@ export async function setupFakeAi(admin: AuthedApi): Promise<FakeAiSnapshot> {
     enabled: before.enabled,
     webSearch: before.hostedTools.web_search,
     openai: { enabled: openai?.enabled ?? false, baseUrl: openai?.baseUrl ?? null, hadAdminKey: openai?.keyStatus.configured ?? false },
+    assignments: (await admin.get<AiAssignmentsView>('/api/admin/ai/assignments')).assignments,
   };
 
   await putConfig(admin, before, { enabled: true, webSearch: true, openai: { enabled: true, baseUrl: FAKE_RESPONSES_API_BASE_URL } });
@@ -372,12 +391,16 @@ export async function setupFakeAi(admin: AuthedApi): Promise<FakeAiSnapshot> {
     });
   }
 
+  // Models are the administrator's choice (#173): assign the fake models to the four training roles.
+  await assignFakeTrainingModels(admin);
+
   return snapshot;
 }
 
 /** Put AI back the way `setupFakeAi` found it: prior switch, web search, openai slot; remove the admin key it added. */
 export async function teardownFakeAi(admin: AuthedApi, snapshot: FakeAiSnapshot): Promise<void> {
   const current = await admin.get<AdminAiConfigFull>('/api/admin/ai/config');
+  await putAssignments(admin, snapshot.assignments);
   await putConfig(admin, current, { enabled: snapshot.enabled, webSearch: snapshot.webSearch, openai: snapshot.openai });
   if (!snapshot.openai.hadAdminKey) {
     await admin.request('DELETE', `/api/admin/ai/providers/${OPENAI_PROVIDER_ID}/key`, { confirmation: 'REMOVE' });
@@ -395,28 +418,36 @@ const DEFAULT_ROLE_MODELS: Record<TrainingRoleName, { modelId: string; reasoning
 };
 
 /**
- * As the signed-in user: store a fake key for `openai` and choose the fake
- * models for the four roles (`ai.taskModels`). `overrides` swaps a role's model.
+ * As an administrator: assign the fake models to the four training features
+ * (`training.<role>`, #173), keeping every other stored assignment. `overrides`
+ * swaps a role's model. The assignment is global; the suite is serial and
+ * `teardownFakeAi` restores what `setupFakeAi` found.
  */
-export async function setupFakeAiForUser(
-  api: AuthedApi,
+export async function assignFakeTrainingModels(
+  admin: AuthedApi,
   overrides: Partial<Record<TrainingRoleName, { modelId: string; reasoningEffort: 'low' | 'medium' | 'high' }>> = {},
 ): Promise<void> {
-  await api.put(`/api/ai/keys/${OPENAI_PROVIDER_ID}`, { apiKey: FAKE_RESPONSES_KEY });
+  const current = await admin.get<AiAssignmentsView>('/api/admin/ai/assignments');
   const roles = { ...DEFAULT_ROLE_MODELS, ...overrides };
-  await api.patch('/api/user-settings', {
-    ai: {
-      taskModels: Object.fromEntries(
-        Object.entries(roles).map(([role, choice]) => [role, { provider: OPENAI_PROVIDER_ID, ...choice }]),
+  await putAssignments(admin, {
+    default: current.assignments.default,
+    features: {
+      ...current.assignments.features,
+      ...Object.fromEntries(
+        Object.entries(roles).map(([role, choice]) => [`training.${role}`, { provider: OPENAI_PROVIDER_ID, ...choice }]),
       ),
     },
   });
 }
 
-/** Remove the user's fake key and role choices (best effort: the user is disposable anyway). */
+/** As the signed-in user: store a fake key for `openai`. The models are the administrator's (`assignFakeTrainingModels`). */
+export async function setupFakeAiForUser(api: AuthedApi): Promise<void> {
+  await api.put(`/api/ai/keys/${OPENAI_PROVIDER_ID}`, { apiKey: FAKE_RESPONSES_KEY });
+}
+
+/** Remove the user's fake key (best effort: the user is disposable anyway). */
 export async function teardownFakeAiForUser(api: AuthedApi): Promise<void> {
   await api.del(`/api/ai/keys/${OPENAI_PROVIDER_ID}`).catch(() => undefined);
-  await api.patch('/api/user-settings', { ai: { taskModels: null } }).catch(() => undefined);
 }
 
 /**

@@ -309,7 +309,7 @@ test.describe('Prefill from photo without a usable vision model', () => {
 
   test('the page says so, Continue manually opens the picker, and logging still works', async ({ page }) => {
     // AI on, but the caller has no model at all: the "add a key" notice.
-    await stubAiState(page, { enabled: true, models: [] });
+    await stubAiState(page, { enabled: true, features: 'no_key' });
     const { api } = await signIn(page, 'contributor', 'prefill-no-model');
     await setUnits(api, 'imperial');
     const gym = await createDumbbellGym(api);
