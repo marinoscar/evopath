@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import {
   createMockPrismaService,
@@ -32,9 +31,12 @@ import {
 //      settings row in the documented order — CREDENTIAL FIRST for generate
 //      (an orphaned credential is inert; a row claiming keys with none behind
 //      it is not), CREDENTIAL FIRST for remove's delete too (the opposite
-//      order's failure mode reactivates push on stale env vars).
-//   2. resolveActiveVapidConfig() implements the full four-case env/DB
-//      precedence documented in the file's own header.
+//      order's failure mode leaves a row claiming a key pair that no longer
+//      has a credential behind it).
+//   2. resolveActiveVapidConfig() implements the full three-case precedence
+//      documented in the file's own header (no row/disabled -> null, enabled
+//      but corrupted/missing credential -> null, enabled and complete -> the
+//      config). There is no env-var fallback.
 //   3. describeForAdmin() never returns a field capable of carrying the
 //      plaintext private key — asserted on the FULL key set, not a few named
 //      fields, so a future accidental spread cannot silently add one.
@@ -91,7 +93,6 @@ function settingsRow(overrides: Partial<{
 describe('PushConfigService', () => {
   let service: PushConfigService;
   let mockPrisma: MockPrismaService;
-  let mockConfig: { get: jest.Mock };
   let mockCredentials: {
     describe: jest.Mock;
     setSecret: jest.Mock;
@@ -101,7 +102,6 @@ describe('PushConfigService', () => {
 
   beforeEach(() => {
     mockPrisma = createMockPrismaService();
-    mockConfig = { get: jest.fn().mockReturnValue(undefined) };
     mockCredentials = {
       describe: jest.fn().mockResolvedValue(null),
       setSecret: jest.fn().mockResolvedValue(undefined),
@@ -111,7 +111,6 @@ describe('PushConfigService', () => {
 
     service = new PushConfigService(
       mockPrisma as unknown as PrismaService,
-      mockConfig as unknown as ConfigService,
       mockCredentials as unknown as CredentialsService,
     );
 
@@ -419,83 +418,51 @@ describe('PushConfigService', () => {
   });
 
   // ==========================================================================
-  // resolveActiveVapidConfig() — the four-case env/DB precedence matrix
+  // resolveActiveVapidConfig() — the three-case precedence matrix (no env
+  // fallback: see the service's own header for why)
   // ==========================================================================
 
   describe('resolveActiveVapidConfig()', () => {
-    function withEnv(values: Record<string, string | undefined>) {
-      mockConfig.get.mockImplementation((key: string) => values[key]);
-    }
-
-    it('case 1 — no row at all: falls back to the env vars', async () => {
+    it('case 1 — no row at all: null (no env-var fallback)', async () => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
-      withEnv({
-        'push.vapidPublicKey': 'env-public',
-        'push.vapidPrivateKey': 'env-private',
-        'push.vapidSubject': 'mailto:env@example.com',
-      });
-
-      await expect(service.resolveActiveVapidConfig()).resolves.toEqual({
-        publicKey: 'env-public',
-        privateKey: 'env-private',
-        subject: 'mailto:env@example.com',
-      });
-    });
-
-    it('case 1b — no row, and no env vars either: null', async () => {
-      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
-      withEnv({});
 
       await expect(service.resolveActiveVapidConfig()).resolves.toBeNull();
     });
 
-    it('case 2 — row enabled and complete: the DB wins, even with env vars ALSO set', async () => {
-      mockPrisma.systemSettings.findUnique.mockResolvedValue({
-        value: { enabled: true, publicKey: 'db-public', subject: 'mailto:db@example.com' },
-      } as never);
-      mockCredentials.getSecret.mockResolvedValue('db-private');
-      withEnv({
-        'push.vapidPublicKey': 'env-public',
-        'push.vapidPrivateKey': 'env-private',
-        'push.vapidSubject': 'mailto:env@example.com',
-      });
-
-      await expect(service.resolveActiveVapidConfig()).resolves.toEqual({
-        publicKey: 'db-public',
-        privateKey: 'db-private',
-        subject: 'mailto:db@example.com',
-      });
-    });
-
-    it('case 3 — row disabled: null, regardless of env vars being set (no fallback)', async () => {
+    it('case 1 (continued) — row disabled: null', async () => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
         value: { enabled: false, publicKey: 'db-public', subject: null },
       } as never);
-      withEnv({
-        'push.vapidPublicKey': 'env-public',
-        'push.vapidPrivateKey': 'env-private',
-      });
 
       await expect(service.resolveActiveVapidConfig()).resolves.toBeNull();
       // The credential is never even consulted for a disabled row.
       expect(mockCredentials.getSecret).not.toHaveBeenCalled();
     });
 
-    it('case 4 — row enabled but the credential is missing: null (never falls back to env), and logs a warning', async () => {
+    it('case 2 — row enabled but the credential is missing: null, and logs a warning', async () => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
         value: { enabled: true, publicKey: 'db-public', subject: null },
       } as never);
       mockCredentials.getSecret.mockResolvedValue(null);
-      withEnv({
-        'push.vapidPublicKey': 'env-public',
-        'push.vapidPrivateKey': 'env-private',
-      });
       const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
       await expect(service.resolveActiveVapidConfig()).resolves.toBeNull();
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('credential'));
 
       warnSpy.mockRestore();
+    });
+
+    it('case 3 — row enabled and complete: returns the config', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: { enabled: true, publicKey: 'db-public', subject: 'mailto:db@example.com' },
+      } as never);
+      mockCredentials.getSecret.mockResolvedValue('db-private');
+
+      await expect(service.resolveActiveVapidConfig()).resolves.toEqual({
+        publicKey: 'db-public',
+        privateKey: 'db-private',
+        subject: 'mailto:db@example.com',
+      });
     });
 
     it('falls back to the generic default subject when none is stored or configured', async () => {

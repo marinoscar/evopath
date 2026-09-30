@@ -18,10 +18,10 @@ import type { PushSubscribeRequest } from './dto/push-subscription.dto';
 //
 //   1. `isEnabled()`/`getVapidPublicKey()` are now thin ASYNC wrappers over
 //      `PushConfigService.resolveActiveVapidConfig()` (#355) — the full
-//      env/DB precedence matrix that method implements is exercised
-//      separately in `push-config.service.spec.ts`. Here we only prove the
-//      delegation itself: a resolved config means "enabled" and hands back
-//      its public key; `null` means "disabled" and `null`.
+//      precedence matrix that method implements is exercised separately in
+//      `push-config.service.spec.ts`. Here we only prove the delegation
+//      itself: a resolved config means "enabled" and hands back its public
+//      key; `null` means "disabled" and `null`.
 //   2. `subscribe()` upserts BY ENDPOINT — a second call with the same
 //      endpoint updates the same row (and resets `failureCount`), and a
 //      re-subscribe under a DIFFERENT userId reassigns ownership rather than
