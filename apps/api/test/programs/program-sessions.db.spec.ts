@@ -328,8 +328,10 @@ describeWithDb('program sessions (real Postgres)', () => {
     expect(await today.today(userId, TODAY, NOW)).toMatchObject({ done: false, inProgressWorkoutId: first.workoutId });
 
     await workouts.finish(userId, first.workoutId, {}, NOW);
-    const second = await today.start(userId, wednesdayId, { date: TODAY }, NOW);
-    await workouts.finish(userId, second.workoutId, {}, NOW);
+    // A distinct start instant, so "most recent" is not decided by a tie on startedAt.
+    const later = new Date(NOW.getTime() + 60 * 60 * 1000);
+    const second = await today.start(userId, wednesdayId, { date: TODAY }, later);
+    await workouts.finish(userId, second.workoutId, {}, later);
 
     const after = await today.today(userId, TODAY, NOW);
     expect(after).toMatchObject({ kind: 'workout', done: true, completedWorkoutId: second.workoutId, inProgressWorkoutId: null });
