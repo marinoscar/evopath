@@ -24,6 +24,7 @@ import {
   UNREADABLE_MESSAGE,
 } from '../../../components/health/PhotoReadDialog';
 import { clearPhotoUrlCache } from '../../../components/intake/StoragePhotoThumb';
+import { RETAIN_FILES_HELPER_TEXT, RETAIN_FILES_LABEL } from '../../../components/intake';
 import { resetMeasurementCatalogCache } from '../../../hooks/useMeasurementCatalog';
 import { mockAiPublicConfigEnabled } from '../../mocks/fixtures/ai';
 import { mockAiFeaturesView, mockBlockedFeatureView } from '../../mocks/fixtures/aiFeatures';
@@ -398,7 +399,7 @@ describe('PhotoReadDialog: resume and discard', () => {
   it('resumes the newest unfinished intake instead of creating another', async () => {
     const existing = readingIntake('ready', {
       id: 'intake-old',
-      photos: [{ id: 'p-1', storageObjectId: 'obj-1', name: 'scale.jpg', sortOrder: 0 }],
+      photos: [{ id: 'p-1', storageObjectId: 'obj-1', name: 'scale.jpg', sortOrder: 0, healthDocumentId: 'doc-1', retention: 'keep' }],
       items: scaleItems(),
     });
     const { api } = setup({ existing: [existing] });
@@ -421,6 +422,74 @@ describe('PhotoReadDialog: resume and discard', () => {
     await user.click(within(dialog()).getByRole('button', { name: 'Discard' }));
     await waitFor(() => expect(api.discarded).toBe(1));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('PhotoReadDialog: keep or delete the file (#185)', () => {
+  const keepBox = () => within(dialog()).getByRole('checkbox', { name: RETAIN_FILES_LABEL });
+  const createBody = (api: ReturnType<typeof readingIntakeApi>) =>
+    api.requests.find((r) => r.method === 'POST' && r.path === '/api/intakes')?.body;
+  const attachBodies = (api: ReturnType<typeof readingIntakeApi>) =>
+    api.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/photos')).map((r) => r.body);
+
+  it('is checked by default, explained by its helper text, and a new intake is created keeping files', async () => {
+    const { api } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    expect(keepBox()).toBeChecked();
+    expect(keepBox()).toHaveAccessibleDescription(RETAIN_FILES_HELPER_TEXT);
+    expect(createBody(api)).toEqual({ kind: 'body_metric_reading', retainFiles: true });
+    expect(api.intakePatches).toEqual([]);
+  });
+
+  it('unchecking sends retainFiles: false, and a photo added afterwards carries it', async () => {
+    const { api, user } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.click(keepBox());
+    await waitFor(() => expect(api.intakePatches).toEqual([{ id: 'intake-new-1', body: { retainFiles: false } }]));
+    await waitFor(() => expect(keepBox()).not.toBeChecked());
+
+    await user.upload(screen.getByLabelText('Add photos'), photo());
+    await waitFor(() => expect(attachBodies(api)).toHaveLength(1));
+    expect(attachBodies(api)[0]).toMatchObject({ retainFiles: false });
+    expect(api.intakes.get('intake-new-1')?.photos[0]?.retention).toBe('delete_after_processing');
+  });
+
+  it('a photo added with the default choice is attached keeping the file', async () => {
+    const { api, user } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos'), photo());
+    await waitFor(() => expect(attachBodies(api)).toHaveLength(1));
+    expect(attachBodies(api)[0]).toMatchObject({ retainFiles: true });
+  });
+
+  it('a resumed intake shows its stored choice, and re-checking it PATCHes retainFiles: true', async () => {
+    const existing = readingIntake('ready', {
+      id: 'intake-old',
+      retainFiles: false,
+      retention: 'delete_after_processing',
+      items: scaleItems(),
+    });
+    const { api, user } = setup({ existing: [existing] });
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    expect(keepBox()).not.toBeChecked();
+    await user.click(keepBox());
+    await waitFor(() => expect(api.intakePatches).toEqual([{ id: 'intake-old', body: { retainFiles: true } }]));
+    await waitFor(() => expect(keepBox()).toBeChecked());
+    expect(api.created).toBe(0);
+  });
+
+  it('a refused change is put back', async () => {
+    const { api, user } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    server.use(
+      http.patch('*/api/intakes/:id', () =>
+        HttpResponse.json({ code: 'INTAKE_APPLIED', message: 'This intake was already applied' }, { status: 409 }),
+      ),
+    );
+    await user.click(keepBox());
+    expect(await screen.findByText('This intake was already applied')).toBeInTheDocument();
+    await waitFor(() => expect(keepBox()).toBeChecked());
+    expect(api.intakePatches).toEqual([]);
   });
 });
 

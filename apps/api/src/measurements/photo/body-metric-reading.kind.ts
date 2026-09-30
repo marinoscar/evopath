@@ -83,6 +83,10 @@ export class BodyMetricReadingIntakeKind implements IntakeKind<Context, BodyMetr
   readonly aiFeature = 'body_metric_reading' as const;
   readonly maxPhotos = BODY_METRIC_READING_MAX_PHOTOS;
   readonly itemKinds = [BODY_METRIC_READING_ITEM_KIND] as const;
+  // Every photo is a health document (H1, #185): the user chooses keep or
+  // delete-after-processing, and the saved readings link it
+  // (`sourceRef.healthDocumentId`).
+  readonly healthDocumentKind = 'body_metric' as const;
   // The intake stages and writes health data: on top of `intakes:*`, seeing
   // one needs `health_data:read` and every change (create, photos, analyze,
   // items, apply) needs `health_data:write` — the permissions
@@ -115,7 +119,7 @@ export class BodyMetricReadingIntakeKind implements IntakeKind<Context, BodyMetr
     return normalized;
   }
 
-  async apply({ tx, userId, intake, accepted }: IntakeApplyArgs<Context>): Promise<BodyMetricApplyResult> {
+  async apply({ tx, userId, intake, accepted, healthDocuments = [] }: IntakeApplyArgs<Context>): Promise<BodyMetricApplyResult> {
     if (intake.kind !== BODY_METRIC_READING_KIND) {
       throw new BadRequestException({
         message: `This intake is not a ${BODY_METRIC_READING_KIND} intake`,
@@ -146,7 +150,9 @@ export class BodyMetricReadingIntakeKind implements IntakeKind<Context, BodyMetr
       );
     }
 
-    const provenance = readings.map(({ item, value }) => provenanceOf(intake.id, item, value));
+    const provenance = readings.map(({ item, value }) =>
+      provenanceOf(intake.id, item, value, healthDocumentOf(item, healthDocuments)),
+    );
 
     const entry = await this.measurements.createEntryInTransaction(
       tx,
@@ -224,9 +230,16 @@ export class BodyMetricReadingIntakeKind implements IntakeKind<Context, BodyMetr
  * model's original reading, the photos it came from and whether the user
  * changed it; a user item stays `manual`, linked to the intake.
  */
-function provenanceOf(intakeId: string, item: DraftItem, saved: BodyMetricReadingValue): EntryProvenance {
+function provenanceOf(
+  intakeId: string,
+  item: DraftItem,
+  saved: BodyMetricReadingValue,
+  healthDocumentId: string | null,
+): EntryProvenance {
+  const document = healthDocumentId ? { healthDocumentId } : {};
+
   if (item.origin !== 'ai') {
-    const sourceRef: PhotoManualSourceRef = { kind: PHOTO_INTAKE_SOURCE_KIND, intakeId };
+    const sourceRef: PhotoManualSourceRef = { kind: PHOTO_INTAKE_SOURCE_KIND, intakeId, ...document };
     return { origin: 'manual', sourceRef: sourceRef as unknown as Prisma.InputJsonValue };
   }
 
@@ -241,9 +254,26 @@ function provenanceOf(intakeId: string, item: DraftItem, saved: BodyMetricReadin
     aiDraft,
     confidence: item.confidence ?? null,
     userEdited: item.originalAiValue !== null && item.originalAiValue !== undefined && !sameReading(aiDraft, saved),
+    ...document,
   };
 
   return { origin: 'ai', sourceRef: sourceRef as unknown as Prisma.InputJsonValue };
+}
+
+/**
+ * The health document a reading came from (H1): the document of the first
+ * photo the AI read it from, else (a user item, or a photo since removed) the
+ * intake's first document; null when the intake has none.
+ */
+function healthDocumentOf(
+  item: DraftItem,
+  documents: ReadonlyArray<{ id: string; storageObjectId: string | null }>,
+): string | null {
+  for (const photoId of item.sourcePhotoIds) {
+    const match = documents.find((document) => document.storageObjectId === photoId);
+    if (match) return match.id;
+  }
+  return documents[0]?.id ?? null;
 }
 
 function validationFailed(issues: ApplyIssue[]): BadRequestException {

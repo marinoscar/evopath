@@ -537,4 +537,62 @@ describe('MeasurementsService', () => {
       expect(result.points.map((p) => p.value)).toEqual([1, 2]);
     });
   });
+
+  describe('fileDeleted (H1, #185)', () => {
+    const KEPT = '77777777-7777-4777-8777-777777777771';
+    const ERASED = '77777777-7777-4777-8777-777777777772';
+    const GONE = '77777777-7777-4777-8777-777777777773';
+    const ref = (healthDocumentId?: string) => ({
+      kind: 'photo_intake',
+      intakeId: '33333333-3333-4333-8333-333333333333',
+      ...(healthDocumentId ? { healthDocumentId } : {}),
+    });
+
+    it('list: one owner-scoped document lookup for the page; kept false, erased or missing true, none null', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([
+        row({ origin: 'ai', sourceRef: ref(KEPT) }),
+        row({ origin: 'ai', sourceRef: ref(ERASED) }),
+        row({ origin: 'manual', sourceRef: ref(ERASED) }),
+        row({ origin: 'ai', sourceRef: ref(GONE) }),
+        row({ origin: 'manual', sourceRef: ref() }),
+        row(),
+      ]);
+      (prisma.measurement.count as jest.Mock).mockResolvedValue(6);
+      (prisma.healthDocument.findMany as jest.Mock).mockResolvedValue([
+        { id: KEPT, fileDeletedAt: null },
+        { id: ERASED, fileDeletedAt: new Date() },
+      ]);
+
+      const result = await service.list(USER_ID, { page: 1, pageSize: 20 });
+
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledWith({
+        where: { id: { in: [KEPT, ERASED, GONE] }, userId: USER_ID },
+        select: { id: true, fileDeletedAt: true },
+      });
+      expect(result.items.map((item) => item.fileDeleted)).toEqual([false, true, true, true, null, null]);
+    });
+
+    it('list: no lookup at all when no row names a document', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([row(), row({ sourceRef: ref() })]);
+      (prisma.measurement.count as jest.Mock).mockResolvedValue(2);
+
+      const result = await service.list(USER_ID, { page: 1, pageSize: 20 });
+
+      expect(prisma.healthDocument.findMany).not.toHaveBeenCalled();
+      expect(result.items.map((item) => item.fileDeleted)).toEqual([null, null]);
+    });
+
+    it('latest: one lookup across every metric', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockImplementation(async ({ where }: any) =>
+        where.metricKey === 'weight' ? [row({ sourceRef: ref(ERASED) })] : [],
+      );
+      (prisma.healthDocument.findMany as jest.Mock).mockResolvedValue([{ id: ERASED, fileDeletedAt: new Date() }]);
+
+      const result = await service.latest(USER_ID);
+
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledTimes(1);
+      expect(result.items.find((item) => item.metricKey === 'weight')!.latest!.fileDeleted).toBe(true);
+    });
+  });
 });

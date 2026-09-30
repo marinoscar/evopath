@@ -14,7 +14,9 @@
  *    "Continue manually" hands over to the quick-entry dialog.
  * 2. Resume the newest unfinished reading intake (`GET /intakes?kind=…&status=
  *    draft,scanning,ready`), or start one (`POST /intakes { kind }`).
- * 3. Up to four photos, the disclosure, and Read (`POST /intakes/:id/analyze`).
+ * 3. Up to four photos, the keep-or-delete choice (`RetainFilesControl`, #185:
+ *    kept by default; sent on create, `PATCH { retainFiles }` when changed,
+ *    and with every attach), the disclosure, and Read (`POST /intakes/:id/analyze`).
  * 4. An indeterminate progress bar while the scan runs. Closing the dialog
  *    does not stop it; reopening resumes the same intake.
  * 5. The review: nothing is written until every item is accepted or rejected
@@ -48,6 +50,7 @@ import {
   AiVisionDisclosure,
   ImageIntake,
   NoVisionModelNotice,
+  RetainFilesControl,
   useImageIntake,
   usePhotoIntake,
   useVisionAvailability,
@@ -58,7 +61,7 @@ import {
 } from '../intake';
 import { AiErrorAlert } from '../ai/AiErrorAlert';
 import { toAiErrorInfo, type AiErrorInfo } from '../../services/aiErrors';
-import { applyIntake, createIntake, listIntakes } from '../../services/intake';
+import { DEFAULT_RETAIN_FILES, applyIntake, createIntake, listIntakes } from '../../services/intake';
 import {
   BODY_METRIC_READING_ITEM_KIND,
   BODY_METRIC_READING_KIND,
@@ -190,7 +193,16 @@ function PhotoReadSession({
     }
   }, [intake, initialPhotos]);
 
-  const uploadPhoto = useMemo(() => uploadAndAttach(intakeId), [intakeId]);
+  // The keep-or-delete choice as the intake holds it (kept until the intake loads).
+  const retainFiles = intake?.retainFiles ?? DEFAULT_RETAIN_FILES;
+  const retainFilesRef = useRef(retainFiles);
+  retainFilesRef.current = retainFiles;
+  // Each attach carries the choice showing at that moment, so a file picked
+  // while a change is still being saved is not filed under the old one.
+  const uploadPhoto = useMemo(
+    () => uploadAndAttach(intakeId, { retainFiles: () => retainFilesRef.current }),
+    [intakeId],
+  );
   const removePhoto = useMemo(() => detachFrom(intakeId), [intakeId]);
   const images = useImageIntake({
     maxPhotos: BODY_METRIC_READING_MAX_PHOTOS,
@@ -238,6 +250,15 @@ function PhotoReadSession({
       if (isMounted()) setApplying(false);
     }
   };
+
+  const retainControl = intake && status !== 'applied' && (
+    <RetainFilesControl
+      kind={intake.kind}
+      checked={retainFiles}
+      onChange={(next) => void scan.setRetainFiles(next)}
+      disabled={busy}
+    />
+  );
 
   const discard = async () => {
     if (await scan.discard()) onClose();
@@ -300,6 +321,7 @@ function PhotoReadSession({
           onAcceptAll={() => void scan.acceptAll()}
         />
         {scan.error && <FailureNotice error={scan.error} onRetry={retryFromError} onManual={onEnterManually} />}
+        {retainControl}
         {applyFailure?.kind === 'issues' && (
           <Alert severity="error" data-testid="photo-read-apply-issues">
             <AlertTitle>Not saved yet</AlertTitle>
@@ -336,6 +358,7 @@ function PhotoReadSession({
           disabled={busy}
           helperText={PHOTO_READ_HELPER_TEXT}
         />
+        {retainControl}
         <AiVisionDisclosure
           availability={vision}
           photoCount={images.readyIds.length}
@@ -410,7 +433,7 @@ function PhotoReadFlow({
         // Newest first: resume an unfinished reading rather than start a duplicate.
         const open = await listIntakes({ kind: BODY_METRIC_READING_KIND, status: [...RESUMABLE], limit: 1 });
         if (cancelled) return;
-        const id = open[0]?.id ?? (await createIntake({ kind: BODY_METRIC_READING_KIND })).id;
+        const id = open[0]?.id ?? (await createIntake({ kind: BODY_METRIC_READING_KIND, retainFiles: DEFAULT_RETAIN_FILES })).id;
         if (!cancelled) setIntakeId(id);
       } catch (err) {
         if (!cancelled) setStartError(toAiErrorInfo(err, 'Could not start reading a photo'));

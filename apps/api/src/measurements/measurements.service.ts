@@ -23,7 +23,7 @@ import {
   type UpdateMeasurementEntryInput,
 } from './dto/measurement.dto';
 import { ACTIVE } from './measurement-active';
-import { withRecomputedUserEdited } from './photo/photo-source-ref';
+import { healthDocumentIdOf, withRecomputedUserEdited } from './photo/photo-source-ref';
 import {
   BP_DIASTOLIC,
   BP_SYSTOLIC,
@@ -143,7 +143,8 @@ export class MeasurementsService {
       );
     }
 
-    return { entryId, items: rows.map(toMeasurement) };
+    const files = await fileStatesOf(tx, userId, rows);
+    return { entryId, items: rows.map((row) => toMeasurement(row, files)) };
   }
 
   /**
@@ -260,7 +261,8 @@ export class MeasurementsService {
           );
         }
 
-        return { entryId, items: rows.map(toMeasurement) };
+        const files = await fileStatesOf(tx, userId, rows);
+        return { entryId, items: rows.map((row) => toMeasurement(row, files)) };
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -316,8 +318,10 @@ export class MeasurementsService {
       this.prisma.measurement.count({ where }),
     ]);
 
+    const files = await fileStatesOf(this.prisma, userId, rows);
+
     return {
-      items: rows.map(toMeasurement),
+      items: rows.map((row) => toMeasurement(row, files)),
       total,
       page: query.page,
       pageSize: query.pageSize,
@@ -337,13 +341,15 @@ export class MeasurementsService {
       ),
     );
 
+    const files = await fileStatesOf(this.prisma, userId, perMetric.flat());
+
     return {
       items: LATEST_METRIC_KEYS.map((metricKey, index) => {
         const [latest, previous] = perMetric[index];
         return {
           metricKey,
-          latest: latest ? toMeasurement(latest) : null,
-          previous: previous ? toMeasurement(previous) : null,
+          latest: latest ? toMeasurement(latest, files) : null,
+          previous: previous ? toMeasurement(previous, files) : null,
         };
       }),
     };
@@ -438,7 +444,45 @@ function sortByRegistry(rows: MeasurementRow[]): MeasurementRow[] {
   );
 }
 
-export function toMeasurement(row: MeasurementRow): Measurement {
+/**
+ * Health document id -> "its file is gone", for the documents the rows'
+ * `sourceRef.healthDocumentId` name (H1, #185). ONE query for a whole page
+ * (none when no row names a document), scoped to the owner.
+ */
+export type HealthDocumentFileStates = ReadonlyMap<string, boolean>;
+
+type HealthDocumentReader = Pick<Prisma.TransactionClient, 'healthDocument'>;
+
+export async function fileStatesOf(
+  client: HealthDocumentReader,
+  userId: string,
+  rows: readonly Pick<MeasurementRow, 'sourceRef'>[],
+): Promise<HealthDocumentFileStates> {
+  const ids = [...new Set(rows.map((row) => healthDocumentIdOf(row.sourceRef)).filter((id): id is string => !!id))];
+  if (ids.length === 0) return new Map();
+
+  const documents = await client.healthDocument.findMany({
+    where: { id: { in: ids }, userId },
+    select: { id: true, fileDeletedAt: true },
+  });
+  const deleted = new Map(documents.map((doc) => [doc.id, doc.fileDeletedAt !== null]));
+
+  // A document that no longer exists has no file either.
+  return new Map(ids.map((id) => [id, deleted.get(id) ?? true]));
+}
+
+/**
+ * `fileDeleted`: null when the row names no health document; otherwise
+ * whether that document's file is gone. Without `files` (a caller that did
+ * not look them up) a named document reads as null, never a guess.
+ */
+function fileDeletedOf(row: MeasurementRow, files?: HealthDocumentFileStates): boolean | null {
+  const id = healthDocumentIdOf(row.sourceRef);
+  if (!id || !files) return null;
+  return files.get(id) ?? null;
+}
+
+export function toMeasurement(row: MeasurementRow, files?: HealthDocumentFileStates): Measurement {
   return {
     id: row.id,
     entryId: row.entryId,
@@ -450,6 +494,7 @@ export function toMeasurement(row: MeasurementRow): Measurement {
     origin: row.origin,
     notes: row.notes,
     sourceRef: (row.sourceRef ?? null) as Record<string, unknown> | null,
+    fileDeleted: fileDeletedOf(row, files),
     revision: row.revision,
     edited: row.revision > 1,
   };

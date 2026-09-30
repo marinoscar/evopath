@@ -103,6 +103,7 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
 | `maxPhotos` | Optional; default 48 (`DEFAULT_INTAKE_MAX_PHOTOS`). |
 | `itemKinds` | Optional allow-list for `DraftItem.kind`. Omitted means any non-empty string. |
 | `requiredPermissions` | Optional `{ read?, write? }`: permissions this kind needs on top of the routes' `intakes:read` / `intakes:write`. See [Kind Permissions](#kind-permissions). |
+| `healthDocumentKind` | Optional (`body_metric`, `lab_report`). Declares a health intake kind: each attached file becomes one `HealthDocument` carrying the user's `retainFiles` choice, `apply` receives them as `args.healthDocuments`, and a `delete_after_processing` file is erased by the `health.document.purge` job once the intake is applied or discarded. `body_metric_reading` is the worked example. |
 | `assertContext` | Optional. Checks the context against the caller; another user's record is a 404, never a 403. Runs on create. |
 | `subjectOf` | Optional. Derives `subjectType`/`subjectId` from the context (e.g. the gym); when defined it wins over what the client sent, so the list filter `subjectId` finds the intake. |
 | `normalizeValue` | Optional. Recomputes derived fields; runs after `valueSchema` on every stored value. Its third argument, `source`, is `'user'` (a route add or edit: throw a 400 naming the field) or `'analyzer'` (`replaceAiDrafts`: be lenient and never throw, so a doubtful AI item is shown flagged rather than dropped; `apply` refuses it until the user resolves it). |

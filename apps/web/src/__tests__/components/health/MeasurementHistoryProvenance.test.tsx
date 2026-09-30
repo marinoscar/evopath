@@ -2,7 +2,8 @@
  * Photo provenance in History (issue #64, E2.6): "Read from photo" for an
  * entry with an AI-read reading, "You edited" when `sourceRef.userEdited`,
  * and "View photo" showing the first source photo through a signed URL.
- * Manual entries are unchanged.
+ * Manual entries are unchanged. A file erased after processing (#185,
+ * `fileDeleted: true`) shows "File deleted" instead of "View photo".
  */
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -11,7 +12,7 @@ import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
 import { render, screen, waitFor, within } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
-import { MeasurementHistory, entryPhotoProvenance } from '../../../components/health/MeasurementHistory';
+import { FILE_DELETED_CHIP, MeasurementHistory, entryPhotoProvenance } from '../../../components/health/MeasurementHistory';
 import type { MeasurementDto } from '../../../services/health';
 import { mockListPage, mockMeasurement, mockMetricCatalog } from '../../mocks/fixtures/measurements';
 
@@ -83,6 +84,7 @@ describe('entryPhotoProvenance', () => {
       readFromPhoto: false,
       userEdited: false,
       photoId: null,
+      fileDeleted: false,
     });
     expect(
       entryPhotoProvenance(
@@ -91,10 +93,15 @@ describe('entryPhotoProvenance', () => {
           mockMeasurement('bp_diastolic', 84, { origin: 'ai', sourceRef: aiRef(false, ['a', 'b']) }),
         ]),
       ),
-    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: 'a' });
+    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: 'a', fileDeleted: false });
     expect(
       entryPhotoProvenance(entry([mockMeasurement('weight', 80, { origin: 'ai', sourceRef: { kind: 'other' } })])),
-    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: null });
+    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: null, fileDeleted: false });
+    expect(
+      entryPhotoProvenance(
+        entry([mockMeasurement('weight', 80, { origin: 'ai', sourceRef: aiRef(false, ['gone']), fileDeleted: true })]),
+      ),
+    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: null, fileDeleted: true });
   });
 });
 
@@ -148,6 +155,22 @@ describe('MeasurementHistory: photo provenance', () => {
     const [edited] = await entries();
     await user.click(within(edited).getByRole('button', { name: /^View photo/ }));
     expect(await screen.findByText('This photo is no longer available.')).toBeInTheDocument();
+  });
+
+  it('shows File deleted, and no View photo, when the file was erased after processing', async () => {
+    const data = rows();
+    data[1] = { ...data[1], fileDeleted: true };
+    data[0] = { ...data[0], fileDeleted: false };
+    renderHistory(data);
+    const [kept, erased, manual] = await entries();
+
+    expect(within(erased).getByText(FILE_DELETED_CHIP)).toBeInTheDocument();
+    expect(within(erased).getByText('Read from photo')).toBeInTheDocument();
+    expect(within(erased).queryByRole('button', { name: /View photo/ })).not.toBeInTheDocument();
+
+    expect(within(kept).queryByText(FILE_DELETED_CHIP)).not.toBeInTheDocument();
+    expect(within(kept).getByRole('button', { name: /View photo/ })).toBeInTheDocument();
+    expect(within(manual).queryByText(FILE_DELETED_CHIP)).not.toBeInTheDocument();
   });
 
   it('has no axe violations with the chips', async () => {

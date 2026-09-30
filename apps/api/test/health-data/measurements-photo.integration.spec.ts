@@ -100,6 +100,7 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
     contributor = (await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' })).accessToken;
     viewer = (await createMockTestUser(t.context, { id: VIEWER, roleName: 'viewer' })).accessToken;
     prisma.photoIntake.findFirst.mockResolvedValue(null);
+    prisma.healthDocument.findMany.mockResolvedValue([]);
     prisma.measurement.create.mockImplementation(async ({ data }: any) => ({
       id: `m-${data.metricKey}`,
       revision: 1,
@@ -394,6 +395,15 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
 
     it('saves one entry with server-derived provenance: edited AI, unedited AI and a hand-added item', async () => {
       const photo = '55555555-5555-4555-8555-555555555555';
+      const document = '77777777-7777-4777-8777-777777777777';
+      // The intake's health documents (H1): read for provenance, then for the
+      // file states of the new rows (kept: not deleted), then for the purge
+      // (none: every file is kept).
+      prisma.healthDocument.findMany.mockImplementation(async (args: any) => {
+        if (args?.where?.id) return [{ id: document, fileDeletedAt: null }];
+        if (args?.where?.retention) return [];
+        return [{ id: document, storageObjectId: photo }];
+      });
       ready([
         itemRow({
           sourcePhotoIds: [photo],
@@ -428,9 +438,12 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
         aiDraft: { metricKey: 'weight', value: 208.4, unit: 'lb', method: 'scale' },
         confidence: 'high',
         userEdited: true,
+        healthDocumentId: document,
       });
       expect(fat.sourceRef).toMatchObject({ draftItemId: ITEM_2, userEdited: false, aiDraft: { value: 22.5 } });
-      expect(waist.sourceRef).toEqual({ kind: 'photo_intake', intakeId: INTAKE });
+      expect(waist.sourceRef).toEqual({ kind: 'photo_intake', intakeId: INTAKE, healthDocumentId: document });
+      expect(res.body.data.items.map((item: any) => item.fileDeleted)).toEqual([false, false, false]);
+      expect(prisma.job.create).not.toHaveBeenCalled();
     });
 
     it('systolic without diastolic: 400 "Enter both blood pressure numbers", nothing written', async () => {

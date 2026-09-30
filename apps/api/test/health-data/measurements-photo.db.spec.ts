@@ -208,6 +208,8 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
     expect(result.items).toHaveLength(1);
 
     const [row] = await rowsOf(userId);
+    // The photo is a health document (H1, #185); the reading names it.
+    const document = await client.healthDocument.findFirstOrThrow({ where: { intakeId, storageObjectId: photoId } });
     expect(row).toMatchObject({ entryId: result.entryId, metricKey: 'weight', value: 94.0751, unit: 'kg', origin: 'ai' });
     expect(row.sourceRef).toEqual({
       kind: 'photo_intake',
@@ -217,6 +219,7 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
       aiDraft: { metricKey: 'weight', value: 208.4, unit: 'lb', method: 'scale' },
       confidence: 'high',
       userEdited: true,
+      healthDocumentId: document.id,
     });
     expect((await client.photoIntake.findUniqueOrThrow({ where: { id: intakeId } })).status).toBe('applied');
     // The photo stays stored and linked from the intake.
