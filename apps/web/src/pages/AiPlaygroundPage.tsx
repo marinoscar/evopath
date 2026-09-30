@@ -68,8 +68,6 @@ import {
 import { Add as AddIcon, Send as SendIcon, Stop as StopIcon } from '@mui/icons-material';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/usePermissions';
-import { useUserSettings } from '../hooks/useUserSettings';
-import type { UserSettings } from '../types';
 import { useAiChat, type AiChatRequestOptions } from '../hooks/useAiChat';
 import { useAiRun } from '../hooks/useAiRun';
 import { useAiConfig } from '../hooks/useAiConfig';
@@ -214,7 +212,6 @@ export default function AiPlaygroundPage() {
   const { hasPermission } = usePermissions();
 
   const { models, isLoading: modelsLoading, error: modelsError } = useUsableModels();
-  const { settings, isLoading: settingsLoading } = useUserSettings({ syncTheme: false });
   const chat = useAiChat();
   const { config: aiConfig } = useAiConfig();
   const backgroundAllowed = aiConfig.allowBackgroundRuns !== false;
@@ -256,10 +253,9 @@ export default function AiPlaygroundPage() {
     setVisitedModes((current) => new Set(current).add(mode).add(next));
   };
 
-  // `user_settings.ai.defaultModel` (docs/specs/ai-platform.md §2.1), typed by
-  // `UserSettings['ai']` (#430): every mode starts on it when it is listed there.
-  const preferredModel: NonNullable<UserSettings['ai']>['defaultModel'] = settings?.ai?.defaultModel;
-  const modelsReady = !modelsLoading && !settingsLoading;
+  // Every mode starts on its first model (#173: there is no user default
+  // model any more; the Playground's picker is its own, per session).
+  const modelsReady = !modelsLoading;
   // Each mode's models, filtered by its capability alone (never by name).
   const modeModels = useMemo(
     () =>
@@ -270,7 +266,7 @@ export default function AiPlaygroundPage() {
     [models],
   );
   const chatModels = modeModels.chat;
-  const { modelKey, setModelKey, selected } = usePlaygroundModel(chatModels, preferredModel, modelsReady);
+  const { modelKey, setModelKey, selected } = usePlaygroundModel(chatModels, null, modelsReady);
 
   const supportsReasoning = hasAiCapability(selected, 'reasoning');
   const supportsStructured = hasAiCapability(selected, 'structured_output');
@@ -644,17 +640,17 @@ export default function AiPlaygroundPage() {
       case 'chat':
         return null;
       case 'image':
-        return <AiImageMode models={modeModels.image} preferredModel={preferredModel} ready={modelsReady} />;
+        return <AiImageMode models={modeModels.image} ready={modelsReady} />;
       case 'embeddings':
-        return <AiEmbeddingsMode models={modeModels.embeddings} preferredModel={preferredModel} ready={modelsReady} />;
+        return <AiEmbeddingsMode models={modeModels.embeddings} ready={modelsReady} />;
       case 'transcribe':
         return (
-          <AiTranscribeMode models={modeModels.transcribe} preferredModel={preferredModel} ready={modelsReady} />
+          <AiTranscribeMode models={modeModels.transcribe} ready={modelsReady} />
         );
       case 'speech':
-        return <AiSpeechMode models={modeModels.speech} preferredModel={preferredModel} ready={modelsReady} />;
+        return <AiSpeechMode models={modeModels.speech} ready={modelsReady} />;
       case 'voice':
-        return <AiVoiceMode models={modeModels.voice} preferredModel={preferredModel} ready={modelsReady} />;
+        return <AiVoiceMode models={modeModels.voice} ready={modelsReady} />;
       // A mode added to AI_PLAYGROUND_MODES before its panel exists.
       default:
         return <AiModePlaceholder mode={entry} />;

@@ -2,8 +2,8 @@
  * `/settings/ai` — the AI Keys page's STATES (issue #430, epic #419).
  *
  * Every state comes from the shared MSW fixtures (`mocks/fixtures/ai.ts`):
- * no key, a verified key, an invalid key on save, the org fallback, a default
- * model that is no longer usable, and no provider enabled. The request
+ * no key, a verified key, an invalid key on save, the org fallback, no model
+ * choice (#173), and no provider enabled. The request
  * bodies themselves are pinned in `UserAiKeysPage.wire.test.tsx`.
  *
  * Also the #425 regression the issue asks for: while `GET /api/ai/config`
@@ -301,24 +301,8 @@ describe('UserAiKeysPage', () => {
     });
   });
 
-  describe('default model', () => {
-    it('offers only responses-capable models', async () => {
-      server.use(
-        http.get('*/api/ai/models', () => HttpResponse.json({ data: mockUsableAiModelsMixed })),
-      );
-      const user = await renderPage();
-
-      const select = await screen.findByRole('combobox', { name: 'Default model' });
-      await waitFor(() => expect(select).not.toHaveAttribute('aria-disabled', 'true'));
-      await user.click(select);
-
-      const listbox = await screen.findByRole('listbox');
-      expect(within(listbox).getByRole('option', { name: 'OpenAI · GPT-5 mini' })).toBeInTheDocument();
-      expect(within(listbox).getByRole('option', { name: 'OpenAI · GPT-5' })).toBeInTheDocument();
-      expect(within(listbox).queryByRole('option', { name: /text-embedding/ })).not.toBeInTheDocument();
-    });
-
-    it('warns when the saved default is no longer available', async () => {
+  describe('no model choice (#173)', () => {
+    it('offers no default model picker, even with a legacy saved default', async () => {
       server.use(
         http.get('*/api/user-settings', () =>
           HttpResponse.json({
@@ -331,25 +315,9 @@ describe('UserAiKeysPage', () => {
       );
       await renderPage();
 
-      expect(
-        await screen.findByText(/Your default model is no longer available \(gpt-4-retired\)/),
-      ).toBeInTheDocument();
-    });
-
-    it('does not warn when the saved default is usable', async () => {
-      server.use(
-        http.get('*/api/ai/models', () => HttpResponse.json({ data: mockUsableAiModelsMixed })),
-        http.get('*/api/user-settings', () =>
-          HttpResponse.json({
-            data: { ...mockUserSettings, ai: { defaultModel: { provider: 'openai', modelId: 'gpt-5' } } },
-          }),
-        ),
-      );
-      await renderPage();
-
-      const select = await screen.findByRole('combobox', { name: 'Default model' });
-      await waitFor(() => expect(select).toHaveTextContent('OpenAI · GPT-5'));
-      expect(screen.queryByText(/no longer available/)).not.toBeInTheDocument();
+      await screen.findByRole('region', { name: 'OpenAI key' });
+      expect(screen.queryByRole('combobox', { name: 'Default model' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/default model/i)).not.toBeInTheDocument();
     });
   });
 

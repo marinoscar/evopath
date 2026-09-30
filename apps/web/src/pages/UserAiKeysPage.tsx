@@ -3,10 +3,10 @@
  *
  * Bring your own key: one card per provider the administrator has enabled,
  * where the user saves (server-verified), tests and removes their own key;
- * then the models that key (or the organisation's) can reach, and the user's
- * default model — the one part stored in the user settings document
- * (`ai.defaultModel`, PATCH `/api/user-settings`) — and, last, the user's own
- * usage over the last 30 days (#444), a section of this page rather than a tab.
+ * then the models that key (or the organisation's) can reach and, last, the
+ * user's own usage over the last 30 days (#444), a section of this page
+ * rather than a tab. There is no model choice here: every AI model is an
+ * administrator's assignment (#173, `/admin/settings/ai/assignments`).
  *
  * A THIN PAGE WRAPPER, NOT `UserSettingsSection` — the same call as
  * `UserTokensPage`. Keys are their own resource behind `/api/ai/keys`, not part
@@ -23,13 +23,10 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useAiConfig } from '../hooks/useAiConfig';
 import { useUserAiKeys } from '../hooks/useUserAiKeys';
 import { useUsableAiModels } from '../hooks/useUsableAiModels';
-import { useUserSettings } from '../hooks/useUserSettings';
 import { UserAiKeyCard } from '../components/settings/ai/UserAiKeyCard';
 import { KeylessProviderCard } from '../components/settings/ai/KeylessProviderCard';
 import { UsableAiModelsList } from '../components/settings/ai/UsableAiModelsList';
-import { DefaultAiModelPicker } from '../components/settings/ai/DefaultAiModelPicker';
 import { MyAiUsageSection } from '../components/settings/ai/MyAiUsageSection';
-import type { AiDefaultModel } from '../types';
 
 export default function UserAiKeysPage() {
   const { hasPermission } = usePermissions();
@@ -37,11 +34,6 @@ export default function UserAiKeysPage() {
   const { keys, isLoading: keysLoading, error: keysError, setKey, deleteKey, testKey } =
     useUserAiKeys();
   const usable = useUsableAiModels();
-  // `syncTheme: false` — this page never edits the theme, so loading the
-  // settings document must not push the stored theme into the shell.
-  const { settings, isLoading: settingsLoading, updateSettings } = useUserSettings({
-    syncTheme: false,
-  });
   const refreshModels = usable.refresh;
 
   if (!hasPermission('ai:use')) {
@@ -62,10 +54,6 @@ export default function UserAiKeysPage() {
   const providerNames = Object.fromEntries(
     config.providers.map((provider) => [provider.id, provider.displayName]),
   );
-
-  const saveDefaultModel = async (defaultModel: AiDefaultModel | null) => {
-    await updateSettings({ ai: { defaultModel } });
-  };
 
   return (
     <Container maxWidth="md">
@@ -116,14 +104,6 @@ export default function UserAiKeysPage() {
               models={usable.models}
               isLoading={usable.isLoading}
               error={usable.error}
-              providerNames={providerNames}
-            />
-
-            <DefaultAiModelPicker
-              models={usable.models}
-              value={settings?.ai?.defaultModel}
-              onChange={saveDefaultModel}
-              disabled={settingsLoading || usable.isLoading || !settings}
               providerNames={providerNames}
             />
 

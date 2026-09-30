@@ -127,15 +127,8 @@ describe('AiPlaygroundPage', () => {
       expect(screen.queryByRole('group', { name: 'Playground mode' })).not.toBeInTheDocument();
     });
 
-    it("selects the user's saved default model when it is usable", async () => {
+    it('starts on the first text model and ignores a legacy saved default (#173)', async () => {
       serveUserSettings({ ai: { defaultModel: { provider: 'openai', modelId: 'gpt-4.1-mini' } } });
-      await renderPage();
-
-      await waitForModel('GPT-4.1 mini');
-    });
-
-    it('falls back to the first text model when the saved default is not usable', async () => {
-      serveUserSettings({ ai: { defaultModel: { provider: 'openai', modelId: 'retired-model' } } });
       await renderPage();
 
       await waitForModel('GPT-5 mini');
