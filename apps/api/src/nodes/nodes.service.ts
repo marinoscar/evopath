@@ -129,6 +129,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job, NodeStatus, Prisma, WorkerNode } from '@prisma/client';
@@ -154,6 +155,7 @@ import {
   NodeJobResultDto,
   RegisterNodeDto,
 } from './dto/node-control-plane.dto';
+import { NodeSettlementLedger } from './node-settlement-ledger';
 
 /**
  * How recently a node must have heartbeated for a re-register to be WORTH
@@ -260,7 +262,15 @@ export class NodesService {
     // READER: `JobWorker`'s `system` mode consumes the complement of this
     // exact set. See `nodeEligibleTypes` below, and the service's own header
     // for the partition argument.
-    private readonly offload: NodeOffloadService
+    private readonly offload: NodeOffloadService,
+    // WHO JUST SETTLED WHAT (#133). The span relay accepts a node's phase
+    // spans for a job it settled moments ago, after `claimedByNodeId` has
+    // been cleared — see `node-settlement-ledger.ts`. `@Optional()` with a
+    // private fallback so the suites that construct this service by hand need
+    // no new argument; in the application Nest injects the one shared
+    // instance the relay reads.
+    @Optional()
+    private readonly settlements: NodeSettlementLedger = new NodeSettlementLedger()
   ) {}
 
   // ===========================================================================
@@ -847,6 +857,10 @@ export class NodesService {
         throw this.notHeldByNode(jobId, nodeId);
       }
 
+      // The server settled it, but it was THIS node's run: its spans are
+      // still this node's to relay (#133).
+      this.settlements.record(job.id, nodeId);
+
       this.logger.error(
         `Persisting node ${nodeId}'s result for job ${job.id} (${job.type}) threw; the job ` +
           `was settled as "${outcome}" through the normal failure path: ` +
@@ -870,6 +884,9 @@ export class NodesService {
     if (outcome === 'claim-lost') {
       throw this.notHeldByNode(jobId, nodeId);
     }
+
+    // Proven held, and now settled by this node — the span relay's grace (#133).
+    this.settlements.record(job.id, nodeId);
 
     return { jobId: job.id, outcome, willRetry: this.willRetry(outcome) };
   }
@@ -909,6 +926,9 @@ export class NodesService {
     if (outcome === 'claim-lost') {
       throw this.notHeldByNode(jobId, nodeId);
     }
+
+    // Proven held, and now settled by this node — the span relay's grace (#133).
+    this.settlements.record(job.id, nodeId);
 
     this.logger.log(
       `Node ${nodeId} reported job ${job.id} (${job.type}) failed; settled as "${outcome}"` +

@@ -109,9 +109,9 @@ export interface NodeJobAssignment {
   /**
    * The W3C `traceparent` of the span that ENQUEUED this job (#132), or `null`
    * when nothing was traced at enqueue. Optional because a server older than
-   * #132 does not send it. Not used by this CLI yet — a later change (B5)
-   * starts the node's execution span as its child. Correlation data only,
-   * never a credential.
+   * #132 does not send it. The node does not read it: its phase spans are
+   * relayed to the server (#133), which parents them on the job's stored
+   * context itself. Correlation data only, never a credential.
    */
   traceparent?: string | null;
 }
@@ -267,6 +267,42 @@ export interface JobFailureReport {
   willRetry?: boolean | undefined;
 }
 
+/**
+ * The phase spans a node may relay (#133). Mirrors the server's
+ * `NODE_SPAN_NAMES`: an enum on the server, so a name not listed here is a 400
+ * for the whole batch. Never add one on this side first.
+ */
+export type NodeSpanName = 'job.download' | 'job.execute' | 'job.upload' | 'job.submit' | 'job.secret';
+
+/**
+ * Integer-only, allowlisted span attributes. Mirrors the server's `.strict()`
+ * `nodeSpanAttributesSchema` — there is deliberately no string attribute, so no
+ * URL, path or credential can ride along in one.
+ */
+export interface NodeSpanAttributes {
+  bytes?: number | undefined;
+  attempt?: number | undefined;
+  exitCode?: number | undefined;
+  httpStatus?: number | undefined;
+}
+
+/** One phase of one job, as `POST /nodes/:id/telemetry` takes it. */
+export interface NodeSpan {
+  jobId: string;
+  name: NodeSpanName;
+  startTimeUnixMs: number;
+  durationMs: number;
+  status: 'ok' | 'error';
+  /** An error CLASS or CODE (`MissingJobInputError`, `ApiError.409`), never a message. */
+  errorType?: string | undefined;
+  attributes?: NodeSpanAttributes | undefined;
+}
+
+export interface NodeTelemetryResult {
+  accepted: number;
+  dropped: number;
+}
+
 /** A minted `nod_` credential. The `token` is returned exactly once. */
 export interface CreatedNodeCredential {
   token: string;
@@ -319,6 +355,12 @@ export interface NodeApi {
   jobSecret(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<JobSecret>;
   submitResult(nodeId: string, jobId: string, type: string, result: unknown, claimToken?: ClaimToken): Promise<JobSettlement>;
   reportJobFailure(nodeId: string, jobId: string, body: JobFailureReport, claimToken?: ClaimToken): Promise<JobSettlement>;
+  /**
+   * Relays this node's job phase spans (#133). OPTIONAL on the interface so a
+   * hand-written test fake need not implement it; the engine treats its
+   * absence as "span relay off". Best-effort: see `node-span-relay.ts`.
+   */
+  telemetry?(nodeId: string, body: { spans: NodeSpan[] }): Promise<NodeTelemetryResult>;
 }
 
 /** The `/api/node-credentials` half. Separate because a `nod_` token CANNOT reach it. */
@@ -433,6 +475,10 @@ export class HttpNodeApi implements NodeApi, NodeCredentialApi {
       ...body,
       ...claimTokenBody(claimToken),
     });
+  }
+
+  telemetry(nodeId: string, body: { spans: NodeSpan[] }): Promise<NodeTelemetryResult> {
+    return this.client.post<NodeTelemetryResult>(`/nodes/${seg(nodeId)}/telemetry`, body);
   }
 
   createCredential(body: { name: string; expiresInDays?: number | undefined }): Promise<CreatedNodeCredential> {

@@ -228,6 +228,34 @@ needs a database connection. A node never persists such a secret.
 
 Operator guide: [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md).
 
+### Node span relay
+
+`POST /api/nodes/{id}/telemetry` writes what a node says into the
+deployment's trace store. A node is authenticated but not trusted, so the
+relay treats its spans as untrusted input:
+
+- **Identity from the path.** `node.id` and `node.name` come from the path
+  node after `assertOwnership` (`404` missing, `403` another owner's), and
+  `job.id` and `job.type` from the job row. The body cannot name a node, a
+  trace, a span or a parent. The parent is the job's stored `trace_context`.
+- **Attributed or dropped.** A span is accepted only for a job the node
+  holds now, or settled within the last 10 minutes (an in-memory ledger
+  written at settle time). Any other span is dropped and counted, never
+  emitted under this node's identity. The count says nothing about who does
+  hold the job.
+- **Bounded and allowlisted.** The body is `.strict()` at every level:
+  at most 50 spans, five phase names, integer-only attributes from a fixed
+  set of four, times inside a 24-hour window, and an identifier-shaped
+  `errorType` of at most 64 characters. It has no free-form string, so no
+  message, URL, path or credential fits.
+- **Rate-limited.** 60 requests and 1000 spans per node per minute, in
+  memory on each replica, charged only after ownership passes. Over budget
+  answers `429`.
+- **Never fatal.** Emission cannot throw into the request, and the CLI sends
+  after the job settles, off the job's path, dropping on any error.
+
+Design: [specs/worker-nodes.md, Span relay](specs/worker-nodes.md#span-relay).
+
 ### Encrypted runtime secrets
 
 Secrets an administrator enters in the UI (SMTP password, VAPID private key,
@@ -682,8 +710,9 @@ that alone.
 ### Rate limiting
 
 There is no global HTTP rate limiter in the API or Nginx. The device flow
-enforces its polling interval (`slow_down`), and the AI platform has its own
-per-user and per-model limits. See [API.md](API.md#rate-limiting).
+enforces its polling interval (`slow_down`), the AI platform has its own
+per-user and per-model limits, and the node span relay limits each node
+([Node span relay](#node-span-relay)). See [API.md](API.md#rate-limiting).
 
 ### Environment secrets
 
@@ -908,7 +937,7 @@ never billed for a user whose own key broke. Design:
 | Password attacks | No passwords; Google OAuth only |
 | Session hijacking | 15-minute access tokens; refresh rotation |
 | Refresh token replay | Reuse detection revokes every session |
-| Leaked node credential | Route allowlist; cannot mint credentials; revocable |
+| Leaked node credential | Route allowlist; cannot mint credentials; revocable; span relay rate-limited and attributed to held jobs only |
 | Leaked database of tokens | Every bearer token and refresh token stored as SHA-256 |
 | Leaked database of secrets | AES-256-GCM, purpose-bound keys, key only in the environment |
 | Privilege escalation | Server-side guards; roles and permissions reloaded from the database per request |

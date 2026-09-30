@@ -200,6 +200,20 @@ describe('DatabaseBackupRunExecutor', () => {
     expect(Date.parse(result.startedAt)).toBeLessThanOrEqual(Date.parse(result.finishedAt));
   });
 
+  it('times the streamed PUT as the job.upload phase, with the archive size (#133)', async () => {
+    const h = makeHarness({ archive: Buffer.from('one-two-three') });
+    const phases: Array<{ name: string; attributes: unknown }> = [];
+    h.context.phase = async (name, work, attributes) => {
+      const result = await work();
+      phases.push({ name, attributes: typeof attributes === 'function' ? attributes(result) : attributes });
+      return result;
+    };
+
+    await h.executor.execute(h.context);
+
+    expect(phases).toEqual([{ name: 'job.upload', attributes: { bytes: 13 } }]);
+  });
+
   it('quotes the CLAIM TOKEN on both of its held-job calls', async () => {
     // #364. A credential and a signed PUT are the two most consequential
     // things a superseded slot could ask for, so both have to say which claim

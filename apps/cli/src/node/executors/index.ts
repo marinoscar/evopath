@@ -1,4 +1,4 @@
-import type { ClaimToken, NodeApi, NodeJobAssignment } from '../node-api.js';
+import type { ClaimToken, NodeApi, NodeJobAssignment, NodeSpanAttributes, NodeSpanName } from '../node-api.js';
 import { UnknownJobTypeError } from '../node-errors.js';
 
 // =============================================================================
@@ -58,6 +58,17 @@ export interface JobExecutionContext {
   signal: AbortSignal;
   /** Structured logging that goes through the daemon's redaction (#275). */
   log(message: string, fields?: Record<string, unknown>): void;
+  /**
+   * Times `work` as a relayed phase span (#133) — for a phase only the
+   * executor can see, such as an upload streamed from inside `execute`.
+   * Returns (or rethrows) exactly what `work` does; recording never fails the
+   * job. Optional so a hand-built test context need not supply it.
+   */
+  phase?<T>(
+    name: NodeSpanName,
+    work: () => Promise<T>,
+    attributes?: NodeSpanAttributes | ((result: T) => NodeSpanAttributes | undefined),
+  ): Promise<T>;
 }
 
 /**

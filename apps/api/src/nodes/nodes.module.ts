@@ -167,6 +167,9 @@ import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodeFleetMetrics } from './node-fleet-metrics.service';
 import { NodeLifecycleService } from './node-lifecycle.service';
 import { NodeSecretBrokerService } from './node-secret-broker.service';
+import { NodeSettlementLedger } from './node-settlement-ledger';
+import { NodeTelemetryRateLimiter } from './node-telemetry-rate-limiter';
+import { NodeTelemetryService } from './node-telemetry.service';
 import { NodesAdminController } from './nodes-admin.controller';
 import { NodesAdminService } from './nodes-admin.service';
 import { NodesController } from './nodes.controller';
@@ -204,6 +207,12 @@ import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
     // `AppMetricsModule`, because the callback reads `NodeOffloadService` and
     // the fleet policy; it borrows the meter and gate from `AppMetricsService`.
     NodeFleetMetrics,
+    // #133: the span relay. The ledger is SHARED with `NodesService`, which
+    // records each node settle into it; the relay reads it to attribute spans
+    // that arrive after `claimedByNodeId` has been cleared.
+    NodeTelemetryService,
+    NodeSettlementLedger,
+    NodeTelemetryRateLimiter,
   ],
 })
 export class NodesModule {}

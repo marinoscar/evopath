@@ -312,6 +312,9 @@ function logEvent(logger: NodeLogger, event: NodeEngineEvent): void {
     case 'vitals-disabled':
       logger.warn('server refused heartbeat vitals; not sending them again this process', { error: event.error });
       return;
+    case 'telemetry-disabled':
+      logger.warn('server has no span relay (older API); not sending job spans again this process', { error: event.error });
+      return;
     case 'claim-failed':
       logger.warn('claim failed', { error: event.error });
       return;
