@@ -1,6 +1,7 @@
 import type { SystemTelemetryValue } from '../../common/schemas/settings.schema';
 import {
   telemetryDashboardEventsQuerySchema,
+  telemetryDashboardMetricsQuerySchema,
   telemetryDashboardQuerySchema,
   telemetryDashboardTimeseriesQuerySchema,
 } from '../dto/telemetry-dashboard.dto';
@@ -9,6 +10,8 @@ import type { TelemetryQueryResult } from '../greptime/greptime.client';
 import { TelemetryQueryFailedError, TelemetryQueryTimeoutError } from '../greptime/greptime.errors';
 import { analyzeStatement } from '../query/sql-guard';
 import { TelemetryHttpError } from '../query/telemetry-query.errors';
+import { metricCatalogSchema } from '../testing/metric-schema.fixture';
+import { familiesOf, tablesOf } from '../metrics/metric-catalog';
 import {
   auditParams,
   catalogOf,
@@ -118,6 +121,10 @@ function answer(sql: string, overrides: Record<string, TelemetryQueryResult> = {
       return result(['t', 'v'], [[BUCKET, '13.14']]);
     case 'events':
       return result(['ts', 'severity_number', 'severity_text', 'service', 'body', 'trace_id', 'span_id'], []);
+    case 'hosts':
+      return result(['v'], [['vm1']]);
+    case 'metric':
+      return result([], []);
     default:
       throw new Error(`unexpected SQL: ${sql}`);
   }
@@ -126,6 +133,8 @@ function answer(sql: string, overrides: Record<string, TelemetryQueryResult> = {
 function classify(sql: string): string {
   if (sql.includes('v8js_memory_heap_used_bytes')) return 'heap';
   if (sql.includes('nodejs_eventloop_delay_p99_seconds')) return 'eventLoop';
+  if (sql.includes('"host_name" AS v')) return 'hosts';
+  if (sql.includes('greptime_timestamp')) return 'metric';
   if (sql.includes(' AS v ') && sql.includes('app.instance.id')) return 'instances';
   if (sql.includes(' AS v ')) return 'services';
   if (sql.includes('traces_last')) return 'lastData';
@@ -738,3 +747,140 @@ describe('catalogOf', () => {
     });
   });
 });
+
+// ---- metrics (#126) ------------------------------------------------------------------
+
+/** The dashboard's tables plus every metric table the catalog reads. */
+const METRIC_SCHEMA: TelemetrySchema = { tables: [...FULL_SCHEMA.tables, ...metricCatalogSchema().tables] };
+
+describe('metrics route', () => {
+  it('validates the group and the host at the DTO', () => {
+    const parse = (value: Record<string, string>) => telemetryDashboardMetricsQuerySchema.safeParse(value).success;
+    expect(parse({ group: 'host' })).toBe(true);
+    expect(parse({})).toBe(false);
+    expect(parse({ group: 'disk' })).toBe(false);
+    expect(parse({ group: 'host', host: 'x'.repeat(201) })).toBe(false);
+    expect(parse({ group: 'host', host: '' })).toBe(false);
+    expect(parse({ group: 'host', range: '1h', from: '2026-09-27T20:00:00Z', to: '2026-09-27T21:00:00Z' })).toBe(false);
+  });
+
+  it('runs the statements of one group and reports them', async () => {
+    const { service, greptime } = setup({ schema: METRIC_SCHEMA });
+    const metrics = await service.metrics('u1', { group: 'host' });
+
+    expect(metrics).toMatchObject({
+      group: 'host',
+      available: true,
+      truncated: false,
+      skipped: [],
+      range: { from: '2026-09-27T21:00:00.000Z', to: '2026-09-27T22:00:00.000Z', bucketSeconds: 60 },
+      generatedAt: '2026-09-27T22:00:00.000Z',
+    });
+    expect(metrics.sql).toHaveLength(familiesOf('host').length + tablesOf('host').length);
+    expect(greptime.queryReader).toHaveBeenCalledTimes(metrics.sql.length);
+    expect(metrics.sql.every((sql) => sql.includes('system_'))).toBe(true);
+    expect(metrics.tiles.map((t) => t.key)).toEqual([
+      'cpuUtilization',
+      'memoryUtilization',
+      'load1m',
+      'filesystemUtilization',
+      'diskIo',
+      'networkIo',
+    ]);
+  });
+
+  it('keeps metric buckets at least one minute wide', async () => {
+    const { service } = setup({ schema: METRIC_SCHEMA });
+    const metrics = await service.metrics('u1', { group: 'pipeline', range: '15m' });
+    expect(metrics.range.bucketSeconds).toBe(60);
+    expect(metrics.sql[0]).toContain(`INTERVAL '60 seconds'`);
+  });
+
+  it('is unavailable, and runs nothing, on a store without the group\'s tables', async () => {
+    const { service, greptime } = setup();
+    const metrics = await service.metrics('u1', { group: 'database' });
+    expect(metrics.available).toBe(false);
+    expect(metrics.sql).toEqual([]);
+    expect(metrics.skipped).toContain('dbConnections');
+    expect(greptime.queryReader).not.toHaveBeenCalled();
+  });
+
+  it('caches by group and host, and audits each store read as telemetry:dashboard', async () => {
+    const { service, greptime, prisma } = setup({ schema: METRIC_SCHEMA });
+    await service.metrics('u1', { group: 'nodes' });
+    const calls = greptime.queryReader.mock.calls.length;
+    await service.metrics('u1', { group: 'nodes' });
+    expect(greptime.queryReader).toHaveBeenCalledTimes(calls);
+    expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
+    expect(prisma.auditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
+        meta: expect.objectContaining({ route: 'metrics', params: { group: 'nodes' }, statements: calls }),
+      }),
+    });
+
+    await service.metrics('u1', { group: 'uptime' });
+    await service.metrics('u1', { group: 'uptime', host: 'vm1' });
+    expect(prisma.auditEvent.create).toHaveBeenCalledTimes(3);
+  });
+
+  it('refuses an unknown host with 400 TELEMETRY_DASHBOARD_BAD_FILTER', async () => {
+    const { service } = setup({ schema: METRIC_SCHEMA });
+    const error = await rejection(service.metrics('u1', { group: 'host', host: "vm1' OR 1=1 --" }));
+    expect(error.getStatus()).toBe(400);
+    expect(bodyOf(error).details).toEqual({ field: 'host', reason: 'TELEMETRY_DASHBOARD_BAD_FILTER' });
+  });
+
+  it('applies a known host to collector-scraped tables and the service to the API\'s', async () => {
+    const { service } = setup({ schema: METRIC_SCHEMA });
+    const host = await service.metrics('u1', { group: 'host', host: 'vm1', service: 'my-app-api' });
+    expect(host.sql.every((sql) => sql.includes(`"host_name" = 'vm1'`) && !sql.includes('"service_name" ='))).toBe(true);
+
+    const queue = await service.metrics('u1', { group: 'queue', host: 'vm1', service: 'my-app-api' });
+    expect(queue.sql.every((sql) => sql.includes(`"service_name" = 'my-app-api'`) && !sql.includes('"host_name" ='))).toBe(true);
+  });
+
+  it('refuses a host on a store without host metrics', async () => {
+    const { service } = setup();
+    const error = await rejection(service.metrics('u1', { group: 'host', host: 'vm1' }));
+    expect(bodyOf(error).details).toEqual({ field: 'host', reason: 'TELEMETRY_DASHBOARD_BAD_FILTER' });
+  });
+});
+
+describe('/filters hosts', () => {
+  it('lists the host names from the host metrics', async () => {
+    const { service, sqlOf } = setup({ schema: METRIC_SCHEMA });
+    const filters = await service.filters('u1', {});
+    expect(filters.hosts).toEqual(['vm1']);
+    expect(filters.sql).toHaveLength(3);
+    expect(sqlOf('hosts')[0]).toContain('FROM "system_cpu_load_average_1m"');
+  });
+
+  it('is empty without them', async () => {
+    const { service } = setup();
+    expect((await service.filters('u1', {})).hosts).toEqual([]);
+  });
+});
+
+describe('summary verdict — infrastructure rules', () => {
+  it('runs one probe per rule family inside the summary and adds the fired rules', async () => {
+    const { service, greptime } = setup({ schema: METRIC_SCHEMA });
+    greptime.queryReader.mockImplementation(async (sql: string) =>
+      sql.includes(`'disk' AS m`)
+        ? result(['m', 'k', 'v', 'at'], [['disk', '/data', '0.97', '2026-09-27 21:59:30.000000']])
+        : answer(sql),
+    );
+    const summary = await service.summary('u1', {});
+
+    expect(summary.verdict.reasons).toContain('Disk 97% full (≥ 95%) — mountpoint: /data');
+    // 9 dashboard statements + 7 probes, every probe table present.
+    expect(summary.sql).toHaveLength(16);
+  });
+
+  it('runs no probe on a store without metric tables', async () => {
+    const { service } = setup();
+    const summary = await service.summary('u1', {});
+    expect(summary.sql).toHaveLength(9);
+  });
+});
+

@@ -13,6 +13,8 @@ import {
   TelemetryDashboardEventsDto,
   TelemetryDashboardEventsQueryDto,
   TelemetryDashboardFiltersDto,
+  TelemetryDashboardMetricsDto,
+  TelemetryDashboardMetricsQueryDto,
   TelemetryDashboardQueryDto,
   TelemetryDashboardSummaryDto,
   TelemetryDashboardTimeseriesDto,
@@ -20,6 +22,7 @@ import {
   TelemetryDashboardTopDto,
   TelemetryDashboardTopQueryDto,
 } from '../dto/telemetry-dashboard.dto';
+import { METRIC_GROUPS } from '../metrics/metric-catalog';
 import { TelemetryDashboardService } from './telemetry-dashboard.service';
 
 // =============================================================================
@@ -31,6 +34,7 @@ import { TelemetryDashboardService } from './telemetry-dashboard.service';
 //   GET /api/admin/telemetry/dashboard/top          telemetry:query
 //   GET /api/admin/telemetry/dashboard/events       telemetry:query
 //   GET /api/admin/telemetry/dashboard/filters      telemetry:query
+//   GET /api/admin/telemetry/dashboard/metrics      telemetry:query   (#126)
 //
 // Same permission as the explorer: these read telemetry DATA. Every statement
 // is a server-authored template (`telemetry-dashboard.sql.ts`); the exact SQL
@@ -151,12 +155,40 @@ export class TelemetryDashboardController {
     summary: 'Services and instances seen in a window (Admin only)',
     description:
       'The distinct service names and instance ids (at most 200 each) in traces and logs over the ' +
-      'window — the values `service` and `instance` accept. Cached for 60 seconds.\n\n' +
+      'window — the values `service` and `instance` accept — and the host names (`hosts`, at most ' +
+      '200) the host metrics report, the values `/metrics` `host` accepts. Cached for 60 seconds.\n\n' +
       COMMON_DOC,
   })
   @CommonQueries()
   @ApiResponse({ status: 200, description: 'The filter values', type: TelemetryDashboardFiltersDto })
   async filters(@Query() query: TelemetryDashboardQueryDto, @CurrentUser('id') userId: string) {
     return this.dashboard.filters(userId, query);
+  }
+
+  @Get('metrics')
+  @Auth({ permissions: [PERMISSIONS.TELEMETRY_QUERY] })
+  @ApiOperation({
+    summary: 'One metric group of the dashboard catalog (Admin only)',
+    description:
+      'Tiles, series and per-key tables for one `group` of the metric catalog: `host` (CPU, memory, ' +
+      'load, filesystems, disk and network IO), `database` (connections against the maximum, size, ' +
+      'commits, rollbacks, deadlocks, cache hit ratio, largest tables), `queue` (queue depth, oldest ' +
+      'pending job, settle rate, failure ratio, duration p95, last backup), `nodes` (fleet health, ' +
+      'per-node vitals, job types without an eligible node), `uptime` (status, duration and TLS ' +
+      'expiry per URL, nginx traffic) or `pipeline` (collector points sent/failed, exporter queue, ' +
+      'refused points, GreptimeDB write stalls, scrape targets). Counters are reset-aware increases ' +
+      'over the window; tiles compare with the previous window of equal length. Buckets are at least ' +
+      'one minute. A family whose table or column is absent is listed in `skipped`, never an error; ' +
+      '`available` is false when nothing of the group exists yet. `host` must be a value `/filters` ' +
+      'reports in `hosts`; it applies to collector-scraped metrics only, while `service` and ' +
+      '`instance` apply to the API\'s own metrics (`queue`, `nodes`). `sql` lists every statement run.\n\n' +
+      COMMON_DOC.replace('`service` and `instance` must', '`service`, `instance` and `host` must'),
+  })
+  @ApiQuery({ name: 'group', required: true, enum: METRIC_GROUPS })
+  @ApiQuery({ name: 'host', required: false, type: String, description: 'Only this host (<= 200 chars).' })
+  @CommonQueries()
+  @ApiResponse({ status: 200, description: 'The metric group', type: TelemetryDashboardMetricsDto })
+  async metrics(@Query() query: TelemetryDashboardMetricsQueryDto, @CurrentUser('id') userId: string) {
+    return this.dashboard.metrics(userId, query);
   }
 }

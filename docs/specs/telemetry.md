@@ -1209,8 +1209,10 @@ The dashboard's tiles read three kinds of data already in the store:
   only when the runtime-metrics instrumentation is on.
 
 The collector additionally scrapes six sources itself and writes them to
-the store as metric tables. The dashboard has no tile for them yet; they are
-queryable in the Explorer and available to the assistant (inventory in §11.3):
+the store as metric tables. The dashboard reads them through the metric
+catalog (`GET …/dashboard/metrics`, §11.14) and the infrastructure verdict
+rules (§11.7); they are also queryable in the Explorer and available to the
+assistant (inventory in §11.3):
 
 | Source | Receiver | What it describes |
 |---|---|---|
@@ -1235,7 +1237,7 @@ interfaces (`eth0` on the compose network, `lo`), not the host's NICs. It still
 answers "is the telemetry path moving bytes". CPU, memory, load, paging and
 disk are kernel-global and are the host's.
 
-**PostgreSQL.** The `postgresql` receiver reads the application's server (`POSTGRES_HOST:POSTGRES_PORT`) read-only over the statistics views, through the optional `pg_monitor` login (`POSTGRES_MONITOR_USER`/`POSTGRES_MONITOR_PASSWORD`, blank falls back to the application login). The dashboard does not read these tables; they are reached through the Explorer, the assistant or a BI tool (§9). Operator procedure: [the telemetry runbook](../runbooks/telemetry.md#82-postgresql-metrics).
+**PostgreSQL.** The `postgresql` receiver reads the application's server (`POSTGRES_HOST:POSTGRES_PORT`) read-only over the statistics views, through the optional `pg_monitor` login (`POSTGRES_MONITOR_USER`/`POSTGRES_MONITOR_PASSWORD`, blank falls back to the application login). The dashboard reads them through the metric catalog's `database` group (§11.14); they are also reached through the Explorer, the assistant or a BI tool (§9). Operator procedure: [the telemetry runbook](../runbooks/telemetry.md#82-postgresql-metrics).
 
 **Uptime and TLS.** `httpcheck` sends a `GET` to three targets every 30 s:
 
@@ -1382,7 +1384,7 @@ columns.
 
 ### 11.4 Routes
 
-Five routes, all under `TelemetryDashboardController`, all gated by
+Six routes, all under `TelemetryDashboardController`, all gated by
 `telemetry:query` — the same permission as the Explorer, because the
 dashboard reads telemetry DATA, not policy (`telemetry:read`/`write` gate the
 deployment-wide policy instead; see [§7](#7-security-model)):
@@ -1393,7 +1395,8 @@ deployment-wide policy instead; see [§7](#7-security-model)):
 | `GET /api/admin/telemetry/dashboard/timeseries` | `panel=api` (status classes + p95 per bucket) or `panel=logs` (severity bands per bucket) |
 | `GET /api/admin/telemetry/dashboard/top` | `kind=routes` (top 5xx offenders) or `kind=errors` (top error messages) |
 | `GET /api/admin/telemetry/dashboard/events` | Log events, newest first, keyset-paginated |
-| `GET /api/admin/telemetry/dashboard/filters` | Distinct `service`/`instance` values seen in the window |
+| `GET /api/admin/telemetry/dashboard/filters` | Distinct `service`/`instance` values seen in the window, and the `hosts` the host metrics report (`host_name` of `system_cpu_load_average_1m`) |
+| `GET /api/admin/telemetry/dashboard/metrics` | `group=host\|database\|queue\|nodes\|uptime\|pipeline`: one group of the metric catalog — tiles, series and per-key tables (§11.14). Also takes `host` |
 
 Every response carries `range`, `generatedAt`, `truncated` and `sql` (the
 exact statement(s) run, primary first) — the same seam each panel's
@@ -1402,7 +1405,10 @@ who wants to paste the statement into a BI tool. A shared window query
 (`range` or `from`/`to`, `service`, `instance`, `buckets`) is validated by
 `refineWindow` (`apps/api/src/telemetry/dto/telemetry-dashboard.dto.ts`):
 either `range` or `from`+`to`, never both; `from < to`; `to` at most one
-minute ahead (clock skew); span at most 30 days.
+minute ahead (clock skew); span at most 30 days. `/metrics` adds `host`
+(1–200 characters), validated like `service`/`instance` against the window's
+`/filters` `hosts`; an unknown value is the same 400
+`TELEMETRY_DASHBOARD_BAD_FILTER` with `details.field: "host"`.
 
 ### 11.5 SQL safety
 
@@ -1419,6 +1425,17 @@ only with
   doubled) and used only inside `ILIKE '%…%' ESCAPE '\'`;
 - a pagination cursor whose timestamp and span id are checked against strict
   regular expressions before they are ever concatenated.
+
+**The metric catalog (§11.14) follows the same discipline.** Its builders
+(`apps/api/src/telemetry/metrics/metric-sql.ts`) share the literal helpers
+with the templates above (`dashboard/sql-literals.ts`: `ident`, `literal`,
+`timestampLiteral`, `bucketInterval`, `positive`). Identifiers are catalog
+constants or column names the store itself reported in
+`information_schema.columns` (the `lag` partition of a counter is every tag
+column of its table); label predicates are catalog constants (`state =
+'idle'`); `service`/`instance`/`host` are values already matched against the
+window's distinct values. A builder whose table or column is absent returns
+`null` and nothing is sent.
 
 **No bind parameters**: GreptimeDB's Postgres wire refuses `$1` (a spike
 finding). Every statement carries a literal top-level `LIMIT`, never a
@@ -1467,11 +1484,13 @@ read, capped at 500 entries each (oldest evicted first).
 
 `computeVerdict` (`apps/api/src/telemetry/dashboard/telemetry-dashboard
 .verdict.ts`) is one pure function over numbers the summary has already
-computed — four rules, each with a **volume guard** so a quiet deployment
-does not flap red on one failed request. The level reported is the worst
-rule that fired; `reasons` carries one line per fired rule with its value,
-the threshold it crossed, and the worst offender (route or message, cut to
-80 characters):
+computed — four traffic rules, each with a **volume guard** so a quiet
+deployment does not flap red on one failed request, and nine infrastructure
+rules (#126). The level reported is the worst rule that fired; `reasons`
+carries one line per fired rule with its value, the threshold it crossed, and
+the worst offender (route, message, mountpoint, host, server, job type or URL,
+cut to 80 characters). Every threshold lives in
+`DASHBOARD_VERDICT_THRESHOLDS`:
 
 | Rule | Degraded | Critical | Volume guard |
 |---|---|---|---|
@@ -1479,6 +1498,29 @@ the threshold it crossed, and the worst offender (route or message, cut to
 | p95 latency (streams excluded, §11.5) | > 1000 ms | > 3000 ms | ≥ 20 requests in the window |
 | Error logs vs. the previous window | ≥ 3× | ≥ 10× | ≥ 10 error logs now (a previous count of 0 counts as 1, so the very first burst still ranks as a ratio) |
 | No data | — | — | `now − latest trace/log > 5 min` **overrides every other rule**: the other rules would be judging silence |
+| Disk utilization (worst mountpoint) | ≥ 85 % | ≥ 95 % | `system_filesystem_utilization_ratio` exists |
+| Memory utilization (worst host, `state = used`) | ≥ 90 % | ≥ 97 % | `system_memory_utilization_ratio` exists |
+| DB connections (`postgresql_backends` summed ÷ `postgresql_connection_max`, worst server) | ≥ 80 % | ≥ 95 % | both tables exist |
+| Oldest due pending job (worst job type) | ≥ 10 min | ≥ 30 min | `app_jobs_oldest_pending_age_seconds` exists |
+| Worker nodes | any `stale` node | a node-offered job type with pending work and no eligible node (`app_nodes_types_no_eligible_node = 1`), naming the types | `app_nodes_count` or the no-eligible table exists |
+| TLS certificate (soonest URL) | < 14 days | < 7 days (negative = expired) | `httpcheck_tls_cert_remaining_seconds` exists (`https://` targets only) |
+| Uptime check | the latest check of a URL failed (non-2xx or error) | every check of a URL in the lookback failed (≥ 2 checks) | `httpcheck_status` exists |
+| Collector exports (window) | any failed metric point | failed ≥ 10 % of sent + failed, naming the exporter | `otelcol_exporter_*_metric_points_total` exist |
+| Last successful backup | > 26 h | > 50 h | `app_backup_last_success_timestamp_seconds` has a reading |
+
+**How the infrastructure inputs are gathered** (`apps/api/src/telemetry/metrics/metric-verdict.ts`):
+the summary adds **one small statement per rule family** — host, database,
+queue, nodes, uptime, TLS, pipeline — to its existing `Promise.all`, inside
+the same 15-second result cache and audit row. A statement whose tables are
+all absent is not run, and a rule without its input is skipped, so a store
+without, say, PostgreSQL metrics simply has no database rule. Gauges are read
+over the last 10 minutes before `to` (`VERDICT_PROBE_LOOKBACK_MS`), and only
+**fresh** keys count: a key whose newest reading is more than 150 s older
+than its part's newest (`VERDICT_FRESH_MS`) has stopped reporting — a drained
+job type under delta temporality (§11.13), an unmounted filesystem, a URL no
+longer probed. Collector failures are counted over the dashboard window.
+`service`/`instance` filters do not apply: the infrastructure is shared. The
+infrastructure rules are overridden by "no data" like every other rule.
 
 ### 11.8 Error reasons
 
@@ -1568,12 +1610,28 @@ controls instead, just not by selecting a span on the chart itself.
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.spec.ts` — every
   SQL template, literal-escaping and the SSE exclusion.
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.verdict.spec.ts` —
-  the four rules and their volume guards.
+  the four traffic rules and their volume guards, and each infrastructure
+  rule at both levels, its offender and its absence (#126).
+- `apps/api/src/telemetry/metrics/metric-sql.spec.ts` — snapshots of every
+  catalog family and table, with and without filters, the uptime, host and
+  verdict-probe statements, absent-table skips, and guard acceptance.
+- `apps/api/src/telemetry/metrics/metric-catalog.spec.ts` — the catalog's
+  invariants against the verified table shapes
+  (`apps/api/src/telemetry/testing/metric-schema.fixture.ts`).
+- `apps/api/src/telemetry/metrics/metric-group.spec.ts` — tiles, series,
+  tables, ratios, histogram quantiles, delta-gauge freshness and row caps.
+- `apps/api/src/telemetry/metrics/metric-verdict.spec.ts` and
+  `metric-values.spec.ts` — probe rows to verdict inputs; quantile
+  interpolation and value parsing.
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.service.spec.ts` —
   window resolution, caching (including the shared in-flight promise),
   filter validation, the audit row.
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.greptime.spec.ts` —
-  the real-database tier, over an actual GreptimeDB.
+  the real-database tier, over an actual GreptimeDB. With
+  `GREPTIME_TEST_ADMIN_URL` on a store without catalog tables (CI) it creates
+  look-alikes of every verified metric table, seeds 40 minutes of rows
+  (including a counter reset) and checks every group, `/filters` `hosts` and
+  the verdict probes end to end.
 - `apps/api/test/telemetry/telemetry-dashboard.integration.spec.ts` — routes,
   RBAC (`telemetry:query`), error shapes.
 - `apps/web/src/__tests__/pages/Admin/TelemetryDashboardPage.test.tsx` — the
@@ -1679,9 +1737,11 @@ controls instead, just not by selecting a span on the chart itself.
   limits, process). `/metrics` needs no credentials, so the scrape config
   carries none. The collector's own metrics are exposed on `127.0.0.1:8888`
   only and are not published.
-- **No host metric tiles yet.** The dashboard's fixed tiles (§11.1) still read
-  spans, logs and the two runtime metrics; host data is for the Explorer and
-  the assistant until a tile earns its place.
+- **Host metric tiles live in the metric catalog, not the summary.** The
+  summary's fixed tiles (§11.1) still read spans, logs and the two runtime
+  metrics; host, database, queue, node, uptime and pipeline data is served per
+  group by `/metrics` (§11.14), and reaches the summary only as verdict
+  inputs (§11.7).
 
 - **Liveness, not readiness, for uptime.** Readiness reads the database and
   returns `503` during maintenance mode, so a PostgreSQL outage would read as
@@ -1810,6 +1870,112 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nod
 - **An unreachable database does not stop the collector.** It keeps running
   and logs a scrape error every 30 s; the other pipelines are unaffected.
 
+### 11.14 Metric catalog and the `/metrics` route
+
+> **Code:** `apps/api/src/telemetry/metrics/` — `metric-catalog.ts` (the
+> declarations), `metric-sql.ts` (the builders), `metric-group.ts` (rows to
+> tiles, series and tables), `metric-verdict.ts` (the summary's probes),
+> `metric-values.ts` (parsing, histogram quantile).
+
+`METRIC_FAMILIES`, `METRIC_RATIOS` and `METRIC_TABLES` declare, as data, what
+the dashboard reads from the metric tables of §11.3 and §11.13. Each family
+has a key, label, group, table, kind (`gauge`, `counter`, `histogram`),
+display unit, value transform (a SQL value expression such as
+`1 - "greptime_value"`, a `scale`, or `ageHours`), the label column it is
+split by, fixed label predicates, required columns, the request filters it
+honours and, where a verdict rule reads it, the thresholds (taken from
+`DASHBOARD_VERDICT_THRESHOLDS`). A ratio divides families bucket by bucket; a
+table reads one value per key (mountpoint, table, job type, node, URL, scrape
+job) from one or more tables.
+
+| Group | Families (tiles, series) | Ratios | Tables |
+|---|---|---|---|
+| `host` | CPU utilization (`1 − idle`, averaged over CPUs), memory utilization (`state = used`), load 1m, filesystem utilization per mountpoint, disk IO bytes/s, network IO bytes/s (collector namespace, §11.2) | — | Filesystems: used %, used and free bytes |
+| `database` | Connections, max connections, size per database, commits/s, rollbacks/s, deadlocks | Connections used %, cache hit ratio (`hit ÷ (hit + read)` of increases) | Largest tables by size (top 50) |
+| `queue` | Queue depth (tiles `pending`, `running`), oldest pending job (max over types), jobs settled/min by outcome, job duration p95 (histogram), last successful backup (hours ago) | Job failure ratio (`failed ÷ (succeeded + failed)`) | Job types: pending, running, oldest pending, succeeded, failed, duration p95 |
+| `nodes` | Nodes by health (tiles `healthy`, `stale`, `offline`), job types without an eligible node | — | Nodes: CPU cores, RSS, heap used/limit and %, state-dir free/size and free %, slots; node-offered job types |
+| `uptime` | Check duration per URL, TLS days left per URL, nginx requests/s, nginx connections by state (tile `active`) | — | Uptime targets: up, status code, checks, failed checks, last error, duration, TLS days left |
+| `pipeline` | Metric points sent/s and failed by exporter, exporter queue size, points refused by receiver, GreptimeDB write stalls, scrape targets down (`up = 0`, by `job`) | Exporter queue used % | Scrape targets: up, by `job` |
+
+**Semantics.** A **gauge** is combined across series per timestamp (sum for
+"how many", max for "the worst", min for the soonest expiry) and then per
+bucket. A **counter** (`_total`) is a reset-aware increase: each point minus
+its predecessor **in the same series** (`lag` partitioned by every tag
+column), a drop counting the new value (a restart), the first point of a
+series contributing nothing — conservative, never an invented spike; the
+tile is the window's increase as a rate (`per_s`, `per_min`) or a `count`.
+A **histogram** quantile is interpolated from the increases per `le`
+(Prometheus `histogram_quantile` style; the `+Inf` bucket answers the highest
+finite bound). API gauges are delta-temporality (§11.13): a group whose latest
+bucket is more than one bucket older than the family's newest has stopped
+reporting and is left out of the tile, and a listed tile group with no current
+reading reads 0 (nothing pending); a table's `last` cell older than its part's
+newest reading by 150 s is `null`.
+
+**Filters.** `host` applies to collector-scraped tables (`host_name` is the
+real host); `service` and `instance` apply to the API's `app_*` tables
+(`service_name`, `app_instance_id`; the API's `host_name` is its container).
+A filter set on a table lacking its column matches nothing, like the
+traces' instance filter.
+
+**Response** (`TelemetryDashboardMetricsDto`):
+
+```json
+{
+  "range": { "from": "…", "to": "…", "bucketSeconds": 60 },
+  "generatedAt": "…",
+  "truncated": false,
+  "sql": ["SELECT date_bin(…)", "…"],
+  "group": "host",
+  "available": true,
+  "tiles": [{ "key": "cpuUtilization", "label": "CPU utilization", "value": 24.1, "previous": 19.8, "unit": "%", "sparkline": [ … ] }],
+  "series": [{ "key": "filesystemUtilization", "label": "Filesystem utilization: /", "unit": "%", "dimension": "mountpoint", "groupBy": "/", "points": [{ "t": "…", "v": 35.6 }] }],
+  "tables": [{ "key": "filesystems", "label": "Filesystems", "columns": [{ "key": "key", "label": "Mountpoint", "unit": "text" }, …], "rows": [{ "key": "/", "utilizationPct": 35.6, …, "lastSeenAt": "…" }] }],
+  "skipped": []
+}
+```
+
+- `tiles` reuse the summary's tile shape; a tile key with a group suffix
+  (`queueDepth.pending`) is one of the family's `tileGroups`. Units: `%`,
+  `bytes`, `bytes/s`, `count`, `per_s`, `per_min`, `ms`, `seconds`, `hours`,
+  `days`, `cores`, `load` (and `text`, `boolean`, `timestamp` for columns).
+- `series` has one entry per family and group value (`dimension` is the label
+  column, `groupBy` its value), one point per bucket of the current window,
+  `null` where nothing was measured.
+- `sql` lists **every** statement run, in order ("Open in Explorer" takes the
+  first); `skipped` lists catalog keys whose table or column is absent;
+  `available` is false when nothing of the group exists yet.
+
+**Bounds.** Metric buckets are the window's bucket size but at least 60 s
+(`METRIC_MIN_BUCKET_SECONDS`: the tables are written every 30–60 s). Each
+family statement covers the previous and current windows and is capped at
+rows per group × 20 groups + 1 (`METRIC_MAX_GROUPS`, ordered by group so the
+cut drops whole trailing groups); a table at 50 keys
+(`METRIC_TABLE_MAX_ROWS`, key-major order so no part is cut); a histogram at
+4,000 rows. Any cut sets `truncated`. The route shares the dashboard's flow
+(§11.6): preconditions, window, 15-second result cache keyed by
+`group`/`host` too, schema and distinct-value checks, one audit row
+(`route: "metrics"`) per store read. Each group runs 4–9 statements at once
+on the reader pool.
+
+**Design decisions.**
+
+- **A declarative catalog, not per-panel code.** A new metric is one entry;
+  the builders, freshness rules and response shape follow. Rejected: a
+  hand-written statement per tile, which is where the SQL-safety argument of
+  §11.5 would erode.
+- **Reset-aware `lag` over max − min.** `max − min` per series overcounts
+  nothing but undercounts a restart to zero and hides the post-restart
+  increase; `lag` partitioned by every tag column counts both, and is
+  verified on GreptimeDB v1.2.1.
+- **Skipped, never failed.** A table appears only once its source has
+  written; a fresh or partial deployment shows what it has and names the
+  rest in `skipped`.
+- **One statement per group family, key-major tables.** A per-part
+  `LIMIT` inside a `UNION ALL` would need a subquery wrapper, which drops
+  the inner `ORDER BY` (#554); ordering the whole union by key and capping at
+  keys × parts keeps every part of the first 50 keys.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -1876,3 +2042,4 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nod
 - #124: the collector probes uptime and TLS expiry (`httpcheck` receiver on the app through nginx, the API directly and the public origin) and scrapes nginx's `stub_status` from an internal-only `:8081` listener (`nginx` receiver) (§11.2, §11.3, §11.12).
 - #132: trace context carried from enqueue to execution: `jobs.trace_context`, the server worker's `job.process` span as its child, and `traceparent` on node claim assignments (§1).
 - #133: node span relay: worker nodes post job phase spans to `POST /api/nodes/{id}/telemetry`, re-emitted by the API under the job's trace (§1).
+- #126: the metric catalog and `GET /api/admin/telemetry/dashboard/metrics` (host, database, queue, nodes, uptime and pipeline groups, §11.14), `hosts` on `/filters` and the `host` filter, nine infrastructure verdict rules gathered by one probe per rule family in the summary (§11.7), and the shared SQL literal helpers (§11.5).

@@ -9,6 +9,8 @@ import {
   type TelemetryDashboardEvents,
   type TelemetryDashboardEventsQuery,
   type TelemetryDashboardFilters,
+  type TelemetryDashboardMetrics,
+  type TelemetryDashboardMetricsQuery,
   type TelemetryDashboardQuery,
   type TelemetryDashboardSummary,
   type TelemetryDashboardTile,
@@ -24,6 +26,10 @@ import { requireQueryablePolicy, toTelemetryHttpError } from '../query/telemetry
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from '../query/telemetry-query.errors';
 import { TelemetrySchemaService } from '../query/telemetry-schema.service';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
+import { HOST_DISTINCT_TABLE, metricTablesOf, type MetricTables } from '../metrics/metric-catalog';
+import { computeMetricGroup } from '../metrics/metric-group';
+import { distinctHostsSql } from '../metrics/metric-sql';
+import { VERDICT_PROBES, verdictInputsFrom, verdictProbeSql } from '../metrics/metric-verdict';
 import {
   apiTimeseriesSql,
   apiTotalsSql,
@@ -106,7 +112,7 @@ export const DASHBOARD_LOG_Q_MAX = 64;
 
 export const TELEMETRY_DASHBOARD_AUDIT_ACTION = 'telemetry:dashboard';
 
-export type DashboardRoute = 'summary' | 'timeseries' | 'top' | 'events' | 'filters';
+export type DashboardRoute = 'summary' | 'timeseries' | 'top' | 'events' | 'filters' | 'metrics';
 
 /** The window a request resolved to. */
 export interface ResolvedWindow extends DashboardSqlWindow {
@@ -354,6 +360,7 @@ function severityLabel(severityNumber: unknown, text: unknown): string {
 interface DistinctValues {
   services: string[];
   instances: string[];
+  hosts: string[];
   truncated: boolean;
   sql: string[];
   generatedAt: string;
@@ -410,6 +417,11 @@ export class TelemetryDashboardService {
     return this.cached(userId, 'top', query, { kind: query.kind }, (ctx) => this.computeTop(ctx, query.kind));
   }
 
+  /** One metric group of the catalog (#126): tiles, series and tables. */
+  async metrics(userId: string, query: TelemetryDashboardMetricsQuery): Promise<TelemetryDashboardMetrics> {
+    return this.cached(userId, 'metrics', query, { group: query.group }, (ctx) => this.computeMetrics(ctx, query.group));
+  }
+
   async events(userId: string, query: TelemetryDashboardEventsQuery): Promise<TelemetryDashboardEvents> {
     // Validated before the cache, so a malformed cursor is a 400 every time.
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
@@ -441,6 +453,7 @@ export class TelemetryDashboardService {
       sql: values.sql,
       services: values.services,
       instances: values.instances,
+      hosts: values.hosts,
     };
   }
 
@@ -450,7 +463,7 @@ export class TelemetryDashboardService {
   private async cached<T extends { sql: string | string[]; truncated: boolean }>(
     userId: string,
     route: DashboardRoute,
-    query: CommonQuery & { service?: string; instance?: string },
+    query: CommonQuery & { service?: string; instance?: string; host?: string },
     extra: Record<string, string>,
     compute: (ctx: ComputeContext) => Promise<T>,
   ): Promise<T> {
@@ -461,6 +474,7 @@ export class TelemetryDashboardService {
       window.key,
       `service=${query.service ?? ''}`,
       `instance=${query.instance ?? ''}`,
+      `host=${query.host ?? ''}`,
       ...Object.entries(extra)
         .sort(([a], [b]) => (a < b ? -1 : 1))
         .map(([k, v]) => `${k}=${v}`),
@@ -470,9 +484,11 @@ export class TelemetryDashboardService {
       const started = Date.now();
       return this.audited(userId, route, { ...query, ...extra }, started, async () => {
         const runner = new StatementRunner(this.greptime, policy.query.timeoutSeconds * 1000);
-        const catalog = catalogOf(await this.schema.getSchema());
-        const filters = await this.validateFilters(window, query, catalog, policy.query.timeoutSeconds * 1000);
-        return compute({ window, filters, catalog, runner });
+        const schema = await this.schema.getSchema();
+        const catalog = catalogOf(schema);
+        const tables = metricTablesOf(schema);
+        const filters = await this.validateFilters(window, query, { catalog, tables }, policy.query.timeoutSeconds * 1000);
+        return compute({ window, filters, catalog, tables, runner });
       });
     });
 
@@ -528,24 +544,24 @@ export class TelemetryDashboardService {
     });
   }
 
-  /** `service`/`instance` as SQL filters, or 400 when one was not seen in the range. */
+  /** `service`/`instance`/`host` as SQL filters, or 400 when one was not seen in the range. */
   private async validateFilters(
     window: ResolvedWindow,
-    query: { service?: string; instance?: string },
-    catalog: DashboardCatalog,
+    query: { service?: string; instance?: string; host?: string },
+    known: { catalog: DashboardCatalog; tables: MetricTables },
     timeoutMs: number,
   ): Promise<DashboardSqlFilters> {
-    const filters: DashboardSqlFilters = { tracesHaveInstance: catalog.tracesHaveInstance };
-    if (!query.service && !query.instance) return filters;
+    const filters: DashboardSqlFilters = { tracesHaveInstance: known.catalog.tracesHaveInstance };
+    if (!query.service && !query.instance && !query.host) return filters;
 
     const values = await this.distinct.get(window.spanKey, () =>
-      this.loadDistinct(window, timeoutMs, catalog),
+      this.loadDistinct(window, timeoutMs, known),
     );
 
-    for (const field of ['service', 'instance'] as const) {
+    for (const field of ['service', 'instance', 'host'] as const) {
       const wanted = query[field];
       if (wanted === undefined) continue;
-      const known = field === 'service' ? values.services : values.instances;
+      const known = field === 'service' ? values.services : field === 'instance' ? values.instances : values.hosts;
       if (!known.includes(wanted)) {
         throw new TelemetryHttpError(
           TELEMETRY_ERROR_REASONS.DASHBOARD_BAD_FILTER,
@@ -561,16 +577,31 @@ export class TelemetryDashboardService {
   private async loadDistinct(
     window: ResolvedWindow,
     timeoutMs: number,
-    known?: DashboardCatalog,
+    known?: { catalog: DashboardCatalog; tables: MetricTables },
   ): Promise<DistinctValues & { truncated: boolean; sql: string[] }> {
-    const catalog = known ?? catalogOf(await this.schema.getSchema());
+    let catalog = known?.catalog;
+    let metricTables = known?.tables;
+    if (!catalog || !metricTables) {
+      const schema = await this.schema.getSchema();
+      catalog = catalogOf(schema);
+      metricTables = metricTablesOf(schema);
+    }
     const runner = new StatementRunner(this.greptime, timeoutMs);
     const tables = { traces: catalog.traces, logs: catalog.logs };
 
-    const [services, instances] = await Promise.all([
+    const [services, instances, hosts] = await Promise.all([
       runner.maybe(distinctServicesSql(window.from, window.to, tables)),
       runner.maybe(
         distinctInstancesSql(window.from, window.to, { traces: catalog.tracesHaveInstance, logs: catalog.logs }),
+      ),
+      runner.maybe(
+        distinctHostsSql(
+          metricTables.get(HOST_DISTINCT_TABLE) ?? null,
+          HOST_DISTINCT_TABLE,
+          window.from,
+          window.to,
+          DISTINCT_VALUES_MAX + 1,
+        ),
       ),
     ]);
 
@@ -578,11 +609,13 @@ export class TelemetryDashboardService {
       (result?.rows ?? []).map((row) => str(row[0])).filter((v): v is string => v !== null);
     const s = list(services);
     const i = list(instances);
+    const h = list(hosts);
 
     return {
       services: s.slice(0, DISTINCT_VALUES_MAX),
       instances: i.slice(0, DISTINCT_VALUES_MAX),
-      truncated: s.length > DISTINCT_VALUES_MAX || i.length > DISTINCT_VALUES_MAX,
+      hosts: h.slice(0, DISTINCT_VALUES_MAX),
+      truncated: s.length > DISTINCT_VALUES_MAX || i.length > DISTINCT_VALUES_MAX || h.length > DISTINCT_VALUES_MAX,
       sql: runner.sql,
       generatedAt: new Date(Date.now()).toISOString(),
     };
@@ -590,13 +623,17 @@ export class TelemetryDashboardService {
 
   // ---- summary ---------------------------------------------------------------
 
-  private async computeSummary({ window, filters, catalog, runner }: ComputeContext): Promise<TelemetryDashboardSummary> {
+  private async computeSummary({ window, filters, catalog, tables, runner }: ComputeContext): Promise<TelemetryDashboardSummary> {
     const now = new Date(Date.now());
     const runtimeBucket = Math.max(window.bucketSeconds, RUNTIME_MIN_BUCKET_SECONDS);
     const runtimeService = filters.service ?? null;
     const lastDataSince = new Date(now.getTime() - LAST_DATA_LOOKBACK_MS);
 
-    const [apiTotals, apiSeries, logsTotals, logsSeries, last, routes, errors, heap, eventLoop] = await Promise.all([
+    // Infrastructure verdict inputs (#126): one small statement per rule
+    // family, null (not run) when its tables are absent.
+    const probeSql = verdictProbeSql(tables, window);
+
+    const [apiTotals, apiSeries, logsTotals, logsSeries, last, routes, errors, heap, eventLoop, probeResults] = await Promise.all([
       runner.maybe(catalog.traces ? apiTotalsSql(window.previousFrom, window, filters) : null),
       runner.maybe(catalog.traces ? apiTimeseriesSql(window, filters) : null),
       runner.maybe(catalog.logs ? logsTotalsSql(window.previousFrom, window, filters) : null),
@@ -615,7 +652,12 @@ export class TelemetryDashboardService {
       runner.maybe(
         catalog.eventLoop ? eventLoopDelayP99Sql(window.previousFrom, window.to, runtimeBucket, runtimeService) : null,
       ),
+      Promise.all(VERDICT_PROBES.map((probe) => runner.maybe(probeSql[probe]))),
     ]);
+    const infrastructure = verdictInputsFrom(
+      Object.fromEntries(VERDICT_PROBES.map((probe, i) => [probe, probeResults[i]])),
+      new Date(Math.min(now.getTime(), window.to.getTime())),
+    );
 
     const api = periods(apiTotals);
     const logs = periods(logsTotals);
@@ -653,6 +695,7 @@ export class TelemetryDashboardService {
       topErrorRoute: routeLabel(topErrorRow),
       slowestRoute: routeLabel(slowest),
       topErrorMessage: str(objects(errors)[0]?.message),
+      ...infrastructure,
     });
 
     const starts = bucketStarts(window.from, window.to, window.bucketSeconds);
@@ -741,6 +784,28 @@ export class TelemetryDashboardService {
       verdict,
       tiles,
       ...(runtime.length ? { runtime } : {}),
+    };
+  }
+
+  // ---- metrics (#126) --------------------------------------------------------
+
+  private async computeMetrics(
+    { window, filters, tables, runner }: ComputeContext,
+    group: TelemetryDashboardMetricsQuery['group'],
+  ): Promise<TelemetryDashboardMetrics> {
+    const now = new Date(Date.now());
+    const result = await computeMetricGroup({ group, window, filters, tables, runner, now });
+    return {
+      range: { from: window.from.toISOString(), to: window.to.toISOString(), bucketSeconds: result.bucketSeconds },
+      generatedAt: now.toISOString(),
+      truncated: result.truncated,
+      sql: runner.sql,
+      group,
+      available: result.available,
+      tiles: result.tiles,
+      series: result.series,
+      tables: result.tables,
+      skipped: result.skipped,
     };
   }
 
@@ -903,6 +968,8 @@ interface ComputeContext {
   window: ResolvedWindow;
   filters: DashboardSqlFilters;
   catalog: DashboardCatalog;
+  /** Metric tables the store has (#126). */
+  tables: MetricTables;
   runner: StatementRunner;
 }
 

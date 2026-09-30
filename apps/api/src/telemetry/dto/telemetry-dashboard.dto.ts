@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { EVENT_SEVERITIES, SEARCH_MAX_LENGTH } from '../dashboard/telemetry-dashboard.sql';
 import { VERDICT_LEVELS } from '../dashboard/telemetry-dashboard.verdict';
+import { METRIC_GROUPS, METRIC_UNITS } from '../metrics/metric-catalog';
 
 // =============================================================================
 // Telemetry dashboard — request and response shapes (issue #577, epic #576)
@@ -13,6 +14,7 @@ import { VERDICT_LEVELS } from '../dashboard/telemetry-dashboard.verdict';
 //   GET /api/admin/telemetry/dashboard/top         → TelemetryDashboardTopDto
 //   GET /api/admin/telemetry/dashboard/events      → TelemetryDashboardEventsDto
 //   GET /api/admin/telemetry/dashboard/filters     → TelemetryDashboardFiltersDto
+//   GET /api/admin/telemetry/dashboard/metrics     → TelemetryDashboardMetricsDto (#126)
 //
 // Common query: `range` (15m|1h|6h|24h|7d, default 1h) OR `from`+`to` (ISO,
 // from < to, to <= now + 1 min, span <= 30 days); `service`, `instance`
@@ -139,6 +141,23 @@ export const telemetryDashboardEventsQuerySchema = z
 export class TelemetryDashboardEventsQueryDto extends createZodDto(telemetryDashboardEventsQuerySchema) {}
 export type TelemetryDashboardEventsQuery = z.infer<typeof telemetryDashboardEventsQuerySchema>;
 
+export const telemetryDashboardMetricsQuerySchema = z
+  .object({
+    ...commonShape,
+    group: z
+      .enum(METRIC_GROUPS)
+      .describe('The metric group: `host`, `database`, `queue`, `nodes`, `uptime` or `pipeline`.'),
+    host: z
+      .string()
+      .min(1)
+      .max(DASHBOARD_FILTER_VALUE_MAX)
+      .optional()
+      .describe('Only this host (`host_name`). Must be one of `/filters` `hosts` for the range.'),
+  })
+  .superRefine(refineWindow);
+export class TelemetryDashboardMetricsQueryDto extends createZodDto(telemetryDashboardMetricsQuerySchema) {}
+export type TelemetryDashboardMetricsQuery = z.infer<typeof telemetryDashboardMetricsQuerySchema>;
+
 // ---- responses ---------------------------------------------------------------
 
 const envelope = {
@@ -161,7 +180,12 @@ export const telemetryDashboardTileSchema = z.object({
   label: z.string(),
   value: tileValue.describe('Current window value; null when there is nothing to measure.'),
   previous: tileValue.describe('Same measure over the previous window of equal length.'),
-  unit: z.string().describe('`req/min`, `%`, `ms`, `count`, `bytes` or `timestamp`.'),
+  unit: z
+    .string()
+    .describe(
+      '`req/min`, `%`, `ms`, `count`, `bytes` or `timestamp`; metric tiles (`/metrics`) also use ' +
+        '`bytes/s`, `per_s`, `per_min`, `seconds`, `hours`, `days`, `cores` and `load`.',
+    ),
   sparkline: z.array(z.number().nullable()).describe('One value per bucket of the window; null where unmeasurable.'),
 });
 export type TelemetryDashboardTile = z.infer<typeof telemetryDashboardTileSchema>;
@@ -251,6 +275,50 @@ export const telemetryDashboardFiltersSchema = z.object({
   ...envelope,
   services: z.array(z.string()),
   instances: z.array(z.string()),
+  hosts: z
+    .array(z.string())
+    .describe('Host names (`host_name`) seen in the host metrics — the values `/metrics` `host` accepts.'),
 });
 export class TelemetryDashboardFiltersDto extends createZodDto(telemetryDashboardFiltersSchema) {}
 export type TelemetryDashboardFilters = z.infer<typeof telemetryDashboardFiltersSchema>;
+
+// ---- metrics (#126) ------------------------------------------------------------
+
+const metricUnit = z.enum(METRIC_UNITS);
+
+export const metricSeriesSchema = z.object({
+  key: z.string().describe('The catalog family or ratio key.'),
+  label: z.string(),
+  unit: metricUnit,
+  dimension: z.string().nullable().describe('The label column the family is split by (e.g. `mountpoint`), or null.'),
+  groupBy: z.string().nullable().describe("This series' value of `dimension` (e.g. `/`), or null."),
+  points: z
+    .array(z.object({ t: z.string().describe('Bucket start, ISO 8601.'), v: z.number().nullable() }))
+    .describe('One point per bucket of the window; null where nothing was measured.'),
+});
+
+export const metricTableSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  columns: z.array(z.object({ key: z.string(), label: z.string(), unit: metricUnit })),
+  rows: z
+    .array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])))
+    .describe('One row per key; `key` holds the key column, then one entry per column.'),
+});
+
+export const telemetryDashboardMetricsSchema = z.object({
+  range: envelope.range,
+  generatedAt: envelope.generatedAt,
+  truncated: z.boolean().describe('A series, table or histogram row cap cut a list short.'),
+  sql: z.array(z.string()).describe('The exact statements run, in order — for "Open in Explorer".'),
+  group: z.enum(METRIC_GROUPS),
+  available: z.boolean().describe('At least one family or table of the group has its table in the store.'),
+  tiles: z.array(telemetryDashboardTileSchema),
+  series: z.array(metricSeriesSchema),
+  tables: z.array(metricTableSchema),
+  skipped: z
+    .array(z.string())
+    .describe('Catalog keys (families, ratios, tables) skipped because a table or column they need is absent.'),
+});
+export class TelemetryDashboardMetricsDto extends createZodDto(telemetryDashboardMetricsSchema) {}
+export type TelemetryDashboardMetrics = z.infer<typeof telemetryDashboardMetricsSchema>;
