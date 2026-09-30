@@ -22,7 +22,9 @@ import { TRAINING_GRAPH_READY } from '../../src/training-agents/graph/training-g
 import type { RoleResolution } from '../../src/training-agents/models/dto/role-resolution.dto';
 import { RunEventsService } from '../../src/training-agents/runtime/run-events.service';
 import { ACTIVE_RUN_INDEX_NAME } from '../../src/training-agents/runtime/training-runs.constants';
+import { FreeTextSafetyScreen } from '../../src/training-agents/runtime/safety-screen';
 import { TrainingRunsService } from '../../src/training-agents/runtime/training-runs.service';
+import { SAFETY_STOP_GUIDANCE } from '../../src/training-agents/guardrails/safety-keywords';
 import { InMemoryRunEventLog } from '../../src/training-agents/testing/in-memory-run-event-log';
 import { createInMemoryTrainingPrisma } from '../../src/training-agents/testing/in-memory-training-prisma';
 import { createRunBody } from '../../src/training-agents/testing/intake-fixtures';
@@ -209,6 +211,28 @@ describe('/api/ai/training/runs and /stream', () => {
       expect(JSON.stringify(res.body)).toContain('evaluate');
       expect(db.runs.size).toBe(0);
       expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+
+    it('urgent text in a create intake: 200 blocked_safety with the fixed guidance, zero provider calls, no job', async () => {
+      service = new TrainingRunsService(
+        db.prisma as never,
+        jobs as never,
+        { resolveForRun: jest.fn() } as never,
+        events as never,
+        new FreeTextSafetyScreen(),
+      );
+
+      const res = await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send(createRunBody({ limitations: [{ area: 'other', description: 'chest pain and dizzy' }] }))
+        .expect(200);
+
+      expect(res.body.data).toEqual({ runId: expect.any(String), jobId: null, status: 'blocked_safety', guidance: SAFETY_STOP_GUIDANCE });
+      expect(db.get(res.body.data.runId)).toMatchObject({ status: 'blocked_safety' });
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      expect(t.harness.fake.calls).toHaveLength(0);
+      expect(JSON.stringify(res.body)).not.toContain('chest pain');
     });
 
     it('202 { runId, jobId, status: queued } once the graph is ready, with no free text or key anywhere', async () => {
