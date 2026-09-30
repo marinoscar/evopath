@@ -137,6 +137,17 @@ describe('renderVhost', () => {
     expect(block).toContain("proxy_set_header Connection        '';");
   });
 
+  it('gives the training run stream its own unbuffered block', () => {
+    const block = rendered.slice(rendered.indexOf('location /api/ai/training/stream {'));
+    expect(rendered).toContain('location /api/ai/training/stream {');
+    expect(block).toContain('proxy_buffering off;');
+    expect(block).toContain('proxy_cache off;');
+    expect(block).toContain('chunked_transfer_encoding off;');
+    expect(block).toContain('proxy_read_timeout 600s;');
+    expect(block).toContain('proxy_send_timeout 600s;');
+    expect(block).toContain("proxy_set_header Connection        '';");
+  });
+
   it('is deterministic, so a re-run produces no spurious diff', () => {
     expect(renderVhost(target(root), runtime)).toBe(rendered);
   });
