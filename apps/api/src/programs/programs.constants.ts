@@ -71,6 +71,7 @@ export const PROGRAM_REASONS = {
   UNKNOWN_EXERCISES: 'UNKNOWN_EXERCISES',
   ROW_ID_CONFLICT: 'ROW_ID_CONFLICT',
   INVALID_PLAN: 'INVALID_PLAN',
+  NOT_PROPOSED: 'NOT_PROPOSED',
 } as const;
 
 /** The raw-SQL partial unique index: at most one active program per user. */

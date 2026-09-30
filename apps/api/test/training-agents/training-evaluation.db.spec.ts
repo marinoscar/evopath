@@ -39,6 +39,7 @@ import { SignalsLoader } from '../../src/programs/signals/signals.loader';
 import { TrainingSignalsService } from '../../src/programs/signals/signals.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { EVALUATION_SWEEP } from '../../src/training-agents/evaluation/evaluation.constants';
+import { PlannerContextLoader } from '../../src/training-agents/context/planner-context.loader';
 import { EvaluationContextLoader } from '../../src/training-agents/evaluation/evaluation-context.loader';
 import {
   APPROVAL_EXPIRED_CODE,
@@ -427,6 +428,7 @@ describeWithDb('continuous evaluation scheduling (real Postgres)', () => {
         prisma,
         new TrainingSignalsService(prisma, checkIns, new SignalsLoader(prisma, new WorkoutHistoryService(prisma, checkIns))),
         programs,
+        new PlannerContextLoader(prisma),
       );
 
       const sources = await loader.loadSources(u, created.programId, new Date('2026-09-24T12:00:00.000Z'));

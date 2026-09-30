@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { NodeFn } from '../../src/training-agents/graph/node-context';
 import type { RunState } from '../../src/training-agents/graph/run-state';
 import type { AgentScript } from '../../src/training-agents/testing/node-context-harness';
-import { STUB_AGENT_NODES, stubVerdict } from '../../src/training-agents/testing/stub-agent-nodes';
+import { STUB_AGENT_NODES, STUB_EVALUATE_NODES, stubVerdict } from '../../src/training-agents/testing/stub-agent-nodes';
 import type { TrainingAgentRole } from '../../src/common/schemas/settings.schema';
 
 /** Per-call usage every scripted response reports. */
@@ -62,6 +62,7 @@ export function agentScripts(
  * finalize) are stubbed: these specs exercise the runtime, not the context or the rules.
  */
 export const AGENT_NODES: Record<string, NodeFn> = {
+  ...STUB_EVALUATE_NODES,
   prepare_context: STUB_AGENT_NODES.prepare_context,
   guardrails: STUB_AGENT_NODES.guardrails,
   finalize: STUB_AGENT_NODES.finalize,

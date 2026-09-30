@@ -43,3 +43,14 @@ export const TRAINING_KIND_ROLES: Readonly<Record<TrainingRunKind, readonly Trai
   revise: ['planner', 'critic'],
   evaluate: ['evaluator'],
 };
+
+/**
+ * Roles a run kind freezes when they are usable but does not need to start:
+ * an evaluation's light critique (`critique_light`) is skipped, with a
+ * warning, when the critic has no usable model.
+ */
+export const TRAINING_KIND_OPTIONAL_ROLES: Readonly<Record<TrainingRunKind, readonly TrainingAgentRole[]>> = {
+  create: [],
+  revise: [],
+  evaluate: ['critic'],
+};

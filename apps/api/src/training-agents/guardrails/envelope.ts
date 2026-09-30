@@ -90,7 +90,8 @@ export type EnvelopeRule =
 /** One clamp or drop, server-authored. `index` is the model's order (`-1` for a forced operation). */
 export interface EnvelopeFinding {
   index: number;
-  op: PlanChangeOperationName;
+  /** The operation, or null for a finding about the evaluation as a whole (an invented claim id). */
+  op: PlanChangeOperationName | null;
   rule: EnvelopeRule;
   code: string;
   message: string;

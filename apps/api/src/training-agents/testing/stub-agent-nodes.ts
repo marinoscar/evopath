@@ -82,6 +82,60 @@ export const STUB_LOAD_SIGNALS_NODE: NodeFn = async (state) => ({ context: { stu
 /** `safety_gate` with nothing to stop: a clean marker result. */
 export const STUB_SAFETY_GATE_NODE: NodeFn = async () => ({});
 
+/** The evaluator without a model: a marker assessment and one (counted, not typed) change. */
+export const STUB_EVALUATE_NODE: NodeFn = async () => ({
+  evaluation: { stub: true },
+  changeSet: { stub: true, operations: 0 },
+});
+
+/** The envelope without facts: passes the change set through. */
+export const STUB_ENVELOPE_NODE: NodeFn = async () => ({});
+
+/** The adaptation critic without a model: passes through. */
+export const STUB_CRITIQUE_LIGHT_NODE: NodeFn = async () => ({});
+
+/** `decide` from the run input's `autonomy` (else the plan's): never `no_change`, so the write paths run. */
+export const STUB_DECIDE_NODE: NodeFn = async (state) => {
+  const autonomy = state.input.autonomy ?? (state.context as { server?: { autonomy?: unknown } } | null)?.server?.autonomy;
+  const decision = autonomy === 'ask_first' ? 'ask_first' : 'autonomous';
+  return { changeSet: { ...((state.changeSet as Record<string, unknown> | null) ?? {}), decision } };
+};
+
+/** `record_review` without the chokepoint: the outcome only. */
+export const STUB_RECORD_REVIEW_NODE: NodeFn = async () => ({ outcome: { status: 'no_change', verdict: 'reviewed' } });
+
+/** `record_proposal` without the chokepoint: passes through. */
+export const STUB_RECORD_PROPOSAL_NODE: NodeFn = async () => ({});
+
+/** `await_approval` without a proposal row: the interrupt and the decision only. */
+export const STUB_AWAIT_APPROVAL_NODE: NodeFn = async (_state, ctx) => {
+  const decision = ctx.interrupt<{ decision?: string }>({ kind: 'approval', payload: { operations: 0 } });
+  const approved = decision?.decision === 'approve';
+  return {
+    approval: { decision: approved ? 'approve' : 'reject' },
+    ...(approved ? {} : { outcome: { status: 'no_change' as const, verdict: 'rejected_by_owner' } }),
+  };
+};
+
+/** `apply` without the chokepoint: the outcome only. */
+export const STUB_APPLY_NODE: NodeFn = async () => ({ outcome: { status: 'completed', verdict: 'applied' } });
+
+/** `notify` without a notification service. */
+export const STUB_NOTIFY_NODE: NodeFn = async () => ({});
+
+/** The evaluate graph's agent and write nodes, stubbed (the deterministic nodes are listed above). */
+export const STUB_EVALUATE_NODES: Readonly<Record<string, NodeFn>> = {
+  evaluate: STUB_EVALUATE_NODE,
+  envelope: STUB_ENVELOPE_NODE,
+  critique_light: STUB_CRITIQUE_LIGHT_NODE,
+  decide: STUB_DECIDE_NODE,
+  record_review: STUB_RECORD_REVIEW_NODE,
+  record_proposal: STUB_RECORD_PROPOSAL_NODE,
+  await_approval: STUB_AWAIT_APPROVAL_NODE,
+  apply: STUB_APPLY_NODE,
+  notify: STUB_NOTIFY_NODE,
+};
+
 /** Every implemented agent node, stubbed, in graph order. Spread your own overrides after it. */
 export const STUB_AGENT_NODES: Readonly<Record<string, NodeFn>> = {
   prepare_context: STUB_PREPARE_CONTEXT_NODE,
@@ -92,4 +146,5 @@ export const STUB_AGENT_NODES: Readonly<Record<string, NodeFn>> = {
   finalize: STUB_FINALIZE_NODE,
   load_signals: STUB_LOAD_SIGNALS_NODE,
   safety_gate: STUB_SAFETY_GATE_NODE,
+  ...STUB_EVALUATE_NODES,
 };

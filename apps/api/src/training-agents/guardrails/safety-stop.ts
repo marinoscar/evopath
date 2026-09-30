@@ -49,6 +49,10 @@ export const PAIN_PATTERN_RATIONALE =
 export const FORCED_REMOVAL_REASON =
   'Pain was flagged on this exercise in two sessions in a row, so it is removed from your upcoming sessions.';
 
+/** The change log summary of an adjustment made only of forced removals. */
+export const FORCED_REMOVAL_SUMMARY =
+  'An exercise that caused pain in two sessions in a row was taken out of your upcoming sessions.';
+
 /** Every user-facing safety string, for the copy assertions. */
 export const SAFETY_COPY: readonly string[] = [
   SAFETY_TEXT_SUMMARY,
@@ -56,6 +60,7 @@ export const SAFETY_COPY: readonly string[] = [
   PAIN_PATTERN_SUMMARY,
   PAIN_PATTERN_RATIONALE,
   FORCED_REMOVAL_REASON,
+  FORCED_REMOVAL_SUMMARY,
 ];
 
 export interface PainPatternResult {

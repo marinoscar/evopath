@@ -42,6 +42,10 @@ function fakePort(sources: EvaluationSources | null, notes: string[] = []) {
       const found = reviews.find((r) => r.runId === runId && r.actor === actor);
       return found ? { changeLogId: found.changeLogId as string } : null;
     }),
+    loadAdaptationFacts: jest.fn(async () => null),
+    recordUnappliedChange: jest.fn(async () => ({ changeLogId: randomUUID() })),
+    findRunUnapplied: jest.fn(async () => null),
+    resolveProposal: jest.fn(async () => true),
   };
   const notifications = {
     notify: jest.fn((key: string) => {

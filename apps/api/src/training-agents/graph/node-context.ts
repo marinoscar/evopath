@@ -7,7 +7,11 @@ import type {
   CreateWithTreeResult,
   RecordReviewInput,
   RecordReviewResult,
+  RecordUnappliedChangeInput,
 } from '../../programs/programs.service';
+import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
+import type { VerifiedEvidenceBrief } from '../agents/researcher/evidence-brief.contract';
+import type { GuardrailContext } from '../guardrails/types';
 import type { EvaluationSources } from '../evaluation/build-evaluator-context';
 import type { PlannerContextPort } from '../context/planner-context.loader';
 import type { AgentCaller } from '../runtime/agent-caller';
@@ -77,6 +81,28 @@ export interface EvaluationPort {
   recordReview(input: RecordReviewInput): Promise<RecordReviewResult>;
   /** The `reviewed` entry this run already wrote as `actor`, if any: a resumed node never writes twice. */
   findRunReview(userId: string, runId: string, actor: 'ai' | 'system'): Promise<{ changeLogId: string } | null>;
+  /**
+   * What the envelope and apply check operations against, read fresh: the
+   * live tree and version, the workouts locked NOW (linked or on or before
+   * the user's today), the guardrail context (library, gym, history, intake)
+   * and the stored evidence brief. `null` for a program the user does not own.
+   */
+  loadAdaptationFacts(userId: string, programId: string, now: Date): Promise<AdaptationFacts | null>;
+  /** A `proposed` or `superseded` AI change (no version bump), through the programs chokepoint. */
+  recordUnappliedChange(input: RecordUnappliedChangeInput): Promise<{ changeLogId: string }>;
+  /** The latest `adapted` entry of this run without a version (a proposal not yet approved, or a superseded change), if any. */
+  findRunUnapplied(userId: string, runId: string): Promise<{ changeLogId: string; status: string; fromVersion: number | null } | null>;
+  /** Closes an open proposal (`rejected` or `superseded`); `false` when it was not open. */
+  resolveProposal(userId: string, changeLogId: string, status: 'rejected' | 'superseded'): Promise<boolean>;
+}
+
+/** See `EvaluationPort.loadAdaptationFacts`. Server only; never checkpointed. */
+export interface AdaptationFacts {
+  currentVersion: number;
+  tree: PlanTree;
+  lockedWorkoutIds: string[];
+  guardrails: GuardrailContext;
+  brief: VerifiedEvidenceBrief | null;
 }
 
 /** A program version a run wrote. */

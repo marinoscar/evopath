@@ -1,17 +1,22 @@
 import { Injectable } from '@nestjs/common';
 
-import { fromDbDate, toDbDate } from '../../check-ins/local-date';
+import { fromDbDate, localDateInZone, toDbDate } from '../../check-ins/local-date';
 import { liveTreeOf } from '../../programs/plan-diff';
 import { loadProgramRows } from '../../programs/program-mapper';
 import {
   ProgramsService,
   type RecordReviewInput,
   type RecordReviewResult,
+  type RecordUnappliedChangeInput,
 } from '../../programs/programs.service';
 import { TrainingSignalsService } from '../../programs/signals/signals.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { EvaluationPort } from '../graph/node-context';
-import { EVALUATOR_HISTORY_ENTRIES, type EvaluationSources } from './build-evaluator-context';
+import { buildTrainingRunContext } from '../context/build-planner-context';
+import { PlannerContextLoader } from '../context/planner-context.loader';
+import { briefFromEvidence } from '../finalize/plan-evidence';
+import type { AdaptationFacts, EvaluationPort } from '../graph/node-context';
+import { guardrailContextOf } from '../guardrails/types';
+import { EVALUATOR_HISTORY_ENTRIES, type EvaluationSources, lockedWorkoutIdsOf } from './build-evaluator-context';
 
 /** How many recent AI versions are searched for the stored evidence brief. */
 const EVIDENCE_VERSIONS = 5;
@@ -32,6 +37,7 @@ export class EvaluationContextLoader implements EvaluationPort {
     private readonly prisma: PrismaService,
     private readonly signals: TrainingSignalsService,
     private readonly programs: ProgramsService,
+    private readonly planner: PlannerContextLoader,
   ) {}
 
   async loadSources(userId: string, programId: string, now: Date): Promise<EvaluationSources | null> {
@@ -121,5 +127,69 @@ export class EvaluationContextLoader implements EvaluationPort {
       select: { id: true },
     });
     return row ? { changeLogId: row.id } : null;
+  }
+
+  async loadAdaptationFacts(userId: string, programId: string, now: Date): Promise<AdaptationFacts | null> {
+    const program = await this.prisma.program.findFirst({
+      where: { id: programId, userId },
+      select: { id: true, currentVersion: true, startDate: true },
+    });
+    if (!program) return null;
+
+    // The revise path of the planner's loader reads the program's intake,
+    // gym (none: bodyweight only), library, history and live tree; the
+    // instruction is a placeholder that never reaches a model.
+    const source = await this.planner.load(
+      userId,
+      { kind: 'revise', programId, basedOnVersion: program.currentVersion, instruction: 'evaluate' },
+      now,
+    );
+    const [profile, sessions, versions] = await Promise.all([
+      this.prisma.healthProfile.findUnique({ where: { userId }, select: { timeZone: true } }),
+      this.prisma.programSession.findMany({
+        where: { programId, userId, programWorkoutId: { not: null } },
+        select: { programWorkoutId: true },
+      }),
+      this.prisma.programVersion.findMany({
+        where: { programId, origin: { in: ['ai_create', 'ai_adapt'] } },
+        orderBy: { versionNumber: 'desc' },
+        take: EVIDENCE_VERSIONS,
+        select: { evidence: true },
+      }),
+    ]);
+
+    const tree = source.revise?.currentPlan ?? { blocks: [] };
+    const asOf = localDateInZone(now, profile?.timeZone ?? null);
+    const linked = new Set(sessions.flatMap((row) => (row.programWorkoutId ? [row.programWorkoutId] : [])));
+    const brief = versions.map((row) => briefFromEvidence(row.evidence)).find((b) => b !== null) ?? null;
+    const run = buildTrainingRunContext(source);
+
+    return {
+      currentVersion: program.currentVersion,
+      tree,
+      lockedWorkoutIds: lockedWorkoutIdsOf(tree, program.startDate ? fromDbDate(program.startDate) : null, asOf, linked),
+      guardrails: guardrailContextOf(run, brief),
+      brief,
+    };
+  }
+
+  recordUnappliedChange(input: RecordUnappliedChangeInput): Promise<{ changeLogId: string }> {
+    return this.programs.recordUnappliedChange(input);
+  }
+
+  async findRunUnapplied(
+    userId: string,
+    runId: string,
+  ): Promise<{ changeLogId: string; status: string; fromVersion: number | null } | null> {
+    const row = await this.prisma.programChangeLog.findFirst({
+      where: { userId, runId, kind: 'adapted', actor: 'ai', toVersion: null },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true, fromVersion: true },
+    });
+    return row ? { changeLogId: row.id, status: row.status, fromVersion: row.fromVersion } : null;
+  }
+
+  resolveProposal(userId: string, changeLogId: string, status: 'rejected' | 'superseded'): Promise<boolean> {
+    return this.programs.resolveProposal(userId, changeLogId, status);
   }
 }
