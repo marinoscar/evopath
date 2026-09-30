@@ -95,4 +95,5 @@ export const mockTrainingRunEstimate: TrainingRunEstimate = {
   },
   cap: 400_000,
   capBinding: false,
+  sentData: [],
 };
