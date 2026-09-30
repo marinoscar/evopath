@@ -579,7 +579,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 33 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
+All 34 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
 
 | Type | Handler | What it does | Node-eligible |
 |---|---|---|:-:|
@@ -596,6 +596,7 @@ All 33 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `ai.training.plan.run` | `training-agents/runtime/training-plan-run.handler.ts` | Executes one training agent graph run with checkpoints; profile 25 minutes, 1 attempt; a resume is a new job for the same run | No |
 | `ai.training.adapt.run` | `training-adaptation/handlers/adaptation-run.handler.ts` | Executes one quick workout adaptation (planner, light critic, at most one revise) on a `training_plan_runs` row of kind `adapt`; profile 5 minutes, 1 attempt; server-only | No |
 | `gyms.temporary.purge` | `gyms/handlers/temporary-gym-purge.handler.ts` | Deletes temporary gyms unchanged for 30 days that no workout, live adaptation, holding program or scanning intake references, and their storage objects; enqueued by a daily 03:30 cron that only enqueues; server-only, default profile | No |
+| `health.document.purge` | `health-documents/handlers/health-document-purge.handler.ts` | Erases one `delete_after_processing` health document's file through `ObjectsService.delete`, stamps `file_deleted_at`, audits `health:document:delete`; enqueued inside the transaction that applies or discards a health intake; server-only (it deletes storage objects), profile 5 minutes, 8 attempts | No |
 | `training.adaptations.purge` | `training-adaptation/handlers/adaptations-purge.handler.ts` | Deletes `workout_adaptations` rows past `expires_at`, in batches of 5000; enqueued by a daily 03:20 cron that only enqueues; profile 15 minutes, 3 attempts | No |
 | `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Deletes finished runs' events and checkpoints past retention, then old run rows; enqueued by a daily 05:30 cron that only enqueues; profile 30 minutes, 3 attempts | No |
 | `training.evaluation.sweep` | `training-agents/evaluation/handlers/training-evaluation-sweep.handler.ts` | Expires unanswered proposals and starts the due evaluation runs (weekly, deferred, missed sessions) through the scheduler's gates; enqueued hourly (minute 7) by a cron that only enqueues, and only while `ai.enabled`; profile 10 minutes, 3 attempts | No |
