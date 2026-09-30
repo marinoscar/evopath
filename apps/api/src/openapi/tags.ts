@@ -207,6 +207,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'kilograms and distances metres; clients convert for display. Gated on ' +
           '`workouts:read`/`workouts:write`; owner-scoped.',
       },
+      {
+        name: 'Programs',
+        description:
+          'Training plans: a tree of blocks, weeks, workouts and prescribed exercises, with immutable ' +
+          'versions, a change log (who changed what and why) and revert. Content edits require ' +
+          '`If-Match: <currentVersion>` and answer `409` with `details.reason: "TRAINING_STALE_PLAN"` ' +
+          'when stale. At most one active program per user. Weights are kilograms. Gated on ' +
+          '`programs:read`/`programs:write`; owner-scoped; works with AI switched off.',
+      },
     ],
   },
   {
