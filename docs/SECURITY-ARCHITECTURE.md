@@ -765,6 +765,40 @@ See [specs/telemetry.md §10](specs/telemetry.md#10-deploying-the-stack-stack-ag
 for the full design and the admin-facing deploy flow, and the credential
 table above for `STACK_AGENT_TOKEN`'s lifecycle.
 
+### Telemetry collector's PostgreSQL access
+
+The collector's `postgresql` receiver logs in as `POSTGRES_MONITOR_USER`. See
+[the runbook](runbooks/telemetry.md#82-postgresql-metrics) for setup.
+
+- **A monitor login, not the application's.** The intended role holds only
+  `pg_monitor`: it reads the statistics views and needs no `SELECT` on an
+  application table. It is created with a `CONNECTION LIMIT` (the runbook uses
+  5), and the collector opens about two short connections per 30 s scrape. A
+  blank `POSTGRES_MONITOR_USER`/`POSTGRES_MONITOR_PASSWORD` falls back to the
+  API's `POSTGRES_USER`/`POSTGRES_PASSWORD`, which works but gives a telemetry
+  component the application's full credentials.
+- **Secret handling.** `POSTGRES_MONITOR_PASSWORD` is marked `secret` in the
+  CLI's env metadata, so the deploy journal
+  redacts its value (`***REDACTED:POSTGRES_MONITOR_PASSWORD***`).
+  `POSTGRES_MONITOR_USER` is plain.
+- **TLS** follows `POSTGRES_SSL` with the API's rule: exactly `true` means
+  `sslmode=require` (encrypted, certificate not verified).
+
+#### Collector on `devnet`
+
+`telemetry.compose.yml` joins the collector to `devnet`, as well as
+`app-network`, so it can reach a shared `postgres` container on a multi-app
+VPS. The trade-off:
+
+- The collector's OTLP receivers (4317 gRPC, 4318 HTTP) have no
+  authentication. Other containers on `devnet` can now reach them. This is the
+  same exposure class as the API's port 3000 on that network.
+- Nothing is published on the host by joining the network.
+- The risk is integrity, not confidentiality: a container on `devnet` could
+  write telemetry into this store, not read from it (reads need the GreptimeDB
+  reader login).
+- Mitigation for later: authentication on the OTLP receivers.
+
 ---
 
 ## 10. Encrypted credential storage

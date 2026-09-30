@@ -339,3 +339,20 @@ describe('Journal.addSecrets (#391)', () => {
     );
   });
 });
+
+describe('secretsFrom: the PostgreSQL monitor login (#123)', () => {
+  it('treats the monitor password as a secret and the user as plain', async () => {
+    const { secretsFrom } = await import('./install.js');
+    const secrets = secretsFrom(
+      new Map([
+        ['POSTGRES_MONITOR_USER', 'telemetry_monitor'],
+        ['POSTGRES_MONITOR_PASSWORD', 'monitor-password-value'],
+      ]),
+    );
+
+    expect(secrets).toEqual([{ key: 'POSTGRES_MONITOR_PASSWORD', value: 'monitor-password-value' }]);
+    expect(createRedactor(secrets)('pw=monitor-password-value')).toBe(
+      'pw=***REDACTED:POSTGRES_MONITOR_PASSWORD***',
+    );
+  });
+});

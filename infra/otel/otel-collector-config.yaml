@@ -8,12 +8,14 @@
 # unless they name an ingest pipeline (x-greptime-pipeline-name). Logs and
 # metrics must NOT carry that header, so they share a second exporter.
 #
-# Besides what the API pushes, the collector scrapes three things itself
-# (issue #122): the host it runs on (hostmetrics, through the read-only /hostfs
-# bind mount in telemetry.compose.yml), its own pipeline counters, and
-# GreptimeDB's /metrics. Those travel in their own pipeline, `metrics/local`,
-# because only there is it TRUE that the data describes this machine -- so only
-# there is host.name stamped with the host's real name.
+# Besides what the API pushes, the collector scrapes four things itself
+# (issues #122, #123): the host it runs on (hostmetrics, through the read-only
+# /hostfs bind mount in telemetry.compose.yml), its own pipeline counters,
+# GreptimeDB's /metrics, and the application's PostgreSQL. Those travel in
+# their own pipeline, `metrics/local`, because only there is it TRUE that this
+# machine produced the data -- so only there is host.name stamped with the
+# host's real name. (For PostgreSQL it names the host that scraped, not the
+# database server; the server is in the `instance` column.)
 # =============================================================================
 
 receivers:
@@ -131,6 +133,73 @@ receivers:
               action: keep
               regex: greptime_app_version|greptime_(servers|frontend)_.*|greptime_mito_(write_stalling_count|write_buffer_bytes|region_count|flush_requests_total|flush_bytes_total)|greptime_table_operator_ingest_rows_total|greptime_(memory|cpu)_limit_.*|process_.*
 
+  # The application's PostgreSQL (issue #123): the SAME server and database the
+  # API connects to (POSTGRES_HOST/PORT/DB, passed through by
+  # telemetry.compose.yml), read from the statistics views -- nothing here
+  # needs superuser, or even SELECT on an application table. It logs in as
+  # POSTGRES_MONITOR_USER, a role holding only pg_monitor (docs give the SQL);
+  # left blank, compose falls back to the API's own POSTGRES_USER, which works
+  # but hands a telemetry component the application's full credentials.
+  #
+  # Server-wide and per-database numbers (connections vs. max_connections,
+  # commits, size, checkpoints and the background writer, locks) come from a
+  # connection to the `postgres` maintenance database, which the receiver
+  # ALWAYS opens first, whatever `databases` says; the per-table and per-index
+  # numbers from a second one to POSTGRES_DB. A role that cannot CONNECT to
+  # `postgres` therefore yields no metrics at all, only scrape errors in the
+  # collector log every interval. An unreachable server is the same (verified
+  # live): the collector still starts, and every other pipeline carries on.
+  postgresql:
+    endpoint: ${env:POSTGRES_HOST}:${env:POSTGRES_PORT}
+    transport: tcp
+    username: ${env:POSTGRES_MONITOR_USER}
+    password: ${env:POSTGRES_MONITOR_PASSWORD}
+    databases:
+      - ${env:POSTGRES_DB}
+    collection_interval: 30s
+    # POSTGRES_SSL, with the API's own rule: exactly the string `true` means
+    # TLS (libpq sslmode=require: encrypted, certificate not verified -- what
+    # the API's `?sslmode=require` does too); ANYTHING else means plaintext
+    # (sslmode=disable). Compose cannot negate a variable, and the receiver's
+    # switch is the inverse (`insecure: true` = no TLS), so the value is
+    # looked up by NAME: telemetry.compose.yml defines exactly one constant,
+    # POSTGRES_TLS_INSECURE_WHEN_SSL_true=false, and every other spelling of
+    # POSTGRES_SSL names a variable that does not exist and takes the `true`
+    # default after `:-`.
+    tls:
+      insecure: ${env:POSTGRES_TLS_INSECURE_WHEN_SSL_${env:POSTGRES_SSL}:-true}
+      insecure_skip_verify: true
+    metrics:
+      # Off by default in 0.145 and worth their few series each: all of these
+      # are per-DATABASE or server-wide, so they add one series (or one per
+      # lock mode) rather than one per table.
+      postgresql.deadlocks:
+        enabled: true
+      # Held locks, grouped by relation x mode x lock_type, at the moment of
+      # the scrape. The series come and go with the workload; the collector's
+      # own scrape always shows up as a few AccessShareLocks on pg_class and
+      # pg_locks.
+      postgresql.database.locks:
+        enabled: true
+      postgresql.blks_hit:
+        enabled: true
+      postgresql.blks_read:
+        enabled: true
+      postgresql.temp.io:
+        enabled: true
+      postgresql.temp_files:
+        enabled: true
+      # Per TABLE, like postgresql.table.size and postgresql.operations: a
+      # large sequential-scan count on a big table is the missing-index signal.
+      postgresql.sequential_scans:
+        enabled: true
+      # On by default, and the one per-table metric that multiplies: eight
+      # series (heap/index/toast/toast-index x hit/read) for EVERY table.
+      # postgresql.blks_hit / blks_read above answer the same cache-hit
+      # question once per database.
+      postgresql.blocks_read:
+        enabled: false
+
 processors:
   batch:
     timeout: 10s
@@ -198,6 +267,33 @@ processors:
           - set(datapoint.attributes["app.instance.id"], resource.attributes["app.instance.id"]) where resource.attributes["app.instance.id"] != nil
           - set(datapoint.attributes["host.name"], resource.attributes["host.name"]) where resource.attributes["host.name"] != nil
 
+  # Same GreptimeDB behaviour as above, for the postgresql receiver: it names
+  # the database, table and index only as RESOURCE attributes, which
+  # GreptimeDB drops. Without these copies every table's
+  # postgresql_table_size_bytes row would carry the same labels and each
+  # scrape's rows would overwrite one another, leaving one arbitrary table's
+  # value per timestamp. They land as postgresql_database_name,
+  # postgresql_table_name (`public.users` on table metrics; a bare `users` on
+  # index metrics, beside postgresql_index_name) -- verified live.
+  # postgresql.schema.name is only emitted under the receiver's
+  # separateSchemaAttr feature gate, which is off; the line costs nothing
+  # until then.
+  #
+  # WHICH SERVER needs no copy: the receiver sets service.instance.id to
+  # POSTGRES_HOST:POSTGRES_PORT, and GreptimeDB keeps it, as BOTH the
+  # `instance` and `service_instance_id` columns (`db:5432`). host_name stays
+  # the collector's host, stamped above: the machine that SCRAPED, which for a
+  # managed database (RDS) is not the machine that serves.
+  transform/postgresql_labels:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(datapoint.attributes["postgresql.database.name"], resource.attributes["postgresql.database.name"]) where resource.attributes["postgresql.database.name"] != nil
+          - set(datapoint.attributes["postgresql.schema.name"], resource.attributes["postgresql.schema.name"]) where resource.attributes["postgresql.schema.name"] != nil
+          - set(datapoint.attributes["postgresql.table.name"], resource.attributes["postgresql.table.name"]) where resource.attributes["postgresql.table.name"] != nil
+          - set(datapoint.attributes["postgresql.index.name"], resource.attributes["postgresql.index.name"]) where resource.attributes["postgresql.index.name"] != nil
+
 exporters:
   # Logs and metrics
   otlphttp/greptime:
@@ -242,8 +338,8 @@ service:
     # Scraped by this collector, so host.name is stamped here and nowhere
     # else: an OTLP sender keeps whatever host.name it reported itself.
     metrics/local:
-      receivers: [hostmetrics, prometheus/self]
-      processors: [memory_limiter, attributes/redact, transform/host_name, transform/promote_labels, batch]
+      receivers: [hostmetrics, prometheus/self, postgresql]
+      processors: [memory_limiter, attributes/redact, transform/host_name, transform/promote_labels, transform/postgresql_labels, batch]
       exporters: [otlphttp/greptime]
 
     logs:

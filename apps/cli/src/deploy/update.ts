@@ -512,8 +512,15 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         const generated = [...added.filter(isAuto), ...placeholders];
         const rest = added.filter((spec) => !isAuto(spec));
 
+        // An `allowBlank` key does not NEED an answer: blank is a legitimate
+        // value for it, which is exactly what its template default gives. The
+        // PostgreSQL monitor login (#123) is the case: an upgrade must not stop
+        // to ask for an optional hardening, nor refuse a deployment recorded
+        // without a domain, when blank means "reuse the API's login". It is
+        // still asked when the wizard runs for some other key.
         const needsAnswer = rest.filter((spec) => {
           const metadata = metadataFor(spec.key);
+          if (metadata.allowBlank === true) return false;
           return metadata.essential === true || metadata.secret === true;
         });
 

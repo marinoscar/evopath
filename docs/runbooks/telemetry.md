@@ -353,6 +353,75 @@ collector runs, every 30 s.
   pressure. Align the two if you raise the container limit or see the
   collector restarting.
 
+### 8.2 PostgreSQL metrics
+
+The collector scrapes the application's PostgreSQL every 30 s, in addition to
+what the API pushes. Nothing is switched on for this: it runs whenever the
+collector does. The dashboard does not show it; query it in the Explorer. The
+tables (`postgresql_*`) are listed in the
+[spec §11.3](../specs/telemetry.md#113-column-findings-verified-live-greptimedb-v121).
+
+**What is collected:** connections against `postgresql_connection_max`,
+commits, rollbacks, deadlocks, database, table and index sizes, cache hits and
+reads, temp files, sequential and index scans, row counts (live and dead),
+vacuum counts, background-writer and checkpoint activity, and held locks. Rows
+carry `instance` (`POSTGRES_HOST:POSTGRES_PORT`), and per-table rows carry
+`postgresql_database_name` and `postgresql_table_name`.
+
+**Which login the collector uses.** Two keys in `infra/compose/.env`
+(`evopathcli deploy install` asks for them as a pair; `deploy update` never
+prompts):
+
+| Key | Meaning |
+|---|---|
+| `POSTGRES_MONITOR_USER` | A role holding only `pg_monitor`. Blank uses `POSTGRES_USER`. |
+| `POSTGRES_MONITOR_PASSWORD` | Its password. Blank uses `POSTGRES_PASSWORD`. Set both or neither. |
+
+Blank works on any server with no new role, but gives the collector the
+application's own credentials. To use a least-privilege role, run this as a
+superuser (`appdb` is your `POSTGRES_DB`):
+
+```sql
+CREATE ROLE otel_monitor WITH LOGIN PASSWORD 'change-me' CONNECTION LIMIT 5;
+GRANT pg_monitor TO otel_monitor;
+GRANT CONNECT ON DATABASE appdb TO otel_monitor;
+GRANT CONNECT ON DATABASE postgres TO otel_monitor;
+```
+
+`pg_monitor` reads the statistics views; the role needs no `SELECT` on any
+application table. **`CONNECT` on `postgres` is required:** the receiver always
+connects to that maintenance database first, and a role without it gets no
+metrics. Then set `POSTGRES_MONITOR_USER=otel_monitor` and
+`POSTGRES_MONITOR_PASSWORD` in `.env` and recreate the collector
+(`docker compose ... up -d otel-collector`, or **Deploy GreptimeDB** in §2.3
+on a VPS).
+
+**Verify.** After one or two scrape intervals, in the Explorer:
+
+```sql
+SHOW TABLES LIKE 'postgresql_%'
+```
+
+You should see the tables above. Then, for example,
+`SELECT * FROM postgresql_backends ORDER BY greptime_timestamp DESC LIMIT 5`
+returns rows with your `instance`. The WAL-age metric appears only with WAL
+archiving and replication metrics only with replicas; their absence is normal.
+
+**Managed PostgreSQL (RDS and similar).** The same receiver works as long as
+the collector can reach `POSTGRES_HOST:POSTGRES_PORT`. TLS follows
+`POSTGRES_SSL`: exactly `true` encrypts (`sslmode=require`, certificate not
+verified); anything else is plaintext. Create the role above with the
+provider's admin login. `host_name` is the collector's host, not the database's.
+
+**Troubleshooting**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| No `postgresql_*` tables | Role lacks `CONNECT` on `postgres`, wrong password, or the server is unreachable | Read `docker compose logs otel-collector`: scrape errors repeat every 30 s. Grant the `CONNECT` above or fix `POSTGRES_HOST`/`PORT` |
+| Authentication failures | Wrong `POSTGRES_MONITOR_USER`/`PASSWORD`, or `pg_hba.conf` refuses the role | The failures are also logged by PostgreSQL itself; check the database log |
+| Collector cannot resolve the host on a VPS | Shared `postgres` container is on `devnet` | Confirm the collector is on `devnet` (`telemetry.compose.yml`) and `POSTGRES_HOST` matches the container name |
+| Database unreachable | Down or blocked | The collector keeps running and other pipelines are unaffected; it logs a scrape error every 30 s until the server returns |
+
 ## 9. Point a deployment at a GreptimeDB, or rotate credentials, from the UI
 
 The GreptimeDB connection the API uses is resolved at runtime, not fixed
