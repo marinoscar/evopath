@@ -148,7 +148,9 @@ export interface JobListResult {
  * The omission list must match `JOB_LIST_SELECT`'s — see that constant for why
  * `payload` and `claimToken` are the two columns this API does not publish.
  */
-export type JobListItem = Omit<Job, 'payload' | 'claimToken'> & { typeLabel: string };
+export type JobListItem = Omit<Job, 'payload' | 'claimToken' | 'traceContext'> & {
+  typeLabel: string;
+};
 
 export interface RetryFailedResult {
   retried: number;
@@ -180,6 +182,11 @@ export interface ResetStuckAdminResult {
  * response hands it to the node that just took the row, which quotes it back
  * to prove WHICH claim it is speaking for (#364) — and an operator-facing
  * list is not that audience.
+ *
+ * `traceContext` (#132) is left out for now: it is the enqueuing span's W3C
+ * traceparent, consumed by the job's own span (server worker) and by the node
+ * claim response. Surfacing it to operators ("open this job's trace") is a
+ * separate, UI-shaped decision this list does not pre-empt.
  * The `satisfies` clause below is what forces that call to be made out loud:
  * a column added to `Job` fails to compile here until it is either selected or
  * named in the `Omit`, so "not published" is always a decision and never a
@@ -207,7 +214,7 @@ const JOB_LIST_SELECT = {
   claimedByNodeId: true,
   leaseExpiresAt: true,
   executor: true,
-} as const satisfies Record<keyof Omit<Job, 'payload' | 'claimToken'>, true>;
+} as const satisfies Record<keyof Omit<Job, 'payload' | 'claimToken' | 'traceContext'>, true>;
 
 /**
  * The complete reset a retry writes, as ONE object shared by the single-row

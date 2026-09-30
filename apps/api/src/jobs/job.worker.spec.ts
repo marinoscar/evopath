@@ -18,8 +18,11 @@
 
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
+import { SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
 import { Job } from '@prisma/client';
 import { z } from 'zod';
+
+import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
 
 import { JobClaimService, ClaimOptions } from './job-claim.service';
 import { JobClock } from './job-clock';
@@ -827,6 +830,120 @@ describe('JobWorker', () => {
 
       expect(slept).toEqual([20_000]);
       expect(ran).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The job's span (#132)
+  // ---------------------------------------------------------------------------
+
+  describe('the job span (#132)', () => {
+    const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const PARENT_SPAN_ID = '00f067aa0ba902b7';
+    const TRACEPARENT = `00-${TRACE_ID}-${PARENT_SPAN_ID}-01`;
+
+    let tracing: TestTracing;
+
+    beforeEach(() => {
+      tracing = installTestTracing();
+    });
+
+    afterEach(() => {
+      tracing.uninstall();
+    });
+
+    it('is a CHILD of the enqueuing span stored on the row', async () => {
+      const { worker, registry } = makeWorker();
+      registry.register(handler('test.echo', async () => undefined));
+
+      await worker.runJob(claimedJob('test.echo', { traceContext: TRACEPARENT }));
+
+      const [span] = tracing.exporter.getFinishedSpans();
+      expect(span.name).toBe('job.process test.echo');
+      expect(span.kind).toBe(SpanKind.CONSUMER);
+      expect(span.spanContext().traceId).toBe(TRACE_ID);
+      expect(span.parentSpanContext?.spanId).toBe(PARENT_SPAN_ID);
+      expect(span.attributes).toMatchObject({
+        'job.id': 'job-test.echo',
+        'job.type': 'test.echo',
+        'job.attempts': 1,
+        'job.executor': 'server',
+        'job.outcome': 'succeeded',
+      });
+      expect(span.status.code).toBe(SpanStatusCode.UNSET);
+    });
+
+    it("is ACTIVE while the handler runs, so the handler's own spans nest under it", async () => {
+      const { worker, registry } = makeWorker();
+      let seenInHandler: string | undefined;
+      registry.register(
+        handler('test.echo', async () => {
+          await Promise.resolve();
+          seenInHandler = trace.getSpanContext(context.active())?.spanId;
+        })
+      );
+
+      await worker.runJob(claimedJob('test.echo', { traceContext: TRACEPARENT }));
+
+      const [span] = tracing.exporter.getFinishedSpans();
+      expect(seenInHandler).toBe(span.spanContext().spanId);
+    });
+
+    it('is a ROOT span when the row carries no (or an invalid) trace context', async () => {
+      const { worker, registry } = makeWorker();
+      registry.register(handler('test.echo', async () => undefined));
+
+      await worker.runJob(claimedJob('test.echo', { traceContext: null }));
+      await worker.runJob(claimedJob('test.echo', { traceContext: 'garbage' }));
+
+      const spans = tracing.exporter.getFinishedSpans();
+      expect(spans).toHaveLength(2);
+      for (const span of spans) {
+        expect(span.parentSpanContext).toBeUndefined();
+      }
+    });
+
+    it('does not adopt an ambient span from the slot loop', async () => {
+      const { worker, registry } = makeWorker();
+      registry.register(handler('test.echo', async () => undefined));
+
+      await tracing.tracer.startActiveSpan('unrelated', async (ambient) => {
+        await worker.runJob(claimedJob('test.echo'));
+        ambient.end();
+      });
+
+      const jobSpan = tracing.exporter
+        .getFinishedSpans()
+        .find((span) => span.name === 'job.process test.echo');
+      expect(jobSpan?.parentSpanContext).toBeUndefined();
+    });
+
+    it('marks a failed attempt as an error, with the outcome recorded', async () => {
+      const { worker, registry } = makeWorker();
+      registry.register(
+        handler('test.echo', async () => {
+          throw new Error('boom');
+        })
+      );
+
+      await expect(worker.runJob(claimedJob('test.echo'))).resolves.toBe('failed');
+
+      const [span] = tracing.exporter.getFinishedSpans();
+      expect(span.attributes['job.outcome']).toBe('failed');
+      expect(span.status.code).toBe(SpanStatusCode.ERROR);
+    });
+
+    it('never fails a job because the tracer throws', async () => {
+      const { worker, registry, completeSucceeded } = makeWorker();
+      registry.register(handler('test.echo', async () => undefined));
+      jest.spyOn(trace, 'getTracer').mockImplementation(() => {
+        throw new Error('tracer exploded');
+      });
+
+      await expect(
+        worker.runJob(claimedJob('test.echo', { traceContext: TRACEPARENT }))
+      ).resolves.toBe('succeeded');
+      expect(completeSucceeded).toHaveBeenCalledTimes(1);
     });
   });
 

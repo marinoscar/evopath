@@ -53,6 +53,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Job, WorkerNode } from '@prisma/client';
 
+import { normalizeTraceparent } from '../../jobs/job-trace-context';
+
 /** One worker node, as the fleet sees it. */
 export class WorkerNodeDto {
   @ApiProperty({ description: 'Node ID (UUID)' })
@@ -204,6 +206,20 @@ export class NodeJobAssignmentDto {
     nullable: true,
   })
   claimToken!: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'The W3C `traceparent` of the span that was active when this job was ENQUEUED (issue ' +
+      '#132) — `00-<32 hex trace id>-<16 hex span id>-<2 hex flags>` — so a node can start its ' +
+      'execution span as a child of the request that queued the work. `null` when nothing was ' +
+      'being traced at enqueue (telemetry off, an untraced cron tick) or the row predates the ' +
+      'column. Opaque correlation data, not a credential. Optional for a node to use; an older ' +
+      'client ignores it.',
+    nullable: true,
+    type: String,
+    example: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+  })
+  traceparent?: string | null;
 }
 
 /** The response to `POST /nodes/:id/claim`. */
@@ -325,5 +341,10 @@ export function toNodeJobAssignment(job: Job, renewIntervalMs: number): NodeJobA
     // state this path can produce — and a node handed `null` simply omits the
     // field on renew, which is the pre-#364 behaviour it would have had anyway.
     claimToken: job.claimToken,
+    // #132. Re-validated on the way out rather than trusted from the column:
+    // the write path already validates, but a row written by anything else
+    // (a fork's raw INSERT, a restore from an older dump) must not hand a node
+    // a malformed parent. Anything that is not a valid traceparent is `null`.
+    traceparent: normalizeTraceparent(job.traceContext),
   };
 }
