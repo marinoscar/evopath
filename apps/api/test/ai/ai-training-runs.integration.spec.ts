@@ -287,6 +287,47 @@ describe('/api/ai/training/runs and /stream', () => {
     });
   });
 
+  describe('"Re-evaluate now" (kind evaluate)', () => {
+    it('records a manual evaluation of the named plan, and refuses a second within 30 minutes with 409 TRAINING_EVALUATION_COOLDOWN', async () => {
+      TRAINING_GRAPH_READY.evaluate = true;
+      const program = db.addProgram(alice.id);
+
+      const first = await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ kind: 'evaluate', programId: program.id, trigger: 'manual' })
+        .expect(202);
+      const run = db.get(first.body.data.runId)!;
+      expect(run).toMatchObject({ kind: 'evaluate', trigger: 'manual', programId: program.id });
+      run.status = 'succeeded';
+
+      const second = await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ kind: 'evaluate', programId: program.id })
+        .expect(409);
+      expect(second.body.details).toMatchObject({ reason: 'TRAINING_EVALUATION_COOLDOWN' });
+      expect(second.body.details.retryAfterSeconds).toBeGreaterThan(29 * 60);
+      expect(second.body.details.retryAfterSeconds).toBeLessThanOrEqual(30 * 60);
+    });
+
+    it('404 for another user\'s plan, and 400 for a trigger on a create run', async () => {
+      TRAINING_GRAPH_READY.evaluate = true;
+      const program = db.addProgram(bob.id);
+
+      await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ kind: 'evaluate', programId: program.id })
+        .expect(404);
+      await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ ...createRunBody(), trigger: 'manual' })
+        .expect(400);
+    });
+  });
+
   describe('responses never carry the request, the job id or a key', () => {
     it('get, list, cancel and decision views omit input free text, jobId and keys', async () => {
       const paused = seedRun(alice.id, { status: 'awaiting_approval', expiresAt: new Date(Date.now() + 60_000) });

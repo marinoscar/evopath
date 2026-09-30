@@ -9,8 +9,9 @@ import { EVALUATION_DUE } from './evaluation.constants';
 // WEEKLY. The anchor is the most recent local Sunday 18:00 at or before now
 // (Health Profile `timeZone`, UTC when unset or unknown). A weekly review is
 // due when the last one is null or both earlier than that anchor and at least
-// 6 days old, and the plan has been active (since its `startDate`) at least 5
-// local days. So it fires once per week from Sunday 18:00, and a week whose
+// 6 days old, and the plan had been active (since its `startDate`) at least 5
+// local days on the anchor's Sunday. So it fires once per week from Sunday
+// 18:00, and a week whose
 // Sunday was missed (the sweep did not run, a gate failed) is caught up on a
 // later day, until the next anchor. A traveller may get it a day early or late.
 //
@@ -69,12 +70,17 @@ function keyOf(wall: Pick<LocalWallTime, 'date' | 'hour' | 'minute'>): string {
   return `${wall.date}T${String(wall.hour).padStart(2, '0')}:${String(wall.minute).padStart(2, '0')}`;
 }
 
-/** The most recent local Sunday 18:00 at or before `now`, as a local key. */
-export function weeklyAnchorKey(now: Date, timeZone: string | null | undefined): string {
+/** The local date of the most recent Sunday 18:00 at or before `now`. */
+export function weeklyAnchorDate(now: Date, timeZone: string | null | undefined): string {
   const local = localWallTime(now, timeZone);
   const reached = local.weekday === EVALUATION_DUE.weeklyWeekday && local.hour >= EVALUATION_DUE.weeklyHour;
   const back = reached ? 0 : local.weekday === EVALUATION_DUE.weeklyWeekday ? 7 : local.weekday;
-  return keyOf({ date: addDays(local.date, -back), hour: EVALUATION_DUE.weeklyHour, minute: 0 });
+  return addDays(local.date, -back);
+}
+
+/** The most recent local Sunday 18:00 at or before `now`, as a local key (`YYYY-MM-DDTHH:mm`). */
+export function weeklyAnchorKey(now: Date, timeZone: string | null | undefined): string {
+  return keyOf({ date: weeklyAnchorDate(now, timeZone), hour: EVALUATION_DUE.weeklyHour, minute: 0 });
 }
 
 export interface WeeklyDueInput {
@@ -89,8 +95,9 @@ export function isWeeklyDue(input: WeeklyDueInput): boolean {
   const { now, timeZone, startDate, lastWeeklyEvaluationAt: last } = input;
   if (!startDate) return false;
 
-  const today = localWallTime(now, timeZone).date;
-  if (daysFrom(startDate, today) < EVALUATION_DUE.weeklyMinActiveDays) return false;
+  // Active at least 5 days by the anchor (so the first review is the first
+  // Sunday evening at least 5 days into the plan, never mid-week).
+  if (daysFrom(startDate, weeklyAnchorDate(now, timeZone)) < EVALUATION_DUE.weeklyMinActiveDays) return false;
 
   if (last) {
     if (now.getTime() - last.getTime() < EVALUATION_DUE.weeklyMinGapMs) return false;

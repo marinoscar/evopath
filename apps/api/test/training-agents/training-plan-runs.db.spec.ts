@@ -108,7 +108,7 @@ describeWithDb('training_plan_runs constraints (real Postgres)', () => {
 
     it('accepts every documented kind and trigger', async () => {
       for (const kind of ['create', 'revise', 'evaluate']) {
-        for (const trigger of ['user', 'weekly', 'workout_finished', 'manual', 'resume', 'system']) {
+        for (const trigger of ['user', 'weekly', 'workout_finished', 'missed_sessions', 'manual', 'resume', 'system']) {
           const u = await makeUser(`v-${kind}-${trigger}`);
           await expect(makeRun(u, { kind, trigger })).resolves.toBeDefined();
         }
