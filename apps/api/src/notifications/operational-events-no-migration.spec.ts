@@ -93,6 +93,9 @@ const MIGRATIONS_AT_288 = [
   // E4.5: `workout_photos` — the photos a workout was prefilled from. A
   // schema change about workout logging, not notifications.
   '20260929230548_add_workout_photos',
+  // E5.0: `training_run_checkpoints` and `training_run_checkpoint_writes` —
+  // the agent graph's checkpoint tables. Not about notifications.
+  '20260930001950_add_training_run_checkpoints',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
