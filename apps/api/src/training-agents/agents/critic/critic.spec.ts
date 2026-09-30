@@ -24,6 +24,8 @@ import {
 import { CRITIC_INSTRUCTIONS } from './critic.prompt';
 import { criticTools, durationTable, patternTable, weeklyVolumeTable } from './critic-tools';
 import { guardrailContextOf } from '../../guardrails/types';
+import { CRITIC_PERSON_KEYS, summarizeCriticContext } from '../../context/summarize-context';
+import { buildCriticReview } from './critic.agent';
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -241,5 +243,19 @@ describe('critique node (critic agent over the scripted fake)', () => {
 
     const noCritic = createNodeContextHarness({ roleModels: {} });
     await expect(noCritic.runNode(runCritique, await checkedState())).rejects.toMatchObject({ code: 'TRAINING_ROLE_UNAVAILABLE' });
+  });
+});
+
+describe('critic input and its sent-data summary', () => {
+  it('the summary lists every person key the critic receives, and nothing it does not', async () => {
+    const context = runContextFixture();
+    const state = await checkedState();
+    const review = buildCriticReview(state.guardrailReport as GuardrailNodeOutput, context, guardrailContextOf(context, STUB_VERIFIED_BRIEF), STUB_VERIFIED_BRIEF);
+
+    expect(Object.keys(review)).toEqual(['plan', 'tables', 'report', 'person', 'evidence']);
+    const summary = summarizeCriticContext(context.planner, []);
+    const personKeys = summary.sections.map((s) => s.key).filter((k) => !['plan', 'tables', 'report', 'evidence'].includes(k));
+    expect(personKeys).toEqual(Object.keys(review.person as object));
+    expect(personKeys).toEqual(CRITIC_PERSON_KEYS.filter((k) => k !== 'revisionRequest'));
   });
 });

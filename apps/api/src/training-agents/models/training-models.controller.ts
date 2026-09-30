@@ -21,7 +21,7 @@ import { TrainingModelsService } from './training-models.service';
 // =============================================================================
 //
 //   GET  /api/ai/training/models     ai:use (+ AiEnabledGuard)   role states
-//   POST /api/ai/training/estimate   ai:use (+ AiEnabledGuard)   token estimate
+//   POST /api/ai/training/estimate   ai:use (+ AiEnabledGuard)   token estimate and sent data
 //
 // Owner-scoped by construction: both act on the caller only. Neither makes a
 // provider call, and no response carries key material. `AiEnabledGuard` sits
@@ -64,10 +64,14 @@ export class TrainingModelsController {
     description:
       'A rough low and high token count (input plus output, by role) for a `create`, `revise` ' +
       'or `evaluate` run with your current models and efforts, and the per-run cap that applies. ' +
-      'An estimate, not a quote: tokens only, never a price. Makes no provider call.',
+      'An estimate, not a quote: tokens only, never a price. With a `create` intake, or the `revise` ' +
+      'fields (`programId`, `basedOnVersion`, `instruction`), it also returns `sentData`: what each agent ' +
+      'that will run is sent, built by the same context builder the run uses. Makes no provider call and ' +
+      'creates no run.',
   })
-  @ApiDataResponse(TrainingRunEstimate, { description: 'The estimate and the cap' })
+  @ApiDataResponse(TrainingRunEstimate, { description: 'The estimate, the cap and what will be sent' })
   @ApiResponse({ status: 400, description: 'Validation error', type: ErrorDto })
+  @ApiResponse({ status: 404, description: 'The intake\'s gym or the revised program is not yours', type: ErrorDto })
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(FORBIDDEN)
   estimate(@CurrentUser('id') userId: string, @Body() dto: EstimateTrainingRunDto): Promise<TrainingRunEstimateData> {

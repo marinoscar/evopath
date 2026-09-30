@@ -181,3 +181,59 @@ export function summarizeResearcherContext(context: ResearcherContext): SentData
 
   return { sections, dropped: [], excluded: [...NEVER_SEND_LABELS] };
 }
+
+/** The person facts the critic receives (`agents/critic/critic.agent.ts` `buildCriticReview().person`), in order. */
+export const CRITIC_PERSON_KEYS = [
+  'goal',
+  'experience',
+  'daysPerWeek',
+  'preferredWeekdays',
+  'minutesPerSession',
+  'durationWeeks',
+  'limitations',
+  'avoidExerciseKeys',
+  'conservative',
+  'painFlagExerciseKeys',
+  'readiness',
+  'equipment',
+  'revisionRequest',
+] as const;
+
+/**
+ * The critic's input as the panel shows it: the plan and the server's
+ * checks (produced during the run), the person facts it gets (a subset of the
+ * planner's, rendered the same way) and the evidence claims.
+ */
+export function summarizeCriticContext(context: PlannerContext, painFlagExerciseKeys: readonly string[]): SentDataSummary {
+  const person: SentDataSection[] = CRITIC_PERSON_KEYS.flatMap((key): SentDataSection[] => {
+    switch (key) {
+      case 'painFlagExerciseKeys':
+        return [
+          {
+            key,
+            title: 'Exercises you flagged pain on',
+            items: painFlagExerciseKeys.length ? [...painFlagExerciseKeys] : [NONE_USED],
+            count: painFlagExerciseKeys.length,
+          },
+        ];
+      case 'revisionRequest':
+        return context.request.kind === 'revise' ? [{ key, title: 'Your instruction', items: [`"${context.request.instruction ?? ''}"`] }] : [];
+      case 'equipment':
+        return [{ key, title: TITLES.equipment, items: [context.equipment.hasGym ? `Equipment class: ${context.equipment.equipmentClass}` : 'No gym: bodyweight only'] }];
+      default:
+        return [{ key, title: TITLES[key], ...itemsFor(key, context) }];
+    }
+  });
+
+  return {
+    sections: [
+      { key: 'plan', title: 'The plan draft', items: ['Exercises by key, sets, reps, RPE, rest and loads; rationales'] },
+      { key: 'tables', title: 'Server checks', items: ['Weekly sets per muscle, minutes per workout, exercises per movement pattern'] },
+      { key: 'report', title: 'Guardrail findings', items: ['What the server repaired or flagged in the draft'] },
+      ...person,
+      { key: 'evidence', title: 'Evidence', items: ['Claims from the research step, with source ids (no web pages)'] },
+    ],
+    dropped: [],
+    excluded: [...NEVER_SEND_LABELS],
+  };
+}
