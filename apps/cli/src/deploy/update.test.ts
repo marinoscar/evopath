@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,6 +24,7 @@ describe('the update pipeline', () => {
       'migrate',
       'seed',
       'restart',
+      'edge-config',
       'health',
       'deploy-info',
       'publish',
@@ -62,6 +64,14 @@ describe('the update pipeline', () => {
         'already up to date',
       );
     }
+  });
+
+  it('checks the nginx config even when the revision has not moved (#206)', () => {
+    // A checkout updated by hand never reaches the steps above, so this is
+    // the only step that can notice nginx still serving an old config.
+    expect(skipReason('edge-config', { unchanged: true, options: {}, state: {} })).toBeUndefined();
+    expect(ids.indexOf('edge-config')).toBe(ids.indexOf('restart') + 1);
+    expect(ids.indexOf('edge-config')).toBeLessThan(ids.indexOf('health'));
   });
 
   it('still runs the fetch step when unchanged, since that is what decides', () => {
@@ -397,5 +407,139 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
     );
 
     await expect(preflightStep().run(context as never)).resolves.toBeUndefined();
+  });
+});
+
+// =============================================================================
+// nginx's single-file config mounts (#206): `restart` recreates nginx rather
+// than restarting it, and `edge-config` compares what the container reads with
+// what the checkout holds on EVERY run, recreating nginx when they differ.
+// =============================================================================
+describe('the nginx config reaches the running container (#206)', () => {
+  const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+
+  function step(id: string) {
+    const found = buildUpdateSteps().find((candidate) => candidate.id === id);
+    if (found === undefined) throw new Error(`the "${id}" step was removed or renamed`);
+    return found;
+  }
+
+  /** A deploy root whose checkout holds the given nginx files. */
+  function deployRootWith(nginx: string, csp: string): string {
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-edge-'));
+    mkdirSync(join(root, 'repo', 'infra', 'nginx'), { recursive: true });
+    mkdirSync(join(root, 'repo', 'infra', 'compose'), { recursive: true });
+    writeFileSync(join(root, 'repo', 'infra', 'nginx', 'nginx.conf'), nginx);
+    writeFileSync(join(root, 'repo', 'infra', 'nginx', 'csp.conf'), csp);
+    return root;
+  }
+
+  /**
+   * Records every compose argv (after the file list) and answers the
+   * `exec ... sha256sum` reads from `served`, one entry per read.
+   */
+  function contextFor(root: string, served: Array<{ nginx: string; csp: string } | 'down'>) {
+    const calls: string[][] = [];
+    let reads = 0;
+    const run = (async (argv: readonly string[], options: { cwd: string }) => {
+      const done = (stdout: string, exitCode = 0): CommandResult => ({
+        argv,
+        cwd: options.cwd,
+        exitCode,
+        stdout,
+        stderr: '',
+        durationMs: 0,
+        timedOut: false,
+      });
+      const execAt = argv.indexOf('exec');
+      const upAt = argv.indexOf('up');
+      const restartAt = argv.indexOf('restart');
+      const at = [execAt, upAt, restartAt].filter((index) => index !== -1)[0];
+      if (argv[0] !== 'docker' || at === undefined) {
+        throw new Error(`unexpected command: ${argv.join(' ')}`);
+      }
+      calls.push(argv.slice(at));
+      if (execAt === -1) return done('');
+      const answer = served[Math.min(reads++, served.length - 1)];
+      if (answer === 'down' || answer === undefined) {
+        throw new Error('service "nginx" is not running');
+      }
+      return done(
+        `${sha(answer.nginx)}  /etc/nginx/nginx.conf\n${sha(answer.csp)}  /etc/nginx/csp.conf\n`,
+      );
+    }) as typeof runCommand;
+
+    return {
+      calls,
+      context: {
+        options: { deployRoot: root },
+        state: { bindPort: 3535, composeProject: 'demo' },
+        runCommand: run,
+        // Skips the external-network probe; not what these tests are about.
+        networksEnsured: true,
+        journal: { line: () => undefined, command: () => undefined, redact: (text: string) => text },
+        hooks: undefined,
+        completed: new Set<string>(),
+        // The case the issue is about: the checkout did not move this run.
+        unchanged: true,
+      },
+    };
+  }
+
+  it('restart recreates nginx instead of restarting it', async () => {
+    const root = deployRootWith('n', 'c');
+    const { context, calls } = contextFor(root, []);
+
+    await step('restart').run(context as never);
+
+    expect(calls).toContainEqual(['up', '-d', '--no-deps', '--force-recreate', 'nginx']);
+    expect(calls.some((argv) => argv[0] === 'restart')).toBe(false);
+  });
+
+  it('leaves a matching nginx alone', async () => {
+    const root = deployRootWith('new', 'csp');
+    const { context, calls } = contextFor(root, [{ nginx: 'new', csp: 'csp' }]);
+
+    await step('edge-config').run(context as never);
+
+    expect(calls).toEqual([
+      ['exec', '-T', 'nginx', 'sha256sum', '/etc/nginx/nginx.conf', '/etc/nginx/csp.conf'],
+    ]);
+  });
+
+  it('recreates a stale nginx once on an unchanged run, then passes', async () => {
+    const root = deployRootWith('geolocation=(self)', 'csp');
+    const { context, calls } = contextFor(root, [
+      { nginx: 'geolocation=()', csp: 'csp' },
+      { nginx: 'geolocation=(self)', csp: 'csp' },
+    ]);
+
+    await step('edge-config').run(context as never);
+
+    expect(calls.map((argv) => argv[0])).toEqual(['exec', 'up', 'exec']);
+    expect(calls[1]).toEqual(['up', '-d', '--no-deps', '--force-recreate', 'nginx']);
+  });
+
+  it('recreates nginx when it is not running at all', async () => {
+    const root = deployRootWith('new', 'csp');
+    const { context, calls } = contextFor(root, ['down', { nginx: 'new', csp: 'csp' }]);
+
+    await step('edge-config').run(context as never);
+
+    expect(calls.map((argv) => argv[0])).toEqual(['exec', 'up', 'exec']);
+  });
+
+  it('fails with the manual recreate command, under the deployment\'s project, when still stale', async () => {
+    const root = deployRootWith('new', 'csp');
+    const { context, calls } = contextFor(root, [{ nginx: 'old', csp: 'csp' }]);
+
+    const error = await step('edge-config').run(context as never).catch((caught: unknown) => caught);
+
+    expect(calls.filter((argv) => argv[0] === 'up')).toHaveLength(1);
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain('/etc/nginx/nginx.conf');
+    expect(message).toContain('docker compose -p demo');
+    expect(message).toContain('up -d --no-deps --force-recreate nginx');
   });
 });
