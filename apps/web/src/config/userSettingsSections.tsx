@@ -133,13 +133,14 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
     // A new group, appended after `Health`. `ai:use` is the exact string the
     // `/api/ai/training` controller (and `/api/ai/keys`) enforces, and
     // `feature: 'ai'` hides the card while AI is switched off. Its own group
-    // rather than under `Security`: it chooses models, it holds no credential.
+    // rather than under `Security`: it holds no credential. Models are an
+    // administrator's choice (#173); the page shows them read-only.
     label: 'AI',
     cards: [
       {
         title: 'Training agents',
         description:
-          'Choose the model and reasoning effort for each training-plan agent, and cap what a run may spend.',
+          'See the model each training-plan agent uses, and cap what a run may spend.',
         Icon: PsychologyIcon,
         path: '/settings/ai/agents',
         permission: 'ai:use',
