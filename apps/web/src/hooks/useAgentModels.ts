@@ -2,8 +2,8 @@
  * The training agents' resolved models and the typical-plan token estimate.
  *
  * Loads `GET /api/ai/training/models` and `POST /api/ai/training/estimate`
- * (kind `create`) together. The page calls `refresh` after every save, since
- * both answers depend on the saved preferences. Nothing here decides anything:
+ * (kind `create`) together. The page calls `refresh` after every limits save, since
+ * the estimate depends on the saved limits. Nothing here decides anything:
  * the API resolves each role and computes the estimate.
  */
 import { useCallback, useEffect, useState } from 'react';

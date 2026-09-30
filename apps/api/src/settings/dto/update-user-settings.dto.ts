@@ -28,7 +28,8 @@ export const updateUserSettingsSchema = z.object({
   navigation: navigationSchema.optional(),
   notifications: notificationsSchema.optional(),
   // AI preferences (#423, epic #419). Same "omit to store nothing" PUT rule
-  // as the namespaces above.
+  // as the namespaces above. Only `training` (models are assigned by the
+  // administrator, #173); the object is strict.
   ai: userAiSettingsSchema.optional(),
 });
 
@@ -54,9 +55,8 @@ export const patchUserSettingsSchema = z.object({
   //      preferences page sends when a toggle returns to its default; writing
   //      the default value instead would pin the user to it forever.
   notifications: notificationsPatchSchema.nullable().optional(),
-  // `ai: null` clears the whole namespace; `ai: { defaultModel: null }`
-  // clears just the selection while leaving the namespace present. Same
-  // two-level shape `dataTables`/`navigation` use above.
+  // `ai: null` clears the whole namespace; `ai: { training: null }` clears
+  // just the run limits.
   ai: userAiSettingsPatchSchema.nullable().optional(),
 });
 

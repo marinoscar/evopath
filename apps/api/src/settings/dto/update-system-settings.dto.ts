@@ -20,6 +20,7 @@ import {
   aiAzureDeploymentsSchema,
   aiEndpointUrlSchema,
   TELEMETRY_INSTANCE_ID_PATTERN,
+  TASK_REASONING_EFFORTS,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -207,6 +208,25 @@ const aiLimitsSettingsSchema = z.object({
     .optional(),
 });
 
+// `ai.assignments` (#173) — restated; see `systemAiAssignmentsSchema`. The
+// validated, capability-checked writer is `PUT /api/admin/ai/assignments`.
+// Here it is optional and, on a PUT, KEPT when omitted
+// (`SystemSettingsService.replaceSettings`), so no generic settings save can
+// wipe the administrator's model assignments.
+const aiModelRefSettingsSchema = z.object({
+  provider: z.string().min(1).max(100),
+  modelId: z.string().min(1).max(200),
+});
+const aiAssignmentsSettingsSchema = z.object({
+  default: aiModelRefSettingsSchema.nullable(),
+  features: z.record(
+    z.string(),
+    aiModelRefSettingsSchema
+      .extend({ reasoningEffort: z.enum(TASK_REASONING_EFFORTS).nullable().optional() })
+      .nullable(),
+  ),
+});
+
 const aiSettingsSchema = z.object({
   enabled: z.boolean(),
   keyPolicy: z.enum(AI_KEY_POLICIES),
@@ -256,6 +276,7 @@ const aiSettingsSchema = z.object({
       .max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
   limits: aiLimitsSettingsSchema,
+  assignments: aiAssignmentsSettingsSchema.optional(),
 });
 
 // =============================================================================
@@ -503,6 +524,8 @@ export const patchSystemSettingsSchema = z.object({
         .optional(),
       // #450. Replaces wholesale when present — see `systemAiPatchSchema`.
       limits: aiLimitsSettingsSchema.optional(),
+      // #173. Replaces wholesale when present, like `limits`.
+      assignments: aiAssignmentsSettingsSchema.optional(),
     })
     .optional(),
   // Epic #528, story #533. Optional at the namespace level and field by field

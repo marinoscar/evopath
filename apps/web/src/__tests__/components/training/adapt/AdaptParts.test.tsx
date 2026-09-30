@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
-import { render, screen, within } from '../../../utils/test-utils';
+import { render, screen, within, mockAdminUser } from '../../../utils/test-utils';
 import { AdaptChips } from '../../../../components/training/adapt/AdaptChips';
 import { RoleModelBanner } from '../../../../components/training/adapt/RoleModelBanner';
 import { SentDataSummary } from '../../../../components/training/adapt/SentDataSummary';
@@ -127,27 +127,60 @@ describe('RoleModelBanner', () => {
       <RoleModelBanner
         models={{
           planner: roleModel('planner', { state: 'no_key', runnable: false, model: null, fix: 'keys' }),
-          critic: roleModel('critic', { state: 'missing_capability', runnable: false, model: null, fix: 'settings' }),
+          critic: roleModel('critic', { state: 'missing_capability', runnable: false, model: null, fix: 'keys' }),
         }}
       />,
     );
     const planner = screen.getByTestId('role-problem-planner');
-    expect(planner).toHaveTextContent('add an AI key');
-    expect(within(planner).getByRole('link', { name: 'Add an AI key' })).toHaveAttribute('href', '/settings/ai');
+    expect(planner).toHaveTextContent('The planner agent needs an AI key.');
+    expect(within(planner).getByRole('link', { name: 'Add a key' })).toHaveAttribute('href', '/settings/ai');
     const critic = screen.getByTestId('role-problem-critic');
-    expect(critic).toHaveTextContent("this model can't return structured output");
-    expect(within(critic).getByRole('link', { name: 'Choose a model' })).toHaveAttribute('href', '/settings/ai/agents');
+    expect(critic).toHaveTextContent('needs a model with structured output');
+    expect(within(critic).getByRole('link', { name: 'Add a key' })).toHaveAttribute('href', '/settings/ai');
   });
 
-  it('says an administrator disabled the model, with no link to follow', () => {
+  it('never offers the user a model choice (#173)', () => {
+    render(
+      <RoleModelBanner
+        models={{
+          planner: roleModel('planner'),
+          critic: roleModel('critic', { state: 'missing_capability', runnable: false, model: null, fix: 'admin' }),
+        }}
+      />,
+    );
+    const banner = screen.getByTestId('role-model-banner');
+    expect(within(banner).queryByRole('link', { name: /change|choose/i })).toBeNull();
+    expect(banner).not.toHaveTextContent(/choose a model|saved model/i);
+    expect(screen.queryByRole('link', { name: /agents/i })).toBeNull();
+  });
+
+  it('says an administrator must assign a model, with no link for a user who cannot', () => {
     render(
       <RoleModelBanner
         models={{ planner: roleModel('planner', { state: 'no_models', runnable: false, model: null, fix: 'admin' }), critic: roleModel('critic') }}
       />,
     );
     const planner = screen.getByTestId('role-problem-planner');
-    expect(planner).toHaveTextContent(/model disabled by your administrator/i);
+    expect(planner).toHaveTextContent("Your administrator hasn't assigned or enabled one yet.");
     expect(within(planner).queryByRole('link')).toBeNull();
+  });
+
+  it('links an AI administrator to the assignments page', () => {
+    render(
+      <RoleModelBanner
+        models={{
+          planner: roleModel('planner'),
+          critic: roleModel('critic', { state: 'missing_capability', runnable: false, model: null, fix: 'admin' }),
+        }}
+      />,
+      { wrapperOptions: { user: mockAdminUser } },
+    );
+    const critic = screen.getByTestId('role-problem-critic');
+    expect(critic).toHaveTextContent("Your administrator hasn't assigned one yet.");
+    expect(within(critic).getByRole('link', { name: 'Assign a model' })).toHaveAttribute(
+      'href',
+      '/admin/settings/ai/assignments',
+    );
   });
 
   it('shows a placeholder while loading', () => {

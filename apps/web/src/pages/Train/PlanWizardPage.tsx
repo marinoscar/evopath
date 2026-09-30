@@ -534,6 +534,7 @@ interface ReviewStepProps {
 
 function ReviewStep({ form, update, setErrors, goToStep, refreshGyms, gymIds, onStarted, onBack }: ReviewStepProps) {
   const isMounted = useIsMounted();
+  const { hasPermission } = usePermissions();
   const [models, setModels] = useState<TrainingModelsView | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [estimate, setEstimate] = useState<TrainingRunEstimate | null>(null);
@@ -607,12 +608,13 @@ function ReviewStep({ form, update, setErrors, goToStep, refreshGyms, gymIds, on
       if (refusal?.reason === TRAINING_REFUSALS.RUN_ACTIVE) {
         setProblem({ kind: 'active', runId: typeof refusal.details.runId === 'string' ? refusal.details.runId : null });
       } else if (refusal?.reason === TRAINING_REFUSALS.ROLE_UNAVAILABLE) {
+        const role = (refusal.details.role as TrainingAgentRole) ?? 'researcher';
         setProblem({
           kind: 'role',
-          blocker: blockerFor(
-            (refusal.details.role as TrainingAgentRole) ?? 'researcher',
-            (refusal.details.state as Parameters<typeof blockerFor>[1]) ?? 'no_models',
-          ),
+          blocker: blockerFor(role, (refusal.details.state as Parameters<typeof blockerFor>[1]) ?? 'no_models', {
+            fix: models?.roles[role]?.fix,
+            canAssign: hasPermission('ai_config:write'),
+          }),
         });
       } else if (err instanceof ApiError && err.status === 400) {
         const fieldErrors = errorsFromIssues(err.details);

@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { IntakeKind } from './intake-kind.interface';
 import { IntakeKindRegistry } from './intake-kind.registry';
+import { stubFeatureResolver } from '../ai/testing/feature-resolver.stub';
 import { IntakeService } from './intake.service';
 import { StorageObjectReferences } from './storage-object-references';
 
@@ -33,6 +34,7 @@ function stubKind(overrides: Partial<IntakeKind<unknown, StubValue>> = {}): Inta
     contextSchema: z.object({ label: z.string().max(20) }).strict().optional(),
     valueSchema,
     analyzeJobType: 'test.intake.analyze',
+    aiFeature: 'gym_scan',
     maxPhotos: 3,
     itemKinds: ['thing'],
     normalizeValue: (value) => ({ ...value, name: value.name.trim() }),
@@ -104,6 +106,7 @@ describe('IntakeService', () => {
   let jobs: { enqueueWithin: jest.Mock };
   let usableModels: { assertUsable: jest.Mock };
   let objects: { delete: jest.Mock };
+  let features: ReturnType<typeof stubFeatureResolver>;
   let service: IntakeService;
   let references: StorageObjectReferences;
   let kind: IntakeKind<unknown, StubValue>;
@@ -117,6 +120,7 @@ describe('IntakeService', () => {
     jobs = { enqueueWithin: jest.fn(async () => ({ id: '66666666-6666-4666-8666-666666666666' })) };
     usableModels = { assertUsable: jest.fn(async () => ({})) };
     objects = { delete: jest.fn(async () => undefined) };
+    features = stubFeatureResolver({ provider: 'openai', modelId: 'vision-1' });
     references = new StorageObjectReferences();
     service = new IntakeService(
       prisma as never,
@@ -124,6 +128,7 @@ describe('IntakeService', () => {
       jobs as never,
       usableModels as never,
       objects as never,
+      features as never,
       references,
     );
   });
@@ -409,9 +414,10 @@ describe('IntakeService', () => {
       prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
     });
 
-    it("re-checks the model for vision and structured output, then flips to scanning and enqueues the kind's job in one transaction", async () => {
-      const started = await service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'vision-1' });
+    it("resolves the kind's feature model, re-checks it for vision and structured output, then flips to scanning and enqueues the kind's job in one transaction", async () => {
+      const started = await service.analyze(USER, INTAKE, {});
 
+      expect(features.resolve).toHaveBeenCalledWith(USER, 'gym_scan');
       expect(usableModels.assertUsable).toHaveBeenCalledWith(USER, 'openai', 'vision-1', [
         'vision_input',
         'structured_output',
@@ -438,7 +444,7 @@ describe('IntakeService', () => {
     it('refuses a model the gate refuses, and queues nothing', async () => {
       usableModels.assertUsable.mockRejectedValue(new Error('AI_CAPABILITY_UNSUPPORTED'));
 
-      await expect(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'text-only' })).rejects.toThrow(
+      await expect(service.analyze(USER, INTAKE, {})).rejects.toThrow(
         'AI_CAPABILITY_UNSUPPORTED',
       );
       expect(jobs.enqueueWithin).not.toHaveBeenCalled();
@@ -447,7 +453,7 @@ describe('IntakeService', () => {
     it('refuses an intake without photos with 400 NO_PHOTOS', async () => {
       prisma.photoIntakePhoto.count.mockResolvedValue(0);
 
-      expect(reasonOf(await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' })))).toBe(
+      expect(reasonOf(await caught(service.analyze(USER, INTAKE, {})))).toBe(
         'NO_PHOTOS',
       );
     });
@@ -455,7 +461,7 @@ describe('IntakeService', () => {
     it('refuses a manual-only kind with 400 MANUAL_ONLY_KIND', async () => {
       registry.register(stubKind({ analyzeJobType: null }));
 
-      expect(reasonOf(await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' })))).toBe(
+      expect(reasonOf(await caught(service.analyze(USER, INTAKE, {})))).toBe(
         'MANUAL_ONLY_KIND',
       );
     });
@@ -466,7 +472,7 @@ describe('IntakeService', () => {
     ])('answers 409 while %s', async (status, reason) => {
       prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status }) as never);
 
-      const error = await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' }));
+      const error = await caught(service.analyze(USER, INTAKE, {}));
 
       expect(error).toBeInstanceOf(ConflictException);
       expect(reasonOf(error)).toBe(reason);
@@ -479,9 +485,40 @@ describe('IntakeService', () => {
         .mockResolvedValueOnce(intakeRow({ status: 'draft' }) as never)
         .mockResolvedValueOnce({ status: 'scanning' } as never);
 
-      const error = await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'm' }));
+      const error = await caught(service.analyze(USER, INTAKE, {}));
 
       expect(reasonOf(error)).toBe('INTAKE_SCANNING');
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+  
+    it('accepts a client model equal to the resolved one', async () => {
+      await service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'vision-1' });
+
+      expect(prisma.photoIntake.updateMany.mock.calls[0][0]).toMatchObject({ data: { provider: 'openai', modelId: 'vision-1' } });
+    });
+
+    it('refuses a different client model with 409 AI_MODEL_ASSIGNMENT_LOCKED naming the resolved one, queueing nothing (#173)', async () => {
+      const error = await caught(service.analyze(USER, INTAKE, { provider: 'openai', modelId: 'other' }));
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({
+        details: { reason: 'AI_MODEL_ASSIGNMENT_LOCKED', featureId: 'gym_scan', provider: 'openai', modelId: 'vision-1' },
+      });
+      expect(usableModels.assertUsable).not.toHaveBeenCalled();
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+
+    it('refuses a blocked feature with 409 AI_FEATURE_UNAVAILABLE naming the state (#173)', async () => {
+      features.resolve.mockResolvedValueOnce(
+        (await stubFeatureResolver(null, 'no_key').resolve(USER, 'gym_scan')) as never,
+      );
+
+      const error = await caught(service.analyze(USER, INTAKE, {}));
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({
+        details: { reason: 'AI_FEATURE_UNAVAILABLE', featureId: 'gym_scan', state: 'no_key' },
+      });
       expect(jobs.enqueueWithin).not.toHaveBeenCalled();
     });
   });

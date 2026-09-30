@@ -54,41 +54,17 @@ export type UserProfileSettingsPatchValue = z.infer<
 >;
 
 /**
- * Per-user AI preferences (`ai`) — issue #423, epic #419, umbrella #418.
- *
- * `defaultModel` is the ONLY field this issue adds: which (provider, model)
- * a caller's AI surface should pre-select, so a user who has settled on one
- * model does not re-pick it every time. Nullable, and the namespace itself
- * optional — see below for why both.
- *
- * NON-SECRET ONLY, and this is the whole namespace, not a policy exception:
- * a user's own provider key is `UserAiKey.secret`, ciphertext in its own
- * table (`apps/api/prisma/schema.prisma`), never in `user_settings.value`,
- * which — like `system_settings.value` — is returned wholesale by
- * `GET /api/user-settings` and copied verbatim into whatever audit trail
- * later issues add. `provider`/`modelId` here are the same kind of
- * IDENTIFIER `systemStorageSchema.accessKeyId` is: they name a selection,
- * they authorise nothing.
- *
- * `provider`/`modelId` are plain strings, not `z.enum(AI_PROVIDER_IDS)` /
- * a foreign key into `AiModel`: this schema has no access to the database to
- * validate a model still exists, and — matching `Job.type`'s and `AiModel
- * .provider`'s own "a row must outlive the registry that produced it"
- * reasoning throughout this codebase — a user's saved preference for a model
- * later disabled or removed by an admin must remain a value this schema can
- * represent, even though nothing routes to it any more.
- */
-/**
- * The training-plan agent roles a user may pick a model for (`ai.taskModels`).
- * The single list: a later feature with its own agents appends its role keys
- * here rather than adding a parallel setting.
+ * The training-plan agent roles. Each is the AI feature `training.<role>`
+ * whose model the administrator assigns (#173). The single list: a later
+ * feature with its own agents appends its role keys here rather than adding a
+ * parallel setting.
  */
 export const TRAINING_AGENT_ROLES = ['researcher', 'planner', 'critic', 'evaluator'] as const;
 
 export type TrainingAgentRole = (typeof TRAINING_AGENT_ROLES)[number];
 
 /**
- * The reasoning efforts a user may request for a task. Mirrors
+ * The reasoning efforts an assignment may request for a task. Mirrors
  * `AI_REASONING_EFFORTS` in `ai/core/capabilities.ts` (kept as its own list so
  * this schema file does not depend on the AI platform's internals).
  */
@@ -96,34 +72,12 @@ export const TASK_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high'] as co
 
 export type TaskReasoningEffort = (typeof TASK_REASONING_EFFORTS)[number];
 
-/**
- * One role's model preference. `provider`/`modelId` are plain strings for the
- * reason `defaultModel`'s are (a preference outlives a removed model);
- * `reasoningEffort: null` means "the role's default effort".
- */
-export const taskModelSchema = z.object({
-  provider: z.string().min(1).max(100),
-  modelId: z.string().min(1).max(200),
-  reasoningEffort: z.enum(TASK_REASONING_EFFORTS).nullable(),
-});
-
-export type TaskModelValue = z.infer<typeof taskModelSchema>;
-
 /** Bounds on `ai.training.maxRunTokens`; out of range is a 400 at the PATCH. */
 export const TRAINING_MIN_RUN_TOKENS = 10_000;
 export const TRAINING_MAX_RUN_TOKENS = 2_000_000;
 
 const maxRunTokensSchema = z.number().int().min(TRAINING_MIN_RUN_TOKENS).max(TRAINING_MAX_RUN_TOKENS);
 const maxCriticRoundsSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
-
-export const userAiTaskModelsSchema = z.object({
-  researcher: taskModelSchema.optional(),
-  planner: taskModelSchema.optional(),
-  critic: taskModelSchema.optional(),
-  evaluator: taskModelSchema.optional(),
-});
-
-export type UserAiTaskModelsValue = z.infer<typeof userAiTaskModelsSchema>;
 
 /**
  * Training-run limits. `maxRunTokens` null or absent means the server default
@@ -136,54 +90,48 @@ export const userAiTrainingSchema = z.object({
 
 export type UserAiTrainingValue = z.infer<typeof userAiTrainingSchema>;
 
-export const userAiSettingsSchema = z.object({
-  defaultModel: z
-    .object({
-      provider: z.string(),
-      modelId: z.string(),
-    })
-    .nullable(),
-  // Per-role model preferences for the training-plan agents. Optional, never
-  // `.default()`: every existing account is absent and resolves through the
-  // role defaults.
-  taskModels: userAiTaskModelsSchema.optional(),
-  training: userAiTrainingSchema.optional(),
-});
+/**
+ * Per-user AI preferences (`ai`) — issue #423, epic #419, umbrella #418.
+ * Stored shape, and the `ai` body of a user-settings PUT. STRICT: an unknown
+ * key is a 400.
+ *
+ * The only field is `training` (per-run limits): models are chosen by the
+ * administrator (`ai.assignments` in system settings, #173). The namespace
+ * itself is optional.
+ *
+ * NON-SECRET ONLY, and this is the whole namespace, not a policy exception:
+ * a user's own provider key is `UserAiKey.secret`, ciphertext in its own
+ * table (`apps/api/prisma/schema.prisma`), never in `user_settings.value`,
+ * which — like `system_settings.value` — is returned wholesale by
+ * `GET /api/user-settings` and copied verbatim into whatever audit trail
+ * later issues add.
+ */
+export const userAiSettingsSchema = z
+  .object({
+    training: userAiTrainingSchema.optional(),
+  })
+  .strict();
 
 export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
 
 /**
  * `ai`, PATCH counterpart, merged as a JSON merge patch by
  * `UserSettingsService.mergeAi`: a field that is absent keeps the stored
- * value, `null` clears it, a value replaces it. `{ "ai": { "defaultModel":
- * null } }` clears the default-model selection; `taskModels.<role>: null`
- * clears one role; `training.<field>: null` clears one limit.
+ * value, `null` clears it, a value replaces it. `training: null` clears the
+ * limits; `training.<field>: null` clears one limit. STRICT, like
+ * `userAiSettingsSchema`.
  */
-export const userAiSettingsPatchSchema = z.object({
-  defaultModel: z
-    .object({
-      provider: z.string(),
-      modelId: z.string(),
-    })
-    .nullable()
-    .optional(),
-  taskModels: z
-    .object({
-      researcher: taskModelSchema.nullable().optional(),
-      planner: taskModelSchema.nullable().optional(),
-      critic: taskModelSchema.nullable().optional(),
-      evaluator: taskModelSchema.nullable().optional(),
-    })
-    .nullable()
-    .optional(),
-  training: z
-    .object({
-      maxRunTokens: maxRunTokensSchema.nullable().optional(),
-      maxCriticRounds: maxCriticRoundsSchema.nullable().optional(),
-    })
-    .nullable()
-    .optional(),
-});
+export const userAiSettingsPatchSchema = z
+  .object({
+    training: z
+      .object({
+        maxRunTokens: maxRunTokensSchema.nullable().optional(),
+        maxCriticRounds: maxCriticRoundsSchema.nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+  })
+  .strict();
 
 export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>;
 
@@ -201,8 +149,8 @@ export const userSettingsSchema = z.object({
   // and freeze them at today's defaults. See notification-preferences.ts.
   notifications: notificationsSchema.optional(),
   // AI preferences (#423, epic #419). Optional for the same reason as the
-  // three namespaces above: absent means "no default model chosen", and
-  // every existing account is absent until this ships an AI settings UI.
+  // three namespaces above: absent means "no training limits set" (the
+  // server defaults). Models are the administrator's (#173).
   ai: userAiSettingsSchema.optional(),
 });
 
@@ -220,12 +168,9 @@ export const userSettingsPatchSchema = z.object({
   // Three nullable levels, three different deletes: the namespace, one
   // channel, one event key. See notificationsPatchSchema.
   notifications: notificationsPatchSchema.nullable().optional(),
-  // The outer `.nullable()` clears the whole `ai` namespace (back to "no
-  // default model, no other AI preference set"); the inner nullability on
-  // `defaultModel` (see `userAiSettingsPatchSchema`) is what lets
-  // `{ "ai": { "defaultModel": null } }` clear just the selection while
-  // leaving the namespace itself present. Same two-level shape
-  // `dataTablesPatchSchema` uses.
+  // The outer `.nullable()` clears the whole `ai` namespace; the inner
+  // nullability on `training` (see `userAiSettingsPatchSchema`) clears just
+  // the run limits. Same two-level shape `dataTablesPatchSchema` uses.
   ai: userAiSettingsPatchSchema.nullable().optional(),
 });
 
@@ -1110,6 +1055,70 @@ export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
   requiresKey: z.boolean().optional(),
 });
 
+// -----------------------------------------------------------------------------
+// `ai.assignments` (#173) — the administrator's model per AI feature
+// -----------------------------------------------------------------------------
+//
+// ALL model selection is the administrator's: a user never chooses a model.
+// `default` is the organisation's model for every feature it can serve;
+// `features.<featureId>` overrides it for one feature (with a reasoning effort
+// for the training roles). The resolver (`ai/assignments/`) falls through
+// feature -> default -> a deterministic auto pick, each step only when the
+// model is usable for the caller and capable for the feature.
+//
+// `provider`/`modelId` are plain strings (not a foreign key): an assignment
+// outlives a model an admin later disables, and the admin page shows it with a warning rather than losing it.
+// `features` is keyed by plain strings in the STORED shape so a feature id a
+// later release drops cannot reset the whole block on read; the admin PUT
+// body is the strict one (`ai/assignments/dto`).
+
+/**
+ * Every AI feature an administrator can assign a model to. The single list;
+ * what each needs is `AI_FEATURES` in `ai/assignments/ai-features.ts`. The
+ * training ids are `training.<role>` for every `TRAINING_AGENT_ROLES` entry
+ * (a compile-time check below keeps the two lists in step). Permanent once
+ * stored.
+ */
+export const AI_FEATURE_IDS = [
+  'gym_scan',
+  'workout_prefill',
+  'body_metric_reading',
+  'training.researcher',
+  'training.planner',
+  'training.critic',
+  'training.evaluator',
+] as const;
+
+export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];
+
+/** Every training role has a feature id; adding a role without one fails here. */
+type TrainingFeatureIdsCovered = `training.${TrainingAgentRole}` extends AiFeatureId ? true : never;
+export const TRAINING_FEATURE_IDS_COVERED: TrainingFeatureIdsCovered = true;
+
+export const aiModelRefSchema = z.object({
+  provider: z.string().min(1).max(100),
+  modelId: z.string().min(1).max(200),
+});
+
+export type AiModelRef = z.infer<typeof aiModelRefSchema>;
+
+/** One feature's assignment. `reasoningEffort` applies to the training roles only. */
+export const aiFeatureAssignmentSchema = aiModelRefSchema.extend({
+  reasoningEffort: z.enum(TASK_REASONING_EFFORTS).nullable().optional(),
+});
+
+export type AiFeatureAssignment = z.infer<typeof aiFeatureAssignmentSchema>;
+
+export const systemAiAssignmentsSchema = z.object({
+  default: aiModelRefSchema.nullable(),
+  features: z.record(z.string(), aiFeatureAssignmentSchema.nullable()),
+});
+
+export type SystemAiAssignmentsValue = z.infer<typeof systemAiAssignmentsSchema>;
+
+/** What an absent `ai.assignments` means: nothing assigned, every feature auto-picks. */
+export const EMPTY_AI_ASSIGNMENTS: SystemAiAssignmentsValue = { default: null, features: {} };
+
 export const systemAiSchema = z.object({
   enabled: z.boolean(),
   keyPolicy: z.enum(AI_KEY_POLICIES),
@@ -1141,6 +1150,12 @@ export const systemAiSchema = z.object({
     mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
   limits: systemAiLimitsSchema,
+  // #173. OPTIONAL rather than defaulted: absent reads as
+  // `EMPTY_AI_ASSIGNMENTS`, so every stored row and every policy literal
+  // written before it stays valid. Written only by
+  // `PUT /api/admin/ai/assignments` (and carried, never reset, by the other
+  // `ai` writers).
+  assignments: systemAiAssignmentsSchema.optional(),
 });
 
 export type SystemAiValue = z.infer<typeof systemAiSchema>;
@@ -1224,6 +1239,9 @@ export const systemAiPatchSchema = z.object({
   // per-model entry), and "absent means unlimited" is the one way to lift
   // one; the same reasoning as `mcpAllowedHosts` above.
   limits: systemAiLimitsSchema.optional(),
+  // #173. REPLACES WHOLESALE when present, like `limits`: a merge could never
+  // unassign a feature.
+  assignments: systemAiAssignmentsSchema.optional(),
 });
 
 // =============================================================================

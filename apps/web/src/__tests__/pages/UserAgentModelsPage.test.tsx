@@ -1,7 +1,7 @@
 /**
- * `/settings/ai/agents`: one card per role, saves through the user settings
- * PATCH (`ai.taskModels` / `ai.training`, with `If-Match`), the run limits and
- * the estimate sentence, and the hub card's gating.
+ * `/settings/ai/agents`: one read-only card per role (#173: models are an
+ * administrator's choice), the run limits saved through the user settings
+ * PATCH (`ai.training`), the estimate sentence, and the hub card's gating.
  */
 import { describe, it, expect } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
@@ -18,14 +18,7 @@ import {
   mockRoleResolution,
   mockTrainingModelsView,
   mockTrainingRunEstimate,
-  mockTrainingUsableModels,
 } from '../mocks/fixtures/trainingAgents';
-import type { UserSettings } from '../../types';
-
-function useSettings(settings: UserSettings) {
-  server.use(http.get('*/api/user-settings', () => HttpResponse.json({ data: settings })));
-}
-
 function captureSettingsPatch() {
   const calls: Array<{ body: unknown; ifMatch: string | null }> = [];
   server.use(
@@ -41,7 +34,6 @@ function captureSettingsPatch() {
 }
 
 async function renderPage() {
-  server.use(http.get('*/api/ai/models', () => HttpResponse.json({ data: mockTrainingUsableModels })));
   const user = userEvent.setup();
   const result = render(<UserAgentModelsPage />, { wrapperOptions: { aiEnabled: true } });
   await waitFor(() =>
@@ -97,40 +89,42 @@ describe('UserAgentModelsPage', () => {
     );
     await renderPage();
     const researcher = screen.getByRole('region', { name: 'Researcher' });
-    expect(within(researcher).getByText(/Web search is switched off/)).toBeInTheDocument();
+    expect(within(researcher).getByText(/Admin, AI, Hosted tools, Web search/)).toBeInTheDocument();
   });
 
-  it('saves one role as ai.taskModels.<role> with If-Match and reloads the choice', async () => {
-    const calls = captureSettingsPatch();
-    const { user } = await renderPage();
-    const planner = screen.getByRole('region', { name: 'Planner' });
-
-    await user.click(within(planner).getByRole('combobox', { name: 'Model' }));
-    await user.click(screen.getByRole('option', { name: /Medium One/ }));
-
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0].body).toEqual({
-      ai: { taskModels: { planner: { provider: 'anthropic', modelId: 'medium-1', reasoningEffort: null } } },
-    });
-    expect(calls[0].ifMatch).toBe(String(mockUserSettings.version));
-    // The saved model is now the selection, and its efforts are offered.
-    await waitFor(() =>
-      expect(within(planner).getByRole('combobox', { name: 'Reasoning effort' })).not.toHaveAttribute(
-        'aria-disabled',
-        'true',
+  it('shows each role read-only: model, effort, who chose it; no model or effort picker', async () => {
+    server.use(
+      http.get('*/api/ai/training/models', () =>
+        HttpResponse.json({
+          data: {
+            ...mockTrainingModelsView,
+            roles: {
+              ...mockTrainingModelsView.roles,
+              critic: mockRoleResolution({
+                role: 'critic',
+                state: 'ready',
+                source: 'admin_feature',
+                requestedEffort: 'high',
+                effectiveEffort: 'high',
+              }),
+              planner: mockRoleResolution({ role: 'planner', state: 'auto', source: 'auto' }),
+            },
+          },
+        }),
       ),
     );
-  });
-
-  it('shows a saved choice on load', async () => {
-    useSettings({
-      ...mockUserSettings,
-      ai: { taskModels: { critic: { provider: 'openai', modelId: 'frontier-1', reasoningEffort: 'high' } } },
-    });
     await renderPage();
+
     const critic = screen.getByRole('region', { name: 'Critic' });
-    expect(within(critic).getByRole('combobox', { name: 'Model' })).toHaveTextContent('Frontier One');
-    expect(within(critic).getByRole('combobox', { name: 'Reasoning effort' })).toHaveTextContent('high');
+    expect(within(critic).getByText(/Chosen by your administrator/)).toBeInTheDocument();
+    expect(within(critic).getByText(/^Model: Frontier One/)).toBeInTheDocument();
+    expect(within(critic).getByText('Reasoning effort: high')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Planner' })).getByText(/Chosen automatically/)).toBeInTheDocument();
+
+    for (const role of ['Researcher', 'Planner', 'Critic', 'Evaluator']) {
+      const region = screen.getByRole('region', { name: role });
+      expect(within(region).queryByRole('combobox')).not.toBeInTheDocument();
+    }
   });
 
   it('saves the run limits as ai.training', async () => {

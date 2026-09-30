@@ -27,7 +27,7 @@ import { AI_LANGUAGE_CODE } from '../../runtime/ai-audio-run-request';
 
 export const aiTranscriptionRequestSchema = z
   .object({
-    /** Provider id. Omit to use your default model's provider (or the only registered one). */
+    /** Provider id. Omit to use the administrator's default model's provider (or the only registered one). */
     provider: z.string().min(1).max(64).optional(),
     /** The recording: your own storage object — audio, or MP4/WebM video — at most 25 MiB (OpenAI). */
     storageObjectId: z.uuid(),
@@ -60,7 +60,7 @@ export type AiTranscriptionRequestInput = z.output<typeof aiTranscriptionRequest
 
 export const aiSpeechRequestSchema = z
   .object({
-    /** Provider id. Omit to use your default model's provider (or the only registered one). */
+    /** Provider id. Omit to use the administrator's default model's provider (or the only registered one). */
     provider: z.string().min(1).max(64).optional(),
     /** The text to speak: 1 to 4096 characters. */
     input: z.string().min(1).max(AI_SPEECH_INPUT_MAX_CHARS),

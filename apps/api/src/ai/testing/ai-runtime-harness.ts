@@ -99,7 +99,7 @@ export interface AiRuntimeHarnessOptions {
    */
   models?: HarnessModel[];
   fake?: FakeAiProviderOptions;
-  /** `HARNESS_USER`'s `ai.defaultModel` setting. Default none. */
+  /** The administrator's default model (`ai.assignments.default`, #173). Default none. */
   defaultModel?: { provider: string; modelId: string } | null;
   /** Register the fake provider at all. Default true. */
   registerProvider?: boolean;
@@ -224,9 +224,6 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     addUserKey(HARNESS_USER, HARNESS_USER_KEY, opts.reachable ?? models.map((m) => m.modelId));
   }
 
-  if (opts.defaultModel) {
-    settings.set(HARNESS_USER, { theme: 'system', ai: { defaultModel: opts.defaultModel } });
-  }
 
   const p = opts.policy ?? {};
   const policy: AiPolicy = {
@@ -256,6 +253,14 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
       ...(p.hostedTools ?? {}),
     },
     limits: p.limits ?? {},
+    ...(p.assignments || opts.defaultModel
+      ? {
+          assignments: {
+            default: opts.defaultModel ?? p.assignments?.default ?? null,
+            features: { ...(p.assignments?.features ?? {}) },
+          },
+        }
+      : {}),
   };
 
   let orgKey: string | null = opts.orgKey ? HARNESS_ORG_KEY : null;
@@ -472,8 +477,11 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     clearAiConfigWriters() {
       aiConfigWriters.clear();
     },
-    setDefaultModel(userId: string, value: { provider: string; modelId: string } | null) {
-      settings.set(userId, { theme: 'system', ai: { defaultModel: value } });
+    /** Replace the administrator's model assignments (#173); the config cache is dropped. */
+    setAssignments(value: NonNullable<AiPolicy['assignments']> | undefined) {
+      if (value) policy.assignments = structuredClone(value);
+      else delete policy.assignments;
+      aiConfig.invalidateCache();
     },
   };
 }

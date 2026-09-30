@@ -1,6 +1,6 @@
 import type { AiCapability, AiReasoningEffort } from '../../ai/core/capabilities';
 import type { UsableAiModel } from '../../ai/keys/dto/usable-ai-model.dto';
-import { TRAINING_AGENT_ROLES } from '../../common/schemas/settings.schema';
+import { EMPTY_AI_ASSIGNMENTS, type SystemAiAssignmentsValue, TRAINING_AGENT_ROLES } from '../../common/schemas/settings.schema';
 import {
   type CatalogModel,
   effectiveEffortFor,
@@ -47,13 +47,23 @@ function facts(over: Partial<RoleResolutionFacts> = {}): RoleResolutionFacts {
     hasAnyKeySource: true,
     providerSupports: (provider, cap) => cap !== 'hosted_tools' || provider === 'openai' || provider === 'anthropic',
     catalog: [],
-    settings: undefined,
+    assignments: EMPTY_AI_ASSIGNMENTS,
     ...over,
   };
 }
 
 const reasoner = model('reasoner', [...RESEARCH, 'reasoning'], { efforts: ['low', 'medium', 'high'], contextWindow: 200_000 });
 const plain = model('plain', BASE);
+
+/** Administrator assignments (#173): users no longer choose models. */
+function admin(
+  features: SystemAiAssignmentsValue['features'] = {},
+  defaultModel: SystemAiAssignmentsValue['default'] = null,
+): SystemAiAssignmentsValue {
+  return { default: defaultModel, features };
+}
+
+const ref = (modelId: string, provider = 'openai') => ({ provider, modelId });
 
 describe('resolveRole — state table', () => {
   it('ai_disabled when the kill switch is off', () => {
@@ -103,61 +113,57 @@ describe('resolveRole — state table', () => {
     });
   });
 
-  it('ready on the explicit role preference', () => {
+  it('ready on the administrator\'s role assignment', () => {
     const r = resolveRole(
       'planner',
-      facts({
-        usable: [plain, reasoner],
-        settings: { defaultModel: { provider: 'openai', modelId: 'reasoner' }, taskModels: { planner: { provider: 'openai', modelId: 'plain', reasoningEffort: null } } },
-      }),
+      facts({ usable: [plain, reasoner], assignments: admin({ 'training.planner': ref('plain') }, ref('reasoner')) }),
     );
 
-    expect(r).toMatchObject({ state: 'ready', model: { modelId: 'plain' } });
+    expect(r).toMatchObject({ state: 'ready', source: 'admin_feature', model: { modelId: 'plain' } });
+    expect(r.assignmentUnavailable).toBeUndefined();
   });
 
-  it('ready on ai.defaultModel when there is no role preference', () => {
-    const r = resolveRole('critic', facts({ usable: [reasoner, plain], settings: { defaultModel: { provider: 'openai', modelId: 'plain' } } }));
+  it('ready on the administrator\'s default when the role is unassigned', () => {
+    const r = resolveRole('critic', facts({ usable: [reasoner, plain], assignments: admin({}, ref('plain')) }));
 
-    expect(r).toMatchObject({ state: 'ready', model: { modelId: 'plain' } });
+    expect(r).toMatchObject({ state: 'ready', source: 'admin_default', model: { modelId: 'plain' } });
   });
 
-  it('an incapable defaultModel is skipped for the auto pick', () => {
+  it('an incapable default is skipped for the auto pick', () => {
     const r = resolveRole(
       'critic',
-      facts({ usable: [model('text-only', ['responses']), plain], settings: { defaultModel: { provider: 'openai', modelId: 'text-only' } } }),
+      facts({ usable: [model('text-only', ['responses']), plain], assignments: admin({}, ref('text-only')) }),
     );
 
-    expect(r).toMatchObject({ state: 'auto', model: { modelId: 'plain' } });
+    expect(r).toMatchObject({ state: 'auto', source: 'auto', model: { modelId: 'plain' } });
   });
 
-  it('stale_preference falls back to the default model, then to auto', () => {
-    const gone = { provider: 'openai', modelId: 'gone', reasoningEffort: null };
+  it('an assignment the caller cannot use falls through to the default, then auto, flagged assignmentUnavailable', () => {
+    expect(
+      resolveRole('planner', facts({ usable: [plain, reasoner], assignments: admin({ 'training.planner': ref('gone') }, ref('plain')) })),
+    ).toMatchObject({ state: 'ready', source: 'admin_default', model: { modelId: 'plain' }, assignmentUnavailable: { modelId: 'gone' }, fix: null });
 
     expect(
-      resolveRole('planner', facts({ usable: [plain, reasoner], settings: { defaultModel: { provider: 'openai', modelId: 'plain' }, taskModels: { planner: gone } } })),
-    ).toMatchObject({ state: 'stale_preference', model: { modelId: 'plain' }, stalePreference: { modelId: 'gone' }, fix: 'settings' });
-
-    expect(
-      resolveRole('planner', facts({ usable: [plain, reasoner], settings: { defaultModel: null, taskModels: { planner: gone } } })),
-    ).toMatchObject({ state: 'stale_preference', model: { modelId: 'reasoner' } });
+      resolveRole('planner', facts({ usable: [plain, reasoner], assignments: admin({ 'training.planner': ref('gone') }) })),
+    ).toMatchObject({ state: 'auto', model: { modelId: 'reasoner' }, assignmentUnavailable: { modelId: 'gone' } });
   });
 
-  it('a preference that is usable but incapable is stale too', () => {
+  it('an assignment that is usable but incapable falls through too', () => {
     const r = resolveRole(
       'planner',
-      facts({ usable: [model('text-only', ['responses']), plain], settings: { defaultModel: null, taskModels: { planner: { provider: 'openai', modelId: 'text-only', reasoningEffort: null } } } }),
+      facts({ usable: [model('text-only', ['responses']), plain], assignments: admin({ 'training.planner': ref('text-only') }) }),
     );
 
-    expect(r).toMatchObject({ state: 'stale_preference', model: { modelId: 'plain' } });
+    expect(r).toMatchObject({ state: 'auto', model: { modelId: 'plain' }, assignmentUnavailable: { modelId: 'text-only' } });
   });
 
-  it('a stale preference with nothing to fall back to reports the blocking state and names the saved model', () => {
+  it('an unusable assignment with nothing to fall back to reports the blocking state and names it', () => {
     const r = resolveRole(
       'planner',
-      facts({ hasAnyKeySource: false, settings: { defaultModel: null, taskModels: { planner: { provider: 'openai', modelId: 'gone', reasoningEffort: 'low' } } } }),
+      facts({ hasAnyKeySource: false, assignments: admin({ 'training.planner': { ...ref('gone'), reasoningEffort: 'low' } }) }),
     );
 
-    expect(r).toMatchObject({ state: 'no_key', stalePreference: { provider: 'openai', modelId: 'gone' }, requestedEffort: 'low' });
+    expect(r).toMatchObject({ state: 'no_key', assignmentUnavailable: { provider: 'openai', modelId: 'gone' }, requestedEffort: 'low' });
     expect(r.model).toBeUndefined();
   });
 
@@ -184,7 +190,7 @@ describe('resolveRole — researcher', () => {
   const compatible = model('local', RESEARCH, { provider: 'openai-compatible', keySource: 'none' });
 
   it('never resolves to a model without hosted_tools', () => {
-    const r = resolveRole('researcher', facts({ usable: [plain], settings: { defaultModel: { provider: 'openai', modelId: 'plain' } } }));
+    const r = resolveRole('researcher', facts({ usable: [plain], assignments: admin({}, ref('plain')) }));
 
     expect(r.state).toBe('missing_capability');
     expect(r.model).toBeUndefined();
@@ -193,7 +199,7 @@ describe('resolveRole — researcher', () => {
   it('never resolves to a non-OpenAI provider, even one declaring hosted_tools', () => {
     const r = resolveRole(
       'researcher',
-      facts({ usable: [anthropicHosted, compatible], settings: { defaultModel: null, taskModels: { researcher: { provider: 'anthropic', modelId: 'claude-hosted', reasoningEffort: null } } } }),
+      facts({ usable: [anthropicHosted, compatible], assignments: admin({ 'training.researcher': ref('claude-hosted', 'anthropic') }) }),
     );
 
     expect(r.state).toBe('missing_capability');
@@ -265,14 +271,11 @@ describe('effort', () => {
     expect(resolveRole('evaluator', facts({ usable: [reasoner] }))).toMatchObject({ requestedEffort: 'medium' });
   });
 
-  it('uses the chosen effort; a null choice means the role default', () => {
-    const settings = (reasoningEffort: 'low' | null) => ({
-      defaultModel: null,
-      taskModels: { planner: { provider: 'openai', modelId: 'reasoner', reasoningEffort } },
-    });
+  it('uses the administrator\'s effort; a null effort means the role default', () => {
+    const assigned = (reasoningEffort: 'low' | null) => admin({ 'training.planner': { ...ref('reasoner'), reasoningEffort } });
 
-    expect(resolveRole('planner', facts({ usable: [reasoner], settings: settings('low') }))).toMatchObject({ requestedEffort: 'low', effectiveEffort: 'low' });
-    expect(resolveRole('planner', facts({ usable: [reasoner], settings: settings(null) }))).toMatchObject({ requestedEffort: 'high', effectiveEffort: 'high' });
+    expect(resolveRole('planner', facts({ usable: [reasoner], assignments: assigned('low') }))).toMatchObject({ requestedEffort: 'low', effectiveEffort: 'low' });
+    expect(resolveRole('planner', facts({ usable: [reasoner], assignments: assigned(null) }))).toMatchObject({ requestedEffort: 'high', effectiveEffort: 'high' });
   });
 
   it.each<[AiReasoningEffort[], AiReasoningEffort, AiReasoningEffort, 'clamped' | undefined]>([

@@ -36,6 +36,11 @@ describe('IntakeKindRegistry', () => {
     expect(registry.list()).toEqual(['kind_a', 'kind_b']);
   });
 
+  it('refuses a kind with an analyzer but no aiFeature (#173)', () => {
+    expect(() => registry.register(kind('scan', { analyzeJobType: 'ai.x.scan' }))).toThrow(/aiFeature/);
+    expect(() => registry.register(kind('scan', { analyzeJobType: 'ai.x.scan', aiFeature: 'gym_scan' }))).not.toThrow();
+  });
+
   it('get answers undefined for an unknown kind', () => {
     expect(registry.get('nope')).toBeUndefined();
   });
@@ -56,7 +61,7 @@ describe('IntakeKindRegistry', () => {
   it('a duplicate registration replaces the earlier one, with a warning (last one wins)', () => {
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const first = kind('dup');
-    const second = kind('dup', { analyzeJobType: 'test.second' });
+    const second = kind('dup', { analyzeJobType: 'test.second', aiFeature: 'gym_scan' });
 
     registry.register(first);
     registry.register(second);

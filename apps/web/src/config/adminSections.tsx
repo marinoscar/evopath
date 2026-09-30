@@ -54,6 +54,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
 import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
+import AltRouteOutlinedIcon from '@mui/icons-material/AltRouteOutlined';
 // Observability (#537, epic #528) — the telemetry policy page and the explorer.
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
@@ -591,6 +592,22 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           "See who is calling AI, which models they use, and how much of it the organization's key pays for.",
         Icon: DataUsageOutlinedIcon,
         path: '/admin/settings/ai/usage',
+        permission: 'ai_config:read',
+        feature: 'ai',
+      },
+      {
+        // Issue #173. APPENDED to the AI group (append-only, as above). Every
+        // AI model choice is an administrator's: the organization default and
+        // a model per feature. `ai_config:read` is the literal string
+        // `ai-assignments-admin.controller.ts` enforces on its GET; saving
+        // needs `ai_config:write`, which the page gates internally. Nested
+        // under the AI route (longest prefix titles it) and feature-gated like
+        // AI Models (CLAUDE.md AI Platform Rule 5).
+        title: 'AI Model Assignments',
+        description:
+          'Choose the AI model the organization uses by default and for each feature. Users do not choose models.',
+        Icon: AltRouteOutlinedIcon,
+        path: '/admin/settings/ai/assignments',
         permission: 'ai_config:read',
         feature: 'ai',
       },

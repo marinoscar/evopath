@@ -28,6 +28,7 @@
 // `npm run test:db` against a migrated database.
 // =============================================================================
 
+import { stubFeatureResolver } from '../../src/ai/testing/feature-resolver.stub';
 import { randomUUID } from 'node:crypto';
 
 import { ConflictException } from '@nestjs/common';
@@ -63,6 +64,7 @@ describeWithDb('photo intakes (real Postgres)', () => {
     contextSchema: z.undefined(),
     valueSchema: z.object({ name: z.string().min(1).max(100) }).strict(),
     analyzeJobType: STUB_JOB_TYPE,
+    aiFeature: 'gym_scan',
     apply: (args) => applyImpl(args),
   };
 
@@ -111,6 +113,7 @@ describeWithDb('photo intakes (real Postgres)', () => {
       new JobsService(client as unknown as PrismaService),
       { assertUsable: jest.fn(async () => ({})) } as never,
       objects as never,
+      stubFeatureResolver({ provider: 'openai', modelId: 'vision-model' }) as never,
     );
   });
 

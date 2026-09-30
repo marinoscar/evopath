@@ -286,7 +286,7 @@ Plan-viewer pieces (`apps/web/src/components/training/`):
 - `AutomationPausedBanner`: shows the safety message and a Resume control that asks for confirmation, then calls `POST /api/programs/:id/autonomy/resume`.
 - A Progress link opens `/train/plans/:id/progress`.
 
-`/settings/ai/agents` picks a model and effort per role and shows each role's resolution state. Every AI affordance is hidden while AI is off or without `ai:use`, and the two AI routes redirect to `/train/plans`.
+`/settings/ai/agents` shows, per role, the model the administrator chose for the user and its resolution state, read-only: users do not pick a model or an effort. Every AI affordance is hidden while AI is off or without `ai:use`, and the two AI routes redirect to `/train/plans`.
 
 ### 2.12 Usage by agent role
 
@@ -316,14 +316,14 @@ Per-endpoint shapes are in `/api/docs`.
 
 | Setting | Where | Meaning |
 |---|---|---|
-| `ai.taskModels.<role>` | User settings, `/settings/ai/agents` | `{ provider, modelId, reasoningEffort }` per role, each optional. Precedence: the role's preference, then `ai.defaultModel`, then a deterministic auto pick among usable capable models, else a blocking state |
+| `ai.assignments.features['training.<role>']` | System setting, `/admin/settings/ai/assignments` | `{ provider, modelId, reasoningEffort? }` per role, each optional. Precedence: the role's assignment, then `ai.assignments.default`, then a deterministic auto pick among usable capable models, else a blocking state ([ai-platform.md §2.18a](ai-platform.md#218a-feature-model-resolution)). The effort is the assignment's, else the role default, clamped to what the model offers. Per-user model settings no longer exist; migration `20260930180000_remove_user_ai_model_choices` deleted `ai.taskModels` and `ai.defaultModel` |
 | `ai.training.maxRunTokens` | User settings | Per-run token cap, 10,000 to 2,000,000. Absent: 400,000 for `create` and `revise`, 150,000 for `evaluate` |
 | `ai.training.maxCriticRounds` | User settings | 1, 2 or 3; default 2 |
 | `ai.enabled`, `ai.hostedTools.web_search` | `/admin/settings/ai` | Kill switch; the researcher cannot run while web search is off (off by default) |
 | `ai.limits` | `/admin/settings/ai` | Platform request and output caps; apply to every agent call |
 | `programs.autonomy` | Plan header column | `autonomous` (default) or `ask_first` |
 
-Role resolution states (`GET /api/ai/training/models`): `ready`, `auto`, `stale_preference` (runnable), and the blocking `no_key`, `no_models`, `missing_capability`, `web_search_disabled`, `ai_disabled`. A run that needs a blocked role is refused at start with `409 TRAINING_ROLE_UNAVAILABLE`.
+Role resolution states (`GET /api/ai/training/models`, from the feature resolver): `ready`, `auto` (runnable), and the blocking `no_key`, `no_models`, `missing_capability`, `web_search_disabled`, `ai_disabled`. A run that needs a blocked role is refused at start with `409 TRAINING_ROLE_UNAVAILABLE`.
 
 **Cost and caps.** Protection is layered: `ai.limits` on every call; the per-run token cap frozen on the run at start and checked before each call by `RunBudget` (counting input, output and reasoning tokens; rebuilt from the run's usage on resume, so a resumed run spends against the same cap); the output cap of each call clamped to the remaining budget; and a pre-run estimate (`POST /api/ai/training/estimate`, a range, never a quote). One active run per user. Usage is shown as tokens per agent and key source ([§2.12](#212-usage-by-agent-role)); no currency is computed because the platform has no price catalog. A spent budget fails the run `TRAINING_RUN_BUDGET_EXCEEDED`, except that a critique or revision the budget cannot pay for ships the checked draft with `critic_skipped_budget` (create and revise) or `criticReport.skipped = 'token_cap'` and `revision_skipped_token_cap` (adapt).
 

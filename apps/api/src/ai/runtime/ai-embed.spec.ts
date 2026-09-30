@@ -132,7 +132,7 @@ describe('AiService.embed', () => {
       expect(err.toJSON().details).toMatchObject({ inputs: 300, max: AI_EMBEDDINGS_MAX_INPUTS });
     });
 
-    it('never falls back to ai.defaultModel — an embedding model must be named', async () => {
+    it('never falls back to the administrator default model — an embedding model must be named', async () => {
       const h = createAiRuntimeHarness({ defaultModel: { provider: 'openai', modelId: HARNESS_EMBEDDING_MODEL } });
 
       expect(await codeOf(h.ai.forUser(HARNESS_USER).embed({ input: 'x' } as AiEmbedRequest))).toBe(

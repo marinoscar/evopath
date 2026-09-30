@@ -106,7 +106,7 @@ export interface ReadingIntakeApiState {
   intakes: Map<string, PhotoIntakeView<Reading>>;
   requests: { method: string; path: string; body?: unknown }[];
   created: number;
-  analyzed: { provider: string; modelId: string }[];
+  analyzed: Record<string, unknown>[];
   itemPatches: { itemId: string; body: Record<string, unknown> }[];
   itemPosts: { kind: string; value: Reading }[];
   applied: number;
@@ -223,14 +223,15 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
 
     http.post('*/api/intakes/:id/analyze', async ({ request, params }) => {
       const id = String(params.id);
-      const body = (await record(request, `/api/intakes/${id}/analyze`)) as { provider: string; modelId: string };
+      const body = (await record(request, `/api/intakes/${id}/analyze`)) as Record<string, unknown>;
       if (options.analyzeError) return HttpResponse.json(options.analyzeError.body, { status: options.analyzeError.status });
       const intake = state.intakes.get(id);
       if (!intake) return notFound();
       state.analyzed.push(body);
       intake.status = 'scanning';
-      intake.provider = body.provider;
-      intake.modelId = body.modelId;
+      // The server resolves the model (#173); the body names none.
+      intake.provider = 'openai';
+      intake.modelId = 'gpt-5-mini';
       pollsLeft = new Map(pollsLeft).set(id, options.scanPolls ?? 1);
       return HttpResponse.json({ data: { intakeId: id, jobId: 'job-1' } }, { status: 202 });
     }),

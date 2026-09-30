@@ -6,7 +6,7 @@ import { loginAsContributor, loginAsViewer } from '../helpers/auth.helper';
  * dialog's shell on a phone, against the running stack.
  *
  * Whether AI is on is deployment-wide state another spec (or an operator) may
- * have changed, so `GET /api/ai/config` and `GET /api/ai/models` are answered
+ * have changed, so `GET /api/ai/config` and `GET /api/ai/features` are answered
  * here with `page.route()` to make each case deterministic. Everything else is
  * the real API: the intake is really created (and discarded) through
  * `/api/intakes`. No scan runs: this stack has no vision model and the
@@ -22,16 +22,23 @@ import { loginAsContributor, loginAsViewer } from '../helpers/auth.helper';
 const DESKTOP = { width: 1440, height: 900 };
 const PHONE = { width: 375, height: 812 };
 
-const VISION_MODEL = {
-  provider: 'openai',
-  modelId: 'gpt-5-mini',
-  displayName: 'GPT-5 mini',
-  capabilities: {
-    capabilities: ['responses', 'vision_input', 'structured_output'],
-    inputModalities: ['text', 'image'],
-    outputModalities: ['text'],
-  },
-  keySource: 'user',
+/** `GET /api/ai/features` (#173): the administrator's assignment for the photo reading, resolved ready. */
+const FEATURES = {
+  features: [
+    {
+      featureId: 'body_metric_reading',
+      label: 'Body metric photo reading',
+      group: 'photo',
+      state: 'ready',
+      source: 'admin_feature',
+      model: { provider: 'openai', modelId: 'gpt-5-mini', displayName: 'GPT-5 mini', keySource: 'user' },
+      needs: ['vision_input', 'structured_output'],
+      inputModalities: ['image'],
+      requestedEffort: null,
+      effectiveEffort: null,
+      fix: null,
+    },
+  ],
 };
 
 async function stubAi(page: Page, enabled: boolean) {
@@ -41,8 +48,8 @@ async function stubAi(page: Page, enabled: boolean) {
       body: JSON.stringify({ data: { enabled, keyPolicy: 'byok', providers: [] } }),
     }),
   );
-  await page.route('**/api/ai/models', (route) =>
-    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: [VISION_MODEL] }) }),
+  await page.route('**/api/ai/features', (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ data: FEATURES }) }),
   );
 }
 

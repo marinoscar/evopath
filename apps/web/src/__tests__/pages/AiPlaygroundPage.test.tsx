@@ -33,22 +33,6 @@ function serveModels(models: UsableAiModel[] = mockPlaygroundModels) {
   server.use(http.get('*/api/ai/models', () => HttpResponse.json({ data: models })));
 }
 
-function serveUserSettings(extra: Record<string, unknown>) {
-  server.use(
-    http.get('*/api/user-settings', () =>
-      HttpResponse.json({
-        data: {
-          theme: 'system',
-          profile: { imageSource: 'provider' },
-          updatedAt: new Date().toISOString(),
-          version: 1,
-          ...extra,
-        },
-      }),
-    ),
-  );
-}
-
 interface RenderOptions {
   allowBackgroundRuns?: boolean;
   userEventOptions?: Parameters<typeof userEvent.setup>[0];
@@ -125,20 +109,6 @@ describe('AiPlaygroundPage', () => {
 
       expect(await screen.findByText(/None of the models available to you can be used in the playground/)).toBeInTheDocument();
       expect(screen.queryByRole('group', { name: 'Playground mode' })).not.toBeInTheDocument();
-    });
-
-    it("selects the user's saved default model when it is usable", async () => {
-      serveUserSettings({ ai: { defaultModel: { provider: 'openai', modelId: 'gpt-4.1-mini' } } });
-      await renderPage();
-
-      await waitForModel('GPT-4.1 mini');
-    });
-
-    it('falls back to the first text model when the saved default is not usable', async () => {
-      serveUserSettings({ ai: { defaultModel: { provider: 'openai', modelId: 'retired-model' } } });
-      await renderPage();
-
-      await waitForModel('GPT-5 mini');
     });
 
     it('lists only the models Chat can use — capability-driven, not by name', async () => {

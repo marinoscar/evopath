@@ -11,9 +11,10 @@
 //     Contributor / Viewer / unauthenticated, the expected grant read from
 //     `prisma/seed-data.ts`'s `ROLE_PERMISSIONS`;
 //   - ownership: another user's intake is a 404 on every parameterised route;
-//   - the analyze gate: AI off, no `ai:use`, a model without vision, an
-//     unknown model, success (a job of the kind's `analyzeJobType`), and a
-//     second analyze while scanning — over the #432 AI harness
+//   - the analyze gate: AI off, no `ai:use`, a client model other than the
+//     administrator-resolved one (#173), no usable model, success (a job of
+//     the kind's `analyzeJobType`), and a second analyze while scanning —
+//     over the #432 AI harness
 //     (`ai-http.helper.ts`), whose `UsableModelsService` answers the model
 //     gate from its in-memory catalog;
 //   - the attach refusals and the item/apply refusals a client sees.
@@ -59,6 +60,7 @@ const stubKind: IntakeKind = {
   contextSchema: z.object({ label: z.string().max(20) }).strict().optional(),
   valueSchema: z.object({ name: z.string().min(1).max(100) }).strict(),
   analyzeJobType: STUB_JOB_TYPE,
+  aiFeature: 'gym_scan',
   itemKinds: ['thing'],
   apply: applySpy,
 };
@@ -125,7 +127,7 @@ function isPermissionDenied(res: request.Response): boolean {
 /** A body each route's DTO accepts, so an ownership check is not pre-empted by a 400. */
 const VALID_BODIES: Record<string, object> = {
   'POST /api/intakes/{id}/photos': { storageObjectId: OBJECT },
-  'POST /api/intakes/{id}/analyze': { provider: 'openai', modelId: HARNESS_MODEL },
+  'POST /api/intakes/{id}/analyze': {},
   'POST /api/intakes/{id}/items': { kind: 'thing', value: { name: 'Bench' } },
   'PATCH /api/intakes/{id}/items/{itemId}': { status: 'accepted' },
   'PATCH /api/intakes/{id}': { context: { label: 'Gym' } },
@@ -425,7 +427,7 @@ describe('/api/intakes over HTTP (E3.1)', () => {
   // ---------------------------------------------------------------------------
 
   describe('POST /api/intakes/:id/analyze', () => {
-    const analyze = (token: string, body: object = { provider: 'openai', modelId: HARNESS_MODEL }) =>
+    const analyze = (token: string, body: object = {}) =>
       call('post', `/api/intakes/${INTAKE}/analyze`, token, body);
 
     beforeEach(() => {
@@ -451,18 +453,45 @@ describe('/api/intakes over HTTP (E3.1)', () => {
       expect(res.body.message).toContain('ai:use');
     });
 
-    it('answers 400 AI_CAPABILITY_UNSUPPORTED for a model without vision', async () => {
-      const res = await analyze(tokens.contributor, { provider: 'openai', modelId: HARNESS_EMBEDDING_MODEL }).expect(400);
+    it('answers 409 AI_MODEL_ASSIGNMENT_LOCKED for a client model other than the resolved one (#173)', async () => {
+      const res = await analyze(tokens.contributor, { provider: 'openai', modelId: HARNESS_EMBEDDING_MODEL }).expect(409);
 
-      expect(res.body.details.reason).toBe('AI_CAPABILITY_UNSUPPORTED');
+      expect(res.body.details).toMatchObject({
+        reason: 'AI_MODEL_ASSIGNMENT_LOCKED',
+        featureId: 'gym_scan',
+        provider: 'openai',
+        modelId: HARNESS_MODEL,
+      });
       expect(prisma.job.create).not.toHaveBeenCalled();
     });
 
-    it('answers 403 AI_MODEL_NOT_ENABLED for a model the deployment has not enabled', async () => {
-      const res = await analyze(tokens.contributor, { provider: 'openai', modelId: 'no-such-model' }).expect(403);
+    it('accepts a client model equal to the resolved one (an older client)', async () => {
+      await analyze(tokens.contributor, { provider: 'openai', modelId: HARNESS_MODEL }).expect(202);
+    });
 
-      expect(res.body.details.reason).toBe('AI_MODEL_NOT_ENABLED');
-      expect(prisma.job.create).not.toHaveBeenCalled();
+    it('answers 400 when only one of provider and modelId is sent', async () => {
+      await analyze(tokens.contributor, { provider: 'openai' }).expect(400);
+    });
+
+    it('answers 409 AI_FEATURE_UNAVAILABLE with the state when no model is usable (#173)', async () => {
+      const spy = jest.spyOn(t.harness.usableModels, 'listForUser').mockResolvedValue([]);
+
+      try {
+        const res = await analyze(tokens.contributor).expect(409);
+
+        expect(res.body.details).toMatchObject({ reason: 'AI_FEATURE_UNAVAILABLE', featureId: 'gym_scan', state: 'no_models', fix: 'admin' });
+        expect(prisma.job.create).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("an unusable administrator assignment falls through to the auto pick rather than blocking", async () => {
+      t.harness.setAssignments({ default: null, features: { gym_scan: { provider: 'openai', modelId: 'not-enabled' } } });
+
+      await analyze(tokens.contributor).expect(202);
+
+      expect(prisma.photoIntake.updateMany.mock.calls[0][0].data).toMatchObject({ provider: 'openai', modelId: HARNESS_MODEL });
     });
 
     it("answers 202 { intakeId, jobId } and queues a pending job of the kind's analyzeJobType", async () => {

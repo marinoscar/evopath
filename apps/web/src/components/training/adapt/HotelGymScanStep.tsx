@@ -145,7 +145,7 @@ function HotelFlow({
           availability={availability}
           maxPhotos={HOTEL_SCAN_MAX_PHOTOS}
           photosHelper={HOTEL_PHOTOS_HELPER}
-          privacyNote={hotelPrivacyNote(availability.selected?.provider ?? 'your AI provider')}
+          privacyNote={hotelPrivacyNote(availability.model?.provider ?? 'your AI provider')}
           headingComponent="h4"
           onApplied={(result) => {
             setFlash(applySummary(result));
@@ -244,7 +244,13 @@ function HotelFlow({
         ) : (
           availability &&
           availability.status !== 'ready' && (
-            <NoVisionModelNotice reason={availability.status} onManual={() => void pickManually()} disabled={busy} />
+            <NoVisionModelNotice
+              reason={availability.status}
+              fix={availability.fix}
+              onRetry={() => void availability.refresh()}
+              onManual={() => void pickManually()}
+              disabled={busy}
+            />
           )
         )}
         {problem && (
@@ -306,7 +312,7 @@ function HotelFlow({
 }
 
 function HotelFlowWithVision(props: HotelGymScanStepProps) {
-  const availability = useVisionAvailability();
+  const availability = useVisionAvailability('gym_scan');
   return <HotelFlow {...props} availability={availability} scanReason={null} />;
 }
 

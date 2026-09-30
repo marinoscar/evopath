@@ -497,9 +497,14 @@ export class SystemSettingsService {
     const fields = Object.entries(schema.shape) as Array<[string, z.ZodType]>;
     for (const [key, field] of fields) {
       const parsed = field.safeParse(source[key]);
-      value[key] = parsed.success
-        ? parsed.data
-        : structuredClone(defaults[key]);
+      // An ABSENT optional field takes the default when the default has one
+      // (`ai.assignments`, #173) — the same as a field that fails to parse —
+      // so a row written before the field existed reads exactly like a fresh
+      // deployment. An optional field with no default stays absent.
+      value[key] =
+        parsed.success && !(parsed.data === undefined && defaults[key] !== undefined)
+          ? parsed.data
+          : structuredClone(defaults[key]);
     }
 
     return value as T;
@@ -1094,6 +1099,15 @@ export class SystemSettingsService {
       }
     }
 
+    // #173: `ai.assignments` is written by its own validated admin route. A
+    // PUT that sends `ai` without it keeps the stored assignments rather than
+    // wiping them — the same "optional on the wire must not mean reset by
+    // omission" rule the loop above applies to whole namespaces.
+    const bodyAi = filled.ai as Record<string, unknown> | undefined;
+    if (bodyAi && bodyAi.assignments === undefined && currentValue.ai.assignments) {
+      filled.ai = { ...bodyAi, assignments: currentValue.ai.assignments };
+    }
+
     // Validate against schema. This still strips unknown keys out of the
     // REQUEST, and is meant to: the body is the untrusted half.
     const validated = systemSettingsSchema.parse(filled);
@@ -1453,6 +1467,12 @@ export class SystemSettingsService {
         // Cloned either way so the stored value never aliases the caller's
         // object or the module-level default.
         limits: structuredClone(dto.ai?.limits ?? currentValue.ai.limits),
+        // #173: WHOLESALE, like `limits` — present replaces, absent keeps.
+        // Written by `PUT /api/admin/ai/assignments`; `PUT /api/admin/ai/config`
+        // carries the stored value through unchanged.
+        ...((dto.ai?.assignments ?? currentValue.ai.assignments)
+          ? { assignments: structuredClone(dto.ai?.assignments ?? currentValue.ai.assignments) }
+          : {}),
       },
       // -----------------------------------------------------------------------
       // Telemetry policy (epic #528, story #533)

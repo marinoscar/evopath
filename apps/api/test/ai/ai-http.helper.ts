@@ -16,6 +16,7 @@
 
 import type { AddressInfo } from 'node:net';
 
+import { AiFeatureModelResolver } from '../../src/ai/assignments/ai-feature-model-resolver.service';
 import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
 import { UsableModelsService } from '../../src/ai/keys/usable-models.service';
 import { AiService } from '../../src/ai/runtime/ai.service';
@@ -78,6 +79,13 @@ export interface AiHttpTestAppExtras {
    * routes under `/api/ai/training`. Off by default.
    */
   harnessTrainingResolver?: boolean;
+  /**
+   * Substitute an `AiFeatureModelResolver` built over the harness (#173), so
+   * the feature resolution a route consults reads the harness's in-memory
+   * keys and models. Implied by `harnessUsableModels` and
+   * `harnessTrainingResolver`.
+   */
+  harnessFeatureResolver?: boolean;
   /** Further providers to substitute (the training run suite's in-memory service and event log). */
   overrideProviders?: Array<{ provide: unknown; useValue: unknown }>;
 }
@@ -105,6 +113,17 @@ export async function createAiHttpTestApp(
     },
   });
 
+  const featureResolver =
+    extras.harnessFeatureResolver || extras.harnessUsableModels || extras.harnessTrainingResolver
+      ? new AiFeatureModelResolver(
+          harness.prisma as never,
+          harness.aiConfig,
+          harness.registry,
+          harness.resolver,
+          harness.usableModels,
+        )
+      : undefined;
+
   const context = await createTestApp({
     useMockDatabase: true,
     overrideProviders: [
@@ -116,19 +135,9 @@ export async function createAiHttpTestApp(
       { provide: AiStorageInputResolver, useValue: harness.inputs },
       { provide: AiOutputWriter, useValue: harness.outputs },
       ...(extras.harnessUsableModels ? [{ provide: UsableModelsService, useValue: harness.usableModels }] : []),
-      ...(extras.harnessTrainingResolver
-        ? [
-            {
-              provide: TrainingModelResolver,
-              useValue: new TrainingModelResolver(
-                harness.prisma as never,
-                harness.aiConfig,
-                harness.registry,
-                harness.resolver,
-                harness.usableModels,
-              ),
-            },
-          ]
+      ...(featureResolver ? [{ provide: AiFeatureModelResolver, useValue: featureResolver }] : []),
+      ...(extras.harnessTrainingResolver && featureResolver
+        ? [{ provide: TrainingModelResolver, useValue: new TrainingModelResolver(harness.prisma as never, featureResolver) }]
         : []),
       ...(extras.overrideProviders ?? []),
     ],
@@ -163,6 +172,7 @@ export async function createAiHttpTestApp(
       harness.clearAiConfigWriters();
       harness.removeUserKeys(HARNESS_OTHER_USER);
       harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults }, limits: {} });
+      harness.setAssignments(undefined);
     },
     close: () => closeTestApp(context),
   };

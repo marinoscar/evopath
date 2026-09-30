@@ -31,8 +31,7 @@ const TRAINING_COPY: Record<string, RunErrorCopy> = {
   },
   TRAINING_CONTEXT_TOO_LARGE: {
     title: 'Too much to send',
-    body: 'Your context is too large for the chosen model. Choose a model with a larger context window.',
-    action: { label: 'Choose a model', to: '/settings/ai/agents' },
+    body: 'Your context is too large for the model your administrator assigned. Try again with less to send, or ask your administrator for a model with a larger context window.',
   },
   TRAINING_ROLE_UNAVAILABLE: {
     title: 'An agent could not run',

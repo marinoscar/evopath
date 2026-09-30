@@ -44,7 +44,11 @@ import { ArrowBack as BackIcon } from '@mui/icons-material';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWorkout, type UseWorkoutReturn } from '../hooks/useWorkout';
 import { useWeightUnit } from '../hooks/useWeightUnit';
-import { useVisionAvailability, type UseVisionAvailabilityReturn } from '../hooks/useVisionAvailability';
+import {
+  useRefreshOnFeatureRefusal,
+  useVisionAvailability,
+  type UseVisionAvailabilityReturn,
+} from '../hooks/useVisionAvailability';
 import { useWorkoutPrefillIntake } from '../hooks/useWorkoutPrefillIntake';
 import {
   AiDraftReview,
@@ -351,8 +355,9 @@ function PrefillSteps({
   const [sourceError, setSourceError] = useState<ReturnType<typeof toAiErrorInfo> | null>(null);
 
   const status = intake.intake?.status ?? 'draft';
-  const selected = availability.selected;
+  const selected = availability.model;
   const photoCount = Math.max(intake.photos.length, photos.readyCount);
+  useRefreshOnFeatureRefusal(intake.error, availability.refresh);
 
   const changeSource = async (next: WorkoutPrefillSource) => {
     const previous = source;
@@ -373,7 +378,7 @@ function PrefillSteps({
   const analyze = async () => {
     if (!selected) return;
     setScanStartedAt(Date.now());
-    const started = await intake.analyze({ provider: selected.provider, modelId: selected.modelId });
+    const started = await intake.analyze(selected);
     if (started) setAddingPhotos(false);
   };
 
@@ -581,9 +586,16 @@ function PrefillWithIntake({
 
 /** Gate on the AI being able to read photos; the manual path stays one click away. */
 function PrefillGate({ workoutId, w, onManual }: { workoutId: string; w: UseWorkoutReturn; onManual: () => void }) {
-  const availability = useVisionAvailability();
+  const availability = useVisionAvailability('workout_prefill');
   if (availability.status !== 'ready') {
-    return <NoVisionModelNotice reason={availability.status} onManual={onManual} />;
+    return (
+      <NoVisionModelNotice
+        reason={availability.status}
+        fix={availability.fix}
+        onRetry={() => void availability.refresh()}
+        onManual={onManual}
+      />
+    );
   }
   return <PrefillWithIntake workoutId={workoutId} availability={availability} w={w} onManual={onManual} />;
 }

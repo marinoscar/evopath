@@ -21,7 +21,7 @@ import {
 } from '../../../../components/training/adapt/HotelGymScanStep';
 import { clearPhotoUrlCache } from '../../../../components/intake/StoragePhotoThumb';
 import { GYM_LIMIT_MESSAGE } from '../../../../services/gyms';
-import { mockUsableAiModels } from '../../../mocks/fixtures/ai';
+import { mockAiFeaturesView, mockBlockedFeatureView } from '../../../mocks/fixtures/aiFeatures';
 import { DUMBBELLS, mockEquipment, mockGymDetail, statefulGymsApi } from '../../../mocks/fixtures/gyms';
 import {
   CARDIO_ROW_DRAFTS,
@@ -144,20 +144,17 @@ describe('HotelGymScanStep', () => {
     const gyms = statefulGymsApi([]);
     const intakes = statefulIntakeApi();
     server.use(
-      http.get('*/api/ai/models', () =>
+      http.get('*/api/ai/features', () =>
         HttpResponse.json({
-          data: [
-            {
-              ...mockUsableAiModels[0],
-              capabilities: { capabilities: ['responses'], inputModalities: ['text'], outputModalities: ['text'] },
-            },
-          ],
+          data: mockAiFeaturesView({ gym_scan: mockBlockedFeatureView('gym_scan', 'missing_capability', 'admin') }),
         }),
       ),
     );
     const user = userEvent.setup();
     const { onDone } = renderStep();
-    expect(await screen.findByText('None of your available models can read images')).toBeInTheDocument();
+    expect(
+      await screen.findByText("Your administrator hasn't assigned an AI model that can read photos yet."),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Take photos' })).toBeNull();
 
     // Bodyweight only before any gym was made: no gym at all.
@@ -171,9 +168,9 @@ describe('HotelGymScanStep', () => {
     statefulGymsApi([]);
     let aiModelReads = 0;
     server.use(
-      http.get('*/api/ai/models', () => {
+      http.get('*/api/ai/features', () => {
         aiModelReads += 1;
-        return HttpResponse.json({ data: mockUsableAiModels });
+        return HttpResponse.json({ data: mockAiFeaturesView() });
       }),
     );
     renderStep({ user: { ...mockUser, permissions: [...mockUser.permissions, 'intakes:read', 'intakes:write'] } });

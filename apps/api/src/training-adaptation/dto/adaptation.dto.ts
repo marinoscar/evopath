@@ -2,7 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import { TASK_REASONING_EFFORTS } from '../../common/schemas/settings.schema';
-import { ROLE_RESOLUTION_STATES } from '../../training-agents/models/dto/role-resolution.dto';
+import { ROLE_RESOLUTION_STATES, roleResolutionSchema } from '../../training-agents/models/dto/role-resolution.dto';
 import { ADAPTATION_STATUSES, APPLIED_AS } from '../adaptation.constants';
 import {
   adaptationGuardrailReportSchema,
@@ -32,8 +32,8 @@ const roleSchema = z.object({
   state: z.enum(ROLE_RESOLUTION_STATES),
   model: z.object({ provider: z.string(), modelId: z.string(), displayName: z.string() }).nullable(),
   effectiveEffort: z.enum(TASK_REASONING_EFFORTS).nullable(),
-  /** Where to fix a blocking state: the agent settings, the key settings, or an administrator. */
-  fix: z.enum(['settings', 'keys', 'admin']).nullable(),
+  /** Who can fix a blocking state: the caller (`keys`: add a key) or an administrator (model assignments are admin-only). */
+  fix: roleResolutionSchema.shape.fix,
   runnable: z.boolean(),
 });
 

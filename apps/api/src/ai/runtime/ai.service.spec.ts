@@ -146,8 +146,8 @@ describe('AiService', () => {
         expected: 'AI_MODEL_NOT_REACHABLE',
       },
       {
-        name: 'no model and no default model',
-        harness: {},
+        name: 'no model and no usable model to default to',
+        harness: { reachable: [] },
         request: { input: 'x' },
         expected: 'AI_INVALID_REQUEST',
       },
@@ -269,13 +269,21 @@ describe('AiService', () => {
   });
 
   describe('model selection', () => {
-    it("falls back to the user's ai.defaultModel setting", async () => {
+    it("falls back to the administrator's default model (#173)", async () => {
       const h = createAiRuntimeHarness({ defaultModel: { provider: 'openai', modelId: HARNESS_MODEL } });
 
       const response = await h.ai.forUser(HARNESS_USER).respond({ input: 'hi' });
 
       expect(response.model).toBe(HARNESS_MODEL);
       expect(h.fake.calls[0].request?.model).toBe(HARNESS_MODEL);
+    });
+
+    it('auto-picks a usable responses model when no default is assigned (#173)', async () => {
+      const h = createAiRuntimeHarness();
+
+      const response = await h.ai.forUser(HARNESS_USER).respond({ input: 'hi' });
+
+      expect(response.model).toBe(HARNESS_MODEL);
     });
 
     it('refuses a default model belonging to a different provider than the one requested', async () => {

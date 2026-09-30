@@ -527,6 +527,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       mcpAllowedHosts: [],
     },
     limits: {},
+    // #173: nothing assigned; every AI feature auto-picks until an
+    // administrator assigns a model.
+    assignments: { default: null, features: {} },
   },
   // Epic #528, story #533. OFF, and INERT, matching every namespace above it
   // that ships ahead of its own consumers: a fresh deployment does not start

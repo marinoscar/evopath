@@ -101,14 +101,20 @@ describe('PlansPage', () => {
         HttpResponse.json({
           data: {
             ...mockTrainingModelsView,
+            roles: {
+              ...mockTrainingModelsView.roles,
+              researcher: { ...mockTrainingModelsView.roles.researcher, state: 'missing_capability', model: undefined, fix: 'keys' },
+            },
             canRun: { create: false, revise: true, evaluate: true, blockers: [{ role: 'researcher', state: 'missing_capability' }] },
           },
         }),
       ),
     );
     renderPage();
-    expect(await screen.findByText(/The researcher agent needs web search/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Choose a model' })).toHaveAttribute('href', '/settings/ai/agents');
+    expect(await screen.findByText(/The researcher agent needs a model with web search/)).toBeInTheDocument();
+    // A key is the only fix a user makes; they are never sent to pick a model (#173).
+    expect(screen.getByRole('link', { name: 'Add a key' })).toHaveAttribute('href', '/settings/ai');
+    expect(screen.queryByRole('link', { name: 'Choose a model' })).not.toBeInTheDocument();
     const create = screen.getByText('Create with AI').closest('a,button')!;
     expect(create).toHaveAttribute('aria-disabled', 'true');
   });

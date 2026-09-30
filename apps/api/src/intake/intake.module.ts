@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AiAssignmentsModule } from '../ai/assignments/ai-assignments.module';
 import { AiConfigModule } from '../ai/config/ai-config.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
 import { JobsModule } from '../jobs/jobs.module';
@@ -20,12 +21,13 @@ import { StorageObjectReferences } from './storage-object-references';
  *
  * `AiConfigModule` supplies `AiEnabledGuard` (the analyze route's kill
  * switch), `AiKeysModule` supplies `UsableModelsService` (the analyze
- * route's model gate), `JobsModule` the enqueue and `StorageModule`
+ * route's model gate), `AiAssignmentsModule` `AiFeatureModelResolver` (the
+ * administrator-assigned model the analyzer uses, #173), `JobsModule` the enqueue and `StorageModule`
  * `ObjectsService` (deleting a discarded photo). `PrismaService` comes from
  * the global `PrismaModule`.
  */
 @Module({
-  imports: [AiConfigModule, AiKeysModule, JobsModule, StorageModule],
+  imports: [AiAssignmentsModule, AiConfigModule, AiKeysModule, JobsModule, StorageModule],
   controllers: [IntakesController, IntakeAnalyzeController],
   providers: [IntakeKindRegistry, IntakeService, StorageObjectReferences],
   exports: [IntakeKindRegistry, IntakeService, StorageObjectReferences],

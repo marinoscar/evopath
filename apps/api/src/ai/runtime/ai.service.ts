@@ -125,7 +125,7 @@ import type { z } from 'zod';
 import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 import { resolveServiceName } from '../../common/otel/service-name';
-import { userAiSettingsSchema } from '../../common/schemas/settings.schema';
+import { findUsable, pickAuto } from '../assignments/ai-feature-resolution';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiConfigService, providerCallSettings } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
@@ -312,7 +312,7 @@ export interface AiUserClient {
    * (256) texts, one vector per input in input order. Synchronous — no job:
    * a large backfill enqueues a job type of its own that calls this per
    * chunk. `model` is REQUIRED (vectors are only comparable within one
-   * model, so it is never inferred from `ai.defaultModel`).
+   * model, so it is never inferred from the implicit default model).
    *
    * @throws AiError('AI_INVALID_REQUEST') for an empty or oversized batch,
    *   an empty text, or a non-positive `dimensions`;
@@ -1787,7 +1787,7 @@ export class AiService {
   /**
    * The first model `userId` can use right now that declares `capability`
    * (on `provider`, when given) — in `GET /api/ai/models` order. For an
-   * operation whose model is never the chat `ai.defaultModel`.
+   * operation whose model is never the implicit default model.
    */
   private async firstUsableModel(
     userId: string,
@@ -1863,16 +1863,20 @@ export class AiService {
 
   /**
    * Which (provider, model) the request targets. See `AiRequest` for the
-   * fallback order.
+   * fallback order. #173: models are the administrator's choice, so the
+   * implicit default is the administrator's default model (`ai.assignments
+   * .default`) when the caller can use it, else a deterministic pick among
+   * the caller's usable `responses` models — never a user setting.
    */
   private async resolveTarget(
     userId: string,
     req: { provider?: string; model?: string },
   ): Promise<{ provider: string; model: string }> {
     const requested = req.model?.trim();
+    const adminDefault = (await this.aiConfig.resolve()).assignments?.default ?? null;
 
     if (requested) {
-      const provider = req.provider ?? (await this.defaultModel(userId))?.provider ?? this.soleProvider();
+      const provider = req.provider ?? adminDefault?.provider ?? this.soleProvider();
 
       if (!provider) {
         throw new AiError('AI_INVALID_REQUEST', 'No provider selected.', { details: { model: requested } });
@@ -1881,29 +1885,18 @@ export class AiService {
       return { provider, model: requested };
     }
 
-    const fallback = await this.defaultModel(userId);
+    const usable = (await this.usableModels.listForUser(userId)).filter(
+      (m) => req.provider === undefined || m.provider === req.provider,
+    );
+    const fallback =
+      findUsable(usable, adminDefault) ??
+      pickAuto(usable.filter((m) => m.capabilities.capabilities.includes('responses')));
 
-    if (!fallback || (req.provider !== undefined && req.provider !== fallback.provider)) {
+    if (!fallback) {
       throw new AiError('AI_INVALID_REQUEST', 'No model selected.');
     }
 
     return { provider: fallback.provider, model: fallback.modelId };
-  }
-
-  /**
-   * The user's `ai.defaultModel`, read RAW from `user_settings.value` — not
-   * through `UserSettingsService.getSettings`, which creates a row when none
-   * exists (see `NotificationsService.loadRecipient` for the full argument).
-   */
-  private async defaultModel(userId: string): Promise<{ provider: string; modelId: string } | null> {
-    const row = await this.prisma.userSettings.findUnique({
-      where: { userId },
-      select: { value: true },
-    });
-    const value = row?.value as { ai?: unknown } | null | undefined;
-    const parsed = userAiSettingsSchema.safeParse(value?.ai);
-
-    return parsed.success ? parsed.data.defaultModel : null;
   }
 
   private soleProvider(): string | undefined {

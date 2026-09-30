@@ -13,7 +13,7 @@
  * `hooks/useTrainingRun.ts`.
  */
 import { api, ApiError } from './api';
-import type { SentDataSection, RoleResolutionState } from './trainingAgents';
+import type { SentDataSection, RoleResolution, RoleResolutionState } from './trainingAgents';
 import type { TaskReasoningEffort } from '../types';
 
 // -----------------------------------------------------------------------------
@@ -107,7 +107,8 @@ export interface AdaptationRoleModel {
   state: RoleResolutionState;
   model: { provider: string; modelId: string; displayName: string } | null;
   effectiveEffort: TaskReasoningEffort | null;
-  fix: 'settings' | 'keys' | 'admin' | null;
+  /** Who can fix a blocking state: the caller (`keys`) or an administrator (`admin`); models are admin-only (#173). */
+  fix: RoleResolution['fix'];
   runnable: boolean;
 }
 
