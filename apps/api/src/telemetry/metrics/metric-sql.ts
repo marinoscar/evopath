@@ -21,6 +21,7 @@ import {
   type MetricFilterKey,
   type MetricPredicate,
   type MetricTableInfo,
+  type MetricTableSpec,
   type SeriesAggregate,
 } from './metric-catalog';
 
@@ -56,8 +57,12 @@ import {
 export const METRIC_MIN_BUCKET_SECONDS = 60;
 /** Series (group values) one family returns at most; the rest are cut, alphabetically. */
 export const METRIC_MAX_GROUPS = 20;
-/** Rows a per-key table returns at most. */
+/** Rows a per-key table returns at most, unless its spec sets `maxRows`. */
 export const METRIC_TABLE_MAX_ROWS = 50;
+/** Rows `spec` returns at most: its own `maxRows`, else `METRIC_TABLE_MAX_ROWS`. */
+export function tableMaxRows(spec: Pick<MetricTableSpec, 'maxRows'>): number {
+  return spec.maxRows ?? METRIC_TABLE_MAX_ROWS;
+}
 /** Rows a histogram statement returns at most (periods × groups × `le`). */
 export const METRIC_HISTOGRAM_MAX_ROWS = 4000;
 /** Keys a verdict probe part reads at most. */

@@ -3,14 +3,17 @@
  * formatted by column unit, `null` → "—", status as icon + word, virtual and
  * missing columns.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { render } from '../../../../utils/test-utils';
 import {
   MetricTable,
   StatusCell,
   UtilizationBar,
 } from '../../../../../components/telemetry/dashboard/metrics/MetricTable';
+import { topNStorageKey } from '../../../../../components/telemetry/dashboard/metrics/topNPreference';
+import type { DashboardMetricTable } from '../../../../../services/telemetryDashboard';
 import { mockDashboardMetrics } from '../../../../mocks/fixtures/telemetryDashboard';
 
 const NOW = Date.parse('2026-09-27T11:00:00.000Z');
@@ -86,5 +89,94 @@ describe('cells', () => {
     rerender(<UtilizationBar value={null} label="Used on /" />);
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     expect(screen.getByText('—')).toBeInTheDocument();
+  });
+});
+
+/** A "Largest tables" table of `count` rows, largest first (the API's order). */
+function largestTables(count: number): DashboardMetricTable {
+  return {
+    key: 'largestTables',
+    label: 'Largest tables',
+    columns: [
+      { key: 'key', label: 'Table', unit: 'text' },
+      { key: 'sizeBytes', label: 'Size', unit: 'bytes' },
+    ],
+    rows: Array.from({ length: count }, (_, i) => ({ key: `table_${i + 1}`, sizeBytes: (count - i) * 1024 ** 2 })),
+  };
+}
+
+const TOP_N = { options: [10, 20, 50, 'all'], default: 10 } as const;
+const bodyRows = () => within(screen.getByRole('table', { name: 'Largest tables' })).getAllByRole('rowheader');
+
+describe('MetricTable — Top N (#176)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('shows the default 10 of N, in server order, and says so', () => {
+    render(<MetricTable table={largestTables(63)} topN={TOP_N} now={NOW} />);
+    const rows = bodyRows();
+    expect(rows).toHaveLength(10);
+    expect(rows[0]).toHaveTextContent('table_1');
+    expect(rows[9]).toHaveTextContent('table_10');
+    expect(screen.getByRole('combobox', { name: 'Rows to show for Largest tables' })).toHaveTextContent('Top 10');
+    expect(screen.getByText('Showing 10 of 63')).toBeInTheDocument();
+  });
+
+  it('Top 20 shows 20; All shows every row and drops the caption; the choice is stored', async () => {
+    const user = userEvent.setup();
+    render(<MetricTable table={largestTables(63)} topN={TOP_N} now={NOW} />);
+    const select = screen.getByRole('combobox', { name: 'Rows to show for Largest tables' });
+
+    await user.click(select);
+    await user.click(screen.getByRole('option', { name: 'Top 20' }));
+    expect(bodyRows()).toHaveLength(20);
+    expect(screen.getByText('Showing 20 of 63')).toBeInTheDocument();
+    expect(window.localStorage.getItem(topNStorageKey('largestTables'))).toBe('20');
+
+    await user.click(select);
+    await user.click(screen.getByRole('option', { name: 'All' }));
+    expect(bodyRows()).toHaveLength(63);
+    expect(screen.queryByTestId('metric-table-shown-largestTables')).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(topNStorageKey('largestTables'))).toBe('all');
+  });
+
+  it('restores a stored choice and ignores one that is no longer offered', () => {
+    window.localStorage.setItem(topNStorageKey('largestTables'), '50');
+    const { unmount } = render(<MetricTable table={largestTables(63)} topN={TOP_N} now={NOW} />);
+    expect(bodyRows()).toHaveLength(50);
+    expect(screen.getByRole('combobox', { name: 'Rows to show for Largest tables' })).toHaveTextContent('Top 50');
+    unmount();
+
+    window.localStorage.setItem(topNStorageKey('largestTables'), '7');
+    render(<MetricTable table={largestTables(63)} topN={TOP_N} now={NOW} />);
+    expect(bodyRows()).toHaveLength(10);
+  });
+
+  it('has no selector and no caption when the table has 10 rows or fewer', () => {
+    render(<MetricTable table={largestTables(10)} topN={TOP_N} now={NOW} />);
+    expect(bodyRows()).toHaveLength(10);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('metric-table-shown-largestTables')).not.toBeInTheDocument();
+  });
+
+  it('slices after sortRows', () => {
+    render(
+      <MetricTable
+        table={largestTables(15)}
+        topN={TOP_N}
+        sortRows={(a, b) => Number(b.key === 'table_15') - Number(a.key === 'table_15')}
+        now={NOW}
+      />,
+    );
+    const rows = bodyRows();
+    expect(rows).toHaveLength(10);
+    expect(rows[0]).toHaveTextContent('table_15');
+  });
+
+  it('without topN every row is drawn', () => {
+    render(<MetricTable table={largestTables(30)} now={NOW} />);
+    expect(bodyRows()).toHaveLength(30);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 });

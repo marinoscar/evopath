@@ -229,6 +229,8 @@ export interface MetricTableSpec {
   histogram?: { column: string; label: string; family: string };
   /** Extra per-URL status columns from `httpcheck_status` / `httpcheck_error`. */
   httpcheck?: boolean;
+  /** Rows this table returns at most; default `METRIC_TABLE_MAX_ROWS` (#176). */
+  maxRows?: number;
 }
 
 // ---- tables ------------------------------------------------------------------
@@ -749,6 +751,9 @@ export const METRIC_RATIOS: readonly MetricRatio[] = [
 
 // ---- tables ------------------------------------------------------------------
 
+/** Rows of `largestTables`: every table of a realistic schema; bounded so a runaway schema can't blow the payload (#176). */
+export const LARGEST_TABLES_MAX_ROWS = 500;
+
 export const METRIC_TABLES: readonly MetricTableSpec[] = [
   {
     key: 'filesystems',
@@ -797,6 +802,7 @@ export const METRIC_TABLES: readonly MetricTableSpec[] = [
     keyLabel: 'Table',
     filters: HOST_FILTERS,
     orderByValue: true,
+    maxRows: LARGEST_TABLES_MAX_ROWS,
     parts: [
       {
         column: 'sizeBytes',
