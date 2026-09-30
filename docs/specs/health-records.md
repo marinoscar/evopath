@@ -109,9 +109,38 @@ Once `file_deleted_at` is set, the document holds nothing. A failing check keeps
 - **Ownership.** The intake routes are owner-scoped, so another user's intake, photo or document id is a `404`. The purge deletes the object as its owner.
 - **Permissions.** The intake kind requires `health_data:read` and `health_data:write` on top of `intakes:*` ([health-data.md 2.17](health-data.md#217-photo-readings)).
 
-### 2.8 Planned: blood work from lab reports
+### 2.8 Blood work: lab results
 
-Placeholder. Lab report PDFs and images become `lab_report` documents, an AI job drafts the values, the user reviews them and the saved results link their document. This section records the extraction flow, the result model and its validation when it ships.
+A lab analyte is a metric registry entry in the `lab` category, not a table: results are `measurements` rows, written and read through `/api/measurements` behind `health_data:read`/`health_data:write`, with the same revisions, soft deletes and owner scope ([health-data.md 2.8 to 2.13](health-data.md#28-metric-registry)).
+
+**Catalog.** 39 analytes in `apps/api/src/measurements/metric-registry.ts`, each with a permanent snake_case `key`, `label`, `panel`, canonical unit, accepted units, hard bounds, display `decimals` and `aliases`. `GET /api/measurements/metrics` publishes them with `panel` and `aliases`.
+
+| Panel | Keys |
+|---|---|
+| `lipids` | `total_cholesterol`, `ldl_cholesterol`, `hdl_cholesterol`, `triglycerides`, `non_hdl_cholesterol`, `apob` |
+| `glycemic` | `fasting_glucose`, `hba1c`, `fasting_insulin` |
+| `cbc` | `hemoglobin`, `hematocrit`, `rbc_count`, `wbc_count`, `platelet_count`, `mcv` |
+| `cmp` | `alt`, `ast`, `alp`, `total_bilirubin`, `albumin`, `creatinine`, `egfr`, `bun`, `sodium`, `potassium` |
+| `thyroid` | `tsh`, `free_t4`, `free_t3` |
+| `iron` | `ferritin`, `serum_iron`, `tibc`, `transferrin_saturation` |
+| `other` | `vitamin_d_25oh`, `vitamin_b12`, `hs_crp`, `testosterone_total`, `testosterone_free`, `cortisol`, `uric_acid` |
+
+**Canonical units.** The US conventional unit, for every user (mg/dL, ng/mL, U/L, `10^3/µL`, HbA1c in `%`); `displayUnit` does not follow the metric/imperial preference, because labs in metric countries print either convention. SI units are accepted alternatives with analyte-specific factors where molar mass matters (glucose mmol/L x 18.02, cholesterols x 38.67, triglycerides x 88.57, creatinine µmol/L / 88.42, BUN as urea mmol/L / 0.357, vitamin D nmol/L / 2.496, and so on). HbA1c in mmol/mol uses the IFCC-NGSP master equation, `% = mmol/mol / 10.929 + 2.15`, published as a unit `factor` plus `offset`. Lab units also match case-insensitively and with `u` or `μ` for `µ`. Conversions are pinned on known values in `apps/api/src/measurements/lab-catalog.spec.ts` (glucose 100 mg/dL = 5.55 mmol/L, HbA1c 6.5 % = 48 mmol/mol).
+
+**Alias lookup.** `resolveLabAnalyte(name)` returns the analyte whose key, label or alias matches after folding case, accents, spaces and punctuation ("LDL-C", "LDL Cholesterol", "Low density lipoprotein" all give `ldl_cholesterol`), or undefined; it never guesses. Loading the registry throws if one folded alias names two analytes.
+
+**Per-result context.** Four nullable `measurements` columns hold what the lab printed, on the event rather than the catalog: `referenceLow` and `referenceHigh` (canonical unit), `referenceText` (at most 100 characters, for ranges such as `<100` or `negative`) and `flag` (`low`, `normal`, `high`, `critical`, `unknown`). `origin` and `method` (`lab`, `point_of_care` and others) are unchanged.
+
+**API rules.**
+
+- A reading's limits are sent in the reading's `unit` and converted with the value. `referenceLow` must not exceed `referenceHigh` when both are set. The four fields are refused on body and vital metrics.
+- One report is one entry: 1 to 40 lab readings under one `entryId`. Lab and body/vital readings never share an entry.
+- An edit (a new revision) copies range and flag forward unless the body changes them; `null` clears one. The range rule is checked on the merged reading.
+- `GET /api/measurements` lists lab rows only with `category=lab` or a lab `metricKey`; the default list and `latest` stay body and vital. `series` accepts a lab key.
+- Values, ranges and notes never reach a log line or an issue message; the delete audit row carries the reading count only.
+- Lab results are on the training agents' never-send list (`labs` in `apps/api/src/training-agents/context/never-send.ts`): the context loaders select metric keys explicitly, and the data-minimisation canary seeds lab rows with range context to prove it.
+
+Still planned: lab report PDFs and images become `lab_report` documents, an AI job drafts the values with `resolveLabAnalyte`, the user reviews them, and the saved results link their document.
 
 ### 2.9 PDFs for body metrics
 
@@ -218,6 +247,10 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 - `apps/api/src/intake/intake-inputs.spec.ts`, `intake-input-inspector.spec.ts`, `intake-kind.registry.spec.ts` and `intake-analyzer.spec.ts`: the `acceptedInputs` default and validation, the magic-byte sniff, page counting in the clear and in object streams (and a decompression bomb), the bounded reads, and the `image` / `file` part mapping.
 - `apps/api/src/intake/intake.service.spec.ts`: a PDF on an image-only kind, renamed files, the page, size and unreadable refusals, the re-check at analyze and the `file_input` refusal with nothing queued.
 - `apps/api/test/health-data/measurements-photo.integration.spec.ts`: over HTTP with the fake AI provider, a PDF attach with its `application/pdf` document, the four refusals with no provider call, the model without `file_input`, and the job sending the PDF as one `file` input.
+- `apps/api/src/measurements/lab-catalog.spec.ts`: the lab catalog panel by panel, conversions pinned on known values in every alternative unit, round trips, unit spellings, alias lookup and alias uniqueness.
+- `apps/api/src/measurements/dto/measurement.dto.spec.ts`, `measurements.service.spec.ts` and `apps/api/test/health-data/measurements.integration.spec.ts`: range conversion and ordering, lab-only fields, lab entry size and mixing, revisions keeping or clearing range and flag, and lab routes in the permission matrix.
+- `apps/api/test/health-data/measurements-lab.db.spec.ts`: on real Postgres, the four columns, a lab panel created, read back, listed only with `category=lab`, and edited with range and flag kept.
+- `apps/api/src/training-agents/testing/canary-prisma.ts`: lab rows with range context in the data-minimisation canary.
 - `apps/api/test/health-data/health-documents.db.spec.ts` and `measurements-photo.db.spec.ts`: on real Postgres and real file storage, PDF retention (purge after apply, keep through discard), refusals with no link or document, and a PDF read end to end with `sourceRef.healthDocumentId`.
 - `apps/web/src/__tests__/components/intake/RetainFilesControl.test.tsx`: checked by default, helper text, health kinds only.
 - `apps/web/src/__tests__/components/health/PhotoReadDialog.test.tsx` and `apps/web/src/__tests__/components/health/MeasurementHistoryProvenance.test.tsx`: the choice reaches the requests, and **File deleted** replaces **View photo**.
@@ -276,3 +309,4 @@ In a running app, with AI on:
 - #184: the Health Records epic.
 - #185: `health_documents` table and `photo_intakes.retention`, `retainFiles` on the intake API, `IntakeKind.healthDocumentKind`, the `health.document.purge` job, the `health_documents` reference checker, `sourceRef.healthDocumentId` and `fileDeleted`, the `health:document:delete` audit action and the purge counter, the keep-or-delete control, and this spec.
 - #186: PDFs for body metrics. Adds `IntakeKind.acceptedInputs` and `maxPdfPages`, magic-byte and page-count checks at attach and analyze, the `file_input` refusal, PDFs as `file` parts, the `intake.input_kind` span attribute and body-metric prompt version 2 (API).
+- #187: the lab analyte catalog (39 analytes, seven panels, affine unit conversion, `resolveLabAnalyte`), the `referenceLow`, `referenceHigh`, `referenceText` and `flag` columns on `measurements`, lab entries and the `category` list filter on `/api/measurements` (API).

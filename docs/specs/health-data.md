@@ -108,6 +108,9 @@ The Health Profile card sits in the **Health** group of `USER_SETTINGS_SECTIONS`
 | `method` | text, default `unspecified` | How it was measured. A plain string. |
 | `origin` | text, default `manual` | How it entered the system: `manual`, `calculated`, `ai` or `device`. A plain string. |
 | `notes` | text, null | Free text, at most 500 characters. |
+| `referenceLow`, `referenceHigh` | float, null | Lab results only: the lab's reference limits, canonical unit ([health-records.md 2.8](health-records.md#28-blood-work-lab-results)). |
+| `referenceText` | text, null | Lab results only: the range as printed (`<100`, `negative`), at most 100 characters. |
+| `flag` | text, null | Lab results only: `low`, `normal`, `high`, `critical` or `unknown`. A plain string; Zod is the guard. |
 | `sourceRef` | JSON, null | Server-written provenance (for example the draft an AI value came from). |
 | `revision` | integer, default 1 | 1 for a first write, `+1` per edit. |
 | `supersedesId` | uuid, null, unique | The row this one replaced. Self foreign key, `ON DELETE RESTRICT`. |
@@ -119,7 +122,7 @@ Indexes: `(userId, metricKey, measuredAt desc)` for latest and series, `(userId,
 
 ### 2.8 Metric registry
 
-`apps/api/src/measurements/metric-registry.ts` is pure data and pure functions, with no Nest or Prisma imports. It owns the vocabulary of `metricKey`, `method` and the allowed units; the Zod schemas are built on it. Each metric carries `key`, `label`, `category` (`body`, `vital` or `wellness`), `canonicalUnit`, `units` (each with a `factor`), `displayUnit` per unit system, hard `min`/`max` in the canonical unit, `decimals` for display, allowed `methods`, an optional `scale` and a `daily` flag.
+`apps/api/src/measurements/metric-registry.ts` is pure data and pure functions, with no Nest or Prisma imports. It owns the vocabulary of `metricKey`, `method` and the allowed units; the Zod schemas are built on it. Each metric carries `key`, `label`, `category` (`body`, `vital`, `wellness` or `lab`), `canonicalUnit`, `units` (each with a `factor` and an optional `offset`), `displayUnit` per unit system, hard `min`/`max` in the canonical unit, `decimals` for display, allowed `methods`, an optional `scale` and a `daily` flag. Lab analytes also carry a `panel` and `aliases`; the 39 of them are listed in [health-records.md 2.8](health-records.md#28-blood-work-lab-results), not here.
 
 | Key | Category | Canonical unit | Other units | Bounds (canonical) | Decimals | Methods (besides `unspecified`) |
 |---|---|---|---|---|---|---|
@@ -131,21 +134,21 @@ Indexes: `(userId, metricKey, measuredAt desc)` for latest and series, `(userId,
 | `resting_hr` | vital | `bpm` | none | 25 to 220 | 0 | `wearable`, `bp_cuff`, `manual_pulse`, `other` |
 | `energy`, `sleep_quality`, `muscle_soreness`, `stress` | wellness | `score` | none | 1 to 5 | 0 | `self_report` only; `daily`, with a `scale` of low and high labels |
 
-The shared method list is `unspecified`, `scale`, `smart_scale`, `bia`, `dexa`, `air_displacement`, `skinfold`, `hydrostatic`, `tape`, `bp_cuff`, `manual_pulse`, `wearable`, `clinical`, `self_report`, `other`.
+The shared method list is `unspecified`, `scale`, `smart_scale`, `bia`, `dexa`, `air_displacement`, `skinfold`, `hydrostatic`, `tape`, `bp_cuff`, `manual_pulse`, `wearable`, `clinical`, `self_report`, `other`, `lab`, `point_of_care` (the last two for lab analytes).
 
-**Canonical storage.** A client may send a value in any unit the metric allows (`{ value: 208.4, unit: "lb" }`). The server converts once with `toCanonical`, rounds to 4 decimals and stores the canonical value with the canonical unit. Every response returns canonical values. Bounds are checked after conversion. Display code converts back and rounds to `decimals`.
+**Canonical storage.** A client may send a value in any unit the metric allows (`{ value: 208.4, unit: "lb" }`). The server converts once with `toCanonical` (value x `factor` + `offset`; the offset is 0 except for HbA1c in mmol/mol), rounds to 4 decimals and stores the canonical value with the canonical unit. Every response returns canonical values. Bounds are checked after conversion. Display code converts back and rounds to `decimals`.
 
-**Catalog endpoint.** `GET /api/measurements/metrics` returns `{ metrics, methods }`: the registry as JSON, with conversion factors, bounds, decimals, allowed methods and `scale` (null when absent), plus the method list with labels. A client reads conversion data from it and keeps no second copy.
+**Catalog endpoint.** `GET /api/measurements/metrics` returns `{ metrics, methods }`: the registry as JSON, with conversion factors and offsets, bounds, decimals, allowed methods, `scale` (null when absent), `panel` (null outside `lab`) and `aliases` (empty outside `lab`), plus the method list with labels. A client reads conversion data from it and keeps no second copy.
 
 ### 2.9 Entries and write rules
 
 Readings saved together (a blood-pressure pair; weight with body fat and waist) share an `entryId` and one `measuredAt`. Create, edit and delete work on a whole entry and are atomic.
 
-`POST /api/measurements` takes `measuredAt` (default now), `notes` and 1 to 6 `readings` of `{ metricKey, value, unit?, method? }`, and answers `201` with `{ entryId, items }`. The body is strict Zod: an unknown property is a `400`. A `400` names every failing field under `details.issues` ([API.md](../API.md#errors)), never the submitted value.
+`POST /api/measurements` takes `measuredAt` (default now), `notes` and 1 to 6 body/vital `readings` of `{ metricKey, value, unit?, method? }` (or 1 to 40 lab results, see [health-records.md 2.8](health-records.md#28-blood-work-lab-results)), and answers `201` with `{ entryId, items }`. The body is strict Zod: an unknown property is a `400`. A `400` names every failing field under `details.issues` ([API.md](../API.md#errors)), never the submitted value.
 
 | Rule | Detail |
 |---|---|
-| `metricKey` | A body or vital metric. A wellness or unknown key is refused |
+| `metricKey` | A body, vital or lab metric. A wellness or unknown key is refused. Lab and body/vital metrics never share an entry |
 | Duplicates | One `metricKey` at most once per request |
 | `unit` | One the metric allows; omitted means canonical |
 | `method` | One the metric allows; omitted means `unspecified` |
@@ -184,7 +187,7 @@ A `409` means reload the entry and try again.
 
 | Read | Behaviour |
 |---|---|
-| List | Active body and vital rows, newest `measuredAt` first, ties by insertion time. Filters `metricKey`, `from`, `to`; `page` and `pageSize` (default 20, max 100); flat pagination shape. `from` later than `to` is a `400` |
+| List | Active body and vital rows by default, newest `measuredAt` first, ties by insertion time. Filters `metricKey` (any body, vital or lab metric), `category` (`body`, `vital`, `lab`; lab rows are listed only this way or by `metricKey`), `from`, `to`; `page` and `pageSize` (default 20, max 100); flat pagination shape. `from` later than `to` is a `400` |
 | Latest | One item per body and vital metric in registry order, each with `latest` and `previous` (null where absent). Reflects edits and deletes |
 | Series | `metricKey` required (any registry metric), `from` and `to` (default: the last 180 days ending now), range at most 5 years. Points ascending with `{ id, measuredAt, value, method, origin }`. At most 1000 points: when more match, the newest 1000 are kept and `truncated` is true |
 
@@ -433,7 +436,7 @@ An existing deployment gets the two permissions and their grants by re-running `
 | `PUT /api/health-profile` | `health_data:write` | Full replace; optional `If-Match`; `409` on version conflict; returns the saved profile |
 | `GET /api/measurements/metrics` | `health_data:read` | The metric registry and method list |
 | `POST /api/measurements` | `health_data:write` | Create one entry; `201 { entryId, items }` |
-| `GET /api/measurements` | `health_data:read` | Active body and vital rows, newest first, filtered and paginated |
+| `GET /api/measurements` | `health_data:read` | Active rows, newest first, filtered and paginated; body and vital by default, lab with `category=lab` |
 | `GET /api/measurements/latest` | `health_data:read` | Latest and previous reading per body and vital metric |
 | `GET /api/measurements/series` | `health_data:read` | Ascending chart points for one metric, at most 1000 |
 | `PATCH /api/measurements/entries/:entryId` | `health_data:write` | Supersede the entry's rows; `404` if none active; `409` on a concurrent edit |
@@ -470,7 +473,7 @@ Per-endpoint detail, schemas and error responses: `/api/docs` (`npm run openapi:
 Appending an entry to `METRICS` in `apps/api/src/measurements/metric-registry.ts` is the whole change; no migration is needed.
 
 1. Give it a unique `key` (permanent once rows carry it), `label`, `category`, `canonicalUnit`, `units` with `factor` to the canonical unit, `displayUnit`, hard `min`/`max`, `decimals` and allowed `methods`. Add a new method to `MEASUREMENT_METHODS` only if the shared list lacks it.
-2. Put it in the `body` or `vital` category for `/api/measurements` to accept it; a `wellness` entry is not accepted there.
+2. Put it in the `body`, `vital` or `lab` category for `/api/measurements` to accept it; a `wellness` entry is not accepted there. A lab analyte is declared with the `lab()` helper (canonical unit first, then `alt` units, `panel`, `aliases`) and pinned in `apps/api/src/measurements/lab-catalog.spec.ts` with a known value per alternative unit.
 3. If it must be submitted with another metric, add the cross-field rule beside `bloodPressureProblem` in `apps/api/src/measurements/dto/measurement.dto.ts`, and check it in the service's merged-entry step too.
 4. Update the catalog snapshot in `apps/api/src/measurements/metric-registry.spec.ts` and the table in [2.8](#28-metric-registry).
 5. `latest` lists every body and vital metric, so the new one appears there automatically.

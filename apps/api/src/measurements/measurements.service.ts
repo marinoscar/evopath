@@ -14,11 +14,14 @@ import {
   bloodPressureProblem,
   type CreateMeasurementEntryInput,
   type LatestMeasurements,
+  listMetricKeys,
   type ListMeasurementsQuery,
   type Measurement,
+  type MeasurementFlag,
   type MeasurementEntry,
   type MeasurementSeries,
   type SeriesQuery,
+  referenceRangeProblem,
   SERIES_MAX_POINTS,
   type UpdateMeasurementEntryInput,
 } from './dto/measurement.dto';
@@ -51,8 +54,12 @@ import {
 // index on `supersedes_id` plus the `supersededAt IS NULL` condition on the
 // stamp mean two concurrent edits cannot both win.
 //
-// ⚠ NEVER LOG VALUES OR NOTES. Log ids and counts only; the audit row for a
-// delete carries the reading count and nothing else.
+// LAB CONTEXT (H3, #187). A lab reading may carry the lab's reference range
+// (`referenceLow`/`referenceHigh` canonical, `referenceText`) and `flag`. An
+// edit copies them forward unless the body changes them, like `method`.
+//
+// ⚠ NEVER LOG VALUES, RANGES OR NOTES. Log ids and counts only; the audit row
+// for a delete carries the reading count and nothing else.
 // =============================================================================
 
 export const MEASUREMENT_ENTRY_DELETE_AUDIT_ACTION = 'measurement_entry:delete';
@@ -137,6 +144,10 @@ export class MeasurementsService {
             method: reading.method ?? DEFAULT_METHOD,
             origin,
             notes: input.notes,
+            referenceLow: reading.referenceLow ?? null,
+            referenceHigh: reading.referenceHigh ?? null,
+            referenceText: reading.referenceText ?? null,
+            flag: reading.flag ?? null,
             sourceRef: sourceRef ?? Prisma.DbNull,
           },
         }),
@@ -191,13 +202,32 @@ export class MeasurementsService {
 
         const merged = old.map((row) => {
           const change = changes.get(row.metricKey);
+          // Undefined = keep the stored context; null = clear it.
+          const keep = <T>(next: T | undefined, current: T): T => (next === undefined ? current : next);
           return {
             row,
             value: change ? change.value : row.value,
             unit: change ? change.unit : row.unit,
             method: change?.method ?? row.method,
+            referenceLow: keep(change?.referenceLow, row.referenceLow),
+            referenceHigh: keep(change?.referenceHigh, row.referenceHigh),
+            referenceText: keep(change?.referenceText, row.referenceText),
+            flag: keep(change?.flag, row.flag),
           };
         });
+
+        for (const reading of merged) {
+          const rangeProblem = referenceRangeProblem(reading.referenceLow, reading.referenceHigh);
+          if (!rangeProblem) continue;
+
+          const index = (input.readings ?? []).findIndex(
+            (candidate) => candidate.metricKey === reading.row.metricKey,
+          );
+          throw new BadRequestException({
+            message: 'Validation failed',
+            details: { issues: [{ path: `readings.${index}.referenceLow`, message: rangeProblem }] },
+          });
+        }
 
         const byKey = new Map(merged.map((reading) => [reading.row.metricKey, reading.value]));
         const problem = bloodPressureProblem(
@@ -254,6 +284,10 @@ export class MeasurementsService {
                     ? Prisma.DbNull
                     : (sourceRef as Prisma.InputJsonValue),
                 notes: input.notes === undefined ? row.notes : input.notes,
+                referenceLow: reading.referenceLow,
+                referenceHigh: reading.referenceHigh,
+                referenceText: reading.referenceText,
+                flag: reading.flag,
                 revision: row.revision + 1,
                 supersedesId: row.id,
               },
@@ -292,12 +326,15 @@ export class MeasurementsService {
   // Reads — every one is `{ userId, ...ACTIVE }`
   // ---------------------------------------------------------------------------
 
-  /** Active body/vital rows, newest first, flat pagination. */
+  /**
+   * Active rows, newest first, flat pagination: body and vital by default, a
+   * `category` (lab analytes are only listed on request) or one `metricKey`.
+   */
   async list(userId: string, query: ListMeasurementsQuery) {
     const where: Prisma.MeasurementWhereInput = {
       userId,
       ...ACTIVE,
-      metricKey: query.metricKey ?? { in: [...MEASUREMENT_METRIC_KEYS] },
+      metricKey: oneOrIn(listMetricKeys(query)),
       ...(query.from || query.to
         ? {
             measuredAt: {
@@ -415,6 +452,10 @@ export class MeasurementsService {
   }
 }
 
+function oneOrIn(keys: string[]): Prisma.MeasurementWhereInput['metricKey'] {
+  return keys.length === 1 ? keys[0] : { in: keys };
+}
+
 function isProvenanceList(
   provenance: EntryProvenance | readonly EntryProvenance[],
 ): provenance is readonly EntryProvenance[] {
@@ -493,6 +534,10 @@ export function toMeasurement(row: MeasurementRow, files?: HealthDocumentFileSta
     method: row.method,
     origin: row.origin,
     notes: row.notes,
+    referenceLow: row.referenceLow,
+    referenceHigh: row.referenceHigh,
+    referenceText: row.referenceText,
+    flag: row.flag as MeasurementFlag | null,
     sourceRef: (row.sourceRef ?? null) as Record<string, unknown> | null,
     fileDeleted: fileDeletedOf(row, files),
     revision: row.revision,
