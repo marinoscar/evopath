@@ -406,7 +406,7 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 
 ### 6.1 Prisma models
 
-The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 43 models, grouped by subsystem:
+The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 44 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|
@@ -449,6 +449,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set |
 | Intake | `PhotoIntake` | `photo_intakes` | One photo-to-draft flow per row: kind, status, kind-specific context, chosen provider and model, analyze job, error, result metadata |
 | Intake | `PhotoIntakePhoto` | `photo_intake_photos` | Link from an intake to a `storage_objects` row, unique per `(intakeId, storageObjectId)`, with sort order |
+| Intake | `HealthDocument` | `health_documents` | A user's health document (lab report, body-metric photo): kind, file metadata, keep or delete-after-processing retention, optional intake and storage object links, `fileDeletedAt` once purged |
 | Intake | `DraftItem` | `draft_items` | One reviewable item: origin, status, confidence, uncertainty, source photos, `userVerified`, current `value`, write-once `originalAiValue` |
 | Gyms | `Gym` | `gyms` | One place a user trains: name, type, optional coordinates, `isDefault` (at most one per user, enforced by the raw-SQL partial unique index `gyms_user_default_uniq_idx`), `isTemporary` |
 | Gyms | `EquipmentType` | `equipment_types` | Equipment catalog row keyed by a permanent `slug`: category, aliases; `ownerUserId` null for seeded rows, set for a user's custom equipment |
