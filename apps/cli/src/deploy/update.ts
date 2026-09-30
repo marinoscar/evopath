@@ -27,7 +27,8 @@ import {
   type EnvVarMetadata,
 } from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
-import { runCommand as defaultRunCommand } from './executor.js';
+import { runCommand as defaultRunCommand, type CommandResult } from './executor.js';
+import { reconcileEdgeConfig, parseSha256sum, EDGE_CONFIG_FILES, type RunningRead } from './edge-config.js';
 import { ensureDatabase } from './database.js';
 import { collectHealth, isHealthy, waitForHealthy, type FetchLike } from './health.js';
 import type { DeployHooks } from './hooks.js';
@@ -248,8 +249,8 @@ function envFilePath(deployRoot: string): string {
 async function compose(
   context: UpdateContext,
   extra: readonly string[],
-  options?: { timeoutMs?: number },
-): Promise<void> {
+  options?: { timeoutMs?: number; allowExitCodes?: readonly number[] },
+): Promise<CommandResult> {
   // See `ensureBindSources` in install.ts: Docker creates a missing bind
   // source as root:root the moment it instantiates the service, and `compose
   // run` does that as thoroughly as `up`.
@@ -262,12 +263,49 @@ async function compose(
   const result = await context.runCommand(argv, {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
+    ...(options?.allowExitCodes === undefined ? {} : { allowExitCodes: options.allowExitCodes }),
     redact: context.journal.redact,
     ...(context.hooks?.onLog === undefined
       ? {}
       : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
   });
   context.journal.command(result);
+  return result;
+}
+
+/**
+ * Recreates the app's nginx, and only it.
+ *
+ * `--force-recreate` because nothing in the compose MODEL changes when a
+ * bind-mounted file's content does, so a plain `up -d` leaves the container
+ * alone; `--no-deps` so api and web are not recreated along with it.
+ */
+const RECREATE_NGINX = ['up', '-d', '--no-deps', '--force-recreate', 'nginx'] as const;
+
+/** What the container reads; see edge-config.ts. */
+async function readRunningEdgeConfig(context: UpdateContext): Promise<RunningRead> {
+  try {
+    // Exit 1 is sha256sum's "some file could not be read" -- the hashes it
+    // DID print are still worth having, and a missing one counts as drift.
+    const result = await compose(
+      context,
+      ['exec', '-T', 'nginx', 'sha256sum', ...EDGE_CONFIG_FILES.map((file) => file.container)],
+      { timeoutMs: 60_000, allowExitCodes: [1] },
+    );
+    return {
+      hashes: parseSha256sum(result.stdout),
+      ...(result.exitCode === 0
+        ? {}
+        : { error: `exit ${result.exitCode}: ${result.stderr.trim() || 'no output'}` }),
+    };
+  } catch (error) {
+    // nginx not running at all, or docker refusing the exec: nothing to
+    // compare, which `reconcileEdgeConfig` treats as drift.
+    return {
+      hashes: new Map(),
+      error: error instanceof Error ? error.message.split('\n')[0] : String(error),
+    };
+  }
 }
 
 /** Every step after `fetch` stands down when the remote has not moved. */
@@ -739,7 +777,44 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         await compose(context, ['up', '-d']);
         // nginx caches the api container's address, and a rebuilt container
         // gets a new one, so a stale resolution outlives the update.
-        await compose(context, ['restart', 'nginx'], { timeoutMs: 5 * 60_000 });
+        //
+        // ⚠ RECREATED, NOT RESTARTED (#206). nginx.conf and csp.conf are
+        // SINGLE-FILE bind mounts, and git replaces a file's inode rather than
+        // editing it: `restart` keeps the old container and the old inode, so
+        // a config change in the release never reached the running site.
+        // Recreating re-binds the mounts as well as re-resolving the api.
+        await compose(context, [...RECREATE_NGINX], { timeoutMs: 5 * 60_000 });
+      },
+    },
+    {
+      id: 'edge-config',
+      title: 'Check the nginx config is current',
+      // ⚠ NO `skipWhenUnchanged`, and that is the point of this step (#206).
+      // Every other step after `fetch` stands down when the checkout has not
+      // moved -- so a checkout updated BY HAND (a `git pull` over SSH, a
+      // previous run that failed after `fetch`) would otherwise never get its
+      // nginx config applied: each later run finds "nothing to do". This asks
+      // the running container directly, which costs one `exec` when all is
+      // well.
+      //
+      // AFTER `restart` so a changed run checks what the recreate just did,
+      // and BEFORE `health` because the health probe goes through this nginx:
+      // a stale edge config is the stack's problem, not the API's, and should
+      // be named as such.
+      async run(context) {
+        const project = composeProjectFor(context.state);
+        await reconcileEdgeConfig({
+          checkoutPath: checkoutPathFor(context.options.deployRoot),
+          readRunning: () => readRunningEdgeConfig(context),
+          recreate: async () => {
+            await compose(context, [...RECREATE_NGINX], { timeoutMs: 5 * 60_000 });
+          },
+          manualCommand:
+            `cd ${composeCwd(context.options.deployRoot)} && ` +
+            composeArgv([...RECREATE_NGINX], project, groupsOf(context)).join(' '),
+          line: (text) => context.journal.line(text),
+          notice: (text) => context.hooks?.onProgress?.(text),
+        });
       },
     },
     {
