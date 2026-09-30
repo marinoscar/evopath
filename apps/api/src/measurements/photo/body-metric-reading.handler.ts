@@ -40,6 +40,7 @@
 
 import { HttpException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { trace } from '@opentelemetry/api';
 import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
@@ -48,6 +49,8 @@ import type { AiContentPart } from '../../ai/core/types/responses.types';
 import { AI_RUN_TERMINAL_CODES } from '../../ai/runtime/ai-response-run.handler';
 import { AiService } from '../../ai/runtime/ai.service';
 import { aiErrorFromStorage } from '../../ai/storage/ai-storage-errors';
+import { type IntakeAnalyzerInput, isPdfInput, numberedInputParts } from '../../intake/intake-analyzer';
+import { INTAKE_INPUT_KIND_SPAN_ATTRIBUTE, inputKindAttribute, PDF_INPUT_UNSUPPORTED_MESSAGE } from '../../intake/intake-inputs';
 import { IntakeService } from '../../intake/intake.service';
 import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../jobs/events/job-settled.event';
 import { JobExecutionProfile } from '../../jobs/job-execution-profile';
@@ -94,6 +97,17 @@ const FAILURE_MESSAGES: Partial<Record<AiErrorCode, string>> = {
 
 const GENERIC_FAILURE = 'Reading the photo failed.';
 
+/** The user-safe message for a failed call; a model that cannot read the intake's PDF says so (H2, #186). */
+function failureMessage(error: AiError, hasPdf: boolean): string {
+  const capability = (error.getResponse() as { details?: { capability?: unknown } }).details?.capability;
+
+  if (hasPdf && error.code === 'AI_CAPABILITY_UNSUPPORTED' && capability === 'file_input') {
+    return PDF_INPUT_UNSUPPORTED_MESSAGE;
+  }
+
+  return FAILURE_MESSAGES[error.code] ?? GENERIC_FAILURE;
+}
+
 @Injectable()
 export class BodyMetricReadingHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(BodyMetricReadingHandler.name);
@@ -123,7 +137,12 @@ export class BodyMetricReadingHandler implements JobHandler, OnModuleInit {
     const { intakeId } = payload.data;
     const intake = await this.prisma.photoIntake.findUnique({
       where: { id: intakeId },
-      include: { photos: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }], select: { storageObjectId: true } } },
+      include: {
+        photos: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: { storageObjectId: true, storageObject: { select: { mimeType: true } } },
+        },
+      },
     });
 
     if (!intake) {
@@ -146,18 +165,27 @@ export class BodyMetricReadingHandler implements JobHandler, OnModuleInit {
       return;
     }
 
-    const photoIds = intake.photos.map((photo) => photo.storageObjectId);
+    // H2 (#186): a PDF is sent as a `file` part, an image as an `image` part.
+    const inputs: IntakeAnalyzerInput[] = intake.photos.map((photo) => ({
+      storageObjectId: photo.storageObjectId,
+      mimeType: photo.storageObject?.mimeType ?? null,
+    }));
+    const photoIds = inputs.map((input) => input.storageObjectId);
+    const hasPdf = inputs.some((input) => isPdfInput(input));
 
     if (photoIds.length === 0) {
       await this.intakes.failIntake(intakeId, 'AI_INVALID_REQUEST', 'Attach a photo first.');
       return;
     }
 
-    const content: AiContentPart[] = [{ type: 'text', text: bodyMetricUserText(photoIds.length) }];
-    photoIds.forEach((storageObjectId, index) => {
-      content.push({ type: 'text', text: `Photo ${index + 1}:` });
-      content.push({ type: 'image', storageObjectId, detail: 'high' });
-    });
+    const inputKind = inputKindAttribute(inputs.map((input) => (isPdfInput(input) ? 'pdf' : 'image')));
+    if (inputKind) trace.getActiveSpan()?.setAttribute(INTAKE_INPUT_KIND_SPAN_ATTRIBUTE, inputKind);
+
+    // Numbered from 1, as the prompt's `sourcePhotoIndexes` are.
+    const content: AiContentPart[] = [
+      { type: 'text', text: bodyMetricUserText(photoIds.length, hasPdf) },
+      ...numberedInputParts(inputs, 1),
+    ];
 
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(new Error('Photo reading timed out')), CALL_DEADLINE_MS);
@@ -180,7 +208,7 @@ export class BodyMetricReadingHandler implements JobHandler, OnModuleInit {
       );
       output = parsed;
     } catch (err) {
-      await this.settleAiFailure(intakeId, job.id, err);
+      await this.settleAiFailure(intakeId, job.id, err, hasPdf);
       return;
     } finally {
       clearTimeout(deadline);
@@ -239,7 +267,7 @@ export class BodyMetricReadingHandler implements JobHandler, OnModuleInit {
   }
 
   /** The model call failed: defer, fail quietly, or fail and throw (see the header). */
-  private async settleAiFailure(intakeId: string, jobId: string, err: unknown): Promise<void> {
+  private async settleAiFailure(intakeId: string, jobId: string, err: unknown, hasPdf = false): Promise<void> {
     const aiError = err instanceof AiError ? err : aiErrorFromStorage(err);
 
     if (!aiError) {
@@ -254,7 +282,7 @@ export class BodyMetricReadingHandler implements JobHandler, OnModuleInit {
       throw rateLimit;
     }
 
-    await this.intakes.failIntake(intakeId, aiError.code, FAILURE_MESSAGES[aiError.code] ?? GENERIC_FAILURE);
+    await this.intakes.failIntake(intakeId, aiError.code, failureMessage(aiError, hasPdf));
 
     if (AI_RUN_TERMINAL_CODES.has(aiError.code)) {
       this.logger.log(`Photo intake ${intakeId} ended with ${aiError.code} (job ${jobId})`);

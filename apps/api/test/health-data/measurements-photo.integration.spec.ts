@@ -248,7 +248,7 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
       expect(prisma.photoIntake.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: INTAKE, status: 'scanning' },
-          data: expect.objectContaining({ status: 'ready', resultMeta: expect.objectContaining({ promptVersion: 1 }) }),
+          data: expect.objectContaining({ status: 'ready', resultMeta: expect.objectContaining({ promptVersion: 2 }) }),
         }),
       );
       expect(prisma.measurement.create).not.toHaveBeenCalled();

@@ -122,7 +122,7 @@ describe('BodyMetricReadingHandler (E2.6)', () => {
           sourcePhotoIds: [PHOTO_A],
         },
       ],
-      { resultMeta: { promptVersion: 1, deviceKind: 'scale', unreadable: false, readingsFlagged: 0, readingsTruncated: 0 } },
+      { resultMeta: { promptVersion: 2, deviceKind: 'scale', unreadable: false, readingsFlagged: 0, readingsTruncated: 0 } },
     );
     expect(intakes.failIntake).not.toHaveBeenCalled();
   });

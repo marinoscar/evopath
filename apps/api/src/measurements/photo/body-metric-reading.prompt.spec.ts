@@ -10,7 +10,7 @@ import {
 
 describe('body metric reading prompt (E2.6)', () => {
   it('has a numeric version', () => {
-    expect(BODY_METRIC_PROMPT_VERSION).toBe(1);
+    expect(BODY_METRIC_PROMPT_VERSION).toBe(2);
   });
 
   // Each phrase is a safety rule; removing or weakening one must fail here.

@@ -43,6 +43,7 @@ import { bodyMetricOutputSchema } from '../../src/measurements/photo/body-metric
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { bodyMetricFixture, type BodyMetricFixture } from '../fixtures/body-metric/load';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { trustingInputInspector } from '../../src/intake/testing/input-inspector.stub';
 
 const { describeWithDb } = resolveDbSuite('measurements-photo.db.spec');
 
@@ -150,6 +151,7 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
       { assertUsable: jest.fn(async () => ({})) } as never,
       { delete: jest.fn(async () => undefined) } as never,
       stubFeatureResolver({ provider: 'openai', modelId: 'vision-model' }) as never,
+      trustingInputInspector(),
     );
     const respondStructured = jest.fn(async () => ({ parsed: bodyMetricOutputSchema.parse(bodyMetricFixture(answer)) }));
     handler = new BodyMetricReadingHandler(
@@ -180,7 +182,7 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
 
     const intake = await client.photoIntake.findUniqueOrThrow({ where: { id: intakeId } });
     expect(intake.status).toBe('ready');
-    expect(intake.resultMeta).toMatchObject({ promptVersion: 1, deviceKind: 'scale', unreadable: false });
+    expect(intake.resultMeta).toMatchObject({ promptVersion: 2, deviceKind: 'scale', unreadable: false });
 
     const [draft] = await items(intakeId);
     expect(draft).toMatchObject({
