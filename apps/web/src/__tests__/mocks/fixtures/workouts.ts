@@ -24,6 +24,7 @@ import type {
   Workout,
   WorkoutExerciseView,
   WorkoutListItem,
+  WorkoutSummary,
 } from '../../../services/workouts';
 
 const API = '*/api';
@@ -338,11 +339,77 @@ export function toListItem(w: Workout): WorkoutListItem {
   };
 }
 
+const DAY_MS = 86_400_000;
+const dayNumber = (date: string) => Math.round(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
+
+/**
+ * A test double of `GET /workouts/summary` (E4.6) over the stateful workouts:
+ * the in-progress workout, the latest completed one with its top lifts, and
+ * the ISO week (Monday start) containing `today`. The API is the home of the rules.
+ */
+export function fixtureSummary(workouts: readonly Workout[], today: string | null): WorkoutSummary {
+  const day = today ?? WORKOUT_TODAY;
+  const running = workouts.find((w) => w.status === 'in_progress') ?? null;
+  const completed = workouts
+    .filter((w) => w.status === 'completed')
+    .sort((a, b) => (a.date === b.date ? b.startedAt.localeCompare(a.startedAt) : b.date.localeCompare(a.date)));
+  const lastW = completed[0] ?? null;
+  const todayN = dayNumber(day);
+  const weekday = (new Date(todayN * DAY_MS).getUTCDay() + 6) % 7; // Monday 0
+  const mondayN = todayN - weekday;
+  const weekStart = new Date(mondayN * DAY_MS).toISOString().slice(0, 10);
+  let last: WorkoutSummary['last'] = null;
+  if (lastW) {
+    const totals = computeSummary(lastW);
+    const topLifts = lastW.exercises
+      .map((e) => {
+        const best = e.sets
+          .filter((s) => s.completed && !s.isWarmup && (s.weightKg ?? 0) > 0 && (s.reps ?? 0) > 0)
+          .sort((a, b) => (b.weightKg ?? 0) - (a.weightKg ?? 0) || (b.reps ?? 0) - (a.reps ?? 0))[0];
+        return best ? { exerciseName: e.exercise.name, weightKg: best.weightKg ?? 0, reps: best.reps ?? 0 } : null;
+      })
+      .filter((l): l is NonNullable<typeof l> => l !== null)
+      .sort((a, b) => b.weightKg - a.weightKg)
+      .slice(0, 3);
+    last = {
+      id: lastW.id,
+      name: lastW.name,
+      date: lastW.date,
+      durationSeconds: lastW.durationSeconds,
+      gym: lastW.gym,
+      exerciseCount: totals.exerciseCount,
+      setCount: totals.setCount,
+      volumeKg: totals.volumeKg,
+      topLifts,
+    };
+  }
+  return {
+    inProgress: running
+      ? {
+          id: running.id,
+          name: running.name,
+          startedAt: running.startedAt,
+          gym: running.gym,
+          exerciseCount: running.exercises.length,
+          completedSetCount: running.exercises.reduce((n, e) => n + e.sets.filter((s) => s.completed).length, 0),
+        }
+      : null,
+    last,
+    thisWeek: {
+      workoutCount: completed.filter((w) => dayNumber(w.date) >= mondayN && dayNumber(w.date) <= mondayN + 6).length,
+      weekStart,
+    },
+    daysSinceLast: lastW ? Math.max(0, todayN - dayNumber(lastW.date)) : null,
+  };
+}
+
 export interface WorkoutsApiState {
   workouts: Workout[];
   calls: { method: string; path: string; body?: unknown }[];
   /** `GET /exercises/:id/history` requests (reads are not in `calls`). */
   historyCalls: { exerciseId: string; query: string }[];
+  /** `GET /workouts/summary` query strings (E4.6). */
+  summaryCalls: string[];
 }
 
 export interface WorkoutsApiOptions {
@@ -359,7 +426,7 @@ const notFound = (what: string) =>
   HttpResponse.json({ statusCode: 404, message: `${what} not found`, error: 'Not Found' }, { status: 404 });
 
 export function statefulWorkoutsApi(initial: Workout[] = [], options: WorkoutsApiOptions = {}): WorkoutsApiState {
-  const state: WorkoutsApiState = { workouts: initial.map((w) => structuredClone(w)), calls: [], historyCalls: [] };
+  const state: WorkoutsApiState = { workouts: initial.map((w) => structuredClone(w)), calls: [], historyCalls: [], summaryCalls: [] };
   const gyms = options.gyms ?? [];
   const exercises = options.exercises ?? [];
 
@@ -427,6 +494,10 @@ export function statefulWorkoutsApi(initial: Workout[] = [], options: WorkoutsAp
       });
       state.workouts.push(created);
       return HttpResponse.json({ data: { ...view(created), existing: false } }, { status: 201 });
+    }),
+    http.get(`${API}/workouts/summary`, ({ request }) => {
+      state.summaryCalls.push(new URL(request.url).search);
+      return HttpResponse.json({ data: fixtureSummary(state.workouts, new URL(request.url).searchParams.get('today')) });
     }),
     http.get(`${API}/workouts/:id`, ({ params }) => {
       const w = find(params.id);

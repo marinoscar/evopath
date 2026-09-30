@@ -3,6 +3,8 @@ import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
 import { render, screen, mockUser, within } from '../utils/test-utils';
 import TodayPage from '../../pages/TodayPage';
+import { http, HttpResponse } from 'msw';
+import { server } from '../mocks/server';
 import { comingInLabel } from '../../config/roadmap';
 
 const CARDS = [
@@ -50,7 +52,9 @@ describe('TodayPage', () => {
     expect(
       within(screen.getByRole('region', { name: 'Body snapshot' })).queryByText(comingInLabel('health')),
     ).toBeNull();
-    expect(screen.getByText('Coming in E5')).toBeInTheDocument();
+    // Today's workout (E4.6) has `Content`, so no chip on it either.
+    expect(screen.queryByText(comingInLabel('programs'))).toBeNull();
+    expect(screen.queryByText(/Coming in/)).toBeNull();
     // Your gym (E3.3) has `Content`, so no gyms chip.
     expect(screen.queryByText(comingInLabel('gyms'))).toBeNull();
     for (const card of CARDS) {
@@ -81,6 +85,32 @@ describe('TodayPage', () => {
     const gym = screen.getByRole('region', { name: 'Your gym' });
     expect(await within(gym).findByRole('link', { name: 'Add your gym' })).toHaveAttribute('href', '/gyms/new');
     expect(within(gym).getByRole('link', { name: 'Open Gyms' })).toHaveAttribute('href', '/gyms');
+  });
+
+  it('renders the workout content (E4.6): Start workout, the empty state and the Open Train link', async () => {
+    render(<TodayPage />);
+    const workout = screen.getByRole('region', { name: "Today's workout" });
+    expect(await within(workout).findByRole('button', { name: 'Start workout' })).toBeInTheDocument();
+    expect(within(workout).getByText('No workouts yet.')).toBeInTheDocument();
+    expect(within(workout).getByRole('link', { name: 'Open Train' })).toHaveAttribute('href', '/train');
+  });
+
+  it('keeps the other cards when the workout summary fails (E4.6)', async () => {
+    server.use(
+      http.get('*/api/workouts/summary', () =>
+        HttpResponse.json({ statusCode: 500, message: 'Boom', error: 'Internal Server Error' }, { status: 500 }),
+      ),
+    );
+    render(<TodayPage />);
+    const workout = screen.getByRole('region', { name: "Today's workout" });
+    expect(await within(workout).findByText("Couldn't load training")).toBeInTheDocument();
+    expect(within(workout).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    const readiness = screen.getByRole('region', { name: 'Readiness' });
+    expect(await within(readiness).findByRole('button', { name: 'Check in' })).toBeInTheDocument();
+    const body = screen.getByRole('region', { name: 'Body snapshot' });
+    expect(await within(body).findByRole('button', { name: 'Log your first weight' })).toBeInTheDocument();
+    const gym = screen.getByRole('region', { name: 'Your gym' });
+    expect(await within(gym).findByRole('link', { name: 'Add your gym' })).toBeInTheDocument();
   });
 
   it('greets by first name', () => {

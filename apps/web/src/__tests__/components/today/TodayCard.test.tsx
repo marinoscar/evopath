@@ -4,7 +4,8 @@ import { TodayCard } from '../../../components/today/TodayCard';
 import { TODAY_CARDS, type TodayCardDef } from '../../../config/todayCards';
 import { comingInLabel } from '../../../config/roadmap';
 
-const base = TODAY_CARDS[0];
+// Every registered card has `Content` since E4.6; the placeholder path is tested on a copy without it.
+const base: TodayCardDef = { ...TODAY_CARDS[0], Content: undefined };
 
 describe('TodayCard', () => {
   it('renders the placeholder, chip and link when there is no Content', () => {

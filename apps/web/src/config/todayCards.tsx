@@ -8,6 +8,7 @@ import type { RoadmapArea } from './roadmap';
 import { TodayBodySnapshot } from '../components/today/TodayBodySnapshot';
 import { TodayReadiness } from '../components/today/TodayReadiness';
 import { TodayGym } from '../components/today/TodayGym';
+import { TodayWorkout } from '../components/today/TodayWorkout';
 
 /**
  * Cards on the Today page. Append-only order: workout, readiness, body, gym.
@@ -36,6 +37,8 @@ export const TODAY_CARDS: readonly TodayCardDef[] = [
     to: '/train',
     linkLabel: 'Open Train',
     area: 'programs',
+    // E4.6: Start or Resume a workout, the last workout and this week's count.
+    Content: TodayWorkout,
   },
   {
     key: 'readiness',

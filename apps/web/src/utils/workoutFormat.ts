@@ -198,3 +198,28 @@ export function setHasValues(
     set.weightKg !== null || set.reps !== null || set.durationSeconds !== null || set.distanceMeters !== null
   );
 }
+
+// -----------------------------------------------------------------------------
+// Days since (E4.6, the Today card's last workout)
+// -----------------------------------------------------------------------------
+
+/**
+ * Whole calendar days since a workout as the user reads them: `'Today'`,
+ * `'Yesterday'`, `'3 days ago'`, `'2 weeks ago'`, `'3 months ago'`,
+ * `'1 year ago'`. Built on `Intl.RelativeTimeFormat` so plurals are right.
+ */
+export function formatDaysAgo(days: number): string {
+  const d = Math.max(0, Math.floor(days));
+  if (d === 0) return 'Today';
+  if (d === 1) return 'Yesterday';
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'always' });
+  if (d < 7) return rtf.format(-d, 'day');
+  if (d < 30) return rtf.format(-Math.floor(d / 7), 'week');
+  if (d < 365) return rtf.format(-Math.max(1, Math.floor(d / 30.44)), 'month');
+  return rtf.format(-Math.floor(d / 365), 'year');
+}
+
+/** `1 workout`, `2 workouts`; `1 set`, `17 sets`. */
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+}
