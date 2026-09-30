@@ -409,6 +409,15 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 - **Permissions:** `system_settings:read`
 - **Read more:** [specs/doctor.md](specs/doctor.md), [runbooks/doctor.md](runbooks/doctor.md)
 
+### 5.27 User data reset
+
+A user can delete everything they own and keep their account. `POST /api/user-data/reset` (with the typed phrase `DELETE MY DATA`) enqueues the server-only `user.data_reset` job, which deletes the user's rows in one transaction and then their stored media. The account, roles, refresh token and audit log are kept; personal access tokens are deleted.
+
+- **Code:** `apps/api/src/user-data/`
+- **UI:** `/settings/danger-zone` (`apps/web/src/pages/UserDangerZonePage.tsx`)
+- **Permissions:** `user_settings:write`
+- **Read more:** [specs/user-data-reset.md](specs/user-data-reset.md)
+
 ---
 
 ## 6. Data architecture
@@ -607,6 +616,7 @@ All 33 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `training.adaptations.purge` | `training-adaptation/handlers/adaptations-purge.handler.ts` | Deletes `workout_adaptations` rows past `expires_at`, in batches of 5000; enqueued by a daily 03:20 cron that only enqueues; profile 15 minutes, 3 attempts | No |
 | `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Deletes finished runs' events and checkpoints past retention, then old run rows; enqueued by a daily 05:30 cron that only enqueues; profile 30 minutes, 3 attempts | No |
 | `training.evaluation.sweep` | `training-agents/evaluation/handlers/training-evaluation-sweep.handler.ts` | Expires unanswered proposals and starts the due evaluation runs (weekly, deferred, missed sessions) through the scheduler's gates; enqueued hourly (minute 7) by a cron that only enqueues, and only while `ai.enabled`; profile 10 minutes, 3 attempts | No |
+| `user.data_reset` | `user-data/handlers/user-data-reset.handler.ts` | A user's factory reset: collects storage object ids, deletes the user's rows in one transaction, then deletes the media from the storage provider; profile 15 minutes, 3 attempts; server-only | No |
 | `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
 | `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
 | `example.checksum` | `jobs/handlers/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
@@ -699,6 +709,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/ai/agents` | Training agents (read-only model view) | AI | `ai:use` | `ai` |
 | `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
+| `/settings/danger-zone` | Delete all my data | Danger Zone | | none (stays reachable while AI is off) |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
 
@@ -828,6 +839,7 @@ Health endpoints (public, reachable during maintenance):
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
+| A model with a user relation (keep/delete decision for the data reset) | [specs/user-data-reset.md §4](specs/user-data-reset.md#4-extending-it-in-a-fork) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
 

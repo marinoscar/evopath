@@ -75,6 +75,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: settings UI | [docs/specs/settings-ui.md](docs/specs/settings-ui.md) |
 | Spec: object storage providers | [docs/specs/storage-providers.md](docs/specs/storage-providers.md) |
 | Spec: per-user credentials (add a user key type: §4) | [docs/specs/user-credentials.md](docs/specs/user-credentials.md#4-extending-it-in-a-fork) |
+| Spec: user data reset (Danger Zone; add a keep/delete decision when a model gains a user relation: §4) | [docs/specs/user-data-reset.md](docs/specs/user-data-reset.md#4-extending-it-in-a-fork) |
 | Spec: telemetry (GreptimeDB, explorer) | [docs/specs/telemetry.md](docs/specs/telemetry.md) |
 | Spec: VPS deploy | [docs/specs/vps-deploy.md](docs/specs/vps-deploy.md) |
 | Spec: worker nodes | [docs/specs/worker-nodes.md](docs/specs/worker-nodes.md) |
