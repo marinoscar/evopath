@@ -301,8 +301,9 @@ offers "Open dashboard" whenever telemetry is on and you hold
 
 **Known limits:**
 
-- No CPU, memory or disk tile — only requests, logs and two Node runtime
-  metrics are collected today (spec §11.2).
+- No CPU, memory or disk tile. The tiles read requests, logs and two Node
+  runtime metrics; host metrics are collected but reachable only through the
+  Explorer and the assistant (§8.1, spec §11.2).
 - Error messages are grouped by their raw first 200 characters, not a
   normalized template: two errors differing only by an embedded id or
   timestamp show up as separate rows.
@@ -312,6 +313,45 @@ offers "Open dashboard" whenever telemetry is on and you hold
   the p95 tile, the p95 line and the "slowest route" reason, so a long-lived
   subscription never manufactures a false `degraded`/`critical` verdict; they
   still count in requests, error rates and the Top problems table.
+
+### 8.1 Host and pipeline metrics
+
+The collector also records the host it runs on, its own pipeline counters and
+a subset of GreptimeDB's metrics. Nothing to enable: they flow whenever the
+collector runs, every 30 s.
+
+- **Hostname requirement.** The collector reads the host's `/etc/hostname`
+  (through the read-only `/hostfs` mount) to fill `host_name`. It refuses to
+  start, naming the file, if the host has none. Create it (systemd hosts have
+  it) and recreate the collector.
+- **Tables.** `system_cpu_*`, `system_memory_*`, `system_filesystem_*`,
+  `system_disk_*`, `system_paging_*`, `system_network_*`, then
+  `otelcol_*` (the collector) and `greptime_*`/`process_*` (GreptimeDB), plus
+  `up`. Column inventory: spec §11.3.
+- **Network caveat.** `system_network_*` shows the collector container's
+  interfaces, not the host's NICs. CPU, memory, load, paging and disk are the
+  host's.
+- **Filesystems.** Only real disks appear; overlay, tmpfs, `/run`, `/proc` and
+  container-runtime mounts are excluded.
+- **Verify.** In the Explorer, about a minute after the collector starts:
+
+  ```sql
+  SHOW TABLES LIKE 'system_%';
+  SELECT host_name, max(greptime_timestamp) FROM system_cpu_load_average_1m GROUP BY host_name;
+  ```
+
+  Expect the `system_*` tables and your host's real name, not a container id.
+  A collector that is dropping data shows in
+  `otelcol_exporter_send_failed_metric_points_total` (non-zero) and
+  `otelcol_receiver_refused_metric_points_total`.
+- **Disks mounted later (VPS).** The VPS overlay mounts `/hostfs` with
+  `rslave`, so a disk mounted after the collector started is visible without a
+  restart. In development it is not; recreate the collector.
+- **Tuning.** The collector's `memory_limiter` (`limit_mib: 400` in
+  `infra/otel/otel-collector-config.yaml`) is above the VPS collector
+  container's 256M limit, so the container limit acts first under memory
+  pressure. Align the two if you raise the container limit or see the
+  collector restarting.
 
 ## 9. Point a deployment at a GreptimeDB, or rotate credentials, from the UI
 

@@ -38,6 +38,16 @@ services:
     # `!override` with an empty list REPLACES telemetry.compose.yml's
     # "4327:4317" / "4328:4318"; a plain `ports:` would MERGE and keep them.
     ports: !override []
+    # Same /hostfs mount as telemetry.compose.yml (compose merges volumes by
+    # container path, so this REPLACES that entry), plus `rslave`: a disk
+    # mounted on the host after the collector started then appears under
+    # /hostfs too. Without it the filesystem scraper would statfs the empty
+    # directory underneath and report the ROOT disk's usage under the new
+    # mount point, and a disk unmounted on the host would stay pinned busy by
+    # the collector's private copy until it restarted. A VPS's / is a shared
+    # mount (systemd), which `rslave` requires.
+    volumes:
+      - /:/hostfs:ro,rslave
     restart: unless-stopped
     deploy:
       resources:
