@@ -51,8 +51,8 @@ function PrefillButtonView({ workoutId, reason }: { workoutId: string; reason: s
 }
 
 function PrefillButtonWithAvailability({ workoutId }: { workoutId: string }) {
-  const availability = useVisionAvailability();
-  return <PrefillButtonView workoutId={workoutId} reason={prefillAvailabilityReason(availability.status)} />;
+  const availability = useVisionAvailability('workout_prefill');
+  return <PrefillButtonView workoutId={workoutId} reason={prefillAvailabilityReason(availability)} />;
 }
 
 export function PrefillButton({ workoutId }: { workoutId: string }) {

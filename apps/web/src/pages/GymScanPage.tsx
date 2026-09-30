@@ -36,7 +36,11 @@ import {
 import { ArrowBack as BackIcon } from '@mui/icons-material';
 import { usePermissions } from '../hooks/usePermissions';
 import { useGym } from '../hooks/useGym';
-import { useVisionAvailability, type UseVisionAvailabilityReturn } from '../hooks/useVisionAvailability';
+import {
+  useRefreshOnFeatureRefusal,
+  useVisionAvailability,
+  type UseVisionAvailabilityReturn,
+} from '../hooks/useVisionAvailability';
 import { useGymScanIntake } from '../hooks/useGymScanIntake';
 import {
   AiDraftReview,
@@ -230,13 +234,14 @@ function ScanSteps({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const status = intake.intake?.status ?? 'draft';
-  const selected = availability.selected;
+  const selected = availability.model;
   const photoCount = Math.max(intake.photos.length, photos.readyCount);
+  useRefreshOnFeatureRefusal(intake.error, availability.refresh);
 
   const scan = async () => {
     if (!selected) return;
     setScanStartedAt(Date.now());
-    const started = await intake.analyze({ provider: selected.provider, modelId: selected.modelId });
+    const started = await intake.analyze(selected);
     if (started) setAddingPhotos(false);
   };
 
@@ -428,9 +433,16 @@ function ScanWithIntake({
 
 /** Gate on the AI being able to read photos; the manual path stays one click away. */
 function ScanGate({ gymId, onManual }: { gymId: string; onManual: () => void }) {
-  const availability = useVisionAvailability();
+  const availability = useVisionAvailability('gym_scan');
   if (availability.status !== 'ready') {
-    return <NoVisionModelNotice reason={availability.status} onManual={onManual} />;
+    return (
+      <NoVisionModelNotice
+        reason={availability.status}
+        fix={availability.fix}
+        onRetry={() => void availability.refresh()}
+        onManual={onManual}
+      />
+    );
   }
   return <ScanWithIntake gymId={gymId} availability={availability} onManual={onManual} />;
 }

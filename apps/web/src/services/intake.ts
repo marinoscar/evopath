@@ -155,14 +155,14 @@ export async function removeIntakePhoto(id: string, storageObjectId: string): Pr
   await api.delete<void>(`${base(id)}/photos/${encodeURIComponent(storageObjectId)}`);
 }
 
-export async function analyzeIntake(
-  id: string,
-  model: { provider: string; modelId: string },
-): Promise<IntakeAnalyzeStarted> {
-  return api.post<IntakeAnalyzeStarted>(`${base(id)}/analyze`, {
-    provider: model.provider,
-    modelId: model.modelId,
-  });
+/**
+ * Start the AI read. The body is an empty object, always: the server resolves
+ * the model from the administrator's assignments (#173) and refuses a body
+ * naming another one (409 `AI_MODEL_ASSIGNMENT_LOCKED`). A request with no
+ * body at all is a 400, so `{}` is sent explicitly.
+ */
+export async function analyzeIntake(id: string): Promise<IntakeAnalyzeStarted> {
+  return api.post<IntakeAnalyzeStarted>(`${base(id)}/analyze`, {});
 }
 
 export async function addDraftItem<TValue = unknown>(

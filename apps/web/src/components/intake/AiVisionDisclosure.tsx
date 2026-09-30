@@ -1,9 +1,12 @@
 /**
  * Before any photo is sent to an AI model, say exactly where it goes: the
  * provider, the model and whose key pays ("your own key" or "the
- * organization key"). With more than one vision model the user picks one
- * here; with more than {@link AI_VISION_MAX_IMAGES_PER_REQUEST} photos the
- * number of requests is spelled out.
+ * organization key"). With more than {@link AI_VISION_MAX_IMAGES_PER_REQUEST}
+ * photos the number of requests is spelled out.
+ *
+ * READ-ONLY (#173): an administrator assigns the model; the user never picks
+ * one. When no administrator assignment applied and the API picked a model
+ * itself, that is said too.
  *
  * For every status other than `ready` it renders {@link NoVisionModelNotice}
  * instead, which always offers "Continue manually".
@@ -11,7 +14,6 @@
 import { Box, Typography } from '@mui/material';
 import type { AiKeySource } from '../../services/ai';
 import type { UseVisionAvailabilityReturn } from '../../hooks/useVisionAvailability';
-import { AiModelSelect, aiModelKey, aiModelLabel } from '../ai/AiModelSelect';
 import { NoVisionModelNotice } from './NoVisionModelNotice';
 
 /** Stored image inputs per AI request (docs/specs/ai-platform.md §2.9). */
@@ -37,17 +39,26 @@ export interface AiVisionDisclosureProps {
 }
 
 export function AiVisionDisclosure({ availability, photoCount = 0, onManual, disabled }: AiVisionDisclosureProps) {
-  const { status, models, selected, select } = availability;
-  if (status !== 'ready' || !selected) {
-    return <NoVisionModelNotice reason={status === 'ready' ? 'loading' : status} onManual={onManual} disabled={disabled} />;
+  const { status, model, source, fix, refresh } = availability;
+  if (status !== 'ready' || !model) {
+    return (
+      <NoVisionModelNotice
+        reason={status === 'ready' ? 'loading' : status}
+        fix={fix}
+        onRetry={() => void refresh()}
+        onManual={onManual}
+        disabled={disabled}
+      />
+    );
   }
 
   const requests = visionRequestCount(photoCount);
   return (
     <Box data-testid="ai-vision-disclosure">
-      <Typography variant="body2" sx={{ mb: models.length > 1 ? 1.5 : 0 }}>
-        These photos will be sent to <strong>{selected.provider}</strong> (<strong>{aiModelLabel(selected)}</strong>)
-        using <strong>{KEY_SOURCE[selected.keySource] ?? KEY_SOURCE.user}</strong>.
+      <Typography variant="body2">
+        These photos will be sent to <strong>{model.provider}</strong> (
+        <strong>{model.displayName || model.modelId}</strong>) using{' '}
+        <strong>{KEY_SOURCE[model.keySource] ?? KEY_SOURCE.user}</strong>.
         {photoCount > AI_VISION_MAX_IMAGES_PER_REQUEST && (
           <>
             {' '}
@@ -57,18 +68,11 @@ export function AiVisionDisclosure({ availability, photoCount = 0, onManual, dis
           </>
         )}
       </Typography>
-      {models.length > 1 && (
-        <AiModelSelect
-          models={models}
-          value={aiModelKey(selected)}
-          capability="vision_input"
-          disabled={disabled}
-          onChange={(key) => {
-            const model = models.find((entry) => aiModelKey(entry) === key);
-            if (model) select(model.provider, model.modelId);
-          }}
-        />
-      )}
+      <Typography variant="caption" color="text.secondary" data-testid="ai-vision-model-source">
+        {source === 'auto'
+          ? 'Chosen automatically: your administrator has not assigned a model for this yet.'
+          : 'Chosen by your administrator.'}
+      </Typography>
     </Box>
   );
 }

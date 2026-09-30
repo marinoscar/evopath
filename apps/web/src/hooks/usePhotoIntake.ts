@@ -65,7 +65,12 @@ export interface UsePhotoIntakeReturn<TValue = unknown, TContext = unknown> {
   scanError: AiErrorInfo | null;
   refresh: () => Promise<void>;
   clearError: () => void;
-  analyze: (model: { provider: string; modelId: string }) => Promise<boolean>;
+  /**
+   * Start the AI read. The server picks the model (#173); `expected` is the
+   * model the caller was shown, used only to fill the intake optimistically
+   * until the next poll reports the one the server used.
+   */
+  analyze: (expected?: { provider: string; modelId: string } | null) => Promise<boolean>;
   acceptItem: (itemId: string) => Promise<void>;
   rejectItem: (itemId: string) => Promise<void>;
   restoreItem: (itemId: string) => Promise<void>;
@@ -268,9 +273,9 @@ export function usePhotoIntake<TValue = unknown, TContext = unknown>(
   }, [intakeId, run, replaceItem]);
 
   const analyze = useCallback(
-    async (model: { provider: string; modelId: string }) => {
+    async (expected?: { provider: string; modelId: string } | null) => {
       if (!intakeId) return false;
-      const result = await run('Could not start the scan', () => analyzeIntake(intakeId, model));
+      const result = await run('Could not start the scan', () => analyzeIntake(intakeId));
       if (!result.ok) return false;
       if (isMounted()) {
         previousStatus.current = 'scanning';
@@ -279,8 +284,8 @@ export function usePhotoIntake<TValue = unknown, TContext = unknown>(
             ? {
                 ...current,
                 status: 'scanning',
-                provider: model.provider,
-                modelId: model.modelId,
+                provider: expected?.provider ?? current.provider,
+                modelId: expected?.modelId ?? current.modelId,
                 jobId: result.value.jobId,
                 errorCode: null,
                 errorMessage: null,

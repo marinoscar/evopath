@@ -8,7 +8,8 @@
  * and the model's capabilities to analyze). Adding equipment by hand never
  * depends on any of this.
  */
-import type { VisionAvailabilityStatus } from '../../hooks/useVisionAvailability';
+import type { UseVisionAvailabilityReturn } from '../../hooks/useVisionAvailability';
+import { visionShortReason } from '../intake/visionAvailabilityCopy';
 
 export const SCAN_PERMISSIONS = ['gyms:write', 'intakes:write', 'storage:write', 'ai:use'] as const;
 
@@ -19,13 +20,6 @@ const PERMISSION_REASON: Record<(typeof SCAN_PERMISSIONS)[number], string> = {
   'ai:use': 'Your account cannot use AI features.',
 };
 
-const STATUS_REASON: Record<Exclude<VisionAvailabilityStatus, 'ready'>, string> = {
-  loading: 'Checking whether AI can read your photos…',
-  ai_disabled: 'AI is turned off for this app.',
-  no_key: 'Add your own AI key in Settings → AI to scan.',
-  no_vision_model: 'None of your available models can read images.',
-};
-
 /** The first permission the caller is missing, as a reason; `null` when they hold all. */
 export function scanPermissionReason(hasPermission: (permission: string) => boolean): string | null {
   const missing = SCAN_PERMISSIONS.find((permission) => !hasPermission(permission));
@@ -33,6 +27,6 @@ export function scanPermissionReason(hasPermission: (permission: string) => bool
 }
 
 /** Why the AI cannot read photos right now; `null` when a vision model is ready. */
-export function scanAvailabilityReason(status: VisionAvailabilityStatus): string | null {
-  return status === 'ready' ? null : STATUS_REASON[status];
+export function scanAvailabilityReason(availability: Pick<UseVisionAvailabilityReturn, 'status' | 'fix'>): string | null {
+  return visionShortReason(availability, 'scan');
 }
