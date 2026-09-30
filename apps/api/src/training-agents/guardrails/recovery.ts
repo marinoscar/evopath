@@ -55,7 +55,7 @@ export function checkRecovery(tree: PlanTree, ctx: GuardrailContext): Violation[
   for (const { week } of weeksOf(tree)) {
     const unresolved = new Set<string>();
     for (let guard = 0; guard < 14; guard += 1) {
-      const found = conflicts(ctx, week.workouts).find((c) => !unresolved.has(c.later.name + c.later.weekday));
+      const found = conflicts(ctx, week.workouts).find((c) => !unresolved.has(`${c.later.position}:${c.later.weekday}`));
       if (!found) break;
 
       const { later, muscle } = found;
@@ -70,7 +70,7 @@ export function checkRecovery(tree: PlanTree, ctx: GuardrailContext): Violation[
       });
 
       if (target === undefined) {
-        unresolved.add(later.name + later.weekday);
+        unresolved.add(`${later.position}:${later.weekday}`);
         f.add(
           'warn',
           'consecutive_days',
@@ -85,7 +85,7 @@ export function checkRecovery(tree: PlanTree, ctx: GuardrailContext): Violation[
         'repair',
         'consecutive_days_moved',
         `week ${week.weekNumber}`,
-        `"${later.name}" moved from ${WEEKDAY_NAMES[from]} to ${WEEKDAY_NAMES[target]} so ${muscle} is not trained hard on consecutive days.`,
+        `The ${WEEKDAY_NAMES[from]} workout moved to ${WEEKDAY_NAMES[target]} so ${muscle} is not trained hard on consecutive days.`,
       );
       sortWeek(week);
     }

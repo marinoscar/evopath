@@ -141,7 +141,7 @@ function moveToPreferredDays(f: Findings, ctx: GuardrailContext, week: PlanWeek)
     }
     workout.weekday = free;
     moved = true;
-    f.add('repair', 'weekday_moved', pathOf(ctx, week, workout), `"${workout.name}" moved from ${from} to ${WEEKDAY_NAMES[free]}, a preferred day.`);
+    f.add('repair', 'weekday_moved', pathOf(ctx, week, workout), `The ${from} workout moved to ${WEEKDAY_NAMES[free]}, a preferred day.`);
   }
 
   if (moved) sortWeek(week);

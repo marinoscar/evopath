@@ -125,7 +125,7 @@ describe('G6 injury and pain', () => {
 
     const warnings = checkInjury(tree, ctx).filter((v) => v.code === 'limitation_risk');
 
-    expect(warnings.map((v) => v.path)).toEqual(['week 1 > Mon (Day 1) > goblet_squat', 'week 1 > Mon (Day 1) > walking_lunge']);
+    expect(warnings.map((v) => v.path)).toEqual(['week 1 > Mon > goblet_squat', 'week 1 > Mon > walking_lunge']);
   });
 
   it('reduceSessionSets trims accessories first, then drops them, then priority sets, floor 2', () => {

@@ -61,14 +61,21 @@ export function keyOf(ctx: GuardrailContext, exerciseId: string): string {
   return ctx.library.get(exerciseId)?.key ?? exerciseId.replace(/^unknown:/, '');
 }
 
+/**
+ * A workout by its day (`Mon workout`), or its position when unscheduled.
+ * Never its name: names are model text, and paths and messages reach events.
+ */
 export function workoutLabel(workout: PlanWorkout): string {
-  const day = workout.weekday ? WEEKDAY_NAMES[workout.weekday] : 'unscheduled';
-  return `${day} (${workout.name})`;
+  return workout.weekday ? `${WEEKDAY_NAMES[workout.weekday]} workout` : `unscheduled workout ${workout.position + 1}`;
+}
+
+function workoutPathLabel(workout: PlanWorkout): string {
+  return workout.weekday ? WEEKDAY_NAMES[workout.weekday] : `unscheduled ${workout.position + 1}`;
 }
 
 export function pathOf(ctx: GuardrailContext, week: PlanWeek, workout?: PlanWorkout, exercise?: PlanExercise): string {
   const parts = [`week ${week.weekNumber}`];
-  if (workout) parts.push(workoutLabel(workout));
+  if (workout) parts.push(workoutPathLabel(workout));
   if (exercise) parts.push(keyOf(ctx, exercise.exerciseId));
   return parts.join(' > ');
 }

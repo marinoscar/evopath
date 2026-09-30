@@ -24,8 +24,8 @@ const RPE = { min: 1, max: 10 };
 const GUARDRAIL_LIMITS_REST_MIN = GUARDRAIL_LIMITS.restSeconds.min;
 
 /** Moves duplicate weekdays to free days (preferred first, then any). Returns the moves. */
-export function dedupeWeekdays(week: PlanWeek, ctx: GuardrailContext): Array<{ name: string; from: number; to: number | null }> {
-  const moves: Array<{ name: string; from: number; to: number | null }> = [];
+export function dedupeWeekdays(week: PlanWeek, ctx: GuardrailContext): Array<{ from: number; to: number | null }> {
+  const moves: Array<{ from: number; to: number | null }> = [];
   const used = new Set<number>();
   const allowed = allowedWeekdays(ctx);
 
@@ -39,7 +39,7 @@ export function dedupeWeekdays(week: PlanWeek, ctx: GuardrailContext): Array<{ n
     const free = [...allowed, 1, 2, 3, 4, 5, 6, 7].find((day) => !used.has(day)) ?? null;
     workout.weekday = free;
     if (free !== null) used.add(free);
-    moves.push({ name: workout.name, from, to: free });
+    moves.push({ from, to: free });
   }
 
   if (moves.length > 0) sortWeek(week);
@@ -93,8 +93,8 @@ export function checkShape(tree: PlanTree, ctx: GuardrailContext): Violation[] {
         'duplicate_weekday',
         `week ${week.weekNumber}`,
         move.to === null
-          ? `"${move.name}" shared ${WEEKDAY_NAMES[move.from]} with another workout and was left unscheduled (no free day).`
-          : `"${move.name}" shared ${WEEKDAY_NAMES[move.from]} with another workout and moved to ${WEEKDAY_NAMES[move.to]}.`,
+          ? `A second workout on ${WEEKDAY_NAMES[move.from]} was left unscheduled (no free day).`
+          : `A second workout on ${WEEKDAY_NAMES[move.from]} moved to ${WEEKDAY_NAMES[move.to]}.`,
       );
     }
     sortWeek(week);

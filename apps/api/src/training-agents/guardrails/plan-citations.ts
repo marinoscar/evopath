@@ -73,7 +73,7 @@ export function checkCitations(tree: PlanTree, ctx: GuardrailContext): Violation
   const verified = briefUrls(ctx.brief);
 
   for (const block of tree.blocks) {
-    block.rationale = checkText(f, block.rationale, PLAN_LIMITS.nodeRationaleMax, `block ${block.name}`, ctx, verified);
+    block.rationale = checkText(f, block.rationale, PLAN_LIMITS.nodeRationaleMax, `block ${block.position + 1}`, ctx, verified);
   }
 
   for (const { week } of weeksOf(tree)) {
