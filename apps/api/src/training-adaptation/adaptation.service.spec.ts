@@ -133,12 +133,12 @@ describe('AdaptationService', () => {
     });
 
     it.each(['planner', 'critic'] as const)('a blocked %s role is shown with its state and fix, and no provider would be called', async (role) => {
-      rig.roles[role] = { role, state: 'no_key', needs: [], requestedEffort: null, effectiveEffort: null, fix: 'user' } as unknown as RoleResolution;
+      rig.roles[role] = { role, state: 'no_key', needs: [], requestedEffort: null, effectiveEffort: null, fix: 'keys' } as unknown as RoleResolution;
 
       const preview = await rig.service.preview(HARNESS_USER, { minutes: 30 });
 
       expect(preview.willCallProvider).toBe(false);
-      expect(preview.models[role]).toMatchObject({ state: 'no_key', model: null, runnable: false, fix: 'user' });
+      expect(preview.models[role]).toMatchObject({ state: 'no_key', model: null, runnable: false, fix: 'keys' });
     });
 
     it('urgent text: blocked with the fixed guidance, no provider would be called (and still nothing stored)', async () => {
@@ -308,12 +308,12 @@ describe('AdaptationService', () => {
     });
 
     it('an unusable planner or critic is 409 TRAINING_ROLE_UNAVAILABLE naming the role, its state and the fix; nothing is created', async () => {
-      rig.roles.critic = { role: 'critic', state: 'missing_capability', needs: ['structured_output'], requestedEffort: null, effectiveEffort: null, fix: 'model' } as unknown as RoleResolution;
+      rig.roles.critic = { role: 'critic', state: 'missing_capability', needs: ['structured_output'], requestedEffort: null, effectiveEffort: null, fix: 'admin' } as unknown as RoleResolution;
 
       const error = await failure(create());
 
       expect(statusOf(error)).toBe(409);
-      expect(detailsOf(error)).toEqual({ reason: 'TRAINING_ROLE_UNAVAILABLE', role: 'critic', state: 'missing_capability', fix: 'model' });
+      expect(detailsOf(error)).toEqual({ reason: 'TRAINING_ROLE_UNAVAILABLE', role: 'critic', state: 'missing_capability', fix: 'admin' });
       expect(rig.db.adaptations.size).toBe(0);
       expect(rig.db.runs.size).toBe(0);
       expect(rig.jobs.enqueueWithin).not.toHaveBeenCalled();
@@ -321,7 +321,7 @@ describe('AdaptationService', () => {
 
     it('with both roles unusable the planner is named first', async () => {
       for (const role of ['planner', 'critic'] as const) {
-        rig.roles[role] = { role, state: 'no_key', needs: [], requestedEffort: null, effectiveEffort: null, fix: 'user' } as unknown as RoleResolution;
+        rig.roles[role] = { role, state: 'no_key', needs: [], requestedEffort: null, effectiveEffort: null, fix: 'keys' } as unknown as RoleResolution;
       }
 
       expect(detailsOf(await failure(create()))).toMatchObject({ role: 'planner', state: 'no_key' });
@@ -342,7 +342,7 @@ describe('AdaptationService', () => {
     });
 
     it('the safety stop comes before the role check (a stopped request never depends on a key) and never blocks the next request', async () => {
-      rig.roles.planner = { role: 'planner', state: 'no_key', needs: [], requestedEffort: null, effectiveEffort: null, fix: 'user' } as unknown as RoleResolution;
+      rig.roles.planner = { role: 'planner', state: 'no_key', needs: [], requestedEffort: null, effectiveEffort: null, fix: 'keys' } as unknown as RoleResolution;
 
       const stopped = await create({ freeText: 'I fainted yesterday' });
       expect(stopped.status).toBe('blocked_safety');
