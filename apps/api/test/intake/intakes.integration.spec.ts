@@ -408,6 +408,7 @@ describe('/api/intakes over HTTP (E3.1)', () => {
       ["another user's object", { uploadedById: HARNESS_OTHER_USER }, 404, undefined],
       ['a non-ready object', { status: 'uploading' }, 400, 'OBJECT_NOT_READY'],
       ['a non-image object', { mimeType: 'text/plain' }, 400, 'UNSUPPORTED_MEDIA_TYPE'],
+      ['a PDF (the kind is image-only, H2 #186)', { mimeType: 'application/pdf' }, 400, 'UNSUPPORTED_MEDIA_TYPE'],
       ['a 21 MiB object', { size: BigInt(21 * 1024 * 1024) }, 400, 'OBJECT_TOO_LARGE'],
     ])('refuses %s', async (_label, override, status, reason) => {
       prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, ...override });
