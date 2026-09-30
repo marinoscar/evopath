@@ -21,6 +21,7 @@
     "test:unit": "jest --config ./test/jest.config.js --testPathIgnorePatterns='e2e' --testPathIgnorePatterns='\\.db\\.spec\\.ts$' --testPathIgnorePatterns='\\.greptime\\.spec\\.ts$'",
     "test:ci": "jest --config ./test/jest.config.js --coverage --ci --reporters=default --reporters=jest-junit --testPathIgnorePatterns='e2e' --testPathIgnorePatterns='\\.db\\.spec\\.ts$' --testPathIgnorePatterns='\\.greptime\\.spec\\.ts$'",
     "test:db": "jest --config ./test/jest.config.js --testRegex '\\.db\\.spec\\.ts$' --runInBand",
+    "eval:training": "jest --config ./test/jest.config.js --runInBand test/evals/training",
     "test:greptime": "jest --config ./test/jest.config.js --testRegex '\\.greptime\\.spec\\.ts$' --runInBand",
     "prisma": "node scripts/prisma-env.js",
     "prisma:generate": "node scripts/prisma-env.js generate",
