@@ -11,6 +11,7 @@ import {
   formatTargetLoad,
   getProgram,
   getProgramVersion,
+  getTrainingSignals,
   getTrainingToday,
   listProgramChangeLog,
   listPrograms,
@@ -20,6 +21,7 @@ import {
   programRefusalOf,
   replaceProgramStructure,
   revertProgram,
+  signalsRefusalOf,
   startProgramWorkout,
   todayRefusalOf,
   updateProgram,
@@ -158,5 +160,29 @@ describe('programs service', () => {
     const error = await startProgramWorkout(P, { date: '2026-09-30' }).catch((e) => e);
     expect(todayRefusalOf(error)).toBe('WORKOUT_IN_PROGRESS');
     expect(todayRefusalOf(new Error('x'))).toBeNull();
+  });
+
+  it('reads plan signals with only the given query parameters', async () => {
+    const plain = capture('get', '/training/signals', { programId: null });
+    const empty = await getTrainingSignals();
+    expect(plain.method).toBe('GET');
+    expect(new URL(plain.url!).search).toBe('');
+    expect(empty).toEqual({ programId: null });
+
+    const full = capture('get', '/training/signals', { programId: P });
+    await getTrainingSignals({ programId: P, from: '2026-08-03', to: '2026-09-27', asOf: '2026-09-28' });
+    expect(Object.fromEntries(new URL(full.url!).searchParams)).toEqual({
+      programId: P,
+      from: '2026-08-03',
+      to: '2026-09-27',
+      asOf: '2026-09-28',
+    });
+  });
+
+  it('names the signals refusal of a 400', async () => {
+    capture('get', '/training/signals', {}, 400, { reason: 'SIGNALS_AS_OF_OUT_OF_RANGE', today: '2026-09-28' });
+    const error = await getTrainingSignals({ asOf: '2026-10-05' }).catch((caught) => caught);
+    expect(signalsRefusalOf(error)).toBe('SIGNALS_AS_OF_OUT_OF_RANGE');
+    expect(signalsRefusalOf(new Error('x'))).toBeNull();
   });
 });

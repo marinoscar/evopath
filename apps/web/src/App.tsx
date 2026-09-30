@@ -41,6 +41,8 @@ const TrainExercisesPage = lazy(() => import('./pages/TrainExercisesPage'));
 const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
 // E4.5: "Prefill from photo", photos to AI-drafted exercises the user reviews.
 const WorkoutPrefillPage = lazy(() => import('./pages/WorkoutPrefillPage'));
+// E5.9: a plan's Progress view (signals), also under `/train`.
+const PlanProgressPage = lazy(() => import('./pages/PlanProgressPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
 // E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
@@ -208,6 +210,15 @@ function AppRoutes() {
                   <Route path="/train/exercises" element={<TrainExercisesPage />} />
                   <Route path="/train/workouts/:workoutId" element={<WorkoutPage />} />
                   <Route path="/train/workouts/:workoutId/prefill" element={<WorkoutPrefillPage />} />
+                  {/* Gated on `programs:read`, the string `GET /api/training/signals` enforces. */}
+                  <Route
+                    path="/train/plans/:programId/progress"
+                    element={
+                      <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
+                        <PlanProgressPage />
+                      </RequirePermission>
+                    }
+                  />
                   <Route path="/health" element={<HealthPage />} />
                   <Route path="/gyms" element={<GymsPage />} />
                   <Route path="/gyms/new" element={<GymNewPage />} />
