@@ -11,9 +11,15 @@ import { bodyMetricReadingValueSchema, sameReading, type BodyMetricReadingValue 
 // change it (`/api/measurements` bodies are `.strict()` and refuse it).
 //
 //   AI item   -> { kind, intakeId, draftItemId, storageObjectIds, aiDraft,
-//                  confidence, userEdited }
-//   user item -> { kind, intakeId }   (added by hand in the same review, so
-//                                      the entry stays linked to the photos)
+//                  confidence, userEdited, healthDocumentId? }
+//   user item -> { kind, intakeId, healthDocumentId? }   (added by hand in
+//                  the same review, so the entry stays linked to the photos)
+//
+// `healthDocumentId` (H1, #185) names the health document the reading came
+// from (the file of its first source photo, else the intake's first file).
+// It survives the file's deletion: the document row stays with
+// `file_deleted_at` set, and `/api/measurements` reports `fileDeleted`.
+// Rows saved before H1 have none.
 //
 // `aiDraft` is the value the model proposed, as displayed on the device;
 // `userEdited` says whether the saved reading differs from it (the same
@@ -31,11 +37,21 @@ export interface PhotoAiSourceRef {
   aiDraft: BodyMetricReadingValue;
   confidence: string | null;
   userEdited: boolean;
+  healthDocumentId?: string;
 }
 
 export interface PhotoManualSourceRef {
   kind: typeof PHOTO_INTAKE_SOURCE_KIND;
   intakeId: string;
+  healthDocumentId?: string;
+}
+
+/** The `healthDocumentId` of a measurement's `sourceRef`, or null (no document, or not a photo ref). */
+export function healthDocumentIdOf(sourceRef: unknown): string | null {
+  if (!sourceRef || typeof sourceRef !== 'object') return null;
+  const ref = sourceRef as Record<string, unknown>;
+  if (ref.kind !== PHOTO_INTAKE_SOURCE_KIND) return null;
+  return typeof ref.healthDocumentId === 'string' ? ref.healthDocumentId : null;
 }
 
 /** Just enough of an AI source ref to recompute `userEdited`; anything else passes through untouched. */
