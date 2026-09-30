@@ -15,7 +15,7 @@ import {
   getTrainingModels,
   type RoleResolutionState,
   type TrainingModelsView,
-  type TrainingRunKind,
+  type TrainingPlanRunKind,
 } from '../services/trainingAgents';
 import type { TrainingAgentRole } from '../types';
 
@@ -67,9 +67,9 @@ export interface UseTrainingAvailabilityReturn {
   /** AI is on and the caller holds `ai:use`: AI affordances may be shown at all. */
   aiVisible: boolean;
   /** Everything is ready for a run of `kind`. */
-  canRun: (kind: TrainingRunKind) => boolean;
+  canRun: (kind: TrainingPlanRunKind) => boolean;
   /** Why a run cannot start, when it cannot (null while loading or when ready). */
-  blocker: (kind: TrainingRunKind) => TrainingBlocker | null;
+  blocker: (kind: TrainingPlanRunKind) => TrainingBlocker | null;
   models: TrainingModelsView | null;
   isLoading: boolean;
   error: string | null;
@@ -106,7 +106,7 @@ export function useTrainingAvailability(): UseTrainingAvailabilityReturn {
   }, [refresh]);
 
   const blocker = useCallback(
-    (kind: TrainingRunKind): TrainingBlocker | null => {
+    (kind: TrainingPlanRunKind): TrainingBlocker | null => {
       if (configLoading) return null;
       if (!config.enabled) return { message: 'AI is switched off for this app.', fix: null };
       if (!hasPermission('ai:use')) return { message: 'Your role cannot use AI features.', fix: null };
@@ -122,7 +122,7 @@ export function useTrainingAvailability(): UseTrainingAvailabilityReturn {
   );
 
   const canRun = useCallback(
-    (kind: TrainingRunKind) => aiVisible && !!models && models.canRun[kind] && !error,
+    (kind: TrainingPlanRunKind) => aiVisible && !!models && models.canRun[kind] && !error,
     [aiVisible, error, models],
   );
 
