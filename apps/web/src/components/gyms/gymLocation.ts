@@ -15,6 +15,19 @@ export const LOCATION_HELPER_TEXT =
   'Optional. Used only to recognize this gym later, never tracked in the background.';
 export const LOCATION_PROMPT_EXPLANATION =
   'Your browser asks once to share your position; it only fills these fields.';
+/** Shown next to "Pick on map" (with or without "Use my location"). */
+export const MAP_PICK_EXPLANATION = 'Or pick the spot on a map. Nothing is saved until you press save.';
+
+/**
+ * OpenStreetMap's standard tile layer for the map picker (issue #121). The
+ * browser fetches tiles for the area on screen straight from OSM, so OSM sees
+ * which area is viewed (as tile coordinates), never the picked pin itself.
+ * `img-src https:` in `infra/nginx/csp.conf` already allows them.
+ */
+export const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const OSM_TILE_MAX_ZOOM = 19;
+export const OSM_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 export const DECIMAL_COMMA_HINT = 'Use a dot for decimals, for example 10.5 (not 10,5).';
 
