@@ -47,6 +47,7 @@ const PlansPage = lazy(() => import('./pages/Train/PlansPage'));
 const PlanWizardPage = lazy(() => import('./pages/Train/PlanWizardPage'));
 const PlanRunPage = lazy(() => import('./pages/Train/PlanRunPage'));
 const PlanViewerPage = lazy(() => import('./pages/Train/PlanViewerPage'));
+const PlanHistoryPage = lazy(() => import('./pages/Train/PlanHistoryPage'));
 // E4.3: one workout (active logger or completed detail), also under `/train`.
 const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
 // E4.5: "Prefill from photo", photos to AI-drafted exercises the user reviews.
@@ -270,6 +271,14 @@ function AppRoutes() {
                     element={
                       <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
                         <PlanViewerPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/train/plans/:programId/history"
+                    element={
+                      <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
+                        <PlanHistoryPage />
                       </RequirePermission>
                     }
                   />
