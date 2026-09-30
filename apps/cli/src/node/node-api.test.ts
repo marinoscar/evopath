@@ -178,6 +178,25 @@ describe('HttpNodeApi — quoting the claim', () => {
     expect(assignment?.claimToken).toBe(TOKEN);
     expect(assignment?.job).not.toHaveProperty('claimToken');
   });
+
+  it('tolerates `traceparent` on the assignment, and its absence (#132)', async () => {
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    const h = harness({
+      jobs: [
+        { job: { id: JOB, type: 'example.checksum' }, params: {}, traceparent },
+        { job: { id: 'job-2', type: 'example.checksum' }, params: {}, traceparent: null },
+        // A server older than #132 sends no such key.
+        { job: { id: 'job-3', type: 'example.checksum' }, params: {} },
+      ],
+    });
+
+    const [withTrace, nullTrace, legacy] = await h.api.claim(NODE, { limit: 3 });
+
+    expect(withTrace?.traceparent).toBe(traceparent);
+    expect(nullTrace?.traceparent).toBeNull();
+    expect(legacy?.traceparent).toBeUndefined();
+    expect(legacy?.job.id).toBe('job-3');
+  });
 });
 
 describe('HttpNodeApi — heartbeat vitals (#130)', () => {

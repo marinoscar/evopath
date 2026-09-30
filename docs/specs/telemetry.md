@@ -318,6 +318,13 @@ into their own columns whose names contain dots (`"span_attributes.http
 attribute keys arrive — see the spike findings above for the full column
 inventory and quoting rule.
 
+A queued job's spans belong to the trace of the request that enqueued it: the
+job row stores the enqueuing `traceparent` (`jobs.trace_context`), and the
+server worker's `job.process <type>` span is its child, so a request, the job it
+queued and the job's own database and HTTP spans share one `trace_id` in
+`opentelemetry_traces` (#132; [job-queue.md, Trace context](job-queue.md#trace-context)).
+Worker nodes receive the same `traceparent` on claim.
+
 ## 2. The two switches
 
 Two independent controls decide whether telemetry data ever leaves this
@@ -1858,3 +1865,4 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nod
 - #123: the collector scrapes the application's PostgreSQL (`postgresql` receiver in `metrics/local`), with an optional `pg_monitor` login and the collector on `devnet`.
 - #131: worker-node fleet gauges (`app.nodes.*`), and delta temporality for every gauge (§11.13).
 - #124: the collector probes uptime and TLS expiry (`httpcheck` receiver on the app through nginx, the API directly and the public origin) and scrapes nginx's `stub_status` from an internal-only `:8081` listener (`nginx` receiver) (§11.2, §11.3, §11.12).
+- #132: trace context carried from enqueue to execution: `jobs.trace_context`, the server worker's `job.process` span as its child, and `traceparent` on node claim assignments (§1).

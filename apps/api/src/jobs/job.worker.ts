@@ -93,7 +93,10 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Context, Span, SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
 import { Job } from '@prisma/client';
+
+import { resolveServiceName } from '../common/otel/service-name';
 
 import { JobClaimService } from './job-claim.service';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
@@ -109,6 +112,14 @@ import { JobHandlerRegistry } from './job-handler.registry';
 import { JobSettleOutcome, JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { NodeOffloadService } from './node-offload.service';
+import { jobParentContext } from './job-trace-context';
+
+/** The settle outcomes that mark a job's span as an error (#132). */
+const ERRORED_SPAN_OUTCOMES: ReadonlySet<JobSettleOutcome> = new Set<JobSettleOutcome>([
+  'failed',
+  'retry-scheduled',
+  'write-failed',
+]);
 
 /**
  * Which job types this process's pool is allowed to claim.
@@ -693,6 +704,96 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    * method rather than inlined in a loop.
    */
   async runJob(job: Job): Promise<JobSettleOutcome> {
+    return this.withJobSpan(job, () => this.runJobUntraced(job));
+  }
+
+  /**
+   * Runs `work` inside this job's span (issue #132).
+   *
+   * -----------------------------------------------------------------------
+   * PARENT-CHILD, NOT A LINK
+   * -----------------------------------------------------------------------
+   *
+   * Before #132 the server worker started no span of its own: whatever the
+   * handler's instrumented calls produced (Prisma, HTTP, AI) were ROOT spans,
+   * because the slot loop runs outside any request. There is therefore no
+   * existing trace a link would have to preserve, and the job's span is made
+   * a CHILD of the enqueuing span stored on the row (`jobs.trace_context`).
+   * That is the shape an operator actually wants to read — "this request
+   * queued this job, and here is what the job did" — in one trace, in the
+   * GreptimeDB explorer, without chasing link ids. A job with no stored
+   * context (OTel was off at enqueue, a cron with no active span, a row
+   * older than the column) is a root span of its own; the slot loop's
+   * ambient context is deliberately NOT inherited (see `jobParentContext`).
+   *
+   * A retry is a new child of the same enqueuing span, which is correct: each
+   * attempt is its own unit of work queued by that one request, and
+   * `job.attempts` on the span tells them apart.
+   *
+   * -----------------------------------------------------------------------
+   * TRACING NEVER FAILS A JOB
+   * -----------------------------------------------------------------------
+   *
+   * If the span cannot be started the work runs untraced. `work` itself is
+   * `runJobUntraced`, which never rejects; annotating and ending the span are
+   * each guarded so a misbehaving exporter or processor can only lose the
+   * span, never the job's outcome.
+   */
+  private async withJobSpan(
+    job: Job,
+    work: () => Promise<JobSettleOutcome>
+  ): Promise<JobSettleOutcome> {
+    let span: Span;
+    let spanContext: Context;
+
+    try {
+      const parent = jobParentContext(job.traceContext);
+      span = trace.getTracer(resolveServiceName()).startSpan(
+        `job.process ${job.type}`,
+        {
+          // CONSUMER: the span processes a message another span produced —
+          // the OTel messaging convention for queued work.
+          kind: SpanKind.CONSUMER,
+          attributes: {
+            'job.id': job.id,
+            'job.type': job.type,
+            'job.attempts': job.attempts,
+            'job.executor': 'server',
+          },
+        },
+        parent
+      );
+      spanContext = trace.setSpan(parent, span);
+    } catch {
+      return work();
+    }
+
+    try {
+      const outcome = await context.with(spanContext, work);
+
+      try {
+        span.setAttribute('job.outcome', outcome);
+        // The attempt's handler (or its settle) failed. A rate-limit deferral
+        // and a lost claim are not this attempt's error, so they stay UNSET.
+        if (ERRORED_SPAN_OUTCOMES.has(outcome)) {
+          span.setStatus({ code: SpanStatusCode.ERROR, message: outcome });
+        }
+      } catch {
+        // Annotation is best-effort; see the method comment.
+      }
+
+      return outcome;
+    } finally {
+      try {
+        span.end();
+      } catch {
+        // Ending is best-effort; see the method comment.
+      }
+    }
+  }
+
+  /** `runJob` without the span — see `withJobSpan`. Never rejects. */
+  private async runJobUntraced(job: Job): Promise<JobSettleOutcome> {
     const handler = this.registry.get(job.type);
 
     if (!handler) {

@@ -325,6 +325,9 @@ export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
   claimToken: 'claim_token',
   leaseExpiresAt: 'lease_expires_at',
   executor: 'executor',
+  // #132. Returned so the node claim can hand the enqueuing trace to the node
+  // and the server worker can parent the job's span on it.
+  traceContext: 'trace_context',
 };
 
 /**

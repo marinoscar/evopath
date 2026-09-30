@@ -1399,6 +1399,17 @@ model Job {
   // claims it currently is.
   claimToken String? @map("claim_token") @db.Uuid
 
+  // The W3C `traceparent` of the span that was active when this job was
+  // ENQUEUED (issue #132), or NULL when nothing was being traced (OTel off, a
+  // cron tick with no active span, a row written before this column existed).
+  // Written once, by `JobsService` at insert time (`job-trace-context.ts`
+  // validates the format and bounds it at 256 characters); never updated.
+  // The server worker starts the job's span as a CHILD of it, and the node
+  // claim hands it to the node, so queued work stays connected to the request
+  // that queued it. Plain nullable TEXT: it is an opaque correlation handle,
+  // never a key, never indexed, never read by the claim query's WHERE.
+  traceContext String? @map("trace_context")
+
   // The `database_backup_runs` row this job produced, when `type` is
   // `'db.backup.run'` (epic #345, issue #351). See `DatabaseBackupRun.jobId`
   // for the full reasoning behind `@unique`/nullable/`SetNull` — this is

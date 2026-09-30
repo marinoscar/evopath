@@ -68,6 +68,7 @@ import { Job, JobReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
 import { buildDedupKey } from './job-keys';
+import { captureJobTraceContext } from './job-trace-context';
 
 /**
  * The name of the partial unique index that enforces active dedup. Declared
@@ -264,6 +265,12 @@ function buildJobCreateData(
     priority: input.priority ?? undefined,
     scheduledFor: input.scheduledFor ?? undefined,
     payload: input.payload === undefined || input.payload === null ? undefined : input.payload,
+    // #132. The span active at THIS call — the request or cron tick queuing
+    // the work — so the job's own span (server worker) or the node that
+    // claims it can continue the same trace. Captured here, in the one
+    // builder both enqueue paths share, so neither can forget it. `null` when
+    // nothing is traced; `captureJobTraceContext` never throws.
+    traceContext: captureJobTraceContext(),
   };
 }
 
