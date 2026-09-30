@@ -58,12 +58,13 @@ export function agentScripts(
 
 /**
  * Node overrides that call the agents, standing in for the stories that
- * implement them. The model-free implemented nodes (context, guardrails) are
- * stubbed: these specs exercise the runtime, not the context or the rules.
+ * implement them. The model-free implemented nodes (context, guardrails,
+ * finalize) are stubbed: these specs exercise the runtime, not the context or the rules.
  */
 export const AGENT_NODES: Record<string, NodeFn> = {
   prepare_context: STUB_AGENT_NODES.prepare_context,
   guardrails: STUB_AGENT_NODES.guardrails,
+  finalize: STUB_AGENT_NODES.finalize,
   research: async (_state, ctx) => {
     const { parsed } = await ctx.agent.structured({
       role: 'researcher',

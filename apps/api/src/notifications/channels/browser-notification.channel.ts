@@ -309,7 +309,26 @@ export const EVENT_BROWSER_TEMPLATES: Partial<
       link: '/admin/settings/db-backup',
     };
   },
+
+  // Raised by the training run's `finalize` node. The payload is ids, the
+  // plan's name and its length; the link opens the plan for review.
+  'training.plan_ready': (data: never): BrowserNotificationContent => {
+    const { programId, programName, weeks } = data as TrainingPlanReadyData;
+
+    return {
+      title: 'Your training plan is ready',
+      body: `"${programName}" (${weeks} ${weeks === 1 ? 'week' : 'weeks'}) is ready to review.`,
+      link: `/train/plans/${encodeURIComponent(programId)}`,
+    };
+  },
 };
+
+/** `training.plan_ready`'s payload (`nodes/finalize.node.ts`). */
+export interface TrainingPlanReadyData {
+  programId: string;
+  programName: string;
+  weeks: number;
+}
 
 /** Length caps applied before the row is written. See {@link truncate}. */
 const MAX_TITLE_LENGTH = 200;

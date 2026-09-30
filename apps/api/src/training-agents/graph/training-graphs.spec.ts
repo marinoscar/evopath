@@ -17,17 +17,19 @@ const stages = (h: ReturnType<typeof createNodeContextHarness>) =>
   (h.events.events.get(h.runId) ?? []).filter((e) => e.type === 'stage.started').map((e) => e.data.node);
 
 describe('training graphs on stub nodes', () => {
-  it('only the implemented agent nodes are real, and every graph still answers not-implemented', () => {
+  it('every create node is implemented and the create graph is ready; evaluate is not yet', () => {
     const implemented = Object.values(CREATE_GRAPH_NODES)
       .filter((node) => node.implemented)
       .map((node) => node.name);
     expect(implemented).toEqual(Object.keys(STUB_AGENT_NODES));
     expect(Object.values(EVALUATE_GRAPH_NODES).every((node) => node.implemented === false)).toBe(true);
-    expect(TRAINING_GRAPH_READY).toEqual({ create: false, evaluate: false });
+    expect(TRAINING_GRAPH_READY).toEqual({ create: true, evaluate: false });
     expect(graphForKind('create')).toBe('create');
     expect(graphForKind('revise')).toBe('create');
     expect(graphForKind('evaluate')).toBe('evaluate');
-    expect(isGraphReady('create')).toBe(false);
+    expect(isGraphReady('create')).toBe(true);
+    expect(isGraphReady('revise')).toBe(true);
+    expect(isGraphReady('evaluate')).toBe(false);
   });
 
   it('create: runs every node once in order, the stub critic approves, and finalize records the outcome', async () => {

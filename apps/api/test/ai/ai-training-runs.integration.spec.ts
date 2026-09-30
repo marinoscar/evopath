@@ -198,14 +198,15 @@ describe('/api/ai/training/runs and /stream', () => {
   });
 
   describe('POST /runs', () => {
-    it('501 TRAINING_NOT_IMPLEMENTED while the graph is stubbed, and creates nothing', async () => {
+    it('501 TRAINING_NOT_IMPLEMENTED while a kind\'s graph is not ready (evaluate), and creates nothing', async () => {
       const res = await request(server())
         .post('/api/ai/training/runs')
         .set(as(alice))
-        .send(createRunBody({ preferences: FREE_TEXT }))
+        .send({ kind: 'evaluate', input: {} })
         .expect(501);
 
       expect(JSON.stringify(res.body)).toContain('TRAINING_NOT_IMPLEMENTED');
+      expect(JSON.stringify(res.body)).toContain('evaluate');
       expect(db.runs.size).toBe(0);
       expect(jobs.enqueueWithin).not.toHaveBeenCalled();
     });

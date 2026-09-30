@@ -57,14 +57,14 @@ describe('TrainingRunsService.create', () => {
   });
   afterEach(() => restore());
 
-  it('answers 501 TRAINING_NOT_IMPLEMENTED while the kind\'s graph is stubbed, before resolving roles', async () => {
+  it('answers 501 TRAINING_NOT_IMPLEMENTED while the kind\'s graph is not ready (evaluate), before resolving roles', async () => {
     const t = setup();
 
-    const error = await t.service.create(USER, createRunBody()).catch((e: unknown) => e);
+    const error = await t.service.create(USER, { kind: 'evaluate', input: {} }).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(NotImplementedException);
     expect((error as NotImplementedException).getResponse()).toMatchObject({
-      details: { reason: 'TRAINING_NOT_IMPLEMENTED', graph: 'create' },
+      details: { reason: 'TRAINING_NOT_IMPLEMENTED', graph: 'evaluate' },
     });
     expect(t.resolver.resolveForRun).not.toHaveBeenCalled();
     expect(t.jobs.enqueueWithin).not.toHaveBeenCalled();

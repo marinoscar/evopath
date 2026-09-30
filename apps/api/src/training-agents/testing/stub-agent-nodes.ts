@@ -83,4 +83,5 @@ export const STUB_AGENT_NODES: Readonly<Record<string, NodeFn>> = {
   plan: STUB_PLAN_NODE,
   guardrails: STUB_GUARDRAILS_NODE,
   critique: STUB_CRITIQUE_NODE,
+  finalize: STUB_FINALIZE_NODE,
 };

@@ -16,7 +16,7 @@ export type TrainingGraphName = 'create' | 'evaluate';
 
 export const TRAINING_GRAPH_READY: Record<TrainingGraphName, boolean> = {
   /** `create` and `revise` runs. Flipped when planner, critic and guardrails ship. */
-  create: false,
+  create: true,
   /** `evaluate` runs. Flipped when the evaluator ships. */
   evaluate: false,
 };
