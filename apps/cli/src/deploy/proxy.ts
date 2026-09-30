@@ -453,7 +453,7 @@ server {
     # above; a stream cut at ten minutes costs nothing, the browser resumes
     # with its cursor.
     location /api/ai/training/stream {
-        proxy_pass http://127.0.0.1:\${target.bindPort};
+        proxy_pass http://127.0.0.1:${target.bindPort};
         proxy_http_version 1.1;
 
         proxy_set_header Host              $host;
