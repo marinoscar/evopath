@@ -218,8 +218,8 @@ export interface EvaluateRunContext {
 }
 
 /** `state.context` narrowed to an evaluate run's context, or null when it is not one. */
-export function evaluateContextOf(state: Pick<RunState, 'context'>): EvaluateRunContext | null {
-  const context = state.context as Partial<EvaluateRunContext> | null;
+export function evaluateContextOf(state: { context?: RunState['context'] }): EvaluateRunContext | null {
+  const context = (state.context ?? null) as Partial<EvaluateRunContext> | null;
   return context && context.kind === 'evaluate' && context.version === EVALUATE_CONTEXT_VERSION && context.sent && context.server
     ? (context as EvaluateRunContext)
     : null;

@@ -34,8 +34,12 @@ import type { GymStorageService } from '../../src/gyms/gym-storage.service';
 import { GymsService } from '../../src/gyms/gyms.service';
 import { HealthProfileService } from '../../src/health-profile/health-profile.service';
 import { JobsService } from '../../src/jobs/jobs.service';
+import { ProgramsService } from '../../src/programs/programs.service';
+import { SignalsLoader } from '../../src/programs/signals/signals.loader';
+import { TrainingSignalsService } from '../../src/programs/signals/signals.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { EVALUATION_SWEEP } from '../../src/training-agents/evaluation/evaluation.constants';
+import { EvaluationContextLoader } from '../../src/training-agents/evaluation/evaluation-context.loader';
 import {
   APPROVAL_EXPIRED_CODE,
   TrainingEvaluationSweepHandler,
@@ -369,6 +373,112 @@ describeWithDb('continuous evaluation scheduling (real Postgres)', () => {
       const served = await Promise.all(users.map(async (u) => (await evaluateRuns(u)).length));
       // The three evaluated longest ago (users 0..2) are served; 3 and 4 wait for the next pass.
       expect(served).toEqual([1, 1, 1, 0, 0]);
+    });
+  });
+
+  describe('the evaluation port and reviewed entries', () => {
+    it('loads the sources, screens-only pain notes of the window, and writes one reviewed entry per run with the pause', async () => {
+      const u = await makeUser('port', 'UTC');
+      const exercise = await client.exercise.create({
+        data: { slug: `teval-${tag}-squat`, name: 'Squat', primaryMuscles: ['quads'], movementPattern: 'squat' },
+        select: { id: true },
+      });
+      const programs = new ProgramsService(prisma);
+      const created = await programs.createWithTree({
+        userId: u,
+        header: { name: 'Plan', goal: 'strength', source: 'ai' },
+        tree: {
+          blocks: [
+            {
+              position: 0,
+              name: 'Block',
+              weeks: [
+                {
+                  weekNumber: 1,
+                  workouts: [
+                    {
+                      position: 0,
+                      weekday: 1,
+                      name: 'Day',
+                      exercises: [
+                        { exerciseId: exercise.id, position: 0, targetSets: 3, repMin: 5, repMax: 8, restSeconds: 120 },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        origin: 'ai_create',
+        actor: 'ai',
+        summary: 'Created',
+      });
+      await client.program.update({ where: { id: created.programId }, data: { status: 'active', startDate: new Date('2026-09-07T00:00:00.000Z') } });
+      const workout = await client.workout.create({
+        data: { userId: u, name: 'Session', date: new Date('2026-09-20T00:00:00.000Z'), startedAt: new Date('2026-09-20T10:00:00.000Z') },
+      });
+      const we = await client.workoutExercise.create({ data: { workoutId: workout.id, exerciseId: exercise.id, position: 0 } });
+      await client.setLog.create({ data: { workoutExerciseId: we.id, setNumber: 1, reps: 5, painFlag: true, painNote: 'sharp knee' } });
+      await client.setLog.create({ data: { workoutExerciseId: we.id, setNumber: 2, reps: 5 } });
+
+      const checkIns = new CheckInsService(prisma, new HealthProfileService(prisma));
+      const loader = new EvaluationContextLoader(
+        prisma,
+        new TrainingSignalsService(prisma, checkIns, new SignalsLoader(prisma, new WorkoutHistoryService(prisma, checkIns))),
+        programs,
+      );
+
+      const sources = await loader.loadSources(u, created.programId, new Date('2026-09-24T12:00:00.000Z'));
+      expect(sources).toMatchObject({
+        program: { id: created.programId, startDate: '2026-09-07', currentVersion: 1, autonomyPausedReason: null },
+        exercises: [{ id: exercise.id, key: `teval-${tag}-squat` }],
+      });
+      expect(sources!.changeLog.map((row) => row.kind)).toEqual(['created']);
+      expect(await loader.loadSources(await makeUser('stranger'), created.programId, new Date())).toBeNull();
+
+      expect(await loader.recentPainNotes(u, '2026-09-11', '2026-09-24')).toEqual(['sharp knee']);
+      expect(await loader.recentPainNotes(u, '2026-09-21', '2026-09-24')).toEqual([]);
+
+      const runId = randomUUID();
+      const first = await loader.recordReview({
+        userId: u,
+        programId: created.programId,
+        actor: 'system',
+        summary: 'Paused',
+        runId,
+        pause: 'pain_pattern',
+      });
+      const second = await loader.recordReview({ userId: u, programId: created.programId, actor: 'system', summary: 'Again', pause: 'safety_text' });
+
+      expect(first).toMatchObject({ versionNumber: 1, paused: true });
+      expect(second.paused).toBe(false);
+      expect(await client.program.findUniqueOrThrow({ where: { id: created.programId } })).toMatchObject({
+        currentVersion: 1,
+        autonomyPausedReason: 'pain_pattern',
+        autonomyPausedAt: expect.any(Date),
+      });
+      expect(await client.programChangeLog.findUniqueOrThrow({ where: { id: first.changeLogId } })).toMatchObject({
+        kind: 'reviewed',
+        actor: 'system',
+        status: 'applied',
+        fromVersion: 1,
+        toVersion: 1,
+        runId,
+      });
+      expect(await loader.findRunReview(u, runId, 'system')).toEqual({ changeLogId: first.changeLogId });
+      expect(await loader.findRunReview(u, runId, 'ai')).toBeNull();
+
+      // A review is not a change: it cannot be undone and is not a version's entry.
+      const refused = await programs
+        .revert({ userId: u, programId: created.programId, expectedVersion: 1, changeLogId: first.changeLogId })
+        .catch((e: unknown) => e);
+      expect((refused as ConflictException).getResponse()).toMatchObject({ details: { reason: 'NOT_REVERTIBLE' } });
+      expect((await programs.getVersion(u, created.programId, 1)).changeLogId).toBe(created.changeLogId);
+
+      await client.workout.deleteMany({ where: { userId: u } });
+      await client.program.deleteMany({ where: { userId: u } });
+      await client.exercise.delete({ where: { id: exercise.id } });
     });
   });
 
