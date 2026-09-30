@@ -303,7 +303,10 @@ export const metricTableSchema = z.object({
   columns: z.array(z.object({ key: z.string(), label: z.string(), unit: metricUnit })),
   rows: z
     .array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])))
-    .describe('One row per key; `key` holds the key column, then one entry per column.'),
+    .describe(
+      'One row per key; `key` holds the key column, then one entry per column. At most 50 rows ' +
+        '(500 for `largestTables`); `truncated` says a cap cut the list.'
+    ),
 });
 
 export const telemetryDashboardMetricsSchema = z.object({
