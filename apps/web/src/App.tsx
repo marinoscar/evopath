@@ -136,6 +136,7 @@ const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorer
 // Issue #578, epic #576 — the at-a-glance dashboard; lazy, and its charts
 // (`@mui/x-charts`) travel in its own chunk.
 const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
+const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -860,6 +861,22 @@ function AppRoutes() {
                         <RequireTelemetryEnabled>
                           <TelemetryDashboardPage />
                         </RequireTelemetryEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #634. `system_settings:read`, the string the `Doctor`
+                      card declares and `doctor/doctor.controller.ts` enforces.
+                      NOT behind `RequireTelemetryEnabled` or `RequireAiEnabled`:
+                      the page reports on those capabilities while they are
+                      off. */}
+                  <Route
+                    path="/admin/settings/doctor"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <DoctorPage />
                       </RequirePermission>
                     }
                   />
