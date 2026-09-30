@@ -47,6 +47,37 @@ export class TrainingModelResolver {
     >;
   }
 
+  /**
+   * Every role's resolution plus what a run freezes beside it: the caller's
+   * stored settings and each resolved model's catalog limits (context window,
+   * max output). One gathering of the facts; still no key material.
+   */
+  async resolveForRun(userId: string): Promise<{
+    roles: Record<TrainingAgentRole, RoleResolution>;
+    settings: UserAiSettingsValue | undefined;
+    limits: (provider: string, modelId: string) => { contextWindow?: number; maxOutputTokens?: number };
+  }> {
+    const facts = await this.facts(userId);
+    const roles = Object.fromEntries(TRAINING_AGENT_ROLES.map((role) => [role, resolveRole(role, facts)])) as Record<
+      TrainingAgentRole,
+      RoleResolution
+    >;
+
+    return {
+      roles,
+      settings: facts.settings,
+      limits: (provider, modelId) => {
+        const model = facts.usable.find((m) => m.provider === provider && m.modelId === modelId);
+        const caps = model?.capabilities;
+
+        return {
+          ...(caps?.contextWindow ? { contextWindow: caps.contextWindow } : {}),
+          ...(caps?.maxOutputTokens ? { maxOutputTokens: caps.maxOutputTokens } : {}),
+        };
+      },
+    };
+  }
+
   async resolve(userId: string, role: TrainingAgentRole): Promise<RoleResolution> {
     return resolveRole(role, await this.facts(userId));
   }

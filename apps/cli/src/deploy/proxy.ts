@@ -447,6 +447,27 @@ server {
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
     }
+
+    # Training agent run progress (SSE): a run's persisted events replayed,
+    # then tailed until the run settles. Same needs as the AI response stream
+    # above; a stream cut at ten minutes costs nothing, the browser resumes
+    # with its cursor.
+    location /api/ai/training/stream {
+        proxy_pass http://127.0.0.1:\${target.bindPort};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection        '';
+
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
 }
 `;
 }

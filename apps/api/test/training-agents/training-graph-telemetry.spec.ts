@@ -1,5 +1,5 @@
 // =============================================================================
-// Framework telemetry is off: the spike graph makes no outbound request
+// Framework telemetry is off: the training graphs make no outbound request
 // =============================================================================
 //
 // `@langchain/core` depends on `langsmith`, whose tracer posts every run
@@ -8,7 +8,8 @@
 // `disableFrameworkTelemetry` forces the switches off in code. This suite sets
 // every switch on, with a dummy key, AFTER the module is loaded, spies on every
 // outbound path (global `fetch`, `http`/`https` `request` and `get`), runs the
-// whole spike graph, and asserts nothing left the process.
+// create graph with nodes that call the (fake) model, and the evaluate graph
+// through an interrupt and its resume, and asserts nothing left the process.
 //
 // A positive control proves the spies would have seen a request.
 // =============================================================================
@@ -16,19 +17,14 @@
 import http from 'node:http';
 import https from 'node:https';
 
-import { Command, MemorySaver } from '@langchain/langgraph';
-
-import { createAiRuntimeHarness, HARNESS_MODEL, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
 import {
   FORCED_OFF_FLAGS,
   REMOVED_VARIABLES,
   disableFrameworkTelemetry,
 } from '../../src/training-agents/disable-framework-telemetry';
 import { GraphRuntimeInfo } from '../../src/training-agents/graph-runtime-info';
-import { toRunResult } from '../../src/training-agents/graph/langgraph-runner';
-import type { SpikeState } from '../../src/training-agents/spike/nodes';
-import { buildSpikeGraph } from '../../src/training-agents/spike/spike-graph';
-import { spikeHarnessOptions } from './spike-test-support';
+import { createNodeContextHarness } from '../../src/training-agents/testing/node-context-harness';
+import { AGENT_NODES, agentScripts, agentsCalled } from './agent-graph-support';
 
 const TRACING_ENV = {
   LANGSMITH_TRACING: 'true',
@@ -42,7 +38,7 @@ const TRACING_ENV = {
   LANGSMITH_ENDPOINT: 'https://api.smith.langchain.com',
 } as const;
 
-describe('framework telemetry is forced off', () => {
+describe('framework telemetry is forced off for the training graphs', () => {
   const saved: Record<string, string | undefined> = {};
   const outbound: string[] = [];
   const spies: jest.SpyInstance[] = [];
@@ -92,28 +88,28 @@ describe('framework telemetry is forced off', () => {
     ]);
   });
 
-  it('runs the whole spike graph, interrupt and resume included, with tracing switched on in the environment and sends nothing', async () => {
+  it('runs the create graph with model calls, and the evaluate graph through an interrupt and resume, sending nothing', async () => {
     Object.assign(process.env, TRACING_ENV);
 
-    const h = createAiRuntimeHarness(spikeHarnessOptions({ rejections: 1 }));
-    const saver = new MemorySaver();
-    const config = { configurable: { thread_id: 'telemetry-run' }, signal: new AbortController().signal };
-    const build = () =>
-      buildSpikeGraph({ ai: h.ai, userId: HARNESS_USER, checkpointer: saver, model: HARNESS_MODEL });
+    const create = createNodeContextHarness({ kind: 'create', scripts: agentScripts({ rejections: 1 }) });
+    const created = await create.runGraph({ input: {}, nodes: AGENT_NODES });
 
-    const first = toRunResult<SpikeState>(await build().invoke({ goal: 'Run a 5k' }, config));
-    expect(first.interrupt?.kind).toBe('approval');
+    expect(created.state.outcome?.status).toBe('completed');
+    expect(agentsCalled(create.runtime.fake.calls)).toEqual(['researcher', 'planner', 'critic', 'planner', 'critic']);
 
     // Building the graph re-applied the pin: whatever was set is off again.
     for (const flag of FORCED_OFF_FLAGS) expect(process.env[flag]).toBe('false');
     for (const name of REMOVED_VARIABLES) expect(process.env[name]).toBeUndefined();
 
+    Object.assign(process.env, TRACING_ENV);
+    const evaluate = createNodeContextHarness({ kind: 'evaluate', scripts: agentScripts() });
+    const paused = await evaluate.runGraph({ input: { input: { autonomy: 'ask_first' } }, nodes: AGENT_NODES });
+    expect(paused.interrupt?.kind).toBe('approval');
+
     // Tracing is switched on again mid-run; the resumed graph re-pins it.
     Object.assign(process.env, TRACING_ENV);
-    const second = toRunResult<SpikeState>(
-      await build().invoke(new Command({ resume: { decision: 'approve' } }), config),
-    );
-    expect(second.state.approved).toBe(true);
+    const resumed = await evaluate.runGraph({ resume: { decision: 'approve' }, nodes: AGENT_NODES });
+    expect(resumed.state.outcome).toMatchObject({ status: 'completed' });
 
     // Let anything a tracer queued in the background reach the network.
     await new Promise((resolve) => setTimeout(resolve, 100));

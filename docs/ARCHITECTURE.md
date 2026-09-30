@@ -75,7 +75,7 @@ Every API request passes through the same stages, in this order:
 
 | # | Stage | Where | What it does |
 |---|---|---|---|
-| 1 | nginx | `infra/nginx/nginx.conf` | Adds security headers, routes `/api` to the API. `/api/notifications/stream` and `/api/ai/responses/stream` are unbuffered for SSE. |
+| 1 | nginx | `infra/nginx/nginx.conf` | Adds security headers, routes `/api` to the API. `/api/notifications/stream`, `/api/ai/responses/stream` and `/api/ai/training/stream` are unbuffered for SSE. |
 | 2 | Request ID | `apps/api/src/common/middleware/request-id.middleware.ts` | Assigns a request ID and captures trace context for log correlation. |
 | 3 | Maintenance gate | `apps/api/src/common/maintenance/maintenance.guard.ts` | The application's only global guard (`APP_GUARD`). Answers `503` while a maintenance window is open, except on routes marked `@AllowDuringMaintenance()`. |
 | 4 | Feature gate | `apps/api/src/ai/…` (`AiEnabledGuard`) | Controller-level, on `/api/ai/*` consumer controllers only. Answers `403 AI_DISABLED` while AI is switched off. |
@@ -240,6 +240,14 @@ A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That c
 
 `TrainingAgentsModule` (`apps/api/src/training-agents/`) sits above the gateway: it runs agent graphs with LangGraph.js through `LangGraphRunner`, checkpointing to two Prisma-owned tables, and never calls a provider itself. Framework telemetry is forced off in code. Per-role model choice (researcher, planner, critic, evaluator) is resolved by `TrainingModelResolver` (`training-agents/models/`) from the user's `ai.taskModels` and the read-only `UsableModelsService`; `GET /api/ai/training/models` and `POST /api/ai/training/estimate` (`ai:use`, behind `AiEnabledGuard`) return the resolution and a token estimate, never a quote.
 
+The runtime kit (`training-agents/runtime/`, `graph/`, `nodes/`) executes one graph run as one server-only job:
+
+- **Runs.** `POST /api/ai/training/runs` freezes the per-role models and the token cap on a `training_plan_runs` row and enqueues `ai.training.plan.run` in the same transaction. The raw-SQL partial unique index `training_plan_runs_active_per_user_uniq_idx` allows one active run per user; a second start answers `409 TRAINING_RUN_ACTIVE` with the existing run's id.
+- **One path to the model.** `AgentCaller` is the only route from a graph node to `AiService`; a node never holds a provider client or a key. `RunBudget` enforces the per-run token cap across all calls (`TRAINING_RUN_BUDGET_EXCEEDED`), and `ContextBudget` trims prompt sections in a fixed order.
+- **Persisted events with replay.** Every lifecycle and usage event is a `training_run_events` row with a gapless per-run `seq` and carries no prompt text or key. `GET /api/ai/training/stream/:runId?after=<seq>` replays the events after `seq`, then tails by polling, so any API replica can serve it; a client disconnect does not cancel the run.
+- **Checkpoints and resume.** `PrismaCheckpointSaver` writes node outputs after each node. Resume never re-runs a finished node: `POST .../resume` (from `interrupted`) and `POST .../decision` (from `awaiting_approval`) queue a new job for the same run. A lost job interrupts the run and is resumed automatically a bounded number of times.
+- **Cancel and retention.** `POST .../cancel` stops a running run within one poll interval. The daily `training.runs.purge` job deletes finished runs' events and checkpoints past retention.
+
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
 - **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`, `/settings/ai/agents`; admin-only Playground `/ai`
 - **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)
@@ -399,6 +407,8 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `UserAiKey` | `user_ai_keys` | Encrypted BYOK key per `(userId, provider)`, reachable models |
 | AI | `AiRun` | `ai_runs` | Background AI runs (response, image, transcription, speech) |
 | AI | `AiUsageEvent` | `ai_usage_events` | One row per provider round trip, tokens, key source |
+| AI | `TrainingPlanRun` | `training_plan_runs` | One agent run: `kind`, `trigger`, `status`, `stage`, frozen `roleModels` and `tokenCap`, `usage`, `result`, `pendingDecision`, `resumeCount`, `jobIds`; `programId` is a plain column (no foreign key); at most one active run per user, enforced by the raw-SQL partial unique index `training_plan_runs_active_per_user_uniq_idx` |
+| AI | `TrainingRunEvent` | `training_run_events` | Replayable run event with a per-run gapless `seq` (unique with `runId`), `type`, `stage`, key-free `data`; cascade on the run |
 | AI | `TrainingRunCheckpoint` | `training_run_checkpoints` | Graph checkpoint per `(threadId, checkpointNs, checkpointId)`, node outputs only, no foreign key |
 | AI | `TrainingRunCheckpointWrite` | `training_run_checkpoint_writes` | Pending writes and interrupts of a checkpoint, keyed by plain `threadId` |
 | Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, time zone, bio, version |
@@ -422,7 +432,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
-Four indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `gyms_user_default_uniq_idx` (one default gym per user) and `workouts_user_in_progress_uniq_idx` (one in-progress workout per user). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
+Five indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `gyms_user_default_uniq_idx` (one default gym per user) `workouts_user_in_progress_uniq_idx` (one in-progress workout per user) and `training_plan_runs_active_per_user_uniq_idx` (one active training run per user). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
 
 ### 6.2 Settings storage
 
@@ -523,7 +533,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 26 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
+All 28 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
 
 | Type | Handler | What it does | Node-eligible |
 |---|---|---|:-:|
@@ -537,6 +547,8 @@ All 26 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Re-verifies stale user keys for one provider, refreshes reachable models | No |
 | `ai.equipment.scan` | `gyms/scan/equipment-scan.handler.ts` | "Scan gym": sends a `gym_equipment` photo intake's photos to the user's vision model in batches of 16 and stores the equipment drafts for review | No |
 | `ai.workout.prefill` | `workouts/prefill/workout-prefill.handler.ts` | "Prefill from photo": sends a `workout_prefill` photo intake's photos (machine placard, notebook, whiteboard) to the user's vision model in chunks of 16 and stores one exercise draft per line, with the written sets converted to kg | No |
+| `ai.training.plan.run` | `training-agents/runtime/training-plan-run.handler.ts` | Executes one training agent graph run with checkpoints; profile 25 minutes, 1 attempt; a resume is a new job for the same run | No |
+| `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Deletes finished runs' events and checkpoints past retention, then old run rows; enqueued by a daily 05:30 cron that only enqueues; profile 30 minutes, 3 attempts | No |
 | `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
 | `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
 | `example.checksum` | `jobs/handlers/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
@@ -690,6 +702,7 @@ docker compose -f base.compose.yml -f prod.compose.yml up
 |---|---|---|
 | `/api/notifications/stream` | api | Buffering off for SSE |
 | `/api/ai/responses/stream` | api | Buffering off for SSE |
+| `/api/ai/training/stream` | api | Buffering off for SSE (training run event replay, `GET /api/ai/training/stream/:runId`) |
 | `/api/admin/telemetry/assistant/stream` | api | Buffering off for SSE (telemetry AI assistant) |
 | `/api` | api | Includes `/api/docs` and `/api/openapi.json` |
 | `/` | web | The React app |

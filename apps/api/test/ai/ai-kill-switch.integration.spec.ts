@@ -202,6 +202,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.health.body_metric_reading': null,
       'ai.equipment.scan': null, // filled in per-test: needs a scanning gym_equipment intake (E3.4)
       'ai.workout.prefill': null, // filled in per-test: needs a scanning workout_prefill intake (E4.5)
+      'ai.training.plan.run': null, // filled in per-test: needs a queued training_plan_runs row (E5.3)
     };
 
     let registry: JobHandlerRegistry;
@@ -481,6 +482,61 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       expect(prisma.draftItem.createMany).not.toHaveBeenCalled();
       expect(prisma.workoutExercise.create).not.toHaveBeenCalled();
       expect(prisma.setLog.createMany).not.toHaveBeenCalled();
+    });
+
+    it('ai.training.plan.run: disabled makes zero provider calls, run fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.training.plan.run');
+      expect(handler).toBeDefined();
+
+      const runId = '77777777-7777-4777-8777-777777777777';
+      const prisma = app.context.prismaMock;
+
+      // A `queued` run the way `POST /api/ai/training/runs` leaves it, so the
+      // kill switch is what refuses it before any graph or provider call.
+      (prisma.trainingPlanRun.findUnique as jest.Mock).mockResolvedValue({
+        id: runId,
+        userId: HARNESS_USER,
+        kind: 'create',
+        trigger: 'user',
+        status: 'queued',
+        programId: null,
+        jobId: 'job-kill-switch',
+        jobIds: ['job-kill-switch'],
+        input: { request: {}, maxCriticRounds: 2 },
+        roleModels: {
+          planner: { provider: 'openai', modelId: 'fake-model', effort: 'medium', keySource: 'user' },
+        },
+        tokenCap: 100_000,
+        usage: {},
+        cancelRequestedAt: null,
+        resumeCount: 0,
+        startedAt: null,
+      });
+      (prisma.trainingPlanRun.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.training.plan.run',
+          subjectType: 'training_run',
+          subjectId: runId,
+          payload: { runId },
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.trainingPlanRun.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: runId, status: { in: ['queued'] } },
+          data: expect.objectContaining({ status: 'failed', errorCode: 'AI_DISABLED' }),
+        }),
+      );
+      // It never moved to `running`.
+      expect(prisma.trainingPlanRun.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'running' }) }),
+      );
     });
 
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {

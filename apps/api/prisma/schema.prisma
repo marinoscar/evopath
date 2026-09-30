@@ -41,6 +41,7 @@ model User {
   equipmentTypes         EquipmentType[]
   exercises              Exercise[]
   workouts               Workout[]
+  trainingPlanRuns       TrainingPlanRun[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
@@ -3024,4 +3025,64 @@ model TrainingRunCheckpointWrite {
 
   @@id([threadId, checkpointNs, checkpointId, taskId, idx])
   @@map("training_run_checkpoint_writes")
+}
+
+// One execution of the agentic training-plan graph. An audit record: `programId`
+// is a plain column (no FK) so a run outlives a deleted program. At most one
+// ACTIVE run per user is enforced by the raw-SQL partial unique index
+// `training_plan_runs_active_per_user_uniq_idx` (migration SQL only; Prisma
+// cannot express it, never declare it as @@unique). The kind/status/token_cap
+// CHECK constraints live in the same migration.
+model TrainingPlanRun {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  kind              String // create | revise | evaluate
+  trigger           String    @default("user") // user | weekly | workout_finished | manual | resume | system
+  status            String    @default("queued") // queued | running | awaiting_approval | interrupted | succeeded | failed | cancelled | blocked_safety
+  stage             String? // current node name, for the UI
+  programId         String?   @map("program_id") @db.Uuid
+  jobId             String?   @map("job_id") @db.Uuid // the CURRENT job (a resume creates a new one)
+  jobIds            Json      @default("[]") @map("job_ids") // every job that ever executed this run
+  input             Json // the validated request (intake, instruction or trigger)
+  contextSnapshot   Json?     @map("context_snapshot") // per-role minimised context summaries actually sent; key-free
+  roleModels        Json      @default("{}") @map("role_models") // FROZEN at start: { role: { provider, modelId, effort, keySource } }
+  tokenCap          Int       @map("token_cap") // frozen effective cap
+  usage             Json      @default("{}") // { byRole, byNode, total }
+  result            Json? // small summary: { programId, versionNumber, changeLogId, verdict, warnings[] }
+  pendingDecision   Json?     @map("pending_decision") // recorded by /decision; consumed by the resume job
+  errorCode         String?   @map("error_code")
+  errorMessage      String?   @map("error_message") // sanitised, never provider text
+  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz
+  resumeCount       Int       @default(0) @map("resume_count")
+  eventSeq          Int       @default(0) @map("event_seq") // atomic counter for training_run_events.seq
+  heartbeatAt       DateTime? @map("heartbeat_at") @db.Timestamptz
+  expiresAt         DateTime? @map("expires_at") @db.Timestamptz // a pending approval expires
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  startedAt         DateTime? @map("started_at") @db.Timestamptz
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events TrainingRunEvent[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([programId])
+  @@map("training_plan_runs")
+}
+
+// Persisted, sequenced progress log a browser replays by cursor. `seq` is
+// allocated from `training_plan_runs.event_seq`.
+model TrainingRunEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  runId     String   @map("run_id") @db.Uuid
+  seq       Int
+  type      String
+  stage     String?
+  data      Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  run TrainingPlanRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+  @@map("training_run_events")
 }
