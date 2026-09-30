@@ -53,7 +53,7 @@ describe('services/intake', () => {
     await getIntake('in 1');
     await attachIntakePhoto('in-1', 'obj-1');
     await removeIntakePhoto('in-1', 'obj-1');
-    await analyzeIntake('in-1', { provider: 'openai', modelId: 'gpt-5-mini' });
+    await analyzeIntake('in-1');
     await addDraftItem('in-1', { kind: 'equipment', value: { name: 'Rack' } });
     await updateDraftItem('in-1', 'it-1', { status: 'rejected' });
     await deleteDraftItem('in-1', 'it-1');
@@ -67,7 +67,7 @@ describe('services/intake', () => {
       ['GET', '/intakes/in%201', null],
       ['POST', '/intakes/in-1/photos', { storageObjectId: 'obj-1' }],
       ['DELETE', '/intakes/in-1/photos/obj-1', null],
-      ['POST', '/intakes/in-1/analyze', { provider: 'openai', modelId: 'gpt-5-mini' }],
+      ['POST', '/intakes/in-1/analyze', {}],
       ['POST', '/intakes/in-1/items', { kind: 'equipment', value: { name: 'Rack' } }],
       ['PATCH', '/intakes/in-1/items/it-1', { status: 'rejected' }],
       ['DELETE', '/intakes/in-1/items/it-1', null],

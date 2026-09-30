@@ -25,7 +25,8 @@ import {
 } from '../../../components/health/PhotoReadDialog';
 import { clearPhotoUrlCache } from '../../../components/intake/StoragePhotoThumb';
 import { resetMeasurementCatalogCache } from '../../../hooks/useMeasurementCatalog';
-import { mockAiPublicConfigEnabled, mockUsableAiModels } from '../../mocks/fixtures/ai';
+import { mockAiPublicConfigEnabled } from '../../mocks/fixtures/ai';
+import { mockAiFeaturesView, mockBlockedFeatureView } from '../../mocks/fixtures/aiFeatures';
 import {
   apiError,
   cuffItems,
@@ -84,20 +85,26 @@ beforeEach(() => {
 
 describe('PhotoReadDialog: vision availability', () => {
   it.each([
-    ['ai_disabled', { enabled: false, models: mockUsableAiModels }, 'AI is turned off for this app'],
-    ['no_key', { enabled: true, models: [] }, 'Add your own AI key in Settings → AI'],
+    ['ai_disabled', { enabled: false, features: mockAiFeaturesView() }, 'AI is turned off for this app'],
     [
-      'no_vision_model',
+      'no_key',
       {
         enabled: true,
-        models: [
-          {
-            ...mockUsableAiModels[0],
-            capabilities: { capabilities: ['responses'], inputModalities: ['text'], outputModalities: ['text'] },
-          },
-        ],
+        features: mockAiFeaturesView({
+          body_metric_reading: mockBlockedFeatureView('body_metric_reading', 'no_key', 'keys'),
+        }),
       },
-      'None of your available models can read images',
+      'Add your own AI key in Settings → AI Keys',
+    ],
+    [
+      'no_models',
+      {
+        enabled: true,
+        features: mockAiFeaturesView({
+          body_metric_reading: mockBlockedFeatureView('body_metric_reading', 'no_models', 'admin'),
+        }),
+      },
+      "Your administrator hasn't assigned an AI model that can read photos yet.",
     ],
   ])('%s shows the notice, makes no intake request, and Continue manually hands over', async (_status, scenario, title) => {
     const api = readingIntakeApi();
@@ -105,7 +112,7 @@ describe('PhotoReadDialog: vision availability', () => {
       http.get('*/api/ai/config', () =>
         HttpResponse.json({ data: { ...mockAiPublicConfigEnabled, enabled: scenario.enabled } }),
       ),
-      http.get('*/api/ai/models', () => HttpResponse.json({ data: scenario.models })),
+      http.get('*/api/ai/features', () => HttpResponse.json({ data: scenario.features })),
     );
     const onEnterManually = vi.fn();
     const user = userEvent.setup();
@@ -143,7 +150,8 @@ describe('PhotoReadDialog: scale', () => {
     expect(disclosure).toHaveTextContent('your own key');
 
     await addPhotoAndRead(user);
-    expect(api.analyzed).toEqual([{ provider: 'openai', modelId: 'gpt-5-mini' }]);
+    // The server picks the model: the body names none.
+    expect(api.analyzed).toEqual([{}]);
     expect(await screen.findByLabelText('Reading the photo')).toBeInTheDocument();
 
     await waitFor(() => expect(rows()).toHaveLength(1));

@@ -20,6 +20,7 @@ import { resetMeasurementCatalogCache } from '../../hooks/useMeasurementCatalog'
 import { mockHealthProfileSaved } from '../mocks/fixtures/health';
 import { mockLatest } from '../mocks/fixtures/measurements';
 import { readingIntake, readingIntakeApi, scaleItems } from '../mocks/fixtures/bodyMetricIntake';
+import { mockAiFeaturesView, mockBlockedFeatureView } from '../mocks/fixtures/aiFeatures';
 
 const reader: MockUser = {
   ...mockUser,
@@ -136,7 +137,15 @@ describe('HealthPage: Read from photo', () => {
 
   it('Enter manually from the header flow opens the quick-entry dialog', async () => {
     healthApi();
-    server.use(http.get('*/api/ai/models', () => HttpResponse.json({ data: [] })));
+    server.use(
+      http.get('*/api/ai/features', () =>
+        HttpResponse.json({
+          data: mockAiFeaturesView({
+            body_metric_reading: mockBlockedFeatureView('body_metric_reading', 'no_key', 'keys'),
+          }),
+        }),
+      ),
+    );
     const user = userEvent.setup();
     render(<HealthPage />, { wrapperOptions: { user: reader, aiEnabled: true } });
 
