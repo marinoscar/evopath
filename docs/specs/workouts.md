@@ -12,7 +12,7 @@ A workout is one logged training session: the exercises done, and for each the s
   - "Last time" and personal-record feedback computed from the user's own history.
   - The second worked example of the photo-intake kit ([intake README](../../apps/api/src/intake/README.md)) and of a vision `ai.*` job.
 - **What it is not.**
-  - Not a training program. A workout is ad hoc; `programWorkoutId` is a reserved column that nothing writes yet.
+  - Not a training program. A workout is ad hoc; only `WorkoutsService.startPrefilled` writes `programWorkoutId`, when the training-programs layer starts a planned workout and records a `program_sessions` link (see [ARCHITECTURE.md §5.25](../ARCHITECTURE.md#525-training-programs)).
   - Not AI coaching. AI only reads a photo into a draft; it never suggests, plans or judges a workout.
   - Not shared between users. A workout, its sets and photos, and custom exercises belong to one user; a foreign id answers `404`.
   - Not AI-dependent. Every flow works with AI off, without a key and without a vision model.
@@ -25,7 +25,7 @@ A workout is one logged training session: the exercises done, and for each the s
 |---|---|
 | `exercises` | The library: permanent `slug`, `name`, `primaryMuscles`, `secondaryMuscles`, `movementPattern`, `trackingMode`, `isUnilateral`, `isBodyweight`, `aliases`. `ownerUserId` is null for a seeded row and the owner's id for a custom exercise; `origin` is `seed`, `user` or `ai`; `status` is `active` or `pending_review` |
 | `exercise_requirements` | What an exercise needs: rows sharing a `groupIndex`, each naming an equipment type or a capability |
-| `workouts` | One session: `name`, local calendar `date`, `status` (`in_progress`, `completed`), `startedAt`, `endedAt`, `durationSeconds`, optional `gymId`, `notes`, `readinessSnapshot`, reserved `programWorkoutId` |
+| `workouts` | One session: `name`, local calendar `date`, `status` (`in_progress`, `completed`), `startedAt`, `endedAt`, `durationSeconds`, optional `gymId`, `notes`, `readinessSnapshot`, optional `programWorkoutId` (set by `startPrefilled`) |
 | `workout_exercises` | An exercise inside a workout: dense 0-based `position`, optional equipment type actually used, `notes` |
 | `set_logs` | One set: `setNumber`, `weightKg`, `reps`, `durationSeconds`, `distanceMeters`, `rpe`, `rir`, `restSeconds`, `isWarmup`, `completed`, `completedAt`, `painFlag`, `painNote`, `notes` |
 | `workout_photos` | A photo attached to a workout: a unique link to a `storage_objects` row, `caption` |
@@ -233,7 +233,7 @@ Refusals carry `details.reason` (values in `WORKOUT_REFUSALS` and `EXERCISE_REFU
 | Change what the prefill asks the model | Edit `workout-prefill.prompt.ts` and bump `WORKOUT_PREFILL_PROMPT_VERSION`; update the fixtures and the prompt spec |
 | Build another photo-to-rows flow | Add an intake kind: [intake README](../../apps/api/src/intake/README.md#adding-a-kind), with `WorkoutPrefillIntakeKind` and `GymEquipmentIntakeKind` as worked examples. The analyzer is a server-only `ai.*` job ([job handlers README](../../apps/api/src/jobs/handlers/README.md), [AI README](../../apps/api/src/ai/README.md)) |
 | Read workouts from another feature | Inject `WorkoutHistoryService` (exported by `WorkoutsModule`); never query the workout tables of another user. `WorkoutsModule` must never import `ExercisesModule` |
-| Attach a workout to a program | Write `programWorkoutId`, the reserved column, in the feature that owns programs, and add the foreign key in its migration |
+| Start a workout from a plan | Call `WorkoutsService.startPrefilled` inside your own transaction and write your link row there, as `TrainingTodayService.start` does |
 
 ## 5. Guardrails
 
