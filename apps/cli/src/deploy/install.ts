@@ -1106,7 +1106,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         const runtime = await proxyRuntimeOf(context);
 
         // Certificate FIRST. See rule 4 in the header.
-        await issueCertificate(target, {
+        const cert = await issueCertificate(target, {
           runCommand: context.runCommand,
           runtime,
           email,
@@ -1123,6 +1123,11 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           ...(context.env?.get('MAX_FILE_SIZE') === undefined
             ? {}
             : { maxBodyBytes: Number(context.env.get('MAX_FILE_SIZE')) }),
+          // A (re)issued certificate never changes the vhost TEXT -- same
+          // domain, same path -- so the ordinary "already current" fast path
+          // would never reload nginx and the new certificate would sit on
+          // disk, unserved, forever (issue #199).
+          forceReload: cert.issued,
         });
       },
     },
