@@ -118,7 +118,7 @@ describe('TrainingPlanRunHandler', () => {
       await t.handler.process(t.jobFor(run.id));
 
       expect(t.db.get(run.id)).toMatchObject({ status: 'succeeded', pendingDecision: null, result: { verdict: 'applied' } });
-      expect(stageNodes(t.events, run.id)).toEqual(['load_signals', 'evaluate', 'envelope', 'await_approval', 'await_approval', 'apply']);
+      expect(stageNodes(t.events, run.id)).toEqual(['load_signals', 'safety_gate', 'evaluate', 'envelope', 'decide', 'record_proposal', 'await_approval', 'await_approval', 'apply', 'notify']);
       expect(t.events.types(run.id)).toContain('run.resumed');
       expect(JSON.stringify([...t.events.events.values()])).not.toContain('NOTE-CANARY');
     });

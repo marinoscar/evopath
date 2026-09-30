@@ -76,6 +76,12 @@ export const STUB_FINALIZE_NODE: NodeFn = async (state) => {
   return { outcome: { status: 'completed', verdict: decision === 'revise' ? 'exhausted' : decision } };
 };
 
+/** `load_signals` without a database: a marker context (the evaluate stubs ignore it). */
+export const STUB_LOAD_SIGNALS_NODE: NodeFn = async (state) => ({ context: { stub: true, kind: state.kind } });
+
+/** `safety_gate` with nothing to stop: a clean marker result. */
+export const STUB_SAFETY_GATE_NODE: NodeFn = async () => ({});
+
 /** Every implemented agent node, stubbed, in graph order. Spread your own overrides after it. */
 export const STUB_AGENT_NODES: Readonly<Record<string, NodeFn>> = {
   prepare_context: STUB_PREPARE_CONTEXT_NODE,
@@ -84,4 +90,6 @@ export const STUB_AGENT_NODES: Readonly<Record<string, NodeFn>> = {
   guardrails: STUB_GUARDRAILS_NODE,
   critique: STUB_CRITIQUE_NODE,
   finalize: STUB_FINALIZE_NODE,
+  load_signals: STUB_LOAD_SIGNALS_NODE,
+  safety_gate: STUB_SAFETY_GATE_NODE,
 };

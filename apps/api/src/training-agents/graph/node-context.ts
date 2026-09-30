@@ -5,7 +5,10 @@ import type {
   ApplyChangeResult,
   CreateWithTreeInput,
   CreateWithTreeResult,
+  RecordReviewInput,
+  RecordReviewResult,
 } from '../../programs/programs.service';
+import type { EvaluationSources } from '../evaluation/build-evaluator-context';
 import type { PlannerContextPort } from '../context/planner-context.loader';
 import type { AgentCaller } from '../runtime/agent-caller';
 import type { ContextBudget } from '../runtime/context-budget';
@@ -56,8 +59,24 @@ export interface NodePorts {
   plannerContext?: PlannerContextPort;
   /** `finalize` writes through the programs chokepoint; `prepare_context` reads a revise run's stored brief. */
   programs?: ProgramsPort;
-  /** `finalize` raises `training.plan_ready` after the write committed. */
+  /** `finalize` raises `training.plan_ready` after the write committed; `safety_gate` raises `training.plan_safety_stop`. */
   notifications?: NotificationsPort;
+  /** The evaluate graph's reads and its `reviewed` entries (`evaluation/evaluation-context.loader.ts`). */
+  evaluation?: EvaluationPort;
+}
+
+/**
+ * What the evaluate graph reads, and its one write outside `applyChange`.
+ * Owner-scoped: `loadSources` answers `null` for a program the user does not own.
+ */
+export interface EvaluationPort {
+  loadSources(userId: string, programId: string, now: Date): Promise<EvaluationSources | null>;
+  /** Pain-note TEXT of the user's sets on local days `fromDate..toDate`, for the server-side screen only. */
+  recentPainNotes(userId: string, fromDate: string, toDate: string): Promise<string[]>;
+  /** A `reviewed` change log entry (optionally pausing automation), through the programs chokepoint. */
+  recordReview(input: RecordReviewInput): Promise<RecordReviewResult>;
+  /** The `reviewed` entry this run already wrote as `actor`, if any: a resumed node never writes twice. */
+  findRunReview(userId: string, runId: string, actor: 'ai' | 'system'): Promise<{ changeLogId: string } | null>;
 }
 
 /** A program version a run wrote. */

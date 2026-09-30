@@ -61,6 +61,8 @@ export const AGENT_EVENT_TYPES = [
   'plan.finalized',
   'adaptation.proposed',
   'adaptation.applied',
+  'evaluation.signals',
+  'evaluation.safety',
 ] as const;
 
 export type RunEventType = LifecycleEventType | (typeof AGENT_EVENT_TYPES)[number];

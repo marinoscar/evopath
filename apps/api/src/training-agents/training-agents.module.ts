@@ -8,6 +8,7 @@ import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ProgramsModule } from '../programs/programs.module';
 import { PlannerContextLoader } from './context/planner-context.loader';
+import { EvaluationContextLoader } from './evaluation/evaluation-context.loader';
 import { TrainingEvaluationSweepHandler } from './evaluation/handlers/training-evaluation-sweep.handler';
 import { TrainingEvaluationTask } from './evaluation/tasks/training-evaluation.task';
 import { TrainingEvaluationScheduler } from './evaluation/training-evaluation.scheduler';
@@ -73,6 +74,7 @@ import { TrainingRunsService } from './runtime/training-runs.service';
     TrainingEvaluationSweepHandler,
     TrainingEvaluationTask,
     PlannerContextLoader,
+    EvaluationContextLoader,
     TrainingProgramsPort,
     { provide: TRAINING_SAFETY_SCREEN, useClass: FreeTextSafetyScreen },
   ],

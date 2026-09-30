@@ -65,6 +65,8 @@ export const AGENT_NODES: Record<string, NodeFn> = {
   prepare_context: STUB_AGENT_NODES.prepare_context,
   guardrails: STUB_AGENT_NODES.guardrails,
   finalize: STUB_AGENT_NODES.finalize,
+  load_signals: STUB_AGENT_NODES.load_signals,
+  safety_gate: STUB_AGENT_NODES.safety_gate,
   research: async (_state, ctx) => {
     const { parsed } = await ctx.agent.structured({
       role: 'researcher',
