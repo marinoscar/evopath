@@ -15,12 +15,18 @@ import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { programNotFound } from '../../programs/programs.service';
 import type { FrozenRoleModel } from '../graph/node-context';
+import {
+  EVALUATION_COOLDOWN_REASON,
+  EVALUATION_LIMITS,
+  MANUAL_EVALUATION_TRIGGER,
+} from '../evaluation/evaluation.constants';
+import { manualCooldownRemainingSeconds } from '../evaluation/evaluation-gates';
 import { DEFAULT_MAX_CRITIC_ROUNDS, type RunKind } from '../graph/run-state';
 import { graphForKind, isGraphReady } from '../graph/training-graphs';
 import { effectiveTokenCap } from '../models/token-estimate';
 import { TrainingModelResolver } from '../models/training-model-resolver.service';
 import { runnable } from '../models/training-models.service';
-import { TRAINING_KIND_ROLES } from '../models/training-role-defaults';
+import { TRAINING_KIND_OPTIONAL_ROLES, TRAINING_KIND_ROLES } from '../models/training-role-defaults';
 import {
   type ListTrainingRunsQuery,
   type StartTrainingRunInput,
@@ -158,6 +164,24 @@ export class TrainingRunsService {
       };
     }
 
+    for (const role of TRAINING_KIND_OPTIONAL_ROLES[kind]) {
+      const resolution = roles[role];
+      if (!runnable(resolution) || !resolution.model) continue;
+      roleModels[role] = {
+        provider: resolution.model.provider,
+        modelId: resolution.model.modelId,
+        effort: resolution.effectiveEffort,
+        keySource: resolution.model.keySource,
+        ...limits(resolution.model.provider, resolution.model.modelId),
+      };
+    }
+
+    let evaluateProgramId: string | null = null;
+    if (kind === 'evaluate') {
+      evaluateProgramId = await this.evaluateTarget(userId, programId);
+      if (trigger === MANUAL_EVALUATION_TRIGGER) await this.assertManualCooldown(userId);
+    }
+
     const tokenCap = Math.min(
       TRAINING_MAX_RUN_TOKENS,
       Math.max(TRAINING_MIN_RUN_TOKENS, effectiveTokenCap(kind, settings)),
@@ -173,7 +197,7 @@ export class TrainingRunsService {
             userId,
             kind,
             trigger,
-            programId,
+            programId: evaluateProgramId ?? programId,
             input: { request: input, maxCriticRounds } as Prisma.InputJsonValue,
             roleModels: roleModels as Prisma.InputJsonValue,
             tokenCap,
@@ -273,6 +297,11 @@ export class TrainingRunsService {
     const run = await this.load(userId, runId);
 
     if (finished.count > 0) {
+      // An open proposal of the cancelled run is declined (it never blocks the next evaluation).
+      if (run.kind === 'evaluate') await this.prisma.programChangeLog.updateMany({
+        where: { runId, userId, status: 'proposed' },
+        data: { status: 'rejected', decidedAt: now },
+      });
       await this.events.emit(runId, 'run.cancelled', {});
       await auditTrainingRun(this.prisma, this.logger, userId, TRAINING_RUN_AUDIT_ACTIONS.CANCEL, {
         runId,
@@ -402,6 +431,41 @@ export class TrainingRunsService {
       throw new ConflictException({
         message: 'You already have another training run in progress.',
         details: { reason: TRAINING_REASONS.RUN_ACTIVE },
+      });
+    }
+  }
+
+  /** An evaluation's program: the one named (the caller's, else 404) or the active plan (404 when none). */
+  private async evaluateTarget(userId: string, programId: string | null): Promise<string> {
+    const program = await this.prisma.program.findFirst({
+      where: programId ? { id: programId, userId } : { userId, status: 'active' },
+      select: { id: true },
+    });
+    if (!program) throw programNotFound();
+    return program.id;
+  }
+
+  /**
+   * "Re-evaluate now" at most once per 30 minutes: `409
+   * TRAINING_EVALUATION_COOLDOWN` with `details.retryAfterSeconds`. The
+   * active-run index still decides two concurrent clicks.
+   */
+  private async assertManualCooldown(userId: string, now: Date = new Date()): Promise<void> {
+    const last = await this.prisma.trainingPlanRun.findFirst({
+      where: {
+        userId,
+        kind: 'evaluate',
+        trigger: MANUAL_EVALUATION_TRIGGER,
+        createdAt: { gt: new Date(now.getTime() - EVALUATION_LIMITS.manualCooldownMs) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    const retryAfterSeconds = manualCooldownRemainingSeconds(last?.createdAt ?? null, now);
+    if (retryAfterSeconds > 0) {
+      throw new ConflictException({
+        message: 'Your plan was evaluated a moment ago; try again later.',
+        details: { reason: EVALUATION_COOLDOWN_REASON, retryAfterSeconds },
       });
     }
   }

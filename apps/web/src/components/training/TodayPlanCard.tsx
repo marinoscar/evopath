@@ -15,7 +15,9 @@ import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { Alert, Box, Button, Chip, Link, Skeleton, Stack, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import { useChangeLog } from '../../hooks/useChangeLog';
 import { useTrainingToday } from '../../hooks/useTrainingToday';
+import { PlanAdjustedBanner } from './PlanAdjustedBanner';
 import {
   duplicateProgram,
   startProgramWorkout,
@@ -94,7 +96,6 @@ function ExerciseRow({ e, unit }: { e: TodaySessionExercise; unit: WeightUnit })
 }
 
 function PlanAdjustedChip({ session }: { session: TodaySession }) {
-  if (session.unseenChangeCount <= 0) return null;
   return (
     <Chip
       component={RouterLink}
@@ -104,6 +105,31 @@ function PlanAdjustedChip({ session }: { session: TodaySession }) {
       color="info"
       label="Plan adjusted"
     />
+  );
+}
+
+/**
+ * E5.8: when the plan has unseen AI changes, the "Plan adjusted" banner
+ * (summary, Review, one-tap Undo, Dismiss). Falls back to the chip while the
+ * change log loads, or when the unseen change is not one the banner shows.
+ * Stays mounted for the whole workout view so the Undo snackbar outlives the
+ * banner; the change log is only read while there are unseen changes.
+ */
+function PlanAdjusted({ session, canWrite, onChanged }: { session: TodaySession; canWrite: boolean; onChanged: () => void }) {
+  const unseen = session.unseenChangeCount > 0;
+  const changeLog = useChangeLog(session.programId, { enabled: unseen });
+  const showChip = unseen && !changeLog.unseenAiChange;
+  return (
+    <>
+      {showChip && (
+        <Box sx={{ mb: 1 }}>
+          <PlanAdjustedChip session={session} />
+        </Box>
+      )}
+      <Box sx={{ mb: changeLog.unseenAiChange ? 1 : 0 }}>
+        <PlanAdjustedBanner programId={session.programId} changeLog={changeLog} canWrite={canWrite} onUndone={onChanged} />
+      </Box>
+    </>
   );
 }
 
@@ -225,6 +251,7 @@ export function TodayPlanCard({ canStart, canWritePrograms = false }: TodayPlanC
         duplicating={duplicating}
         onStart={(id, version) => void start(id, version)}
         onDuplicate={(id) => void duplicate(id)}
+        onPlanChanged={() => void refresh()}
       />
       {problemAlert}
       {error && (
@@ -252,9 +279,22 @@ interface BodyProps {
   duplicating: boolean;
   onStart: (programWorkoutId: string, planVersion: number | null) => void;
   onDuplicate: (programId: string) => void;
+  /** The plan changed (an Undo): refetch Today. */
+  onPlanChanged: () => void;
 }
 
-function Body({ today, date, unit, canStart, canWritePrograms, starting, duplicating, onStart, onDuplicate }: BodyProps) {
+function Body({
+  today,
+  date,
+  unit,
+  canStart,
+  canWritePrograms,
+  starting,
+  duplicating,
+  onStart,
+  onDuplicate,
+  onPlanChanged,
+}: BodyProps) {
   const year = yearOf(date);
 
   switch (today.kind) {
@@ -378,8 +418,8 @@ function Body({ today, date, unit, canStart, canWritePrograms, starting, duplica
             </Typography>
             {today.isDeload && <Chip size="small" label="Deload" />}
             {today.inProgressWorkoutId && <Chip size="small" color="primary" label="In progress" />}
-            <PlanAdjustedChip session={session} />
           </Box>
+          <PlanAdjusted session={session} canWrite={canWritePrograms} onChanged={onPlanChanged} />
           {empty ? (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               No exercises

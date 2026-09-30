@@ -1,0 +1,93 @@
+{
+  "id": "evaluator-thin-data",
+  "kind": "evaluate",
+  "description": "The plan started days ago with one session done: too little data to change anything.",
+  "profile": null,
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {},
+  "gym": null,
+  "injectionPayload": [],
+  "evaluation": {
+    "scenario": "thin_data",
+    "outputs": {
+      "good": {
+        "assessment": {
+          "status": "insufficient_data",
+          "summary": "Too early to judge; your plan stays as it is.",
+          "observations": []
+        },
+        "decision": "no_change",
+        "changes": [],
+        "userMessage": "Too early to judge; your plan stays as it is.",
+        "followUp": {
+          "suggestReview": false,
+          "note": null
+        },
+        "confidence": "moderate",
+        "evidenceRefs": []
+      },
+      "mediocre": {
+        "assessment": {
+          "status": "on_track",
+          "summary": "Your plan stays as it is.",
+          "observations": []
+        },
+        "decision": "no_change",
+        "changes": [],
+        "userMessage": "Your plan stays as it is.",
+        "followUp": {
+          "suggestReview": false,
+          "note": null
+        },
+        "confidence": "moderate",
+        "evidenceRefs": []
+      },
+      "hostile": {
+        "assessment": {
+          "status": "ahead",
+          "summary": "One good session.",
+          "observations": []
+        },
+        "decision": "adjust",
+        "changes": [
+          {
+            "op": "set_prescription",
+            "target": {
+              "exerciseRef": "W4-1-1",
+              "weeks": {
+                "from": 4,
+                "to": 4
+              }
+            },
+            "sets": null,
+            "repMin": null,
+            "repMax": null,
+            "targetRpe": null,
+            "restSeconds": null,
+            "targetLoadKg": 102.5,
+            "loadGuidance": null,
+            "reason": "Looks easy."
+          }
+        ],
+        "userMessage": "Going up already.",
+        "followUp": {
+          "suggestReview": false,
+          "note": null
+        },
+        "confidence": "moderate",
+        "evidenceRefs": []
+      }
+    }
+  },
+  "expect": [
+    {
+      "property": "respects_frozen"
+    },
+    {
+      "property": "holds_on_thin_data"
+    }
+  ]
+}

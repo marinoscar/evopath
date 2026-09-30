@@ -78,7 +78,63 @@ export function routeAfterCritique(
   return critiqueDecision(state) === 'revise' ? 'plan' : 'finalize';
 }
 
-/** After `envelope`: "ask me first" pauses for the owner, otherwise the change applies. */
-export function routeAfterEnvelope(state: Pick<RunState, 'input'>): 'await_approval' | 'apply' {
-  return state.input.autonomy === 'ask_first' ? 'await_approval' : 'apply';
+// ---- the evaluate graph ---------------------------------------------------------
+//
+//   load_signals -> safety_gate --stop--> END
+//                             \-> evaluate -> envelope --structural--> critique_light -> decide
+//                                                      \-------------------------------^
+//   decide: no_change -> record_review -> END
+//           autonomous -> apply -> notify -> END
+//           ask_first  -> record_proposal -> await_approval --approve--> apply -> notify -> END
+//                                                            \-reject---> notify -> END
+//
+// The change set (`state.changeSet`) is read loosely here: `accepted` (the
+// envelope's accepted operations, each with an `op`) and `decision` (set by
+// `decide`). Part B's contracts narrow it; these routes only need those two.
+
+/** Operations that change a plan's structure: the adaptation critic reviews them. */
+export const STRUCTURAL_OPERATIONS: readonly string[] = [
+  'swap_exercise',
+  'remove_exercise',
+  'add_exercise',
+  'drop_workout',
+  'set_weekday',
+  'regenerate_remaining',
+];
+
+/** How an evaluation lands (`changeSet.decision`, set by `decide`). */
+export type EvaluationDecision = 'no_change' | 'autonomous' | 'ask_first';
+
+/** The end of the graph, as a route answer (the graph file maps it to LangGraph's END). */
+export const ROUTE_END = 'end';
+
+function changeSetOf(state: Pick<RunState, 'changeSet'>): { accepted?: unknown; decision?: unknown } {
+  const changeSet = state.changeSet;
+  return changeSet && typeof changeSet === 'object' ? (changeSet as { accepted?: unknown; decision?: unknown }) : {};
+}
+
+/** After `safety_gate`: a safety stop ends the run before any model call. */
+export function routeAfterSafetyGate(state: Pick<RunState, 'outcome'>): 'evaluate' | typeof ROUTE_END {
+  return state.outcome?.status === 'safety_stop' ? ROUTE_END : 'evaluate';
+}
+
+/** After `envelope`: structural accepted operations get the light critique first. */
+export function routeAfterEnvelope(state: Pick<RunState, 'changeSet'>): 'critique_light' | 'decide' {
+  const accepted = changeSetOf(state).accepted;
+  const structural =
+    Array.isArray(accepted) &&
+    accepted.some((op) => !!op && typeof op === 'object' && STRUCTURAL_OPERATIONS.includes(String((op as { op?: unknown }).op)));
+  return structural ? 'critique_light' : 'decide';
+}
+
+/** After `decide`: record a review, apply at once, or propose and wait for the owner. */
+export function routeAfterDecide(state: Pick<RunState, 'changeSet'>): 'record_review' | 'apply' | 'record_proposal' {
+  const decision = changeSetOf(state).decision;
+  if (decision === 'no_change') return 'record_review';
+  return decision === 'ask_first' ? 'record_proposal' : 'apply';
+}
+
+/** After `await_approval`: an approval applies; a rejection only notifies. */
+export function routeAfterApproval(state: Pick<RunState, 'approval'>): 'apply' | 'notify' {
+  return state.approval?.decision === 'approve' ? 'apply' : 'notify';
 }

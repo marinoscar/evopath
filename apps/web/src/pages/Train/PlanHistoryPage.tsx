@@ -4,13 +4,19 @@
  * snapshots by `diffSnapshots`), **Restore this version** (a new version,
  * `POST /revert` with `If-Match`), and the change log with keyset paging.
  *
- * `programs:read` reaches it; restoring needs `programs:write`. The lists
- * expose slots (`renderActions`, `renderStatus`) for the proposal and undo
- * screens that build on this one.
+ * `programs:read` reaches it; restoring needs `programs:write`. E5.8 adds,
+ * through the change log's `renderActions` slot, **Undo** on the latest
+ * applied entry (`POST /revert { changeLogId }` with `If-Match`) and
+ * **Approve** / **Reject** on an open proposal (through its run; AI on and
+ * `ai:use`).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { Alert, Box, Button, Card, CardContent, Container, Link, Skeleton, Stack, Typography } from '@mui/material';
+import { isUndoable } from '../../hooks/useChangeLog';
+import { useTrainingAvailability } from '../../hooks/useTrainingAvailability';
+import { decideTrainingRun } from '../../services/trainingAgents';
+import { UNDONE_MESSAGE, undoErrorMessage } from '../../components/training/PlanAdjustedBanner';
 import { ArrowBack as BackIcon } from '@mui/icons-material';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePlan } from '../../hooks/usePlan';
@@ -20,6 +26,7 @@ import {
   listProgramChangeLog,
   listProgramVersions,
   programRefusalOf,
+  revertProgram,
   type ChangeLogEntry,
   type ProgramVersionSummary,
 } from '../../services/programs';
@@ -49,6 +56,9 @@ export default function PlanHistoryPage() {
   const [diffError, setDiffError] = useState<string | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [entryError, setEntryError] = useState<{ id: string; message: string } | null>(null);
+  const [busyEntry, setBusyEntry] = useState<string | null>(null);
+  const { aiVisible } = useTrainingAvailability();
 
   const loadVersions = useCallback(async () => {
     try {
@@ -145,6 +155,81 @@ export default function PlanHistoryPage() {
   }
 
   const currentVersion = program?.currentVersion ?? versions?.[0]?.versionNumber ?? 0;
+  const latestApplied = entries.find((e) => e.status === 'applied' && e.toVersion !== null && e.kind !== 'reviewed') ?? null;
+
+  const act = async (entry: ChangeLogEntry, action: () => Promise<string>, errorOf: (err: unknown) => string) => {
+    setBusyEntry(entry.id);
+    setEntryError(null);
+    try {
+      const done = await action();
+      setNotice(done);
+      await Promise.all([plan.refresh(), loadVersions(), loadLog(null)]);
+    } catch (err) {
+      setEntryError({ id: entry.id, message: errorOf(err) });
+    } finally {
+      setBusyEntry(null);
+    }
+  };
+
+  const renderActions = (entry: ChangeLogEntry) => {
+    if (!canWrite) return null;
+    const busy = busyEntry === entry.id;
+    const error = entryError?.id === entry.id ? entryError.message : null;
+    let buttons = null;
+    if (program && isUndoable(entry, latestApplied)) {
+      buttons = (
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={busy}
+          onClick={() =>
+            void act(
+              entry,
+              async () => {
+                await revertProgram(programId, program.currentVersion, { changeLogId: entry.id });
+                return UNDONE_MESSAGE;
+              },
+              undoErrorMessage,
+            )
+          }
+        >
+          Undo
+        </Button>
+      );
+    } else if (entry.status === 'proposed' && entry.runId && aiVisible) {
+      const runId = entry.runId;
+      const decide = (decision: 'approve' | 'reject') =>
+        void act(
+          entry,
+          async () => {
+            await decideTrainingRun(runId, { decision });
+            return decision === 'approve' ? 'Approved. Your plan is being updated.' : 'Rejected. Your plan stays as it is.';
+          },
+          (err) => (err instanceof Error && err.message ? err.message : 'That did not work'),
+        );
+      buttons = (
+        <Stack direction="row" spacing={1}>
+          <Button size="small" variant="contained" disabled={busy} onClick={() => decide('approve')}>
+            Approve
+          </Button>
+          <Button size="small" variant="outlined" disabled={busy} onClick={() => decide('reject')}>
+            Reject
+          </Button>
+        </Stack>
+      );
+    }
+    if (!buttons && !error) return null;
+    return (
+      <>
+        {buttons}
+        {error && (
+          <Typography variant="body2" color="error" role="alert" sx={{ mt: 0.5 }}>
+            {error}
+          </Typography>
+        )}
+      </>
+    );
+  };
 
   return (
     <Container maxWidth="md">
@@ -224,7 +309,7 @@ export default function PlanHistoryPage() {
                   {logError}
                 </Alert>
               )}
-              {logLoading && entries.length === 0 ? <Skeleton variant="rounded" height={80} /> : <ChangeLogList entries={entries} />}
+              {logLoading && entries.length === 0 ? <Skeleton variant="rounded" height={80} /> : <ChangeLogList entries={entries} renderActions={renderActions} />}
               {cursor && (
                 <Button onClick={() => void loadLog(cursor)} disabled={logLoading} sx={{ mt: 1 }}>
                   Load more

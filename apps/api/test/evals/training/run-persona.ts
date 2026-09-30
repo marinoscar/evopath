@@ -14,6 +14,7 @@ import { createNodeContextHarness } from '../../../src/training-agents/testing/n
 import { stubVerdict } from '../../../src/training-agents/testing/stub-agent-nodes';
 import { synthesizeDraft, type DraftVariant } from '../support/draft-synth';
 import { SEED_LIBRARY } from '../support/seed-library';
+import { runEvaluatePersona } from './evaluate-persona';
 import { contextSourceOf } from './personas';
 import type { EvalPersona } from './persona.schema';
 import type { RunState } from '../../../src/training-agents/graph/run-state';
@@ -72,6 +73,11 @@ export function defaultCritic(variant: DraftVariant): CriticMode {
 export async function runPersona(persona: EvalPersona, options: PersonaRunOptions): Promise<PersonaRun> {
   const base = { personaId: persona.id, variant: options.variant };
   const started = Date.now();
+
+  if (persona.kind === 'evaluate') {
+    if (options.variant === 'broken') throw new Error('Evaluate personas replay good, mediocre and hostile evaluator outputs only');
+    return runEvaluatePersona(persona, options.variant);
+  }
 
   if (persona.kind === 'safety') {
     const source = contextSourceOf(persona);

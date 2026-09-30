@@ -60,6 +60,7 @@ export const CHANGE_KIND_LABEL: Record<ChangeKind, string> = {
   adapted: 'Adjusted',
   edited: 'Edited',
   reverted: 'Restored',
+  reviewed: 'Reviewed',
 };
 
 export const CHANGE_STATUS_LABEL: Record<ChangeStatus, string> = {

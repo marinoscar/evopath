@@ -1,4 +1,5 @@
 import type { ResearcherContext } from '../agents/researcher/researcher-context';
+import type { EvaluatorInput } from '../evaluation/evaluate-context';
 import { NEVER_SEND_LABELS } from './never-send';
 import { PLANNER_CONTEXT_KEYS, type PlannerContext, type PlannerContextKey } from './planner-context.contract';
 
@@ -233,6 +234,79 @@ export function summarizeCriticContext(context: PlannerContext, painFlagExercise
       ...person,
       { key: 'evidence', title: 'Evidence', items: ['Claims from the research step, with source ids (no web pages)'] },
     ],
+    dropped: [],
+    excluded: [...NEVER_SEND_LABELS],
+  };
+}
+
+/** The evaluator's input keys (`EvaluatorInput`), in the order the panel shows them. */
+export const EVALUATOR_CONTEXT_KEYS = ['run', 'signals', 'plan', 'history', 'evidence', 'profile'] as const;
+
+/**
+ * The evaluator's input as the panel shows it: rendered from the same
+ * `EvaluatorInput` object the evaluator receives (`load_signals`, completed by
+ * `safety_gate`). Pain notes are screened on the server and never listed.
+ */
+export function summarizeEvaluatorContext(input: EvaluatorInput): SentDataSummary {
+  const profile = input.profile;
+  const feedback = input.history.filter((entry) => entry.feedback !== null).length;
+  const sections: Record<(typeof EVALUATOR_CONTEXT_KEYS)[number], SentDataSection> = {
+    run: {
+      key: 'run',
+      title: 'This review',
+      items: [
+        `Trigger: ${input.run.trigger ?? 'not set'}`,
+        ...(input.run.deep ? ['Last week of a block: the next block is considered'] : []),
+        ...(input.run.recover ? ['Several low-readiness days in a row: recovery comes first'] : []),
+        ...(input.run.paused ? ['Automatic adjustments are paused: assessment only'] : []),
+      ],
+    },
+    signals: {
+      key: 'signals',
+      title: 'Training signals',
+      items: [
+        'Adherence, planned versus done sets, weekly volume per muscle, lift trends (exercises by key), effort, readiness scores, body weight',
+        'Pain: which exercises you flagged and how often (never your pain notes)',
+      ],
+      count: input.signals.sessions.length,
+    },
+    plan: {
+      key: 'plan',
+      title: 'Your remaining plan',
+      items: ['Weeks from the current one on: exercises by key, sets, reps, RPE, rest and loads, with short references'],
+      count: input.plan.weeks.length,
+    },
+    history: {
+      key: 'history',
+      title: 'Recent plan changes',
+      items: input.history.length
+        ? [`The last ${input.history.length} entries, ${feedback} of them changes you undid, declined or let expire`]
+        : [NONE_USED],
+      count: input.history.length,
+    },
+    evidence: {
+      key: 'evidence',
+      title: 'Evidence',
+      items: input.evidence.length ? ['Claims from the plan\'s research, by id'] : [NONE_USED],
+      count: input.evidence.length,
+    },
+    profile: {
+      key: 'profile',
+      title: 'From your plan request',
+      items: [
+        `Goal: ${profile.goal.type}${profile.goal.description ? ` ("${profile.goal.description}")` : ''}`,
+        `Experience: ${profile.experience ?? 'not set'}`,
+        `Days per week: ${profile.daysPerWeek ?? 'not set'}; minutes per session: ${profile.minutesPerSession ?? 'not set'}`,
+        ...profile.limitations.map((l) => (l.description ? `${l.area}: "${l.description}"` : l.area)),
+        ...(profile.avoidExerciseKeys.length ? [`Exercises to avoid: ${profile.avoidExerciseKeys.join(', ')}`] : []),
+        `Conservative mode: ${profile.conservative ? 'on' : 'off'}`,
+        ...(profile.alreadyDecided.length ? [`Safety changes already decided: ${profile.alreadyDecided.length}`] : []),
+      ],
+    },
+  };
+
+  return {
+    sections: EVALUATOR_CONTEXT_KEYS.map((key) => sections[key]),
     dropped: [],
     excluded: [...NEVER_SEND_LABELS],
   };

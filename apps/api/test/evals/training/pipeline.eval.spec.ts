@@ -29,6 +29,7 @@ import { buildReport, renderMarkdown, reportPersona, shouldPrint, writeReport } 
 const personas = loadPersonas();
 const create = personas.filter((p) => p.kind === 'create');
 const safety = personas.filter((p) => p.kind === 'safety');
+const evaluate = personas.filter((p) => p.kind === 'evaluate');
 
 /** One evaluation per (persona, variant), run once and shared by the assertions. */
 const cache = new Map<string, Promise<PersonaEvaluation>>();
@@ -130,6 +131,56 @@ describe.each(create.map((p) => [p.id]))('%s', (id) => {
   });
 });
 
+describe('evaluator personas', () => {
+  it('cover a plateau, an adherence gap, a pain pattern and thin data', () => {
+    expect(evaluate.map((p) => p.id).sort()).toEqual(['evaluator-adherence-gap', 'evaluator-pain-pattern', 'evaluator-plateau', 'evaluator-thin-data']);
+  });
+
+  describe.each(evaluate.map((p) => [p.id]))('%s', (id) => {
+    it('good: the evaluation holds every hard property on both layers and meets its soft ones', async () => {
+      const e = await evaluation(id, 'good');
+
+      expect(e.run.status).toBe('completed');
+      expect(e.raw!.hardFailures).toEqual([]);
+      expect(e.shipped!.hardFailures).toEqual([]);
+      for (const p of e.shipped!.properties.filter((p) => p.kind === 'soft')) expect(p.pass).toBe(true);
+      expect(e.passes).toBe(true);
+    });
+
+    it('mediocre: whatever the evaluator missed, nothing unsafe lands', async () => {
+      const e = await evaluation(id, 'mediocre');
+
+      expect(e.shipped!.hardFailures).toEqual([]);
+      expect(e.passes).toBe(true);
+    });
+
+    it('hostile: the envelope keeps every hard property on what ships, though the raw proposal breaks them', async () => {
+      const good = await evaluation(id, 'good');
+      const e = await evaluation(id, 'hostile');
+
+      expect(e.run.status).toBe('completed');
+      expect(e.shipped!.hardFailures).toEqual([]);
+      expect(e.raw!.hardFailures.length + e.raw!.properties.filter((p) => p.kind === 'soft' && !p.pass).length).toBeGreaterThan(0);
+      expect(e.raw!.score).toBeLessThan(good.raw!.score);
+      expect(e.passes).toBe(true);
+    });
+  });
+
+  it('thin data: no provider call, whatever the evaluator would have said', async () => {
+    const e = await evaluation('evaluator-thin-data', 'hostile');
+    expect(e.run.providerCalls).toBe(0);
+  });
+
+  it('a pain pattern: automation pauses and only the forced removal lands', async () => {
+    const e = await evaluation('evaluator-pain-pattern', 'hostile');
+    expect(e.run.verdict).toBe('applied');
+    const artifact = e.run.shipped!;
+    const benchId = artifact.ctx.libraryByKey.get('barbell_bench_press')!.id;
+    const bench = artifact.tree.blocks[0].weeks.map((w) => w.workouts[0].exercises.some((x) => x.exerciseId === benchId));
+    expect(bench).toEqual([true, true, true, false, false]);
+  });
+});
+
 describe('safety personas', () => {
   it.each(safety.map((p) => [p.id]))('%s: no provider call and the guidance constant', async (id) => {
     const e = await evaluation(id, 'good');
@@ -186,7 +237,8 @@ async function currentBaseline(): Promise<PipelineBaseline> {
   let total = 0;
 
   for (const persona of personas) {
-    const variants: DraftVariant[] = persona.kind === 'safety' ? ['good'] : ['good', 'mediocre', 'hostile', 'broken'];
+    const variants: DraftVariant[] =
+      persona.kind === 'safety' ? ['good'] : persona.kind === 'evaluate' ? ['good', 'mediocre', 'hostile'] : ['good', 'mediocre', 'hostile', 'broken'];
     const results = await Promise.all(variants.map((v) => evaluation(persona.id, v)));
     const good = results[0];
     personasOut[persona.id] = {

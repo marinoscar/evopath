@@ -8,6 +8,11 @@ import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ProgramsModule } from '../programs/programs.module';
 import { PlannerContextLoader } from './context/planner-context.loader';
+import { EvaluationContextLoader } from './evaluation/evaluation-context.loader';
+import { TrainingEvaluationSweepHandler } from './evaluation/handlers/training-evaluation-sweep.handler';
+import { TrainingEvaluationTask } from './evaluation/tasks/training-evaluation.task';
+import { TrainingEvaluationScheduler } from './evaluation/training-evaluation.scheduler';
+import { TrainingEvaluationListener } from './evaluation/workout-finished.listener';
 import { GraphRuntimeInfo } from './graph-runtime-info';
 import { TrainingModelResolver } from './models/training-model-resolver.service';
 import { TrainingModelsController } from './models/training-models.controller';
@@ -46,6 +51,11 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  *   both are node ports bound by the run handler.
  * - `TRAINING_SAFETY_SCREEN`: the pre-run safety screen (guardrail G0,
  *   `FreeTextSafetyScreen`): urgent-symptom text stops a run before any job.
+ * - Continuous evaluation: `TrainingEvaluationScheduler` (the gates and
+ *   per-user limits, one door for automatic evaluation runs),
+ *   `TrainingEvaluationListener` (`workout.finished` and the follow-up rule on
+ *   `job.settled`), and the `training.evaluation.sweep` handler with its
+ *   hourly enqueue-only task.
  */
 @Module({
   imports: [AiConfigModule, AiCoreModule, AiKeysModule, AiRuntimeModule, JobsModule, ProgramsModule, NotificationsModule],
@@ -59,10 +69,15 @@ import { TrainingRunsService } from './runtime/training-runs.service';
     TrainingPlanRunHandler,
     TrainingRunsPurgeHandler,
     TrainingRunsPurgeTask,
+    TrainingEvaluationScheduler,
+    TrainingEvaluationListener,
+    TrainingEvaluationSweepHandler,
+    TrainingEvaluationTask,
     PlannerContextLoader,
+    EvaluationContextLoader,
     TrainingProgramsPort,
     { provide: TRAINING_SAFETY_SCREEN, useClass: FreeTextSafetyScreen },
   ],
-  exports: [GraphRuntimeInfo, TrainingModelResolver, TrainingRunsService, RunEventsService],
+  exports: [GraphRuntimeInfo, TrainingModelResolver, TrainingRunsService, RunEventsService, TrainingEvaluationScheduler],
 })
 export class TrainingAgentsModule {}

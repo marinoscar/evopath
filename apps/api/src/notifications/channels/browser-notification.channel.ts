@@ -321,7 +321,76 @@ export const EVENT_BROWSER_TEMPLATES: Partial<
       link: `/train/plans/${encodeURIComponent(programId)}`,
     };
   },
+
+  // Raised by the evaluate graph after an AI adjustment committed. The body is
+  // the sanitised summary (server-composed from the evaluator's message),
+  // at most 140 characters; the link opens the plan's history.
+  'training.plan_adapted': (data: never): BrowserNotificationContent => {
+    const { programId, summary } = data as TrainingPlanChangeData;
+
+    return {
+      title: 'Your plan was adjusted',
+      body: trainingBody(summary, 'Your coach adjusted your training plan. You can undo it from the plan history.'),
+      link: programId ? `/train/plans/${encodeURIComponent(programId)}/history` : '/train',
+    };
+  },
+
+  // Raised by the evaluate graph's `record_proposal` for an "Ask me first"
+  // plan. Same body rules; the link opens the history, where the proposal
+  // card is.
+  'training.plan_proposal': (data: never): BrowserNotificationContent => {
+    const { programId, summary } = data as TrainingPlanChangeData;
+
+    return {
+      title: 'Your coach suggests a change',
+      body: trainingBody(summary, 'Your coach suggests a change to your training plan. Review it to approve or reject it.'),
+      link: programId ? `/train/plans/${encodeURIComponent(programId)}/history` : '/train',
+    };
+  },
+
+  // Raised by the evaluate graph's `safety_gate`. The body is fixed copy per
+  // reason (never the person's words, never "push through"), at most 140
+  // characters; the link opens the plan's history, where the system entry is.
+  'training.plan_safety_stop': (data: never): BrowserNotificationContent => {
+    const { programId, reason } = data as TrainingPlanSafetyStopData;
+
+    return {
+      title: 'Automatic plan changes paused',
+      body: TRAINING_SAFETY_STOP_BODIES[reason] ?? TRAINING_SAFETY_STOP_BODIES.safety_text,
+      link: programId ? `/train/plans/${encodeURIComponent(programId)}/history` : '/train',
+    };
+  },
 };
+
+/** `training.plan_safety_stop`'s payload (`nodes/safety-gate.node.ts`). Ids and a reason code only. */
+export interface TrainingPlanSafetyStopData {
+  programId: string;
+  reason: 'safety_text' | 'pain_pattern';
+  changeLogId: string | null;
+}
+
+/** The fixed bodies (each at most 140 characters). */
+export const TRAINING_SAFETY_STOP_BODIES: Record<TrainingPlanSafetyStopData['reason'], string> = {
+  safety_text: 'A recent note may describe a symptom that needs attention. Please stop training and seek medical advice.',
+  pain_pattern: 'Pain keeps coming back. Your plan will not add load; please see a qualified professional before resuming.',
+};
+
+/** `training.plan_adapted` and `training.plan_proposal` payloads (the evaluate graph). Ids and the sanitised summary. */
+export interface TrainingPlanChangeData {
+  programId: string;
+  summary: string;
+  changeLogId: string;
+}
+
+/** The longest body a training change notification carries. */
+export const TRAINING_CHANGE_BODY_MAX = 140;
+
+/** The summary as a notification body (whitespace collapsed, at most 140 characters), or the fallback. */
+function trainingBody(summary: unknown, fallback: string): string {
+  const text = typeof summary === 'string' ? summary.replace(/\s+/g, ' ').trim() : '';
+  if (!text) return fallback;
+  return text.length > TRAINING_CHANGE_BODY_MAX ? `${text.slice(0, TRAINING_CHANGE_BODY_MAX - 1)}…` : text;
+}
 
 /** `training.plan_ready`'s payload (`nodes/finalize.node.ts`). */
 export interface TrainingPlanReadyData {

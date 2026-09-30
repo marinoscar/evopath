@@ -71,6 +71,31 @@ export function citationsOf(brief: VerifiedEvidenceBrief | null, tree: PlanTree)
     }));
 }
 
+/**
+ * The change log `citations` of an adaptation: the verified sources the
+ * cited claims (`claimIds`, already checked against the brief) rest on.
+ */
+export function citationsForClaims(brief: VerifiedEvidenceBrief | null, claimIds: readonly string[]): Array<Record<string, unknown>> {
+  if (!brief || claimIds.length === 0) return [];
+  const wanted = new Set(claimIds);
+  const bySource = new Map<string, string[]>();
+  for (const claim of brief.claims) {
+    if (!wanted.has(claim.id)) continue;
+    for (const sourceId of claim.sourceIds) bySource.set(sourceId, [...(bySource.get(sourceId) ?? []), claim.id]);
+  }
+  return brief.sources
+    .filter((source) => bySource.has(source.id))
+    .map((source) => ({
+      sourceId: source.id,
+      url: source.url,
+      title: source.title,
+      publisher: source.publisher,
+      kind: source.kind,
+      year: source.year,
+      claimIds: bySource.get(source.id) ?? [],
+    }));
+}
+
 /** Rebuilds a brief stored by `evidenceOf`; `null` when there is none or it no longer validates. */
 export function briefFromEvidence(evidence: unknown): VerifiedEvidenceBrief | null {
   if (!Array.isArray(evidence)) return null;

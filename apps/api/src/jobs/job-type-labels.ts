@@ -130,6 +130,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'ai.training.plan.run': 'Training plan run',
   // Daily deletion of finished training runs' events, checkpoints and rows past retention.
   'training.runs.purge': 'Training runs purge',
+  // Hourly: expires unanswered plan proposals and starts the weekly,
+  // missed-sessions and deferred plan evaluations that are due.
+  'training.evaluation.sweep': 'Training evaluation sweep',
   // Sets GreptimeDB's database TTL to `telemetry.retentionDays` (#534, epic #528),
   // nightly and after every telemetry settings save.
   'telemetry.retention.apply': 'Telemetry retention',

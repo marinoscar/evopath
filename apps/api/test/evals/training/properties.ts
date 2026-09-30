@@ -13,6 +13,7 @@ import { allowedWeekdays, keyOf, pathOf, setsByMuscle, slotsOf, weeksOf } from '
 import type { GuardrailContext } from '../../../src/training-agents/guardrails/types';
 import { SEED_LIBRARY_BY_KEY } from '../support/seed-library';
 import { allowedSlugs } from './personas';
+import type { AdaptationArtifact } from './evaluate-persona';
 import type { EvalPersona, EvalProperty } from './persona.schema';
 
 // =============================================================================
@@ -42,6 +43,8 @@ export interface EvalArtifact {
   flags?: string[];
   /** `safety_stop`: what the run did with the persona's text. */
   safety?: { providerCalls: number; guidance: string | null };
+  /** Evaluate personas: the plan before, the locks and the scenario facts (`tree` is the plan after). */
+  adaptation?: AdaptationArtifact;
 }
 
 export interface PropertyResult {
@@ -480,6 +483,148 @@ export const rationaleQuality: PropertyFn = (_persona, { tree, ctx, header }) =>
   return softResult(mean([structure, evidence]), details);
 };
 
+// ---- evaluator properties --------------------------------------------------------
+//
+// They compare the plan before and after an evaluation (`artifact.tree` is
+// after; the raw layer applies the model's operations as proposed). Hard:
+// no increase after pain, frozen sessions untouched, no change on thin
+// data. Soft: a small increase on a plateau, a reduction toward reality on
+// an adherence gap.
+
+interface RowChange {
+  key: string;
+  weekNumber: number;
+  locked: boolean;
+  before: PlanExerciseRow | null;
+  after: PlanExerciseRow | null;
+}
+type PlanExerciseRow = PlanTree['blocks'][number]['weeks'][number]['workouts'][number]['exercises'][number];
+
+function exerciseRows(tree: PlanTree): Map<string, { weekNumber: number; workoutId: string; exercise: PlanExerciseRow }> {
+  const out = new Map<string, { weekNumber: number; workoutId: string; exercise: PlanExerciseRow }>();
+  for (const { week } of weeksOf(tree))
+    for (const workout of week.workouts)
+      for (const exercise of workout.exercises) {
+        out.set(exercise.id ?? `new:${workout.id}:${exercise.position}:${exercise.exerciseId}`, { weekNumber: week.weekNumber, workoutId: workout.id ?? '', exercise });
+      }
+  return out;
+}
+
+function rowChanges(artifact: EvalArtifact): RowChange[] {
+  const a = artifact.adaptation!;
+  const locked = new Set(a.lockedWorkoutIds);
+  const before = exerciseRows(a.before);
+  const after = exerciseRows(artifact.tree);
+  const out: RowChange[] = [];
+  for (const id of new Set([...before.keys(), ...after.keys()])) {
+    const b = before.get(id);
+    const n = after.get(id);
+    const where = n ?? b!;
+    out.push({
+      key: keyOf(artifact.ctx, where.exercise.exerciseId),
+      weekNumber: where.weekNumber,
+      locked: locked.has(where.workoutId),
+      before: b?.exercise ?? null,
+      after: n?.exercise ?? null,
+    });
+  }
+  return out;
+}
+
+const load = (row: PlanExerciseRow | null) => (row?.targetLoadKg === null || row?.targetLoadKg === undefined ? 0 : Number(row.targetLoadKg));
+
+/** Load, sets or RPE up, or an exercise added. */
+function increases(change: RowChange): string | null {
+  const { before: b, after: a } = change;
+  if (!a) return null;
+  if (!b) return `week ${change.weekNumber}: ${change.key} added`;
+  if (load(a) > load(b)) return `week ${change.weekNumber}: ${change.key} load ${load(b)} -> ${load(a)} kg`;
+  if (a.targetSets > b.targetSets) return `week ${change.weekNumber}: ${change.key} sets ${b.targetSets} -> ${a.targetSets}`;
+  if ((a.targetRpe ?? 0) > (b.targetRpe ?? 0)) return `week ${change.weekNumber}: ${change.key} RPE ${b.targetRpe} -> ${a.targetRpe}`;
+  return null;
+}
+
+/** What a person sees of a prescribed exercise (normalisation-proof: numbers, never representation). */
+function rowFingerprint(row: PlanExerciseRow | null): string {
+  if (!row) return 'none';
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return JSON.stringify([row.exerciseId, row.position, row.targetSets, row.repMin, row.repMax, n(row.targetLoadKg), n(row.targetRpe), row.restSeconds]);
+}
+
+function workoutFingerprint(tree: PlanTree, id: string): string | null {
+  for (const { week } of weeksOf(tree))
+    for (const workout of week.workouts)
+      if (workout.id === id) return JSON.stringify({ weekday: workout.weekday, exercises: workout.exercises.map(rowFingerprint) });
+  return null;
+}
+
+export const noIncreaseAfterPain: PropertyFn = (_persona, artifact) => {
+  const a = artifact.adaptation;
+  if (!a) return result(['not an evaluation artifact'], 1);
+  const changes = rowChanges(artifact);
+  const pain = new Set(a.painKeys);
+  const scope = a.paused ? changes : changes.filter((c) => pain.has(c.key));
+  const violations = scope.map(increases).filter((v): v is string => v !== null);
+  return result(violations, Math.max(1, scope.length));
+};
+
+export const respectsFrozen: PropertyFn = (_persona, artifact) => {
+  const a = artifact.adaptation;
+  if (!a) return result(['not an evaluation artifact'], 1);
+  const violations = a.lockedWorkoutIds
+    .filter((id) => workoutFingerprint(a.before, id) !== workoutFingerprint(artifact.tree, id))
+    .map((id) => `a past or started workout changed (${id.slice(0, 8)})`);
+  return result(violations, Math.max(1, a.lockedWorkoutIds.length));
+};
+
+export const holdsOnThinData: PropertyFn = (_persona, artifact) => {
+  const a = artifact.adaptation;
+  if (!a) return result(['not an evaluation artifact'], 1);
+  if (a.dueSessions >= 3) return result([], 1);
+  const changed = rowChanges(artifact).filter((c) => rowFingerprint(c.before) !== rowFingerprint(c.after));
+  const violations = [
+    ...(artifact.layer === 'raw' && a.decision !== 'no_change' ? ['the evaluation decided to adjust on thin data'] : []),
+    ...changed.map((c) => `week ${c.weekNumber}: ${c.key} changed with ${a.dueSessions} session(s) of data`),
+  ];
+  return result(violations, Math.max(1, changed.length + 1));
+};
+
+export const increasesOnPlateau: PropertyFn = (_persona, artifact) => {
+  const a = artifact.adaptation;
+  if (!a) return softResult(0, ['not an evaluation artifact']);
+  const keys = new Set(a.plateauKeys);
+  const rows = rowChanges(artifact).filter((c) => keys.has(c.key) && !c.locked && c.before && c.after);
+  const step = PROGRESSION_LIMITS.stepKg.barbell;
+  const up = rows.filter((c) => load(c.after) > load(c.before) || c.after!.repMax > c.before!.repMax || c.after!.repMin > c.before!.repMin);
+  const tooFar = up.filter((c) => load(c.after) - load(c.before) > step + 1e-9);
+  if (up.length === 0) return softResult(0, ['no increase on the plateaued lift']);
+  return softResult(tooFar.length > 0 ? 0.5 : 1, tooFar.map((c) => `week ${c.weekNumber}: ${c.key} rose by more than one step`));
+};
+
+export const adaptsToAdherenceGap: PropertyFn = (_persona, artifact) => {
+  const a = artifact.adaptation;
+  if (!a) return softResult(0, ['not an evaluation artifact']);
+  const locked = new Set(a.lockedWorkoutIds);
+  const weekTotals = (tree: PlanTree) =>
+    new Map(
+      weeksOf(tree).map(({ week }) => {
+        const open = week.workouts.filter((w) => !locked.has(w.id ?? ''));
+        return [week.weekNumber, { workouts: open.length, sets: open.reduce((n, w) => n + w.exercises.reduce((m, e) => m + e.targetSets, 0), 0) }];
+      }),
+    );
+  const before = weekTotals(a.before);
+  const after = weekTotals(artifact.tree);
+  let reduced = false;
+  const added: string[] = [];
+  for (const [week, b] of before) {
+    const n = after.get(week) ?? { workouts: 0, sets: 0 };
+    if (n.workouts < b.workouts || n.sets < b.sets) reduced = true;
+    if (n.sets > b.sets) added.push(`week ${week}: ${b.sets} -> ${n.sets} sets`);
+  }
+  if (added.length > 0) return softResult(0, added);
+  return softResult(reduced ? 1 : 0, reduced ? [] : ['the plan did not move toward the sessions actually done']);
+};
+
 export const PROPERTY_FNS: Record<EvalProperty, PropertyFn> = {
   equipment_feasible: equipmentFeasible,
   schedule_fits: scheduleFits,
@@ -493,4 +638,9 @@ export const PROPERTY_FNS: Record<EvalProperty, PropertyFn> = {
   progression_present: progressionPresent,
   variety_and_balance: varietyAndBalance,
   rationale_quality: rationaleQuality,
+  no_increase_after_pain: noIncreaseAfterPain,
+  respects_frozen: respectsFrozen,
+  holds_on_thin_data: holdsOnThinData,
+  increases_on_plateau: increasesOnPlateau,
+  adapts_to_adherence_gap: adaptsToAdherenceGap,
 };

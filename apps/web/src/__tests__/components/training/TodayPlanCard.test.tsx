@@ -320,6 +320,48 @@ describe('TodayPlanCard', () => {
     );
   });
 
+  it('workout: an unseen AI change shows the Plan adjusted banner with one-tap Undo (E5.8)', async () => {
+    let items = [
+      {
+        id: '00000000-0000-4000-8000-b0000000c001',
+        kind: 'adapted',
+        actor: 'ai',
+        status: 'applied',
+        fromVersion: 2,
+        toVersion: 3,
+        runId: null,
+        summary: 'Swapped leg extension for split squat.',
+        rationale: null,
+        operations: [],
+        citations: [],
+        revertsLogId: null,
+        seenAt: null,
+        createdAt: '2026-09-29T10:00:00.000Z',
+        decidedAt: null,
+      },
+    ];
+    const reverts: Array<string | null> = [];
+    server.use(
+      http.get(`*/api/programs/${PROGRAM.id}/change-log`, () => HttpResponse.json({ data: { items, nextCursor: null } })),
+      http.post(`*/api/programs/${PROGRAM.id}/revert`, ({ request }) => {
+        reverts.push(request.headers.get('If-Match'));
+        items = items.map((e) => ({ ...e, status: 'reverted' }));
+        return HttpResponse.json({ data: { id: PROGRAM.id, currentVersion: 4 } });
+      }),
+    );
+    const calls = serveToday(workoutDay({ session: session({ unseenChangeCount: 1 }) }));
+    renderCard({ canWritePrograms: true });
+    const banner = await screen.findByTestId('plan-adjusted-banner');
+    expect(within(banner).getByText('Swapped leg extension for split squat.')).toBeInTheDocument();
+    expect(within(banner).getByRole('link', { name: 'Review' })).toHaveAttribute('href', `/train/plans/${PROGRAM.id}/history`);
+    expect(screen.getByRole('button', { name: 'Start planned workout' })).toBeEnabled();
+    const before = calls.length;
+    await userEvent.click(within(banner).getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText('Undone. Your coach will not suggest this again for 14 days.')).toBeInTheDocument();
+    expect(reverts).toEqual(['3']);
+    await waitFor(() => expect(calls.length).toBeGreaterThan(before));
+  });
+
   it('workout: an empty session says No exercises and disables Start', async () => {
     serveToday(workoutDay({ session: session({ exercises: [] }) }));
     renderCard();

@@ -18,7 +18,10 @@ import {
   mockVersion,
   mockVersionSummaries,
   PROGRAM_ID,
+  RUN_ID,
 } from '../../mocks/fixtures/programs';
+import { UNDONE_MESSAGE } from '../../../components/training/PlanAdjustedBanner';
+import type { ChangeLogEntry } from '../../../services/programs';
 
 const user = { ...mockUser, permissions: [...mockUser.permissions, 'programs:read', 'programs:write'] };
 
@@ -105,6 +108,62 @@ describe('PlanHistoryPage', () => {
     await userEvent.click(await screen.findByTestId('version-1'));
     await screen.findByTestId('diff-summary');
     expect(screen.queryByRole('button', { name: 'Restore this version' })).not.toBeInTheDocument();
+  });
+
+  it('undoes the latest applied change from the change log (E5.8)', async () => {
+    const adapted: ChangeLogEntry = {
+      ...mockChangeLog[1],
+      id: 'cl-3',
+      kind: 'adapted',
+      fromVersion: 1,
+      toVersion: 2,
+      summary: 'Coach lowered squat volume',
+      operations: [{ op: 'set_prescription', description: 'Week 2, Back squat: 3 sets' }],
+    };
+    let items: ChangeLogEntry[] = [adapted, { ...mockChangeLog[1] }];
+    const reverts: Array<{ ifMatch: string | null; body: unknown }> = [];
+    serveHistory();
+    server.use(
+      http.get(`*/api/programs/${PROGRAM_ID}/change-log`, () => HttpResponse.json({ data: { items, nextCursor: null } })),
+      http.post(`*/api/programs/${PROGRAM_ID}/revert`, async ({ request }) => {
+        reverts.push({ ifMatch: request.headers.get('If-Match'), body: await request.json() });
+        items = [{ ...adapted, status: 'reverted' }, items[1]];
+        return HttpResponse.json({ data: mockProgram({ currentVersion: 3 }) });
+      }),
+    );
+    renderHistory();
+    const log = await screen.findByRole('list', { name: 'Change log' });
+    const rows = await within(log).findAllByTestId('change-log-entry');
+    expect(within(rows[0]).getByTestId('operation-line')).toHaveTextContent('Week 2, Back squat: 3 sets');
+    expect(within(rows[1]).queryByRole('button', { name: 'Undo' })).toBeNull();
+    await userEvent.click(within(rows[0]).getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText(UNDONE_MESSAGE)).toBeInTheDocument();
+    expect(reverts).toEqual([{ ifMatch: '2', body: { changeLogId: 'cl-3' } }]);
+    expect(await within(log).findByTestId('reverted-marker')).toBeInTheDocument();
+  });
+
+  it('decides an open proposal through its run (E5.8)', async () => {
+    const proposal: ChangeLogEntry = { ...mockChangeLog[1], id: 'cl-p', kind: 'adapted', status: 'proposed', toVersion: null, runId: RUN_ID };
+    const decisions: unknown[] = [];
+    serveHistory();
+    server.use(
+      http.get(`*/api/programs/${PROGRAM_ID}/change-log`, () =>
+        HttpResponse.json({ data: { items: decisions.length ? [{ ...proposal, status: 'applied', toVersion: 3 }] : [proposal], nextCursor: null } }),
+      ),
+      http.post(`*/api/ai/training/runs/${RUN_ID}/decision`, async ({ request }) => {
+        decisions.push(await request.json());
+        return HttpResponse.json({ data: { id: RUN_ID } }, { status: 202 });
+      }),
+    );
+    render(
+      <Routes>
+        <Route path="/train/plans/:programId/history" element={<PlanHistoryPage />} />
+      </Routes>,
+      { wrapperOptions: { route: `/train/plans/${PROGRAM_ID}/history`, aiEnabled: true, user } },
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    expect(await screen.findByText('Approved. Your plan is being updated.')).toBeInTheDocument();
+    expect(decisions).toEqual([{ decision: 'approve' }]);
   });
 
   it('has no axe violations', async () => {

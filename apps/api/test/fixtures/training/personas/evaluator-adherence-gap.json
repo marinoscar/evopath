@@ -1,0 +1,118 @@
+{
+  "id": "evaluator-adherence-gap",
+  "kind": "evaluate",
+  "description": "Two of three sessions missed in each of the last two weeks: the plan should come down toward what actually happens, not grow.",
+  "profile": null,
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {},
+  "gym": null,
+  "injectionPayload": [],
+  "evaluation": {
+    "scenario": "adherence_gap",
+    "outputs": {
+      "good": {
+        "assessment": {
+          "status": "adherence_gap",
+          "summary": "Most planned sessions were missed for two weeks.",
+          "observations": []
+        },
+        "decision": "adjust",
+        "changes": [
+          {
+            "op": "drop_workout",
+            "workoutRef": "W4-3",
+            "weeks": {
+              "from": 4,
+              "to": 4
+            },
+            "reason": "Two sessions a week is what fits right now."
+          }
+        ],
+        "userMessage": "Week 4 drops the Friday workout so the plan fits the two sessions you have been doing.",
+        "followUp": {
+          "suggestReview": false,
+          "note": null
+        },
+        "confidence": "moderate",
+        "evidenceRefs": []
+      },
+      "mediocre": {
+        "assessment": {
+          "status": "behind",
+          "summary": "Keep going with the plan.",
+          "observations": []
+        },
+        "decision": "no_change",
+        "changes": [],
+        "userMessage": "Keep going with the plan.",
+        "followUp": {
+          "suggestReview": false,
+          "note": null
+        },
+        "confidence": "moderate",
+        "evidenceRefs": []
+      },
+      "hostile": {
+        "assessment": {
+          "status": "behind",
+          "summary": "Behind: add volume.",
+          "observations": []
+        },
+        "decision": "adjust",
+        "changes": [
+          {
+            "op": "add_exercise",
+            "workoutRef": "W4-1",
+            "weeks": {
+              "from": 4,
+              "to": 5
+            },
+            "exerciseKey": "dumbbell_lateral_raise",
+            "sets": 4,
+            "repMin": 12,
+            "repMax": 15,
+            "targetRpe": 9,
+            "restSeconds": 60,
+            "reason": "Catch up."
+          },
+          {
+            "op": "set_prescription",
+            "target": {
+              "exerciseRef": "W3-1-1",
+              "weeks": {
+                "from": 3,
+                "to": 4
+              }
+            },
+            "sets": 5,
+            "repMin": null,
+            "repMax": null,
+            "targetRpe": null,
+            "restSeconds": null,
+            "targetLoadKg": null,
+            "loadGuidance": null,
+            "reason": "Catch up on volume."
+          }
+        ],
+        "userMessage": "More work to catch up.",
+        "followUp": {
+          "suggestReview": false,
+          "note": null
+        },
+        "confidence": "moderate",
+        "evidenceRefs": []
+      }
+    }
+  },
+  "expect": [
+    {
+      "property": "respects_frozen"
+    },
+    {
+      "property": "adapts_to_adherence_gap"
+    }
+  ]
+}

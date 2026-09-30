@@ -57,7 +57,8 @@ describe('TrainingRunsService.create', () => {
   });
   afterEach(() => restore());
 
-  it('answers 501 TRAINING_NOT_IMPLEMENTED while the kind\'s graph is not ready (evaluate), before resolving roles', async () => {
+  it('answers 501 TRAINING_NOT_IMPLEMENTED while the kind\'s graph is not ready, before resolving roles', async () => {
+    TRAINING_GRAPH_READY.evaluate = false;
     const t = setup();
 
     const error = await t.service.create(USER, { kind: 'evaluate', input: {} }).catch((e: unknown) => e);

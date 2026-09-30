@@ -7,6 +7,7 @@ import { ACTIVE } from '../../measurements/measurement-active';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkoutHistoryService } from '../../workouts/workout-history.service';
 import { loadProgramRows } from '../program-mapper';
+import { REVIEW_KINDS } from '../programs.constants';
 import {
   occurrencesInRange,
   type SignalsCheckIn,
@@ -346,7 +347,7 @@ export class SignalsLoader {
         programId,
         userId,
         status: 'applied',
-        kind: { not: 'created' },
+        kind: { notIn: ['created', ...REVIEW_KINDS] },
         createdAt: { gte: toDbDate(addDays(range.from, -1)), lt: toDbDate(addDays(range.to, 2)) },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

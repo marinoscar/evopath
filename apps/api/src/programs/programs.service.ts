@@ -49,12 +49,15 @@ import {
   PROGRAM_REASONS,
   PROGRAM_TRANSITIONS,
   PROGRAM_TX_TIMEOUT_MS,
+  REVIEW_KINDS,
   START_DATE_FUTURE_DAYS,
   START_DATE_PAST_DAYS,
   isActiveProgramConflict,
+  type AutonomyPauseReason,
   type ChangeActor,
   type ChangeKind,
   type ChangeOrigin,
+  type ChangeStatus,
   type ProgramAutonomy,
   type ProgramGoal,
   type ProgramSource,
@@ -107,6 +110,13 @@ export interface ApplyChangeInput {
   revertsLogId?: string;
   /** Provenance stored on the version (models, efforts, rounds, tokens). */
   meta?: Record<string, unknown>;
+  /**
+   * An approved proposal: that `proposed` change log row (of this program)
+   * becomes the `applied` entry of this change (`toVersion`, `decidedAt`)
+   * instead of a new row. A row no longer `proposed` refuses the change (409
+   * `NOT_PROPOSED`) and nothing is written.
+   */
+  proposalLogId?: string;
 }
 
 export interface ApplyChangeResult {
@@ -141,6 +151,48 @@ export interface CreateWithTreeInput {
 
 export interface CreateWithTreeResult extends ApplyChangeResult {
   programId: string;
+}
+
+/**
+ * A `reviewed` change log entry: an evaluation that changed nothing, or a
+ * safety stop. `fromVersion = toVersion` = the current version; no bump.
+ */
+export interface RecordReviewInput {
+  userId: string;
+  programId: string;
+  actor: Extract<ChangeActor, 'ai' | 'system'>;
+  summary: string;
+  rationale?: string;
+  operations?: unknown[];
+  citations?: unknown[];
+  runId?: string;
+  /** Pauses automatic adjustments in the same transaction (kept when already paused). */
+  pause?: AutonomyPauseReason;
+}
+
+export interface RecordReviewResult {
+  changeLogId: string;
+  versionNumber: number;
+  /** The pause took effect in this call (false when it was already paused, or none was asked). */
+  paused: boolean;
+}
+
+/**
+ * A change the AI made that did NOT touch the tree: a proposal waiting for
+ * the owner (`proposed`), or a change that could not land because the plan
+ * moved on (`superseded`). `toVersion` stays null.
+ */
+export interface RecordUnappliedChangeInput {
+  userId: string;
+  programId: string;
+  status: Extract<ChangeStatus, 'proposed' | 'superseded'>;
+  /** The version the change was based on. */
+  fromVersion: number;
+  summary: string;
+  rationale?: string;
+  operations?: unknown[];
+  citations?: unknown[];
+  runId?: string;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -287,9 +339,12 @@ export class ProgramsService {
     if (input.changeLogId !== undefined) {
       const entry = await this.prisma.programChangeLog.findFirst({
         where: { id: input.changeLogId, programId },
-        select: { id: true, fromVersion: true },
+        select: { id: true, fromVersion: true, kind: true },
       });
       if (!entry) throw new NotFoundException('Change log entry not found');
+      if (REVIEW_KINDS.includes(entry.kind as ChangeKind)) {
+        throw conflict(PROGRAM_REASONS.NOT_REVERTIBLE, 'This entry is a review that changed nothing; there is nothing to undo.');
+      }
       if (entry.fromVersion === null) {
         throw conflict(PROGRAM_REASONS.NOT_REVERTIBLE, 'This change created the plan and cannot be undone; archive the plan instead.');
       }
@@ -341,7 +396,7 @@ export class ProgramsService {
           });
           if (reverted.count === 0) {
             const latest = await tx.programChangeLog.findFirst({
-              where: { programId, status: 'applied', toVersion: expectedVersion },
+              where: { programId, status: 'applied', toVersion: expectedVersion, kind: { notIn: [...REVIEW_KINDS] } },
               orderBy: { createdAt: 'desc' },
               select: { id: true },
             });
@@ -414,6 +469,26 @@ export class ProgramsService {
         meta: (input.meta ?? {}) as Prisma.InputJsonValue,
       },
     });
+    if (input.proposalLogId) {
+      const approved = await tx.programChangeLog.updateMany({
+        where: { id: input.proposalLogId, programId, userId, status: 'proposed' },
+        data: {
+          status: 'applied',
+          fromVersion: expectedVersion,
+          toVersion: versionNumber,
+          decidedAt: new Date(),
+          summary: input.summary,
+          rationale: input.rationale ?? null,
+          operations: (input.operations ?? []) as Prisma.InputJsonValue,
+          citations: (input.citations ?? []) as Prisma.InputJsonValue,
+        },
+      });
+      if (approved.count === 0) {
+        throw conflict(PROGRAM_REASONS.NOT_PROPOSED, 'This suggestion was already decided.');
+      }
+      return { versionNumber, changeLogId: input.proposalLogId, warnings };
+    }
+
     const log = await tx.programChangeLog.create({
       data: {
         programId,
@@ -613,7 +688,7 @@ export class ProgramsService {
         select: { versionNumber: true, origin: true, createdAt: true, runId: true },
       }),
       this.prisma.programChangeLog.findMany({
-        where: { programId, toVersion: { not: null }, status: { not: 'proposed' } },
+        where: { programId, toVersion: { not: null }, status: { not: 'proposed' }, kind: { notIn: [...REVIEW_KINDS] } },
         orderBy: { createdAt: 'asc' },
         select: { id: true, summary: true, toVersion: true },
       }),
@@ -639,7 +714,7 @@ export class ProgramsService {
         },
       }),
       this.prisma.programChangeLog.findFirst({
-        where: { programId, toVersion: versionNumber, status: { not: 'proposed' } },
+        where: { programId, toVersion: versionNumber, status: { not: 'proposed' }, kind: { notIn: [...REVIEW_KINDS] } },
         orderBy: { createdAt: 'desc' },
         select: { id: true, summary: true },
       }),
@@ -674,6 +749,122 @@ export class ProgramsService {
   // ===========================================================================
   // Writes outside the tree
   // ===========================================================================
+
+  /**
+   * Records a review (`kind: reviewed`, `status: applied`, `fromVersion =
+   * toVersion`): the tree and version are untouched. With `pause`, automatic
+   * adjustments pause in the same transaction unless already paused (the
+   * first reason is kept). 404 for a program the caller does not own.
+   * Notifications are the caller's, after this returns.
+   */
+  async recordReview(input: RecordReviewInput): Promise<RecordReviewResult> {
+    this.checkChangeMeta(input);
+    return this.prisma.$transaction(async (tx) => {
+      const program = await tx.program.findFirst({
+        where: { id: input.programId, userId: input.userId },
+        select: { currentVersion: true },
+      });
+      if (!program) throw programNotFound();
+
+      let paused = false;
+      if (input.pause) {
+        const moved = await tx.program.updateMany({
+          where: { id: input.programId, userId: input.userId, autonomyPausedAt: null },
+          data: { autonomyPausedAt: new Date(), autonomyPausedReason: input.pause },
+        });
+        paused = moved.count > 0;
+      }
+
+      const log = await tx.programChangeLog.create({
+        data: {
+          programId: input.programId,
+          userId: input.userId,
+          kind: 'reviewed',
+          actor: input.actor,
+          status: 'applied',
+          fromVersion: program.currentVersion,
+          toVersion: program.currentVersion,
+          runId: input.runId ?? null,
+          summary: input.summary,
+          rationale: input.rationale ?? null,
+          operations: (input.operations ?? []) as Prisma.InputJsonValue,
+          citations: (input.citations ?? []) as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      });
+
+      return { changeLogId: log.id, versionNumber: program.currentVersion, paused };
+    });
+  }
+
+  /**
+   * Records an AI change that did not touch the tree (see
+   * `RecordUnappliedChangeInput`): no version bump. 404 for a program the
+   * caller does not own. Notifications are the caller's, after this returns.
+   */
+  async recordUnappliedChange(input: RecordUnappliedChangeInput): Promise<{ changeLogId: string }> {
+    this.checkChangeMeta({
+      summary: input.summary,
+      rationale: input.rationale,
+      operations: input.operations,
+      citations: input.citations,
+      runId: input.runId,
+    });
+    const program = await this.prisma.program.findFirst({
+      where: { id: input.programId, userId: input.userId },
+      select: { id: true },
+    });
+    if (!program) throw programNotFound();
+
+    const log = await this.prisma.programChangeLog.create({
+      data: {
+        programId: input.programId,
+        userId: input.userId,
+        kind: 'adapted',
+        actor: 'ai',
+        status: input.status,
+        fromVersion: input.fromVersion,
+        toVersion: null,
+        runId: input.runId ?? null,
+        summary: input.summary,
+        rationale: input.rationale ?? null,
+        operations: (input.operations ?? []) as Prisma.InputJsonValue,
+        citations: (input.citations ?? []) as Prisma.InputJsonValue,
+        decidedAt: input.status === 'proposed' ? null : new Date(),
+      },
+      select: { id: true },
+    });
+    return { changeLogId: log.id };
+  }
+
+  /**
+   * Closes an open proposal of the caller's as `rejected` (the owner said no)
+   * or `superseded` (the plan changed after it was suggested). Returns
+   * `false` when the row is not (or no longer) `proposed`: idempotent.
+   */
+  async resolveProposal(userId: string, changeLogId: string, status: Extract<ChangeStatus, 'rejected' | 'superseded'>): Promise<boolean> {
+    const moved = await this.prisma.programChangeLog.updateMany({
+      where: { id: changeLogId, userId, status: 'proposed' },
+      data: { status, decidedAt: new Date() },
+    });
+    return moved.count > 0;
+  }
+
+  /**
+   * "Resume automatic adjustments": clears the automation pause after the
+   * owner confirmed they read the safety message. Idempotent (a plan that is
+   * not paused is returned unchanged); 404 for a program the caller does not
+   * own. Header only: no version bump.
+   */
+  async resumeAutonomy(userId: string, programId: string): Promise<ProgramViewData> {
+    const program = await this.prisma.program.findFirst({ where: { id: programId, userId }, select: { id: true } });
+    if (!program) throw programNotFound();
+    await this.prisma.program.updateMany({
+      where: { id: programId, userId, autonomyPausedAt: { not: null } },
+      data: { autonomyPausedAt: null, autonomyPausedReason: null },
+    });
+    return this.get(userId, programId);
+  }
 
   /** A manual draft with one block and one empty week, version 1 (`origin: initial`). */
   async create(userId: string, dto: CreateProgramInput): Promise<ProgramViewData> {

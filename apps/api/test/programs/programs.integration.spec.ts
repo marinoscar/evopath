@@ -139,6 +139,7 @@ describe('Programs (integration)', () => {
     { method: 'post', path: `/api/programs/${PROGRAM}/activate`, permission: 'programs:write', body: { startDate: '2026-09-30' } },
     { method: 'post', path: `/api/programs/${PROGRAM}/pause`, permission: 'programs:write' },
     { method: 'post', path: `/api/programs/${PROGRAM}/archive`, permission: 'programs:write' },
+    { method: 'post', path: `/api/programs/${PROGRAM}/autonomy/resume`, permission: 'programs:write' },
     { method: 'post', path: `/api/programs/${PROGRAM}/duplicate`, permission: 'programs:write' },
     { method: 'delete', path: `/api/programs/${PROGRAM}`, permission: 'programs:write' },
     { method: 'get', path: `/api/programs/${PROGRAM}/versions`, permission: 'programs:read' },
@@ -318,6 +319,20 @@ describe('Programs (integration)', () => {
       .send({ toVersion: 1 })
       .expect(400);
     expect(missing.body.details.reason).toBe('IF_MATCH_REQUIRED');
+  });
+
+  it('POST /:id/autonomy/resume clears the automation pause, owner-scoped, and returns the program', async () => {
+    const user = await createMockContributorUser(context);
+    owns(user.id, { autonomyPausedAt: null, autonomyPausedReason: null });
+    prisma.program.updateMany.mockResolvedValue({ count: 1 });
+
+    const response = await request(server()).post(`/api/programs/${PROGRAM}/autonomy/resume`).set(authHeader(user.accessToken)).expect(200);
+
+    expect(prisma.program.updateMany).toHaveBeenCalledWith({
+      where: { id: PROGRAM, userId: user.id, autonomyPausedAt: { not: null } },
+      data: { autonomyPausedAt: null, autonomyPausedReason: null },
+    });
+    expect(response.body.data).toMatchObject({ id: PROGRAM, autonomyPausedAt: null, autonomyPausedReason: null });
   });
 
   it('POST /:id/pause answers 409 ILLEGAL_TRANSITION for a draft', async () => {

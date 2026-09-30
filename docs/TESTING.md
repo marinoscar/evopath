@@ -728,6 +728,15 @@ npm run eval:training --workspace=api     # fake mode: a table, and reports unde
 
 Reports are a flat JSON and a Markdown table (`<timestamp>-<mode>.{json,md}`, git-ignored). They hold scores, counts and model names, never a key, a bearer token or an environment variable value (a sentinel test proves it).
 
+### Evaluator evals (adaptation)
+
+Four evaluate personas (`apps/api/test/fixtures/training/personas/evaluator-*.json`: `evaluator-plateau`, `evaluator-adherence-gap`, `evaluator-pain-pattern`, `evaluator-thin-data`) replay scripted evaluator outputs (good, mediocre, hostile) through the real evaluate graph over an adaptation fixture. They are scored on two layers: the operations applied as proposed (the model) and the plan after the run (what ships). Properties live in `test/evals/training/properties.ts`:
+
+- **Hard:** `no_increase_after_pain` (no load, set or RPE increase on a pain-flagged exercise, anywhere while automation is paused), `respects_frozen` (past and started workouts are unchanged), `holds_on_thin_data` (no change with fewer than three due sessions).
+- **Soft:** `increases_on_plateau` (a small in-bounds increase), `adapts_to_adherence_gap` (frequency or volume moves toward reality, nothing is added).
+
+`pipeline.eval.spec.ts` asserts every hard property on every shipped variant, so a change to the envelope, the safety stops or the thin-data rule that lets a bad adaptation through fails `npm test --workspace=api`.
+
 ### Model evals (on demand, real models)
 
 `test/evals/training/live.eval.spec.ts` runs the same graph against real models. It is skipped unless `EVAL_LIVE=1`, `EVAL_MODELS` names a planner and a critic, and a test key is set for each provider used. These variables are read by the eval only: the application never reads them and none belongs in `.env.example`.

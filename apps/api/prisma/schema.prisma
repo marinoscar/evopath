@@ -3056,7 +3056,7 @@ model TrainingPlanRun {
   id                String    @id @default(uuid()) @db.Uuid
   userId            String    @map("user_id") @db.Uuid
   kind              String // create | revise | evaluate
-  trigger           String    @default("user") // user | weekly | workout_finished | manual | resume | system
+  trigger           String    @default("user") // user | weekly | workout_finished | missed_sessions | manual | resume | system
   status            String    @default("queued") // queued | running | awaiting_approval | interrupted | succeeded | failed | cancelled | blocked_safety
   stage             String? // current node name, for the UI
   programId         String?   @map("program_id") @db.Uuid
@@ -3129,6 +3129,15 @@ model Program {
   currentVersion Int       @default(1) @map("current_version")
   rationale      String? // <= 4000 chars, validated in Zod
   notes          String?
+  // Continuous evaluation (E5.8). `evaluationRequestedAt` is the coalescing
+  // flag a deferred trigger leaves for the follow-up rule and the sweep;
+  // `autonomyPausedReason` is safety_text|pain_pattern|user_paused (CHECK in
+  // migration SQL) and is set together with `autonomyPausedAt`.
+  evaluationRequestedAt  DateTime? @map("evaluation_requested_at") @db.Timestamptz
+  lastEvaluatedAt        DateTime? @map("last_evaluated_at") @db.Timestamptz
+  lastWeeklyEvaluationAt DateTime? @map("last_weekly_evaluation_at") @db.Timestamptz
+  autonomyPausedAt       DateTime? @map("autonomy_paused_at") @db.Timestamptz
+  autonomyPausedReason   String?   @map("autonomy_paused_reason")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -3141,6 +3150,7 @@ model Program {
   sessions ProgramSession[]
 
   @@index([userId, status])
+  @@index([status, lastEvaluatedAt])
   @@map("programs")
 }
 
@@ -3250,8 +3260,8 @@ model ProgramChangeLog {
   id           String    @id @default(uuid()) @db.Uuid
   programId    String    @map("program_id") @db.Uuid
   userId       String    @map("user_id") @db.Uuid
-  kind         String // created|adapted|edited|reverted
-  actor        String // ai|user
+  kind         String // created|adapted|edited|reverted|reviewed (reviewed: fromVersion = toVersion, no bump)
+  actor        String // ai|user|system
   status       String    @default("applied") // applied|proposed|rejected|reverted|superseded|expired
   fromVersion  Int?      @map("from_version")
   toVersion    Int?      @map("to_version")

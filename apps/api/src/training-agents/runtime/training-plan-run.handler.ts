@@ -63,6 +63,7 @@ import { RateLimitError } from '../../jobs/rate-limit.error';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PlannerContextLoader } from '../context/planner-context.loader';
+import { EvaluationContextLoader } from '../evaluation/evaluation-context.loader';
 import type { AgentGraphRunResult } from '../graph/agent-graph-runner.interface';
 import type { GraphHooks } from '../graph/create-graph';
 import { trainingGraphRunner } from '../graph/graph-factory';
@@ -157,6 +158,7 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
     @Optional() private readonly plannerContext?: PlannerContextLoader,
     @Optional() private readonly programs?: TrainingProgramsPort,
     @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly evaluation?: EvaluationContextLoader,
   ) {
     this.options = options ?? {};
   }
@@ -405,6 +407,7 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
         ...(this.plannerContext ? { plannerContext: this.plannerContext } : {}),
         ...(this.programs ? { programs: this.programs } : {}),
         ...(this.notifications ? { notifications: this.notifications } : {}),
+        ...(this.evaluation ? { evaluation: this.evaluation } : {}),
       },
     };
 
@@ -648,6 +651,16 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
     });
 
     if (moved.count === 0) return change.status;
+
+    // A proposal can only be decided while its run waits: a run that ended
+    // any other way closes it (cancelled: declined; otherwise superseded),
+    // so it never blocks the next evaluation.
+    if (run.kind === 'evaluate' && change.status !== 'succeeded') {
+      await this.prisma.programChangeLog.updateMany({
+        where: { runId: run.id, status: 'proposed' },
+        data: { status: change.status === 'cancelled' ? 'rejected' : 'superseded', decidedAt: new Date() },
+      });
+    }
 
     const tokens = usage ? usage.total : parseRunUsage(run.usage).total;
 

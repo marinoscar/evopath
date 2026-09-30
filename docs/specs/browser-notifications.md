@@ -65,6 +65,9 @@ Registered events:
 | `db_backup.backup_failed` | email, browser | no |
 | `db_backup.restore_completed` | email, browser | yes |
 | `training.plan_ready` | browser, push | no |
+| `training.plan_adapted` | browser, push | no |
+| `training.plan_proposal` | browser, push | no |
+| `training.plan_safety_stop` | browser, push | yes |
 
 The two broadcast events are specified in
 [notification-broadcasts.md](notification-broadcasts.md). The four

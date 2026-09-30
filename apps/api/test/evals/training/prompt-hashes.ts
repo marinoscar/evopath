@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { PROMPT_VERSION as CRITIC_ADAPTATION } from '../../../src/training-agents/agents/critic/critic-adaptation.prompt';
 import { PROMPT_VERSION as CRITIC } from '../../../src/training-agents/agents/critic/critic.prompt';
+import { PROMPT_VERSION as EVALUATOR } from '../../../src/training-agents/agents/evaluator/evaluator.prompt';
 import { PROMPT_VERSION as PLANNER } from '../../../src/training-agents/agents/planner/planner.prompt';
 import { PROMPT_VERSION as RESEARCHER } from '../../../src/training-agents/agents/researcher/researcher.prompt';
 
@@ -15,10 +17,18 @@ export const PROMPT_FILES = [
   'src/training-agents/agents/planner/planner.prompt.ts',
   'src/training-agents/agents/critic/critic.prompt.ts',
   'src/training-agents/agents/researcher/researcher.prompt.ts',
+  'src/training-agents/agents/evaluator/evaluator.prompt.ts',
+  'src/training-agents/agents/critic/critic-adaptation.prompt.ts',
   'src/training-agents/agents/shared/prompt-blocks.ts',
 ] as const;
 
-export const PROMPT_VERSIONS: Record<string, string> = { planner: PLANNER, critic: CRITIC, researcher: RESEARCHER };
+export const PROMPT_VERSIONS: Record<string, string> = {
+  planner: PLANNER,
+  critic: CRITIC,
+  researcher: RESEARCHER,
+  evaluator: EVALUATOR,
+  critic_adaptation: CRITIC_ADAPTATION,
+};
 
 export interface PromptHashes {
   versions: Record<string, string>;

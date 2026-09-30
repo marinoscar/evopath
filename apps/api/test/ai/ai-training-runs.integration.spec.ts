@@ -200,7 +200,8 @@ describe('/api/ai/training/runs and /stream', () => {
   });
 
   describe('POST /runs', () => {
-    it('501 TRAINING_NOT_IMPLEMENTED while a kind\'s graph is not ready (evaluate), and creates nothing', async () => {
+    it('501 TRAINING_NOT_IMPLEMENTED while a kind\'s graph is not ready, and creates nothing', async () => {
+      TRAINING_GRAPH_READY.evaluate = false;
       const res = await request(server())
         .post('/api/ai/training/runs')
         .set(as(alice))
@@ -211,6 +212,14 @@ describe('/api/ai/training/runs and /stream', () => {
       expect(JSON.stringify(res.body)).toContain('evaluate');
       expect(db.runs.size).toBe(0);
       expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+
+    it('evaluate runs are available: without an active plan the answer is 404, never 501', async () => {
+      const res = await request(server()).post('/api/ai/training/runs').set(as(alice)).send({ kind: 'evaluate', input: {} });
+
+      expect(res.status).toBe(404);
+      expect(JSON.stringify(res.body)).not.toContain('TRAINING_NOT_IMPLEMENTED');
+      expect(db.runs.size).toBe(0);
     });
 
     it('urgent text in a create intake: 200 blocked_safety with the fixed guidance, zero provider calls, no job', async () => {
@@ -284,6 +293,47 @@ describe('/api/ai/training/runs and /stream', () => {
       expect(body).toContain('evaluator');
       expect(body).toContain('no_key');
       expect(db.runs.size).toBe(0);
+    });
+  });
+
+  describe('"Re-evaluate now" (kind evaluate)', () => {
+    it('records a manual evaluation of the named plan, and refuses a second within 30 minutes with 409 TRAINING_EVALUATION_COOLDOWN', async () => {
+      TRAINING_GRAPH_READY.evaluate = true;
+      const program = db.addProgram(alice.id);
+
+      const first = await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ kind: 'evaluate', programId: program.id, trigger: 'manual' })
+        .expect(202);
+      const run = db.get(first.body.data.runId)!;
+      expect(run).toMatchObject({ kind: 'evaluate', trigger: 'manual', programId: program.id });
+      run.status = 'succeeded';
+
+      const second = await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ kind: 'evaluate', programId: program.id })
+        .expect(409);
+      expect(second.body.details).toMatchObject({ reason: 'TRAINING_EVALUATION_COOLDOWN' });
+      expect(second.body.details.retryAfterSeconds).toBeGreaterThan(29 * 60);
+      expect(second.body.details.retryAfterSeconds).toBeLessThanOrEqual(30 * 60);
+    });
+
+    it('404 for another user\'s plan, and 400 for a trigger on a create run', async () => {
+      TRAINING_GRAPH_READY.evaluate = true;
+      const program = db.addProgram(bob.id);
+
+      await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ kind: 'evaluate', programId: program.id })
+        .expect(404);
+      await request(server())
+        .post('/api/ai/training/runs')
+        .set(as(alice))
+        .send({ ...createRunBody(), trigger: 'manual' })
+        .expect(400);
     });
   });
 

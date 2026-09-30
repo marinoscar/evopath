@@ -12,6 +12,7 @@ import type {
 } from './dto/program.dto';
 import type { ProgramRows } from './plan-diff';
 import type {
+  AutonomyPauseReason,
   ChangeActor,
   ChangeKind,
   ChangeStatus,
@@ -99,6 +100,9 @@ export const PROGRAM_HEADER_SELECT = {
   startDate: true,
   gymId: true,
   currentVersion: true,
+  autonomyPausedAt: true,
+  autonomyPausedReason: true,
+  lastEvaluatedAt: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.ProgramSelect;
@@ -116,6 +120,9 @@ function toHeader(program: ProgramHeaderRow) {
     startDate: program.startDate ? fromDbDate(program.startDate) : null,
     gymId: program.gymId,
     currentVersion: program.currentVersion,
+    autonomyPausedAt: program.autonomyPausedAt?.toISOString() ?? null,
+    autonomyPausedReason: (program.autonomyPausedReason as AutonomyPauseReason | null) ?? null,
+    lastEvaluatedAt: program.lastEvaluatedAt?.toISOString() ?? null,
     createdAt: program.createdAt.toISOString(),
     updatedAt: program.updatedAt.toISOString(),
   };

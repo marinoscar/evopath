@@ -2,12 +2,17 @@ import { CREATE_GRAPH_NODES, EVALUATE_GRAPH_NODES } from '../nodes';
 import { createNodeContextHarness } from '../testing/node-context-harness';
 import { STUB_AGENT_NODES, stubVerdict } from '../testing/stub-agent-nodes';
 import {
+  ROUTE_END,
+  STRUCTURAL_OPERATIONS,
   TRAINING_RUN_WARNINGS,
   critiqueDecision,
+  routeAfterApproval,
   routeAfterCritique,
+  routeAfterDecide,
   routeAfterEnvelope,
   routeAfterPlan,
   routeAfterPrepare,
+  routeAfterSafetyGate,
   shipsNow,
 } from './routes';
 import { initialRunState } from './run-state';
@@ -17,19 +22,19 @@ const stages = (h: ReturnType<typeof createNodeContextHarness>) =>
   (h.events.events.get(h.runId) ?? []).filter((e) => e.type === 'stage.started').map((e) => e.data.node);
 
 describe('training graphs on stub nodes', () => {
-  it('every create node is implemented and the create graph is ready; evaluate is not yet', () => {
-    const implemented = Object.values(CREATE_GRAPH_NODES)
+  it('every node of both graphs is implemented and both graphs are ready', () => {
+    const implemented = [...Object.values(CREATE_GRAPH_NODES), ...Object.values(EVALUATE_GRAPH_NODES)]
       .filter((node) => node.implemented)
       .map((node) => node.name);
     expect(implemented).toEqual(Object.keys(STUB_AGENT_NODES));
-    expect(Object.values(EVALUATE_GRAPH_NODES).every((node) => node.implemented === false)).toBe(true);
-    expect(TRAINING_GRAPH_READY).toEqual({ create: true, evaluate: false });
+    expect(Object.values(EVALUATE_GRAPH_NODES).filter((node) => !node.implemented)).toEqual([]);
+    expect(TRAINING_GRAPH_READY).toEqual({ create: true, evaluate: true });
     expect(graphForKind('create')).toBe('create');
     expect(graphForKind('revise')).toBe('create');
     expect(graphForKind('evaluate')).toBe('evaluate');
     expect(isGraphReady('create')).toBe(true);
     expect(isGraphReady('revise')).toBe(true);
-    expect(isGraphReady('evaluate')).toBe(false);
+    expect(isGraphReady('evaluate')).toBe(true);
   });
 
   it('create: runs every node once in order, the stub critic approves, and finalize records the outcome', async () => {
@@ -86,30 +91,78 @@ describe('training graphs on stub nodes', () => {
     expect(result.state.outcome).toEqual({ status: 'completed', verdict: 'exhausted' });
   });
 
-  it('evaluate: autonomous applies without pausing', async () => {
+  it('evaluate: autonomous applies and notifies without pausing', async () => {
     const h = createNodeContextHarness({ kind: 'evaluate' });
 
     const result = await h.runGraph({ input: {}, nodes: STUB_AGENT_NODES });
 
     expect(result.interrupt).toBeNull();
-    expect(stages(h)).toEqual(['load_signals', 'evaluate', 'envelope', 'apply']);
+    expect(stages(h)).toEqual(['load_signals', 'safety_gate', 'evaluate', 'envelope', 'decide', 'apply', 'notify']);
     expect(result.state.outcome).toEqual({ status: 'completed', verdict: 'applied' });
   });
 
-  it('evaluate: ask_first pauses at await_approval and a resume with the decision applies it, without re-running earlier nodes', async () => {
+  it('evaluate: a safety stop at the gate ends the run before evaluate', async () => {
     const h = createNodeContextHarness({ kind: 'evaluate' });
 
-    const paused = await h.runGraph({ input: { input: { autonomy: 'ask_first' } } });
+    const result = await h.runGraph({
+      input: {},
+      nodes: {
+        ...STUB_AGENT_NODES,
+        safety_gate: async () => ({ outcome: { status: 'safety_stop', code: 'TRAINING_SAFETY_STOP' } }),
+      },
+    });
+
+    expect(stages(h)).toEqual(['load_signals', 'safety_gate']);
+    expect(result.state.outcome).toEqual({ status: 'safety_stop', code: 'TRAINING_SAFETY_STOP' });
+  });
+
+  it('evaluate: no change records a review and ends', async () => {
+    const h = createNodeContextHarness({ kind: 'evaluate' });
+
+    const result = await h.runGraph({
+      input: {},
+      nodes: { ...STUB_AGENT_NODES, decide: async () => ({ changeSet: { accepted: [], decision: 'no_change' } }) },
+    });
+
+    expect(stages(h)).toEqual(['load_signals', 'safety_gate', 'evaluate', 'envelope', 'decide', 'record_review']);
+    expect(result.state.outcome).toEqual({ status: 'no_change', verdict: 'reviewed' });
+  });
+
+  it('evaluate: a structural accepted operation goes through the light critique', async () => {
+    const h = createNodeContextHarness({ kind: 'evaluate' });
+
+    await h.runGraph({
+      input: {},
+      nodes: { ...STUB_AGENT_NODES, envelope: async () => ({ changeSet: { accepted: [{ op: 'swap_exercise' }] } }) },
+    });
+
+    expect(stages(h)).toEqual(['load_signals', 'safety_gate', 'evaluate', 'envelope', 'critique_light', 'decide', 'apply', 'notify']);
+  });
+
+  it('evaluate: ask_first pauses at await_approval and a resume with the decision continues, without re-running earlier nodes', async () => {
+    const h = createNodeContextHarness({ kind: 'evaluate' });
+
+    const paused = await h.runGraph({ input: { input: { autonomy: 'ask_first' } }, nodes: STUB_AGENT_NODES });
 
     expect(paused.interrupt).toEqual({ kind: 'approval', payload: { kind: 'approval', payload: { operations: 0 } } });
-    expect(stages(h)).toEqual(['load_signals', 'evaluate', 'envelope', 'await_approval']);
+    expect(stages(h)).toEqual(['load_signals', 'safety_gate', 'evaluate', 'envelope', 'decide', 'record_proposal', 'await_approval']);
 
-    const done = await h.runGraph({ resume: { decision: 'reject' } });
+    const done = await h.runGraph({ resume: { decision: 'reject' }, nodes: STUB_AGENT_NODES });
 
     expect(done.interrupt).toBeNull();
     expect(done.state.approval).toEqual({ decision: 'reject' });
     expect(done.state.outcome).toEqual({ status: 'no_change', verdict: 'rejected_by_owner' });
-    expect(stages(h)).toEqual(['load_signals', 'evaluate', 'envelope', 'await_approval', 'await_approval', 'apply']);
+    expect(stages(h)).toEqual([
+      'load_signals',
+      'safety_gate',
+      'evaluate',
+      'envelope',
+      'decide',
+      'record_proposal',
+      'await_approval',
+      'await_approval',
+      'notify',
+    ]);
   });
 
   it('an abort rejects the run and a fresh runner continues from the last checkpoint', async () => {
@@ -186,10 +239,29 @@ describe('routes', () => {
     expect(routeAfterPlan({ warnings: [TRAINING_RUN_WARNINGS.SKIPPED_BUDGET] })).toBe('finalize');
   });
 
-  it('routeAfterEnvelope pauses only for ask_first', () => {
-    expect(routeAfterEnvelope({ input: { autonomy: 'ask_first' } })).toBe('await_approval');
-    expect(routeAfterEnvelope({ input: { autonomy: 'autonomous' } })).toBe('apply');
-    expect(routeAfterEnvelope({ input: {} })).toBe('apply');
+  it('routeAfterSafetyGate ends the run on a safety stop, before any model call', () => {
+    expect(routeAfterSafetyGate({ outcome: null })).toBe('evaluate');
+    expect(routeAfterSafetyGate({ outcome: { status: 'safety_stop', code: 'TRAINING_SAFETY_STOP' } })).toBe(ROUTE_END);
+  });
+
+  it('routeAfterEnvelope sends structural accepted operations to the light critique', () => {
+    expect(routeAfterEnvelope({ changeSet: null })).toBe('decide');
+    expect(routeAfterEnvelope({ changeSet: { accepted: [{ op: 'set_prescription' }, { op: 'mark_deload' }] } })).toBe('decide');
+    for (const op of STRUCTURAL_OPERATIONS) {
+      expect(routeAfterEnvelope({ changeSet: { accepted: [{ op: 'set_prescription' }, { op }] } })).toBe('critique_light');
+    }
+  });
+
+  it('routeAfterDecide: no_change reviews, ask_first proposes, autonomous applies', () => {
+    expect(routeAfterDecide({ changeSet: { decision: 'no_change' } })).toBe('record_review');
+    expect(routeAfterDecide({ changeSet: { decision: 'ask_first' } })).toBe('record_proposal');
+    expect(routeAfterDecide({ changeSet: { decision: 'autonomous' } })).toBe('apply');
+  });
+
+  it('routeAfterApproval applies only an approval', () => {
+    expect(routeAfterApproval({ approval: { decision: 'approve' } })).toBe('apply');
+    expect(routeAfterApproval({ approval: { decision: 'reject' } })).toBe('notify');
+    expect(routeAfterApproval({ approval: null })).toBe('notify');
   });
 });
 

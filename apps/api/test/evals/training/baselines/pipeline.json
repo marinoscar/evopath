@@ -23,6 +23,34 @@
       },
       "passRate": 1
     },
+    "evaluator-adherence-gap": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "evaluator-pain-pattern": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "evaluator-plateau": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "evaluator-thin-data": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
     "hotel-minimal-gym": {
       "good": {
         "raw": 1,

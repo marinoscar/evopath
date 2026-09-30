@@ -10,7 +10,7 @@ import { WorkoutsService } from '../../workouts/workouts.service';
 import type { LoadGuidance, PlanExercise, PlanWorkout } from '../contracts/plan-tree.contract';
 import { liveTreeOf } from '../plan-diff';
 import { loadProgramRows } from '../program-mapper';
-import type { ChangeActor } from '../programs.constants';
+import { REVIEW_KINDS, type ChangeActor } from '../programs.constants';
 import type {
   ProgramWorkoutRefData,
   StartProgramWorkoutInput,
@@ -342,9 +342,9 @@ export class TrainingTodayService {
         : Promise.resolve([]),
       lastTimeByExercise(this.prisma, userId, exerciseIds, date),
       this.availabilityAtGym(userId, program.gymId, exerciseIds),
-      this.prisma.programChangeLog.count({ where: { programId: program.id, actor: 'ai', seenAt: null } }),
+      this.prisma.programChangeLog.count({ where: { programId: program.id, actor: 'ai', seenAt: null, kind: { notIn: [...REVIEW_KINDS] } } }),
       this.prisma.programChangeLog.findFirst({
-        where: { programId: program.id, status: 'applied', kind: { not: 'created' } },
+        where: { programId: program.id, status: 'applied', kind: { notIn: ['created', ...REVIEW_KINDS] } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: { summary: true, actor: true, createdAt: true },
       }),

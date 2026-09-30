@@ -23,11 +23,24 @@ export type VersionOrigin = (typeof VERSION_ORIGINS)[number];
 /** Origins `applyChange` writes; `initial` and `duplicate` are written by `createWithTree`. */
 export type ChangeOrigin = Exclude<VersionOrigin, 'initial'>;
 
-export const CHANGE_KINDS = ['created', 'adapted', 'edited', 'reverted'] as const;
+/**
+ * `program_change_log.kind`. `reviewed` records an evaluation that changed
+ * nothing (or a safety stop): `fromVersion = toVersion`, no version bump, and
+ * it is never "the latest change" for revert, Today or the signals.
+ */
+export const CHANGE_KINDS = ['created', 'adapted', 'edited', 'reverted', 'reviewed'] as const;
 export type ChangeKind = (typeof CHANGE_KINDS)[number];
 
-export const CHANGE_ACTORS = ['ai', 'user'] as const;
+/** Kinds that record a review rather than a change of the tree. */
+export const REVIEW_KINDS: readonly ChangeKind[] = ['reviewed'];
+
+/** `program_change_log.actor`. `system` is the server itself (safety stops). */
+export const CHANGE_ACTORS = ['ai', 'user', 'system'] as const;
 export type ChangeActor = (typeof CHANGE_ACTORS)[number];
+
+/** `programs.autonomy_paused_reason` (CHECK in migration SQL). */
+export const AUTONOMY_PAUSE_REASONS = ['safety_text', 'pain_pattern', 'user_paused'] as const;
+export type AutonomyPauseReason = (typeof AUTONOMY_PAUSE_REASONS)[number];
 
 export const CHANGE_STATUSES = ['applied', 'proposed', 'rejected', 'reverted', 'superseded', 'expired'] as const;
 export type ChangeStatus = (typeof CHANGE_STATUSES)[number];
@@ -58,6 +71,7 @@ export const PROGRAM_REASONS = {
   UNKNOWN_EXERCISES: 'UNKNOWN_EXERCISES',
   ROW_ID_CONFLICT: 'ROW_ID_CONFLICT',
   INVALID_PLAN: 'INVALID_PLAN',
+  NOT_PROPOSED: 'NOT_PROPOSED',
 } as const;
 
 /** The raw-SQL partial unique index: at most one active program per user. */

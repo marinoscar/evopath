@@ -236,6 +236,26 @@ export class ProgramsController {
     return this.programs.pause(userId, id);
   }
 
+  @Post(':id/autonomy/resume')
+  @Auth({ permissions: [PERMISSIONS.PROGRAMS_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resume automatic adjustments',
+    description:
+      'Clears the pause on automatic plan adjustments (set by a safety stop: a worrying symptom in a pain note, or ' +
+      'pain that keeps coming back). The client calls it after the owner confirmed they read the safety message. ' +
+      'Idempotent: a plan that is not paused is returned unchanged. No version bump. Works with AI switched off.',
+  })
+  @ApiParam(PROGRAM_ID_PARAM)
+  @ApiDataResponse(ProgramView, { description: 'The program, with `autonomyPausedAt` and `autonomyPausedReason` cleared' })
+  @ApiResponse(BAD_ID)
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse(NO_WRITE)
+  @ApiResponse(NOT_FOUND)
+  resumeAutonomy(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.programs.resumeAutonomy(userId, id);
+  }
+
   @Post(':id/archive')
   @Auth({ permissions: [PERMISSIONS.PROGRAMS_WRITE] })
   @HttpCode(HttpStatus.OK)

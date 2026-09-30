@@ -318,7 +318,7 @@ describeWithDb('training runtime (real Postgres)', () => {
         pendingDecision: null,
         result: expect.objectContaining({ verdict: 'applied' }),
       });
-      expect(await stages(r.id)).toEqual(['load_signals', 'evaluate', 'envelope', 'await_approval', 'await_approval', 'apply']);
+      expect(await stages(r.id)).toEqual(['load_signals', 'safety_gate', 'evaluate', 'envelope', 'decide', 'record_proposal', 'await_approval', 'await_approval', 'apply', 'notify']);
     });
 
     it('the real job: enqueued, claimed, processed and settled through the queue services', async () => {

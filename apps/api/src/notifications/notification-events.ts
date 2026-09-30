@@ -410,6 +410,38 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     channels: ['browser', 'push'],
     defaultEnabled: true,
   },
+  // Raised by the evaluate graph's `notify` node after an AI adjustment
+  // committed (and by `record_proposal` for forced safety removals applied
+  // before a proposal). The payload is ids and the sanitised summary.
+  {
+    key: 'training.plan_adapted',
+    label: 'Training plan adjusted',
+    description: 'Sent when your coach adjusts your training plan automatically. You can undo the change from the plan history.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
+  // Raised by the evaluate graph's `record_proposal` node after the
+  // `proposed` change log row committed, for plans set to "Ask me first".
+  {
+    key: 'training.plan_proposal',
+    label: 'Training plan suggestion',
+    description: 'Sent when your coach suggests a change to a plan set to "Ask me first", so you can approve or reject it.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
+  // Raised by the evaluate graph's `safety_gate` after its `reviewed` system
+  // entry and the automation pause committed: an urgent-symptom phrase in a
+  // recent pain note, or a repeated pain pattern. MANDATORY, like a role
+  // change: a safety stop the person muted is a stop they never hear about.
+  {
+    key: 'training.plan_safety_stop',
+    label: 'Training plan safety stop',
+    description:
+      'Sent when automatic plan adjustments pause for your safety (a worrying symptom or repeated pain). This cannot be turned off.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+    mandatory: true,
+  },
 ];
 
 /**

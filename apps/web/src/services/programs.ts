@@ -40,12 +40,16 @@ export type ProgramSource = 'ai' | 'manual';
 export const VERSION_ORIGINS = ['initial', 'ai_create', 'ai_adapt', 'manual_edit', 'revert', 'duplicate'] as const;
 export type VersionOrigin = (typeof VERSION_ORIGINS)[number];
 
-export type ChangeKind = 'created' | 'adapted' | 'edited' | 'reverted';
-export type ChangeActor = 'ai' | 'user';
+export type ChangeKind = 'created' | 'adapted' | 'edited' | 'reverted' | 'reviewed';
+export type ChangeActor = 'ai' | 'user' | 'system';
 export const CHANGE_STATUSES = ['applied', 'proposed', 'rejected', 'reverted', 'superseded', 'expired'] as const;
 export type ChangeStatus = (typeof CHANGE_STATUSES)[number];
 
 export type LoadGuidance = 'choose_start' | 'from_history' | 'fixed';
+
+/** Why automatic adjustments are paused (E5.8): two safety stops, or the owner. */
+export const AUTONOMY_PAUSE_REASONS = ['safety_text', 'pain_pattern', 'user_paused'] as const;
+export type AutonomyPauseReason = (typeof AUTONOMY_PAUSE_REASONS)[number];
 
 export const PLAN_LIMITS = {
   weeksMax: 52,
@@ -152,6 +156,12 @@ export interface ProgramHeader {
   gymId: string | null;
   /** Send back as `If-Match` on content writes. */
   currentVersion: number;
+  /** When automatic adjustments were paused (a safety stop, or the owner); null while they run. */
+  autonomyPausedAt: string | null;
+  /** Why they are paused; null while they run. */
+  autonomyPausedReason: AutonomyPauseReason | null;
+  /** When the last evaluation run started; null when never. */
+  lastEvaluatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -223,6 +233,18 @@ export interface ProgramVersion extends ProgramVersionSummary {
   snapshot: Record<string, unknown>;
 }
 
+/**
+ * One operation as the change log stores it (E5.8): the typed plan-change
+ * operation (`op` plus its fields), `forced` for a safety removal, and the
+ * server-authored one-line `description` the history shows. Older entries
+ * may carry other shapes; read `description` defensively.
+ */
+export interface StoredOperation extends Record<string, unknown> {
+  op?: string;
+  description?: string;
+  forced?: boolean;
+}
+
 export interface ChangeLogEntry {
   id: string;
   kind: ChangeKind;
@@ -233,7 +255,8 @@ export interface ChangeLogEntry {
   runId: string | null;
   summary: string;
   rationale: string | null;
-  operations: Record<string, unknown>[];
+  /** A `proposed` entry has a `runId` (decide through it) and `toVersion: null`. */
+  operations: StoredOperation[];
   citations: Record<string, unknown>[];
   revertsLogId: string | null;
   seenAt: string | null;
@@ -603,6 +626,14 @@ export function listProgramChangeLog(
   if (params.cursor) search.set('cursor', params.cursor);
   const query = search.toString();
   return api.get<ChangeLogPage>(`${programPath(id)}/change-log${query ? `?${query}` : ''}`, { signal: options.signal });
+}
+
+/**
+ * Clears a paused plan's automatic adjustments (`programs:write`), after the
+ * owner confirmed they read the safety message. Idempotent; no version bump.
+ */
+export function resumeProgramAutonomy(id: string) {
+  return api.post<Program>(`${programPath(id)}/autonomy/resume`);
 }
 
 /** Marks `upToId` and every older entry as seen. */
