@@ -1,0 +1,42 @@
+{
+  "name": "planner-hostile",
+  "description": "The planner returns an unsafe plan (unknown and unsupported exercises, 500 kg loads, a fabricated citation and link, injected instructions): the guardrails repair or block it and nothing hostile reaches the plan.",
+  "calls": {
+    "researcher": [
+      {
+        "outputJson": "../research/valid.json",
+        "usage": {
+          "inputTokens": 9000,
+          "outputTokens": 4200,
+          "reasoningTokens": 1500
+        }
+      }
+    ],
+    "planner": [
+      {
+        "outputJson": "planner/hostile-8w.json",
+        "usage": {
+          "inputTokens": 14000,
+          "outputTokens": 7800,
+          "reasoningTokens": 3000
+        }
+      }
+    ],
+    "critic": [
+      {
+        "outputJson": "critic/approve.json",
+        "usage": {
+          "inputTokens": 6000,
+          "outputTokens": 700,
+          "reasoningTokens": 400
+        }
+      }
+    ],
+    "evaluator": []
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

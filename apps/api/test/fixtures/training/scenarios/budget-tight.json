@@ -1,0 +1,42 @@
+{
+  "name": "budget-tight",
+  "description": "The researcher reports a token total above any run cap, so the next call is refused with the budget error.",
+  "calls": {
+    "researcher": [
+      {
+        "outputJson": "../research/valid.json",
+        "usage": {
+          "inputTokens": 450000,
+          "outputTokens": 4200,
+          "reasoningTokens": 1500
+        }
+      }
+    ],
+    "planner": [
+      {
+        "outputJson": "planner/valid-8w.json",
+        "usage": {
+          "inputTokens": 14000,
+          "outputTokens": 7800,
+          "reasoningTokens": 3000
+        }
+      }
+    ],
+    "critic": [
+      {
+        "outputJson": "critic/approve.json",
+        "usage": {
+          "inputTokens": 6000,
+          "outputTokens": 700,
+          "reasoningTokens": 400
+        }
+      }
+    ],
+    "evaluator": []
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}
