@@ -348,6 +348,20 @@ only while `permission === 'granted'`), and `apps/web/src/sw.ts`'s
 | Every delivery logs a warning about the subject | No subject set; the generic fallback is used | Set a real `mailto:` or `https:` subject (Section 2.3) |
 | Some users stop receiving push after a rotation | Their browser permission is not `granted`, so they cannot self-heal | They re-enable notifications (Section 4) |
 
+## Verify push works and troubleshoot
+
+Open `/admin/settings/push` and use **Test & diagnostics** (needs `push:write`).
+It checks the browser, sends a test push to your own devices and reports each
+step. Design: [browser-notifications spec, section 2.7](../specs/browser-notifications.md).
+
+| Symptom in the panel | Cause | Fix |
+|---|---|---|
+| Permission denied | The browser blocked notifications for this site | Allow notifications in the browser's site settings, then rerun |
+| Key mismatch | The browser subscription was created under a previous key pair | Reload the app so it re-subscribes, then rerun |
+| `403` from the push service | The push service rejects the VAPID signature or subject | Check the key pair and set a valid `mailto:` or `https:` subject (Section 2.3) |
+| `404`/`410` from the push service | The subscription expired; the server pruned it | Reload the app to re-subscribe |
+| Sent, but no acknowledgement in the panel | The device did not receive it in time | Check OS and battery settings for the browser, or an outdated service worker (reload to update) |
+
 ## 5. Summary checklist
 
 **Admin UI path (recommended):**
