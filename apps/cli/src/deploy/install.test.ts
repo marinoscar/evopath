@@ -16,6 +16,7 @@ import {
   secretsFrom,
 } from './install.js';
 import { openJournal } from './journal.js';
+import * as proxyModule from './proxy.js';
 import { proxyRuntimeFor, type ResolvedProxyRuntime } from './proxy.js';
 import * as renewalModule from './renewal.js';
 import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
@@ -23,6 +24,14 @@ import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
 vi.mock('./renewal.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./renewal.js')>();
   return { ...actual, ensureRenewal: vi.fn() };
+});
+
+// `installVhost` is wrapped (not stubbed) so the publish step's real
+// behaviour is unchanged; this only lets the tests inspect what it was
+// CALLED WITH, in particular `forceReload` (issue #199).
+vi.mock('./proxy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./proxy.js')>();
+  return { ...actual, installVhost: vi.fn(actual.installVhost) };
 });
 
 function installedRoot(): string {
@@ -479,6 +488,45 @@ describe('the publish step resolves and records the proxy runtime', () => {
     await publishStep().run(context as never);
 
     expect(context.proxyRuntime).toMatchObject({ container: 'already-resolved' });
+  });
+
+  // ===========================================================================
+  // issue #199: a same-domain certificate reissuance never changes the vhost
+  // TEXT, so `installVhost`'s "already current" fast path would never reload
+  // nginx on its own -- the new certificate would sit on disk, unserved,
+  // forever. The publish step's fix is to tell `installVhost` to reload
+  // anyway whenever `issueCertificate` reports `issued: true`.
+  // ===========================================================================
+  it('passes forceReload: true to installVhost when a certificate was (re)issued', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-publish-step-'));
+    // No certificate exists yet under this fresh proxy root, so
+    // `issueCertificate` requests one and reports `issued: true`.
+    const context = contextFor(root, { proxyMode: 'container', proxyContainer: 'my-proxy' });
+
+    vi.mocked(proxyModule.installVhost).mockClear();
+    await publishStep().run(context as never);
+
+    expect(proxyModule.installVhost).toHaveBeenCalledTimes(1);
+    const [, options] = vi.mocked(proxyModule.installVhost).mock.calls[0]!;
+    expect(options).toMatchObject({ forceReload: true });
+  });
+
+  it('passes forceReload: false to installVhost when the certificate already existed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-publish-step-'));
+    const context = contextFor(root, { proxyMode: 'container', proxyContainer: 'my-proxy' });
+
+    // A usable (non-staging) certificate already on disk, so
+    // `issueCertificate` skips issuance and reports `issued: false`.
+    const live = join(context.options.proxyRoot, 'letsencrypt', 'live', 'app.example.test');
+    mkdirSync(live, { recursive: true });
+    writeFileSync(join(live, 'fullchain.pem'), 'cert');
+
+    vi.mocked(proxyModule.installVhost).mockClear();
+    await publishStep().run(context as never);
+
+    expect(proxyModule.installVhost).toHaveBeenCalledTimes(1);
+    const [, options] = vi.mocked(proxyModule.installVhost).mock.calls[0]!;
+    expect(options).toMatchObject({ forceReload: false });
   });
 });
 

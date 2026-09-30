@@ -239,6 +239,20 @@ export interface ProxyOptions {
   proxyContainer?: string | undefined;
   /** Upload cap, matched to MAX_FILE_SIZE so uploads do not 413 at the edge. */
   maxBodyBytes?: number | undefined;
+  /**
+   * Reload nginx even if the rendered vhost is byte-identical to what is on
+   * disk (issue #199). `installVhost`'s "already current" fast path compares
+   * vhost TEXT, which never changes when the domain, port and paths are the
+   * same -- but the certificate FILES that same unchanged text points at can
+   * still have just been replaced (a fresh issuance over a stale staging
+   * certificate, or a renewal). nginx reads a certificate once, when it
+   * loads or reloads; it has no way to notice the file underneath an
+   * `ssl_certificate` directive changing on disk. Skipping the reload
+   * because the vhost text did not change would leave the OLD certificate
+   * bytes served from memory indefinitely, no matter how many times a new
+   * one is issued to disk.
+   */
+  forceReload?: boolean | undefined;
 }
 
 export interface CertificateOptions extends ProxyOptions {
@@ -651,6 +665,14 @@ export async function installVhost(
   const previous = existed ? readFileSync(path, 'utf8') : undefined;
 
   if (previous === rendered) {
+    if (options.forceReload === true) {
+      // The vhost TEXT is unchanged, but what it points at is not: a
+      // certificate was just (re)issued to the same path (issue #199).
+      // nginx never notices that on its own, so it is told directly.
+      await reloadProxy(options);
+      options.hooks?.onProgress?.(`Reloaded ${target.domain} to serve the renewed certificate`);
+      return { path, changed: false };
+    }
     // Byte-identical, so there is nothing to validate and nothing to reload.
     options.hooks?.onProgress?.(`Vhost for ${target.domain} is already current`);
     return { path, changed: false };

@@ -215,6 +215,43 @@ describe('installVhost', () => {
     expect(calls).toEqual([]);
   });
 
+  // ===========================================================================
+  // issue #199: nginx caches a certificate's bytes in memory from the load or
+  // reload that read it; it never notices the file underneath an
+  // `ssl_certificate` directive changing on disk. A same-domain certificate
+  // reissuance never changes the vhost TEXT (it only ever pointed at a fixed
+  // path), so the "already current" fast path above must still reload when
+  // told to -- otherwise a freshly reissued certificate sits on disk, unserved,
+  // forever.
+  // ===========================================================================
+  it('reloads anyway when forceReload is set, even though the vhost is byte-identical', async () => {
+    const root = makeProxyRoot();
+    await installVhost(target(root), { runCommand: fakeRunCommand(() => ({ exitCode: 0 })) });
+
+    const calls: string[][] = [];
+    const second = await installVhost(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      forceReload: true,
+    });
+
+    expect(second.changed).toBe(false);
+    expect(calls.map((argv) => argv.join(' '))).toEqual(['nginx -s reload']);
+  });
+
+  it('does NOT reload when forceReload is false and the vhost is byte-identical', async () => {
+    const root = makeProxyRoot();
+    await installVhost(target(root), { runCommand: fakeRunCommand(() => ({ exitCode: 0 })) });
+
+    const calls: string[][] = [];
+    const second = await installVhost(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      forceReload: false,
+    });
+
+    expect(second.changed).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
   it('removes the new vhost and re-validates when nginx -t fails', async () => {
     const root = makeProxyRoot();
     let validations = 0;
