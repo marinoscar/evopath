@@ -23,7 +23,8 @@ export type FakeFixture =
   | 'workout-notebook'
   | 'workout-empty'
   | 'body-metric-scale'
-  | 'body-metric-smart-scale-report';
+  | 'body-metric-smart-scale-report'
+  | 'lab-report-panel';
 
 export interface FakeRequestRecord {
   model: string | null;
