@@ -410,6 +410,8 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 | `ai.audio.speech` | `ai/runtime/ai-audio-speech.handler.ts` | `POST /api/ai/audio/speech` | No (permanently) |
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Daily cron | No (permanently) |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Weekly cron, catalog sync | No (permanently) |
+| `ai.training.plan.run` | `training-agents/runtime/training-plan-run.handler.ts` | `POST /api/ai/training/runs`, resume, decision | No (permanently) |
+| `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Daily cron (05:30) | No |
 
 The three AI media handlers share `ai/runtime/ai-media-run.handler.ts`. The full cross-subsystem inventory also lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
