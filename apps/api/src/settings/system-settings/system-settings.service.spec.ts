@@ -238,7 +238,7 @@ describe('SystemSettingsService', () => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
         value: { ...DEFAULT_SYSTEM_SETTINGS, ai: { ...DEFAULT_SYSTEM_SETTINGS.ai, assignments } },
       } as any);
-      mockPrisma.systemSettings.upsert.mockImplementation(async (args: any) => ({ ...mockSystemSettings, value: args.update.value }) as any);
+      (mockPrisma.systemSettings.upsert as any).mockImplementation(async (args: any) => ({ ...mockSystemSettings, value: args.update.value }) as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
       const { assignments: _omitted, ...aiWithout } = DEFAULT_SYSTEM_SETTINGS.ai;
@@ -255,7 +255,7 @@ describe('SystemSettingsService', () => {
         ...mockSystemSettings,
         value: { ...DEFAULT_SYSTEM_SETTINGS, ai: { ...DEFAULT_SYSTEM_SETTINGS.ai, assignments: stored } },
       } as any);
-      mockPrisma.systemSettings.update.mockImplementation(async (args: any) => ({ ...mockSystemSettings, value: args.data.value }) as any);
+      (mockPrisma.systemSettings.update as any).mockImplementation(async (args: any) => ({ ...mockSystemSettings, value: args.data.value }) as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
       await service.patchSettings({ ai: { enabled: true } } as any, mockUserId);
