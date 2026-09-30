@@ -15,6 +15,12 @@ export {
 } from './AiVisionDisclosure';
 export { NoVisionModelNotice, type NoVisionModelNoticeProps, type NoVisionReason } from './NoVisionModelNotice';
 export { StoragePhotoThumb, type StoragePhotoThumbProps } from './StoragePhotoThumb';
+export {
+  RetainFilesControl,
+  RETAIN_FILES_LABEL,
+  RETAIN_FILES_HELPER_TEXT,
+  type RetainFilesControlProps,
+} from './RetainFilesControl';
 
 export {
   useImageIntake,
@@ -44,6 +50,9 @@ export { downscaleImage, UnsupportedImageError, type DownscaleImageOptions } fro
 export {
   uploadAndAttach,
   detachFrom,
+  isHealthIntakeKind,
+  HEALTH_INTAKE_KINDS,
+  type FileRetention,
   type DraftItemView,
   type PhotoIntakeView,
   type PhotoIntakePhotoView,

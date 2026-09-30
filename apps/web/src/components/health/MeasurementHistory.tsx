@@ -12,7 +12,9 @@
  * "You edited" when a saved value differs from what the AI read
  * (`sourceRef.userEdited`, kept current by the API on every edit), and
  * "View photo", which shows the first source photo through a short-lived
- * signed URL (`GET /api/storage/objects/:id/download`).
+ * signed URL (`GET /api/storage/objects/:id/download`). When the user chose
+ * to erase the file after processing (#185, `fileDeleted: true`), the entry
+ * shows "File deleted" instead of "View photo"; the values and provenance stay.
  *
  * This list is also the text equivalent of the Trend chart above it.
  * `health_data:write` only enables the actions; the API enforces it.
@@ -45,6 +47,7 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import HistoryIcon from '@mui/icons-material/History';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
+import HideImageOutlinedIcon from '@mui/icons-material/HideImageOutlined';
 import {
   AI_READ_ORIGIN,
   HEALTH_DATA_UNAVAILABLE,
@@ -71,19 +74,31 @@ const ORIGIN_LABELS: Record<string, string> = { manual: 'Manual' };
 
 export const READ_FROM_PHOTO_CHIP = 'Read from photo';
 export const USER_EDITED_CHIP = 'You edited';
+export const FILE_DELETED_CHIP = 'File deleted';
 
-/** The photo provenance of an entry: any AI-read reading, edited or not, and its first photo. */
+/**
+ * The photo provenance of an entry: any AI-read reading, edited or not, its
+ * first photo still stored, and whether a source file was erased after
+ * processing (#185).
+ */
 export function entryPhotoProvenance(entry: HistoryEntry): {
   readFromPhoto: boolean;
   userEdited: boolean;
   photoId: string | null;
+  fileDeleted: boolean;
 } {
   const aiRows = entry.readings.filter((reading) => reading.origin === AI_READ_ORIGIN);
   const refs = aiRows.map((reading) => photoSourceRef(reading)).filter((ref) => ref !== null);
+  // An erased file has no photo to view any more.
+  const storedRefs = aiRows
+    .filter((reading) => reading.fileDeleted !== true)
+    .map((reading) => photoSourceRef(reading))
+    .filter((ref) => ref !== null);
   return {
     readFromPhoto: aiRows.length > 0,
     userEdited: refs.some((ref) => ref.userEdited === true),
-    photoId: refs.flatMap((ref) => ref.storageObjectIds ?? [])[0] ?? null,
+    photoId: storedRefs.flatMap((ref) => ref.storageObjectIds ?? [])[0] ?? null,
+    fileDeleted: entry.readings.some((reading) => reading.fileDeleted === true),
   };
 }
 
@@ -269,6 +284,15 @@ function HistoryRow({
           )}
           {provenance.userEdited && <Chip size="small" variant="outlined" label={USER_EDITED_CHIP} />}
           {entry.edited && <Chip size="small" label="Edited" />}
+          {provenance.fileDeleted && !provenance.photoId && (
+            <Chip
+              size="small"
+              variant="outlined"
+              icon={<HideImageOutlinedIcon />}
+              label={FILE_DELETED_CHIP}
+              title="The photo was erased after its values were saved"
+            />
+          )}
           {provenance.photoId && (
             <Button
               size="small"
