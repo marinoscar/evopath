@@ -204,7 +204,12 @@ export class PlannerContextLoader implements PlannerContextPort {
     };
   }
 
-  private async loadLibrary(userId: string): Promise<LibraryExercise[]> {
+  /**
+   * The exercises `userId` may be prescribed (seeded plus their active custom
+   * ones), with requirement groups, sorted by key. Also read by the quick
+   * adaptation context builder (`training-adaptation/`).
+   */
+  async loadLibrary(userId: string): Promise<LibraryExercise[]> {
     const rows = await this.prisma.exercise.findMany({
       where: { status: 'active', OR: [{ ownerUserId: null }, { ownerUserId: userId }] },
       select: {

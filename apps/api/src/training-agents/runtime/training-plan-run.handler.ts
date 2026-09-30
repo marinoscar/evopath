@@ -82,6 +82,7 @@ import {
 } from './training-run-errors';
 import { TRAINING_RUN_AUDIT_ACTIONS, auditTrainingRun } from './training-run-audit';
 import {
+  ADAPT_RUN_KIND,
   APPROVAL_TTL_MS,
   MAX_AUTO_RESUMES,
   TERMINAL_RUN_STATUSES,
@@ -184,6 +185,12 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
 
     if (!run) {
       this.logger.warn(`Training run ${runId} no longer exists; job ${job.id} is a no-op`);
+      return;
+    }
+
+    if (run.kind === ADAPT_RUN_KIND) {
+      // A quick adaptation's run belongs to `ai.training.adapt.run`; never run its graph here.
+      this.logger.warn(`Training run ${runId} is a workout adaptation; job ${job.id} is a no-op`);
       return;
     }
 
