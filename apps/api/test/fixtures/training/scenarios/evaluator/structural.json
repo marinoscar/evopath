@@ -1,7 +1,7 @@
 {
   "assessment": {
     "status": "stalled",
-    "summary": "The Romanian deadlift has not progressed and the hinge volume is high.",
+    "summary": "The lunges have not progressed in several weeks and a squat variation fits the gym.",
     "observations": []
   },
   "decision": "adjust",
@@ -9,17 +9,17 @@
     {
       "op": "swap_exercise",
       "target": {
-        "exerciseRef": "W5-1-4",
+        "exerciseRef": "W5-1-1",
         "weeks": {
           "from": 5,
           "to": 6
         }
       },
-      "withExerciseKey": "glute_bridge",
-      "reason": "Swap the hinge for a gentler option while progress is stalled."
+      "withExerciseKey": "goblet_squat",
+      "reason": "Swap the lunge for a squat variation while progress is stalled."
     }
   ],
-  "userMessage": "The Romanian deadlift is swapped for glute bridges for two weeks.",
+  "userMessage": "The dumbbell lunge is swapped for goblet squats for two weeks.",
   "followUp": {
     "suggestReview": false,
     "note": null
