@@ -170,7 +170,8 @@ export function statefulGymsApi(initial: GymDetail[] = [], types: EquipmentType[
         description: body.description ?? null,
         notes: body.notes ?? null,
         isTemporary: body.isTemporary ?? false,
-        isDefault: state.gyms.length === 0,
+        // E6.2: the first PERMANENT gym becomes the default; a temporary one never does.
+        isDefault: !body.isTemporary && !state.gyms.some((g) => g.isDefault),
       });
       state.gyms.push(gym);
       return HttpResponse.json({ data: gym }, { status: 201 });
@@ -184,6 +185,9 @@ export function statefulGymsApi(initial: GymDetail[] = [], types: EquipmentType[
       const gym = find(String(params.id));
       if (!gym) return notFound();
       Object.assign(gym, body);
+      // E6.2: saving a temporary gym fills an empty default slot only.
+      if (body.isTemporary === false && !state.gyms.some((g) => g.isDefault)) gym.isDefault = true;
+      if (body.isTemporary === true) gym.isDefault = false;
       return HttpResponse.json({ data: gym });
     }),
     http.delete(`${API}/gyms/:id`, async ({ request, params }) => {
@@ -218,6 +222,18 @@ export function statefulGymsApi(initial: GymDetail[] = [], types: EquipmentType[
       await record(request, `/gyms/${params.id}/default`);
       const gym = find(String(params.id));
       if (!gym) return notFound();
+      if (gym.isTemporary) {
+        return HttpResponse.json(
+          {
+            statusCode: 409,
+            message: 'Save this gym before making it your default',
+            error: 'Conflict',
+            code: 'CONFLICT',
+            details: { reason: 'TEMPORARY_GYM_NOT_DEFAULT' },
+          },
+          { status: 409 },
+        );
+      }
       for (const g of state.gyms) g.isDefault = g === gym;
       return HttpResponse.json({ data: gym });
     }),
