@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { CheckInsService } from '../check-ins/check-ins.service';
-import { addDays, toDbDate } from '../check-ins/local-date';
+import { addDays, fromDbDate, toDbDate } from '../check-ins/local-date';
 import { GymsService } from '../gyms/gyms.service';
 import { isUniqueViolation } from '../gyms/gym-views';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,7 +16,9 @@ import type {
   WorkoutListData,
   WorkoutViewData,
 } from './dto/workout.dto';
+import type { WorkoutSummaryData, WorkoutSummaryQuery } from './dto/workout-summary.dto';
 import {
+  computeTotals,
   WORKOUT_INCLUDE,
   WORKOUT_LIST_INCLUDE,
   type WorkoutWithRelations,
@@ -31,6 +33,7 @@ import {
 import { WorkoutHistoryService } from './workout-history.service';
 import { lockOwnedWorkout } from './workout-lock';
 import { WorkoutPhotoStorageService } from './workout-photo-storage.service';
+import { daysBetween, isoWeekStart, topLifts } from './workout-summary';
 import { WORKOUT_DATE_WINDOW_DAYS, WORKOUT_FUTURE_SKEW_MS, WORKOUT_REFUSALS } from './workouts.constants';
 
 // =============================================================================
@@ -307,6 +310,108 @@ export class WorkoutsService {
         photos.map((photo) => photo.storageObjectId),
       );
     }
+  }
+
+  /**
+   * The Today page's training card (E4.6): the workout in progress, the last
+   * completed workout with its totals and top lifts, and this ISO week's
+   * completed-workout count. `query.today` is the client's local day (within
+   * 2 days of the server's today, else 400 `TODAY_OUT_OF_RANGE`); without it,
+   * today in the Health Profile time zone (UTC when unset).
+   *
+   * Three owner-scoped reads: the in-progress workout (`user_id, status`), the
+   * latest completed one with its sets (`user_id, date desc`) and the week's
+   * count. No PR data: the card does not show it and it would cost a history scan.
+   */
+  async summary(userId: string, query: WorkoutSummaryQuery, now: Date = new Date()): Promise<WorkoutSummaryData> {
+    const serverToday = await this.checkIns.today(userId, now);
+    let today = serverToday;
+
+    if (query.today !== undefined) {
+      if (Math.abs(daysBetween(serverToday, query.today)) > WORKOUT_DATE_WINDOW_DAYS) {
+        throw workoutRefusal(
+          400,
+          WORKOUT_REFUSALS.TODAY_OUT_OF_RANGE,
+          `today must be within ${WORKOUT_DATE_WINDOW_DAYS} days of the server's today (${serverToday})`,
+          { path: 'today', today: serverToday },
+        );
+      }
+      today = query.today;
+    }
+
+    const weekStart = isoWeekStart(today);
+    const weekEnd = addDays(weekStart, 6);
+
+    const [inProgress, last, workoutCount] = await Promise.all([
+      this.prisma.workout.findFirst({
+        where: { userId, status: 'in_progress' },
+        select: {
+          id: true,
+          name: true,
+          startedAt: true,
+          gym: { select: { id: true, name: true } },
+          exercises: { select: { _count: { select: { sets: { where: { completed: true } } } } } },
+        },
+      }),
+      this.prisma.workout.findFirst({
+        where: { userId, status: 'completed' },
+        orderBy: [{ date: 'desc' }, { startedAt: 'desc' }, { id: 'desc' }],
+        select: {
+          id: true,
+          name: true,
+          date: true,
+          durationSeconds: true,
+          gym: { select: { id: true, name: true } },
+          exercises: {
+            orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+            select: {
+              exercise: { select: { name: true } },
+              sets: {
+                select: { setNumber: true, weightKg: true, reps: true, completed: true, isWarmup: true },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.workout.count({
+        where: { userId, status: 'completed', date: { gte: toDbDate(weekStart), lte: toDbDate(weekEnd) } },
+      }),
+    ]);
+
+    let lastData: WorkoutSummaryData['last'] = null;
+    let daysSinceLast: number | null = null;
+    if (last) {
+      const date = fromDbDate(last.date);
+      const totals = computeTotals(last.exercises.flatMap((entry) => entry.sets));
+      lastData = {
+        id: last.id,
+        name: last.name,
+        date,
+        durationSeconds: last.durationSeconds,
+        gym: last.gym,
+        exerciseCount: last.exercises.length,
+        setCount: totals.setCount,
+        volumeKg: totals.volumeKg,
+        topLifts: topLifts(last.exercises),
+      };
+      daysSinceLast = Math.max(0, daysBetween(date, today));
+    }
+
+    return {
+      inProgress: inProgress
+        ? {
+            id: inProgress.id,
+            name: inProgress.name,
+            startedAt: inProgress.startedAt.toISOString(),
+            gym: inProgress.gym,
+            exerciseCount: inProgress.exercises.length,
+            completedSetCount: inProgress.exercises.reduce((sum, entry) => sum + entry._count.sets, 0),
+          }
+        : null,
+      last: lastData,
+      thisWeek: { workoutCount, weekStart },
+      daysSinceLast,
+    };
   }
 
   // ---------------------------------------------------------------------------

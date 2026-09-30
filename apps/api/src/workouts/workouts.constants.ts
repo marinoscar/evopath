@@ -53,6 +53,8 @@ export const WORKOUT_REFUSALS = {
   WORKOUT_EXERCISE_LIMIT: 'WORKOUT_EXERCISE_LIMIT',
   WORKOUT_SET_LIMIT: 'WORKOUT_SET_LIMIT',
   EXERCISE_PENDING_REVIEW: 'EXERCISE_PENDING_REVIEW',
+  /** `GET /api/workouts/summary?today=` more than 2 days from the server's today. */
+  TODAY_OUT_OF_RANGE: 'TODAY_OUT_OF_RANGE',
 } as const;
 
 /** `GET /api/exercises/:id/history` `limit` (recent workouts). */

@@ -50,3 +50,29 @@ export function formatDayLabel(value: string, today?: string | null): string {
     ...(reference && reference.getUTCFullYear() !== date.getUTCFullYear() ? { year: 'numeric' } : {}),
   });
 }
+
+/**
+ * Today's calendar day as `YYYY-MM-DD` (E4.6): in `timeZone` (an IANA name,
+ * the Health Profile's) when given and valid, else in the browser's time zone.
+ */
+export function localDateIn(timeZone: string | null | undefined, now: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(now);
+      const get = (type: string) => parts.find((p) => p.type === type)?.value;
+      const year = get('year');
+      const month = get('month');
+      const day = get('day');
+      if (year && month && day) return `${year}-${month}-${day}`;
+    } catch {
+      // An unknown time zone: fall back to the browser's day.
+    }
+  }
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}

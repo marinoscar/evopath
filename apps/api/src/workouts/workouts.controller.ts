@@ -36,6 +36,7 @@ import {
   WorkoutListItemView,
   WorkoutView,
 } from './dto/workout.dto';
+import { WorkoutSummaryQueryDto, WorkoutSummaryView } from './dto/workout-summary.dto';
 import { WorkoutEntriesService } from './workout-entries.service';
 import {
   MAX_EXERCISES_PER_WORKOUT,
@@ -141,6 +142,30 @@ export class WorkoutsController {
   @ApiResponse(NO_READ)
   list(@CurrentUser('id') userId: string, @Query() query: ListWorkoutsQueryDto) {
     return this.workouts.list(userId, query);
+  }
+
+  // Declared before `:id` so `summary` is never parsed as a workout id.
+  @Get('summary')
+  @Auth({ permissions: [PERMISSIONS.WORKOUTS_READ] })
+  @ApiOperation({
+    summary: 'Training summary for the Today page',
+    description:
+      'The caller\'s workout in progress (or null), the last completed workout with its totals and up to ' +
+      'three top lifts (or null), the number of completed workouts in the ISO week (Monday to Sunday) ' +
+      'containing `today`, and the days since the last workout. `today` is the client\'s local day; it must ' +
+      'be within 2 days of the server\'s today (the Health Profile time zone, UTC when unset), which is ' +
+      'also the default. Totals count completed working (non-warm-up) sets only. No PR data.',
+  })
+  @ApiDataResponse(WorkoutSummaryView, { description: 'The summary' })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error, or `details.reason: TODAY_OUT_OF_RANGE`',
+    type: ErrorDto,
+  })
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse(NO_READ)
+  summary(@CurrentUser('id') userId: string, @Query() query: WorkoutSummaryQueryDto) {
+    return this.workouts.summary(userId, query);
   }
 
   @Get(':id')

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatDayLabel, formatLongDate } from '../../utils/localDates';
+import { formatDayLabel, formatLongDate, localDateIn } from '../../utils/localDates';
 
 describe('utils/localDates', () => {
   it('formats a date-only value as the same calendar day, whatever the browser zone', () => {
@@ -27,5 +27,15 @@ describe('utils/localDates', () => {
   it('shows the year for another year and the short date without a reference', () => {
     expect(formatDayLabel('2025-12-30', '2026-01-02')).toBe('Tue, Dec 30, 2025');
     expect(formatDayLabel('2026-09-29')).toBe('Tue, Sep 29');
+  });
+
+  it('gives today in an IANA time zone, else the browser day (E4.6)', () => {
+    const now = new Date('2026-09-29T12:00:00Z');
+    expect(localDateIn('Pacific/Kiritimati', now)).toBe('2026-09-30');
+    expect(localDateIn('Pacific/Pago_Pago', now)).toBe('2026-09-29');
+    expect(localDateIn('America/New_York', new Date('2026-09-30T02:00:00Z'))).toBe('2026-09-29');
+    const local = new Date(2026, 0, 5, 12);
+    expect(localDateIn(null, local)).toBe('2026-01-05');
+    expect(localDateIn('Not/A_Zone', local)).toBe('2026-01-05');
   });
 });

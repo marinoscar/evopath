@@ -817,6 +817,12 @@ export const handlers = [
 
   // Workouts (E4.3): none yet. Suites that log workouts install their own
   // stateful API (`fixtures/workouts.ts`).
+  // E4.6: the Today card's summary for a user with no workouts.
+  http.get(`${API_BASE}/workouts/summary`, () =>
+    HttpResponse.json({
+      data: { inProgress: null, last: null, thisWeek: { workoutCount: 0, weekStart: '2026-09-28' }, daysSinceLast: null },
+    }),
+  ),
   http.get(`${API_BASE}/workouts`, () =>
     HttpResponse.json({ data: { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 } }),
   ),
