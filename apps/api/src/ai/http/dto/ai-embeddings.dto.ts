@@ -20,7 +20,7 @@ import { aiUsageSchema } from './ai-response.dto';
 
 export const aiEmbeddingsRequestSchema = z
   .object({
-    /** Provider id. Omit to use your default model's provider (or the only registered one). */
+    /** Provider id. Omit to use the administrator's default model's provider (or the only registered one). */
     provider: z.string().min(1).max(64).optional(),
     /** The embedding model. Required: vectors are only comparable within one model. */
     model: z.string().min(1).max(200),

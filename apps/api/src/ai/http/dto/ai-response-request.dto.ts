@@ -84,7 +84,7 @@ export const AI_SCHEMA_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export const aiResponseRequestSchema = z
   .object({
-    /** Provider id. Omit to use your default model's provider (or the only registered one). */
+    /** Provider id. Omit to use the administrator's default model's provider (or the only registered one). */
     provider: z.string().min(1).max(64).optional(),
     /** Model id. Omit to use the administrator's default model (else an automatic pick). */
     model: z.string().min(1).max(200).optional(),

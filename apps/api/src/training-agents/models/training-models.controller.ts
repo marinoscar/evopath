@@ -43,11 +43,17 @@ export class TrainingModelsController {
     summary: 'My training agent models',
     description:
       'For each training agent role (researcher, planner, critic, evaluator): the model and ' +
-      'reasoning effort it will use, or the state that blocks it and where to fix it (`fix`: ' +
-      '`settings`, `keys` or `admin`). Precedence: your per-role choice, then your default ' +
-      'model, then an automatic pick (`auto`). The researcher needs an OpenAI model with ' +
-      '`hosted_tools` and the administrator\'s web-search switch. `effectiveEffort` is always an ' +
-      'effort the model offers. Also the run limits and which run kinds can start.',
+      'reasoning effort it will use, or the state that blocks it and who can fix it (`fix`: ' +
+      '`keys`, `admin`, or `null` when runnable). Models are chosen by the administrator, never ' +
+      'by the user. Precedence: the administrator\'s assignment for the role (`source: ' +
+      'admin_feature`, with its reasoning effort), then the administrator\'s default model ' +
+      '(`admin_default`), then an automatic pick (`auto`), each only when usable with your key ' +
+      'and capable for the role; otherwise a blocking state (`no_key`, `no_models`, ' +
+      '`missing_capability`, `web_search_disabled`, `ai_disabled`). An assignment your key cannot ' +
+      'use is named in `assignmentUnavailable` and resolution falls through. The researcher needs ' +
+      'an OpenAI model with `hosted_tools` and the administrator\'s web-search switch. ' +
+      '`effectiveEffort` is always an effort the model offers. Also the run limits and which run ' +
+      'kinds can start.',
   })
   @ApiDataResponse(TrainingModelsView, { description: 'Role states, limits and run readiness' })
   @ApiResponse(UNAUTHENTICATED)

@@ -35,8 +35,9 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  * `AgentCaller`). `GraphRuntimeInfo` loads the runtime at boot and logs its
  * version.
  *
- * - Models: `TrainingModelResolver` turns the caller's per-role model
- *   preferences, usable models and the AI policy into a state per agent role,
+ * - Models: `TrainingModelResolver` turns the administrator's model
+ *   assignments (#173), the caller's usable models and the AI policy into a
+ *   state per agent role (via `AiFeatureModelResolver`),
  *   through read-only seams, and never sees key material;
  *   `TrainingModelsController` serves `/api/ai/training/models` and
  *   `/api/ai/training/estimate`.

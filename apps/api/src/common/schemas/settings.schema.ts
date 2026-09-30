@@ -56,10 +56,11 @@ export type UserProfileSettingsPatchValue = z.infer<
 /**
  * Per-user AI preferences (`ai`) — issue #423, epic #419, umbrella #418.
  *
- * `defaultModel` is the ONLY field this issue adds: which (provider, model)
- * a caller's AI surface should pre-select, so a user who has settled on one
- * model does not re-pick it every time. Nullable, and the namespace itself
- * optional — see below for why both.
+ * Since #173 the only live field is `training` (per-run limits): models are
+ * chosen by the administrator (`ai.assignments` in system settings). The
+ * original `defaultModel` (#423) and `taskModels` fields are legacy — still
+ * representable so old documents parse, read by nothing. The namespace
+ * itself is optional — see below.
  *
  * NON-SECRET ONLY, and this is the whole namespace, not a policy exception:
  * a user's own provider key is `UserAiKey.secret`, ciphertext in its own
@@ -74,21 +75,22 @@ export type UserProfileSettingsPatchValue = z.infer<
  * a foreign key into `AiModel`: this schema has no access to the database to
  * validate a model still exists, and — matching `Job.type`'s and `AiModel
  * .provider`'s own "a row must outlive the registry that produced it"
- * reasoning throughout this codebase — a user's saved preference for a model
+ * reasoning throughout this codebase — a stored legacy value naming a model
  * later disabled or removed by an admin must remain a value this schema can
- * represent, even though nothing routes to it any more.
+ * represent, even though nothing routes to it.
  */
 /**
- * The training-plan agent roles a user may pick a model for (`ai.taskModels`).
- * The single list: a later feature with its own agents appends its role keys
- * here rather than adding a parallel setting.
+ * The training-plan agent roles. Each is the AI feature `training.<role>`
+ * whose model the administrator assigns (#173). The single list: a later
+ * feature with its own agents appends its role keys here rather than adding a
+ * parallel setting.
  */
 export const TRAINING_AGENT_ROLES = ['researcher', 'planner', 'critic', 'evaluator'] as const;
 
 export type TrainingAgentRole = (typeof TRAINING_AGENT_ROLES)[number];
 
 /**
- * The reasoning efforts a user may request for a task. Mirrors
+ * The reasoning efforts an assignment may request for a task. Mirrors
  * `AI_REASONING_EFFORTS` in `ai/core/capabilities.ts` (kept as its own list so
  * this schema file does not depend on the AI platform's internals).
  */
@@ -97,9 +99,9 @@ export const TASK_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high'] as co
 export type TaskReasoningEffort = (typeof TASK_REASONING_EFFORTS)[number];
 
 /**
- * One role's model preference. `provider`/`modelId` are plain strings for the
- * reason `defaultModel`'s are (a preference outlives a removed model);
- * `reasoningEffort: null` means "the role's default effort".
+ * One role's LEGACY model preference (`ai.taskModels`, ignored since #173;
+ * kept so stored documents still parse). `reasoningEffort: null` meant "the
+ * role's default effort".
  */
 export const taskModelSchema = z.object({
   provider: z.string().min(1).max(100),
@@ -208,8 +210,8 @@ export const userSettingsSchema = z.object({
   // and freeze them at today's defaults. See notification-preferences.ts.
   notifications: notificationsSchema.optional(),
   // AI preferences (#423, epic #419). Optional for the same reason as the
-  // three namespaces above: absent means "no default model chosen", and
-  // every existing account is absent until this ships an AI settings UI.
+  // three namespaces above: absent means "no training limits set" (the
+  // server defaults). Models are the administrator's (#173).
   ai: userAiSettingsSchema.optional(),
 });
 
@@ -1126,7 +1128,7 @@ export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
 // model is usable for the caller and capable for the feature.
 //
 // `provider`/`modelId` are plain strings (not a foreign key) for the reason
-// `defaultModel`'s always were: an assignment outlives a model an admin later
+// the legacy user `defaultModel`'s were: an assignment outlives a model an admin later
 // disables, and the admin page shows it with a warning rather than losing it.
 // `features` is keyed by plain strings in the STORED shape so a feature id a
 // later release drops cannot reset the whole block on read; the admin PUT

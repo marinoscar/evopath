@@ -63,10 +63,12 @@ export interface UserSettingsValue {
    */
   notifications?: NotificationsValue;
   /**
-   * AI preferences (#423, epic #419, umbrella #418): which (provider, model)
-   * an AI surface should pre-select. Absent means "no default model chosen"
-   * — the same sparse-optional contract every namespace above follows, so an
-   * untouched account is not materialised with a preference nobody set.
+   * AI preferences (#423, epic #419, umbrella #418): since #173 only the
+   * training limits (`training`); models are assigned by the administrator,
+   * and a legacy `defaultModel`/`taskModels` is ignored. Absent means "no
+   * limits set" — the same sparse-optional contract every namespace above
+   * follows, so an untouched account is not materialised with a preference
+   * nobody set.
    *
    * NON-SECRET ONLY: a user's own provider key is `UserAiKey.secret`, in its
    * own table, never here. See `userAiSettingsSchema` for the full argument.
