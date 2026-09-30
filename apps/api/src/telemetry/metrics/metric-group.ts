@@ -541,7 +541,8 @@ function ratioOutputs(
 
 // ---- tables ------------------------------------------------------------------------
 
-function tableParts(spec: MetricTableSpec, tables: MetricTables): LatestPart[] {
+/** A table spec's parts as latest-per-key statement parts (also read by the telemetry assistant, #128). */
+export function tableParts(spec: MetricTableSpec, tables: MetricTables): LatestPart[] {
   return spec.parts.map((p) => ({
     name: p.column,
     table: p.table,
@@ -556,14 +557,15 @@ function tableParts(spec: MetricTableSpec, tables: MetricTables): LatestPart[] {
   }));
 }
 
-interface TableInputs {
+export interface TableInputs {
   latest: TelemetryQueryResult | null;
   status?: TelemetryQueryResult | null;
   errors?: TelemetryQueryResult | null;
   histogram?: FamilyData | null;
 }
 
-function buildTable(
+/** One per-key table from its statements' rows (also used by the telemetry assistant, #128). */
+export function buildTable(
   spec: MetricTableSpec,
   inputs: TableInputs
 ): { table: MetricTable; truncated: boolean } {

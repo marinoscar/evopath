@@ -158,6 +158,23 @@ describe('AssistantTimeline', () => {
     expect(steps[2]).toHaveTextContent('Traced');
   });
 
+  it('labels metrics_overview with its group and window, and compare_nodes with its window', () => {
+    const metrics: TelemetryAssistantStep = {
+      index: 3,
+      tool: 'metrics_overview',
+      input: { group: 'host', window: '6h' },
+      durationMs: 310,
+    };
+    const nodes: TelemetryAssistantStep = { index: 4, tool: 'compare_nodes', input: { window: '1h' }, durationMs: 120 };
+    render(<AssistantTimeline steps={[metrics, nodes]} isInvestigating={false} collapsible={false} />);
+
+    const steps = screen.getAllByTestId('assistant-step');
+    expect(steps[0]).toHaveTextContent('Metrics overview');
+    expect(steps[0]).toHaveTextContent('host · 6h');
+    expect(steps[1]).toHaveTextContent('Compared worker nodes');
+    expect(steps[1]).toHaveTextContent('1h');
+  });
+
   it('shows the thought only on the step that carries one', () => {
     render(<AssistantTimeline steps={[STEP_APP_CONTEXT, STEP_HEALTH]} isInvestigating={false} collapsible={false} />);
 
