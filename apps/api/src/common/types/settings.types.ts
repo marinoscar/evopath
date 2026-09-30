@@ -63,10 +63,9 @@ export interface UserSettingsValue {
    */
   notifications?: NotificationsValue;
   /**
-   * AI preferences (#423, epic #419, umbrella #418): since #173 only the
-   * training limits (`training`); models are assigned by the administrator,
-   * and a legacy `defaultModel`/`taskModels` is ignored. Absent means "no
-   * limits set" — the same sparse-optional contract every namespace above
+   * AI preferences (#423, epic #419, umbrella #418): the training limits
+   * (`training`); models are assigned by the administrator (#173). Absent
+   * means "no limits set" — the same sparse-optional contract every namespace above
    * follows, so an untouched account is not materialised with a preference
    * nobody set.
    *

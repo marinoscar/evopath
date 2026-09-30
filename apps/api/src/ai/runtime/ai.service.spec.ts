@@ -286,18 +286,6 @@ describe('AiService', () => {
       expect(response.model).toBe(HARNESS_MODEL);
     });
 
-    it('ignores a legacy user ai.defaultModel setting (#173)', async () => {
-      // 'aa-other' sorts first, so neither the legacy setting nor the auto
-      // pick could produce HARNESS_MODEL — only the administrator's default.
-      const h = createAiRuntimeHarness({ models: [{ modelId: HARNESS_MODEL }, { modelId: 'aa-other' }] });
-      (h.prisma.userSettings.findUnique as jest.Mock).mockResolvedValue({
-        value: { ai: { defaultModel: { provider: 'openai', modelId: 'aa-other' } } },
-      });
-      h.setAssignments({ default: { provider: 'openai', modelId: HARNESS_MODEL }, features: {} });
-
-      expect((await h.ai.forUser(HARNESS_USER).respond({ input: 'hi' })).model).toBe(HARNESS_MODEL);
-    });
-
     it('refuses a default model belonging to a different provider than the one requested', async () => {
       const h = createAiRuntimeHarness({ defaultModel: { provider: 'openai', modelId: HARNESS_MODEL } });
 

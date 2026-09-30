@@ -11,7 +11,7 @@ import {
 import {
   userProfileSettingsSchema,
   userProfileSettingsPatchSchema,
-  userAiSettingsWriteSchema,
+  userAiSettingsSchema,
   userAiSettingsPatchSchema,
 } from '../../common/schemas/settings.schema';
 
@@ -28,9 +28,9 @@ export const updateUserSettingsSchema = z.object({
   navigation: navigationSchema.optional(),
   notifications: notificationsSchema.optional(),
   // AI preferences (#423, epic #419). Same "omit to store nothing" PUT rule
-  // as the namespaces above. Only `training` is writable (#173): models are
-  // assigned by the administrator, so `defaultModel`/`taskModels` are a 400.
-  ai: userAiSettingsWriteSchema.optional(),
+  // as the namespaces above. Only `training` (models are assigned by the
+  // administrator, #173); the object is strict.
+  ai: userAiSettingsSchema.optional(),
 });
 
 export class UpdateUserSettingsDto extends createZodDto(
@@ -56,7 +56,7 @@ export const patchUserSettingsSchema = z.object({
   //      the default value instead would pin the user to it forever.
   notifications: notificationsPatchSchema.nullable().optional(),
   // `ai: null` clears the whole namespace; `ai: { training: null }` clears
-  // just the run limits. `defaultModel`/`taskModels` are refused (#173).
+  // just the run limits.
   ai: userAiSettingsPatchSchema.nullable().optional(),
 });
 

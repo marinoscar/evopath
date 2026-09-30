@@ -83,15 +83,12 @@ describe('TrainingModelResolver', () => {
     expect(Object.values(all).map((r) => r.state)).toEqual(['ai_disabled', 'ai_disabled', 'ai_disabled', 'ai_disabled']);
   });
 
-  it('uses the administrator\'s assignment and effort, ignoring a legacy user taskModels preference (#173)', async () => {
+  it('uses the administrator\'s assignment and effort (#173)', async () => {
     const models = [
       { modelId: HARNESS_MODEL, capabilities: FAKE_TEXT_MODEL_CAPABILITIES },
       { modelId: 'other', capabilities: FAKE_TEXT_MODEL_CAPABILITIES },
     ];
     const { harness, resolver } = build({ models });
-    (harness.prisma.userSettings.findUnique as jest.Mock).mockResolvedValue({
-      value: { ai: { defaultModel: null, taskModels: { planner: { provider: 'openai', modelId: 'other', reasoningEffort: 'low' } } } },
-    });
     harness.setAssignments({
       default: null,
       features: { 'training.planner': { provider: 'openai', modelId: HARNESS_MODEL, reasoningEffort: 'medium' } },
@@ -107,7 +104,7 @@ describe('TrainingModelResolver', () => {
 
   it('an invalid stored ai namespace is ignored rather than failing the read', async () => {
     const { harness, resolver } = build();
-    (harness.prisma.userSettings.findUnique as jest.Mock).mockResolvedValue({ value: { ai: { taskModels: 'bad' } } });
+    (harness.prisma.userSettings.findUnique as jest.Mock).mockResolvedValue({ value: { ai: { training: 'bad' } } });
 
     expect((await resolver.resolve(HARNESS_USER, 'planner')).state).toBe('auto');
   });

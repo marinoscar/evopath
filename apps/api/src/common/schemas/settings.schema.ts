@@ -54,32 +54,6 @@ export type UserProfileSettingsPatchValue = z.infer<
 >;
 
 /**
- * Per-user AI preferences (`ai`) — issue #423, epic #419, umbrella #418.
- *
- * Since #173 the only live field is `training` (per-run limits): models are
- * chosen by the administrator (`ai.assignments` in system settings). The
- * original `defaultModel` (#423) and `taskModels` fields are legacy — still
- * representable so old documents parse, read by nothing. The namespace
- * itself is optional — see below.
- *
- * NON-SECRET ONLY, and this is the whole namespace, not a policy exception:
- * a user's own provider key is `UserAiKey.secret`, ciphertext in its own
- * table (`apps/api/prisma/schema.prisma`), never in `user_settings.value`,
- * which — like `system_settings.value` — is returned wholesale by
- * `GET /api/user-settings` and copied verbatim into whatever audit trail
- * later issues add. `provider`/`modelId` here are the same kind of
- * IDENTIFIER `systemStorageSchema.accessKeyId` is: they name a selection,
- * they authorise nothing.
- *
- * `provider`/`modelId` are plain strings, not `z.enum(AI_PROVIDER_IDS)` /
- * a foreign key into `AiModel`: this schema has no access to the database to
- * validate a model still exists, and — matching `Job.type`'s and `AiModel
- * .provider`'s own "a row must outlive the registry that produced it"
- * reasoning throughout this codebase — a stored legacy value naming a model
- * later disabled or removed by an admin must remain a value this schema can
- * represent, even though nothing routes to it.
- */
-/**
  * The training-plan agent roles. Each is the AI feature `training.<role>`
  * whose model the administrator assigns (#173). The single list: a later
  * feature with its own agents appends its role keys here rather than adding a
@@ -98,34 +72,12 @@ export const TASK_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high'] as co
 
 export type TaskReasoningEffort = (typeof TASK_REASONING_EFFORTS)[number];
 
-/**
- * One role's LEGACY model preference (`ai.taskModels`, ignored since #173;
- * kept so stored documents still parse). `reasoningEffort: null` meant "the
- * role's default effort".
- */
-export const taskModelSchema = z.object({
-  provider: z.string().min(1).max(100),
-  modelId: z.string().min(1).max(200),
-  reasoningEffort: z.enum(TASK_REASONING_EFFORTS).nullable(),
-});
-
-export type TaskModelValue = z.infer<typeof taskModelSchema>;
-
 /** Bounds on `ai.training.maxRunTokens`; out of range is a 400 at the PATCH. */
 export const TRAINING_MIN_RUN_TOKENS = 10_000;
 export const TRAINING_MAX_RUN_TOKENS = 2_000_000;
 
 const maxRunTokensSchema = z.number().int().min(TRAINING_MIN_RUN_TOKENS).max(TRAINING_MAX_RUN_TOKENS);
 const maxCriticRoundsSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
-
-export const userAiTaskModelsSchema = z.object({
-  researcher: taskModelSchema.optional(),
-  planner: taskModelSchema.optional(),
-  critic: taskModelSchema.optional(),
-  evaluator: taskModelSchema.optional(),
-});
-
-export type UserAiTaskModelsValue = z.infer<typeof userAiTaskModelsSchema>;
 
 /**
  * Training-run limits. `maxRunTokens` null or absent means the server default
@@ -139,48 +91,35 @@ export const userAiTrainingSchema = z.object({
 export type UserAiTrainingValue = z.infer<typeof userAiTrainingSchema>;
 
 /**
- * The stored `ai` namespace, as READ. Lenient on purpose (#173): model
- * selection moved to the administrator (`ai.assignments` in system settings),
- * so `defaultModel` and `taskModels` are LEGACY fields. A document written
- * before #173 still parses, and nothing resolves a model from them any more —
- * they are ignored on read and dropped on the next write of the namespace.
- * Only `training` (the per-run token cap and critic rounds) is still a user
- * preference.
+ * Per-user AI preferences (`ai`) — issue #423, epic #419, umbrella #418.
+ * Stored shape, and the `ai` body of a user-settings PUT. STRICT: an unknown
+ * key is a 400.
+ *
+ * The only field is `training` (per-run limits): models are chosen by the
+ * administrator (`ai.assignments` in system settings, #173). The namespace
+ * itself is optional.
+ *
+ * NON-SECRET ONLY, and this is the whole namespace, not a policy exception:
+ * a user's own provider key is `UserAiKey.secret`, ciphertext in its own
+ * table (`apps/api/prisma/schema.prisma`), never in `user_settings.value`,
+ * which — like `system_settings.value` — is returned wholesale by
+ * `GET /api/user-settings` and copied verbatim into whatever audit trail
+ * later issues add.
  */
-export const userAiSettingsSchema = z.object({
-  /** @deprecated #173 — ignored; the administrator assigns models. */
-  defaultModel: z
-    .object({
-      provider: z.string(),
-      modelId: z.string(),
-    })
-    .nullable()
-    .optional(),
-  /** @deprecated #173 — ignored; the administrator assigns models and efforts. */
-  taskModels: userAiTaskModelsSchema.optional(),
-  training: userAiTrainingSchema.optional(),
-});
-
-export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
-
-/**
- * `ai` on a user-settings PUT: what a user may still set (#173). STRICT, so a
- * client that still sends `defaultModel` or `taskModels` gets a 400 rather
- * than a save that silently does nothing.
- */
-export const userAiSettingsWriteSchema = z
+export const userAiSettingsSchema = z
   .object({
     training: userAiTrainingSchema.optional(),
   })
   .strict();
 
+export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
+
 /**
  * `ai`, PATCH counterpart, merged as a JSON merge patch by
  * `UserSettingsService.mergeAi`: a field that is absent keeps the stored
  * value, `null` clears it, a value replaces it. `training: null` clears the
- * limits; `training.<field>: null` clears one limit. STRICT for the reason
- * `userAiSettingsWriteSchema` is: `defaultModel` and `taskModels` are no
- * longer user settings (#173) and are refused with a 400.
+ * limits; `training.<field>: null` clears one limit. STRICT, like
+ * `userAiSettingsSchema`.
  */
 export const userAiSettingsPatchSchema = z
   .object({
@@ -1127,9 +1066,8 @@ export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
 // feature -> default -> a deterministic auto pick, each step only when the
 // model is usable for the caller and capable for the feature.
 //
-// `provider`/`modelId` are plain strings (not a foreign key) for the reason
-// the legacy user `defaultModel`'s were: an assignment outlives a model an admin later
-// disables, and the admin page shows it with a warning rather than losing it.
+// `provider`/`modelId` are plain strings (not a foreign key): an assignment
+// outlives a model an admin later disables, and the admin page shows it with a warning rather than losing it.
 // `features` is keyed by plain strings in the STORED shape so a feature id a
 // later release drops cannot reset the whole block on read; the admin PUT
 // body is the strict one (`ai/assignments/dto`).

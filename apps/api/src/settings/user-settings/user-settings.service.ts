@@ -352,10 +352,7 @@ export class UserSettingsService {
    * - patch is `null`    -> clear the whole namespace
    * - `training: null`   -> clears the limits; `training.<field>` likewise
    *
-   * #173: the legacy `defaultModel` and `taskModels` are no longer user
-   * settings (the administrator assigns models), so the patch cannot carry
-   * them and the merged value drops any stored copy. An emptied namespace
-   * collapses to absent.
+   * An emptied namespace collapses to absent.
    */
   private mergeAi(
     current: UserAiSettingsValue | undefined,

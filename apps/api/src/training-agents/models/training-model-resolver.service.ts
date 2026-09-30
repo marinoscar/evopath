@@ -77,8 +77,7 @@ export class TrainingModelResolver {
 
   /**
    * The caller's stored `ai` namespace, read raw (never creates a settings
-   * row). Only `training` is meaningful (#173); legacy model fields in it are
-   * ignored.
+   * row): the user's training limits.
    */
   async userAiSettings(userId: string): Promise<UserAiSettingsValue | undefined> {
     const row = await this.prisma.userSettings.findUnique({ where: { userId }, select: { value: true } });

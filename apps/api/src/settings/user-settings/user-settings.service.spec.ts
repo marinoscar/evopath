@@ -1203,24 +1203,20 @@ describe('UserSettingsService', () => {
   });
 
   // ===========================================================================
-  // ai namespace merge logic (#173): only `training` is a user setting; the
-  // legacy `defaultModel`/`taskModels` are dropped on the next write.
+  // ai namespace merge logic: `training` is the only field.
   // ===========================================================================
 
   describe('mergeAi (private)', () => {
     const mergeAi = (current: unknown, patch: unknown) => (service as any).mergeAi(current, patch);
 
-    const gpt = { provider: 'openai', modelId: 'gpt-x' };
-    const planner = { provider: 'openai', modelId: 'gpt-x', reasoningEffort: 'high' };
-
     it('patch absent leaves the namespace untouched', () => {
-      const current = { defaultModel: gpt, taskModels: { planner } };
+      const current = { training: { maxCriticRounds: 2 } };
 
       expect(mergeAi(current, undefined)).toBe(current);
     });
 
     it('ai: null clears the whole namespace', () => {
-      expect(mergeAi({ defaultModel: gpt, taskModels: { planner } }, null)).toBeUndefined();
+      expect(mergeAi({ training: { maxCriticRounds: 2 } }, null)).toBeUndefined();
     });
 
     it('training fields merge independently; null deletes one; emptied training collapses the namespace', () => {
@@ -1233,16 +1229,8 @@ describe('UserSettingsService', () => {
       expect(mergeAi(current, { training: { maxRunTokens: null, maxCriticRounds: null } })).toBeUndefined();
     });
 
-    it('a write drops the legacy defaultModel and taskModels (#173)', () => {
-      const current = { defaultModel: gpt, taskModels: { planner }, training: { maxCriticRounds: 3 } };
-
-      expect(mergeAi(current, { training: { maxRunTokens: 50_000 } })).toEqual({
-        training: { maxCriticRounds: 3, maxRunTokens: 50_000 },
-      });
-    });
-
     it('does not mutate the current value it read', () => {
-      const current = { defaultModel: gpt, training: { maxRunTokens: 50_000, maxCriticRounds: 1 } };
+      const current = { training: { maxRunTokens: 50_000, maxCriticRounds: 1 } };
 
       mergeAi(current, { training: { maxRunTokens: null } });
 

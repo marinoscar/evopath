@@ -238,8 +238,8 @@ choose one: all model selection is the administrator's (`ai.assignments`).
   Pass the resolved `provider` and `modelId` in the request. Refuse to start
   when `state` is not `ready` or `auto`; the state's `fix` says whether a key
   or an administrator repairs it.
-- Do not add a per-user model setting. `ai.defaultModel` and `ai.taskModels.*`
-  are retired and refused on write.
+- Do not add a per-user model setting: models are assigned by the
+  administrator (`ai.assignments` in system settings).
 - **Generic calls**: pass `req.model` (and `req.provider` when more than one is
   registered) to pin one (the Playground does), or leave both unset for the
   administrator's default model when the caller can use it, else an automatic
