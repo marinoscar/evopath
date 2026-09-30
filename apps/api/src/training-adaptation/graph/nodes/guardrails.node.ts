@@ -16,7 +16,9 @@ import { contextOf, draftOf, proposalOf, requestOf } from '../state';
 // said. A hard violation after repair fails the run with its code
 // (`ADAPTATION_INVALID`, `ADAPTATION_CANNOT_FIT` and its message) on the
 // first pass; on the revise pass the first, already checked proposal is kept
-// and `revision_rejected` is recorded instead.
+// and `revision_rejected` is recorded instead. A revision the token cap
+// stopped (`revision_skipped_token_cap`, set by `adapt`) produced no new
+// answer: nothing to re-check, the first proposal stands.
 // =============================================================================
 
 export async function runGuardrailsNode(state: AdaptRunState, ctx: AdaptationNodeContext): Promise<AdaptRunStateUpdate> {
@@ -24,8 +26,12 @@ export async function runGuardrailsNode(state: AdaptRunState, ctx: AdaptationNod
   const draft = draftOf(state);
   if (!context || !draft) throw new TrainingRunFailedError(ADAPTATION_REASONS.INVALID, 'The adaptation has no proposal to check.');
 
-  const request = requestOf(state);
   const round = state.roundCounters.adapt ?? 1;
+  if (round > 1 && proposalOf(state) && state.warnings.includes(ADAPTATION_WARNINGS.REVISION_SKIPPED_TOKEN_CAP)) {
+    return {};
+  }
+
+  const request = requestOf(state);
   const outcome = applyAdaptationRules(draft, context.facts, {
     minutes: request.minutes ?? null,
     soreness: request.soreness ?? null,

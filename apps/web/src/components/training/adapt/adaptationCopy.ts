@@ -2,7 +2,7 @@
  * Words for the adaptation's failure codes and apply refusals. Pure: the page,
  * the review and the tests share them.
  */
-import { runErrorCopy, type RunErrorCopy } from '../runErrors';
+import { runErrorCopy, type RunErrorContext, type RunErrorCopy } from '../runErrors';
 import {
   ADAPTATION_REFUSALS,
   adaptationRefusalOf,
@@ -22,20 +22,20 @@ const FAILURE_COPY: Record<string, RunErrorCopy> = {
   ADAPTATION_STALE: { title: 'Something changed meanwhile', body: 'Your plan or gym changed while the workout was being adjusted. Try again.' },
   ADAPTATION_TIMEOUT: { title: 'It took too long', body: 'The adjustment did not finish in time. Try again.' },
   ADAPTATION_RUN_LOST: { title: 'The adjustment was lost', body: 'The worker running it stopped. Try again.' },
-  TRAINING_RUN_BUDGET_EXCEEDED: {
-    title: 'The token cap was reached',
-    body: 'The adjustment used its whole token budget before it finished. Try again.',
-  },
   TRAINING_OUTPUT_TRUNCATED: { title: 'The answer was cut short', body: 'The model stopped before finishing its answer. Try again.' },
 };
 
 /** A failed adaptation's code in words. `ADAPTATION_CANNOT_FIT` keeps the server's "try N+10" sentence. */
-export function adaptationFailureCopy(code: string | null, serverMessage: string | null): RunErrorCopy {
+export function adaptationFailureCopy(
+  code: string | null,
+  serverMessage: string | null,
+  context: RunErrorContext = {},
+): RunErrorCopy {
   if (code === 'ADAPTATION_CANNOT_FIT' && serverMessage) {
     return { title: FAILURE_COPY.ADAPTATION_CANNOT_FIT.title, body: serverMessage };
   }
   if (code && FAILURE_COPY[code]) return FAILURE_COPY[code];
-  return runErrorCopy(code);
+  return runErrorCopy(code, context);
 }
 
 export type ApplyProblemKind =

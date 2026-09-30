@@ -189,6 +189,11 @@ export const ADAPTATION_WARNINGS = {
   REVISION_REJECTED: 'revision_rejected',
   /** The critic could not be asked (token cap or an unusable answer). */
   CRITIC_SKIPPED: 'critic_skipped',
+  /**
+   * The critic asked for a revision the run's token cap could not pay for;
+   * the first, checked proposal ships (E6.3).
+   */
+  REVISION_SKIPPED_TOKEN_CAP: 'revision_skipped_token_cap',
 } as const;
 
 /**

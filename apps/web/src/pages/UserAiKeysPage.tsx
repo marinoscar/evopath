@@ -6,7 +6,8 @@
  * then the models that key (or the organisation's) can reach, and the user's
  * default model — the one part stored in the user settings document
  * (`ai.defaultModel`, PATCH `/api/user-settings`) — and, last, the user's own
- * usage over the last 30 days (#444), a section of this page rather than a tab.
+ * usage over the last 30 days (#444), a section of this page rather than a tab,
+ * and under it what the training agents used per month (E6.3), also a section.
  *
  * A THIN PAGE WRAPPER, NOT `UserSettingsSection` — the same call as
  * `UserTokensPage`. Keys are their own resource behind `/api/ai/keys`, not part
@@ -29,6 +30,7 @@ import { KeylessProviderCard } from '../components/settings/ai/KeylessProviderCa
 import { UsableAiModelsList } from '../components/settings/ai/UsableAiModelsList';
 import { DefaultAiModelPicker } from '../components/settings/ai/DefaultAiModelPicker';
 import { MyAiUsageSection } from '../components/settings/ai/MyAiUsageSection';
+import { MonthlyAgentUsageSection } from '../components/settings/ai/MonthlyAgentUsageSection';
 import type { AiDefaultModel } from '../types';
 
 export default function UserAiKeysPage() {
@@ -128,6 +130,8 @@ export default function UserAiKeysPage() {
             />
 
             <MyAiUsageSection />
+
+            <MonthlyAgentUsageSection />
           </Stack>
         )}
       </Box>

@@ -35,6 +35,7 @@ import { PlanDraftSummary } from '../../components/training/PlanDraftSummary';
 import { GuardrailRepairs } from '../../components/training/GuardrailRepairs';
 import { CriticScorecard } from '../../components/training/CriticScorecard';
 import { UsageLine } from '../../components/training/UsageLine';
+import { AgentUsagePanel } from '../../components/training/usage';
 import { StickyActionBar } from '../../components/training/StickyActionBar';
 import { runErrorCopy } from '../../components/training/runErrors';
 import { warningText } from '../../components/training/planLabels';
@@ -122,7 +123,7 @@ export default function PlanRunPage({ runOptions }: PlanRunPageProps = {}) {
   ];
   const heartbeatStale =
     status === 'running' && !!run.heartbeatAt && Date.now() - new Date(run.heartbeatAt).getTime() > STALE_HEARTBEAT_MS;
-  const errorCopy = status === 'failed' ? runErrorCopy(view.failedCode ?? run.errorCode) : null;
+  const errorCopy = status === 'failed' ? runErrorCopy(view.failedCode ?? run.errorCode, { cap: run.cap }) : null;
   const tryAgainTo = run.kind === 'revise' && run.programId ? `/train/plans/${encodeURIComponent(run.programId)}` : '/train/plans/new';
 
   const doCancel = async () => {
@@ -289,6 +290,14 @@ export default function PlanRunPage({ runOptions }: PlanRunPageProps = {}) {
 
           <Section id="usage-heading" title="Usage">
             <UsageLine view={view} run={run} />
+            {terminal && status !== 'blocked_safety' && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600, mb: 1 }}>
+                  By step
+                </Typography>
+                <AgentUsagePanel runId={run.id} embedded />
+              </Box>
+            )}
           </Section>
         </Stack>
 

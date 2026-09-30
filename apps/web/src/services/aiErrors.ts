@@ -39,9 +39,25 @@ export interface AiErrorInfo {
   limit?: string;
   max?: number;
   window?: 'minute' | 'day';
+  /**
+   * On `TRAINING_RUN_BUDGET_EXCEEDED` (an agent run stopped at its per-run
+   * token cap, E6.3), when the failure carried them: the cap and what the run
+   * had used by then.
+   */
+  limitTokens?: number;
+  usedTokens?: number;
 }
 
-type AiErrorDetails = Pick<AiErrorInfo, 'retryAfterMs' | 'limit' | 'max' | 'window'> & {
+/**
+ * An agent run stopped at the user's per-run token cap (E6.3). A TRAINING
+ * code, not an `AI_*` one: it reaches the browser as a run's `errorCode`.
+ */
+export const TRAINING_RUN_BUDGET_EXCEEDED = 'TRAINING_RUN_BUDGET_EXCEEDED';
+
+type AiErrorDetails = Pick<
+  AiErrorInfo,
+  'retryAfterMs' | 'limit' | 'max' | 'window' | 'limitTokens' | 'usedTokens'
+> & {
   reason?: string;
 };
 
@@ -54,6 +70,8 @@ function readDetails(details: unknown): AiErrorDetails {
   if (typeof record.limit === 'string') out.limit = record.limit;
   if (typeof record.max === 'number') out.max = record.max;
   if (record.window === 'minute' || record.window === 'day') out.window = record.window;
+  if (typeof record.limitTokens === 'number') out.limitTokens = record.limitTokens;
+  if (typeof record.usedTokens === 'number') out.usedTokens = record.usedTokens;
   return out;
 }
 
@@ -71,7 +89,9 @@ export function toAiErrorInfo(err: unknown, fallback = 'Something went wrong'): 
     const { reason: rawReason, ...rest } = readDetails(err.details);
     const reason =
       rawReason && STORAGE_UNAVAILABLE_REASONS.has(rawReason) ? 'AI_STORAGE_UNAVAILABLE' : rawReason;
-    const code = reason ?? (err.code?.startsWith('AI_') ? err.code : null);
+    const code =
+      reason ??
+      (err.code?.startsWith('AI_') || err.code === TRAINING_RUN_BUDGET_EXCEEDED ? err.code : null);
     return {
       code,
       message: err.message || fallback,

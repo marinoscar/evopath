@@ -38,6 +38,7 @@ import { useCheckIn } from '../../../hooks/useCheckIn';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { useTrainingAvailability } from '../../../hooks/useTrainingAvailability';
 import { useAdaptationPreview } from '../../../hooks/useAdaptation';
+import { useMonthlyAgentUsage } from '../../../hooks/useAgentUsage';
 import {
   ADAPTATION_LIMITS,
   ADAPTATION_REFUSALS,
@@ -55,6 +56,18 @@ import { SentDataSummary } from './SentDataSummary';
 import { buildRequest, draftFromRequest, type AdaptDraft } from './adaptDraft';
 
 export const ADAPT_SHEET_TITLE = "Adjust today's workout";
+
+const tokenCount = new Intl.NumberFormat('en-US');
+
+/**
+ * "Typically about 8,400 tokens" (E6.3): the median of the user's own last
+ * completed adjustments (`typical.adapt`), never a guess. With too little
+ * history the API answers `null` and nothing is said. Whether a run would hit
+ * the per-run limit is never predicted; only the real cap message appears.
+ */
+export function typicalTokensText(medianTokens: number): string {
+  return `Typically about ${tokenCount.format(medianTokens)} tokens`;
+}
 
 export interface AdaptWorkoutSheetProps {
   open: boolean;
@@ -130,6 +143,8 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
   const { gyms } = useGyms({ enabled: open && canReadGyms });
   const { checkIn } = useCheckIn({ enabled: open && hasPermission('health_data:read') });
   const { models } = useTrainingAvailability();
+  // Read only while open; a failed read simply shows no hint.
+  const typical = useMonthlyAgentUsage(undefined, { enabled: open }).report?.typical.adapt ?? null;
   const [draft, setDraft] = useState<AdaptDraft>(() => draftFromRequest(initialRequest));
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<SubmitProblem | null>(null);
@@ -306,12 +321,23 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
           )}
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2 }}>
-        <Box sx={{ flex: 1 }} />
+      <DialogActions sx={{ px: 3, py: 2, flexWrap: 'wrap' }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {typical && (
+            <Typography id="adapt-typical-tokens" variant="body2" color="text.secondary" data-testid="adapt-typical-tokens">
+              {typicalTokensText(typical.medianTokens)}
+            </Typography>
+          )}
+        </Box>
         <Button onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={() => void submit()} disabled={busy || roleBlocked}>
+        <Button
+          variant="contained"
+          onClick={() => void submit()}
+          disabled={busy || roleBlocked}
+          aria-describedby={typical ? 'adapt-typical-tokens' : undefined}
+        >
           {busy ? 'Starting…' : 'Adjust workout'}
         </Button>
       </DialogActions>

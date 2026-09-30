@@ -44,6 +44,7 @@ import { WorkoutsModule } from './workouts/workouts.module';
 import { ProgramsModule } from './programs/programs.module';
 import { TrainingAgentsModule } from './training-agents/training-agents.module';
 import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
+import { TrainingUsageModule } from './training-usage/training-usage.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -264,6 +265,10 @@ import configuration from './config/configuration';
     // server-only `ai.training.adapt.run` job, hosted on the training agents'
     // runtime kit; never imports LangGraph itself.
     TrainingAdaptationModule,
+
+    // Training agent usage (E6.3): `/api/ai/training/runs/:runId/usage` and
+    // `/api/ai/training/usage`, read-only, tokens by node, role and month.
+    TrainingUsageModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

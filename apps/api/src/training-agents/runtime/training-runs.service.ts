@@ -37,7 +37,7 @@ import {
   type TrainingRunStartedData,
   type TrainingRunViewData,
 } from './dto/training-runs.dto';
-import { parseRunUsage } from './run-budget';
+import { parseRunUsage, runCapState } from './run-budget';
 import { RunEventsService } from './run-events.service';
 import { type SafetyScreen, TRAINING_SAFETY_SCREEN } from './safety-screen';
 import { TRAINING_RUN_AUDIT_ACTIONS, auditTrainingRun } from './training-run-audit';
@@ -558,6 +558,7 @@ export function toTrainingRunView(run: RunRow): TrainingRunViewData {
     programId: run.programId,
     roleModels: roleModels as TrainingRunViewData['roleModels'],
     tokenCap: run.tokenCap,
+    cap: runCapState(run.tokenCap, run.usage, run.errorCode),
     usage: parseRunUsage(run.usage) as TrainingRunViewData['usage'],
     result: (run.result as Record<string, unknown> | null) ?? null,
     errorCode: run.errorCode,
