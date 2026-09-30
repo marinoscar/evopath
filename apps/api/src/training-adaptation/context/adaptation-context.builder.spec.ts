@@ -86,11 +86,13 @@ describe('AdaptationContextBuilder', () => {
 
   it('selects only what it uses from a gym (never its name, notes, photos or location)', async () => {
     const h = harness();
-    await h.builder.build(ME, adaptationRequestFixture({ minutes: 30 }), NOW);
+    const context = await h.builder.build(ME, adaptationRequestFixture({ minutes: 30 }), NOW);
 
+    // `isTemporary` only gates the request (E6.2); it is never part of what is sent.
     for (const q of h.queries.filter((x) => x.model === 'gym')) {
-      expect(Object.keys(q.args.select as Row).sort()).toEqual(['id', 'type']);
+      expect(Object.keys(q.args.select as Row).sort()).toEqual(['id', 'isTemporary', 'type']);
     }
+    expect(everything(context.sent)).not.toMatch(/isTemporary|temporary/i);
     const equipmentSelect = h.queries.find((q) => q.model === 'gymEquipment')!.args.select as Row;
     expect(Object.keys(equipmentSelect).sort()).toEqual(['equipmentType', 'equipmentTypeId', 'quantity']);
     expect(everything(equipmentSelect)).not.toMatch(/notes|photo|latitude|longitude|name":true,"notes/);

@@ -523,6 +523,15 @@ export class AdaptationService {
     } catch (error) {
       if (error instanceof AdaptationContextError) {
         if (error.code === 'ADAPTATION_GYM_NOT_FOUND') throw new NotFoundException('Gym not found');
+        if (error.code === 'ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED') {
+          throw new BadRequestException({
+            message: error.message,
+            details: {
+              reason: ADAPTATION_REASONS.GYM_EQUIPMENT_UNCONFIRMED,
+              issues: [{ path: 'gymId', message: error.message }],
+            },
+          });
+        }
         throw new BadRequestException({
           message: error.message,
           details: { reason: ADAPTATION_REASONS.EQUIPMENT_NOT_IN_GYM, path: 'equipment.equipmentTypeIds', ...error.details },
