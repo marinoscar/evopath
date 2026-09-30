@@ -359,6 +359,10 @@ export class AiConfigAdminService {
       // Optional in the body too (#450). When sent it replaces the stored
       // limits WHOLESALE — leaving a field out is how a limit is lifted.
       limits: structuredClone(input.limits ?? current.limits),
+      // #173: never part of this body. The model assignments have their own
+      // validated route (`PUT /api/admin/ai/assignments`); a config save
+      // carries the stored value through untouched.
+      ...(current.assignments ? { assignments: structuredClone(current.assignments) } : {}),
     };
   }
 

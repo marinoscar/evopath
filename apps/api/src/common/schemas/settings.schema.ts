@@ -1110,6 +1110,71 @@ export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
   requiresKey: z.boolean().optional(),
 });
 
+// -----------------------------------------------------------------------------
+// `ai.assignments` (#173) — the administrator's model per AI feature
+// -----------------------------------------------------------------------------
+//
+// ALL model selection is the administrator's: a user never chooses a model.
+// `default` is the organisation's model for every feature it can serve;
+// `features.<featureId>` overrides it for one feature (with a reasoning effort
+// for the training roles). The resolver (`ai/assignments/`) falls through
+// feature -> default -> a deterministic auto pick, each step only when the
+// model is usable for the caller and capable for the feature.
+//
+// `provider`/`modelId` are plain strings (not a foreign key) for the reason
+// `defaultModel`'s always were: an assignment outlives a model an admin later
+// disables, and the admin page shows it with a warning rather than losing it.
+// `features` is keyed by plain strings in the STORED shape so a feature id a
+// later release drops cannot reset the whole block on read; the admin PUT
+// body is the strict one (`ai/assignments/dto`).
+
+/**
+ * Every AI feature an administrator can assign a model to. The single list;
+ * what each needs is `AI_FEATURES` in `ai/assignments/ai-features.ts`. The
+ * training ids are `training.<role>` for every `TRAINING_AGENT_ROLES` entry
+ * (a compile-time check below keeps the two lists in step). Permanent once
+ * stored.
+ */
+export const AI_FEATURE_IDS = [
+  'gym_scan',
+  'workout_prefill',
+  'body_metric_reading',
+  'training.researcher',
+  'training.planner',
+  'training.critic',
+  'training.evaluator',
+] as const;
+
+export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];
+
+/** Every training role has a feature id; adding a role without one fails here. */
+type TrainingFeatureIdsCovered = `training.${TrainingAgentRole}` extends AiFeatureId ? true : never;
+export const TRAINING_FEATURE_IDS_COVERED: TrainingFeatureIdsCovered = true;
+
+export const aiModelRefSchema = z.object({
+  provider: z.string().min(1).max(100),
+  modelId: z.string().min(1).max(200),
+});
+
+export type AiModelRef = z.infer<typeof aiModelRefSchema>;
+
+/** One feature's assignment. `reasoningEffort` applies to the training roles only. */
+export const aiFeatureAssignmentSchema = aiModelRefSchema.extend({
+  reasoningEffort: z.enum(TASK_REASONING_EFFORTS).nullable().optional(),
+});
+
+export type AiFeatureAssignment = z.infer<typeof aiFeatureAssignmentSchema>;
+
+export const systemAiAssignmentsSchema = z.object({
+  default: aiModelRefSchema.nullable(),
+  features: z.record(z.string(), aiFeatureAssignmentSchema.nullable()),
+});
+
+export type SystemAiAssignmentsValue = z.infer<typeof systemAiAssignmentsSchema>;
+
+/** What an absent `ai.assignments` means: nothing assigned, every feature auto-picks. */
+export const EMPTY_AI_ASSIGNMENTS: SystemAiAssignmentsValue = { default: null, features: {} };
+
 export const systemAiSchema = z.object({
   enabled: z.boolean(),
   keyPolicy: z.enum(AI_KEY_POLICIES),
@@ -1141,6 +1206,12 @@ export const systemAiSchema = z.object({
     mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
   limits: systemAiLimitsSchema,
+  // #173. OPTIONAL rather than defaulted: absent reads as
+  // `EMPTY_AI_ASSIGNMENTS`, so every stored row and every policy literal
+  // written before it stays valid. Written only by
+  // `PUT /api/admin/ai/assignments` (and carried, never reset, by the other
+  // `ai` writers).
+  assignments: systemAiAssignmentsSchema.optional(),
 });
 
 export type SystemAiValue = z.infer<typeof systemAiSchema>;
@@ -1224,6 +1295,9 @@ export const systemAiPatchSchema = z.object({
   // per-model entry), and "absent means unlimited" is the one way to lift
   // one; the same reasoning as `mcpAllowedHosts` above.
   limits: systemAiLimitsSchema.optional(),
+  // #173. REPLACES WHOLESALE when present, like `limits`: a merge could never
+  // unassign a feature.
+  assignments: systemAiAssignmentsSchema.optional(),
 });
 
 // =============================================================================

@@ -233,9 +233,39 @@ describe('SystemSettingsService', () => {
         },
       });
     });
+    it('keeps the stored ai.assignments when a PUT sends ai without them (#173)', async () => {
+      const assignments = { default: { provider: 'openai', modelId: 'm1' }, features: {} };
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: { ...DEFAULT_SYSTEM_SETTINGS, ai: { ...DEFAULT_SYSTEM_SETTINGS.ai, assignments } },
+      } as any);
+      mockPrisma.systemSettings.upsert.mockImplementation(async (args: any) => ({ ...mockSystemSettings, value: args.update.value }) as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      const { assignments: _omitted, ...aiWithout } = DEFAULT_SYSTEM_SETTINGS.ai;
+      await service.replaceSettings({ ...DEFAULT_SYSTEM_SETTINGS, ai: aiWithout } as any, mockUserId);
+
+      expect((mockPrisma.systemSettings.upsert.mock.calls[0][0] as any).update.value.ai.assignments).toEqual(assignments);
+    });
   });
 
   describe('patchSettings (PATCH)', () => {
+    it('replaces ai.assignments wholesale when sent and keeps them when absent (#173)', async () => {
+      const stored = { default: { provider: 'openai', modelId: 'm1' }, features: { gym_scan: { provider: 'openai', modelId: 'v1' } } };
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: { ...DEFAULT_SYSTEM_SETTINGS, ai: { ...DEFAULT_SYSTEM_SETTINGS.ai, assignments: stored } },
+      } as any);
+      mockPrisma.systemSettings.update.mockImplementation(async (args: any) => ({ ...mockSystemSettings, value: args.data.value }) as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.patchSettings({ ai: { enabled: true } } as any, mockUserId);
+      expect((mockPrisma.systemSettings.update.mock.calls[0][0] as any).data.value.ai.assignments).toEqual(stored);
+
+      const next = { default: null, features: {} };
+      await service.patchSettings({ ai: { assignments: next } } as any, mockUserId);
+      expect((mockPrisma.systemSettings.update.mock.calls[1][0] as any).data.value.ai.assignments).toEqual(next);
+    });
+
     beforeEach(() => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue(
         mockSystemSettings as any,
@@ -1768,7 +1798,25 @@ describe('SystemSettingsService', () => {
         },
         // Absent from the stored row (written before #450) -> no limits.
         limits: {},
+        // Absent from the stored row (written before #173) -> nothing assigned.
+        assignments: { default: null, features: {} },
       });
+    });
+
+    it('keeps stored ai.assignments, and degrades a corrupt one to nothing assigned (#173)', async () => {
+      const assignments = {
+        default: { provider: 'openai', modelId: 'm1' },
+        features: { gym_scan: { provider: 'openai', modelId: 'v1' } },
+      };
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({ value: { ai: { enabled: true, assignments } } } as any);
+      expect((await service.getAiPolicy()).assignments).toEqual(assignments);
+
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: { ai: { enabled: true, assignments: { default: 'nope' } } },
+      } as any);
+      const degraded = await service.getAiPolicy();
+      expect(degraded.assignments).toEqual({ default: null, features: {} });
+      expect(degraded.enabled).toBe(true);
     });
 
     it('degrades a corrupt ai.limits to {} (unlimited) without touching its siblings (#450)', async () => {

@@ -389,6 +389,9 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     // #450: no limits — every field of `ai.limits` is optional and absent
     // means unlimited, so an upgrade never starts refusing calls by itself.
     limits: {},
+    // #173: nothing assigned — every AI feature auto-picks among the caller's
+    // usable capable models until an administrator assigns one.
+    assignments: { default: null, features: {} },
   },
   // ---------------------------------------------------------------------------
   // Telemetry policy (epic #528, story #533)
