@@ -101,6 +101,7 @@ describe('EmailNotificationChannel', () => {
       event: unregistered,
       recipient,
       data: {},
+      channels: ['email'],
     };
 
     it('records a failed result with a clear reason, rather than throwing', async () => {
@@ -139,6 +140,7 @@ describe('EmailNotificationChannel', () => {
       event: welcomeEvent,
       recipient,
       data: { recipientEmail: recipient.email, roles: ['viewer'] },
+      channels: welcomeEvent.channels,
     };
 
     beforeEach(() => {
