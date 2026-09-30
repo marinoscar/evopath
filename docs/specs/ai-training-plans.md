@@ -1,6 +1,6 @@
 # AI training plans
 
-> **Status:** shipped · **Code:** `apps/api/src/programs/`, `apps/api/src/training-agents/`, `apps/api/src/training-adaptation/`, `apps/api/src/training-usage/`, `apps/web/src/pages/Train/`, `apps/web/src/components/training/` · **API:** `/api/programs/*`, `/api/ai/training/*` (runs, adaptations, usage), `/api/training/*` (see `/api/docs`) · **User UI:** `/train/plans`, `/train/plans/new`, `/train/plans/runs/:runId`, `/train/adapt/:adaptationId`, `/settings/ai/agents` · **Runbook:** [ai-training-plans.md](../runbooks/ai-training-plans.md) · **Recipe:** [AI README, "Adding a training agent or node"](../../apps/api/src/ai/README.md#adding-a-training-agent-or-node)
+> **Status:** shipped · **Code:** `apps/api/src/programs/`, `apps/api/src/training-agents/`, `apps/api/src/training-adaptation/`, `apps/api/src/training-usage/`, `apps/web/src/pages/Train/`, `apps/web/src/components/training/` · **API:** `/api/programs/*`, `/api/ai/training/*` (runs, adaptations, usage), `/api/training/*` (see `/api/docs`) · **User UI:** `/train/plans`, `/train/plans/new`, `/train/plans/runs/:runId`, `/train/adapt/:adaptationId`, `/settings/ai/agents` (read-only role resolution) · **Runbook:** [ai-training-plans.md](../runbooks/ai-training-plans.md) · **Recipe:** [AI README, "Adding a training agent or node"](../../apps/api/src/ai/README.md#adding-a-training-agent-or-node)
 
 Four cooperating agents build and maintain a training plan. A researcher gathers cited evidence from the web, a planner drafts a plan, a critic reviews it and an evaluator adapts the plan from the person's logged training. The agents run as LangGraph graphs above the AI gateway, inside one server-only queue job per run, and every model call still goes through `AiService`. A deterministic server layer (guardrails, an adaptation envelope, a citation verifier) decides what ships; a model only proposes. A new plan arrives as a draft the owner reviews. An adaptation of an active plan is visible and reversible, or confirmable on request.
 
@@ -644,13 +644,13 @@ With the fake provider and no key: start the stack with `fake-ai.compose.yml` an
 
 Real-key smoke checklist (manual, never in CI; `openai.adapter.live.spec.ts` shows the opt-in pattern for a live suite). A normal run is two provider calls, three with a revise. Record your own token counts from the usage panel rather than quoting a range.
 
-1. Set a real key and planner and critic models at `/settings/ai/agents`; check both roles resolve.
+1. As an administrator, set a real key and assign the planner and critic models at `/admin/settings/ai/assignments`; as the tester, check at `/settings/ai/agents` that both roles resolve.
 2. With an active plan and a workout today, open Adjust, choose 30 minutes, Sore chest (mild) and Only dumbbells. Confirm "What will be sent" holds no name, gym name or note, and the stages advance.
 3. In the review, check every exercise is supported by dumbbells, no exercise has more sets or RPE than planned, the estimate is at most 30 minutes, and the rationale matches. Note the per-role tokens and key source.
 4. Use for today only: the logger opens prefilled and the plan is unchanged. Repeat and choose Update my plan: a new plan version with an `adapted` change-log entry, and revert restores the previous one.
 5. Type "chest pain and dizzy" in the note: the guidance card appears, no run starts and the usage panel shows no new call.
 6. Different place: scan two hotel photos, confirm the equipment, adapt, finish the workout and choose Save gym; it appears under permanent gyms.
-7. Set a small run token cap in user settings and adapt again: the cap message appears and, if the proposal exists, "Not reviewed by the critic".
+7. Lower the per-run token limit in your AI settings (`ai.training.maxRunTokens`) and adapt again: the cap message appears and, if the proposal exists, "Not reviewed by the critic".
 8. Turn AI off at `/admin/settings/ai`: the entry explains, and the planned workout still starts.
 
 ## History

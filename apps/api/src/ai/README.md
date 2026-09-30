@@ -642,9 +642,11 @@ model, two apply routes and a purge. Copy its shape. It demonstrates:
 - **A graph with a conditional critic loop.** `context`, `adapt`, `guardrails`,
   `critic`, at most one revise, `finalize`; the routes are pure functions
   (`graph/routes.ts`).
-- **Per-role models.** The planner and critic models come from the user's
-  `ai.taskModels`, resolved and frozen on the run at create (409
-  `TRAINING_ROLE_UNAVAILABLE` when a role is unusable).
+- **Per-role models.** The planner and critic models are the administrator's
+  assignments for `training.planner` and `training.critic`, resolved by
+  `TrainingModelResolver` and frozen on the run at create (409
+  `TRAINING_ROLE_UNAVAILABLE` when a role is unusable, with a fix an admin
+  applies at `/admin/settings/ai/assignments`).
 - **Attributable usage.** The handler calls `AiService.forUser(userId, { jobId })`
   and every node goes through `AgentCaller` with a `role` and `node`, so
   usage is reported per node and role.

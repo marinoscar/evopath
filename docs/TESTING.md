@@ -764,7 +764,7 @@ the training-plans spec. It needs the `fake-ai.compose.yml` overlay and no real
 key, runs serially because the fake's scenario and log are global, and is
 skipped when `E2E_AI=0`. Its helpers are `setupFakeAdaptationAi` and its
 teardown in `tests/e2e/helpers/ai.helper.ts` (enable AI, point the compatible
-provider at the fake, classify the models, choose the roles, restore in
+provider at the fake, classify the models, assign the planner and critic models through the admin assignments API, restore in
 `afterAll`) and `tests/e2e/helpers/training.helper.ts` (seeds a gym, an active
 plan and a check-in through the API). The hotel test uploads photos
 (`tests/e2e/fixtures/hotel-gym-1.jpg`, `hotel-gym-2.jpg`; the fake ignores
