@@ -397,7 +397,13 @@ describe('research node', () => {
   it('an abort mid-call leaves a resumable checkpoint: a fresh runner re-runs research and continues', async () => {
     const prepare = async () => ({ context: { researcher: CONTEXT } });
     // The downstream agent nodes are stubbed: this test is about research.
-    const nodes = { prepare_context: prepare, plan: STUB_AGENT_NODES.plan, guardrails: STUB_AGENT_NODES.guardrails };
+    const nodes = {
+      prepare_context: prepare,
+      plan: STUB_AGENT_NODES.plan,
+      guardrails: STUB_AGENT_NODES.guardrails,
+      critique: STUB_AGENT_NODES.critique,
+      finalize: STUB_AGENT_NODES.finalize,
+    };
     let block = true;
     const blocking: AgentScript = (_req, ctx) =>
       new Promise((resolve, reject) => {

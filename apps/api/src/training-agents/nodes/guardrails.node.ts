@@ -6,6 +6,7 @@ import type { GraphNode, NodeFn } from '../graph/node-context';
 import { applyGuardrails, summarizeReport } from '../guardrails';
 import { type GuardrailReport, guardrailContextOf } from '../guardrails/types';
 import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
+import type { RunState } from '../graph/run-state';
 import { TrainingRunFailedError } from '../runtime/training-run-errors';
 import { draftStateOf } from './plan.node';
 import { runContextOf } from './prepare-context.node';
@@ -38,6 +39,14 @@ export interface GuardrailNodeOutput {
 }
 
 export const DRAFT_MISSING = 'TRAINING_DRAFT_MISSING';
+
+/** The latest guardrail output, if the state holds one (a stub marker or nothing is `null`). */
+export function guardrailOutputOf(state: Pick<RunState, 'guardrailReport'>): GuardrailNodeOutput | null {
+  const value = state.guardrailReport as Partial<GuardrailNodeOutput> | null;
+  if (!value || typeof value.round !== 'number' || !value.tree || !value.header || !value.report) return null;
+  if (!Array.isArray(value.tree.blocks) || !Array.isArray(value.report.violations)) return null;
+  return value as GuardrailNodeOutput;
+}
 
 /** Unique `{ rule, summary }` of the repairs and blocks, for the event (at most 50). */
 export function eventRepairs(report: GuardrailReport): Array<{ rule: GuardrailReport['violations'][number]['rule']; summary: string }> {

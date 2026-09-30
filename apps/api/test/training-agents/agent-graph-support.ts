@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { NodeFn } from '../../src/training-agents/graph/node-context';
 import type { RunState } from '../../src/training-agents/graph/run-state';
 import type { AgentScript } from '../../src/training-agents/testing/node-context-harness';
-import { STUB_AGENT_NODES } from '../../src/training-agents/testing/stub-agent-nodes';
+import { STUB_AGENT_NODES, stubVerdict } from '../../src/training-agents/testing/stub-agent-nodes';
 import type { TrainingAgentRole } from '../../src/common/schemas/settings.schema';
 
 /** Per-call usage every scripted response reports. */
@@ -101,7 +101,8 @@ export const AGENT_NODES: Record<string, NodeFn> = {
       instructions: 'Critique the draft.',
       input: JSON.stringify(state.draft),
     });
-    return { verdicts: [parsed], roundCounters: { critique: round } };
+    // The rubric verdict the ship decision reads, from the scripted yes/no.
+    return { verdicts: [{ ...stubVerdict(parsed.approve ? 'approve' : 'revise'), round }], roundCounters: { critique: round } };
   },
   evaluate: async (_state, ctx) => {
     const { parsed } = await ctx.agent.structured({

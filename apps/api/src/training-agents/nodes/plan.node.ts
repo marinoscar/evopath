@@ -7,6 +7,8 @@ import { runPlanner } from '../agents/planner/planner.agent';
 import type { PlannerReview } from '../agents/planner/planner.prompt';
 import type { GraphNode, NodeFn } from '../graph/node-context';
 import type { RunState } from '../graph/run-state';
+import { TRAINING_RUN_WARNINGS, guardrailStatusOf } from '../graph/routes';
+import { RunBudgetExceededError } from '../runtime/run-budget';
 import { TrainingRunFailedError } from '../runtime/training-run-errors';
 import type { GuardrailNodeOutput } from './guardrails.node';
 import { runContextOf } from './prepare-context.node';
@@ -24,6 +26,10 @@ import { runContextOf } from './prepare-context.node';
 // Emits `plan.draft { round, weeks, workouts, exercises }` and returns
 // `{ draft: PlanDraftState }`. The draft is checked and repaired by the
 // `guardrails` node next; nothing here decides whether it ships.
+//
+// A revision the token budget cannot pay for (`RunBudgetExceededError`
+// before the call) records `critic_skipped_budget` instead, when the previous
+// draft passed the guardrails: the route then finalizes that draft.
 // =============================================================================
 
 /** The critic's last verdict, read loosely (its contract belongs to the critic). */
@@ -81,7 +87,18 @@ export const runPlan: NodeFn = async (state, ctx) => {
 
   const previous = draftStateOf(state);
   const round = previous ? previous.round + 1 : 1;
-  const outcome = await runPlanner(ctx, { context: context.planner, brief: state.brief, review: reviewOf(state), round });
+  let outcome: Awaited<ReturnType<typeof runPlanner>>;
+  try {
+    outcome = await runPlanner(ctx, { context: context.planner, brief: state.brief, review: reviewOf(state), round });
+  } catch (err) {
+    // A revision the budget cannot pay for: ship the previous draft, which
+    // the guardrails already checked, when they did not block it.
+    const status = guardrailStatusOf(state);
+    if (err instanceof RunBudgetExceededError && previous && status !== null && status !== 'blocked') {
+      return { warnings: [TRAINING_RUN_WARNINGS.SKIPPED_BUDGET] };
+    }
+    throw err;
+  }
 
   await ctx.emit('plan.draft', { round, ...draftCounts(outcome.draft) });
 

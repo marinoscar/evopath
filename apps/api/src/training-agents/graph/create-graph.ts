@@ -3,9 +3,10 @@
 // =============================================================================
 //
 //   START -> prepare_context --create--> research -> plan -> guardrails -> critique -> route
-//                            \--revise-----------------^                              |
-//                                                      ^---- revise (round < max) ----|
-//                                     approve, or the critic rounds are spent -> finalize -> END
+//                            \--revise-----------------^  |                           |
+//                                                      ^--|-- revise (round < max) ---|
+//                                                         |   ship, exhausted, skipped -> finalize -> END
+//                        budget spent on a revision ------+-----------------------------^
 //
 // ONE OF THE TWO FILES (with `evaluate-graph.ts`) THAT KNOWS LANGGRAPH, apart
 // from the runner and the checkpoint saver. Nodes are plain functions over
@@ -28,7 +29,7 @@ import { Annotation, END, START, StateGraph, interrupt, isGraphInterrupt } from 
 
 import { CREATE_GRAPH_NODES, type CreateGraphNodeName } from '../nodes';
 import type { GraphNode, NodeContext, NodeFn, NodeInterruptRequest } from './node-context';
-import { routeAfterCritique, routeAfterPrepare } from './routes';
+import { routeAfterCritique, routeAfterPlan, routeAfterPrepare } from './routes';
 import type { RunApproval, RunKind, RunOutcome, RunState } from './run-state';
 import { DEFAULT_MAX_CRITIC_ROUNDS } from './run-state';
 
@@ -128,7 +129,7 @@ export function buildCreateGraph(deps: TrainingGraphDeps<CreateGraphNodeName>) {
     .addEdge(START, 'prepare_context')
     .addConditionalEdges('prepare_context', routeAfterPrepare, ['research', 'plan'])
     .addEdge('research', 'plan')
-    .addEdge('plan', 'guardrails')
+    .addConditionalEdges('plan', routeAfterPlan, ['guardrails', 'finalize'])
     .addEdge('guardrails', 'critique')
     .addConditionalEdges('critique', routeAfterCritique, ['plan', 'finalize'])
     .addEdge('finalize', END)
