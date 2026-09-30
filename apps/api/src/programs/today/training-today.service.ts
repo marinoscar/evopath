@@ -1,21 +1,25 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import { CheckInsService } from '../../check-ins/check-ins.service';
 import { fromDbDate, toDbDate } from '../../check-ins/local-date';
 import { ExerciseAvailabilityService, isAvailable, type RequirementRow } from '../../exercises/exercise-availability.service';
+import { isUniqueViolation } from '../../gyms/gym-views';
 import { PrismaService } from '../../prisma/prisma.service';
+import { WorkoutsService } from '../../workouts/workouts.service';
 import type { LoadGuidance, PlanExercise, PlanWorkout } from '../contracts/plan-tree.contract';
 import { liveTreeOf } from '../plan-diff';
 import { loadProgramRows } from '../program-mapper';
 import type { ChangeActor } from '../programs.constants';
 import type {
   ProgramWorkoutRefData,
+  StartProgramWorkoutInput,
+  StartProgramWorkoutResultData,
   TodaySessionData,
   TodaySessionExerciseData,
   TrainingTodayData,
 } from './dto/training-today.dto';
-import { suggestedLoadKg, topSetOf, type LastTimeTopSet } from './planned-session';
+import { plannedSnapshotOf, prefilledSets, suggestedLoadKg, topSetOf, type LastTimeTopSet } from './planned-session';
 import { resolveToday } from './resolve-today';
 import { TODAY_DATE_WINDOW_DAYS, TODAY_REASONS } from './training-today.constants';
 
@@ -27,14 +31,24 @@ import { TODAY_DATE_WINDOW_DAYS, TODAY_REASONS } from './training-today.constant
 // client's local day (`resolveToday`, pure) and hydrates it with exercises,
 // last-time hints and gym availability. It computes no new prescription.
 //
-// The only write here is the guarded `active -> completed` flip once the
+// The only write on read is the guarded `active -> completed` flip once the
 // plan's last week is over: one `updateMany ... WHERE status = 'active'`, so
 // concurrent reads flip it exactly once.
+//
+// START creates the E4 workout through `WorkoutsService.startPrefilled` and
+// the `program_sessions` link (plan version + planned snapshot) in ONE
+// transaction. One in-progress workout per user is decided by E4's partial
+// unique index: on a violation the transaction is gone, and the winner is
+// read outside it (same planned workout: returned, `existing: true`; another
+// workout: 409 `WORKOUT_IN_PROGRESS`). Never a findFirst pre-check.
 //
 // Owner-scoped. No AI: works with AI switched off and for manual plans.
 // =============================================================================
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Start reads the plan and last-time hints and writes the workout in one transaction. */
+const START_TX_TIMEOUT_MS = 15_000;
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -48,6 +62,7 @@ export class TrainingTodayService {
     private readonly prisma: PrismaService,
     private readonly checkIns: CheckInsService,
     private readonly availability: ExerciseAvailabilityService,
+    private readonly workouts: WorkoutsService,
   ) {}
 
   /** 400 `TODAY_OUT_OF_RANGE` unless `date` is within the window of the server's today. */
@@ -128,6 +143,165 @@ export class TrainingTodayService {
         };
       }
     }
+  }
+
+  /**
+   * Starts a planned workout into the E4 logger, prefilled, and links it with
+   * the plan version and a snapshot of the prescription. Idempotent for the
+   * same planned workout while it is in progress.
+   */
+  async start(
+    userId: string,
+    programWorkoutId: string,
+    input: StartProgramWorkoutInput,
+    now: Date = new Date(),
+  ): Promise<StartProgramWorkoutResultData> {
+    await this.assertDateInWindow(userId, input.date, now);
+
+    // Two attempts: the in-progress winner may finish between our failed
+    // insert and the read, in which case the retry inserts cleanly.
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.prisma.$transaction((tx) => this.startTx(tx, userId, programWorkoutId, input, now), {
+          timeout: START_TX_TIMEOUT_MS,
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+
+        const winner = await this.prisma.workout.findFirst({
+          where: { userId, status: 'in_progress' },
+          select: {
+            id: true,
+            programWorkoutId: true,
+            programSession: { select: { programWorkoutId: true, versionNumber: true } },
+          },
+        });
+        if (winner) {
+          const sameSession =
+            winner.programWorkoutId === programWorkoutId || winner.programSession?.programWorkoutId === programWorkoutId;
+          if (!sameSession) {
+            throw new ConflictException({
+              message: 'Another workout is in progress. Resume or finish it first.',
+              details: { reason: TODAY_REASONS.WORKOUT_IN_PROGRESS, workoutId: winner.id },
+            });
+          }
+          const planVersion =
+            winner.programSession?.versionNumber ??
+            (await this.prisma.program.findFirst({
+              where: { userId, weeks: { some: { workouts: { some: { id: programWorkoutId } } } } },
+              select: { currentVersion: true },
+            }))?.currentVersion ??
+            1;
+          return { workoutId: winner.id, existing: true, planVersion };
+        }
+        if (attempt >= 1) throw error;
+      }
+    }
+  }
+
+  private async startTx(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    programWorkoutId: string,
+    input: StartProgramWorkoutInput,
+    now: Date,
+  ): Promise<StartProgramWorkoutResultData> {
+    const programWorkout = await tx.programWorkout.findFirst({
+      where: {
+        id: programWorkoutId,
+        archivedAt: null,
+        week: { archivedAt: null, block: { archivedAt: null }, program: { userId } },
+      },
+      select: { id: true, name: true, week: { select: { programId: true } } },
+    });
+    if (!programWorkout) throw new NotFoundException('Program workout not found');
+    const programId = programWorkout.week.programId;
+
+    // A share lock on the program row: a concurrent `applyChange` (which
+    // updates this row) waits for us or we wait for it, so the version and
+    // the tree read below belong together.
+    await tx.$queryRaw`SELECT 1 FROM "programs" WHERE "id" = ${programId}::uuid FOR SHARE`;
+    const program = await tx.program.findFirst({
+      where: { id: programId, userId },
+      select: { status: true, gymId: true, currentVersion: true },
+    });
+    if (!program) throw new NotFoundException('Program workout not found');
+    if (program.status !== 'active') {
+      throw new ConflictException({
+        message: `This plan is ${program.status}; activate it to start its workouts.`,
+        details: { reason: TODAY_REASONS.PROGRAM_NOT_ACTIVE, status: program.status },
+      });
+    }
+
+    const rows = await tx.programExercise.findMany({
+      where: { programWorkoutId },
+      orderBy: [{ position: 'asc' }, { id: 'asc' }],
+      select: {
+        exerciseId: true,
+        equipmentTypeId: true,
+        isPriority: true,
+        targetSets: true,
+        repMin: true,
+        repMax: true,
+        targetRpe: true,
+        targetLoadKg: true,
+        loadGuidance: true,
+        exercise: { select: { slug: true, trackingMode: true } },
+      },
+    });
+    if (rows.length === 0) {
+      throw new ConflictException({
+        message: 'This planned workout has no exercises.',
+        details: { reason: TODAY_REASONS.PROGRAM_WORKOUT_EMPTY },
+      });
+    }
+
+    const planned = rows.map((row) => ({
+      exerciseId: row.exerciseId,
+      equipmentTypeId: row.equipmentTypeId,
+      slug: row.exercise.slug,
+      trackingMode: row.exercise.trackingMode,
+      targetSets: row.targetSets,
+      repMin: row.repMin,
+      repMax: row.repMax,
+      targetRpe: row.targetRpe === null ? null : Number(row.targetRpe),
+      targetLoadKg: row.targetLoadKg === null ? null : Number(row.targetLoadKg),
+      loadGuidance: row.loadGuidance,
+      isPriority: row.isPriority,
+    }));
+    const lastTimes = await lastTimeByExercise(tx, userId, [...new Set(planned.map((row) => row.exerciseId))], input.date);
+
+    const created = await this.workouts.startPrefilled(
+      tx,
+      userId,
+      {
+        name: programWorkout.name,
+        date: input.date,
+        gymId: input.gymId ?? program.gymId,
+        programWorkoutId,
+        exercises: planned.map((row) => ({
+          exerciseId: row.exerciseId,
+          equipmentTypeId: row.equipmentTypeId,
+          sets: prefilledSets(row, lastTimes.get(row.exerciseId) ?? null),
+        })),
+      },
+      now,
+    );
+
+    await tx.programSession.create({
+      data: {
+        userId,
+        programId,
+        programWorkoutId,
+        workoutId: created.id,
+        versionNumber: program.currentVersion,
+        plannedSnapshot: plannedSnapshotOf(planned) as unknown as Prisma.InputJsonValue,
+        plannedFor: toDbDate(input.date),
+        startedAt: now,
+      },
+    });
+
+    return { workoutId: created.id, existing: false, planVersion: program.currentVersion };
   }
 
   /**

@@ -34,7 +34,28 @@ import { WorkoutHistoryService } from './workout-history.service';
 import { lockOwnedWorkout } from './workout-lock';
 import { WorkoutPhotoStorageService } from './workout-photo-storage.service';
 import { daysBetween, isoWeekStart, topLifts } from './workout-summary';
-import { WORKOUT_DATE_WINDOW_DAYS, WORKOUT_FUTURE_SKEW_MS, WORKOUT_REFUSALS } from './workouts.constants';
+import {
+  MAX_EXERCISES_PER_WORKOUT,
+  MAX_SETS_PER_EXERCISE,
+  WORKOUT_DATE_WINDOW_DAYS,
+  WORKOUT_FUTURE_SKEW_MS,
+  WORKOUT_NAME_MAX,
+  WORKOUT_REFUSALS,
+} from './workouts.constants';
+
+/** A workout started from a plan (E5.7): exercises in order, each with its prefilled sets. */
+export interface PrefilledWorkoutInput {
+  name: string;
+  /** The local calendar day, `YYYY-MM-DD`, already validated by the caller. */
+  date: string;
+  gymId: string | null;
+  programWorkoutId: string | null;
+  exercises: Array<{
+    exerciseId: string;
+    equipmentTypeId: string | null;
+    sets: Array<{ setNumber: number; weightKg: number | null; reps: number | null }>;
+  }>;
+}
 
 // =============================================================================
 // WorkoutsService — start, list, read, edit, finish and delete workouts (E4.2)
@@ -125,6 +146,64 @@ export class WorkoutsService {
         if (attempt >= 1) throw error;
       }
     }
+  }
+
+  /**
+   * Creates an in-progress workout with its exercises and UNCOMPLETED sets
+   * inside the caller's transaction: the seam a planned session (E5.7) starts
+   * through, so the programs module never writes E4 tables. The caller
+   * validates `date`; this checks the gym belongs to the caller (404) and the
+   * per-workout limits (400).
+   *
+   * One in-progress workout per user still holds: when
+   * `workouts_user_in_progress_uniq_idx` refuses the insert, the unique
+   * violation (P2002) propagates unchanged. The caller's transaction is then
+   * aborted, so the caller reads the winner outside it.
+   */
+  async startPrefilled(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    input: PrefilledWorkoutInput,
+    now: Date = new Date(),
+  ): Promise<{ id: string }> {
+    if (input.exercises.length > MAX_EXERCISES_PER_WORKOUT) {
+      throw workoutRefusal(400, WORKOUT_REFUSALS.WORKOUT_EXERCISE_LIMIT, `A workout holds at most ${MAX_EXERCISES_PER_WORKOUT} exercises`);
+    }
+    if (input.exercises.some((exercise) => exercise.sets.length > MAX_SETS_PER_EXERCISE)) {
+      throw workoutRefusal(400, WORKOUT_REFUSALS.WORKOUT_SET_LIMIT, `An exercise holds at most ${MAX_SETS_PER_EXERCISE} sets`);
+    }
+    if (input.gymId) await this.gyms.findOwned(userId, input.gymId, tx);
+
+    const readinessSnapshot = await this.readinessSnapshot(userId);
+
+    return tx.workout.create({
+      data: {
+        userId,
+        name: input.name.slice(0, WORKOUT_NAME_MAX),
+        date: toDbDate(input.date),
+        status: 'in_progress',
+        startedAt: now,
+        gymId: input.gymId,
+        programWorkoutId: input.programWorkoutId,
+        readinessSnapshot: readinessSnapshot ? (readinessSnapshot as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+        exercises: {
+          create: input.exercises.map((exercise, position) => ({
+            exerciseId: exercise.exerciseId,
+            position,
+            equipmentTypeId: exercise.equipmentTypeId,
+            sets: {
+              create: exercise.sets.map((set) => ({
+                setNumber: set.setNumber,
+                weightKg: set.weightKg,
+                reps: set.reps,
+                completed: false,
+              })),
+            },
+          })),
+        },
+      },
+      select: { id: true },
+    });
   }
 
   async list(userId: string, query: ListWorkoutsQuery): Promise<WorkoutListData> {
