@@ -10,10 +10,12 @@ import {
   assertValidContainerName,
   assertValidDomain,
   certbotArgv,
+  certificateServedMatchesDisk,
   certificateStatus,
   CONTAINER_CERT_ROOT,
   CONTAINER_WEBROOT,
   DEFAULT_PROXY_CONTAINER,
+  describeReloadCommand,
   installVhost,
   issueCertificate,
   parseProxyMode,
@@ -806,5 +808,170 @@ describe('resolveRecordedProxyRuntime: flag > record > detect, per field', () =>
     });
 
     expect(runtime).toMatchObject({ mode: 'host', container: 'flagged-proxy' });
+  });
+});
+
+// =============================================================================
+// certificateServedMatchesDisk (issue #205): does the certificate the proxy
+// ACTUALLY SERVES over TLS match the one on disk? Neither the health probes
+// (plain HTTP to 127.0.0.1) nor certificateExpiry (reads the file only) can
+// answer this -- this is the one place that actually connects.
+//
+// X509Certificate needs real, parseable DER/PEM, so these are two small real
+// self-signed certificates, generated once with:
+//   openssl req -x509 -newkey rsa:2048 -nodes -keyout /dev/null -days 3650 \
+//     -subj "/CN=test-a"   (and "/CN=test-b" for the second)
+// and inlined here as string constants -- not fabricated by hand.
+// =============================================================================
+
+const CERT_A = `-----BEGIN CERTIFICATE-----
+MIIDAzCCAeugAwIBAgIUQl3s/TajaCF+hNqOhCYG8bFOTy0wDQYJKoZIhvcNAQEL
+BQAwETEPMA0GA1UEAwwGdGVzdC1hMB4XDTI2MDkzMDIzMDk0MloXDTM2MDkyNzIz
+MDk0MlowETEPMA0GA1UEAwwGdGVzdC1hMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEAuVkysGXIf48aRt+AiXPLlyJaZoFa/EMTbxMg3H2N/RypqKm7WLa3
+zrYxBxI30Pa00dF3kTT6FV5R32GgJFWaENxlY8r/tprpx2QDSRm44yPemzJAr5bA
+79le+zQIOaL1+a5GNgmhpf5LllZ9P8s300BHyKj3HvUNJl5esBywEc+uvPlKaLCU
+5vuU/WwTZyDUU9jAzM4j5BBKj94NVo+Wb7c+SbGI1eQ/XnP4I5AVuTUa3PAjuUYh
+mqWRQa9c3r/klz+lXz7Ew5iutUNEnC5Rrpe6+Vfeybw+kCIKERfuJFoocjJFIX7T
++vIj+v2fQACnbb36v9C2wmtyzF0ip01IzQIDAQABo1MwUTAdBgNVHQ4EFgQUp2os
+5LUbM9tRE+YpYkkddQERxyQwHwYDVR0jBBgwFoAUp2os5LUbM9tRE+YpYkkddQER
+xyQwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEADdFwZ5Kmr1Ur
+IVaZzmFc8OuL6kdpBsj7SN+6+DN+xaPXSrK6mi2MhpQ//hKrn6Dkn4wllwd9elpJ
+roPCL1KEZTxY0+5qBP16GBKsPbc/P7A3iDyAjhhu9qajxIJXbqNR7sCuLX5DUWUh
+w9l9+mJqGXkePORExJ8XuJSGztEsms88hsdDNEfiFnxmVdzDzw0C22wY0h0nD6vb
+5z3Z63DrHXQIKzicghzI5m8Um2X64Rmrx8wMw318EI5f8xk1DHAkO3bsvLQG7vIA
+hCDXV1pLYncAA9C79QfQUZfus+2zxz+cFhl96WsKrbbuLJQfjeihsVUfOdHf7XOV
+CSBzweNCtw==
+-----END CERTIFICATE-----
+`;
+
+const CERT_B = `-----BEGIN CERTIFICATE-----
+MIIDAzCCAeugAwIBAgIUVzbxdztP65NfeCHLN/HkF6VOWqYwDQYJKoZIhvcNAQEL
+BQAwETEPMA0GA1UEAwwGdGVzdC1iMB4XDTI2MDkzMDIzMDk0MloXDTM2MDkyNzIz
+MDk0MlowETEPMA0GA1UEAwwGdGVzdC1iMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEAjAYREni3yTVCWT+m02zvW3gHDs/Ctob8n4mb7SJFBE0C5H5Ccz2c
+55IxdXLzGnybfgU2MIHH52UtjpSou/ly2hdnunD02BjT12eVAL0IDBg7t3vqPc4V
+hdPBSfvCHIbLQyfc5NUgHCuS3RjsySGoBYfn5sWn2SN/YFrFFFKrYaKioztsT6tZ
+XnA24mKJiWJZg9JpswpzTz8q/6SszhaMA//nQKjdb+OXHn1/NoC8Bqx3hoEwEga0
+zOKnYiKBCQrYIcC0Y+l/RMS1XJxTEMMoo13maeZpjskeacOoNH0C9K26Gv426YIr
+ru37bWiuyNcNOU7NQo9HMEqkxJxmfGxZvQIDAQABo1MwUTAdBgNVHQ4EFgQU84Yn
+gERGYL4q8394FqoPNLBqitcwHwYDVR0jBBgwFoAU84YngERGYL4q8394FqoPNLBq
+itcwDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAfXZVSMzZzXYl
+wA5sfJ6UyTocXNY8FTvi1Nxfk7bbDDPQg4RZUPjy/Lbe3S1T3uFKEUe+5X6zhLLh
+3l+akFLYO2jiP6oxKtKFtt+Gk34+tJ+pk8rIsvGncItZ7lPebN8F33SuUGNzwNIF
+vtKVulDTnI/aN58dI6jhIOIbo0VhIm+R1/zMoFAvemzEBZkrpVy1EzZox13aN0hs
+8MX1+PnLtEbM8gLkfnfZPpz8+eYiPoPL0Sq+UAmCy+PCXenJauBMIYnzKjXl8w50
++FChWtMv4PyxUcPR3/lPvKZRHa+WrnmWv4E1ZXN1kqdkB96CZ1bca/5ZbVsQaFBZ
+ud8V2TuBRQ==
+-----END CERTIFICATE-----
+`;
+
+describe('certificateServedMatchesDisk', () => {
+  function installCert(proxyRoot: string, pem: string): void {
+    const dir = join(proxyRoot, 'letsencrypt', 'live', 'app.example.test');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'fullchain.pem'), pem);
+  }
+
+  /** A realistic `openssl s_client` transcript wrapping the given PEM block. */
+  function sClientOutput(pem: string): string {
+    return `CONNECTED(00000003)\n---\nCertificate chain\n 0 s:CN = test\n${pem}---\nNo client certificate CA names sent\n---\n`;
+  }
+
+  it('reports unchecked, and never probes the network, when there is no certificate on disk', async () => {
+    const root = makeProxyRoot();
+    const calls: string[][] = [];
+
+    const result = await certificateServedMatchesDisk(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+    });
+
+    expect(result).toEqual({ checked: false });
+    expect(calls).toEqual([]);
+  });
+
+  it('matches when the served certificate is byte-identical to the one on disk', async () => {
+    const root = makeProxyRoot();
+    installCert(root, CERT_A);
+    const calls: string[][] = [];
+
+    const result = await certificateServedMatchesDisk(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: sClientOutput(CERT_A) }), calls),
+    });
+
+    expect(result.checked).toBe(true);
+    expect(result.matches).toBe(true);
+    expect(result.diskIssuer).toBe('CN=test-a');
+    expect(result.servedIssuer).toBe('CN=test-a');
+    expect(calls).toEqual([
+      ['openssl', 's_client', '-connect', 'app.example.test:443', '-servername', 'app.example.test'],
+    ]);
+  });
+
+  it('does not match when the served certificate differs from the one on disk', async () => {
+    const root = makeProxyRoot();
+    installCert(root, CERT_A);
+
+    const result = await certificateServedMatchesDisk(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: sClientOutput(CERT_B) })),
+    });
+
+    expect(result.checked).toBe(true);
+    expect(result.matches).toBe(false);
+    expect(result.diskIssuer).toBe('CN=test-a');
+    expect(result.servedIssuer).toBe('CN=test-b');
+  });
+
+  it('gives up cleanly, naming the domain, when openssl s_client fails with nothing usable', async () => {
+    const root = makeProxyRoot();
+    installCert(root, CERT_A);
+    const run: typeof import('./executor.js').runCommand = (async () => {
+      throw new Error('connect: connection refused');
+    }) as typeof import('./executor.js').runCommand;
+
+    const result = await certificateServedMatchesDisk(target(root), { runCommand: run });
+
+    expect(result.checked).toBe(false);
+    expect(result.detail).toContain('app.example.test');
+  });
+
+  it('still compares when s_client exits non-zero but already printed a certificate (abrupt EOF close)', async () => {
+    const root = makeProxyRoot();
+    installCert(root, CERT_A);
+
+    const result = await certificateServedMatchesDisk(target(root), {
+      runCommand: fakeRunCommand(() => ({
+        exitCode: 1,
+        stdout: sClientOutput(CERT_A),
+        stderr: '4590060:error:0A000126:SSL routines::unexpected eof while reading',
+      })),
+    });
+
+    expect(result.checked).toBe(true);
+    expect(result.matches).toBe(true);
+  });
+
+  it('reports unchecked, naming the domain, when the output has no certificate block at all', async () => {
+    const root = makeProxyRoot();
+    installCert(root, CERT_A);
+
+    const result = await certificateServedMatchesDisk(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'no certificate here\n' })),
+    });
+
+    expect(result.checked).toBe(false);
+    expect(result.detail).toContain('app.example.test');
+  });
+});
+
+describe('describeReloadCommand', () => {
+  it('reuses reloadProxy\'s own argv: docker exec under a container runtime', () => {
+    expect(describeReloadCommand({ mode: 'container', container: 'infra-proxy-1' })).toBe(
+      'sudo docker exec infra-proxy-1 nginx -s reload',
+    );
+  });
+
+  it('is plain nginx -s reload on the host', () => {
+    expect(describeReloadCommand({ mode: 'host', container: 'unused' })).toBe('sudo nginx -s reload');
   });
 });

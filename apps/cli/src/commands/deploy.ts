@@ -36,10 +36,13 @@ import {
 import {
   assertValidContainerName,
   certificateExpiry,
+  certificateServedMatchesDisk,
+  describeReloadCommand,
   parseProxyMode,
   renewCertificate,
   resolveRecordedProxyRuntime,
   RENEW_WITHIN_DAYS,
+  type CertificateMatchResult,
   type ProxyMode,
   type ProxyTarget,
   type ResolvedProxyRuntime,
@@ -643,23 +646,20 @@ export async function runCertsCommand(
     proxyRoot: state?.proxyRoot ?? options.proxyRoot,
   };
 
-  // Resolved only for --renew: reporting reads the host files and needs no
-  // runtime, and stays free of docker probes.
-  const runtime: ResolvedProxyRuntime | undefined =
-    options.renew === true
-      ? await resolveRecordedProxyRuntime({
-          proxyRoot: target.proxyRoot,
-          flags: proxy,
-          recorded: state,
-          runCommand: run,
-        })
-      : undefined;
+  // Always resolved now (issue #205): the served-vs-disk check below needs it
+  // to name the exact remedy command whether or not --renew was asked for.
+  const runtime: ResolvedProxyRuntime = await resolveRecordedProxyRuntime({
+    proxyRoot: target.proxyRoot,
+    flags: proxy,
+    recorded: state,
+    runCommand: run,
+  });
 
   const report = options.renew === true
     ? await renewCertificate(target, {
         runCommand: run,
         // Which certbot runs, and where the post-renewal reload happens.
-        ...(runtime === undefined ? {} : { runtime }),
+        runtime,
         email: options.email ?? emailFor(app.deployRoot),
         ...(options.force === undefined ? {} : { force: options.force }),
         ...(options.staging === undefined ? {} : { staging: options.staging }),
@@ -676,10 +676,26 @@ export async function runCertsCommand(
         reason: 'reported only; pass --renew to act',
       }));
 
+  // Whether what the proxy actually SERVES matches what's on disk (#205):
+  // the one check neither the health probes (never go through TLS) nor the
+  // expiry/renewal report above (only ever reads the file) can catch. Run
+  // whenever there is a certificate to compare against, report-only calls
+  // included -- that is the ordinary way an operator asks "is this actually
+  // working", with no --renew involved at all.
+  const served: CertificateMatchResult = report.exists
+    ? await certificateServedMatchesDisk(target, { runCommand: run })
+    : { checked: false };
+
   if (options.json === true) {
-    stdout.write(`${JSON.stringify({ domain, ...report, notAfter: report.notAfter?.toISOString() ?? null }, null, 2)}\n`);
+    stdout.write(
+      `${JSON.stringify(
+        { domain, ...report, notAfter: report.notAfter?.toISOString() ?? null, served },
+        null,
+        2,
+      )}\n`,
+    );
   } else {
-    stderr.write(`${renderCerts(domain, report)}\n`);
+    stderr.write(`${renderCerts(domain, report, served, runtime)}\n`);
   }
 
   // A certificate that is due and was not renewed is a non-zero exit, so a cron
@@ -697,6 +713,18 @@ export async function runCertsCommand(
   if (report.renewed && !report.reloaded) {
     throw new DeploymentUnhealthyError(
       `The certificate for ${domain} was renewed, but the proxy was not reloaded, so the old certificate is still being served. ${report.reason}`,
+    );
+  }
+
+  // The proxy is serving something other than what's on disk -- most often a
+  // certificate that WAS replaced correctly, but that the proxy was never
+  // told to reload (#199, #205). Exit non-zero so this is never silently
+  // "fine" just because the file on disk looks right.
+  if (served.checked && served.matches === false) {
+    throw new DeploymentUnhealthyError(
+      `The certificate for ${domain} on disk does not match what the proxy is serving ` +
+        `(served issuer: ${served.servedIssuer ?? 'unknown'}; disk issuer: ${served.diskIssuer ?? 'unknown'}). ` +
+        `The proxy needs to reload to pick up the certificate that is already on disk: ${describeReloadCommand(runtime)}`,
     );
   }
 }
@@ -718,6 +746,8 @@ function emailFor(deployRoot: string): string {
 export function renderCerts(
   domain: string,
   report: { exists: boolean; path: string; notAfter: Date | null; daysRemaining: number | null; dueForRenewal: boolean; problem?: string; renewed: boolean; reason: string },
+  served?: CertificateMatchResult,
+  runtime?: Pick<ResolvedProxyRuntime, 'mode' | 'container'>,
 ): string {
   const lines = [`Certificate for ${domain}`, `  path       ${report.path}`];
 
@@ -733,6 +763,21 @@ export function renderCerts(
   }
 
   lines.push(`  action     ${report.renewed ? 'renewed' : report.reason}`);
+
+  // Whether what's actually served matches the file just described above
+  // (#205) -- silent when there was nothing to compare (no certificate, or
+  // the live probe could not complete for its own reasons).
+  if (served?.checked === true) {
+    lines.push(`  served     ${served.matches === true ? 'matches disk' : 'DOES NOT MATCH disk'}`);
+    if (served.matches === false) {
+      lines.push(`             served: ${served.servedIssuer ?? 'unknown'}`);
+      lines.push(`             disk:   ${served.diskIssuer ?? 'unknown'}`);
+      if (runtime !== undefined) {
+        lines.push(`  remedy     ${describeReloadCommand(runtime)}`);
+      }
+    }
+  }
+
   return lines.join('\n');
 }
 
