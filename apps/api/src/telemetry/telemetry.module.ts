@@ -27,6 +27,12 @@ import { TelemetryConfigController } from './telemetry-config.controller';
 import { TelemetryExplorerController } from './telemetry-explorer.controller';
 import { TelemetrySettingsService } from './telemetry-settings.service';
 import { TelemetryStatusService } from './telemetry-status.service';
+import { TelemetryConnectionDoctorCheck } from './doctor/telemetry-connection.doctor-check';
+import { TelemetryExportDoctorCheck } from './doctor/telemetry-export.doctor-check';
+import { TelemetryFreshnessDoctorCheck } from './doctor/telemetry-freshness.doctor-check';
+import { TelemetryReachableDoctorCheck } from './doctor/telemetry-reachable.doctor-check';
+import { TelemetryStackDoctorCheck } from './doctor/telemetry-stack.doctor-check';
+import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-check';
 
 // =============================================================================
 // TelemetryModule (issue #534, epic #528)
@@ -101,6 +107,14 @@ import { TelemetryStatusService } from './telemetry-status.service';
     TelemetryStackService,
     TelemetryStackDeployHandler,
     TelemetryDashboardService,
+    // Doctor checks (#634): read-only — never the connection test (it
+    // audits) and never the dashboard service's audited reads.
+    TelemetryExportDoctorCheck,
+    TelemetryConnectionDoctorCheck,
+    TelemetryReachableDoctorCheck,
+    TelemetryTablesDoctorCheck,
+    TelemetryFreshnessDoctorCheck,
+    TelemetryStackDoctorCheck,
   ],
   exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })
