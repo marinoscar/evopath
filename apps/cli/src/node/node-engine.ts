@@ -5,11 +5,13 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import type { ClaimToken, NodeApi, NodeJobAssignment } from './node-api.js';
+import type { ClaimToken, HeartbeatRequest, NodeApi, NodeJobAssignment, NodeVitals, NodeVitalsCounters } from './node-api.js';
 import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapshot } from './node-events.js';
 import { ExecutorRegistry } from './executors/index.js';
 import { defaultExecutors } from './executors/example-checksum.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
+import type { EngineVitalsInput } from './node-vitals.js';
+import { ApiError } from '../errors.js';
 
 // =============================================================================
 // NodeEngine — the claim, execute, submit loop  (issue #274, epic #254)
@@ -97,6 +99,24 @@ export interface NodeEngineOptions {
   onEvent?: ((event: NodeEngineEvent) => void) | undefined;
   /** Best-effort persistence of a live concurrency change (#275). */
   persistConcurrency?: ((value: number) => void) | undefined;
+  /**
+   * Collects the `vitals` carried on every heartbeat (#130). Omitted means the
+   * heartbeat carries none. A collector that throws costs the vitals of that
+   * one beat, never the beat.
+   */
+  collectVitals?: ((input: EngineVitalsInput) => NodeVitals) | undefined;
+}
+
+/**
+ * The loop counters that are NOT part of `NodeCounters` (the snapshot shape,
+ * which stays as it was). Cumulative since the process started (#130).
+ */
+interface LoopCounters {
+  emptyPolls: number;
+  claimFailures: number;
+  leaseRenewals: number;
+  leaseRenewFailures: number;
+  heartbeatFailures: number;
 }
 
 /** How many settled jobs the snapshot remembers. A daemon runs for months. */
@@ -171,6 +191,19 @@ export class NodeEngine {
   private readonly activeJobs = new Map<string, JobRecord>();
   private readonly history: HistoryEntry[] = [];
   private readonly counters: NodeCounters = { claimed: 0, succeeded: 0, failed: 0, rateLimited: 0 };
+  private readonly loopCounters: LoopCounters = {
+    emptyPolls: 0,
+    claimFailures: 0,
+    leaseRenewals: 0,
+    leaseRenewFailures: 0,
+    heartbeatFailures: 0,
+  };
+  private readonly collectVitals: ((input: EngineVitalsInput) => NodeVitals) | undefined;
+  /**
+   * Cleared, for the rest of the process, the first time the server refuses a
+   * heartbeat that carried vitals with a 400 — see `beat()`.
+   */
+  private vitalsEnabled: boolean;
 
   constructor(options: NodeEngineOptions) {
     this.api = options.api;
@@ -189,6 +222,8 @@ export class NodeEngine {
     this.persistConcurrency = options.persistConcurrency;
     this.tmpDir = options.tmpDir ?? join(process.cwd(), '.node-tmp');
     this.capabilities = options.capabilities;
+    this.collectVitals = options.collectVitals;
+    this.vitalsEnabled = options.collectVitals !== undefined;
     this.startedAtMs = this.now();
   }
 
@@ -302,6 +337,25 @@ export class NodeEngine {
     };
   }
 
+  /**
+   * Every cumulative counter, in the heartbeat's `vitals.counters` shape
+   * (#130) — `claims` is the snapshot's `claimed`. `watchdogTrips` is absent:
+   * the watchdog, not the engine, owns it.
+   */
+  getVitalsCounters(): Omit<NodeVitalsCounters, 'watchdogTrips'> {
+    return {
+      claims: this.counters.claimed,
+      emptyPolls: this.loopCounters.emptyPolls,
+      claimFailures: this.loopCounters.claimFailures,
+      succeeded: this.counters.succeeded,
+      failed: this.counters.failed,
+      rateLimited: this.counters.rateLimited,
+      leaseRenewals: this.loopCounters.leaseRenewals,
+      leaseRenewFailures: this.loopCounters.leaseRenewFailures,
+      heartbeatFailures: this.loopCounters.heartbeatFailures,
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // The loop
   // ---------------------------------------------------------------------------
@@ -335,6 +389,7 @@ export class NodeEngine {
         // A claim failure is transient by nature — a restarting API, a blip.
         // Back off one poll interval and try again rather than exiting: a
         // worker that dies on a deploy is a worker somebody has to restart.
+        this.loopCounters.claimFailures += 1;
         this.emit({ kind: 'claim-failed', at: this.iso(), error: messageOf(error) });
         await this.sleep(this.pollIntervalMs);
         continue;
@@ -351,6 +406,8 @@ export class NodeEngine {
         }
         continue; // refill the remaining slots immediately
       }
+
+      this.loopCounters.emptyPolls += 1;
 
       if (this.inFlight.size > 0) {
         // Wake on whichever comes first: a slot freeing up, or the poll
@@ -626,8 +683,10 @@ export class NodeEngine {
     try {
       const renewed = await this.api.renewLease(this.nodeId, jobId, claimToken);
       record.leaseExpiresAt = renewed.leaseExpiresAt;
+      this.loopCounters.leaseRenewals += 1;
       this.emit({ kind: 'lease-renewed', at: this.iso(), jobId, leaseExpiresAt: renewed.leaseExpiresAt });
     } catch (error) {
+      this.loopCounters.leaseRenewFailures += 1;
       this.emit({ kind: 'lease-renew-failed', at: this.iso(), jobId, error: messageOf(error) });
     }
   }
@@ -646,17 +705,58 @@ export class NodeEngine {
     void this.beat();
   }
 
+  /**
+   * One heartbeat. NEVER REJECTS, and a failure never stops the engine: the
+   * server's liveness sweep is what acts on a silent node, and the next tick
+   * tries again.
+   *
+   * THE VITALS FALLBACK (#130). A server older than #129 may refuse the
+   * unknown `vitals` key with a 400 — and a node whose every heartbeat is a
+   * 400 goes stale and is swept offline, which is a far worse outcome than a
+   * fleet page without vitals. So a 400 on a beat that CARRIED vitals is
+   * retried once, immediately, without them, and vitals are dropped for the
+   * rest of this process (a restart — typically an upgrade — tries again).
+   * Announced once, through `vitals-disabled`. A 400 on a beat without vitals
+   * is an ordinary failure: there is nothing left to take out.
+   */
   private async beat(): Promise<void> {
+    const base: HeartbeatRequest = {
+      status: 'online',
+      concurrency: this.concurrency,
+      ...(this.capabilities !== undefined ? { capabilities: this.capabilities } : {}),
+    };
+    const vitals = this.vitalsEnabled ? this.sampleVitals() : undefined;
+
     try {
-      await this.api.heartbeat(this.nodeId, {
-        status: 'online',
-        concurrency: this.concurrency,
-        ...(this.capabilities !== undefined ? { capabilities: this.capabilities } : {}),
-      });
+      try {
+        await this.api.heartbeat(this.nodeId, vitals !== undefined ? { ...base, vitals } : base);
+      } catch (error) {
+        if (vitals === undefined || !(error instanceof ApiError) || error.status !== 400) throw error;
+        if (this.vitalsEnabled) {
+          this.vitalsEnabled = false;
+          this.emit({ kind: 'vitals-disabled', at: this.iso(), error: messageOf(error) });
+        }
+        await this.api.heartbeat(this.nodeId, base);
+      }
       this.lastHeartbeatMs = this.now();
       this.emit({ kind: 'heartbeat', at: this.iso(), concurrency: this.concurrency });
     } catch (error) {
+      this.loopCounters.heartbeatFailures += 1;
       this.emit({ kind: 'heartbeat-failed', at: this.iso(), error: messageOf(error) });
+    }
+  }
+
+  /** The collector's snapshot, or `undefined` if it threw. Never throws. */
+  private sampleVitals(): NodeVitals | undefined {
+    if (this.collectVitals === undefined) return undefined;
+    try {
+      return this.collectVitals({
+        slotsUsed: this.inFlight.size,
+        slotsTotal: this.concurrency,
+        counters: this.getVitalsCounters(),
+      });
+    } catch {
+      return undefined;
     }
   }
 

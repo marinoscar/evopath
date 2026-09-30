@@ -220,6 +220,8 @@ export function describeEvent(event: NodeEngineEvent): string {
       return `♥ heartbeat (concurrency ${event.concurrency})`;
     case 'heartbeat-failed':
       return `! heartbeat failed: ${event.error}`;
+    case 'vitals-disabled':
+      return `! server refused vitals; no longer sending them: ${event.error}`;
     case 'concurrency-changed':
       return `concurrency now ${event.concurrency}`;
     case 'claim-failed':

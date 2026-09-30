@@ -2,10 +2,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from '../branding.js';
-import type { NodeApi } from './node-api.js';
+import type { HeartbeatRequest, NodeApi } from './node-api.js';
 import { EXIT_MISSING_CAPABILITY, startNode } from './start.js';
 import { WORKER_ENV } from './worker-env.js';
 
@@ -109,6 +109,63 @@ describe('startNode', () => {
 
     expect(node.engine.nodeId).toBe('node-new');
     expect(stderr.lines.join('')).toContain('node-new');
+  });
+
+  it('sends vitals on the heartbeat, with watchdog trips once the watchdog is up (#130)', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1', node: { concurrency: 3 } });
+    const record = { deregisters: 0, claims: 0 };
+    const bodies: HeartbeatRequest[] = [];
+    const base = api(record);
+
+    const node = await startNode({
+      home,
+      env: { [WORKER_ENV.stateDir]: join(home, 'state-vitals'), [WORKER_ENV.pollMs]: '250' },
+      stderr: { write: () => true },
+      createApi: () => ({
+        ...base,
+        async heartbeat(_nodeId: string, body: HeartbeatRequest) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      installSignalHandlers: () => {},
+    });
+    started.push({ stop: async () => { await node.engine.stop({ deregister: false }); await node.finished; } });
+
+    await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    const vitals = bodies[0]?.vitals;
+    expect(vitals).toMatchObject({ slotsUsed: 0, slotsTotal: 3, nodeVersion: process.versions.node });
+    expect(vitals?.cliVersion).toMatch(/^[0-9A-Za-z .+\-_()~]+$/);
+    expect(vitals?.stateDirTotalBytes).toBeGreaterThan(0);
+    // The watchdog is built after the engine; it is on by default, so it is
+    // bound by the time the first beat is collected.
+    expect(vitals?.counters?.watchdogTrips).toBe(node.watchdog === undefined ? undefined : 0);
+  });
+
+  it('sends no vitals when they are disabled for the run', async () => {
+    writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_x', nodeId: 'node-1' });
+    const record = { deregisters: 0, claims: 0 };
+    const bodies: HeartbeatRequest[] = [];
+    const base = api(record);
+
+    const node = await startNode({
+      home,
+      env: { [WORKER_ENV.stateDir]: join(home, 'state-novitals'), [WORKER_ENV.pollMs]: '250' },
+      stderr: { write: () => true },
+      vitals: false,
+      createApi: () => ({
+        ...base,
+        async heartbeat(_nodeId: string, body: HeartbeatRequest) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      installSignalHandlers: () => {},
+    });
+    started.push({ stop: async () => { await node.engine.stop({ deregister: false }); await node.finished; } });
+
+    await vi.waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    expect(bodies[0]).not.toHaveProperty('vitals');
   });
 
   it('headless: SIGTERM drains WITHOUT deregistering', async () => {
