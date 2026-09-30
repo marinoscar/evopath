@@ -363,6 +363,91 @@ describe('issueCertificate', () => {
     const root = makeProxyRoot();
     expect(certificateStatus(target(root)).exists).toBe(false);
   });
+
+  // ===========================================================================
+  // Staging-certificate replacement (issue #196)
+  // ===========================================================================
+
+  function writeExistingCert(root: string): void {
+    const live = join(root, 'letsencrypt', 'live', 'app.example.test');
+    mkdirSync(live, { recursive: true });
+    writeFileSync(join(live, 'fullchain.pem'), 'cert');
+  }
+
+  function writeRenewalConf(root: string, contents: string): void {
+    const renewal = join(root, 'letsencrypt', 'renewal');
+    mkdirSync(renewal, { recursive: true });
+    writeFileSync(join(renewal, 'app.example.test.conf'), contents);
+  }
+
+  it('replaces an existing STAGING certificate with a trusted one when not asked for staging', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    writeRenewalConf(
+      root,
+      'server = https://acme-staging-v02.api.letsencrypt.org/directory\n',
+    );
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+    });
+
+    expect(result.issued).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('--force-renewal');
+  });
+
+  it('does not force-renew a STAGING certificate when staging is explicitly asked for again', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    writeRenewalConf(
+      root,
+      'server = https://acme-staging-v02.api.letsencrypt.org/directory\n',
+    );
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+      staging: true,
+    });
+
+    // Already has what was asked for -- no reason to spend the rate limit.
+    expect(result.issued).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('does not force-renew a PRODUCTION certificate (no regression)', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    writeRenewalConf(root, 'server = https://acme-v02.api.letsencrypt.org/directory\n');
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+    });
+
+    expect(result.issued).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('treats a missing renewal conf as not-staging and skips as before', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    // No renewal/ directory at all -- renewal metadata missing/unreadable.
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+    });
+
+    expect(result.issued).toBe(false);
+    expect(calls).toEqual([]);
+  });
 });
 
 describe('removeVhost', () => {
