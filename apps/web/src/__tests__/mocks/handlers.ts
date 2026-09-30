@@ -37,6 +37,7 @@ import {
 import { mockHealthProfileEmpty } from './fixtures/health';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
 import { mockTodayCheckInEmpty } from './fixtures/checkIns';
+import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -741,6 +742,15 @@ export const handlers = [
 
   http.get(`${API_BASE}/ai/models`, () => {
     return HttpResponse.json({ data: mockUsableAiModels });
+  }),
+
+  // Training agents: role states and the typical-plan estimate.
+  http.get(`${API_BASE}/ai/training/models`, () => {
+    return HttpResponse.json({ data: mockTrainingModelsView });
+  }),
+
+  http.post(`${API_BASE}/ai/training/estimate`, () => {
+    return HttpResponse.json({ data: mockTrainingRunEstimate });
   }),
 
   http.post(`${API_BASE}/ai/responses/stream`, () => {

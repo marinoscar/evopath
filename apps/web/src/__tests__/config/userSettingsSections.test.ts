@@ -68,6 +68,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     '/settings/ai': 'ai:use',
     // #47 (E2.1): the exact string `GET /api/health-profile` enforces.
     '/settings/health-profile': 'health_data:read',
+    // Training agents: the exact string `/api/ai/training/*` enforces.
+    '/settings/ai/agents': 'ai:use',
   };
 
   it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
@@ -89,10 +91,9 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
  * the API's `GET /api/health-profile` enforces, and not behind the AI feature.
  */
 describe('USER_SETTINGS_SECTIONS - Health Profile card (issue #47)', () => {
-  it('appends a Health group after Security, as the last group', () => {
+  it('appends a Health group directly after Security', () => {
     const labels = USER_SETTINGS_SECTIONS.map((section) => section.label);
     expect(labels.indexOf('Health')).toBe(labels.indexOf('Security') + 1);
-    expect(labels[labels.length - 1]).toBe('Health');
   });
 
   it('declares the Health Profile card with health_data:read and no feature gate', () => {
@@ -102,5 +103,23 @@ describe('USER_SETTINGS_SECTIONS - Health Profile card (issue #47)', () => {
     expect(card?.title).toBe('Health Profile');
     expect(card?.permission).toBe('health_data:read');
     expect(card?.feature).toBeUndefined();
+  });
+});
+
+/**
+ * The Training agents card lives in a NEW `AI` group, appended after `Health`
+ * (append, never insert), gated on `ai:use` and hidden while AI is off.
+ */
+describe('USER_SETTINGS_SECTIONS - Training agents card', () => {
+  it('appends an AI group after Health, as the last group', () => {
+    const labels = USER_SETTINGS_SECTIONS.map((section) => section.label);
+    expect(labels.indexOf('AI')).toBe(labels.indexOf('Health') + 1);
+    expect(labels[labels.length - 1]).toBe('AI');
+  });
+
+  it('declares the Training agents card with ai:use and the ai feature gate', () => {
+    const ai = USER_SETTINGS_SECTIONS.find((section) => section.label === 'AI');
+    const card = ai?.cards.find((c) => c.path === '/settings/ai/agents');
+    expect(card).toMatchObject({ title: 'Training agents', permission: 'ai:use', feature: 'ai' });
   });
 });
