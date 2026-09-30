@@ -274,6 +274,8 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `gyms` | The caller's own gyms, default gym, and per-gym equipment (`/gyms/:id/equipment`) and photos (`/gyms/:id/photos`) (tag "Gyms") | `gyms:read/write` (photo attach and remove also `storage:write`) | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
 | `equipment-types` | Equipment catalog (seeded plus the caller's custom types) (tag "Equipment") | `gyms:read/write` | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
 | `capabilities` | Movement capabilities equipment can enable (tag "Capabilities") | `gyms:read` | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
+| `exercises` | The exercise library (seeded plus the caller's custom exercises) and per-exercise history (tag "Exercises") | `exercises:read/write` (`/:id/history` needs `workouts:read`) | [workouts](specs/workouts.md#24-the-exercise-library) |
+| `workouts` | The caller's own workouts, exercises, sets and the Today summary (tag "Workouts") | `workouts:read/write` | [workouts](specs/workouts.md) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 
 Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with

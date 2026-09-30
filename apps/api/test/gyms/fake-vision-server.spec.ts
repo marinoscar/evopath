@@ -127,6 +127,7 @@ describe('fake vision server', () => {
   it.each([
     ['workout-placard', 'placard'],
     ['workout-notebook', 'notebook'],
+    ['workout-empty', 'workout-empty'],
   ] as const)('serves %s from workout-prefill/, parsed by the real adapter into the prefill schema', async (fixture, file) => {
     const prefillSchema = buildWorkoutPrefillOutputSchema(seedExerciseVocabulary());
     await fetch(`${base}/__control/next`, { method: 'POST', body: JSON.stringify({ fixture }) });

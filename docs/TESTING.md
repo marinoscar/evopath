@@ -538,7 +538,7 @@ tests/e2e/
 ├── helpers/auth.helper.ts    # loginAsTestUser, loginAsAdmin/Contributor/Viewer, isLoggedIn, logout
 ├── helpers/ai.helper.ts      # configureFakeVisionProvider, setFakeFixture (fake vision provider)
 ├── fixtures/auth.fixture.ts  # adminPage / viewerPage fixtures
-└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation and telemetry-dashboard specs
+└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation, telemetry-dashboard, workouts and workout-prefill specs
 ```
 
 It is not run in CI. Run it against a local stack:
@@ -576,6 +576,15 @@ AI-off or no-vision-model copy do not change deployment state: they stub
 `/api/ai/config` and `/api/ai/models` with `page.route`
 (`tests/e2e/helpers/ai-stub.helper.ts`, used by both gym specs). How the fake
 works is in [the gyms spec](specs/gyms-and-equipment.md#212-the-fake-vision-server).
+The `workouts` spec covers the manual logging path with AI off. The
+`workout-prefill` spec drives "Prefill from photo" against the same fake and
+skips the same way; the fixtures it uses are described in
+[the workouts spec](specs/workouts.md#213-reference-examples-and-the-fake-vision-server).
+
+```bash
+cd tests/e2e && npx playwright test workouts workout-prefill
+```
+
 The Jest guard `apps/api/test/gyms/gym-scan-examples.spec.ts` checks that the
 reference photos and fixtures the scan spec names exist.
 
