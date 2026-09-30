@@ -194,8 +194,12 @@ describeWithDb('spike graph on real Postgres', () => {
       expect(handler.cancel(id)).toBe(false);
       expect(timeouts()).toBeLessThanOrEqual(timersBefore);
 
-      // The graph's input checkpoint (written before any node ran) is there.
-      expect(await latestValues(id)).toMatchObject({ __start__: { goal: 'Run a 5k' } });
+      // The input survived the cancel. The latest checkpoint is either the
+      // input one (goal still on the `__start__` channel) or the step-0 one
+      // (goal applied to state), depending on how far the run got before the
+      // research node started.
+      const values = await latestValues(id);
+      expect((values?.__start__ as { goal?: string } | undefined)?.goal ?? values?.goal).toBe('Run a 5k');
     });
 
     it('aborts mid-node after completed nodes, keeps their checkpoint, and resumes to the interrupt without repeating them', async () => {
@@ -232,10 +236,9 @@ describeWithDb('spike graph on real Postgres', () => {
       expect(outcome.status).toBe('cancelled');
       expect(Date.now() - abortedAt).toBeLessThan(1_000);
       expect(observedAbort).toBe(1);
-      // Research finished and was checkpointed; the planner had not. LangGraph's
-      // default durability is "async": a step's checkpoint is written while the
-      // next step runs, so it can land just after the abort rejects the run.
-      await waitForAsync(async () => (await latestValues(id))?.brief !== undefined);
+      // Research finished and was checkpointed; the planner had not. The runner
+      // uses durability "sync", so the research step's checkpoint was persisted
+      // before the planner started: no waiting needed.
       expect(await latestValues(id)).toMatchObject({ brief: SPIKE_BRIEF });
       expect((await latestValues(id))?.drafts ?? []).toEqual([]);
 
@@ -413,14 +416,6 @@ describeWithDb('spike graph on real Postgres', () => {
     });
   });
 });
-
-async function waitForAsync(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!(await condition())) {
-    if (Date.now() > deadline) throw new Error('waitForAsync timed out');
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
