@@ -594,6 +594,8 @@ export interface FakeAdaptationSnapshot {
   compat: CompatProviderState;
   /** `enabled` of each fake model before, or null when the catalog had none. */
   models: Record<string, boolean | null>;
+  /** The stored admin model assignments, put back verbatim by the teardown. */
+  assignments: AiAssignmentsBody;
 }
 
 interface AdminAiConfigWithProviders extends AdminAiConfig {
@@ -660,6 +662,7 @@ export async function setupFakeAdaptationAi(admin: AuthedApi): Promise<FakeAdapt
       requiresKey: compat?.requiresKey ?? null,
     },
     models: {},
+    assignments: (await admin.get<AiAssignmentsView>('/api/admin/ai/assignments')).assignments,
   };
   for (const modelId of Object.keys(ADAPTATION_MODELS)) {
     snapshot.models[modelId] = (await findCompatModel(admin, modelId))?.enabled ?? null;
@@ -685,11 +688,25 @@ export async function setupFakeAdaptationAi(admin: AuthedApi): Promise<FakeAdapt
       .toBe(true);
     await admin.patch(`/api/admin/ai/models/${encodeURIComponent(model!.id)}`, { capabilities: declared, enabled: true });
   }
+
+  // Models are the administrator's choice (Admin > AI > Model assignments): the planner, the critic
+  // and the gym scan (no reasoning effort: the Chat Completions style refuses one).
+  const ref = (modelId: string) => ({ provider: FAKE_PROVIDER_ID, modelId });
+  await putAssignments(admin, {
+    default: snapshot.assignments.default,
+    features: {
+      ...snapshot.assignments.features,
+      'training.planner': { ...ref(FAKE_PLANNER), reasoningEffort: null },
+      'training.critic': { ...ref(FAKE_CRITIC), reasoningEffort: null },
+      gym_scan: ref(FAKE_MODEL_ID),
+    },
+  });
   return snapshot;
 }
 
 /** Put AI back the way `setupFakeAdaptationAi` found it: the switch, key policy, provider slot and each model's `enabled`. */
 export async function teardownFakeAdaptationAi(admin: AuthedApi, snapshot: FakeAdaptationSnapshot): Promise<void> {
+  await putAssignments(admin, snapshot.assignments);
   const current = await admin.get<AdminAiConfigWithProviders>('/api/admin/ai/config');
   await putCompatConfig(admin, current, { enabled: snapshot.enabled, keyPolicy: snapshot.keyPolicy, compat: snapshot.compat });
   for (const [modelId, wasEnabled] of Object.entries(snapshot.models)) {
@@ -722,27 +739,15 @@ export async function setAdaptationAiEnabled(admin: AuthedApi, enabled: boolean)
 }
 
 /**
- * As the signed-in user: choose the fake planner and critic (`ai.taskModels`,
- * no reasoning effort: the Chat Completions style refuses one) and, optionally,
- * the per-run token limit (`ai.training.maxRunTokens`, 10,000 at the least).
+ * As the signed-in user: the per-run token limit (`ai.training.maxRunTokens`,
+ * 10,000 at the least; a user setting, unlike the models, which are the
+ * administrator's: see `setupFakeAdaptationAi`). `null` clears it.
  */
-export async function setupAdaptationRolesForUser(
-  api: AuthedApi,
-  options: { planner?: string; critic?: string; maxRunTokens?: number | null } = {},
-): Promise<void> {
-  const choice = (modelId: string) => ({ provider: FAKE_PROVIDER_ID, modelId, reasoningEffort: null });
-  await api.patch('/api/user-settings', {
-    ai: {
-      taskModels: {
-        planner: choice(options.planner ?? FAKE_PLANNER),
-        critic: choice(options.critic ?? FAKE_CRITIC),
-      },
-      ...(options.maxRunTokens !== undefined ? { training: { maxRunTokens: options.maxRunTokens } } : {}),
-    },
-  });
+export async function setAdaptationRunLimitForUser(api: AuthedApi, maxRunTokens: number | null): Promise<void> {
+  await api.patch('/api/user-settings', { ai: { training: { maxRunTokens } } });
 }
 
-/** Clear the user's role choices and run limit (best effort: the user is disposable anyway). */
-export async function teardownAdaptationRolesForUser(api: AuthedApi): Promise<void> {
-  await api.patch('/api/user-settings', { ai: { taskModels: null, training: null } }).catch(() => undefined);
+/** Clear the user's run limit (best effort: the user is disposable anyway). */
+export async function teardownAdaptationUser(api: AuthedApi): Promise<void> {
+  await api.patch('/api/user-settings', { ai: { training: null } }).catch(() => undefined);
 }

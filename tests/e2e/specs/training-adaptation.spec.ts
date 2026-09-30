@@ -17,9 +17,9 @@ import {
   resetFake,
   setAdaptationAiEnabled,
   setFakeModelEnabled,
-  setupAdaptationRolesForUser,
+  setAdaptationRunLimitForUser,
   setupFakeAdaptationAi,
-  teardownAdaptationRolesForUser,
+  teardownAdaptationUser,
   teardownFakeAdaptationAi,
   useAdaptationScenario,
   type AdaptationScenarioName,
@@ -94,9 +94,8 @@ const test = base.extend<{ owner: Owner }>({
     const gym = await createTrainingGym(api, GYM_NAME);
     const training = await seedActivePlan(api, gym);
     await seedCheckIn(api, training.today, { note: `Slept badly ${CANARY_NOTE}` });
-    await setupAdaptationRolesForUser(api);
     await use({ api, email, training });
-    await teardownAdaptationRolesForUser(api);
+    await teardownAdaptationUser(api);
   },
 });
 
@@ -532,7 +531,7 @@ test.describe('Quick adaptation and hotel workouts with the fake provider', () =
   // ---------------------------------------------------------------------------
   test('without a vision model the hotel step says so and offers the manual equipment path', async ({ page, owner, browser, baseURL }) => {
     void owner; // the fixture signs the page in and seeds the plan
-    // Only fake-text-only (and the two adaptation roles) can be used: nothing reads photos.
+    // The gym-scan assignment points at a disabled model, so nothing can read photos (the text models still run).
     await withAdmin(browser, baseURL, (admin) => setFakeModelEnabled(admin, FAKE_MODEL_ID, false));
     try {
       const dialog = await openSheet(page);
@@ -540,7 +539,7 @@ test.describe('Quick adaptation and hotel workouts with the fake provider', () =
       await page.getByRole('option', { name: /^Different place/ }).click();
 
       const step = dialog.getByTestId('hotel-gym-step');
-      await expect(step.getByText('None of your available models can read images')).toBeVisible({ timeout: 30_000 });
+      await expect(step.getByText(/administrator hasn't assigned an AI model that can read photos|None of your available models can read images/)).toBeVisible({ timeout: 30_000 });
       await expect(step.getByRole('button', { name: 'Take photos' })).toHaveCount(0);
       await step.getByRole('button', { name: 'Continue manually' }).click();
 
@@ -563,7 +562,7 @@ test.describe('Quick adaptation and hotel workouts with the fake provider', () =
   // 10. Token cap
   // ---------------------------------------------------------------------------
   test('a small per-run limit with heavy-tokens skips the critic and says why', async ({ page, owner }) => {
-    await setupAdaptationRolesForUser(owner.api, { maxRunTokens: 10_000 });
+    await setAdaptationRunLimitForUser(owner.api, 10_000);
     await useAdaptationScenario('heavy-tokens');
     const since = await lastLogSeq();
 
