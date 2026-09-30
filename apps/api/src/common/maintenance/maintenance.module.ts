@@ -5,6 +5,7 @@ import { SettingsModule } from '../../settings/settings.module';
 import { MaintenanceController } from './maintenance.controller';
 import { MaintenanceGuard } from './maintenance.guard';
 import { MaintenanceModeService } from './maintenance-mode.service';
+import { MaintenanceModeDoctorCheck } from './doctor/maintenance-mode.doctor-check';
 
 /**
  * Maintenance mode (#257, epic #254).
@@ -47,7 +48,9 @@ import { MaintenanceModeService } from './maintenance-mode.service';
     }),
   ],
   controllers: [MaintenanceController],
-  providers: [MaintenanceModeService, MaintenanceGuard],
+  // `MaintenanceModeDoctorCheck` (#634) injects the @Global doctor registry, so
+  // it adds no import edge to this deliberately narrow module.
+  providers: [MaintenanceModeService, MaintenanceGuard, MaintenanceModeDoctorCheck],
   // The guard is exported so `app.module.ts` can alias it to `APP_GUARD` with
   // `useExisting` — which keeps the global registration visible in the module
   // that owns the application, while the instance itself is still constructed

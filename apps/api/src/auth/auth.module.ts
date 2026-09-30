@@ -13,6 +13,9 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { TokenCleanupHandler } from './handlers/token-cleanup.handler';
 import { JobsModule } from '../jobs/jobs.module';
+import { AuthProvidersDoctorCheck } from './doctor/auth-providers.doctor-check';
+import { InitialAdminDoctorCheck } from './doctor/initial-admin.doctor-check';
+import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
 
 @Module({
   imports: [
@@ -56,6 +59,10 @@ import { JobsModule } from '../jobs/jobs.module';
     JwtStrategy,
     TokenCleanupTask,
     TokenCleanupHandler,
+    // Doctor checks (#634) — see `doctor/doctor-check.registry.ts`.
+    JwtSecretDoctorCheck,
+    AuthProvidersDoctorCheck,
+    InitialAdminDoctorCheck,
   ],
   exports: [AuthService, JwtModule],
 })
