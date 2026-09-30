@@ -29,7 +29,31 @@ export function formatBytes(bytes: number): string {
   return `${compact(value, unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
-/** `value` and its unit, split so a tile can style them apart. */
+/**
+ * A duration in seconds at a readable scale: `42 s`, `12.5 min`, `3.2 h`,
+ * `4.1 d` — a queue age of 5400 s reads better as 1.5 h.
+ */
+export function formatSeconds(seconds: number): string {
+  const abs = Math.abs(seconds);
+  if (abs < 1) return `${compact(seconds * 1000, 0)} ms`;
+  if (abs < 60) return `${compact(seconds, abs < 10 ? 2 : 1)} s`;
+  if (abs < 3600) return `${compact(seconds / 60, 1)} min`;
+  if (abs < 48 * 3600) return `${compact(seconds / 3600, 1)} h`;
+  return `${compact(seconds / 86_400, 1)} d`;
+}
+
+function split(text: string): { value: string; unit: string } {
+  const at = text.indexOf(' ');
+  return at < 0 ? { value: text, unit: '' } : { value: text.slice(0, at), unit: text.slice(at + 1) };
+}
+
+/**
+ * `value` and its unit, split so a tile can style them apart. Covers the
+ * summary's units (`req/min`, `%`, `ms`, `count`, `bytes`, `timestamp`) and
+ * every metric unit of `/metrics` (#126): `bytes/s`, `per_s`, `per_min`,
+ * `seconds`, `hours`, `days`, `cores`, `load`, `text` and `boolean`. An
+ * unknown unit is shown as given.
+ */
 export function formatTileValue(
   value: number | string | null,
   unit: string,
@@ -38,6 +62,9 @@ export function formatTileValue(
   if (unit === 'timestamp') {
     if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return { value: '—', unit: '' };
     return { value: formatRelative(value, now), unit: '' };
+  }
+  if (unit === 'text') {
+    return value === null || value === '' ? { value: '—', unit: '' } : { value: String(value), unit: '' };
   }
   const n = toNumber(value);
   if (n === null) return { value: '—', unit: '' };
@@ -54,9 +81,44 @@ export function formatTileValue(
     }
     case 'count':
       return { value: Math.round(n).toLocaleString(), unit: '' };
+    case 'bytes/s': {
+      const [amount, suffix] = formatBytes(n).split(' ');
+      return { value: amount, unit: `${suffix}/s` };
+    }
+    case 'per_s':
+      return { value: compact(n, 2), unit: '/s' };
+    case 'per_min':
+      return { value: compact(n, 2), unit: '/min' };
+    case 'seconds':
+      return split(formatSeconds(n));
+    case 'hours':
+      return n >= 48 ? { value: compact(n / 24, 1), unit: 'd' } : { value: compact(n, 1), unit: 'h' };
+    case 'days':
+      return { value: compact(n, 1), unit: Math.abs(n) === 1 ? 'day' : 'days' };
+    case 'cores':
+      return { value: compact(n, 2), unit: Math.abs(n) === 1 ? 'core' : 'cores' };
+    case 'load':
+      return { value: compact(n, 2), unit: '' };
+    case 'boolean':
+      return { value: n >= 1 ? 'Yes' : 'No', unit: '' };
     default:
       return { value: compact(n, 2), unit };
   }
+}
+
+/** A tile value or table cell as one string (`—` for nothing), e.g. `35.6%`, `1.2 GB`, `Yes`. */
+export function formatMetricValue(
+  value: number | string | boolean | null | undefined,
+  unit: string,
+  now: number = Date.now(),
+): string {
+  if (value === undefined || value === null) return '—';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  const formatted = formatTileValue(value, unit, now);
+  if (!formatted.unit) return formatted.value;
+  return formatted.unit === '%' || formatted.unit.startsWith('/')
+    ? `${formatted.value}${formatted.unit}`
+    : `${formatted.value} ${formatted.unit}`;
 }
 
 /** "5s ago", "3m ago", "2h ago", "4d ago"; "just now" under a second. */
@@ -113,6 +175,32 @@ const TILE_DIRECTIONS: Record<string, ChangeDirection> = {
   warnLogs: 'up-is-bad',
   heapUsedBytes: 'up-is-bad',
   eventLoopDelayP99Ms: 'up-is-bad',
+  // `/metrics` tiles (#126): utilization, ages, failures and stalls up is bad;
+  // headroom (cache hits, healthy nodes, certificate days) down is bad.
+  cpuUtilization: 'up-is-bad',
+  memoryUtilization: 'up-is-bad',
+  load1m: 'up-is-bad',
+  filesystemUtilization: 'up-is-bad',
+  dbConnectionUtilization: 'up-is-bad',
+  dbCacheHitRatio: 'down-is-bad',
+  dbRollbacks: 'up-is-bad',
+  dbDeadlocks: 'up-is-bad',
+  'queueDepth.pending': 'up-is-bad',
+  oldestPendingAge: 'up-is-bad',
+  jobFailureRatio: 'up-is-bad',
+  jobDurationP95: 'up-is-bad',
+  backupAge: 'up-is-bad',
+  'nodesByHealth.healthy': 'down-is-bad',
+  'nodesByHealth.stale': 'up-is-bad',
+  'nodesByHealth.offline': 'up-is-bad',
+  noEligibleNode: 'up-is-bad',
+  httpDuration: 'up-is-bad',
+  tlsDaysLeft: 'down-is-bad',
+  exporterFailed: 'up-is-bad',
+  exporterQueueUtilization: 'up-is-bad',
+  receiverRefused: 'up-is-bad',
+  greptimeWriteStalls: 'up-is-bad',
+  scrapeTargetsDown: 'up-is-bad',
 };
 
 export function tileDirection(key: string): ChangeDirection {

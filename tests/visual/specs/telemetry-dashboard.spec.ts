@@ -9,8 +9,10 @@ import { FIXED_NOW, mockTelemetryDashboard, type DashboardScenario } from '../su
  * tablet 600–1199, desktop ≥ 1200), with charts, tables and card lists that
  * jsdom cannot lay out at all — so its pixels are pinned here:
  *
- *   - two data states: a CRITICAL verdict with data in every panel, and
- *     NO_DATA (nothing received: empty timelines, tables and feed);
+ *   - two data states: a CRITICAL verdict with data in every panel and every
+ *     infrastructure section (#127), and NO_DATA (nothing received: empty
+ *     timelines, tables and feed; every section hidden, one "not collected"
+ *     line);
  *   - at the three sizes the page is designed for (390×844, 820×1180,
  *     1440×900), in the light AND dark themes;
  *   - plus the overlays only phones and tablets have: the phone Filters
@@ -60,8 +62,12 @@ async function openDashboard(
     await expect(main.getByRole('img', { name: /API requests per bucket/ })).toBeVisible();
     await expect(main.getByTestId(/^panel-top/).first().getByText('/api/jobs').first()).toBeVisible();
     await expect(main.getByText('Database connection refused: connect ECONNREFUSED 10.0.3.14:5432').first()).toBeVisible();
+    // The infrastructure sections (#127) have answered.
+    await expect(main.getByRole('table', { name: 'Uptime targets' })).toBeVisible();
+    await expect(main.getByRole('table', { name: 'Scrape targets' })).toBeVisible();
   } else {
     await expect(main.getByText('No requests in this window.').first()).toBeVisible();
+    await expect(main.getByTestId('metrics-not-collected')).toBeVisible();
   }
 }
 

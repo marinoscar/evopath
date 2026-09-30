@@ -9,6 +9,7 @@
  *   - `GET /admin/telemetry/dashboard/top`         (`telemetry:query`, `kind=routes|errors`)
  *   - `GET /admin/telemetry/dashboard/events`      (`telemetry:query`)
  *   - `GET /admin/telemetry/dashboard/filters`     (`telemetry:query`)
+ *   - `GET /admin/telemetry/dashboard/metrics`     (`telemetry:query`, `group=host|database|…`, #126/#127)
  *
  * The browser only presents. The verdict, its reasons, the tiles, what a
  * "route" is and how severities are banded are all decided by the API; the SQL
@@ -58,6 +59,14 @@ export interface DashboardQuery {
   service?: string;
   instance?: string;
   buckets?: DashboardBuckets;
+}
+
+/**
+ * `/metrics` also takes `host` (a value of `/filters` `hosts`). It applies to
+ * the collector-scraped tables only, so it is sent to `/metrics` alone.
+ */
+export interface DashboardMetricsQuery extends DashboardQuery {
+  host?: string;
 }
 
 export interface DashboardEventsQuery extends DashboardQuery {
@@ -190,6 +199,83 @@ export interface DashboardEvents extends DashboardEnvelope {
 export interface DashboardFilters extends DashboardEnvelope {
   services: string[];
   instances: string[];
+  /** Host names seen in the host metrics — the values `/metrics` `host` accepts (#126). */
+  hosts: string[];
+}
+
+// ---- metrics (#126 API, #127 web) ---------------------------------------------
+
+/** `METRIC_GROUPS` in the API, in the order the page shows them. */
+export const DASHBOARD_METRIC_GROUPS = ['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline'] as const;
+export type DashboardMetricGroup = (typeof DASHBOARD_METRIC_GROUPS)[number];
+
+/** `METRIC_UNITS` in the API: the display unit of a tile, series or table column. */
+export type DashboardMetricUnit =
+  | '%'
+  | 'bytes'
+  | 'bytes/s'
+  | 'count'
+  | 'per_s'
+  | 'per_min'
+  | 'ms'
+  | 'seconds'
+  | 'hours'
+  | 'days'
+  | 'cores'
+  | 'load'
+  | 'timestamp'
+  | 'text'
+  | 'boolean';
+
+export interface DashboardMetricPoint {
+  /** Bucket start, ISO 8601. */
+  t: string;
+  /** `null` where nothing was measured — a gap, not a zero. */
+  v: number | null;
+}
+
+export interface DashboardMetricSeries {
+  /** The catalog family or ratio key (several series share it when split by `dimension`). */
+  key: string;
+  label: string;
+  unit: DashboardMetricUnit;
+  /** The label column the family is split by (`mountpoint`, `outcome`, …), or null. */
+  dimension: string | null;
+  /** This series' value of `dimension`, or null. */
+  groupBy: string | null;
+  points: DashboardMetricPoint[];
+}
+
+export interface DashboardMetricColumn {
+  key: string;
+  label: string;
+  unit: DashboardMetricUnit;
+}
+
+export type DashboardMetricCell = string | number | boolean | null;
+
+export interface DashboardMetricTable {
+  key: string;
+  label: string;
+  /** `key` (the key column) first, `lastSeenAt` last. */
+  columns: DashboardMetricColumn[];
+  rows: Record<string, DashboardMetricCell>[];
+}
+
+export interface DashboardMetrics {
+  range: DashboardEnvelope['range'];
+  generatedAt: string;
+  truncated: boolean;
+  /** Every statement run, in order — "Open in Explorer" takes the first. */
+  sql: string[];
+  group: DashboardMetricGroup;
+  /** False when nothing of the group exists in the store yet: the section is hidden. */
+  available: boolean;
+  tiles: DashboardTile[];
+  series: DashboardMetricSeries[];
+  tables: DashboardMetricTable[];
+  /** Catalog keys skipped because a table or column they need is absent. */
+  skipped: string[];
 }
 
 // =============================================================================
@@ -198,7 +284,9 @@ export interface DashboardFilters extends DashboardEnvelope {
 
 /** Serialise a dashboard query. Absent values are left out, never sent empty. */
 export function dashboardSearchParams(
-  query: DashboardQuery & Partial<Pick<DashboardEventsQuery, 'severity' | 'q' | 'cursor'>>,
+  query: DashboardQuery &
+    Partial<Pick<DashboardEventsQuery, 'severity' | 'q' | 'cursor'>> &
+    Partial<Pick<DashboardMetricsQuery, 'host'>>,
   extra: Record<string, string> = {},
 ): URLSearchParams {
   const params = new URLSearchParams();
@@ -211,6 +299,7 @@ export function dashboardSearchParams(
   }
   if (query.service) params.set('service', query.service);
   if (query.instance) params.set('instance', query.instance);
+  if (query.host) params.set('host', query.host);
   if (query.buckets) params.set('buckets', query.buckets);
   if (query.severity && query.severity.length > 0) params.set('severity', query.severity.join(','));
   if (query.q) params.set('q', query.q);
@@ -264,6 +353,17 @@ export async function getDashboardFilters(
   options: RequestOptions = {},
 ): Promise<DashboardFilters> {
   return api.get<DashboardFilters>(`${BASE}/filters?${dashboardSearchParams(query)}`, {
+    signal: options.signal,
+  });
+}
+
+/** `GET …/metrics?group=…` — one metric group's tiles, series and tables (#126). */
+export async function getDashboardMetrics(
+  group: DashboardMetricGroup,
+  query: DashboardMetricsQuery,
+  options: RequestOptions = {},
+): Promise<DashboardMetrics> {
+  return api.get<DashboardMetrics>(`${BASE}/metrics?${dashboardSearchParams(query, { group })}`, {
     signal: options.signal,
   });
 }

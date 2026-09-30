@@ -7,6 +7,7 @@ import {
   bucketWindow,
   dashboardQuery,
   dashboardStateToParams,
+  metricsQuery,
   parseDashboardState,
   type DashboardState,
 } from '../../../../components/telemetry/dashboard/dashboardState';
@@ -28,6 +29,7 @@ describe('dashboard URL state', () => {
       to: '2026-09-27T10:30:00.000Z',
       service: 'api',
       instance: 'node-1',
+      host: 'vps-1',
       sev: ['error', 'info'],
       q: 'timeout',
       refresh: false,
@@ -55,6 +57,16 @@ describe('dashboard URL state', () => {
       service: 'api',
     });
     expect(dashboardQuery(parse('range=6h'))).toEqual({ range: '6h' });
+  });
+
+  it('sends the host filter to /metrics only (#127)', () => {
+    const state = parse('range=6h&service=api&host=vps-1');
+    expect(state.host).toBe('vps-1');
+    expect(dashboardQuery(state)).toEqual({ range: '6h', service: 'api' });
+    expect(metricsQuery(state)).toEqual({ range: '6h', service: 'api', host: 'vps-1' });
+    expect(metricsQuery(parse('range=6h'))).toEqual({ range: '6h' });
+    expect(parse(`host=${'x'.repeat(201)}`).host).toBeNull();
+    expect(dashboardStateToParams({ ...DEFAULT_DASHBOARD_STATE, host: 'vps-2' }).toString()).toBe('host=vps-2');
   });
 
   it('maps a bucket selection to a window, clamped to now', () => {

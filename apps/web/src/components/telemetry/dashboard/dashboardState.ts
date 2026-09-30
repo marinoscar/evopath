@@ -7,6 +7,7 @@
  *   ?range=15m|1h|6h|24h|7d   relative window (default 1h)
  *   &from=…&to=…              absolute window (a zoom); wins over `range`
  *   &service=…&instance=…     filters (values from `/filters`)
+ *   &host=…                   host filter for the infrastructure sections only (#127)
  *   &sev=error,warn,info      severities for the log panels (default error,warn)
  *   &q=…                      events search (≤ 200 characters)
  *   &refresh=30|off           auto-refresh (default 30 s)
@@ -23,6 +24,7 @@ import {
   DASHBOARD_SEVERITIES,
   DEFAULT_DASHBOARD_RANGE,
   DEFAULT_DASHBOARD_SEVERITIES,
+  type DashboardMetricsQuery,
   type DashboardQuery,
   type DashboardRange,
   type DashboardSeverity,
@@ -41,6 +43,8 @@ export interface DashboardState {
   to: string | null;
   service: string | null;
   instance: string | null;
+  /** A `/filters` `hosts` value; sent to `/metrics` only (the API applies it to collector tables). */
+  host: string | null;
   sev: DashboardSeverity[];
   q: string;
   refresh: boolean;
@@ -52,6 +56,7 @@ export const DEFAULT_DASHBOARD_STATE: DashboardState = {
   to: null,
   service: null,
   instance: null,
+  host: null,
   sev: [...DEFAULT_DASHBOARD_SEVERITIES],
   q: '',
   refresh: true,
@@ -94,6 +99,7 @@ export function parseDashboardState(params: URLSearchParams): DashboardState {
     to: window?.to ?? null,
     service: filterValue(params.get('service')),
     instance: filterValue(params.get('instance')),
+    host: filterValue(params.get('host')),
     sev: parseSeverities(params.get('sev')) ?? [...DEFAULT_DASHBOARD_SEVERITIES],
     q: q.slice(0, DASHBOARD_SEARCH_MAX_LENGTH),
     refresh: params.get('refresh') !== 'off',
@@ -114,6 +120,7 @@ export function dashboardStateToParams(state: DashboardState): URLSearchParams {
   }
   if (state.service) params.set('service', state.service);
   if (state.instance) params.set('instance', state.instance);
+  if (state.host) params.set('host', state.host);
   const sev = DASHBOARD_SEVERITIES.filter((severity) => state.sev.includes(severity));
   if (sev.length > 0 && !sameSeverities(sev, DEFAULT_DASHBOARD_SEVERITIES)) {
     params.set('sev', sev.join(','));
@@ -134,6 +141,13 @@ export function dashboardQuery(state: DashboardState): DashboardQuery {
     : { range: state.range };
   if (state.service) query.service = state.service;
   if (state.instance) query.instance = state.instance;
+  return query;
+}
+
+/** The `/metrics` query: the shared window and filters plus `host`, which only `/metrics` takes. */
+export function metricsQuery(state: DashboardState): DashboardMetricsQuery {
+  const query: DashboardMetricsQuery = dashboardQuery(state);
+  if (state.host) query.host = state.host;
   return query;
 }
 

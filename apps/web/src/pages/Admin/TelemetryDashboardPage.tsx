@@ -20,6 +20,13 @@
  *
  * State lives in the URL (`dashboardState.ts`), so a link reproduces the view.
  *
+ * Infrastructure (#127): below the application panels, six sections over
+ * `/metrics` (#126) — Infrastructure, Database, Job queue, Worker nodes,
+ * Uptime & dependencies, Telemetry pipeline — each its own request and panel,
+ * hidden when the store has nothing of its group. The Host filter applies to
+ * these sections only (the API applies it to the collector's tables), and a
+ * verdict reason about one of them links to it.
+ *
  * Layout: phone < 600 (`xs`), tablet 600–1199 (`sm`–`md`), desktop ≥ 1200
  * (`lg`), decided HERE only — none of the shell's five coupled breakpoint
  * gates is touched.
@@ -46,6 +53,7 @@ import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import {
   useDashboardEvents,
   useDashboardFilters,
+  useDashboardMetrics,
   useDashboardSummary,
   useDashboardTimeseries,
   useDashboardTop,
@@ -73,6 +81,7 @@ import {
   dashboardQuery,
   windowSpanMs,
   dashboardStateToParams,
+  metricsQuery,
   parseDashboardState,
   type DashboardState,
 } from '../../components/telemetry/dashboard/dashboardState';
@@ -92,12 +101,27 @@ import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxi
 import { TELEMETRY_EXPLORER_PATH, explorerHandoff } from '../../components/telemetry/explorerHandoff';
 import { TelemetryCrossLink } from '../../components/telemetry/TelemetryCrossLink';
 import { traceExplorerSql } from '../../components/telemetry/dashboard/traceLink';
+import {
+  MetricSection,
+  MetricsNotCollected,
+  metricsAssistantContext,
+} from '../../components/telemetry/dashboard/metrics/MetricSections';
+import {
+  METRIC_SECTIONS,
+  metricPanelId,
+  metricSectionTitle,
+  scrollToMetricSection,
+  verdictReasonGroup,
+} from '../../components/telemetry/dashboard/metrics/metricSections';
 import { sqlList } from '../../services/telemetryDashboard';
 import type {
   DashboardBuckets,
   DashboardLogsBucket,
+  DashboardMetricGroup,
+  DashboardMetrics,
   DashboardSeverity,
 } from '../../services/telemetryDashboard';
+import type { DashboardResource } from '../../hooks/useTelemetryDashboard';
 
 /** Mirrors the `Telemetry Dashboard` card in `config/adminSections.tsx`. */
 const PAGE_TITLE = 'Telemetry Dashboard';
@@ -229,6 +253,26 @@ export default function TelemetryDashboardPage() {
   );
   const events = useDashboardEvents(eventsQuery, tick);
 
+  // Infrastructure sections (#127): one request per group, on the shared tick.
+  const metricQuery = useMemo(() => {
+    const base = metricsQuery(state);
+    return buckets ? { ...base, buckets } : base;
+  }, [state, buckets]);
+  const hostMetrics = useDashboardMetrics('host', metricQuery, tick);
+  const databaseMetrics = useDashboardMetrics('database', metricQuery, tick);
+  const queueMetrics = useDashboardMetrics('queue', metricQuery, tick);
+  const nodesMetrics = useDashboardMetrics('nodes', metricQuery, tick);
+  const uptimeMetrics = useDashboardMetrics('uptime', metricQuery, tick);
+  const pipelineMetrics = useDashboardMetrics('pipeline', metricQuery, tick);
+  const metrics: Record<DashboardMetricGroup, DashboardResource<DashboardMetrics>> = {
+    host: hostMetrics,
+    database: databaseMetrics,
+    queue: queueMetrics,
+    nodes: nodesMetrics,
+    uptime: uptimeMetrics,
+    pipeline: pipelineMetrics,
+  };
+
   const openSql = useCallback(
     (sql: string) => {
       const { to, state: handoff } = explorerHandoff(sql);
@@ -290,6 +334,17 @@ export default function TelemetryDashboardPage() {
   // Defence, not the gate — `App.tsx` wraps the route in `RequirePermission`.
   if (!hasPermission('telemetry:query')) return <Navigate to="/" replace />;
 
+  // Groups the store has nothing of: their sections hide, and one line says so.
+  const notCollected = METRIC_SECTIONS.map(({ group }) => group).filter(
+    (group) => metrics[group].data?.available === false,
+  );
+  /** A verdict reason about an infrastructure section links to it — when that section is on screen. */
+  const reasonLink = (reason: string) => {
+    const group = verdictReasonGroup(reason);
+    if (!group || !metrics[group].data?.available) return null;
+    return { label: `Show ${metricSectionTitle(group)}`, onClick: () => scrollToMetricSection(group) };
+  };
+
   const unavailable = summary.error && UNAVAILABLE_REASONS.has(summary.error.reason ?? '') ? summary.error : null;
   const assistantVariant: AssistantContainerVariant = isPhone ? 'fullscreen' : isDesktop ? 'docked' : 'overlay';
   const docked = assistantAvailable && assistantOpen && assistantVariant === 'docked';
@@ -336,6 +391,7 @@ export default function TelemetryDashboardPage() {
               onChange={update}
               services={filters.data?.services ?? []}
               instances={filters.data?.instances ?? []}
+              hosts={filters.data?.hosts ?? []}
               updatedAt={summary.fetchedAt}
               layout={layout}
             />
@@ -347,6 +403,7 @@ export default function TelemetryDashboardPage() {
               onRetry={summary.reload}
               compact={isPhone}
               action={explainVerdict ? { label: 'Explain this', onClick: explainVerdict } : undefined}
+              reasonAction={reasonLink}
             />
 
             <DashboardPanel
@@ -478,6 +535,25 @@ export default function TelemetryDashboardPage() {
                   : null,
               )}
             />
+
+            {METRIC_SECTIONS.map(({ group }) => {
+              const resource = metrics[group];
+              return (
+                <MetricSection
+                  key={group}
+                  group={group}
+                  resource={resource}
+                  layout={layout}
+                  spanMs={spanMs}
+                  actions={panelActions(
+                    metricPanelId(group),
+                    resource.data?.sql,
+                    resource.data ? metricsAssistantContext(group, resource.data) : null,
+                  )}
+                />
+              );
+            })}
+            <MetricsNotCollected groups={notCollected} />
           </Stack>
         )}
       </Box>

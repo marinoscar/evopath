@@ -112,13 +112,15 @@ export interface KpiTilesProps {
   runtime?: DashboardTile[];
   /** For relative timestamps; the page passes its clock. */
   now?: number;
+  /** `data-testid` of the grid (the infrastructure sections, #127, reuse this component). */
+  testId?: string;
 }
 
-export function KpiTiles({ tiles, runtime = [], now = Date.now() }: KpiTilesProps) {
+export function KpiTiles({ tiles, runtime = [], now = Date.now(), testId = 'kpi-tiles' }: KpiTilesProps) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'));
   return (
-    <Grid container spacing={{ xs: 1, sm: 1.5 }} data-testid="kpi-tiles">
+    <Grid container spacing={{ xs: 1, sm: 1.5 }} data-testid={testId}>
       {[...tiles, ...runtime].map((tile) => (
         <Grid key={tile.key} size={{ xs: 6, sm: 4, lg: 2 }} sx={{ minWidth: 0 }}>
           <Tile tile={tile} compact={compact} now={now} />

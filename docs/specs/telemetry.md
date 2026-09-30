@@ -1150,9 +1150,10 @@ without it (`:?` compose interpolation).
 
 `/admin/settings/telemetry/dashboard` answers "is anything wrong, right now?"
 without anyone writing SQL: a health verdict, headline tiles, API and log
-timelines, the routes and error messages responsible, and a feed of recent
-error/warning logs — all read-only, over the same GreptimeDB store as the
-explorer.
+timelines, the routes and error messages responsible, a feed of recent
+error/warning logs, and the infrastructure under the application (host,
+database, job queue, worker nodes, uptime, the telemetry pipeline — #127) —
+all read-only, over the same GreptimeDB store as the explorer.
 
 ### 11.1 Purpose and triage model
 
@@ -1175,10 +1176,12 @@ banner, so the dashboard is an entry point into the deeper tools rather than
 a dead end:
 
 - **"Open in Explorer"** on every panel (Key indicators, API requests, log
-  severity, Top failing routes, Top errors, Recent events): hands the
-  Explorer the `sql` that panel's own API response reported (§11.4), first
-  statement only when it is a list — for Key indicators that is the
-  current-vs-previous totals query the tiles come from. The Explorer loads
+  severity, Top failing routes, Top errors, Recent events, and each
+  infrastructure section of §11.9): hands the Explorer the `sql` that
+  panel's own API response reported (§11.4), first statement only when it is
+  a list — for Key indicators that is the current-vs-previous totals query
+  the tiles come from, for an infrastructure section the first statement of
+  its `/metrics` group (§11.14). The Explorer loads
   it into the editor and does **not** run it (§11.9's cross-link below);
   disabled until the panel has data (and so has `sql`).
 - **"Ask assistant"** on every panel, and **"Explain this"** on the verdict
@@ -1234,7 +1237,11 @@ whether a run is allowed.
 `buildAssistantQuestion`'s bounds keep the prefill a caption, not an essay:
 at most 2,000 characters overall, any one message (a log body, an error
 line, a verdict reason) clipped to 200, at most five list entries per
-panel, and at most one sample trace id.
+panel, and at most one sample trace id. An infrastructure section (the
+`metrics` kind, #127) lists at most five of its tiles and at most five table
+rows in all, failing rows first (a URL or scrape job that is down, a job type
+with no eligible node), each row's key and cells clipped to 80 characters;
+it names the Host filter, the one panel kind the filter applies to.
 
 ### 11.2 Data sources: what is collected, and why no Docker stats
 
@@ -1606,6 +1613,50 @@ page checks it again as defence, not the gate.
 - **Zoom**: dragging (or, on touch, tapping) across the API or log timeline
   sets `from`/`to` to that span (`ZoomBrush.tsx`, `bucketWindow`); a "Reset
   zoom" chip in the filter bar drops back to the preset range.
+- **Infrastructure sections** (#127): below the Recent events feed, six
+  first-class panels over `GET …/metrics` (§11.14), one request per group
+  (`useDashboardMetrics`, on the same per-panel engine and refresh tick), in
+  this order:
+
+  | Section | `group` | Tiles | Chart | Table(s) |
+  |---|---|---|---|---|
+  | Infrastructure | `host` | CPU, memory, load 1m, worst filesystem | CPU % and memory % | Filesystems per mountpoint, used % as a bar beside its number |
+  | Database | `database` | Connections used %, database size, commits/s, cache hit % | Connections vs max connections | Largest tables |
+  | Job queue | `queue` | Pending depth, oldest pending, failure ratio, duration p95, last backup age | Jobs settled/min by outcome (succeeded green, failed red) | Job types |
+  | Worker nodes | `nodes` | Healthy, stale, offline, types with no eligible node | — | Nodes (CPU, RSS, heap % bar, disk free %, slots used/total); node-offered job types, "None eligible" first |
+  | Uptime & dependencies | `uptime` | nginx active connections, nginx requests/s, TLS days left, check duration | nginx connections by state | Uptime targets: Up/Down, status, latency, TLS days left, failed checks, last error — failing URLs first |
+  | Telemetry pipeline | `pipeline` | Points failed, exporter queue used %, points refused, scrape targets down | — | Scrape targets: Up/Down per job |
+
+  Which tiles, series and tables a section draws is declared as data
+  (`SECTION_SPECS` in `components/telemetry/dashboard/metrics/MetricSections.tsx`)
+  over three generic renderers: the headline `KpiTiles` (reused as is),
+  `MetricSeriesChart` (one line per series and `groupBy` value, one unit per
+  chart, `null` a gap) and `MetricTable` (every cell formatted by its
+  column's unit through `format.ts` — `%`, `bytes`, `bytes/s`, `count`,
+  `per_s`, `per_min`, `ms`, `seconds`, `hours`, `days`, `cores`, `load`,
+  `text`, `boolean`, `timestamp` — `null` as "—"). Anything the response
+  lacks is left out, never shown empty: a skipped family or table is named
+  only as a count in a caption ("2 metrics of this section are not collected
+  in this store"), a truncated list says so, and a group with
+  `available: false` hides its whole section — the page then adds one line,
+  "Not collected in this telemetry store: …", naming the hidden sections.
+  Before its first answer a section shows its skeleton; a failure is that
+  section's own, with its own Retry.
+- **Host filter** (`?host=`, #127): a Host select beside Service and Instance
+  (in the tablet popover and the phone Filters dialog likewise), listing
+  `/filters` `hosts`, and offered only once there are any (or the URL
+  carries one) — with no host metrics it would filter nothing. It is sent to
+  `/metrics` only, since the API applies it to the collector's tables alone
+  (§11.14 Filters); every other panel's request is unchanged.
+- **Verdict reasons link to their section** (#127): a reason written by one
+  of the infrastructure rules (§11.7 — disk, memory, DB connections, queue
+  age, backup, nodes, TLS, uptime, collector exports) gets a "Show
+  <section>" link after it, when that section is on screen. It scrolls to
+  the section's region (`id="telemetry-section-<group>"`, `tabIndex=-1`,
+  with a scroll margin for the sticky AppBar) and moves focus there, so a
+  screen reader lands on the section's heading. The mapping reads the API's
+  reason wording (`verdictReasonGroup` in `metrics/metricSections.ts`); the
+  traffic and no-data reasons get no link.
 
 ### 11.10 Responsive layout
 
@@ -1622,6 +1673,8 @@ desktop `≥ lg`) — none of the shell's five coupled breakpoint gates
 | Events feed | A card list (severity chip + relative time, two-line message) | A table without the service column | A full table (time, severity, service, message) |
 | Panel actions (§11.1) | Folded into one `⋮` menu | Icon buttons | Icon buttons |
 | Assistant (§11.1) | Full-screen `Dialog` | Overlay `Drawer` with a backdrop (Escape or a backdrop click closes it) | Persistent, docked 400px-wide `Drawer` below the AppBar; the page pads its content by that width so nothing sits underneath it |
+| Host filter (#127) | In the Filters dialog, applied with the draft | In the Filters popover | Inline after Instance |
+| Infrastructure sections (#127) | Full width; tiles two per row; chart then table stacked, 200 px chart with its legend below; a wide table scrolls sideways inside its own box | Full width; tiles three per row; chart then table stacked | Full width; tiles six per row; chart (5/12) beside its table (7/12) when a section has both |
 
 Each panel's header keeps its actions row consistent across panels and
 layouts: "Ask assistant" first (only where offered), then "Open in
@@ -1684,6 +1737,23 @@ controls instead, just not by selecting a span on the chart itself.
   control.
 - `apps/web/src/__tests__/components/telemetry/dashboard/assistantPrompt.test.ts`
   — `buildAssistantQuestion` per panel kind and its length/count bounds.
+- `apps/web/src/__tests__/pages/Admin/TelemetryDashboardPage.metrics.test.tsx`
+  (#127) — the infrastructure sections in order below the application
+  panels, a hidden unavailable group and the "not collected" line, one
+  `/metrics` request per group, a section's own error and Retry, the Host
+  filter (sent to `/metrics` only, from the URL, hidden without hosts, in the
+  phone dialog), verdict reasons linking to and focusing their section, and
+  each section's "Open in Explorer" and "Ask assistant".
+- `apps/web/src/__tests__/components/telemetry/dashboard/metrics/` (#127) —
+  each section's tiles, chart and tables, and the unavailable, skipped,
+  truncated, empty, loading and error states (`MetricSections.test.tsx`);
+  unit-aware cells, virtual columns, row order and status as icon + word
+  (`MetricTable.test.tsx`); the chart's accessible name and line cap
+  (`MetricSeriesChart.test.tsx`); the reason-to-section mapping
+  (`metricSections.test.ts`). `format.test.ts` covers every metric unit;
+  `apps/web/src/__tests__/services/telemetryDashboard.test.ts` and
+  `apps/web/src/__tests__/hooks/useTelemetryDashboard.test.tsx` the
+  `/metrics` query (with `host`) and `useDashboardMetrics`.
 - `apps/web/src/__tests__/components/telemetry/dashboard/traceLink.test.ts` —
   `isTraceId` and `traceExplorerSql`, including the injection argument above.
 - `apps/web/src/__tests__/components/telemetry/explorerHandoff.test.ts` — the
@@ -1692,7 +1762,8 @@ controls instead, just not by selecting a span on the chart itself.
 - `apps/web/src/__tests__/hooks/useTelemetryAssistantAvailable.test.tsx` — the
   shared availability condition (assistant switch, AI switch, `ai:use`).
 - `tests/visual/specs/telemetry-dashboard.spec.ts` — 15 pixel baselines: the
-  `critical` and `no_data` verdicts at 390×844 (phone), 820×1180 (tablet) and
+  `critical` (every infrastructure section available, #127) and `no_data`
+  (every section hidden) verdicts at 390×844 (phone), 820×1180 (tablet) and
   1440×900 (desktop), each in light and dark, plus the phone Filters dialog,
   the phone full-screen assistant dialog and the tablet overlay assistant
   drawer (the prefilled question is part of the picture). Every `/api` call
@@ -2084,3 +2155,8 @@ on the reader pool.
 - #133: node span relay: worker nodes post job phase spans to `POST /api/nodes/{id}/telemetry`, re-emitted by the API under the job's trace (§1).
 - #126: the metric catalog and `GET /api/admin/telemetry/dashboard/metrics` (host, database, queue, nodes, uptime and pipeline groups, §11.14), `hosts` on `/filters` and the `host` filter, nine infrastructure verdict rules gathered by one probe per rule family in the summary (§11.7), and the shared SQL literal helpers (§11.5).
 - #128: the assistant reads metrics (§6) — `metrics_overview(group, window)` and `compare_nodes(window)` over the metric catalog and builders, a `saturation` section in `health_overview` from the verdict probes, `metricFamilies` in `get_app_context`, label values withheld (ordinals instead) when `shareResults` is off, and a method that checks saturation in the baseline and correlates it with latency and error spikes.
+- #127: the dashboard's six infrastructure sections (Infrastructure,
+  Database, Job queue, Worker nodes, Uptime & dependencies, Telemetry
+  pipeline) over `/metrics`, each its own panel with "Open in Explorer" and
+  "Ask assistant" and hidden when its group is not collected; the Host
+  filter; verdict reasons linking to their section (§11.9, §11.10).
