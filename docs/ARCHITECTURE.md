@@ -364,7 +364,7 @@ A workout is one logged training session. `workouts` holds the session (name, th
 - **Deletion.** Deleting a workout cascades to its exercises, sets and photo links. Deleting a gym sets `gymId` to null. Deleting an exercise that a workout uses is refused (`EXERCISE_IN_USE`).
 
 - **Code:** `apps/api/src/workouts/` (`WorkoutsModule`; limits and refusal reasons in `workouts.constants.ts`)
-- **Routes:** `/api/workouts` (including `/:id/finish`, `/:id/exercises` and `/:id/sets`); details in `/api/docs` (group "Training", tag "Workouts")
+- **Routes:** `/api/workouts` (including `/summary` for the Today card, `/:id/finish`, `/:id/exercises` and `/:id/sets`); details in `/api/docs` (group "Training", tag "Workouts")
 - **Permissions:** `workouts:read`, `workouts:write`
 
 ---
