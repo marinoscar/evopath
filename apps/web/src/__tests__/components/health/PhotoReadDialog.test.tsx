@@ -493,6 +493,89 @@ describe('PhotoReadDialog: keep or delete the file (#185)', () => {
   });
 });
 
+describe('PhotoReadDialog: PDF reports (H2, #186)', () => {
+  const report = () => new File(['%PDF-1.7 report'], 'InBody report.pdf', { type: 'application/pdf' });
+  const PDF_MESSAGE = "Your AI model can't read PDFs; choose a model with file input or upload an image.";
+
+  it('offers "Add photos or PDFs" (image/*,application/pdf) while Take photo stays image-only', async () => {
+    setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    expect(within(dialog()).getByRole('button', { name: 'Add photos or PDFs' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Add photos or PDFs')).toHaveAttribute('accept', 'image/*,application/pdf');
+    expect(screen.getByLabelText('Take photo')).toHaveAttribute('accept', 'image/*');
+  });
+
+  it('uploads a PDF as it is (application/pdf), shows it as a PDF tile, and reads it into drafts', async () => {
+    const { api, user } = setup({ photoName: 'InBody report.pdf' });
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), report());
+
+    const tile = screen.getByTestId('intake-photo-tile');
+    expect(tile).toHaveAttribute('data-kind', 'pdf');
+    expect(within(tile).getByRole('img', { name: 'InBody report.pdf (PDF)' })).toBeInTheDocument();
+    await waitFor(() => expect(tile).toHaveAttribute('data-stage', 'ready'));
+    expect(api.uploads).toEqual([{ type: 'application/pdf' }]);
+
+    const read = within(dialog()).getByRole('button', { name: 'Read' });
+    await waitFor(() => expect(read).toBeEnabled());
+    await user.click(read);
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    // The draft's source is the PDF: a file icon, no image fetched for it.
+    expect(within(rows()[0]).getByRole('img', { name: 'InBody report.pdf (PDF)' })).toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      'TOO_MANY_PAGES',
+      apiError(400, 'A PDF may have at most 20 pages', { reason: 'TOO_MANY_PAGES', pages: 34, maxPages: 20 }, 'BAD_REQUEST'),
+      'This PDF has 34 pages; the limit is 20.',
+    ],
+    [
+      'PDF_UNREADABLE',
+      apiError(400, 'This PDF could not be read', { reason: 'PDF_UNREADABLE' }, 'BAD_REQUEST'),
+      "This PDF can't be read. It may be damaged or password-protected; export it again or upload a photo instead.",
+    ],
+    [
+      'a renamed file',
+      apiError(400, 'This file is not a PDF', { reason: 'UNSUPPORTED_MEDIA_TYPE', contentMismatch: true }, 'BAD_REQUEST'),
+      "This file isn't a real PDF. Export the report as a PDF again, or upload a photo.",
+    ],
+  ])('an attach refused for %s shows it in words on the tile, with Retry', async (_name, attachError, message) => {
+    const { api, user } = setup({ attachError });
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), report());
+    await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'error'));
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry InBody report.pdf' })).toBeInTheDocument();
+    expect(within(dialog()).getByRole('button', { name: 'Read' })).toBeDisabled();
+    // The refused object is not left behind.
+    await waitFor(() => expect(api.deletedObjects).toEqual(['obj-1']));
+  });
+
+  it('Read on a model without file input says so, and Enter manually stays available', async () => {
+    const { user, onEnterManually } = setup({
+      analyzeError: apiError(
+        400,
+        PDF_MESSAGE,
+        { reason: 'AI_CAPABILITY_UNSUPPORTED', capability: 'file_input', inputKind: 'pdf' },
+        'BAD_REQUEST',
+      ),
+    });
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), report());
+    await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'ready'));
+    const read = within(dialog()).getByRole('button', { name: 'Read' });
+    await waitFor(() => expect(read).toBeEnabled());
+    await user.click(read);
+
+    const failure = await screen.findByTestId('photo-read-failure');
+    expect(within(failure).getByText("Your AI model can't read PDFs")).toBeInTheDocument();
+    expect(within(failure).getByText(PDF_MESSAGE)).toBeInTheDocument();
+    await user.click(within(failure).getByRole('button', { name: 'Enter manually' }));
+    expect(onEnterManually).toHaveBeenCalled();
+  });
+});
+
 describe('PhotoReadDialog: accessibility', () => {
   it('has no axe violations on the photo step and on the review', async () => {
     const { user, container } = setup({ result: { items: cuffItems() } });

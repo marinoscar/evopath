@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
-import { render, screen, waitFor, within } from '../../utils/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
 import { FILE_DELETED_CHIP, MeasurementHistory, entryPhotoProvenance } from '../../../components/health/MeasurementHistory';
 import type { MeasurementDto } from '../../../services/health';
@@ -143,6 +143,25 @@ describe('MeasurementHistory: photo provenance', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Photo' })).not.toBeInTheDocument());
+  });
+
+  it('a source the image cannot draw (a PDF, H2 #186) offers the new tab instead', async () => {
+    server.use(
+      http.get('*/api/storage/objects/:id/download', ({ params }) =>
+        HttpResponse.json({ data: { url: `https://signed.example.test/${String(params.id)}`, expiresIn: 300 } }),
+      ),
+    );
+    const { user } = renderHistory();
+    const [, unedited] = await entries();
+    await user.click(within(unedited).getByRole('button', { name: /^View photo for weight entry from/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Photo' });
+    fireEvent.error(await within(dialog).findByRole('img'));
+    expect(await within(dialog).findByText(/can't be shown here\. Open it in a new tab\./)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('img')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute(
+      'href',
+      'https://signed.example.test/obj-photo-2',
+    );
   });
 
   it('says so when the photo is gone', async () => {
