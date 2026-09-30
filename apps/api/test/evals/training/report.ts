@@ -96,6 +96,26 @@ export function reportPersona(e: PersonaEvaluation, extra: Partial<Pick<ReportPe
   };
 }
 
+/** A persona whose run threw: recorded with the error code and a quality score of 0, never a crash. */
+export function reportError(persona: { id: string; kind: string }, code: string, run: { latencyMs: number; usage: ReportPersona['usage'] }): ReportPersona {
+  return {
+    id: persona.id,
+    kind: persona.kind,
+    variant: 'live',
+    status: 'error',
+    verdict: null,
+    passes: false,
+    latencyMs: run.latencyMs,
+    rawScore: 0,
+    shippedScore: 0,
+    samples: { count: 1, mean: 0, min: 0, max: 0, label: 'single sample' },
+    properties: [],
+    usage: run.usage,
+    judge: null,
+    error: code,
+  };
+}
+
 export function buildReport(args: {
   mode: 'pipeline' | 'live';
   personas: ReportPersona[];

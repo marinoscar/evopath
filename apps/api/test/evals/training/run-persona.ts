@@ -16,6 +16,7 @@ import { synthesizeDraft, type DraftVariant } from '../support/draft-synth';
 import { SEED_LIBRARY } from '../support/seed-library';
 import { contextSourceOf } from './personas';
 import type { EvalPersona } from './persona.schema';
+import type { RunState } from '../../../src/training-agents/graph/run-state';
 import type { EvalArtifact } from './properties';
 
 // =============================================================================
@@ -115,20 +116,8 @@ export async function runPersona(persona: EvalPersona, options: PersonaRunOption
   const latencyMs = Date.now() - started;
   const state = result.state;
 
-  const brief = (state.brief ?? null) as VerifiedEvidenceBrief | null;
-  const context = buildTrainingRunContext(source);
-  const ctx: GuardrailContext = guardrailContextOf(context, brief);
+  const { raw, shipped } = buildLayers({ persona, source, state, program: [...fake.programs.values()][0], firstDraft: drafts[0] });
   const outcome = state.outcome as { status?: string; verdict?: string } | null;
-  const program = [...fake.programs.values()][0];
-
-  const compiledRaw = compileDraft(drafts[0], { library: SEED_LIBRARY, brief, seed: `eval:${persona.id}:1` });
-  const raw: EvalArtifact = { layer: 'raw', tree: compiledRaw.tree, ctx, header: compiledRaw.header };
-
-  let shipped: EvalArtifact | null = null;
-  if (program) {
-    const output = state.guardrailReport as GuardrailNodeOutput | null;
-    shipped = { layer: 'shipped', tree: program.versions[0].tree as PlanTree, ctx, header: (output?.header ?? null) as PlanHeader | null, flags: Object.keys(violationCounts(output)) };
-  }
 
   const usage: PersonaRun['usage'] = {};
   for (const report of h.usage) {
@@ -156,7 +145,32 @@ export async function runPersona(persona: EvalPersona, options: PersonaRunOption
   };
 }
 
-function violationCounts(output: GuardrailNodeOutput | null): Record<string, number> {
+/** Both artifact layers of a finished run: the first draft compiled (raw) and the plan the pipeline created (shipped). */
+export function buildLayers(args: {
+  persona: EvalPersona;
+  source: ReturnType<typeof contextSourceOf>;
+  state: RunState;
+  program: { versions: Array<{ tree: unknown }> } | undefined;
+  firstDraft: PlanDraft | null;
+}): { raw: EvalArtifact | null; shipped: EvalArtifact | null } {
+  const brief = (args.state.brief ?? null) as VerifiedEvidenceBrief | null;
+  const ctx: GuardrailContext = guardrailContextOf(buildTrainingRunContext(args.source), brief);
+
+  let raw: EvalArtifact | null = null;
+  if (args.firstDraft) {
+    const compiled = compileDraft(args.firstDraft, { library: SEED_LIBRARY, brief, seed: `eval:${args.persona.id}:1` });
+    raw = { layer: 'raw', tree: compiled.tree, ctx, header: compiled.header };
+  }
+
+  let shipped: EvalArtifact | null = null;
+  if (args.program) {
+    const output = args.state.guardrailReport as GuardrailNodeOutput | null;
+    shipped = { layer: 'shipped', tree: args.program.versions[0].tree as PlanTree, ctx, header: (output?.header ?? null) as PlanHeader | null, flags: Object.keys(violationCounts(output)) };
+  }
+  return { raw, shipped };
+}
+
+export function violationCounts(output: GuardrailNodeOutput | null): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const v of output?.report.violations ?? []) {
     const key = `${v.rule}:${v.severity}:${v.code}`;
