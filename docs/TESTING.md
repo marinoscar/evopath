@@ -19,10 +19,11 @@ here.
 10. [CLI tests](#cli-tests)
 11. [End-to-end tests (Playwright)](#end-to-end-tests-playwright)
 12. [Visual regression](#visual-regression)
-13. [Mocking OAuth](#mocking-oauth)
-14. [Writing a new test](#writing-a-new-test)
-15. [CI](#ci)
-16. [Common issues](#common-issues)
+13. [Evals](#evals)
+14. [Mocking OAuth](#mocking-oauth)
+15. [Writing a new test](#writing-a-new-test)
+16. [CI](#ci)
+17. [Common issues](#common-issues)
 
 ## Overview
 
@@ -701,6 +702,67 @@ baseline that changes on a screen your branch did not touch is a finding.
 The `visual` job runs the same binary without `--update-snapshots` and
 uploads `tests/visual/playwright-report/` on every run; the report embeds the
 expected, actual and diff images.
+
+## Evals
+
+Unit and scenario tests prove the guardrails do what their tables say and the pipeline is wired. Evals ask a different question: **are the plans good**, and does a new model, prompt or default make them better or worse. The suite lives in `apps/api/test/evals/` and adds no dependency.
+
+### What it measures
+
+Fifteen synthetic personas (`apps/api/test/fixtures/training/personas/*.json`, exercises and gyms named by seed slug, validated against the seed at load) run through the real create graph. Each is scored on twelve properties, pure functions `(persona, artifact) -> { pass, score, details }` in `test/evals/training/properties.ts`:
+
+- **Hard** (weight 3): `equipment_feasible`, `schedule_fits`, `volume_in_range`, `limits_respected`, `loads_safe`, `citations_valid`, `safety_stop`, `injection_inert`. A hard failure on the shipped plan fails the persona whatever its score.
+- **Soft** (weight 1): `goal_fit`, `progression_present`, `variety_and_balance`, `rationale_quality`. These use heuristics independent of the guardrails.
+
+Two layers are scored separately: **raw** (the planner's draft compiled before the guardrails: the model) and **shipped** (the tree the pipeline creates: what ships).
+
+**Limitation, by design:** the hard properties on the shipped layer reuse the guardrail tables as instruments, so they are partly circular. A green shipped column proves the pipeline applies the guardrails to a hostile model; it does not prove a model plans well. The soft properties and the raw layer measure the model. Every report says so in its header. A statistic the brief does not hold is flagged by the guardrails rather than removed, so on the shipped layer a flagged statistic passes and an unflagged one fails.
+
+### Pipeline evals (deterministic, free, in CI)
+
+`test/evals/training/pipeline.eval.spec.ts` runs every persona over the fake provider with four scripted planner outputs (`test/evals/support/draft-synth.ts`): **good**, **mediocre** (one revision, then ships), **hostile** (unsupported, avoid-listed and invented exercises, invented loads and citations, sessions outside the schedule) and **broken** (nothing repairable: the run is rejected). Safety personas assert zero provider calls; the injection persona asserts the goal text only reaches the planner inside the delimited context block. The suite is part of `npm test --workspace=api`, so a change to a guardrail, table, contract or route that lets a bad plan through fails CI.
+
+```bash
+npm run eval:training --workspace=api     # fake mode: a table, and reports under apps/api/test/evals/reports/
+```
+
+Reports are a flat JSON and a Markdown table (`<timestamp>-<mode>.{json,md}`, git-ignored). They hold scores, counts and model names, never a key, a bearer token or an environment variable value (a sentinel test proves it).
+
+### Model evals (on demand, real models)
+
+`test/evals/training/live.eval.spec.ts` runs the same graph against real models. It is skipped unless `EVAL_LIVE=1`, `EVAL_MODELS` names a planner and a critic, and a test key is set for each provider used. These variables are read by the eval only: the application never reads them and none belongs in `.env.example`.
+
+| Variable | Meaning |
+|---|---|
+| `EVAL_LIVE=1` | Enables the live run. |
+| `OPENAI_API_KEY_FOR_TESTS`, `ANTHROPIC_API_KEY_FOR_TESTS`, `GEMINI_API_KEY_FOR_TESTS` | The key for each provider used. |
+| `EVAL_MODELS` | `role=provider:model[:effort]`, comma separated: `planner=openai:gpt-x:high,critic=openai:gpt-y:medium`. |
+| `EVAL_PERSONAS` | Comma-separated persona ids; default all. |
+| `EVAL_SAMPLES` | Runs per persona (1 to 10); more than one reports mean and spread. |
+| `EVAL_RESEARCH=live` | Uses real web search; default is each persona's stored brief so planner and critic comparisons are not confounded by search variance. |
+| `EVAL_JUDGE=1` | Adds a model-graded score (1 to 5) from the critic model, which must differ from the planner. Reported, never gating. |
+| `EVAL_CONFIRM=1` | Required above about 500,000 estimated tokens. |
+| `EVAL_LABEL`, `EVAL_UPDATE_BASELINE=1` | Record `baselines/live-<label>.json`. |
+
+```bash
+EVAL_LIVE=1 OPENAI_API_KEY_FOR_TESTS=sk-... \
+EVAL_MODELS="planner=openai:gpt-x:high,critic=openai:gpt-y:high" \
+EVAL_PERSONAS=knee-pain-intermediate,time-crunched-two-days EVAL_SAMPLES=3 \
+npm run eval:training --workspace=api
+```
+
+**Cost.** A full live run over the whole persona set is roughly 2 to 3 million tokens; narrow it with `EVAL_PERSONAS` and `EVAL_SAMPLES`. The runner prints an estimate first. Personas run one after another, a provider throttle is retried with backoff, and a partial report is written after each persona so an interruption keeps its results. A model that cannot produce strict-mode output is recorded as `AI_STRUCTURED_OUTPUT_INVALID` with a quality score of 0. Live scores never fail the run: they are compared with a committed baseline when one exists and the deltas are printed.
+
+### Baselines and the prompt tripwire
+
+- `test/evals/training/baselines/pipeline.json` holds the fake-mode scores. The good variants must score at or above it, and the persona set must match it.
+- Each agent prompt module exports `PROMPT_VERSION` (bump it when the text changes meaningfully); reports record it. `prompt-versions.spec.ts` pins the content hash of the planner, critic and researcher prompts and the shared prompt blocks in `baselines/prompt-hashes.json`. Changing a prompt fails the spec until the evals were run and the hashes updated.
+- Baselines and hashes are rewritten only with `EVAL_UPDATE_BASELINE=1`, for example `EVAL_UPDATE_BASELINE=1 npm run eval:training --workspace=api`. Note the result in the PR.
+
+### Adding a persona or a property
+
+- **Persona:** add `test/fixtures/training/personas/<id>.json` (the file name is the id; see `persona.schema.ts`), listing the properties it expects. Run the evals, check the scores, then update the baseline. A persona the baseline does not know fails until it is recorded.
+- **Property:** add a pure function to `properties.ts`, register it in `PROPERTY_FNS` and `EVAL_PROPERTIES` (and `HARD_PROPERTIES` if it gates), and test it in `properties.spec.ts` on a good plan and on the same plan made bad.
 
 ## Mocking OAuth
 
