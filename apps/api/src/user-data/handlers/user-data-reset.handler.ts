@@ -101,7 +101,6 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job, Prisma } from '@prisma/client';
 
-import { normalizeProfileSettings } from '../../common/profile-image/profile-image';
 import type { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
@@ -113,41 +112,26 @@ import {
   USER_DATA_RESET_SUBJECT_TYPE,
   USER_DATA_RESET_TYPE,
 } from '../user-data.constants';
+import {
+  type DeletedRowCounts,
+  USER_DATA_RESET_TX_TIMEOUT_MS,
+  ZERO_ROW_COUNTS,
+  addCounts,
+  collectUserObjectIds,
+  deleteStorageObjects,
+  deleteUserOwnedRows,
+  payloadObject,
+  readCounts,
+} from '../user-data-purge';
 
-/** Largest `IN (...)` list sent in one statement. */
-export const USER_DATA_RESET_CHUNK_SIZE = 1000;
-
-/** The deletion transaction may take a while for a heavy user; Prisma's default is 5 s. */
-export const USER_DATA_RESET_TX_TIMEOUT_MS = 5 * 60_000;
-
-/** Counts written by step 2. */
-export type DeletedRowCounts = Omit<UserDataResetResult, 'storageObjectsDeleted' | 'storageObjectsFailed'>;
-
-const ZERO_ROW_COUNTS: DeletedRowCounts = {
-  workouts: 0,
-  gyms: 0,
-  measurements: 0,
-  healthProfiles: 0,
-  photoIntakes: 0,
-  programs: 0,
-  programChangeLogs: 0,
-  trainingRuns: 0,
-  workoutAdaptations: 0,
-  trainingCheckpoints: 0,
-  customExercises: 0,
-  customEquipment: 0,
-  aiRuns: 0,
-  aiUsageEvents: 0,
-  aiKeys: 0,
-  userCredentials: 0,
-  accessTokens: 0,
-  deviceCodes: 0,
-  pushSubscriptions: 0,
-  notifications: 0,
-  notificationDeliveries: 0,
-  userSettings: 0,
-  cancelledJobs: 0,
-};
+// The deletion itself lives in `../user-data-purge.ts`, shared with the admin
+// factory reset (#211); re-exported here for existing importers.
+export {
+  USER_DATA_RESET_CHUNK_SIZE,
+  USER_DATA_RESET_TX_TIMEOUT_MS,
+  chunk,
+  type DeletedRowCounts,
+} from '../user-data-purge';
 
 /** What an earlier attempt of the same job left on its payload. */
 interface ResetProgress {
@@ -155,40 +139,11 @@ interface ResetProgress {
   deleted: DeletedRowCounts | null;
 }
 
-export function chunk<T>(items: readonly T[], size = USER_DATA_RESET_CHUNK_SIZE): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-function payloadObject(job: Pick<Job, 'payload'>): Prisma.JsonObject {
-  return job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload)
-    ? (job.payload as Prisma.JsonObject)
-    : {};
-}
-
 function readProgress(payload: Prisma.JsonObject): ResetProgress {
   const ids = Array.isArray(payload.objectIds)
     ? payload.objectIds.filter((id): id is string => typeof id === 'string')
     : [];
-
-  const raw = payload.deleted;
-  let deleted: DeletedRowCounts | null = null;
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    deleted = { ...ZERO_ROW_COUNTS };
-    for (const key of Object.keys(ZERO_ROW_COUNTS) as (keyof DeletedRowCounts)[]) {
-      const value = (raw as Prisma.JsonObject)[key];
-      deleted[key] = typeof value === 'number' ? value : 0;
-    }
-  }
-
-  return { objectIds: ids, deleted };
-}
-
-function addCounts(a: DeletedRowCounts, b: DeletedRowCounts): DeletedRowCounts {
-  const sum = { ...a };
-  for (const key of Object.keys(sum) as (keyof DeletedRowCounts)[]) sum[key] += b[key];
-  return sum;
+  return { objectIds: ids, deleted: readCounts(payload.deleted, ZERO_ROW_COUNTS) };
 }
 
 @Injectable()
@@ -276,181 +231,31 @@ export class UserDataResetHandler implements JobHandler, OnModuleInit {
   }
 
   /** Step 1: every storage object id the reset must delete. */
-  async collectObjectIds(userId: string): Promise<string[]> {
-    const [uploaded, intakePhotos, gymPhotos, workoutPhotos, settings] = await Promise.all([
-      this.prisma.storageObject.findMany({ where: { uploadedById: userId }, select: { id: true } }),
-      this.prisma.photoIntakePhoto.findMany({
-        where: { intake: { userId } },
-        select: { storageObjectId: true },
-      }),
-      this.prisma.gymPhoto.findMany({ where: { gym: { userId } }, select: { storageObjectId: true } }),
-      this.prisma.workoutPhoto.findMany({
-        where: { workout: { userId } },
-        select: { storageObjectId: true },
-      }),
-      this.prisma.userSettings.findUnique({ where: { userId }, select: { value: true } }),
-    ]);
-
-    const ids = new Set<string>();
-    uploaded.forEach((row) => ids.add(row.id));
-    intakePhotos.forEach((row) => ids.add(row.storageObjectId));
-    gymPhotos.forEach((row) => ids.add(row.storageObjectId));
-    workoutPhotos.forEach((row) => ids.add(row.storageObjectId));
-
-    const settingsValue = settings?.value as { profile?: unknown } | null | undefined;
-    const avatarId = settingsValue ? normalizeProfileSettings(settingsValue.profile).imageObjectId : null;
-    if (avatarId) ids.add(avatarId);
-
-    return [...ids];
+  collectObjectIds(userId: string): Promise<string[]> {
+    return collectUserObjectIds(this.prisma, userId);
   }
 
   /**
    * Step 2: every row the header lists as DELETED, children before the
    * parents they RESTRICT. Runs inside the caller's transaction.
    */
-  async deleteRows(
+  deleteRows(
     tx: Prisma.TransactionClient,
     userId: string,
     jobId: string,
     objectIds: readonly string[],
   ): Promise<DeletedRowCounts> {
-    const counts: DeletedRowCounts = { ...ZERO_ROW_COUNTS };
-
-    // Ids the rest of the system may name without a foreign key: checkpoints
-    // (thread = run or adaptation id) and pending jobs' subjects.
-    const [runs, adaptations, intakes, workouts, gyms, programs] = await Promise.all([
-      tx.trainingPlanRun.findMany({ where: { userId }, select: { id: true } }),
-      tx.workoutAdaptation.findMany({ where: { userId }, select: { id: true } }),
-      tx.photoIntake.findMany({ where: { userId }, select: { id: true } }),
-      tx.workout.findMany({ where: { userId }, select: { id: true } }),
-      tx.gym.findMany({ where: { userId }, select: { id: true } }),
-      tx.program.findMany({ where: { userId }, select: { id: true } }),
-    ]);
-    const threadIds = [...runs, ...adaptations].map((row) => row.id);
-    const subjectIds = [
-      ...threadIds,
-      ...[...intakes, ...workouts, ...gyms, ...programs].map((row) => row.id),
-      ...objectIds,
-    ];
-
-    // Pending jobs about rows that are about to disappear. Running ones are
-    // left to fail on their own; this job itself is excluded.
-    for (const ids of chunk(subjectIds)) {
-      const { count } = await tx.job.deleteMany({
-        where: { status: 'pending', subjectId: { in: ids }, id: { not: jobId } },
-      });
-      counts.cancelledJobs += count;
-    }
-
-    // Training: checkpoints carry no FK, so they are deleted explicitly.
-    for (const ids of chunk(threadIds)) {
-      await tx.trainingRunCheckpointWrite.deleteMany({ where: { threadId: { in: ids } } });
-      const { count } = await tx.trainingRunCheckpoint.deleteMany({ where: { threadId: { in: ids } } });
-      counts.trainingCheckpoints += count;
-    }
-    counts.workoutAdaptations = (await tx.workoutAdaptation.deleteMany({ where: { userId } })).count;
-    counts.trainingRuns = (await tx.trainingPlanRun.deleteMany({ where: { userId } })).count;
-
-    // Workouts before programs is not required (ProgramSession cascades from
-    // both); both before custom exercises (WorkoutExercise/ProgramExercise
-    // RESTRICT the exercise).
-    await tx.programSession.deleteMany({ where: { userId } });
-    counts.workouts = (await tx.workout.deleteMany({ where: { userId } })).count;
-    counts.programChangeLogs = (await tx.programChangeLog.deleteMany({ where: { userId } })).count;
-    counts.programs = (await tx.program.deleteMany({ where: { userId } })).count;
-
-    counts.photoIntakes = (await tx.photoIntake.deleteMany({ where: { userId } })).count;
-    // Before custom equipment (GymEquipment RESTRICTs the equipment type).
-    counts.gyms = (await tx.gym.deleteMany({ where: { userId } })).count;
-
-    // A custom row another user's data still references is kept rather than
-    // failing the whole reset on its RESTRICT.
-    counts.customExercises = (
-      await tx.exercise.deleteMany({
-        where: { ownerUserId: userId, workoutExercises: { none: {} }, programExercises: { none: {} } },
-      })
-    ).count;
-    counts.customEquipment = (
-      await tx.equipmentType.deleteMany({
-        where: { ownerUserId: userId, gymEquipment: { none: {} }, exerciseRequirements: { none: {} } },
-      })
-    ).count;
-
-    // Health data. The revision chain's self-FK is RESTRICT: unlink it first.
-    await tx.measurement.updateMany({
-      where: { userId, supersedesId: { not: null } },
-      data: { supersedesId: null },
-    });
-    counts.measurements = (await tx.measurement.deleteMany({ where: { userId } })).count;
-    counts.healthProfiles = (await tx.healthProfile.deleteMany({ where: { userId } })).count;
-
-    // AI and secrets.
-    counts.aiRuns = (await tx.aiRun.deleteMany({ where: { userId } })).count;
-    counts.aiUsageEvents = (await tx.aiUsageEvent.deleteMany({ where: { userId } })).count;
-    counts.aiKeys = (await tx.userAiKey.deleteMany({ where: { userId } })).count;
-    counts.userCredentials = (await tx.userCredential.deleteMany({ where: { userId } })).count;
-
-    // Credentials other than the session. DeviceCode → PAT is SET NULL, and a
-    // refresh token's deviceCodeId is SET NULL, so the session survives.
-    counts.deviceCodes = (await tx.deviceCode.deleteMany({ where: { userId } })).count;
-    counts.accessTokens = (await tx.personalAccessToken.deleteMany({ where: { userId } })).count;
-
-    // Notifications.
-    counts.pushSubscriptions = (await tx.pushSubscription.deleteMany({ where: { userId } })).count;
-    counts.notifications = (await tx.notification.deleteMany({ where: { userId } })).count;
-    counts.notificationDeliveries = (await tx.notificationDelivery.deleteMany({ where: { userId } })).count;
-
-    // Settings fall back to defaults on next read; the avatar and display
-    // name the settings drove are cleared on the user row.
-    counts.userSettings = (await tx.userSettings.deleteMany({ where: { userId } })).count;
-    await tx.user.updateMany({
-      where: { id: userId },
-      data: { profileImageUrl: null, displayName: null },
-    });
-
-    return counts;
+    return deleteUserOwnedRows(tx, userId, jobId, objectIds);
   }
 
   /**
    * Step 3: bytes first, then the row. A failure keeps the row and is
    * counted; it never throws.
    */
-  async deleteObjects(
+  deleteObjects(
     userId: string,
     objectIds: readonly string[],
   ): Promise<{ storageObjectsDeleted: number; storageObjectsFailed: number }> {
-    let storageObjectsDeleted = 0;
-    let storageObjectsFailed = 0;
-
-    for (const ids of chunk(objectIds)) {
-      const objects = await this.prisma.storageObject.findMany({
-        where: { id: { in: ids } },
-        select: { id: true, storageKey: true, s3UploadId: true },
-      });
-
-      for (const object of objects) {
-        try {
-          // Abort an unfinished multipart upload first: its parts are billed
-          // and the row is the only record of the upload id.
-          if (object.s3UploadId) {
-            await this.storage.abortMultipartUpload(object.storageKey, object.s3UploadId);
-          }
-          await this.storage.delete(object.storageKey);
-        } catch (error) {
-          storageObjectsFailed += 1;
-          this.logger.warn(
-            `Data reset for user ${userId}: could not delete storage object ${object.id}: ` +
-              `${error instanceof Error ? error.message : String(error)}`,
-          );
-          continue;
-        }
-
-        // Chunks cascade. A row already gone (a concurrent delete) is fine.
-        const { count } = await this.prisma.storageObject.deleteMany({ where: { id: object.id } });
-        storageObjectsDeleted += count;
-      }
-    }
-
-    return { storageObjectsDeleted, storageObjectsFailed };
+    return deleteStorageObjects(this.prisma, this.storage, this.logger, `Data reset for user ${userId}`, objectIds);
   }
 }
