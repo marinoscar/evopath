@@ -72,12 +72,16 @@ export interface EnvVarMetadata {
   /**
    * An EMPTY value is an acceptable answer for this key.
    *
-   * Nothing in ENV_METADATA below sets it, and the VPS path is unchanged by
-   * its existence: a deployment that cannot reach its own OAuth provider is
-   * not a deployment. It exists for the LOCAL profile in `init/` (issue #344),
-   * where `GOOGLE_CLIENT_ID` may legitimately be filled in later - the clone
-   * is being set up, not served - and an unattended run must produce a file
-   * rather than an error listing the credentials nobody has yet.
+   * It exists for the LOCAL profile in `init/` (issue #344), where
+   * `GOOGLE_CLIENT_ID` may legitimately be filled in later - the clone is
+   * being set up, not served - and an unattended run must produce a file
+   * rather than an error listing the credentials nobody has yet. On the VPS
+   * path it is set ONLY where blank has a defined meaning of its own: the
+   * PostgreSQL monitor login (#123), whose blank falls back to the API's
+   * login. A deployment that cannot reach its own OAuth provider is still not
+   * a deployment, so the OAuth keys never carry it there.
+   *
+   * `deploy update` never counts an `allowBlank` key as needing an answer.
    *
    * Blank SKIPS validation; a value that is present must still validate. That
    * asymmetry is the whole point: "not configured yet" and "configured wrong"
@@ -208,6 +212,22 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   POSTGRES_USER: { essential: true },
   POSTGRES_PASSWORD: { essential: true, secret: true },
   POSTGRES_DB: { essential: true },
+  // The telemetry collector's PostgreSQL login (issue #123), a pg_monitor role
+  // that must already exist on the server - so never generated, only asked.
+  // Asked as a PAIR (both `essential`) because a password asked on its own
+  // would be paired with POSTGRES_USER, which it does not belong to. Blank is
+  // a real answer for both: telemetry.compose.yml then falls back to the
+  // API's own POSTGRES_USER / POSTGRES_PASSWORD, which works on any server
+  // without a new role. `allowBlank` is what keeps that blank from failing an
+  // unattended install, and from failing `deploy update` on a deployment
+  // written before these keys existed.
+  POSTGRES_MONITOR_USER: { group: 'observability', essential: true, allowBlank: true },
+  POSTGRES_MONITOR_PASSWORD: {
+    group: 'observability',
+    essential: true,
+    secret: true,
+    allowBlank: true,
+  },
 
   // --- JWT / session -------------------------------------------------------
   JWT_SECRET: {

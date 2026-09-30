@@ -73,6 +73,21 @@ services:
       - GREPTIME_DB=${GREPTIME_DB:-public}
       - GREPTIME_WRITER_USER=${GREPTIME_WRITER_USER:-writer}
       - GREPTIME_WRITER_PASSWORD=${GREPTIME_WRITER_PASSWORD:?set GREPTIME_WRITER_PASSWORD in infra/compose/.env}
+      # PostgreSQL metrics (issue #123): the database the API uses, with the
+      # same defaults as base.compose.yml's api block, so the collector
+      # scrapes whatever server the application is actually talking to.
+      - POSTGRES_HOST=${POSTGRES_HOST:-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-appdb}
+      - POSTGRES_SSL=${POSTGRES_SSL:-false}
+      # A least-privilege pg_monitor role when .env names one; blank or absent
+      # falls back to the API's own login (`:-` treats empty as unset).
+      - POSTGRES_MONITOR_USER=${POSTGRES_MONITOR_USER:-${POSTGRES_USER:-postgres}}
+      - POSTGRES_MONITOR_PASSWORD=${POSTGRES_MONITOR_PASSWORD:-${POSTGRES_PASSWORD:-postgres}}
+      # A CONSTANT, not a setting: how otel-collector-config.yaml turns
+      # POSTGRES_SSL=true into the receiver's inverse `tls.insecure: false`
+      # (see the comment on the postgresql receiver). Do not move it to .env.
+      - POSTGRES_TLS_INSECURE_WHEN_SSL_true=false
     ports:
       - "4327:4317"   # OTLP gRPC receiver (remapped to avoid conflict)
       - "4328:4318"   # OTLP HTTP receiver (remapped to avoid conflict)
@@ -81,6 +96,13 @@ services:
         condition: service_healthy
     networks:
       - app-network
+      # The same two networks the API uses to reach POSTGRES_HOST: `db`
+      # (devdb.compose.yml) on app-network, the shared `postgres` container
+      # of a multi-app VPS on devnet. Without devnet the postgresql receiver
+      # could not resolve `postgres` there. Nothing is published by joining:
+      # the collector's OTLP ports become reachable from devnet's other
+      # containers, as the API's own port already is.
+      - devnet
 
   # ---------------------------------------------------------------------------
   # GreptimeDB - telemetry storage (traces, metrics, logs)

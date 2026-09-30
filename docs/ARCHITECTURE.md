@@ -67,7 +67,7 @@ This document is the map of how those pieces fit together today. It is written f
 - The browser, the CLI and worker nodes all reach the API through nginx on one origin.
 - The API is the only component that talks to AI providers, email and Web Push, and the only one with long-lived database access.
 - Worker nodes hold no durable database or storage credential. They claim jobs over `/api/nodes/*` and move bytes directly against object storage through short-lived presigned URLs the API mints per job. A job that needs a database connection (the backup) receives a short-lived, job-scoped credential instead.
-- Telemetry leaves the API over OTLP to an OpenTelemetry Collector, which redacts credential-bearing headers and exports to GreptimeDB (`telemetry.compose.yml`); the API reads it back over the PostgreSQL wire protocol for the telemetry explorer and AI assistant. See [specs/telemetry.md](specs/telemetry.md).
+- Telemetry leaves the API over OTLP to an OpenTelemetry Collector, which redacts credential-bearing headers and exports to GreptimeDB (`telemetry.compose.yml`); the API reads it back over the PostgreSQL wire protocol for the telemetry explorer and AI assistant. The collector also scrapes the application's PostgreSQL itself (`postgresql` receiver, `POSTGRES_MONITOR_USER`), so database metrics land in the same store. See [specs/telemetry.md](specs/telemetry.md).
 
 ### 2.2 Request lifecycle
 

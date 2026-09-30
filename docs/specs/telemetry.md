@@ -5,8 +5,9 @@
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
 Admins query telemetry with SQL, export the results, and ask an AI assistant
-about them. The application's own PostgreSQL database takes no telemetry
-load: traces, logs and metrics live in GreptimeDB alone.
+about them. Traces, logs and metrics live in GreptimeDB alone; nothing is
+written to the application's own PostgreSQL database (the collector only
+reads its statistics views).
 
 ## Decision record
 
@@ -256,6 +257,9 @@ otel-collector                                          (infra/otel/otel-collect
   │                     via the read-only /hostfs bind mount (host.name from /etc/hostname)
   │   prometheus/self   the collector's own counters (127.0.0.1:8888) and a
   │                     keep-list of GreptimeDB's /metrics
+  │   postgresql        the application's PostgreSQL, POSTGRES_HOST:PORT
+  │                     (→ transform/postgresql_labels), read-only, every 30 s
+  │                     source: `db` on app-network, or the shared `postgres` on devnet
   ▼
 GreptimeDB standalone v1.2.1                             (infra/compose/telemetry.compose.yml)
   HTTP :4000 (ingest, /health, /dashboard) · Postgres wire :4003
@@ -266,6 +270,15 @@ GreptimeDB standalone v1.2.1                             (infra/compose/telemetr
   ▼
 API (TelemetryModule) ──► Admin browser (explorer, assistant, dashboard, settings)
 ```
+
+The collector also **scrapes PostgreSQL itself** in the `metrics/local`
+pipeline, every 30 s, with the `postgresql` receiver. The target is the server
+and database the API uses (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`),
+read from the statistics views as `POSTGRES_MONITOR_USER` (falling back to
+`POSTGRES_USER`). The tables and how to read them are in
+[§11.2](#112-data-sources-what-is-collected-and-why-no-docker-stats) and
+[§11.3](#113-column-findings-verified-live-greptimedb-v121); setup is in the
+[runbook](../runbooks/telemetry.md#82-postgresql-metrics).
 
 `TelemetryModule` (`apps/api/src/telemetry/telemetry.module.ts`) wires:
 
@@ -1173,7 +1186,7 @@ The dashboard's tiles read three kinds of data already in the store:
   `nodejs_eventloop_delay_p99_seconds`) — the optional runtime tiles, present
   only when the runtime-metrics instrumentation is on.
 
-The collector additionally scrapes three sources itself and writes them to
+The collector additionally scrapes four sources itself and writes them to
 the store as metric tables. The dashboard has no tile for them yet; they are
 queryable in the Explorer and available to the assistant (inventory in §11.3):
 
@@ -1182,6 +1195,7 @@ queryable in the Explorer and available to the assistant (inventory in §11.3):
 | The host | `hostmetrics` (30 s) | CPU, memory, load, paging, disk, filesystem, and network (see the caveat below) |
 | The collector | `prometheus/self`, job `otel-collector` | Points accepted, refused, sent and failed; exporter queue size and capacity |
 | GreptimeDB | `prometheus/self`, job `greptimedb` | HTTP/OTLP request counts and latency, rows ingested, write stalls, memory and CPU limits, process CPU/RSS |
+| PostgreSQL | `postgresql` (30 s), `metrics/local` | Connections against the maximum, commits, rollbacks, deadlocks, database, table and index sizes, cache hits, temp files, scans, rows, vacuum, background-writer and checkpoint activity, locks |
 
 **How the host is read.** `telemetry.compose.yml` bind-mounts the host's `/`
 read-only at `/hostfs`, and the `hostmetrics` receiver runs with
@@ -1196,6 +1210,8 @@ scraper excludes pseudo and container filesystems (`overlay`, `tmpfs`,
 interfaces (`eth0` on the compose network, `lo`), not the host's NICs. It still
 answers "is the telemetry path moving bytes". CPU, memory, load, paging and
 disk are kernel-global and are the host's.
+
+**PostgreSQL.** The `postgresql` receiver reads the application's server (`POSTGRES_HOST:POSTGRES_PORT`) read-only over the statistics views, through the optional `pg_monitor` login (`POSTGRES_MONITOR_USER`/`POSTGRES_MONITOR_PASSWORD`, blank falls back to the application login). The dashboard does not read these tables; they are reached through the Explorer, the assistant or a BI tool (§9). Operator procedure: [the telemetry runbook](../runbooks/telemetry.md#82-postgresql-metrics).
 
 **Docker container stats are rejected as a source**: reading them means
 talking to the Docker socket, which this template deliberately confines to
@@ -1249,6 +1265,44 @@ Two findings shape the configuration:
   `NULL` in old rows.
 - A data point `service.name` lands in the same `service_name` column as the
   resource one, so it is not copied.
+
+#### PostgreSQL metric tables
+
+Every table has `greptime_timestamp`, `greptime_value` and the tags
+`host_name`, `instance`, `service_instance_id`. `instance` and
+`service_instance_id` both hold `POSTGRES_HOST:POSTGRES_PORT` (for example
+`db:5432`) and identify the database server. `host_name` is the collector's
+host, the machine that scraped, which for a managed database is not the
+machine that serves. There are no `service_name` or job columns.
+
+| Scope | Tables | Extra tags |
+|---|---|---|
+| Per database | `postgresql_backends`, `postgresql_commits_total`, `postgresql_rollbacks_total`, `postgresql_deadlocks_total`, `postgresql_db_size_bytes`, `postgresql_blks_hit_total`, `postgresql_blks_read_total`, `postgresql_temp_files_total`, `postgresql_temp_io_bytes_total`, `postgresql_table_count` | `postgresql_database_name` |
+| Per table | `postgresql_table_size_bytes`, `postgresql_table_vacuum_count_total`, `postgresql_sequential_scans_total` | `postgresql_database_name`, `postgresql_table_name` (`public.users`) |
+| Per table | `postgresql_operations_total` | as above, plus `operation` (`ins`, `upd`, `del`, `hot_upd`) |
+| Per table | `postgresql_rows` | as above, plus `state` (`live`, `dead`) |
+| Per index | `postgresql_index_scans_total`, `postgresql_index_size_bytes` | `postgresql_database_name`, `postgresql_table_name` (bare, `users`), `postgresql_index_name` |
+| Server-wide | `postgresql_connection_max`, `postgresql_database_count`, `postgresql_bgwriter_buffers_allocated_total`, `postgresql_bgwriter_maxwritten_total` | none |
+| Server-wide | `postgresql_bgwriter_buffers_writes_total` | `source` |
+| Server-wide | `postgresql_bgwriter_checkpoint_count_total`, `postgresql_bgwriter_duration_milliseconds_total` | `type` |
+| Server-wide | `postgresql_database_locks` | `lock_type`, `mode`, `relation` |
+
+- `postgresql.wal.age` appears only with WAL archiving, and replication
+  metrics only with replicas; neither has a table otherwise.
+- The receiver keeps per-table and per-index metrics, which suits one
+  application schema. It enables `postgresql.deadlocks`,
+  `postgresql.database.locks`, `blks_hit`, `blks_read`, `temp.io`,
+  `temp_files` and `sequential_scans`, and disables `postgresql.blocks_read`
+  (eight series per table; `blks_hit`/`blks_read` answer the cache-hit
+  question once per database).
+- `transform/postgresql_labels` copies `postgresql.database.name`,
+  `schema.name`, `table.name` and `index.name` from resource to datapoint
+  attributes. GreptimeDB drops resource attributes, so without the copy every
+  table's series would share labels and overwrite one another.
+- The receiver always opens its first connection to the `postgres`
+  maintenance database, whatever `databases` lists. A role without `CONNECT`
+  there yields no metrics. The collector opens about two short connections per
+  scrape.
 
 ### 11.4 Routes
 
@@ -1618,6 +1672,37 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 
 Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` and the hook-site specs beside each caller.
 
+- **PostgreSQL is scraped by the collector, not instrumented in the API.**
+  The `postgresql` receiver reads the statistics views from outside the
+  application, so the numbers exist even when the API is down. Rejected:
+  a `pg_stat_*` poller inside the API, which would put a periodic task and a
+  second database role in the process that serves users.
+- **A least-privilege monitor login, with a fallback.** `POSTGRES_MONITOR_USER`
+  and `POSTGRES_MONITOR_PASSWORD` name a role holding only `pg_monitor`. Blank
+  falls back to `POSTGRES_USER`/`POSTGRES_PASSWORD`, so telemetry works on any
+  server with no new role, at the price of handing the collector the
+  application's credentials. The CLI marks both `allowBlank` and `essential`
+  (asked as a pair, so a password is never paired with the wrong user), and
+  `deploy update` never prompts for them.
+- **TLS follows `POSTGRES_SSL` with the API's rule.** Exactly `true` means
+  `sslmode=require` (encrypted, certificate not verified); anything else is
+  plaintext. Compose cannot negate a variable and the receiver's switch is
+  inverted (`tls.insecure`), so the config looks up a constant by name
+  (`POSTGRES_TLS_INSECURE_WHEN_SSL_true`, defined in `telemetry.compose.yml`)
+  and every other spelling falls to the insecure default. Rejected: a new
+  `POSTGRES_TLS_INSECURE` setting, a second source of truth for one fact.
+- **The collector joins `devnet`.** On a multi-app VPS the database is the
+  shared `postgres` container on `devnet`; without the network the receiver
+  cannot resolve it. Nothing is published on the host, but the collector's
+  unauthenticated OTLP receivers (4317/4318) become reachable from other
+  containers on `devnet`. See [SECURITY-ARCHITECTURE.md](../SECURITY-ARCHITECTURE.md#collector-on-devnet).
+- **Per-table and per-index metrics stay on; `blocks_read` goes off.** One
+  application schema keeps the per-table series count small, and eight series
+  per table for a question `blks_hit`/`blks_read` already answer is the one
+  multiplier worth removing.
+- **An unreachable database does not stop the collector.** It keeps running
+  and logs a scrape error every 30 s; the other pipelines are unaffected.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -1679,3 +1764,4 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` and the hook-site 
   `/metrics`; `app.instance.id` and `host.name` become label columns on every
   metric table (§11.2, §11.3, §11.12).
 - #125: first-party application metrics (`AppMetricsService`): job, backup, auth, AI and notification counters and histograms, and cached queue and backup gauges (§11.13).
+- #123: the collector scrapes the application's PostgreSQL (`postgresql` receiver in `metrics/local`), with an optional `pg_monitor` login and the collector on `devnet`.

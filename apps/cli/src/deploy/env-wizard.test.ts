@@ -581,3 +581,62 @@ describe('runEnvWizard: auto-generated GreptimeDB passwords (#567)', () => {
     for (const key of PASSWORD_KEYS) expect(values.has(key)).toBe(false);
   });
 });
+
+// =============================================================================
+// The PostgreSQL monitor login (#123): blank is a real answer
+// =============================================================================
+
+const MONITOR_SPECS = parseEnvExample(
+  ['POSTGRES_MONITOR_USER=', 'POSTGRES_MONITOR_PASSWORD='].join('\n'),
+);
+
+describe('runEnvWizard: the PostgreSQL monitor login is optional (#123)', () => {
+  it('resolves both keys to blank on an unattended run, without listing them as missing', async () => {
+    const { values, summary } = await runEnvWizard({
+      specs: MONITOR_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+      groups: ['observability'],
+    });
+
+    expect(values.get('POSTGRES_MONITOR_USER')).toBe('');
+    expect(values.get('POSTGRES_MONITOR_PASSWORD')).toBe('');
+    expect(summary.map((row) => row.key)).toEqual(
+      expect.arrayContaining(['POSTGRES_MONITOR_USER', 'POSTGRES_MONITOR_PASSWORD']),
+    );
+  });
+
+  it('keeps values that are already present', async () => {
+    const { values, summary } = await runEnvWizard({
+      specs: MONITOR_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+      groups: ['observability'],
+      existing: new Map([
+        ['POSTGRES_MONITOR_USER', 'telemetry_monitor'],
+        ['POSTGRES_MONITOR_PASSWORD', 'a-real-monitor-password'],
+      ]),
+    });
+
+    expect(values.get('POSTGRES_MONITOR_USER')).toBe('telemetry_monitor');
+    expect(values.get('POSTGRES_MONITOR_PASSWORD')).toBe('a-real-monitor-password');
+    // The password is masked in the summary.
+    expect(summary.find((row) => row.key === 'POSTGRES_MONITOR_PASSWORD')?.display).toBe(
+      '********',
+    );
+  });
+
+  it('accepts a blank answer interactively', async () => {
+    const { ctx, remaining } = terminal(['', '', 'y']); // user, password, review
+    const { values } = await runEnvWizard({
+      specs: MONITOR_SPECS,
+      domain: 'app.example.test',
+      groups: ['observability'],
+      ctx,
+    });
+
+    expect(remaining()).toBe(0);
+    expect(values.get('POSTGRES_MONITOR_USER')).toBe('');
+    expect(values.get('POSTGRES_MONITOR_PASSWORD')).toBe('');
+  });
+});

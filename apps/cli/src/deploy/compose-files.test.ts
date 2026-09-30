@@ -107,3 +107,37 @@ describe('vps.telemetry.compose.yml publishes nothing on a public interface', ()
     for (const key of used) expect(keys.has(key ?? ''), key).toBe(true);
   });
 });
+
+describe('telemetry.compose.yml collector reaches PostgreSQL (#123)', () => {
+  const text = readFileSync(resolve(COMPOSE_DIR, 'telemetry.compose.yml'), 'utf8');
+  const collector = text.slice(text.indexOf('\n  otel-collector:'), text.indexOf('\n  greptimedb:'));
+
+  it('passes the API\'s connection settings to the collector', () => {
+    for (const key of ['POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_SSL']) {
+      expect(collector, key).toMatch(new RegExp(`- ${key}=\\$\\{${key}:-`));
+    }
+  });
+
+  it('falls back from the monitor login to the API login when blank', () => {
+    expect(collector).toContain(
+      '- POSTGRES_MONITOR_USER=${POSTGRES_MONITOR_USER:-${POSTGRES_USER:-postgres}}',
+    );
+    expect(collector).toContain(
+      '- POSTGRES_MONITOR_PASSWORD=${POSTGRES_MONITOR_PASSWORD:-${POSTGRES_PASSWORD:-postgres}}',
+    );
+  });
+
+  it('joins devnet as well as app-network', () => {
+    expect(collector).toMatch(/networks:\s*\n\s+- app-network\s*\n(\s*#.*\n)*\s+- devnet/);
+  });
+
+  it('declares every variable the file interpolates in .env.example', () => {
+    const template = readFileSync(resolve(COMPOSE_DIR, '.env.example'), 'utf8');
+    const keys = new Set(parseEnvExample(template).map((spec) => spec.key));
+    const used = [...text.matchAll(/\$\{([A-Z0-9_]+)/g)].map((match) => match[1]);
+
+    expect(used).toContain('POSTGRES_MONITOR_USER');
+    expect(used).toContain('POSTGRES_MONITOR_PASSWORD');
+    for (const key of used) expect(keys.has(key ?? ''), key).toBe(true);
+  });
+});
