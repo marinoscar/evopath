@@ -17,6 +17,8 @@ export interface AuthedApi {
   put<T = unknown>(path: string, body?: unknown): Promise<T>;
   patch<T = unknown>(path: string, body?: unknown): Promise<T>;
   del(path: string): Promise<void>;
+  /** Any method with a JSON body (a `DELETE` that needs a typed confirmation, for one). */
+  request<T = unknown>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T>;
 }
 
 export type TestRole = 'admin' | 'contributor' | 'viewer';
@@ -27,12 +29,12 @@ function unwrap<T>(body: unknown): T {
 }
 
 export function createAuthedApi(page: Page, getToken: () => string | null): AuthedApi {
-  const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+  const call = async <T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> => {
     const token = getToken();
     if (!token) throw new Error('No access token captured yet; sign in first.');
     const response = await page.request.fetch(path, {
       method,
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, ...headers },
       ...(body !== undefined ? { data: body } : {}),
     });
     if (!response.ok()) {
@@ -51,6 +53,7 @@ export function createAuthedApi(page: Page, getToken: () => string | null): Auth
     del: async (path) => {
       await call('DELETE', path);
     },
+    request: (method, path, body, headers) => call(method, path, body, headers),
   };
 }
 
