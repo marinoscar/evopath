@@ -1,11 +1,11 @@
 // =============================================================================
-// Real-Postgres smoke test: PrismaCheckpointSaver and the spike handler.
+// Real-Postgres smoke test: PrismaCheckpointSaver and a training graph.
 // =============================================================================
 //
 // The minimum proof that the saver round-trips through the real
 // `training_run_checkpoints` / `training_run_checkpoint_writes` tables and
-// that the spike graph pauses and resumes from them on fresh instances. The
-// full saver and spike scenario suites build on this.
+// that a training graph pauses and resumes from them on fresh instances. The
+// full saver and runtime suites build on this.
 //
 // THIS IS A `*.db.spec.ts` FILE — skipped with a warning when no Postgres is
 // reachable; see `test/jobs/db-test-support.ts`. Needs a migrated database.
@@ -13,15 +13,13 @@
 
 import { randomUUID } from 'node:crypto';
 
-import type { Job, PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { emptyCheckpoint } from '@langchain/langgraph';
 
-import { FAKE_TEXT_MODEL_CAPABILITIES } from '../../src/ai/testing/fake-ai-provider';
-import { createAiRuntimeHarness, HARNESS_MODEL, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
-import type { AiResponseRequest } from '../../src/ai/core/types/responses.types';
 import { PrismaCheckpointSaver } from '../../src/training-agents/runtime/prisma-checkpoint-saver';
-import { SPIKE_GRAPH_JOB_TYPE, SpikeGraphHandler } from '../../src/training-agents/spike/spike-graph.handler';
+import { createNodeContextHarness } from '../../src/training-agents/testing/node-context-harness';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { AGENT_NODES, agentScripts } from './agent-graph-support';
 
 const { describeWithDb } = resolveDbSuite('checkpoint-saver.smoke.db.spec');
 
@@ -29,9 +27,6 @@ function checkpoint(id: string) {
   return { ...emptyCheckpoint(), id, channel_values: { goal: `goal-${id}` } };
 }
 
-function job(payload: Record<string, unknown>): Job {
-  return { id: randomUUID(), type: SPIKE_GRAPH_JOB_TYPE, payload } as unknown as Job;
-}
 
 describeWithDb('PrismaCheckpointSaver (real Postgres, smoke)', () => {
   let client: PrismaClient;
@@ -107,44 +102,25 @@ describeWithDb('PrismaCheckpointSaver (real Postgres, smoke)', () => {
     expect(await client.trainingRunCheckpointWrite.count({ where: { threadId } })).toBe(0);
   });
 
-  it('runs the spike job to an interrupt, then resumes it to completion on a fresh handler', async () => {
-    let critiques = 0;
-    const h = createAiRuntimeHarness({
-      models: [
-        {
-          modelId: HARNESS_MODEL,
-          capabilities: {
-            ...FAKE_TEXT_MODEL_CAPABILITIES,
-            capabilities: [...FAKE_TEXT_MODEL_CAPABILITIES.capabilities, 'hosted_tools'],
-          },
-        },
-      ],
-      policy: { hostedTools: { web_search: true } },
-      fake: {
-        hostedTools: ['web_search'],
-        responses: (req: AiResponseRequest) => {
-          const usage = { inputTokens: 3, outputTokens: 2 };
-          if (req.metadata?.agent === 'researcher') return { outputText: '{"summary":"b","sources":[]}', usage };
-          if (req.metadata?.agent === 'planner') {
-            return { outputText: '{"title":"W1","sessions":[{"day":1,"focus":"legs"}]}', usage };
-          }
-          critiques += 1;
-          return { outputText: JSON.stringify({ approve: critiques > 1, score: 7, notes: 'n' }), usage };
-        },
-      },
+  it('runs the evaluate graph to an interrupt, then resumes it to completion on a fresh runner and saver', async () => {
+    const h = createNodeContextHarness({ kind: 'evaluate', runId: thread(), scripts: agentScripts() });
+
+    const first = await h.runGraph({
+      input: { input: { autonomy: 'ask_first' } },
+      nodes: AGENT_NODES,
+      checkpointer: new PrismaCheckpointSaver(client),
     });
-    const runId = thread();
+    expect(first.interrupt?.kind).toBe('approval');
 
-    const first = await new SpikeGraphHandler({ ai: h.ai, prisma: client, model: HARNESS_MODEL }).execute(
-      job({ runId, userId: HARNESS_USER, goal: 'Run a 5k' }),
-    );
-    expect(first.status).toBe('interrupted');
-
-    const second = await new SpikeGraphHandler({ ai: h.ai, prisma: client, model: HARNESS_MODEL }).execute(
-      job({ runId, userId: HARNESS_USER, resume: { decision: 'approve' } }),
-    );
-    expect(second).toMatchObject({ status: 'completed', state: { approved: true, round: 2 } });
-    expect(h.fake.calls).toHaveLength(5);
-    expect(await client.trainingRunCheckpoint.count({ where: { threadId: runId } })).toBeGreaterThan(5);
+    const second = await h.runGraph({
+      resume: { decision: 'approve' },
+      nodes: AGENT_NODES,
+      checkpointer: new PrismaCheckpointSaver(client),
+    });
+    expect(second.interrupt).toBeNull();
+    expect(second.state).toMatchObject({ approval: { decision: 'approve' }, outcome: { status: 'completed' } });
+    // The evaluator ran once: the resume repeated no completed node.
+    expect(h.runtime.fake.calls).toHaveLength(1);
+    expect(await client.trainingRunCheckpoint.count({ where: { threadId: h.runId } })).toBeGreaterThan(4);
   });
 });

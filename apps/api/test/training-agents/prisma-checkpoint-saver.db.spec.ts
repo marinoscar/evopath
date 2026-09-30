@@ -7,8 +7,8 @@
 // idempotent under concurrency, `Bytes` round trips above the driver's
 // comfortable size, and that a thread deletes cleanly. LangGraph's own
 // conformance suite runs against this saver in
-// `prisma-checkpoint-saver.validation.db.spec.ts`; the spike scenarios live in
-// `spike.db.spec.ts`.
+// `prisma-checkpoint-saver.validation.db.spec.ts`; the handler scenarios live
+// in `training-runtime.db.spec.ts`.
 //
 // THIS IS A `*.db.spec.ts` FILE: skipped with a warning when no Postgres is
 // reachable; see `test/jobs/db-test-support.ts`. Needs a migrated database.
@@ -20,11 +20,10 @@ import type { PrismaClient } from '@prisma/client';
 import { emptyCheckpoint } from '@langchain/langgraph';
 import type { RunnableConfig } from '@langchain/core/runnables';
 
-import { createAiRuntimeHarness, HARNESS_MODEL, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
 import { PrismaCheckpointSaver } from '../../src/training-agents/runtime/prisma-checkpoint-saver';
-import { SpikeGraphHandler } from '../../src/training-agents/spike/spike-graph.handler';
+import { createNodeContextHarness } from '../../src/training-agents/testing/node-context-harness';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
-import { spikeHarnessOptions, spikeJob } from './spike-test-support';
+import { AGENT_NODES, agentScripts } from './agent-graph-support';
 
 const { describeWithDb } = resolveDbSuite('prisma-checkpoint-saver.db.spec');
 
@@ -194,13 +193,27 @@ describeWithDb('PrismaCheckpointSaver (real Postgres)', () => {
     expect(await client.trainingRunCheckpointWrite.count({ where: { threadId: kept } })).toBe(1);
   });
 
-  it('stores no provider continuation state: blobs from a whole spike run carry node outputs only', async () => {
-    const h = createAiRuntimeHarness(spikeHarnessOptions());
-    const runId = thread();
-    const handler = () => new SpikeGraphHandler({ ai: h.ai, prisma: client, model: HARNESS_MODEL });
+  it('stores no provider continuation state: blobs from whole graph runs carry node outputs only', async () => {
+    // A create run whose nodes call the (fake) model, and an evaluate run
+    // through an interrupt and its resume (so interrupt and resume writes exist).
+    const create = createNodeContextHarness({ kind: 'create', runId: thread(), scripts: agentScripts({ rejections: 1 }) });
+    const evaluate = createNodeContextHarness({ kind: 'evaluate', runId: thread(), scripts: agentScripts() });
+    const runIds = [create.runId, evaluate.runId];
 
-    await handler().execute(spikeJob({ runId, userId: HARNESS_USER, goal: 'Run a 5k' }));
-    await handler().execute(spikeJob({ runId, userId: HARNESS_USER, resume: { decision: 'approve' } }));
+    await create.runGraph({ input: {}, nodes: AGENT_NODES, checkpointer: new PrismaCheckpointSaver(client) });
+    await evaluate.runGraph({
+      input: { input: { autonomy: 'ask_first' } },
+      nodes: AGENT_NODES,
+      checkpointer: new PrismaCheckpointSaver(client),
+    });
+    await evaluate.runGraph({
+      resume: { decision: 'approve' },
+      nodes: AGENT_NODES,
+      checkpointer: new PrismaCheckpointSaver(client),
+    });
+
+    const h = { fake: { calls: [...create.runtime.fake.calls, ...evaluate.runtime.fake.calls] } };
+    const runId = { in: runIds };
 
     const [checkpoints, writes] = await Promise.all([
       client.trainingRunCheckpoint.findMany({ where: { threadId: runId } }),
@@ -216,7 +229,7 @@ describeWithDb('PrismaCheckpointSaver (real Postgres)', () => {
     // The scripted node outputs are in there (so this is not scanning empty blobs)...
     expect(text).toContain('Week 1');
     // ...and nothing that would resume a provider conversation is.
-    for (const marker of ['previousResponseId', 'previous_response_id', 'ai.providerState', 'providerState', 'reasoning']) {
+    for (const marker of ['previousResponseId', 'previous_response_id', 'ai.providerState', 'providerState', 'reasoning', 'Draft the plan']) {
       expect(text).not.toContain(marker);
     }
     for (const call of h.fake.calls) expect(text).not.toContain(call.requestId);
