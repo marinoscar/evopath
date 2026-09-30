@@ -1,0 +1,24 @@
+{
+  "readable": true,
+  "deviceKind": "smart_scale",
+  "readings": [
+    {
+      "metricKey": "weight",
+      "value": 82.3,
+      "unit": "kg",
+      "confidence": "high",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [1]
+    },
+    {
+      "metricKey": "body_fat_pct",
+      "value": 21.4,
+      "unit": "%",
+      "confidence": "high",
+      "uncertain": false,
+      "note": null,
+      "sourcePhotoIndexes": [1]
+    }
+  ]
+}

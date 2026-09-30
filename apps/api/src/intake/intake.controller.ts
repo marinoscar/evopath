@@ -198,16 +198,20 @@ export class IntakesController {
   @ApiOperation({
     summary: 'Attach a photo',
     description:
-      'Links one of your `ready` image storage objects (PNG, JPEG, GIF or WebP, at most 20 MiB) to ' +
-      'the intake, while it is `draft`, `ready` or `failed`. At most the kind\'s photo cap (default 48).',
+      'Links one of your `ready` storage objects to the intake, while it is `draft`, `ready` or `failed`: ' +
+      'a PNG, JPEG, GIF or WebP image of at most 20 MiB, or, for a kind that accepts PDFs ' +
+      '(`body_metric_reading`), a PDF of at most 50 MiB and 20 pages. The stored bytes are read back: ' +
+      'their magic bytes must match the declared type. At most the kind\'s photo cap (default 48); ' +
+      'a PDF counts as one.',
   })
   @ApiParam(ID_PARAM)
   @ApiDataResponse(PhotoIntakePhotoView, { status: 201, description: 'The attached photo' })
   @ApiResponse({
     status: 400,
     description:
-      'Validation error, or `details.reason`: `OBJECT_NOT_READY`, `UNSUPPORTED_MEDIA_TYPE`, ' +
-      '`OBJECT_TOO_LARGE`, `TOO_MANY_PHOTOS`',
+      'Validation error, or `details.reason`: `OBJECT_NOT_READY`, `UNSUPPORTED_MEDIA_TYPE` ' +
+      '(`details.contentMismatch` when the bytes do not match the type), `OBJECT_TOO_LARGE`, ' +
+      '`TOO_MANY_PAGES` (`details.pages`, `details.maxPages`), `PDF_UNREADABLE`, `TOO_MANY_PHOTOS`',
     type: ErrorDto,
   })
   @ApiResponse(UNAUTHENTICATED)
@@ -400,14 +404,17 @@ export class IntakeAnalyzeController {
       '(`details.featureId`, `details.state`, `details.fix`).\n\n' +
       'AI refusals carry the code in `details.reason`: `AI_DISABLED`, `AI_PROVIDER_DISABLED`, ' +
       '`AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE` (403); ' +
-      '`AI_CAPABILITY_UNSUPPORTED` (400).',
+      '`AI_CAPABILITY_UNSUPPORTED` (400). With a PDF attached the model also needs `file_input`; ' +
+      'without it the 400 carries `details.capability: file_input` and `details.inputKind: pdf`, and ' +
+      'nothing is queued. Each attached file is re-checked first (type, size, a PDF\'s magic bytes and pages).',
   })
   @ApiParam(ID_PARAM)
   @ApiDataResponse(IntakeAnalyzeStarted, { status: 202, description: 'The analysis was queued' })
   @ApiResponse({
     status: 400,
     description:
-      'Validation error, `AI_CAPABILITY_UNSUPPORTED`, or `details.reason`: `NO_PHOTOS`, `MANUAL_ONLY_KIND`',
+      'Validation error, `AI_CAPABILITY_UNSUPPORTED`, or `details.reason`: `NO_PHOTOS`, `MANUAL_ONLY_KIND`, ' +
+      '`UNSUPPORTED_MEDIA_TYPE`, `OBJECT_TOO_LARGE`, `TOO_MANY_PAGES`, `PDF_UNREADABLE`',
     type: ErrorDto,
   })
   @ApiResponse(UNAUTHENTICATED)

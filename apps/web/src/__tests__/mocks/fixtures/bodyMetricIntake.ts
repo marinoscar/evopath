@@ -98,6 +98,17 @@ export interface ReadingIntakeApiOptions {
   analyzeError?: { status: number; body: unknown };
   /** A refusal for create. `network` fails the request outright. */
   createError?: { status: number; body: unknown } | 'network';
+  /**
+   * A refusal for attach (`POST /intakes/:id/photos`), answered once: the
+   * H2 (#186) file checks (`TOO_MANY_PAGES`, `PDF_UNREADABLE`, …).
+   */
+  attachError?: { status: number; body: unknown };
+  /**
+   * The name the server reports for an attached file (the storage object's
+   * name). Default `scale.jpg`: jsdom's multipart body loses the File's own
+   * name, so a test that needs a `.pdf` name sets it here.
+   */
+  photoName?: string;
   /** A refusal for apply, answered once. */
   applyError?: { status: number; body: unknown };
   /** What apply saves; by default one canonical row per accepted AI/user item. */
@@ -115,6 +126,10 @@ export interface ReadingIntakeApiState {
   intakePatches: { id: string; body: Record<string, unknown> }[];
   applied: number;
   discarded: number;
+  /** Each `POST /api/storage/objects` file part's declared type, as the client sent it. */
+  uploads: { type: string }[];
+  /** Storage object ids deleted (`DELETE /storage/objects/:id`), e.g. after a refused attach. */
+  deletedObjects: string[];
 }
 
 /** Error envelope as the API's exception filter writes it. */
@@ -133,7 +148,10 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
     intakePatches: [],
     applied: 0,
     discarded: 0,
+    uploads: [],
+    deletedObjects: [],
   };
+  let attachError = options.attachError;
   // A resumed intake that is already scanning answers `scanning` for `scanPolls` reads too.
   let pollsLeft = new Map<string, number>(
     (options.existing ?? []).filter((i) => i.status === 'scanning').map((i) => [i.id, options.scanPolls ?? 1]),
@@ -236,11 +254,16 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
       const body = (await record(request, `/api/intakes/${id}/photos`)) as { storageObjectId: string; retainFiles?: boolean };
       const intake = state.intakes.get(id);
       if (!intake) return notFound();
+      if (attachError) {
+        const refusal = attachError;
+        attachError = undefined;
+        return HttpResponse.json(refusal.body, { status: refusal.status });
+      }
       const keep = body.retainFiles ?? intake.retainFiles;
       const photo = {
         id: `p-${intake.photos.length + 1}`,
         storageObjectId: body.storageObjectId,
-        name: 'scale.jpg',
+        name: options.photoName ?? 'scale.jpg',
         sortOrder: intake.photos.length,
         healthDocumentId: `doc-${intake.photos.length + 1}`,
         retention: keep ? ('keep' as const) : ('delete_after_processing' as const),
@@ -352,15 +375,30 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
       return HttpResponse.json({ data: { entryId: items.length ? 'entry-photo-1' : null, items } });
     }),
 
-    // Photos upload already `ready` so the tile does not wait on processing.
-    http.post('*/api/storage/objects', () =>
-      HttpResponse.json(
+    // Files upload already `ready` so the tile does not wait on processing.
+    // The first is `obj-1` (the id the canned items cite), then `obj-2`, …
+    http.post('*/api/storage/objects', async ({ request }) => {
+      // Read the part's Content-Type from the raw multipart body: parsing it
+      // with `request.formData()` is not reliable across Node/undici versions
+      // (it throws on some, which silently fell back to the default).
+      let mimeType = 'image/jpeg';
+      try {
+        const body = await request.text();
+        const match = /name="file"[^\r\n]*\r?\nContent-Type:\s*([^\r\n;]+)/i.exec(body);
+        if (match) mimeType = match[1].trim();
+      } catch {
+        // Unreadable body: keep the default.
+      }
+      state.uploads.push({ type: mimeType });
+      const id = `obj-${state.uploads.length}`;
+      const name = options.photoName ?? 'scale.jpg';
+      return HttpResponse.json(
         {
           data: {
-            id: 'obj-1',
-            name: 'scale.jpg',
+            id,
+            name,
             size: '1024',
-            mimeType: 'image/jpeg',
+            mimeType,
             status: 'ready',
             metadata: null,
             createdAt: T0,
@@ -368,8 +406,13 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
           },
         },
         { status: 201 },
-      ),
-    ),
+      );
+    }),
+
+    http.delete('*/api/storage/objects/:objectId', ({ params }) => {
+      state.deletedObjects.push(String(params.objectId));
+      return new HttpResponse(null, { status: 204 });
+    }),
   );
   return state;
 }

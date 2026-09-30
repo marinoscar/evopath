@@ -35,7 +35,7 @@ describe('mapBodyMetricOutput (E2.6)', () => {
       },
     ]);
     expect(resultMeta).toEqual({
-      promptVersion: 1,
+      promptVersion: 2,
       deviceKind: 'scale',
       unreadable: false,
       readingsFlagged: 0,

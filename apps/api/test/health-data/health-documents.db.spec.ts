@@ -52,6 +52,8 @@ import type { PrismaService } from '../../src/prisma/prisma.service';
 import { ObjectsService } from '../../src/storage/objects/objects.service';
 import { cleanupTmpDir, TmpDirStorageProvider } from '../helpers/tmp-storage-provider.helper';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { IntakeInputInspector } from '../../src/intake/intake-input-inspector';
+import { JPEG_BYTES, plainPdf } from '../../src/intake/testing/pdf-bytes';
 
 const { describeWithDb } = resolveDbSuite('health-documents.db.spec');
 
@@ -90,16 +92,22 @@ describeWithDb('health documents and file retention (real Postgres)', () => {
     return user.id;
   }
 
-  /** A real file in the tmp provider plus its `ready` storage object row. */
-  async function upload(userId: string, label: string): Promise<{ id: string; storageKey: string }> {
-    const storageKey = `test/health-docs/${run}/${label}-${randomUUID()}.jpg`;
-    const bytes = Buffer.from(`fake jpeg ${label}`);
-    await provider.upload(storageKey, Readable.from(bytes), { contentType: 'image/jpeg' } as never);
+  /**
+   * A real file in the tmp provider plus its `ready` storage object row. The
+   * attach reads the bytes back (H2, #186), so they carry a real JPEG or PDF
+   * signature.
+   */
+  async function upload(userId: string, label: string, type: 'jpeg' | 'pdf' = 'jpeg'): Promise<{ id: string; storageKey: string }> {
+    const ext = type === 'pdf' ? 'pdf' : 'jpg';
+    const mimeType = type === 'pdf' ? 'application/pdf' : 'image/jpeg';
+    const storageKey = `test/health-docs/${run}/${label}-${randomUUID()}.${ext}`;
+    const bytes = type === 'pdf' ? plainPdf(2) : Buffer.concat([JPEG_BYTES, Buffer.from(label)]);
+    await provider.upload(storageKey, Readable.from(bytes), { contentType: mimeType } as never);
     const object = await client.storageObject.create({
       data: {
-        name: `${label}.jpg`,
+        name: `${label}.${ext}`,
         size: BigInt(bytes.length),
-        mimeType: 'image/jpeg',
+        mimeType,
         storageKey,
         status: 'ready',
         uploadedById: userId,
@@ -110,13 +118,13 @@ describeWithDb('health documents and file retention (real Postgres)', () => {
   }
 
   /** A `body_metric_reading` intake with one file and one hand-entered, accepted reading. */
-  async function intakeWithFile(userId: string, label: string, retainFiles?: boolean) {
+  async function intakeWithFile(userId: string, label: string, retainFiles?: boolean, type: 'jpeg' | 'pdf' = 'jpeg') {
     const intake = await intakes.create(
       userId,
       { kind: 'body_metric_reading', ...(retainFiles === undefined ? {} : { retainFiles }) },
       PERMS,
     );
-    const object = await upload(userId, label);
+    const object = await upload(userId, label, type);
     const photo = await intakes.attachPhoto(userId, intake.id, object.id, PERMS);
     await intakes.addItem(
       userId,
@@ -156,6 +164,8 @@ describeWithDb('health documents and file retention (real Postgres)', () => {
       { assertUsable: jest.fn(async () => ({})) } as never,
       objects,
       stubFeatureResolver({ provider: 'openai', modelId: 'vision-model' }) as never,
+      // The real inspector over the real tmp-dir provider: attach reads the bytes back.
+      new IntakeInputInspector(provider),
       references,
     );
     purge = new HealthDocumentPurgeHandler(new JobHandlerRegistry(), prisma, objects, {
@@ -234,6 +244,80 @@ describeWithDb('health documents and file retention (real Postgres)', () => {
 
     // Idempotent: a duplicate run changes nothing.
     await expect(purge.purge(healthDocumentId)).resolves.toBe('already_purged');
+  });
+
+  it('a PDF follows the same retention (H2, #186): its document says application/pdf, and APPLY erases it', async () => {
+    const userId = await makeUser('pdf');
+    const { intakeId, healthDocumentId, object } = await intakeWithFile(userId, 'pdf', false, 'pdf');
+
+    const document = await client.healthDocument.findUniqueOrThrow({ where: { id: healthDocumentId } });
+    expect(document).toMatchObject({
+      kind: 'body_metric',
+      retention: 'delete_after_processing',
+      mimeType: 'application/pdf',
+      originalName: 'pdf.pdf',
+      storageObjectId: object.id,
+    });
+
+    await intakes.apply(userId, intakeId, PERMS);
+    const [job] = await purgeJobsOf(healthDocumentId);
+    await runPurge(job);
+
+    expect(await provider.exists(object.storageKey)).toBe(false);
+    const purged = await client.healthDocument.findUniqueOrThrow({ where: { id: healthDocumentId } });
+    expect(purged).toMatchObject({ storageObjectId: null, mimeType: 'application/pdf' });
+    expect(purged.fileDeletedAt).toBeInstanceOf(Date);
+  });
+
+  it('a kept PDF survives DISCARD like a kept photo', async () => {
+    const userId = await makeUser('pdf-keep');
+    const { intakeId, healthDocumentId, object } = await intakeWithFile(userId, 'pdf-keep', true, 'pdf');
+
+    await intakes.discard(userId, intakeId, PERMS);
+
+    expect(await purgeJobsOf(healthDocumentId)).toEqual([]);
+    expect(await provider.exists(object.storageKey)).toBe(true);
+    expect(await client.healthDocument.findUniqueOrThrow({ where: { id: healthDocumentId } })).toMatchObject({
+      retention: 'keep',
+      mimeType: 'application/pdf',
+      intakeId: null,
+      fileDeletedAt: null,
+    });
+  });
+
+  it('refuses a text file renamed to .pdf and an over-cap PDF on real storage; no link, no document', async () => {
+    const userId = await makeUser('pdf-refuse');
+    const intake = await intakes.create(userId, { kind: 'body_metric_reading' }, PERMS);
+
+    const put = async (label: string, bytes: Buffer) => {
+      const storageKey = `test/health-docs/${run}/${label}-${randomUUID()}.pdf`;
+      await provider.upload(storageKey, Readable.from(bytes), { contentType: 'application/pdf' } as never);
+      return client.storageObject.create({
+        data: {
+          name: `${label}.pdf`,
+          size: BigInt(bytes.length),
+          mimeType: 'application/pdf',
+          storageKey,
+          status: 'ready',
+          uploadedById: userId,
+        },
+        select: { id: true },
+      });
+    };
+
+    const renamed = await put('renamed', Buffer.from('notes.txt, renamed to notes.pdf'));
+    const long = await put('long', plainPdf(21));
+
+    for (const [object, reason] of [
+      [renamed, 'UNSUPPORTED_MEDIA_TYPE'],
+      [long, 'TOO_MANY_PAGES'],
+    ] as const) {
+      const error = await intakes.attachPhoto(userId, intake.id, object.id, PERMS).catch((e: unknown) => e);
+      expect((error as any).getResponse().details.reason).toBe(reason);
+    }
+
+    expect(await client.photoIntakePhoto.count({ where: { intakeId: intake.id } })).toBe(0);
+    expect(await client.healthDocument.count({ where: { intakeId: intake.id } })).toBe(0);
   });
 
   it('keep, APPLY: no purge job, the file stays and history says fileDeleted false', async () => {

@@ -8,10 +8,18 @@
  *
  * A photo that is gone (deleted from storage mid-review, or never listed)
  * renders a "photo removed" placeholder; nothing else breaks.
+ *
+ * A PDF (H2, #186; told by its `.pdf` name, since the intake view carries no
+ * type) is shown as a file icon, and no signed URL is fetched for it: an
+ * `<img>` cannot draw a PDF.
  */
 import { useEffect, useState } from 'react';
 import { Box, Typography } from '@mui/material';
-import { HideImageOutlined as RemovedIcon, ImageOutlined as ImageIcon } from '@mui/icons-material';
+import {
+  HideImageOutlined as RemovedIcon,
+  ImageOutlined as ImageIcon,
+  PictureAsPdfOutlined as PdfIcon,
+} from '@mui/icons-material';
 import { getStorageObjectDownloadUrl } from '../../services/storage';
 
 const cache = new Map<string, { url: string; expiresAt: number }>();
@@ -37,11 +45,18 @@ export interface StoragePhotoThumbProps {
   size?: number;
 }
 
+const isPdfName = (name: string) => /\.pdf$/i.test(name);
+
 export function StoragePhotoThumb({ storageObjectId, name, size = 56 }: StoragePhotoThumbProps) {
-  const [url, setUrl] = useState<string | null>(() => (storageObjectId ? cached(storageObjectId) : null));
+  const pdf = isPdfName(name);
+  const [url, setUrl] = useState<string | null>(() => (storageObjectId && !pdf ? cached(storageObjectId) : null));
   const [missing, setMissing] = useState(storageObjectId === null);
 
   useEffect(() => {
+    if (pdf && storageObjectId) {
+      setMissing(false);
+      return;
+    }
     if (!storageObjectId) {
       setMissing(true);
       return;
@@ -64,7 +79,7 @@ export function StoragePhotoThumb({ storageObjectId, name, size = 56 }: StorageP
     return () => {
       cancelled = true;
     };
-  }, [storageObjectId]);
+  }, [storageObjectId, pdf]);
 
   const frame = {
     width: size,
@@ -84,6 +99,17 @@ export function StoragePhotoThumb({ storageObjectId, name, size = 56 }: StorageP
         <RemovedIcon fontSize="small" color="disabled" />
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, lineHeight: 1.1, textAlign: 'center' }}>
           photo removed
+        </Typography>
+      </Box>
+    );
+  }
+
+  if (pdf) {
+    return (
+      <Box sx={{ ...frame, flexDirection: 'column' }} role="img" aria-label={`${name} (PDF)`} data-testid="storage-pdf-thumb">
+        <PdfIcon fontSize={size >= 96 ? 'large' : 'small'} color="action" />
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, lineHeight: 1.1 }}>
+          PDF
         </Typography>
       </Box>
     );

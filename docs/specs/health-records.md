@@ -1,6 +1,6 @@
 # Health Records
 
-> **Status:** in progress (the document store and the keep-or-delete choice are shipped; the rest of the epic is planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*` (see `/api/docs`; the documents API is planned) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
+> **Status:** in progress (the document store, the keep-or-delete choice and PDFs for body metrics are shipped; the rest of the epic is planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*` (see `/api/docs`; the documents API is planned) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
 
 Health Records turns the per-user [health data](health-data.md) into a complete, user-owned health record. Every health file a user hands the system becomes a `HealthDocument` with the user's keep-or-delete choice. Values read from those files keep a link to their source document, and the record can grow (lab results, exports, a health summary for the training planner) without the user ever losing control of the files.
 
@@ -113,9 +113,51 @@ Once `file_deleted_at` is set, the document holds nothing. A failing check keeps
 
 Placeholder. Lab report PDFs and images become `lab_report` documents, an AI job drafts the values, the user reviews them and the saved results link their document. This section records the extraction flow, the result model and its validation when it ships.
 
-### 2.9 Planned: PDFs for body metrics
+### 2.9 PDFs for body metrics
 
-Placeholder. The `body_metric` kind accepts PDFs next to photos. This section records the accepted types and size limits when it ships.
+Clinics, smart scales and body-composition scans (DEXA, InBody) hand out PDFs. The `body_metric_reading` kind reads them next to photos, so the user no longer screenshots a report.
+
+**Declaring support.** `IntakeKind.acceptedInputs` (`apps/api/src/intake/intake-kind.interface.ts`) is `['image']` when omitted, or `['image', 'pdf']`. `IntakeKindRegistry.register` refuses an empty list, an unknown entry or a duplicate. `body_metric_reading` declares `['image', 'pdf']`; `gym_equipment` and `workout_prefill` stay image-only.
+
+**Accepted types and limits.**
+
+| Input | MIME type | Size cap | Other cap |
+|---|---|---|---|
+| Image | `image/png`, `image/jpeg`, `image/gif`, `image/webp` | 20 MiB (`AI_STORAGE_INPUT_IMAGE_MAX_BYTES`) | none |
+| PDF | `application/pdf` | 50 MiB (`AI_STORAGE_INPUT_FILE_MAX_BYTES`) | 20 pages (`INTAKE_PDF_MAX_PAGES`, or the kind's `maxPdfPages`) |
+
+A PDF counts as one of the kind's `maxPhotos` (4 for body metrics) and as one input towards the analyzer's 16-inputs-per-request chunk.
+
+**Validation at attach** (`IntakeService.attachPhoto`, cheapest first):
+
+1. The declared type must be one the kind accepts. A PDF on an image-only kind is 400 `UNSUPPORTED_MEDIA_TYPE`.
+2. The recorded size must be within the cap: 400 `OBJECT_TOO_LARGE`.
+3. `IntakeInputInspector` (`apps/api/src/intake/intake-input-inspector.ts`) reads the stored object back through `STORAGE_PROVIDER`: the first 1024 bytes of an image, the whole PDF (bounded by 50 MiB).
+   - The magic bytes must agree with the declared type: a PNG, JPEG, GIF or WebP signature for an image, a `%PDF-` header within the first 1024 bytes for a PDF. A mismatch (a text file renamed to `.pdf`) is 400 `UNSUPPORTED_MEDIA_TYPE` with `details.contentMismatch: true`.
+   - A PDF's pages are counted. Over the cap is 400 `TOO_MANY_PAGES` (`details.pages`, `details.maxPages`); an uncountable PDF is 400 `PDF_UNREADABLE`.
+
+Nothing is linked and no `HealthDocument` is written for a refused file.
+
+**Re-check at analyze.** `POST /api/intakes/:id/analyze` repeats the checks before it queues anything. Each attached file must still be a type the kind accepts, and each PDF is read and counted again. The attach is the one way a file joins an intake and a stored object never changes, so this only catches links made before a kind changed its declaration. It keeps "no provider call for a refused file" true however the link was made.
+
+**Model capability.** With a PDF attached, analyze asks the model gate for `file_input` on top of `vision_input` and `structured_output`, and requires the `file` input modality. A model without them is refused before anything is queued:
+
+- the code is `AI_CAPABILITY_UNSUPPORTED` (400), with `details.capability: 'file_input'` and `details.inputKind: 'pdf'`;
+- the message is "Your AI model can't read PDFs; choose a model with file input or upload an image.";
+- no job is queued and no provider is called.
+
+If the model loses the capability between analyze and the job, the runtime refuses the `file` part before any provider call. The job then fails the intake with the same message.
+
+**Analyzer.** `intakeInputPart` (`apps/api/src/intake/intake-analyzer.ts`) maps an image to `{ type: 'image', storageObjectId, detail: 'high' }` and a PDF to `{ type: 'file', storageObjectId }`. It sends no file name and no URL: the AI runtime resolves the object under the owner's authorization and delivers it through the provider's existing strategy (presigned URL, upload or inline). The body-metric job labels a PDF `Photo <n> (PDF document):`. Its prompt (version 2) reads a report's printed measurements the same way as a display, and treats the report's text as data. The fake AI provider serves the `smart-scale-report` fixture (`apps/api/test/fixtures/body-metric/`) for the PDF path.
+
+**Retention.** A PDF on a health kind becomes a `HealthDocument` with `mimeType` `application/pdf`. The keep-or-delete choice, the purge job and the reference checker apply to it exactly as to a photo (2.3 to 2.5).
+
+**Page counting without a library.** `countPdfPages` (`apps/api/src/intake/intake-inputs.ts`) counts `/Type /Page` objects, never `/Pages`. It looks in the file as stored and inside each Flate-compressed object stream, which it inflates with Node's zlib under a 64 MiB budget. It errs high, never low: an incremental update that rewrote a page may be counted twice. A file with no countable page object (an encrypted object stream, a damaged file, a stream over the inflate budget) is refused as unreadable, never waved through.
+
+**Observability and security.**
+
+- The span attribute `intake.input_kind` is `image`, `pdf` or `mixed`. It is set on attach, on analyze and on the `ai.health.body_metric_reading` job.
+- No PDF byte, file name or presigned URL reaches a log line, a span, an error or a stored row. The bytes the inspector reads live in memory for that call only.
 
 ### 2.10 Planned: Health Documents settings page and documents API
 
@@ -136,6 +178,7 @@ Placeholder. An opt-in summary the training planner reads in place of raw values
 ## 3. Configuration and permissions
 
 - No environment variable and no system setting. Storage is configured at runtime in the admin UI ([storage-providers.md](storage-providers.md)).
+- The PDF page cap is a constant (`INTAKE_PDF_MAX_PAGES`, 20) that a kind may override with `maxPdfPages`. It bounds the cost of one AI request, like the 16-inputs-per-request cap.
 - Retention is chosen per intake and per file by the user.
 - **Permissions.** No permission of its own. The routes are the generic intake routes, gated by `intakes:*` plus the kind's `health_data:read` and `health_data:write`.
 - **Job type.** `health.document.purge`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
@@ -148,7 +191,8 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 |---|---|
 | `POST /api/intakes` | Accepts `retainFiles` (default `true`) |
 | `PATCH /api/intakes/:id` | Accepts `retainFiles` alone or with `context`; changes the intake and its documents |
-| `POST /api/intakes/:id/photos` | Accepts a per-file `retainFiles`; creates the document for a health kind |
+| `POST /api/intakes/:id/photos` | Accepts a per-file `retainFiles`; creates the document for a health kind; accepts `application/pdf` for `body_metric_reading` and refuses `TOO_MANY_PAGES` and `PDF_UNREADABLE` |
+| `POST /api/intakes/:id/analyze` | With a PDF attached, re-checks it and requires a model with `file_input` |
 | `DELETE /api/intakes/:id/photos/:storageObjectId` | Deletes the file's document with the link |
 | `POST /api/intakes/:id/apply` | Enqueues the purges in the apply transaction |
 | `DELETE /api/intakes/:id` | Enqueues the purges in the discard transaction |
@@ -157,6 +201,8 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 ## 4. Extending it in a fork
 
 **Make another intake kind a health kind.** Set `healthDocumentKind` on the kind and add the value to `HEALTH_DOCUMENT_KINDS` when it is new. Attach, retention, purge and the reference checker then apply with no other change. In `apply`, read `healthDocuments` from the apply arguments and write `healthDocumentId` into the saved provenance, as `body-metric-reading.kind.ts` does. On the web, add the kind to `HEALTH_INTAKE_KINDS` (`apps/web/src/services/intake.ts`) so `RetainFilesControl` renders for it. The kind recipe is in [the intake README](../../apps/api/src/intake/README.md).
+
+**Let another intake kind read PDFs.** Declare `acceptedInputs = ['image', 'pdf']` (and `maxPdfPages` for a cap other than 20). The attach, analyze and model checks then apply with no other change. In the kind's analyzer job, build the content parts with `intakeInputPart` or `numberedInputParts` so a PDF goes out as a `file` part, and read the photos' `storageObject.mimeType`. On the web, the picker's `accept` follows the kind (a separate task of #186).
 
 **Add another holder of a stored file.** A feature that keeps a storage object registers its own checker with `StorageObjectReferences`, as `HealthDocumentObjectReferences` does.
 
@@ -169,6 +215,10 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 - `apps/api/src/measurements/measurements.service.spec.ts`: `fileDeleted` on the measurement view.
 - `apps/api/src/common/otel/app-metrics.service.spec.ts`: the purge counter and its outcome label.
 - `apps/api/test/jobs/cron-enqueue-only.spec.ts` and `apps/api/test/jobs/on-event-no-io.spec.ts`: no long-running work outside the queue.
+- `apps/api/src/intake/intake-inputs.spec.ts`, `intake-input-inspector.spec.ts`, `intake-kind.registry.spec.ts` and `intake-analyzer.spec.ts`: the `acceptedInputs` default and validation, the magic-byte sniff, page counting in the clear and in object streams (and a decompression bomb), the bounded reads, and the `image` / `file` part mapping.
+- `apps/api/src/intake/intake.service.spec.ts`: a PDF on an image-only kind, renamed files, the page, size and unreadable refusals, the re-check at analyze and the `file_input` refusal with nothing queued.
+- `apps/api/test/health-data/measurements-photo.integration.spec.ts`: over HTTP with the fake AI provider, a PDF attach with its `application/pdf` document, the four refusals with no provider call, the model without `file_input`, and the job sending the PDF as one `file` input.
+- `apps/api/test/health-data/health-documents.db.spec.ts` and `measurements-photo.db.spec.ts`: on real Postgres and real file storage, PDF retention (purge after apply, keep through discard), refusals with no link or document, and a PDF read end to end with `sourceRef.healthDocumentId`.
 - `apps/web/src/__tests__/components/intake/RetainFilesControl.test.tsx`: checked by default, helper text, health kinds only.
 - `apps/web/src/__tests__/components/health/PhotoReadDialog.test.tsx` and `apps/web/src/__tests__/components/health/MeasurementHistoryProvenance.test.tsx`: the choice reaches the requests, and **File deleted** replaces **View photo**.
 - `tests/visual/specs/health-photo-read.spec.ts`: the photo-step baseline includes the keep-or-delete control.
@@ -191,12 +241,24 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 
 **Server-only purge.** A worker node must never hold the privilege to delete objects from the deployment's storage.
 
+**Each kind opts in to PDFs.** `acceptedInputs` defaults to images, so a kind whose analyzer never expected a document cannot receive one by accident. Rejected: accepting PDFs everywhere once the gateway could carry them.
+
+**Magic bytes of the stored object, not the declared type.** The MIME type is whatever the uploader said. Reading the stored bytes is the only check that holds for a renamed file. Rejected: trusting the MIME type or the file extension.
+
+**Attach-time checks, repeated at analyze.** The user hears about a bad file when attaching it, not after a scan. The analyze re-check keeps the guarantee for older links. Rejected: checking only in the job, which would report a refused file after the user started a scan.
+
+**A page counter instead of a PDF library.** One bounded, conservative number does not justify a parser dependency (pdf-lib is unmaintained, pdf.js is large). Rejected: skipping the cap, which leaves a 500-page report free to run up a provider bill.
+
+**A constant page cap.** The cap bounds request cost, as the 16-input cap does, and a kind can override it in code. Rejected: an environment variable (runtime-configured features never get one) and a system setting (no intake settings block exists to hold it).
+
+**The capability error reuses `AI_CAPABILITY_UNSUPPORTED`.** Clients already handle the AI platform's reasons; `details.capability` and `details.inputKind` say what to do. Rejected: a new intake-only code for the same condition.
+
 ## 7. Verification
 
 ```bash
-npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/health-documents src/intake
+npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/health-documents src/intake src/measurements/photo test/health-data/measurements-photo.integration
 export POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_USER=postgres POSTGRES_PASSWORD=postgres POSTGRES_DB=evopath_test
-cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/health-documents\.db\.spec\.ts$' --runInBand
+cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/(health-documents|measurements-photo)\.db\.spec\.ts$' --runInBand
 npm run test:run --workspace=web -- RetainFilesControl
 ```
 
@@ -206,8 +268,11 @@ In a running app, with AI on:
 2. Uncheck it, read a photo and save. The job `health.document.purge` appears in the job history and succeeds.
 3. History shows **File deleted** for the new entry. `GET /api/measurements` reports `fileDeleted: true` for its readings.
 4. The audit log holds `health:document:delete` with no file name.
+5. With a model that has file input, read a smart-scale PDF report: the readings appear for review, and the saved entry links a document whose type is `application/pdf`.
+6. Attach a PDF of more than 20 pages, or a text file renamed to `.pdf`: the attach is refused before any scan.
 
 ## History
 
 - #184: the Health Records epic.
 - #185: `health_documents` table and `photo_intakes.retention`, `retainFiles` on the intake API, `IntakeKind.healthDocumentKind`, the `health.document.purge` job, the `health_documents` reference checker, `sourceRef.healthDocumentId` and `fileDeleted`, the `health:document:delete` audit action and the purge counter, the keep-or-delete control, and this spec.
+- #186: PDFs for body metrics. Adds `IntakeKind.acceptedInputs` and `maxPdfPages`, magic-byte and page-count checks at attach and analyze, the `file_input` refusal, PDFs as `file` parts, the `intake.input_kind` span attribute and body-metric prompt version 2 (API).

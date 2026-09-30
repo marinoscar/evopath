@@ -83,6 +83,9 @@ export class BodyMetricReadingIntakeKind implements IntakeKind<Context, BodyMetr
   readonly aiFeature = 'body_metric_reading' as const;
   readonly maxPhotos = BODY_METRIC_READING_MAX_PHOTOS;
   readonly itemKinds = [BODY_METRIC_READING_ITEM_KIND] as const;
+  // Smart scales, body-composition scans and clinics hand out PDFs (H2,
+  // #186): they are read next to photos, up to the default page cap.
+  readonly acceptedInputs = ['image', 'pdf'] as const;
   // Every photo is a health document (H1, #185): the user chooses keep or
   // delete-after-processing, and the saved readings link it
   // (`sourceRef.healthDocumentId`).

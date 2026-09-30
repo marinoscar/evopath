@@ -22,6 +22,9 @@ import { buildScanContent } from '../../src/gyms/scan/equipment-scan.handler';
 import { buildEquipmentScanOutputSchema } from '../../src/gyms/scan/equipment-scan.prompt';
 import { buildPrefillContent } from '../../src/workouts/prefill/workout-prefill.handler';
 import { buildWorkoutPrefillOutputSchema } from '../../src/workouts/prefill/workout-prefill.prompt';
+import { numberedInputParts } from '../../src/intake/intake-analyzer';
+import { BODY_METRIC_INSTRUCTIONS, bodyMetricOutputSchema } from '../../src/measurements/photo/body-metric-reading.prompt';
+import { bodyMetricFixture } from '../fixtures/body-metric/load';
 import { loadModelOutput, seedVocabulary } from '../fixtures/gym-scan.fixtures';
 import { loadPrefillModelOutput, seedExerciseVocabulary } from '../fixtures/workout-prefill.fixtures';
 
@@ -108,8 +111,8 @@ describe('fake vision server', () => {
 
     const requests = await (await fetch(`${base}/__control/requests`)).json();
     expect(requests).toEqual([
-      { model: 'fake-vision', imageCount: 1, hasResponseFormat: true },
-      { model: 'fake-vision', imageCount: 2, hasResponseFormat: true },
+      { model: 'fake-vision', imageCount: 1, fileCount: 0, hasResponseFormat: true },
+      { model: 'fake-vision', imageCount: 2, fileCount: 0, hasResponseFormat: true },
     ]);
   });
 
@@ -144,6 +147,69 @@ describe('fake vision server', () => {
 
     expect(response.parsed).toEqual(loadPrefillModelOutput(file));
     expect(prefillSchema.safeParse(response.parsed).success).toBe(true);
+  });
+
+  describe('body-metric readings, a PDF included (H2, #186)', () => {
+    const PDF = Buffer.from('%PDF-1.7\n1 0 obj\n<< /Type /Page >>\nendobj\n%%EOF\n', 'latin1');
+
+    function bodyMetricCtx(inputs: Array<{ id: string; pdf: boolean }>): AiCallContext {
+      return {
+        ...ctx([]),
+        storageInputs: new Map(
+          inputs.map(({ id, pdf }) => [
+            id,
+            {
+              storageObjectId: id,
+              modality: pdf ? ('file' as const) : ('image' as const),
+              mimeType: pdf ? 'application/pdf' : 'image/jpeg',
+              filename: pdf ? `${id}.pdf` : `${id}.jpg`,
+              strategy: 'inline' as const,
+              read: async () => ({
+                data: new Uint8Array(pdf ? PDF : PHOTO),
+                mimeType: pdf ? 'application/pdf' : 'image/jpeg',
+              }),
+            },
+          ]),
+        ),
+      };
+    }
+
+    async function read(inputs: Array<{ id: string; pdf: boolean }>) {
+      return adapter.responses.create(
+        {
+          model: 'fake-vision',
+          instructions: BODY_METRIC_INSTRUCTIONS,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: numberedInputParts(
+                inputs.map(({ id, pdf }) => ({ storageObjectId: id, mimeType: pdf ? 'application/pdf' : 'image/jpeg' })),
+                1,
+              ),
+            },
+          ],
+          structuredOutput: { name: 'body_metric_reading', schema: bodyMetricOutputSchema, strict: true },
+        },
+        bodyMetricCtx(inputs),
+      );
+    }
+
+    it('answers a PDF with the smart-scale report and a photo with the scale display, parsed by the real adapter', async () => {
+      const pdf = await read([{ id: 'd0', pdf: true }]);
+      expect(pdf.parsed).toEqual(bodyMetricFixture('smart-scale-report'));
+
+      const photo = await read([{ id: 'p0', pdf: false }]);
+      expect(photo.parsed).toEqual(bodyMetricFixture('scale-display'));
+
+      const requests = await (await fetch(`${base}/__control/requests`)).json();
+      expect(requests).toEqual([
+        { model: 'fake-vision', imageCount: 0, fileCount: 1, hasResponseFormat: true },
+        { model: 'fake-vision', imageCount: 1, fileCount: 0, hasResponseFormat: true },
+      ]);
+      // The request log never carries bytes or file names.
+      expect(JSON.stringify(requests)).not.toMatch(/PDF-|d0\.pdf/);
+    });
   });
 
   it('refuses an unknown fixture name', async () => {

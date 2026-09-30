@@ -15,11 +15,21 @@ export const FAKE_AI_API_BASE_URL = process.env.FAKE_AI_API_BASE_URL ?? 'http://
 export const FAKE_PROVIDER_ID = 'openai-compatible';
 export const FAKE_MODEL_ID = 'fake-vision';
 
-export type FakeFixture = 'cardio-row-wide' | 'leg-curl-placard' | 'both' | 'workout-placard' | 'workout-notebook' | 'workout-empty';
+export type FakeFixture =
+  | 'cardio-row-wide'
+  | 'leg-curl-placard'
+  | 'both'
+  | 'workout-placard'
+  | 'workout-notebook'
+  | 'workout-empty'
+  | 'body-metric-scale'
+  | 'body-metric-smart-scale-report';
 
 export interface FakeRequestRecord {
   model: string | null;
   imageCount: number;
+  /** File (PDF) parts in the request (H2, #186). */
+  fileCount: number;
   hasResponseFormat: boolean;
 }
 
@@ -152,6 +162,27 @@ export async function configureFakeVisionProvider(admin: AuthedApi): Promise<voi
       enabled: true,
     });
   }
+}
+
+/**
+ * Declare (or withdraw) `file_input` and the `file` input modality on
+ * `fake-vision`, so a body-metric PDF (H2, #186) can be read, or is refused
+ * with `AI_CAPABILITY_UNSUPPORTED` (`details.capability: 'file_input'`) before
+ * any provider call. Call after {@link configureFakeVisionProvider}. The
+ * vision capabilities it declares are kept either way, so the image specs are
+ * unaffected; a spec that turns it on turns it back off when it is done.
+ */
+export async function setFakeVisionFileInput(admin: AuthedApi, enabled: boolean): Promise<void> {
+  const model = await findFakeModel(admin);
+  expect(model, 'fake-vision is not in the catalog; call configureFakeVisionProvider first').toBeTruthy();
+  const capabilities = enabled
+    ? {
+        capabilities: [...VISION_CAPABILITIES.capabilities, 'file_input'],
+        inputModalities: [...VISION_CAPABILITIES.inputModalities, 'file'],
+        outputModalities: VISION_CAPABILITIES.outputModalities,
+      }
+    : VISION_CAPABILITIES;
+  await admin.patch(`/api/admin/ai/models/${encodeURIComponent(model!.id)}`, { capabilities, enabled: true });
 }
 
 // =============================================================================

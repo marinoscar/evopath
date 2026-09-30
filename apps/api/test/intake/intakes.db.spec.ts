@@ -41,6 +41,7 @@ import { IntakeService } from '../../src/intake/intake.service';
 import { JobsService } from '../../src/jobs/jobs.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { trustingInputInspector } from '../../src/intake/testing/input-inspector.stub';
 
 const { describeWithDb } = resolveDbSuite('intakes.db.spec');
 
@@ -114,6 +115,7 @@ describeWithDb('photo intakes (real Postgres)', () => {
       { assertUsable: jest.fn(async () => ({})) } as never,
       objects as never,
       stubFeatureResolver({ provider: 'openai', modelId: 'vision-model' }) as never,
+      trustingInputInspector(),
     );
   });
 
