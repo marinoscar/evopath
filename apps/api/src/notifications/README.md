@@ -16,7 +16,7 @@ in-app inbox, Web Push subscriptions and configuration, and admin broadcasts.
 | `notification-store.service.ts`, `notification-stream.service.ts` | The in-app inbox (`notifications` table) and the per-user SSE stream that pushes new rows to open tabs. |
 | `notifications.controller.ts` | `/api/notifications`: event list, config, SSE stream, inbox reads and mark-read, push subscribe/unsubscribe. |
 | `channels/` | One `NotificationChannelSender` per channel. `email-notification.channel.ts` renders an email template and sends it over SMTP or SES. `browser-notification.channel.ts` writes the inbox row and publishes it to the stream. `push-notification.channel.ts` sends an encrypted Web Push message to each of the user's `push_subscriptions`. |
-| `push-config.*`, `push-subscription.service.ts` | Web Push: runtime VAPID key management (`/api/admin/push-config`) and storage of browser push subscriptions. |
+| `push-config.*`, `push-subscription.service.ts` | Web Push: runtime VAPID key management (`/api/admin/push-config`, including the test-push route served by `push-test.service.ts`) and storage of browser push subscriptions. |
 | `broadcasts/` | Admin broadcasts: `/api/admin/broadcasts`, the audience, and the two fan-out job handlers under `broadcasts/handlers/`. A sibling module (`BroadcastsModule`), not part of `NotificationsModule`. |
 | `ops/` | `JobFailureNotifier`, a `job.settled` listener that raises `jobs.job_failed` to everyone holding the permission that can act on it. |
 

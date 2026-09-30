@@ -342,33 +342,21 @@ A gym is a named place a user trains (type, description, notes, `isTemporary`), 
 
 ### 5.23 Exercise library
 
-The exercise library is the shared vocabulary workouts are built from. `exercises` holds the seeded catalog (94 rows keyed by a permanent `slug`, `ownerUserId` null, `origin` `seed`) and each user's own custom exercises (`custom-` slug prefix, `origin` `user` or `ai`). Every exercise names its primary and secondary muscles, a movement pattern, and a tracking mode (`weight_reps`, `bodyweight_reps`, `time`, `distance_time`); the vocabularies live in `apps/api/src/common/constants/training.constants.ts`. What an exercise needs is `exercise_requirements`: rows sharing a `groupIndex` are alternatives (OR), and every group must be satisfied (AND). Each row names an equipment type or a capability, never both (a CHECK constraint). `ExerciseAvailabilityService` evaluates the groups against a gym's equipment types and the capabilities they enable, so `GET /api/exercises` with `gymId` marks each item `available` and lists what is `missing`; `availableOnly` filters to the available ones. Library rows are read-only (`LIBRARY_EXERCISE_READ_ONLY`), another user's custom exercise answers `404`, and deleting an exercise that workouts use is refused (`EXERCISE_IN_USE`). An exercise with `status` `pending_review` is hidden from lists until its owner approves it (`POST /api/exercises/:id/approve`) or deletes it. The seed upserts by slug and re-syncs requirement rows for seeded exercises only. Limits and refusal reasons live in `apps/api/src/exercises/exercises.constants.ts`.
+The exercise library is the shared vocabulary workouts are built from: a seeded, slug-keyed catalog plus each user's own custom exercises, each with the equipment groups (AND of OR) that decide whether a gym supports it. Design, availability rules, slug permanence and how a fork adds exercises: [specs/workouts.md](specs/workouts.md#24-the-exercise-library).
 
-`GET /api/exercises/:id/history` (permission `workouts:read`) returns the caller's last time, recent workouts and records for one exercise. The route lives in `ExercisesController` and is served by `WorkoutHistoryService` from [§5.24](#524-workout-logging). `ExercisesModule` imports `WorkoutsModule`; `WorkoutsModule` never imports `ExercisesModule`.
-
-- **Code:** `apps/api/src/exercises/` (`ExercisesModule`), `apps/web/src/pages/TrainExercisesPage.tsx`, `apps/web/src/components/train/CustomExerciseDialog.tsx`
+- **Code:** `apps/api/src/exercises/` (`ExercisesModule`; limits and refusal reasons in `exercises.constants.ts`), `apps/web/src/pages/TrainExercisesPage.tsx`, `apps/web/src/components/train/CustomExerciseDialog.tsx`
 - **Routes:** `/api/exercises` (including `/:id`, `/:id/approve` and `/:id/history`); details in `/api/docs` (group "Training", tag "Exercises")
 - **UI:** `/train/exercises`
-- **Permissions:** `exercises:read`, `exercises:write`; `/:id/history` needs `workouts:read`
+- **Permissions:** `exercises:read`, `exercises:write`; `/:id/history` needs `workouts:read`. `ExercisesModule` imports `WorkoutsModule`; `WorkoutsModule` never imports `ExercisesModule`
 
 ### 5.24 Workout logging
 
-A workout is one logged training session. `workouts` holds the session (name, the user's local calendar `date`, `status` `in_progress` or `completed`, start and end times, `durationSeconds`, optional gym, notes, a `readinessSnapshot` and a reserved `programWorkoutId` with no foreign key). `workout_exercises` orders exercises inside it by a dense 0-based `position`, with an optional equipment type actually used. `set_logs` holds the sets: weight, reps, time, distance, RPE, RIR, rest, `isWarmup`, `completed`, `painFlag` and notes, numbered densely from 1 per exercise.
+A workout is one logged training session of exercises and sets, stored in kilograms and metres, with at most one in progress per user (the raw-SQL partial unique index `workouts_user_in_progress_uniq_idx`). Personal records are computed on read. "Prefill from photo" drafts exercises and sets from a photo through the `workout_prefill` intake kind and the server-only job `ai.workout.prefill`. Data model, logging semantics, records, the training summary (`GET /api/workouts/summary`), the prefill design and guardrails: [specs/workouts.md](specs/workouts.md).
 
-- **One workout in progress per user.** The raw-SQL partial unique index `workouts_user_in_progress_uniq_idx` decides. `POST /api/workouts` catches the unique violation and answers `200` with the winning workout and `existing: true`; a new workout answers `201`. There is no `findFirst` pre-check. Finishing a workout frees the slot.
-- **Kilograms and metres only.** The API stores and returns `weightKg` and `distanceMeters`; the web converts for display from the Health Profile `unitSystem`. Decimals are returned as JSON numbers.
-- **Ownership.** Every route filters by the caller's id; another user's workout, exercise or set answers `404`. The gym must be the caller's, and the exercise a library exercise or the caller's own custom one (a `pending_review` exercise is refused with `EXERCISE_PENDING_REVIEW`).
-- **Per-workout lock.** Writes to a workout's exercises and sets first take `SELECT ... FOR UPDATE` on the workout row (`workout-lock.ts`). That serializes `setNumber` allocation, the limits (30 exercises per workout, 40 sets per exercise) and the dense renumbering after a delete or reorder.
-- **Set rules.** Adding a set with omitted `weightKg` and `reps` copies them from the previous set. Completing a set stamps `completedAt` and derives `restSeconds` only when the previous completion is under 15 minutes old; un-completing clears `completedAt`. Field bounds are enforced by Zod and mirrored by the `set_logs_ranges_chk` CHECK.
-- **Finish.** `POST /api/workouts/:id/finish` is idempotent. It sets `endedAt` and `durationSeconds` and deletes uncompleted sets that hold no value; uncompleted sets with values stay. `volumeKg` and `setCount` count completed, non-warm-up sets only.
-- **Readiness snapshot.** At start the workout copies today's check-in by value from `CheckInsService` (null when there is none), so later edits of the check-in do not rewrite history. It never blocks starting.
-- **Personal records are computed on read.** No table stores them. `WorkoutHistoryService` (exported by `WorkoutsModule`) derives each set's `prs` (`first_time`, `weight`, `reps` (at a weight), estimated 1RM) against the user's earlier working sets, and the workout views carry `summary.prs`. Warm-up and incomplete sets never count. The formulas and the working-set rule live only in [`workout-records.ts`](../apps/api/src/workouts/workout-records.ts).
-- **Prefill from a photo.** The `workout_prefill` intake kind (`apps/api/src/workouts/intake/`) drafts exercises and sets from a placard, notebook or whiteboard photo through the server-only job `ai.workout.prefill` (`apps/api/src/workouts/prefill/`). Its context is `{ workoutId, sourceHint? }` for the caller's `in_progress` or `completed` workout. A weight with no written unit is read in the Health Profile unit and flagged uncertain. `apply` appends the accepted exercises (a custom exercise is created for an unrecognized name; the 30-exercise cap skips the rest) with **uncompleted** sets, and attaches every intake photo to the workout as a `workout_photos` row. The workout views carry `photos` (`id`, `storageObjectId`, `caption`, `createdAt`).
-- **Deletion.** Deleting a workout cascades to its exercises, sets and photo links. Deleting a gym sets `gymId` to null. Deleting an exercise that a workout uses is refused (`EXERCISE_IN_USE`).
-
-- **Code:** `apps/api/src/workouts/` (`WorkoutsModule`; limits and refusal reasons in `workouts.constants.ts`)
-- **Routes:** `/api/workouts` (including `/:id/finish`, `/:id/exercises` and `/:id/sets`); details in `/api/docs` (group "Training", tag "Workouts")
-- **Permissions:** `workouts:read`, `workouts:write`
+- **Code:** `apps/api/src/workouts/` (`WorkoutsModule`; limits and refusal reasons in `workouts.constants.ts`), `apps/web/src/pages/TrainPage.tsx`, `WorkoutPage.tsx`, `WorkoutPrefillPage.tsx`, `apps/web/src/components/train/`, `apps/web/src/components/today/TodayWorkout.tsx`
+- **Routes:** `/api/workouts` (including `/summary`, `/:id/finish`, `/:id/exercises` and `/:id/sets`); details in `/api/docs` (group "Training", tag "Workouts")
+- **UI:** `/train`, `/train/workouts/:workoutId`, `/train/workouts/:workoutId/prefill`, and the Today card
+- **Permissions:** `workouts:read`, `workouts:write`; prefill also needs `exercises:write`
 
 ---
 
@@ -602,7 +590,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Access | Routes |
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
-| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train` and `/train/exercises` (the exercise library; see [§5.23](#523-exercise-library)), `/gyms` (`/train` and `/gyms` are placeholder pages until their features ship), `/activate` (device approval), `/settings` hub and its pages |
+| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/train/exercises` and `/train/workouts/:workoutId` (workout logging and the exercise library; see [§5.23](#523-exercise-library) and [§5.24](#524-workout-logging)), `/gyms` (see [§5.22](#522-gyms-and-equipment)), `/activate` (device approval), `/settings` hub and its pages |
 | Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 

@@ -421,6 +421,72 @@ export async function deleteSet(id: string, setId: string): Promise<void> {
 }
 
 // -----------------------------------------------------------------------------
+// Summary (E4.6: the Today page's training card)
+// -----------------------------------------------------------------------------
+
+/** `details.reason` when `?today=` is more than two days from the server's today. */
+export const TODAY_OUT_OF_RANGE = 'TODAY_OUT_OF_RANGE';
+
+/** The workout in progress, as the summary reports it. */
+export interface WorkoutSummaryInProgress {
+  id: string;
+  name: string;
+  startedAt: string;
+  /** Null when none was set or the gym was deleted. */
+  gym: GymRef | null;
+  exerciseCount: number;
+  /** Sets marked completed so far, warm-ups included. */
+  completedSetCount: number;
+}
+
+/** One of the last workout's top lifts: the heaviest completed working set of an exercise. */
+export interface WorkoutSummaryTopLift {
+  exerciseName: string;
+  weightKg: number;
+  reps: number;
+}
+
+/** The most recent completed workout. */
+export interface WorkoutSummaryLast {
+  id: string;
+  name: string;
+  /** The workout's local calendar day, `YYYY-MM-DD`. */
+  date: string;
+  durationSeconds: number | null;
+  gym: GymRef | null;
+  exerciseCount: number;
+  /** Completed working (non-warm-up) sets. */
+  setCount: number;
+  /** Kilograms: weight x reps over completed working sets. */
+  volumeKg: number;
+  /** At most three, heaviest first. */
+  topLifts: WorkoutSummaryTopLift[];
+}
+
+/** `GET /workouts/summary` (the API's `WorkoutSummaryView`). */
+export interface WorkoutSummary {
+  inProgress: WorkoutSummaryInProgress | null;
+  last: WorkoutSummaryLast | null;
+  /** Completed workouts dated in the ISO week (Monday to Sunday) containing today; `weekStart` is its Monday. */
+  thisWeek: { workoutCount: number; weekStart: string };
+  /** Calendar days from `last.date` to today; null without a last workout. */
+  daysSinceLast: number | null;
+}
+
+/**
+ * `GET /workouts/summary` (`workouts:read`). `today` is the caller's local
+ * day (`YYYY-MM-DD`, the Health Profile time zone when set); the API refuses
+ * one more than two days from its own today with `TODAY_OUT_OF_RANGE`.
+ */
+export function getWorkoutSummary(
+  today?: string | null,
+  options: { signal?: AbortSignal } = {},
+): Promise<WorkoutSummary> {
+  const query = today ? `?today=${encodeURIComponent(today)}` : '';
+  return api.get<WorkoutSummary>(`/workouts/summary${query}`, { signal: options.signal });
+}
+
+// -----------------------------------------------------------------------------
 // Errors
 // -----------------------------------------------------------------------------
 

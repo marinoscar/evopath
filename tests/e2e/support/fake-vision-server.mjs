@@ -13,7 +13,7 @@
 //   POST /v1/chat/completions    a chat completion whose message content is
 //                                the chosen fixture's `*.model-output.json`
 //   POST /__control/next         { "fixture": "cardio-row-wide" | "leg-curl-placard" | "both"
-//                                  | "workout-placard" | "workout-notebook" }
+//                                  | "workout-placard" | "workout-notebook" | "workout-empty" }
 //                                answers the NEXT completion with it (one-shot)
 //   GET  /__control/requests     [{ model, imageCount, hasResponseFormat }] per
 //                                completion received — never bytes or URLs
@@ -45,6 +45,7 @@ const FIXTURE_FILES = {
   both: 'gym-scan/both',
   'workout-placard': 'workout-prefill/placard',
   'workout-notebook': 'workout-prefill/notebook',
+  'workout-empty': 'workout-prefill/workout-empty',
 };
 const FIXTURES = Object.keys(FIXTURE_FILES);
 /** A request body this big is refused (inline images are base64). */

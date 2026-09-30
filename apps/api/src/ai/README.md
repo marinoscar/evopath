@@ -243,7 +243,9 @@ A feature that turns photos into rows registers a photo-intake kind and a
 server-only `ai.*` analyzer job instead of calling `AiService` from a route.
 The recipe is [the intake README](../intake/README.md); `ai.equipment.scan`
 ("Scan gym") is the worked example, described in
-[the gyms and equipment spec](../../../../docs/specs/gyms-and-equipment.md#27-the-scan-job).
+[the gyms and equipment spec](../../../../docs/specs/gyms-and-equipment.md#27-the-scan-job);
+`ai.workout.prefill` ("Prefill from photo") is the second, described in
+[the workouts spec](../../../../docs/specs/workouts.md#210-the-prefill-job).
 
 ## The request lifecycle: the gate pipeline
 

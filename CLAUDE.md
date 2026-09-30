@@ -64,6 +64,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
 | Spec: health data (health profile, measurements, check-ins, photo readings, `health_data` permissions) | [docs/specs/health-data.md](docs/specs/health-data.md) |
 | Spec: gyms and equipment (catalog, default gym, provenance, AI Scan Gym, GPS location) | [docs/specs/gyms-and-equipment.md](docs/specs/gyms-and-equipment.md) |
+| Spec: exercise library and workout logging (set model, PRs, training summary, AI Prefill from photo) | [docs/specs/workouts.md](docs/specs/workouts.md) |
 | Spec: background job queue | [docs/specs/job-queue.md](docs/specs/job-queue.md) |
 | Spec: maintenance mode | [docs/specs/maintenance-mode.md](docs/specs/maintenance-mode.md) |
 | Spec: admin broadcasts | [docs/specs/notification-broadcasts.md](docs/specs/notification-broadcasts.md) |
@@ -196,7 +197,7 @@ Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secr
 
 Each is enforced by tests and explained in the linked doc. Read it before touching the area.
 
-- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx`, `gyms_user_default_uniq_idx` (one default gym per user) and `workouts_user_in_progress_uniq_idx` (one in-progress workout per user) exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md), [database-backup.md](docs/specs/database-backup.md), [gyms-and-equipment.md](docs/specs/gyms-and-equipment.md) and [ARCHITECTURE.md §5.24](docs/ARCHITECTURE.md#524-workout-logging).
+- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx`, `gyms_user_default_uniq_idx` (one default gym per user) and `workouts_user_in_progress_uniq_idx` (one in-progress workout per user) exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md), [database-backup.md](docs/specs/database-backup.md), [gyms-and-equipment.md](docs/specs/gyms-and-equipment.md) and [workouts.md](docs/specs/workouts.md).
 - **A backup archive is never buffered.** `pg_dump` streams straight into object storage, and both the upload and the dump's exit code are awaited. See [database-backup.md](docs/specs/database-backup.md).
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).

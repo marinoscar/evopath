@@ -263,6 +263,37 @@ administrator can fix, rather than a silently absent channel. Per send:
 - A blank subject falls back to `mailto:admin@example.com` with a warning; it
   never fails the send.
 
+**Testing and diagnostics.** `POST /api/admin/push-config/test` (`push:write`)
+sends a real, signed test push to the caller's own subscriptions only, never
+anyone else's. `push-test.service.ts` (`PushTestService`) builds the answer:
+
+- Config integrity: source (`admin`, `env` or `none`), whether the public and
+  private keys form a pair, whether the subject is valid.
+- Whether the browser's subscription key matches the server key (the request
+  may carry this browser's `endpoint` and `applicationServerKey`).
+- Per-subscription push-service results: status code, response body, duration.
+- Push-event policy and preference state, plus plain-English `hints`.
+
+The route always answers `200`; a failed send is the diagnostic. A 404/410
+prunes that subscription, as a real delivery does. No `notifications` or
+`notification_deliveries` row is written, and the audit action is
+`push_config:test`. The private key, `p256dh`/`auth` and full endpoints never
+appear in the response.
+
+It is a bounded synchronous request, not a queue job: it touches only the
+caller's own handful of devices, sends in parallel under a 10 s per-send
+timeout, and the admin needs the result inline. Nothing outlives the request.
+
+**Service worker.** A payload with `test: true` is always shown, even with a
+focused tab, and every window client gets a `push-test-received` message so
+the page can confirm end-to-end delivery. Clicking it navigates without
+marking a notification read.
+
+**UI.** The **Test & diagnostics** section on `/admin/settings/push`
+(`PushTestPanel.tsx`, `services/pushDiagnostics.ts`): permission check and
+request, browser checklist, stepwise test with a step log and device receipt
+(waits 20 s for the ack), local notification test, and copy diagnostics.
+
 ### 2.8 Client subscription flow
 
 `apps/web/src/services/pushSubscription.ts` is the one module every caller
@@ -512,6 +543,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 | `POST /api/admin/push-config/generate` | First key pair | `push:write` |
 | `POST /api/admin/push-config/rotate` | Replace key pair (`ROTATE`) | `push:write` |
 | `DELETE /api/admin/push-config` | Remove credential and row (`REMOVE`) | `push:write` |
+| `POST /api/admin/push-config/test` | Test push to the caller's own devices, with diagnostics | `push:write` |
 
 ## 4. Extending it in a fork
 

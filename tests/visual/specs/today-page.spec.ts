@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { harnessUrl, waitForInter } from '../support/harness';
 import { GYM_EQUIPMENT_COUNT, GYM_NAME, mockGymsApi } from '../support/gyms';
 import { mockHealthApi } from '../support/health';
+import { mockWorkoutsApi } from '../support/workouts';
 
 /**
  * The Today page: the app's landing screen and its four cards.
@@ -28,6 +29,10 @@ import { mockHealthApi } from '../support/health';
  * answers `GET /api/gyms` with one gym ("Home Gym", four pieces of equipment),
  * and the harness grants `gyms:read`, so the card never lands on a loading,
  * error or "unavailable" state.
+ * The Today's workout card shows the training summary since E4.6:
+ * `support/workouts.ts` answers `GET /api/workouts/summary` with a last workout
+ * ("Push day", yesterday, at the same gym, three top lifts) and two workouts
+ * this week, and the harness grants `workouts:read` / `workouts:write`.
  */
 
 test.use({ timezoneId: 'UTC', locale: 'en-US' });
@@ -40,6 +45,7 @@ async function openToday(page: Page, options: { theme?: 'light' | 'dark' } = {})
   await page.clock.setFixedTime(FIXED_NOW);
   await mockHealthApi(page, 'data');
   await mockGymsApi(page);
+  await mockWorkoutsApi(page);
   await page.goto(harnessUrl({ route: '/', ...options }));
   await waitForInter(page);
 
@@ -54,6 +60,9 @@ async function openToday(page: Page, options: { theme?: 'light' | 'dark' } = {})
   const gym = main.getByRole('region', { name: 'Your gym' });
   await expect(gym.getByText(GYM_NAME)).toBeVisible();
   await expect(gym.getByText(`${GYM_EQUIPMENT_COUNT} pieces of equipment`)).toBeVisible();
+  const workout = main.getByRole('region', { name: "Today's workout" });
+  await expect(workout.getByText('Push day')).toBeVisible();
+  await expect(workout.getByText('This week: 2 workouts')).toBeVisible();
 }
 
 test.describe('Today page', () => {
