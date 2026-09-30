@@ -15,6 +15,28 @@
 # then refresh the catalog at /admin/settings/ai/models and enable fake-vision
 # with the responses, structured_output and vision_input capabilities.
 #
+# A second, separate server (tests/e2e/support/fake-responses-server.mjs) speaks
+# the OpenAI Responses API for the agentic training plan flow: hosted
+# web_search, structured outputs and reasoning usage, replaying the scenario
+# fixtures in apps/api/test/fixtures/training/scenarios (the same files the Jest
+# scenario suites replay). Point the `openai` provider slot at it at runtime:
+# base URL http://fake-ai-responses:4011/v1, any key of 8 or more characters;
+# refresh the catalog (fake-frontier, fake-fast), classify both with the
+# responses, reasoning, structured_output and hosted_tools capabilities and
+# reasoning efforts low, medium and high, enable them, and switch Web search on.
+# `npm test` in tests/e2e does all of that itself (training-plans.spec.ts).
+#
+# Host port 4011:
+#   curl -X POST localhost:4011/__control/scenario -d '{"name":"critic-reject-once"}'
+#   curl localhost:4011/__control/scenarios    # every scenario and its description
+#   curl localhost:4011/__control/requests     # per request: agent, model, effort, tool types,
+#                                              # input size, canary hits; never keys, prompts or bodies
+#   curl -X POST localhost:4011/__control/reset
+# The CANARY_TOKENS variable below (values the e2e setup plants in a user's bio,
+# check-in notes and display name) belongs to this fake container only: strings
+# whose occurrences in any request body are counted, so a test can prove data
+# minimisation from outside the API. The application has no such variable.
+#
 # Host port 4010:
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"leg-curl-placard"}'
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"workout-notebook"}'
@@ -33,5 +55,19 @@ services:
       FIXTURE_DIR: /fixtures
     ports:
       - "4010:4010"
+    networks:
+      - app-network
+
+  fake-ai-responses:
+    image: node:24-alpine
+    command: node /support/fake-responses-server.mjs
+    volumes:
+      - ../../tests/e2e/support:/support:ro
+      - ../../apps/api/test/fixtures/training:/training:ro
+    environment:
+      SCENARIO_DIR: /training/scenarios
+      CANARY_TOKENS: E2E-CANARY-BIO-7f3a,E2E-CANARY-NOTE-9c1d,E2E-CANARY-NAME-4b2e
+    ports:
+      - "4011:4011"
     networks:
       - app-network
