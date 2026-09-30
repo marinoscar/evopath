@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import {
   GEOLOCATION_ERROR_MESSAGE,
   GEOLOCATION_OPTIONS,
@@ -48,7 +48,32 @@ function positionError(code: number): GeolocationPositionError {
   return { code, message: 'x', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError;
 }
 
+const originalPermissions = Object.getOwnPropertyDescriptor(navigator, 'permissions');
+
+/** A controllable PermissionStatus: `set(state)` mutates it and fires `change`. */
+function installPermissions(initial: string) {
+  const listeners = new Set<() => void>();
+  const status = {
+    state: initial,
+    addEventListener: vi.fn((_type: string, fn: () => void) => listeners.add(fn)),
+    removeEventListener: vi.fn((_type: string, fn: () => void) => listeners.delete(fn)),
+  };
+  const query = vi.fn(() => Promise.resolve(status));
+  Object.defineProperty(navigator, 'permissions', { configurable: true, value: { query } });
+  return {
+    query,
+    status,
+    listeners,
+    set(state: string) {
+      status.state = state;
+      [...listeners].forEach((fn) => fn());
+    },
+  };
+}
+
 afterEach(() => {
+  if (originalPermissions) Object.defineProperty(navigator, 'permissions', originalPermissions);
+  else delete (navigator as unknown as Record<string, unknown>).permissions;
   if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext);
   else delete (window as unknown as Record<string, unknown>).isSecureContext;
   if (originalGeolocation) Object.defineProperty(navigator, 'geolocation', originalGeolocation);
@@ -180,5 +205,133 @@ describe('useGeolocationOnce', () => {
       await result.current.request().catch(() => undefined);
     });
     expect(geo.getCurrentPosition).not.toHaveBeenCalled();
+  });
+});
+
+describe('useGeolocationOnce permission (issue #121)', () => {
+  it.each(['granted', 'prompt', 'denied'] as const)('reports %s from the Permissions API', async (state) => {
+    setSecureContext(true);
+    installGeolocation(() => undefined);
+    const perms = installPermissions(state);
+    const { result } = renderHook(() => useGeolocationOnce());
+    expect(result.current.permission).toBe('unknown');
+    await waitFor(() => expect(result.current.permission).toBe(state));
+    expect(perms.query).toHaveBeenCalledWith({ name: 'geolocation' });
+  });
+
+  it('is unknown without the Permissions API', () => {
+    setSecureContext(true);
+    installGeolocation(() => undefined);
+    Object.defineProperty(navigator, 'permissions', { configurable: true, value: undefined });
+    const { result } = renderHook(() => useGeolocationOnce());
+    expect(result.current.permission).toBe('unknown');
+  });
+
+  it('is unknown when the state is not a known value', async () => {
+    setSecureContext(true);
+    installGeolocation(() => undefined);
+    const perms = installPermissions('weird');
+    const { result } = renderHook(() => useGeolocationOnce());
+    await waitFor(() => expect(perms.status.addEventListener).toHaveBeenCalled());
+    expect(result.current.permission).toBe('unknown');
+  });
+
+  it('stays unknown when query rejects', async () => {
+    setSecureContext(true);
+    installGeolocation(() => undefined);
+    const query = vi.fn(() => Promise.reject(new TypeError('unsupported')));
+    Object.defineProperty(navigator, 'permissions', { configurable: true, value: { query } });
+    const { result } = renderHook(() => useGeolocationOnce());
+    await waitFor(() => expect(query).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.permission).toBe('unknown');
+  });
+
+  it('stays unknown when query throws synchronously', () => {
+    setSecureContext(true);
+    installGeolocation(() => undefined);
+    const query = vi.fn(() => {
+      throw new Error('boom');
+    });
+    Object.defineProperty(navigator, 'permissions', { configurable: true, value: { query } });
+    const { result } = renderHook(() => useGeolocationOnce());
+    expect(query).toHaveBeenCalled();
+    expect(result.current.permission).toBe('unknown');
+  });
+
+  it('follows change events', async () => {
+    setSecureContext(true);
+    installGeolocation(() => undefined);
+    const perms = installPermissions('prompt');
+    const { result } = renderHook(() => useGeolocationOnce());
+    await waitFor(() => expect(result.current.permission).toBe('prompt'));
+
+    act(() => perms.set('denied'));
+    expect(result.current.permission).toBe('denied');
+    act(() => perms.set('granted'));
+    expect(result.current.permission).toBe('granted');
+  });
+
+  it('clears a denied error back to idle when the block is lifted', async () => {
+    setSecureContext(true);
+    installGeolocation((_s, failure) => failure(positionError(1)));
+    const perms = installPermissions('denied');
+    const { result } = renderHook(() => useGeolocationOnce());
+    await waitFor(() => expect(result.current.permission).toBe('denied'));
+
+    await act(async () => {
+      await result.current.request().catch(() => undefined);
+    });
+    expect(result.current.state).toBe('error');
+    expect(result.current.error?.code).toBe('denied');
+
+    act(() => perms.set('prompt'));
+    expect(result.current.permission).toBe('prompt');
+    expect(result.current.error).toBeNull();
+    expect(result.current.state).toBe('idle');
+  });
+
+  it('keeps a non-denied error when the permission changes', async () => {
+    setSecureContext(true);
+    installGeolocation((_s, failure) => failure(positionError(3)));
+    const perms = installPermissions('prompt');
+    const { result } = renderHook(() => useGeolocationOnce());
+    await waitFor(() => expect(result.current.permission).toBe('prompt'));
+
+    await act(async () => {
+      await result.current.request().catch(() => undefined);
+    });
+    act(() => perms.set('granted'));
+    expect(result.current.error?.code).toBe('timeout');
+    expect(result.current.state).toBe('error');
+  });
+
+  it('keeps a denied error while the permission stays denied', async () => {
+    setSecureContext(true);
+    installGeolocation((_s, failure) => failure(positionError(1)));
+    const perms = installPermissions('denied');
+    const { result } = renderHook(() => useGeolocationOnce());
+    await waitFor(() => expect(result.current.permission).toBe('denied'));
+    await act(async () => {
+      await result.current.request().catch(() => undefined);
+    });
+    act(() => perms.set('denied'));
+    expect(result.current.error?.code).toBe('denied');
+  });
+
+  it('removes the change listener on unmount and never watches', async () => {
+    setSecureContext(true);
+    const geo = installGeolocation(() => undefined);
+    const perms = installPermissions('prompt');
+    const { result, unmount } = renderHook(() => useGeolocationOnce());
+    await waitFor(() => expect(result.current.permission).toBe('prompt'));
+    expect(perms.listeners.size).toBe(1);
+
+    unmount();
+    expect(perms.status.removeEventListener).toHaveBeenCalledTimes(1);
+    expect(perms.listeners.size).toBe(0);
+    expect(geo.watchPosition).not.toHaveBeenCalled();
   });
 });
