@@ -1,0 +1,31 @@
+{
+  "assessment": {
+    "status": "stalled",
+    "summary": "The Romanian deadlift has not progressed and the hinge volume is high.",
+    "observations": []
+  },
+  "decision": "adjust",
+  "changes": [
+    {
+      "op": "swap_exercise",
+      "target": {
+        "exerciseRef": "W5-1-4",
+        "weeks": {
+          "from": 5,
+          "to": 6
+        }
+      },
+      "withExerciseKey": "glute_bridge",
+      "reason": "Swap the hinge for a gentler option while progress is stalled."
+    }
+  ],
+  "userMessage": "The Romanian deadlift is swapped for glute bridges for two weeks.",
+  "followUp": {
+    "suggestReview": false,
+    "note": null
+  },
+  "confidence": "moderate",
+  "evidenceRefs": [
+    "E2"
+  ]
+}

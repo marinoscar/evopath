@@ -1,0 +1,16 @@
+{
+  "assessment": {
+    "status": "on_track",
+    "summary": "Sessions are being completed at the planned effort.",
+    "observations": []
+  },
+  "decision": "no_change",
+  "changes": [],
+  "userMessage": "Your plan stays as it is. Keep going.",
+  "followUp": {
+    "suggestReview": false,
+    "note": null
+  },
+  "confidence": "moderate",
+  "evidenceRefs": []
+}

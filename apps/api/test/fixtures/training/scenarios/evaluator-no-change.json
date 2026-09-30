@@ -1,0 +1,24 @@
+{
+  "name": "evaluator-no-change",
+  "description": "The evaluator finds the plan on track and proposes nothing.",
+  "calls": {
+    "researcher": [],
+    "planner": [],
+    "critic": [],
+    "evaluator": [
+      {
+        "outputJson": "evaluator/no-change.json",
+        "usage": {
+          "inputTokens": 5000,
+          "outputTokens": 600,
+          "reasoningTokens": 300
+        }
+      }
+    ]
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

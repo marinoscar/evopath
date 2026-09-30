@@ -1,0 +1,33 @@
+{
+  "name": "evaluator-structural",
+  "description": "One exercise swap, so the light critic reviews the change set before it is applied.",
+  "calls": {
+    "researcher": [],
+    "planner": [],
+    "critic": [
+      {
+        "outputJson": "critic/adapt-approve.json",
+        "usage": {
+          "inputTokens": 3000,
+          "outputTokens": 300,
+          "reasoningTokens": 100
+        }
+      }
+    ],
+    "evaluator": [
+      {
+        "outputJson": "evaluator/structural.json",
+        "usage": {
+          "inputTokens": 5000,
+          "outputTokens": 600,
+          "reasoningTokens": 300
+        }
+      }
+    ]
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

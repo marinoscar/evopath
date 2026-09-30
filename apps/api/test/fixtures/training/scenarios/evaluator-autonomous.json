@@ -1,0 +1,24 @@
+{
+  "name": "evaluator-autonomous",
+  "description": "A small load nudge and one extra set, inside the envelope: applied without a question.",
+  "calls": {
+    "researcher": [],
+    "planner": [],
+    "critic": [],
+    "evaluator": [
+      {
+        "outputJson": "evaluator/autonomous.json",
+        "usage": {
+          "inputTokens": 5000,
+          "outputTokens": 600,
+          "reasoningTokens": 300
+        }
+      }
+    ]
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

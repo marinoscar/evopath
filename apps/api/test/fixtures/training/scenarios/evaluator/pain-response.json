@@ -1,0 +1,47 @@
+{
+  "assessment": {
+    "status": "needs_recovery",
+    "summary": "Pain was flagged on the bench press in two sessions in a row.",
+    "observations": []
+  },
+  "decision": "adjust",
+  "changes": [
+    {
+      "op": "swap_exercise",
+      "target": {
+        "exerciseRef": "W5-1-2",
+        "weeks": {
+          "from": 5,
+          "to": 6
+        }
+      },
+      "withExerciseKey": "push_up",
+      "reason": "Use a bodyweight push while the pain settles."
+    },
+    {
+      "op": "set_prescription",
+      "target": {
+        "exerciseRef": "W5-1-3",
+        "weeks": {
+          "from": 5,
+          "to": 6
+        }
+      },
+      "sets": 4,
+      "repMin": null,
+      "repMax": null,
+      "targetRpe": null,
+      "restSeconds": null,
+      "targetLoadKg": 30,
+      "loadGuidance": null,
+      "reason": "Push the row harder to make up for it."
+    }
+  ],
+  "userMessage": "The bench press is out of your upcoming sessions for now and the plan holds its load. Please have the pain looked at.",
+  "followUp": {
+    "suggestReview": true,
+    "note": "See a qualified professional, such as a physiotherapist, if the pain returns."
+  },
+  "confidence": "moderate",
+  "evidenceRefs": []
+}

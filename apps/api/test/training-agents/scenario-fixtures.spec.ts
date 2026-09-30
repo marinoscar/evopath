@@ -1,5 +1,7 @@
 import { EXERCISE_CATALOG } from '../../prisma/seed-data';
 import { TRAINING_AGENT_ROLES } from '../../src/common/schemas/settings.schema';
+import { adaptationVerdictSchema } from '../../src/training-agents/agents/critic/critic-adaptation.prompt';
+import { evaluationResultSchema } from '../../src/training-agents/agents/evaluator/evaluation-result.contract';
 import { criticVerdictSchema } from '../../src/training-agents/agents/critic/critic-verdict.contract';
 import { planDraftSchema } from '../../src/training-agents/agents/planner/plan-draft.contract';
 import { evidenceBriefSchema } from '../../src/training-agents/agents/researcher/evidence-brief.contract';
@@ -11,7 +13,7 @@ import { loadScenario, readOutputJson, scenarioNames, scriptFromScenario, type S
 // contract or seed change fails here in CI, not in the browser.
 
 const SEEDED = new Set(EXERCISE_CATALOG.map((e) => e.slug));
-const HOSTILE_ALLOWED_UNKNOWN = new Set(['planner/hostile-8w.json']);
+const HOSTILE_ALLOWED_UNKNOWN = new Set(['planner/hostile-8w.json', 'evaluator/hostile.json']);
 
 function exerciseKeys(draft: { blocks: Array<{ weekTypes: Array<{ workouts: Array<{ exercises: Array<{ exerciseKey: string }> }> }> }> }): string[] {
   return draft.blocks.flatMap((b) => b.weekTypes.flatMap((t) => t.workouts.flatMap((w) => w.exercises.map((e) => e.exerciseKey))));
@@ -38,6 +40,19 @@ describe('training scenario fixtures', () => {
     );
   });
 
+  it('ships the evaluate-flow scenarios', () => {
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'evaluator-no-change',
+        'evaluator-autonomous',
+        'evaluator-structural',
+        'evaluator-hostile',
+        'evaluator-pain-response',
+        'evaluator-regenerate',
+      ]),
+    );
+  });
+
   it.each(names)('%s: name matches the file and every role is declared', (name) => {
     const scenario = loadScenario(name);
     expect(scenario.name).toBe(name);
@@ -59,7 +74,15 @@ describe('training scenario fixtures', () => {
       const draft = planDraftSchema.parse(json);
       if (!HOSTILE_ALLOWED_UNKNOWN.has(file)) expect(exerciseKeys(draft).filter((key) => !SEEDED.has(key))).toEqual([]);
     } else if (role === 'critic') {
-      criticVerdictSchema.parse(json);
+      // The evaluate graph's light critic answers with the adaptation verdict.
+      if (file.startsWith('critic/adapt-')) adaptationVerdictSchema.parse(json);
+      else criticVerdictSchema.parse(json);
+    } else if (role === 'evaluator') {
+      const result = evaluationResultSchema.parse(json);
+      const named = result.changes.flatMap((op) =>
+        op.op === 'swap_exercise' ? [op.withExerciseKey] : op.op === 'add_exercise' ? [op.exerciseKey] : [],
+      );
+      if (!HOSTILE_ALLOWED_UNKNOWN.has(file)) expect(named.filter((key) => !SEEDED.has(key))).toEqual([]);
     } else if (role === 'researcher') {
       evidenceBriefSchema.parse(json.brief ?? json);
     } else {
@@ -70,6 +93,27 @@ describe('training scenario fixtures', () => {
   it('the hostile planner output really names unseeded exercises (the fixture stays hostile)', () => {
     const spec = loadScenario('planner-hostile').calls.planner[0];
     expect(exerciseKeys(planDraftSchema.parse(readOutputJson(spec))).some((key) => !SEEDED.has(key))).toBe(true);
+  });
+
+  it('the hostile evaluator output really names an unseeded exercise and an unknown ref (the fixture stays hostile)', () => {
+    const spec = loadScenario('evaluator-hostile').calls.evaluator[0];
+    const result = evaluationResultSchema.parse(readOutputJson(spec));
+    expect(result.changes.some((op) => op.op === 'swap_exercise' && !SEEDED.has(op.withExerciseKey))).toBe(true);
+    expect(result.changes.some((op) => op.op === 'set_prescription' && op.target.exerciseRef === 'W52-9-9')).toBe(true);
+  });
+
+  it('every evaluator change targets the refs of the scenario plan (weeks 5 to 7 are open non-deload weeks of planner/valid-8w.json)', () => {
+    for (const name of names.filter((n) => n.startsWith('evaluator-'))) {
+      for (const call of loadScenario(name).calls.evaluator) {
+        const result = evaluationResultSchema.parse(readOutputJson(call));
+        for (const op of result.changes) {
+          if (op.op === 'regenerate_remaining') continue;
+          const ref = 'target' in op ? op.target.exerciseRef : 'workoutRef' in op ? op.workoutRef : '';
+          if (name === 'evaluator-hostile') continue;
+          expect(ref).toMatch(/^W[567]-[1-3](-[1-5])?$/);
+        }
+      }
+    }
   });
 
   describe('scriptFromScenario', () => {
@@ -106,6 +150,14 @@ describe('training scenario fixtures', () => {
       await expect(Promise.resolve().then(() => script(request('planner'), ctx))).rejects.toMatchObject({ code: 'AI_RATE_LIMITED', retryAfterMs: 2000 });
       const retry = await script(request('planner'), ctx);
       expect(JSON.parse(retry.outputText ?? '{}').title).toBe('Eight-week dumbbell base');
+    });
+
+    it('answers the evaluator by call index and a light critic with the adaptation verdict', async () => {
+      const script = scriptFromScenario('evaluator-structural');
+      const evaluation = await script(request('evaluator', { structuredOutput: { name: 'evaluation_result' } }), ctx);
+      expect(JSON.parse(evaluation.outputText ?? '{}').changes[0].op).toBe('swap_exercise');
+      const verdict = await script(request('critic', { structuredOutput: { name: 'adaptation_verdict' } }), ctx);
+      expect(JSON.parse(verdict.outputText ?? '{}')).toMatchObject({ verdict: 'approve', blockers: [] });
     });
 
     it('refuses a role the scenario does not script', () => {

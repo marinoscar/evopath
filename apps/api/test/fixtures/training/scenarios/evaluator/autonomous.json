@@ -1,0 +1,60 @@
+{
+  "assessment": {
+    "status": "ahead",
+    "summary": "Every set reached the top of the rep range at a moderate effort.",
+    "observations": [
+      {
+        "signal": "performance",
+        "text": "Bench press top sets reached 12 reps at RPE 7 twice."
+      }
+    ]
+  },
+  "decision": "adjust",
+  "changes": [
+    {
+      "op": "set_prescription",
+      "target": {
+        "exerciseRef": "W5-1-2",
+        "weeks": {
+          "from": 5,
+          "to": 6
+        }
+      },
+      "sets": null,
+      "repMin": null,
+      "repMax": null,
+      "targetRpe": null,
+      "restSeconds": null,
+      "targetLoadKg": 17.5,
+      "loadGuidance": null,
+      "reason": "Every set of the bench press reached the top of the range at RPE 7."
+    },
+    {
+      "op": "set_prescription",
+      "target": {
+        "exerciseRef": "W5-1-3",
+        "weeks": {
+          "from": 5,
+          "to": 6
+        }
+      },
+      "sets": 4,
+      "repMin": null,
+      "repMax": null,
+      "targetRpe": null,
+      "restSeconds": null,
+      "targetLoadKg": null,
+      "loadGuidance": null,
+      "reason": "The row was completed easily; one more set fits."
+    }
+  ],
+  "userMessage": "Your bench press goes up one small step and the row gets one extra set in the coming weeks.",
+  "followUp": {
+    "suggestReview": false,
+    "note": null
+  },
+  "confidence": "high",
+  "evidenceRefs": [
+    "E1"
+  ]
+}

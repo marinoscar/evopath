@@ -1,0 +1,24 @@
+{
+  "name": "evaluator-regenerate",
+  "description": "The evaluator asks to rebuild the remaining weeks; escalation is never automatic, so the change is dropped.",
+  "calls": {
+    "researcher": [],
+    "planner": [],
+    "critic": [],
+    "evaluator": [
+      {
+        "outputJson": "evaluator/regenerate.json",
+        "usage": {
+          "inputTokens": 5000,
+          "outputTokens": 600,
+          "reasoningTokens": 300
+        }
+      }
+    ]
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}
