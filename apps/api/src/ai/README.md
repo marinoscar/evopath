@@ -222,10 +222,31 @@ over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
   expiresAt, connectUrl, … }`); off unless `ai.defaults.allowRealtime`
   (`AI_REALTIME_DISABLED`); one usage row, `units: { sessions: 1 }` (§2.15).
 
-**Picking a model**: pass `req.model` (and `req.provider` when more than one
-is registered) to pin it, or leave both unset to fall back to the caller's
-own `user_settings.ai.defaultModel` — `AiService` resolves this the same way
-either path is called, so a feature never re-implements the fallback.
+**Picking a model**: a feature never picks a model itself, and users never
+choose one: all model selection is the administrator's (`ai.assignments`).
+
+- **A user-facing AI feature registers a feature id.** Append it to
+  `AI_FEATURE_IDS` in `common/schemas/settings.schema.ts` and add its row to
+  `AI_FEATURES` in `ai/assignments/ai-features.ts` (a `Record` keyed by the
+  ids, so a missing row is a type error): the capabilities and input
+  modalities it needs, any provider restriction and, for an agent, a default
+  effort. An id is permanent once stored.
+- **Resolve through `AiFeatureModelResolver`** (`ai/assignments/`):
+  `resolve(userId, featureId)` returns the administrator's feature assignment,
+  else the administrator's default, else an automatic pick, each only when
+  usable for that user and capable for the feature, else a blocking state.
+  Pass the resolved `provider` and `modelId` in the request. Refuse to start
+  when `state` is not `ready` or `auto`; the state's `fix` says whether a key
+  or an administrator repairs it.
+- Do not add a per-user model setting. `ai.defaultModel` and `ai.taskModels.*`
+  are retired and refused on write.
+- **Generic calls**: pass `req.model` (and `req.provider` when more than one is
+  registered) to pin one (the Playground does), or leave both unset for the
+  administrator's default model when the caller can use it, else an automatic
+  pick among the caller's usable `responses` models. `AiService` resolves this
+  the same way on every path.
+
+The design is [ai-platform.md §2.18a](../../../../docs/specs/ai-platform.md#218a-feature-model-resolution).
 
 **Handling `AiError`**: every failure this platform can produce is an
 `AiError` with a stable `.code` (never a raw provider SDK error) — catch it
@@ -246,6 +267,8 @@ The recipe is [the intake README](../intake/README.md); `ai.equipment.scan`
 [the gyms and equipment spec](../../../../docs/specs/gyms-and-equipment.md#27-the-scan-job);
 `ai.workout.prefill` ("Prefill from photo") is the second, described in
 [the workouts spec](../../../../docs/specs/workouts.md#210-the-prefill-job).
+The kind names the feature whose administrator-assigned model it uses with
+`aiFeature`; the intake module resolves that model, not the client.
 
 ## The request lifecycle: the gate pipeline
 
@@ -530,7 +553,9 @@ key: it calls a model only through `AgentCaller` (`ctx.agent`), which calls
    `TRAINING_ROLE_DEFAULT_EFFORT`, and the `TRAINING_KIND_ROLES` and
    `TRAINING_KIND_OPTIONAL_ROLES` entries of the run kinds that use it). The
    tables are keyed by the role list, so a missing row is a type error. The
-   resolver, `GET /api/ai/training/models`, the frozen `roleModels` and the
+   role's feature id is `training.<role>`; add it to `AI_FEATURE_IDS` (a
+   compile-time check keeps the two lists in step), and administrators then
+   assign it a model like any other feature. The resolver, `GET /api/ai/training/models`, the frozen `roleModels` and the
    settings schema pick the role up from there.
 2. **A strict-mode contract.** A Zod schema in `agents/<role>/` whose every
    property is required, with `nullable()` instead of `optional()` and closed
