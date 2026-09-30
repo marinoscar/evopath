@@ -9,7 +9,7 @@
  *
  * `programs:read` reaches it; nothing here needs AI.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
@@ -26,9 +26,10 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { ArrowBack as BackIcon, History as HistoryIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon, Edit as EditIcon, History as HistoryIcon } from '@mui/icons-material';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePlan } from '../../hooks/usePlan';
+import { useTrainingAvailability } from '../../hooks/useTrainingAvailability';
 import { useWeightUnit } from '../../hooks/useWeightUnit';
 import { listExercises } from '../../services/exercises';
 import { PROGRAM_REFUSALS, programRefusalOf, type Program } from '../../services/programs';
@@ -40,6 +41,8 @@ import { PlanViewer, weekOptions } from '../../components/training/PlanViewer';
 import { SOURCE_KIND_LABEL } from '../../components/training/SourceList';
 import { GOAL_LABEL, ORIGIN_LABEL, STATUS_COLOR, STATUS_LABEL } from '../../components/training/planLabels';
 import { parseEvidence } from '../../components/training/planEvidence';
+import { PlanEditor } from '../../components/training/PlanEditor';
+import { ReviseWithAi } from '../../components/training/ReviseWithAi';
 
 export const HAS_HISTORY_MESSAGE = 'Workouts were logged from this plan, so it cannot be deleted. Archive it instead.';
 
@@ -76,6 +79,23 @@ export default function PlanViewerPage() {
   const [dialog, setDialog] = useState<'activate' | 'archive' | 'delete' | null>(null);
   const [notice, setNotice] = useState<string | null>((location.state as { notice?: string } | null)?.notice ?? null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<boolean>(!!(location.state as { edit?: boolean } | null)?.edit);
+  const [dirty, setDirty] = useState(false);
+  const [leaveTo, setLeaveTo] = useState<string | null>(null);
+  const aiAvailability = useTrainingAvailability();
+
+  // The dirty-state guard: a reload or closing the tab asks first. In-app
+  // link on this page (Plans) asks through the discard dialog.
+  useEffect(() => {
+    if (!editing || !dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty, editing]);
+
 
   const evidence = useMemo(() => parseEvidence(program?.version.evidence), [program?.version.evidence]);
   const weeks = useMemo(() => (program ? weekOptions(program.tree) : []), [program]);
@@ -108,7 +128,19 @@ export default function PlanViewerPage() {
   }, [gymId, hasPermission]);
 
   const back = (
-    <Button component={RouterLink} to="/train/plans" startIcon={<BackIcon />} size="small" sx={{ mb: 1 }}>
+    <Button
+      component={RouterLink}
+      to="/train/plans"
+      onClick={(e: MouseEvent) => {
+        if (editing && dirty) {
+          e.preventDefault();
+          setLeaveTo('/train/plans');
+        }
+      }}
+      startIcon={<BackIcon />}
+      size="small"
+      sx={{ mb: 1 }}
+    >
       Plans
     </Button>
   );
@@ -208,110 +240,163 @@ export default function PlanViewerPage() {
           </Alert>
         )}
 
-        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 3 }}>
-          {canWrite && canActivate && (
+        {!editing && (
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 3 }}>
+            {canWrite && (
+              <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditing(true)} sx={{ minHeight: 44 }}>
+                Edit
+              </Button>
+            )}
+            {canWrite && canActivate && (
+              <Button
+                variant="contained"
+                onClick={() => setDialog('activate')}
+                disabled={scheduled.length === 0}
+                aria-describedby={scheduled.length === 0 ? 'activate-reason' : undefined}
+                sx={{ minHeight: 44 }}
+              >
+                Activate
+              </Button>
+            )}
+            {canWrite && program.status === 'active' && (
+              <Button variant="outlined" onClick={() => void run(plan.pause, 'Plan paused.')} sx={{ minHeight: 44 }}>
+                Pause
+              </Button>
+            )}
+            {canWrite && program.status !== 'archived' && (
+              <Button variant="outlined" onClick={() => setDialog('archive')} sx={{ minHeight: 44 }}>
+                Archive
+              </Button>
+            )}
+            {canWrite && (
+              <Button
+                variant="outlined"
+                onClick={() =>
+                  void run(async () => {
+                    const copy = await plan.duplicate();
+                    navigate(`/train/plans/${encodeURIComponent(copy.id)}`, { state: { notice: 'A copy of the plan was made.' } });
+                  })
+                }
+                sx={{ minHeight: 44 }}
+              >
+                Duplicate
+              </Button>
+            )}
+            {canWrite && (
+              <Button variant="outlined" color="error" onClick={() => setDialog('delete')} sx={{ minHeight: 44 }}>
+                Delete
+              </Button>
+            )}
             <Button
-              variant="contained"
-              onClick={() => setDialog('activate')}
-              disabled={scheduled.length === 0}
-              aria-describedby={scheduled.length === 0 ? 'activate-reason' : undefined}
+              component={RouterLink}
+              to={`/train/plans/${encodeURIComponent(program.id)}/history`}
+              startIcon={<HistoryIcon />}
               sx={{ minHeight: 44 }}
             >
-              Activate
+              History
             </Button>
-          )}
-          {canWrite && program.status === 'active' && (
-            <Button variant="outlined" onClick={() => void run(plan.pause, 'Plan paused.')} sx={{ minHeight: 44 }}>
-              Pause
-            </Button>
-          )}
-          {canWrite && program.status !== 'archived' && (
-            <Button variant="outlined" onClick={() => setDialog('archive')} sx={{ minHeight: 44 }}>
-              Archive
-            </Button>
-          )}
-          {canWrite && (
-            <Button
-              variant="outlined"
-              onClick={() =>
-                void run(async () => {
-                  const copy = await plan.duplicate();
-                  navigate(`/train/plans/${encodeURIComponent(copy.id)}`, { state: { notice: 'A copy of the plan was made.' } });
-                })
-              }
-              sx={{ minHeight: 44 }}
-            >
-              Duplicate
-            </Button>
-          )}
-          {canWrite && (
-            <Button variant="outlined" color="error" onClick={() => setDialog('delete')} sx={{ minHeight: 44 }}>
-              Delete
-            </Button>
-          )}
-          <Button
-            component={RouterLink}
-            to={`/train/plans/${encodeURIComponent(program.id)}/history`}
-            startIcon={<HistoryIcon />}
-            sx={{ minHeight: 44 }}
-          >
-            History
-          </Button>
-        </Stack>
-        {canWrite && canActivate && scheduled.length === 0 && (
+          </Stack>
+        )}
+        {!editing && canWrite && canActivate && scheduled.length === 0 && (
           <Typography id="activate-reason" variant="body2" color="text.secondary" sx={{ mt: -2, mb: 3 }}>
             Schedule at least one week 1 workout on a weekday before activating.
           </Typography>
         )}
 
-        <Stack spacing={2}>
-          {(program.rationale || hasMadeMeta(program.version.meta)) && (
-            <Section id="why-heading" title="Why this plan">
-              {program.rationale && <Typography sx={{ overflowWrap: 'anywhere' }}>{program.rationale}</Typography>}
-              {hasMadeMeta(program.version.meta) && (
-                <Box sx={{ mt: program.rationale ? 2 : 0 }}>
-                  <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600 }}>
-                    How it was made
-                  </Typography>
-                  <HowItWasMade meta={program.version.meta} />
-                </Box>
-              )}
-            </Section>
-          )}
-
-          {sources.length > 0 && (
-            <Section id="evidence-heading" title="Evidence">
-              <List dense disablePadding aria-label="Sources">
-                {sources.map((source) => (
-                  <ListItem key={source.id} disableGutters sx={{ display: 'block', py: 0.5 }} data-testid="evidence-source">
-                    <Link href={source.url} target="_blank" rel="noopener noreferrer" sx={{ overflowWrap: 'anywhere' }}>
-                      {source.title || source.domain}
-                    </Link>
-                    <Typography variant="body2" color="text.secondary">
-                      {source.domain}
-                      {source.kind ? ` · ${SOURCE_KIND_LABEL[source.kind] ?? source.kind}` : ''}
-                      {source.year ? ` · ${source.year}` : ''}
+        {editing ? (
+          <PlanEditor
+            key={program.id}
+            program={program}
+            unit={unit}
+            canCreateExercise={hasPermission('exercises:write')}
+            saveStructure={plan.saveStructure}
+            updateName={(name) => plan.updateHeader({ name })}
+            reload={plan.refresh}
+            onDirtyChange={setDirty}
+            onCancel={() => {
+              if (dirty) setLeaveTo('stay');
+              else setEditing(false);
+            }}
+            onSaved={(saved) => {
+              setDirty(false);
+              setEditing(false);
+              setNotice(`Saved as version ${saved.currentVersion} (edited by you).`);
+            }}
+          />
+        ) : (
+          <Stack spacing={2}>
+            {(program.rationale || hasMadeMeta(program.version.meta)) && (
+              <Section id="why-heading" title="Why this plan">
+                {program.rationale && <Typography sx={{ overflowWrap: 'anywhere' }}>{program.rationale}</Typography>}
+                {hasMadeMeta(program.version.meta) && (
+                  <Box sx={{ mt: program.rationale ? 2 : 0 }}>
+                    <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 600 }}>
+                      How it was made
                     </Typography>
-                  </ListItem>
-                ))}
-              </List>
-            </Section>
-          )}
+                    <HowItWasMade meta={program.version.meta} />
+                  </Box>
+                )}
+              </Section>
+            )}
 
-          <Section id="weeks-heading" title="Weeks">
-            <PlanViewer
-              tree={program.tree}
-              weekNumber={weekNumber}
-              onWeekChange={setWeekNumber}
-              unit={unit}
-              evidence={evidence}
-              availability={availability}
-              gymName={program.gym?.name ?? null}
-            />
-          </Section>
-        </Stack>
+            {sources.length > 0 && (
+              <Section id="evidence-heading" title="Evidence">
+                <List dense disablePadding aria-label="Sources">
+                  {sources.map((source) => (
+                    <ListItem key={source.id} disableGutters sx={{ display: 'block', py: 0.5 }} data-testid="evidence-source">
+                      <Link href={source.url} target="_blank" rel="noopener noreferrer" sx={{ overflowWrap: 'anywhere' }}>
+                        {source.title || source.domain}
+                      </Link>
+                      <Typography variant="body2" color="text.secondary">
+                        {source.domain}
+                        {source.kind ? ` · ${SOURCE_KIND_LABEL[source.kind] ?? source.kind}` : ''}
+                        {source.year ? ` · ${source.year}` : ''}
+                      </Typography>
+                    </ListItem>
+                  ))}
+                </List>
+              </Section>
+            )}
+
+            {aiAvailability.aiVisible && canWrite && program.status !== 'archived' && (
+              <Section id="revise-heading" title="Revise with AI">
+                <ReviseWithAi
+                  programId={program.id}
+                  currentVersion={program.currentVersion}
+                  blocker={aiAvailability.blocker('revise')}
+                />
+              </Section>
+            )}
+
+            <Section id="weeks-heading" title="Weeks">
+              <PlanViewer
+                tree={program.tree}
+                weekNumber={weekNumber}
+                onWeekChange={setWeekNumber}
+                unit={unit}
+                evidence={evidence}
+                availability={availability}
+                gymName={program.gym?.name ?? null}
+              />
+            </Section>
+          </Stack>
+        )}
       </Box>
 
+      <ConfirmDialog
+        open={leaveTo !== null}
+        title="Discard your edits?"
+        message="You have unsaved changes to this plan. Leaving discards them."
+        confirmLabel="Discard"
+        onClose={() => setLeaveTo(null)}
+        onConfirm={async () => {
+          const to = leaveTo;
+          setLeaveTo(null);
+          setDirty(false);
+          setEditing(false);
+          if (to && to !== 'stay') navigate(to);
+        }}
+      />
       <ActivatePlanDialog
         open={dialog === 'activate'}
         today={localDateIn(null)}
