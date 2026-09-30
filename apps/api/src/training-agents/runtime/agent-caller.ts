@@ -87,6 +87,8 @@ export interface AgentTextCall extends AgentCallBase {
 export interface AgentToolsCall extends AgentCallBase {
   tools: AiDefinedTool[];
   maxSteps: number;
+  /** Per-tool execution timeout (the runtime's default when omitted). */
+  toolTimeoutMs?: number;
   /** Observes each round-trip after it was charged. A throw aborts the loop. */
   onStep?: (step: AiToolStep) => void;
 }
@@ -229,6 +231,7 @@ export class AgentCaller {
             ...this.base(call, model, maxOutputTokens),
             tools: call.tools,
             maxSteps: call.maxSteps,
+            ...(call.toolTimeoutMs !== undefined ? { toolTimeoutMs: call.toolTimeoutMs } : {}),
             onStep: (step) => {
               const latencyMs = this.clock() - stepStarted;
               stepStarted = this.clock();

@@ -1,5 +1,12 @@
 import type { TaskReasoningEffort, TrainingAgentRole } from '../../common/schemas/settings.schema';
 import type { AiKeySource } from '../../ai/keys/ai-key-resolver.service';
+import type {
+  ApplyChangeInput,
+  ApplyChangeResult,
+  CreateWithTreeInput,
+  CreateWithTreeResult,
+} from '../../programs/programs.service';
+import type { PlannerContextPort } from '../context/planner-context.loader';
 import type { AgentCaller } from '../runtime/agent-caller';
 import type { ContextBudget } from '../runtime/context-budget';
 import type { RunBudget } from '../runtime/run-budget';
@@ -39,6 +46,47 @@ export interface NodeInterruptRequest {
   payload?: Record<string, unknown>;
 }
 
+/**
+ * The read (and later write) services a node may reach, bound per job by the
+ * handler. Each agent story adds the port its node needs; a node whose port
+ * is missing fails the run (a wiring error, not a user error).
+ */
+export interface NodePorts {
+  /** `prepare_context`: the context builder's reads (`context/planner-context.loader.ts`). */
+  plannerContext?: PlannerContextPort;
+  /** `finalize` writes through the programs chokepoint; `prepare_context` reads a revise run's stored brief. */
+  programs?: ProgramsPort;
+  /** `finalize` raises `training.plan_ready` after the write committed. */
+  notifications?: NotificationsPort;
+}
+
+/** A program version a run wrote. */
+export interface RunProgramVersion {
+  programId: string;
+  programName: string;
+  versionNumber: number;
+  changeLogId: string | null;
+}
+
+/**
+ * The programs chokepoint as the nodes see it (`runtime/training-programs.port.ts`
+ * binds it to `ProgramsService`). Writes go through `createWithTree` and
+ * `applyChange` only.
+ */
+export interface ProgramsPort {
+  createWithTree(input: CreateWithTreeInput): Promise<CreateWithTreeResult>;
+  applyChange(input: ApplyChangeInput): Promise<ApplyChangeResult>;
+  /** The version this run already wrote, if any: a resumed `finalize` never writes twice. */
+  findRunVersion(userId: string, runId: string): Promise<RunProgramVersion | null>;
+  /** Stored evidence of the caller's program's AI-made versions, newest first (at most a few), for brief reuse. */
+  recentAiEvidence(userId: string, programId: string): Promise<unknown[]>;
+}
+
+/** `NotificationsService.notify`: detached, never rejects. */
+export interface NotificationsPort {
+  notify(eventKey: string, userId: string, data: unknown): Promise<void> | void;
+}
+
 export interface NodeContext {
   runId: string;
   userId: string;
@@ -59,6 +107,8 @@ export interface NodeContext {
   budget: RunBudget;
   contextBudget: ContextBudget;
   now(): Date;
+  /** Services the nodes read through (see `NodePorts`). */
+  ports?: NodePorts;
   /**
    * Pauses the run until the owner decides, and returns the decision on
    * resume. Call it at most once per node, as the node's first side effect

@@ -47,7 +47,7 @@ export interface RunOutcome {
 
 /** The agent outputs, typed by the stories that own them. */
 export interface RunStateSeams {
-  /** The minimised per-role context (context builder). */
+  /** The minimised per-role context: a `TrainingRunContext` (`context/planner-context.contract.ts`), narrowed by `runContextOf`. */
   context: unknown | null;
   /** The researcher's verified evidence brief (`agents/researcher/evidence-brief.contract.ts`). */
   brief: VerifiedEvidenceBrief | null;

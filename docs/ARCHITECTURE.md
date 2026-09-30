@@ -249,6 +249,30 @@ The runtime kit (`training-agents/runtime/`, `graph/`, `nodes/`) executes one gr
 - **Checkpoints and resume.** `PrismaCheckpointSaver` writes node outputs after each node. Resume never re-runs a finished node: `POST .../resume` (from `interrupted`) and `POST .../decision` (from `awaiting_approval`) queue a new job for the same run. A lost job interrupts the run and is resumed automatically a bounded number of times.
 - **Cancel and retention.** `POST .../cancel` stops a running run within one poll interval. The daily `training.runs.purge` job deletes finished runs' events and checkpoints past retention.
 
+The `create` graph is live: `prepare_context` → `research` → `plan` → `guardrails` → `critique` → route → `finalize`. A `revise` run skips `research`. Routing is pure functions in `graph/routes.ts`.
+
+- **G0 safety screen.** `guardrails/safety-screen.ts` screens every free-text field of a request before any run row or job exists. An urgent-symptom phrase records the run `blocked_safety`, enqueues nothing, makes zero provider calls and shows fixed guidance. A pain, injury, recovery or pregnancy stem sets conservative mode, which caps RPE, sets per exercise and sets per session (`guardrails/limits.ts`).
+- **Context and "what will be sent".** `context/build-planner-context.ts` builds the minimised planner context from the intake, health profile, gym, exercise library and recent history. `context/never-send.ts` is the one list of data no agent receives (name, email, birth date, check-in and pain notes, medications, labs, photos, storage keys, other gyms, internal ids); a canary test enforces it. `POST /api/ai/training/estimate` returns `sentData` (the included sections and the excluded list) when the request carries an intake, or `basedOnVersion` plus `instruction` for a revision.
+- **Guardrails.** `applyGuardrails` (`guardrails/index.ts`) is pure, deterministic and idempotent, and repairs what it can. It runs in the order G1, G2, G6, G3, G4, G5, G7, G9, G8. Status is `clean`, `repaired` (repairs and warnings) or `blocked` (an unrepaired block).
+
+| Rule | Checks | Repair |
+|---|---|---|
+| G1 shape | Exercises exist in the library, unique weekdays, contiguous weeks, numbers in schema bounds | Drop unknown exercises and empty workouts, move duplicate weekdays, renumber; blocks on an empty week or a workout under 2 exercises |
+| G2 equipment | Every exercise fits the gym (none: bodyweight only) | Substitute along the pattern ladder, else drop |
+| G3 time | Workout duration within `minutesPerSession` x 1.05 | Trim ladder (rest, sets, accessories, priority lifts); warns when it cannot fit |
+| G4 volume, intensity | Level caps on sets, reps, RPE, rest, weekly sets | Clamp; move a workout to a preferred weekday |
+| G5 recovery | No hard-set overlap on consecutive days, a rest day, a deload at least every 6th week | Move the later workout, mark and transform the deload week, else warn |
+| G6 injury, pain | Avoided or pain-flagged exercises absent, conservative caps, higher-risk patterns per limitation | Substitute or remove, clamp; warns for the critic on risky patterns |
+| G7 progression | Bounded load rises per exposure, history-based limits, deload bounds | Lower the load |
+| G8 citations | Evidence refs exist in the verified brief, rationale text is clean, statistics appear in the brief | Remove refs and unverified URLs; flags unmatched statistics |
+| G9 loads | A model never invents a load; a first exposure follows recent history | Null or clamp the load, align `loadGuidance` |
+
+- **Planner and critic.** The planner drafts a plan the server compiles into a plan tree (`compile/compile-plan.ts`). The critic reviews the repaired tree with the server's report and returns a rubric verdict. The critic never decides shipping.
+- **Ship rule.** A draft ships when guardrails are not `blocked`, the verdict is `approve`, every score is at least 4 and there are no blockers. Otherwise the loop returns to `plan` while critique rounds remain (`maxCriticRounds`). When rounds run out, the draft ships with warnings if the guardrails did not block it, and the run is rejected if they did.
+- **Warning codes.** `critic_open_notes` (rounds exhausted with the critic still asking for changes), `critic_skipped_budget` (token budget spent after a valid draft existed) and `critic_unavailable` (no valid verdict): the checked draft ships unreviewed or with open notes.
+- **Finalize.** `nodes/finalize.node.ts` writes through the programs chokepoint. `create` calls `ProgramsService.createWithTree` (a `draft` program, `source: 'ai'`, version 1 with rationale, verified evidence and `meta`). `revise` calls `applyChange` with `expectedVersion` set to the run's base version. After the write commits it raises `training.plan_ready` and emits `plan.finalized`. Failures: `TRAINING_PLAN_REJECTED` (guardrails still block, nothing written) and `TRAINING_STALE_PLAN` (the plan changed during the run; no automatic merge).
+- **Revise brief reuse.** A `revise` run does not research. `prepare_context` reuses the plan's stored verified brief when its sources are under 30 days old and the goal and limitations are unchanged; otherwise the planner works without evidence.
+
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
 - **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`, `/settings/ai/agents`; admin-only Playground `/ai`
 - **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)

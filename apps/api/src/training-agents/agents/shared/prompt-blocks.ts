@@ -30,8 +30,8 @@ export function withSharedBlocks(roleText: string): string {
  * (or opening) tag inside the data is neutralised so the data cannot end the
  * block early and continue as instructions.
  */
-export function delimit(tag: 'context' | 'evidence', data: string): string {
-  const neutral = data.replace(/<\s*\/?\s*(context|evidence)\s*>/gi, (match) => match.replace(/</g, '‹').replace(/>/g, '›'));
+export function delimit(tag: 'context' | 'evidence' | 'review', data: string): string {
+  const neutral = data.replace(/<\s*\/?\s*(context|evidence|review)\s*>/gi, (match) => match.replace(/</g, '‹').replace(/>/g, '›'));
 
   return `<${tag}>\n${neutral}\n</${tag}>`;
 }

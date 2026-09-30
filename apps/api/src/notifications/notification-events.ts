@@ -395,6 +395,21 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     // debugging "where did today's data go?" from first principles.
     mandatory: true,
   },
+  // ===========================================================================
+  // Training plans
+  // ===========================================================================
+  //
+  // Raised by the training run's `finalize` node after the plan (or its new
+  // version) has committed, outside any transaction. A run takes minutes, so
+  // the person has usually left the page: an in-app row plus a push is the
+  // useful pair. No email template: the plan is only readable in the app.
+  {
+    key: 'training.plan_ready',
+    label: 'Training plan ready',
+    description: 'Sent when the planning agents finish a new plan or a revision you asked for, so you can review it.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
 ];
 
 /**

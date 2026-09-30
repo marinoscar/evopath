@@ -1,7 +1,15 @@
 import { CREATE_GRAPH_NODES, EVALUATE_GRAPH_NODES } from '../nodes';
 import { createNodeContextHarness } from '../testing/node-context-harness';
-import { STUB_AGENT_NODES } from '../testing/stub-agent-nodes';
-import { routeAfterCritique, routeAfterEnvelope, routeAfterPrepare } from './routes';
+import { STUB_AGENT_NODES, stubVerdict } from '../testing/stub-agent-nodes';
+import {
+  TRAINING_RUN_WARNINGS,
+  critiqueDecision,
+  routeAfterCritique,
+  routeAfterEnvelope,
+  routeAfterPlan,
+  routeAfterPrepare,
+  shipsNow,
+} from './routes';
 import { initialRunState } from './run-state';
 import { TRAINING_GRAPH_READY, graphForKind, isGraphReady } from './training-graphs';
 
@@ -9,17 +17,19 @@ const stages = (h: ReturnType<typeof createNodeContextHarness>) =>
   (h.events.events.get(h.runId) ?? []).filter((e) => e.type === 'stage.started').map((e) => e.data.node);
 
 describe('training graphs on stub nodes', () => {
-  it('only the implemented agent nodes are real, and every graph still answers not-implemented', () => {
+  it('every create node is implemented and the create graph is ready; evaluate is not yet', () => {
     const implemented = Object.values(CREATE_GRAPH_NODES)
       .filter((node) => node.implemented)
       .map((node) => node.name);
     expect(implemented).toEqual(Object.keys(STUB_AGENT_NODES));
     expect(Object.values(EVALUATE_GRAPH_NODES).every((node) => node.implemented === false)).toBe(true);
-    expect(TRAINING_GRAPH_READY).toEqual({ create: false, evaluate: false });
+    expect(TRAINING_GRAPH_READY).toEqual({ create: true, evaluate: false });
     expect(graphForKind('create')).toBe('create');
     expect(graphForKind('revise')).toBe('create');
     expect(graphForKind('evaluate')).toBe('evaluate');
-    expect(isGraphReady('create')).toBe(false);
+    expect(isGraphReady('create')).toBe(true);
+    expect(isGraphReady('revise')).toBe(true);
+    expect(isGraphReady('evaluate')).toBe(false);
   });
 
   it('create: runs every node once in order, the stub critic approves, and finalize records the outcome', async () => {
@@ -143,16 +153,37 @@ describe('routes', () => {
     expect(routeAfterPrepare({ kind: 'revise' })).toBe('plan');
   });
 
+  const clean = { report: { status: 'clean' } };
+  const blocked = { report: { status: 'blocked' } };
+  const approve = (round: number) => ({ ...stubVerdict('approve'), round });
+  const revise = (round: number) => ({ ...stubVerdict('revise'), round });
+
   it.each([
-    [[{ approve: true }], 1, 'finalize'],
-    [[{ approve: false }], 1, 'plan'],
-    [[{ approve: false }, { approve: false }], 2, 'finalize'],
-    [[{ approve: 'yes' }], 1, 'plan'],
-    [[null], 1, 'plan'],
-  ])('routeAfterCritique(%j, round %i) goes to %s', (verdicts, round, expected) => {
-    expect(routeAfterCritique({ ...base, verdicts, roundCounters: { critique: round }, maxCriticRounds: 2 })).toBe(
-      expected,
-    );
+    ['approve, clean', clean, [approve(1)], 1, 2, 'finalize', 'approved'],
+    ['approve, repaired', { report: { status: 'repaired' } }, [approve(1)], 1, 2, 'finalize', 'approved'],
+    ['approve while a block remains, rounds left', blocked, [approve(1)], 1, 2, 'plan', 'revise'],
+    ['approve while a block remains, rounds spent', blocked, [approve(1), approve(2)], 2, 2, 'finalize', 'exhausted'],
+    ['revise, rounds left', clean, [revise(1)], 1, 2, 'plan', 'revise'],
+    ['revise twice, rounds spent', clean, [revise(1), revise(2)], 2, 2, 'finalize', 'exhausted'],
+    ['revise, max 1', clean, [revise(1)], 1, 1, 'finalize', 'exhausted'],
+    ['revise, max 3, round 2', clean, [revise(1), revise(2)], 2, 3, 'plan', 'revise'],
+    ['approve with a score of 3', clean, [{ ...approve(1), scores: { ...approve(1).scores, recovery: 3 } }], 1, 2, 'plan', 'revise'],
+    ['approve with a blocker', clean, [{ ...approve(1), blockers: revise(1).blockers }], 1, 2, 'plan', 'revise'],
+    ['skipped for budget', clean, [{ round: 1, skipped: 'budget' }], 1, 2, 'finalize', 'critic_skipped_budget'],
+    ['critic unavailable', clean, [{ round: 1, skipped: 'unavailable' }], 1, 2, 'finalize', 'critic_unavailable'],
+    ['a malformed verdict', clean, [{ approve: true }], 1, 2, 'plan', 'revise'],
+    ['no report', null, [approve(1)], 1, 2, 'plan', 'revise'],
+  ])('%s: routeAfterCritique goes to %s', (_label, guardrailReport, verdicts, round, maxCriticRounds, route, decision) => {
+    const state = { ...base, guardrailReport, verdicts, roundCounters: { critique: round }, maxCriticRounds };
+    expect(routeAfterCritique(state)).toBe(route);
+    expect(critiqueDecision(state)).toBe(decision);
+    expect(shipsNow(state)).toBe(decision === 'approved');
+  });
+
+  it('routeAfterPlan finalizes only after a budget stop on a revision', () => {
+    expect(routeAfterPlan({ warnings: [] })).toBe('guardrails');
+    expect(routeAfterPlan({ warnings: ['critic_open_notes'] })).toBe('guardrails');
+    expect(routeAfterPlan({ warnings: [TRAINING_RUN_WARNINGS.SKIPPED_BUDGET] })).toBe('finalize');
   });
 
   it('routeAfterEnvelope pauses only for ask_first', () => {

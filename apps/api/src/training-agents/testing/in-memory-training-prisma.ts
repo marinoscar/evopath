@@ -6,7 +6,8 @@ import type { TrainingPlanRun } from '@prisma/client';
 // An in-memory stand-in for the slice of Prisma the training run handler and
 // service use on `training_plan_runs` and `audit_events`: `findUnique`,
 // `findFirst`, `findMany`, `count`, `create`, `update`, `updateMany`, and
-// `$transaction(fn)`. Where clauses support equality (null included), `{ in }`,
+// `$transaction(fn)`; plus `gym.findFirst` and `program.findFirst` over the
+// rows a spec seeds with `addGym` / `addProgram` (run start checks them). Where clauses support equality (null included), `{ in }`,
 // `{ lt }` and `{ gt }`. Enough for unit specs; the real-Postgres suites
 // cover the database's own rules (the partial unique index, CHECKs).
 // =============================================================================
@@ -86,6 +87,13 @@ export function newRunRow(overrides: Partial<TrainingPlanRun> = {}): TrainingPla
 export function createInMemoryTrainingPrisma() {
   const runs = new Map<string, TrainingPlanRun>();
   const audits: Array<Record<string, unknown>> = [];
+  const gyms: Array<Record<string, unknown>> = [];
+  const programs: Array<Record<string, unknown>> = [];
+  const finder = (rows: Array<Record<string, unknown>>) =>
+    jest.fn(async (args: { where?: Where; select?: Record<string, boolean> } = {}) => {
+      const row = rows.find((r) => matches(r, args.where));
+      return row ? pick(row, args.select) : null;
+    });
 
   const trainingPlanRun = {
     findUnique: jest.fn(async (args: { where: { id: string }; select?: Record<string, boolean> }) => {
@@ -125,10 +133,14 @@ export function createInMemoryTrainingPrisma() {
 
   const prisma: {
     trainingPlanRun: typeof trainingPlanRun;
+    gym: { findFirst: jest.Mock };
+    program: { findFirst: jest.Mock };
     auditEvent: { create: jest.Mock };
     $transaction: jest.Mock;
   } = {
     trainingPlanRun,
+    gym: { findFirst: finder(gyms) },
+    program: { findFirst: finder(programs) },
     auditEvent: {
       create: jest.fn(async (args: { data: Record<string, unknown> }) => {
         audits.push(args.data);
@@ -149,6 +161,17 @@ export function createInMemoryTrainingPrisma() {
     },
     get(id: string): TrainingPlanRun | undefined {
       return runs.get(id);
+    },
+    /** A gym row `{ id, userId }` that `gym.findFirst` finds. */
+    addGym(userId: string, id: string = randomUUID()): { id: string; userId: string } {
+      gyms.push({ id, userId });
+      return { id, userId };
+    },
+    /** A program row `{ id, userId, currentVersion }` that `program.findFirst` finds. */
+    addProgram(userId: string, currentVersion = 1, id: string = randomUUID()) {
+      const row = { id, userId, currentVersion };
+      programs.push(row);
+      return row;
     },
   };
 }

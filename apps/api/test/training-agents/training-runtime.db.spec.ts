@@ -53,6 +53,7 @@ import type { AgentScript } from '../../src/training-agents/testing/node-context
 import { STUB_AGENT_NODES } from '../../src/training-agents/testing/stub-agent-nodes';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AGENT_CALL_USAGE, AGENT_NODES, SCRIPTED_DRAFT, agentScripts, agentsCalled } from './agent-graph-support';
+import { createRunBody } from '../../src/training-agents/testing/intake-fixtures';
 
 const { describeWithDb } = resolveDbSuite('training-runtime.db.spec');
 
@@ -183,8 +184,8 @@ describeWithDb('training runtime (real Postgres)', () => {
         );
 
         const settled = await Promise.allSettled([
-          service.create(u, { kind: 'create', input: {} }),
-          service.create(u, { kind: 'create', input: {} }),
+          service.create(u, createRunBody()),
+          service.create(u, createRunBody()),
         ]);
 
         const won = settled.filter((r) => r.status === 'fulfilled') as Array<{ value: { runId: string } }>;

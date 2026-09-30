@@ -60,7 +60,9 @@ import type { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { RateLimitError } from '../../jobs/rate-limit.error';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PlannerContextLoader } from '../context/planner-context.loader';
 import type { AgentGraphRunResult } from '../graph/agent-graph-runner.interface';
 import type { GraphHooks } from '../graph/create-graph';
 import { trainingGraphRunner } from '../graph/graph-factory';
@@ -91,6 +93,7 @@ import {
   TRAINING_RUN_SUBJECT_TYPE,
   type TrainingRunStatus,
 } from './training-runs.constants';
+import { TrainingProgramsPort } from './training-programs.port';
 import { TrainingRunsService } from './training-runs.service';
 
 export const trainingPlanRunPayloadSchema = z.object({ runId: z.string().uuid() });
@@ -151,6 +154,9 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
     private readonly events: RunEventsService,
     private readonly runs: TrainingRunsService,
     @Optional() @Inject(TRAINING_RUN_HANDLER_OPTIONS) options?: TrainingRunHandlerOptions,
+    @Optional() private readonly plannerContext?: PlannerContextLoader,
+    @Optional() private readonly programs?: TrainingProgramsPort,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {
     this.options = options ?? {};
   }
@@ -395,6 +401,11 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
       budget,
       contextBudget: new ContextBudget(),
       now: () => new Date(),
+      ports: {
+        ...(this.plannerContext ? { plannerContext: this.plannerContext } : {}),
+        ...(this.programs ? { programs: this.programs } : {}),
+        ...(this.notifications ? { notifications: this.notifications } : {}),
+      },
     };
 
     const runner = trainingGraphRunner(kind, {

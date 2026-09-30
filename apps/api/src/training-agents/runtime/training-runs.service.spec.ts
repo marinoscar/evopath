@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-import { ConflictException, NotFoundException, NotImplementedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException, NotImplementedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { TRAINING_AGENT_ROLES } from '../../common/schemas/settings.schema';
 import type { RoleResolution } from '../models/dto/role-resolution.dto';
 import { TRAINING_GRAPH_READY } from '../graph/training-graphs';
 import { InMemoryRunEventLog } from '../testing/in-memory-run-event-log';
+import { createRunBody } from '../testing/intake-fixtures';
+import { SAFETY_STOP_GUIDANCE } from '../guardrails/safety-keywords';
+import { FreeTextSafetyScreen } from './safety-screen';
 import { createInMemoryTrainingPrisma } from '../testing/in-memory-training-prisma';
 import { TrainingRunsService, toTrainingRunView } from './training-runs.service';
 import { ACTIVE_RUN_INDEX_NAME, isActiveRunConflict } from './training-runs.constants';
@@ -54,14 +57,14 @@ describe('TrainingRunsService.create', () => {
   });
   afterEach(() => restore());
 
-  it('answers 501 TRAINING_NOT_IMPLEMENTED while the kind\'s graph is stubbed, before resolving roles', async () => {
+  it('answers 501 TRAINING_NOT_IMPLEMENTED while the kind\'s graph is not ready (evaluate), before resolving roles', async () => {
     const t = setup();
 
-    const error = await t.service.create(USER, { kind: 'create', input: {} }).catch((e: unknown) => e);
+    const error = await t.service.create(USER, { kind: 'evaluate', input: {} }).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(NotImplementedException);
     expect((error as NotImplementedException).getResponse()).toMatchObject({
-      details: { reason: 'TRAINING_NOT_IMPLEMENTED', graph: 'create' },
+      details: { reason: 'TRAINING_NOT_IMPLEMENTED', graph: 'evaluate' },
     });
     expect(t.resolver.resolveForRun).not.toHaveBeenCalled();
     expect(t.jobs.enqueueWithin).not.toHaveBeenCalled();
@@ -70,8 +73,14 @@ describe('TrainingRunsService.create', () => {
   it('freezes the kind\'s role models, the cap and the critic rounds, and creates the run and its job in one transaction', async () => {
     TRAINING_GRAPH_READY.create = true;
     const t = setup();
+    const program = t.db.addProgram(USER, 4);
 
-    const started = await t.service.create(USER, { kind: 'revise', input: { instruction: 'USER-TEXT' } });
+    const started = await t.service.create(USER, {
+      kind: 'revise',
+      programId: program.id,
+      basedOnVersion: 4,
+      instruction: 'USER-TEXT',
+    });
 
     expect(started).toMatchObject({ status: 'queued' });
     const run = t.db.get(started.runId)!;
@@ -81,7 +90,11 @@ describe('TrainingRunsService.create', () => {
       trigger: 'user',
       status: 'queued',
       tokenCap: 50_000,
-      input: { request: { instruction: 'USER-TEXT' }, maxCriticRounds: 3 },
+      programId: program.id,
+      input: {
+        request: { kind: 'revise', programId: program.id, basedOnVersion: 4, instruction: 'USER-TEXT' },
+        maxCriticRounds: 3,
+      },
       jobId: started.jobId,
       jobIds: [started.jobId],
     });
@@ -127,7 +140,7 @@ describe('TrainingRunsService.create', () => {
     const existing = t.db.add({ userId: USER, status: 'running' });
     t.db.prisma.$transaction.mockRejectedValueOnce(activeRunViolation());
 
-    const error = await t.service.create(USER, { kind: 'create', input: {} }).catch((e: unknown) => e);
+    const error = await t.service.create(USER, createRunBody()).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(ConflictException);
     expect((error as ConflictException).getResponse()).toMatchObject({
@@ -145,13 +158,13 @@ describe('TrainingRunsService.create', () => {
     });
     t.db.prisma.$transaction.mockRejectedValueOnce(other);
 
-    await expect(t.service.create(USER, { kind: 'create', input: {} })).rejects.toBe(other);
+    await expect(t.service.create(USER, createRunBody())).rejects.toBe(other);
   });
 
   it('a safety stop records blocked_safety with no job, no provider path and no stored input', async () => {
     const t = setup({ stop: true });
 
-    const started = await t.service.create(USER, { kind: 'create', input: { note: 'chest pain' } });
+    const started = await t.service.create(USER, createRunBody({ preferences: 'chest pain' }));
 
     expect(started).toEqual({
       runId: expect.any(String),
@@ -162,6 +175,96 @@ describe('TrainingRunsService.create', () => {
     expect(t.db.get(started.runId)).toMatchObject({ status: 'blocked_safety', input: {}, errorCode: 'TRAINING_SAFETY_STOP' });
     expect(t.jobs.enqueueWithin).not.toHaveBeenCalled();
     expect(t.resolver.resolveForRun).not.toHaveBeenCalled();
+  });
+});
+
+describe('TrainingRunsService.create: the request', () => {
+  let restore: () => void;
+
+  beforeEach(() => {
+    const saved = { ...TRAINING_GRAPH_READY };
+    restore = () => Object.assign(TRAINING_GRAPH_READY, saved);
+    TRAINING_GRAPH_READY.create = true;
+  });
+  afterEach(() => restore());
+
+  it('stores the validated create request (intake defaults applied) and no program', async () => {
+    const t = setup();
+    const gym = t.db.addGym(USER);
+
+    const started = await t.service.create(USER, createRunBody({ gymId: gym.id }));
+
+    const run = t.db.get(started.runId)!;
+    expect(run.programId).toBeNull();
+    expect((run.input as { request: { kind: string; intake: { gymId: string; autonomy: string } } }).request).toMatchObject({
+      kind: 'create',
+      intake: { gymId: gym.id, autonomy: 'autonomous' },
+    });
+  });
+
+  it("404 when the intake's gym is not the caller's, and creates nothing", async () => {
+    const t = setup();
+    const other = t.db.addGym(randomUUID());
+
+    const error = await t.service.create(USER, createRunBody({ gymId: other.id })).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(NotFoundException);
+    expect(t.db.runs.size).toBe(0);
+    expect(t.resolver.resolveForRun).not.toHaveBeenCalled();
+  });
+
+  it('revise: 404 for another user\'s program, 409 TRAINING_STALE_PLAN for a stale basedOnVersion; nothing is created', async () => {
+    const t = setup();
+    const theirs = t.db.addProgram(randomUUID(), 1);
+    const mine = t.db.addProgram(USER, 3);
+    const revise = (programId: string, basedOnVersion: number) =>
+      t.service.create(USER, { kind: 'revise', programId, basedOnVersion, instruction: 'Fewer squats' }).catch((e: unknown) => e);
+
+    expect(await revise(theirs.id, 1)).toBeInstanceOf(NotFoundException);
+
+    const stale = await revise(mine.id, 2);
+    expect(stale).toBeInstanceOf(ConflictException);
+    expect((stale as ConflictException).getResponse()).toMatchObject({
+      details: { reason: 'TRAINING_STALE_PLAN', currentVersion: 3 },
+    });
+    expect(t.db.runs.size).toBe(0);
+    expect(t.jobs.enqueueWithin).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['create without an intake', { kind: 'create' }],
+    ['create with a revise field', { ...createRunBody(), instruction: 'x' }],
+    ['revise without basedOnVersion', { kind: 'revise', programId: randomUUID(), instruction: 'x' }],
+    ['revise with an intake', { kind: 'revise', programId: randomUUID(), basedOnVersion: 1, instruction: 'x', intake: createRunBody().intake }],
+    ['an instruction over 500 characters', { kind: 'revise', programId: randomUUID(), basedOnVersion: 1, instruction: 'x'.repeat(501) }],
+    ['preferred weekdays fewer than days per week', { kind: 'create', intake: { ...createRunBody().intake, daysPerWeek: 4, preferredWeekdays: [1, 3] } }],
+  ])('400 for %s', async (_label, body) => {
+    const t = setup();
+    const error = await t.service.create(USER, body as never).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(t.db.runs.size).toBe(0);
+  });
+});
+
+describe('TrainingRunsService.create: the urgent-symptom screen (G0)', () => {
+  it.each([
+    ['the goal sentence', createRunBody({ goal: { type: 'general', description: 'Get fit despite chest pain and dizzy spells' } })],
+    ['a limitation', createRunBody({ limitations: [{ area: 'other', description: 'chest pain and dizzy' }] })],
+    ['the preferences', createRunBody({ preferences: 'I fainted last week' })],
+    ['a revise instruction', { kind: 'revise' as const, programId: randomUUID(), basedOnVersion: 1, instruction: 'I cannot move my arm' }],
+  ])('urgent text in %s: blocked_safety with the fixed guidance, no job, no resolver', async (_label, body) => {
+    const db = createInMemoryTrainingPrisma();
+    const jobs = { enqueueWithin: jest.fn() };
+    const resolver = { resolveForRun: jest.fn() };
+    const service = new TrainingRunsService(db.prisma as never, jobs as never, resolver as never, new InMemoryRunEventLog() as never, new FreeTextSafetyScreen());
+
+    const started = await service.create(USER, body);
+
+    expect(started).toEqual({ runId: expect.any(String), jobId: null, status: 'blocked_safety', guidance: SAFETY_STOP_GUIDANCE });
+    expect(db.get(started.runId)).toMatchObject({ status: 'blocked_safety', input: {} });
+    expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    expect(resolver.resolveForRun).not.toHaveBeenCalled();
   });
 });
 
