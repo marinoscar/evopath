@@ -45,7 +45,7 @@ In this order:
 | [specs/gyms-and-equipment.md](specs/gyms-and-equipment.md) | Gyms, the equipment catalog and custom equipment, gym photos, AI Scan Gym (`ai.equipment.scan`), optional GPS location, and the `gyms` permissions | you add equipment or a capability to the catalog, read a user's gym equipment, change the scan prompt, or build another photo-to-rows flow |
 | [specs/workouts.md](specs/workouts.md) | The exercise library and custom exercises, workout logging (set model, kilograms canonical, one in progress), personal records, the training summary, AI Prefill from photo (`ai.workout.prefill`), and the `exercises` and `workouts` permissions | you add an exercise to the library, change the record rules, read a user's workouts, change the prefill prompt, or build another photo-to-rows flow |
 | [specs/training-signals.md](specs/training-signals.md) | Plan signals: adherence, frequency, hard sets per muscle, lift trends, effort, pain, readiness and body weight, computed deterministically for the user and for agents | you add or change a signal, read a user's adherence, or build an agent prompt from training facts |
-| [specs/ai-training-plans.md](specs/ai-training-plans.md) | AI training plans: the researcher, planner, critic and evaluator agents, the LangGraph graphs, run state machine, guardrails and adaptation envelope, events, limits, and the fake-provider scenarios | you change or extend the training agents, their guardrails or their tests |
+| [specs/ai-training-plans.md](specs/ai-training-plans.md) | AI training plans: the researcher, planner, critic and evaluator agents, the LangGraph graphs, run state machine, guardrails and adaptation envelope, quick workout adaptation and travel workouts (rules, minimised context, apply), events, limits, and the fake-provider scenarios | you change or extend the training agents, their guardrails, the adjust-workout flow or their tests |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 
@@ -76,7 +76,7 @@ READMEs that live next to the code they describe.
 | [../apps/api/src/jobs/handlers/README.md](../apps/api/src/jobs/handlers/README.md) | Adding a job type |
 | [../apps/api/src/jobs/contracts/README.md](../apps/api/src/jobs/contracts/README.md) | Result schemas a worker node posts back for a node-eligible type |
 | [../apps/cli/src/node/executors/README.md](../apps/cli/src/node/executors/README.md) | The CLI side of a node-eligible job type |
-| [../apps/api/src/ai/README.md](../apps/api/src/ai/README.md) | Using AI from a feature; the AI module's map |
+| [../apps/api/src/ai/README.md](../apps/api/src/ai/README.md) | Using AI from a feature; the AI module's map; recipes for a training agent or node and for an agent graph feature like quick adaptation |
 | [../apps/api/src/intake/README.md](../apps/api/src/intake/README.md) | Adding a photo-intake kind; the intake module's map |
 | [../apps/api/src/notifications/README.md](../apps/api/src/notifications/README.md) | Adding a notification; the notifications module's map |
 | [../apps/api/src/storage/processing/processors/README.md](../apps/api/src/storage/processing/processors/README.md) | Post-upload storage object processors |

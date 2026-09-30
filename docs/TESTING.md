@@ -738,6 +738,42 @@ the Playwright suites it is **not part of CI**; Jest is the gate.
 5. Check it by hand: `curl -X POST localhost:4011/__control/scenario -d
    '{"name":"<name>"}'`, run the flow, then `curl localhost:4011/__control/requests`.
 
+### Quick adaptation suites and the fake-provider e2e
+
+The quick workout adaptation ([the spec, §2.13](specs/ai-training-plans.md#213-quick-adaptation-and-travel-workouts))
+is covered at four levels. Jest is the CI gate.
+
+| Level | Where | What it proves |
+|---|---|---|
+| Pure and graph | `apps/api/src/training-adaptation/` (`rules/`, `graph/`, `prompts/`, `context/`, `dto/`) | The rules table, the graph on `FakeAiProvider` through `createAdaptationGraphHarness` (accept, one revise, urgent stop with zero calls, hostile output, token cap), the pinned prompt markers and schema names, the never-send canary |
+| Mocked integration | `apps/api/test/ai/training-adaptation.integration.spec.ts` | Per-route RBAC with the exact permission strings, the kill switch, validation, hostile free text, the revise ceiling |
+| Real Postgres | `apps/api/test/training-adaptation/*.db.spec.ts`, `apps/api/test/gyms/temporary-gym-purge.db.spec.ts` | One active adaptation per user, apply idempotence under parallel taps, staleness on real rows, loads never from the model, purge reference safety |
+| Web | `apps/web/src/__tests__/components/training/adapt/`, `pages/AdaptationReviewPage.test.tsx`, `AdaptRoutes.test.tsx` | The sheet, review, hotel step, routes and the run-event reducer |
+
+```bash
+npm test --workspace=api -- training-adaptation test/ai/training-adaptation
+npm run test:db --workspace=api -- training-adaptation temporary-gym-purge
+npm run test:run --workspace=web -- adapt
+```
+
+The Playwright spec for adaptation lives in `tests/e2e/specs/`. Like
+`training-plans.spec.ts`, it runs against a fake provider that the API reaches
+over the compose network, needs no real key, runs serially (the fake's scenario
+and request log are global) and is skipped when `E2E_AI=0`. Start the stack with
+the fake-provider compose overlay the spec's header names, then run it by name:
+
+```bash
+cd tests/e2e && npm test -- training-adaptation --workers=1
+```
+
+The fake computes an adapted workout from the request itself: it reads the JSON
+between the `<context-json>` markers and answers by the structured-output schema
+name, both pinned in `training-adaptation/prompts/markers.ts`, because exercise
+ids are generated at seed time. Its request log is how the spec asserts data
+minimisation (no canary value, no image part, no gym name in an adaptation call).
+Like every Playwright suite it is **not part of CI**, and a run leaves no state
+behind.
+
 ### Signing in without Google
 
 In development and test the web app serves `/testing/login` and the API

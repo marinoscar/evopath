@@ -1,6 +1,6 @@
 # AI training plans
 
-> **Status:** shipped · **Code:** `apps/api/src/programs/`, `apps/api/src/training-agents/`, `apps/web/src/pages/Train/`, `apps/web/src/components/training/` · **API:** `/api/programs/*`, `/api/ai/training/*`, `/api/training/*` (see `/api/docs`) · **User UI:** `/train/plans`, `/train/plans/new`, `/train/plans/runs/:runId`, `/settings/ai/agents` · **Runbook:** [ai-training-plans.md](../runbooks/ai-training-plans.md) · **Recipe:** [AI README, "Adding a training agent or node"](../../apps/api/src/ai/README.md#adding-a-training-agent-or-node)
+> **Status:** shipped · **Code:** `apps/api/src/programs/`, `apps/api/src/training-agents/`, `apps/api/src/training-adaptation/`, `apps/api/src/training-usage/`, `apps/web/src/pages/Train/`, `apps/web/src/components/training/` · **API:** `/api/programs/*`, `/api/ai/training/*` (runs, adaptations, usage), `/api/training/*` (see `/api/docs`) · **User UI:** `/train/plans`, `/train/plans/new`, `/train/plans/runs/:runId`, `/train/adapt/:adaptationId`, `/settings/ai/agents` · **Runbook:** [ai-training-plans.md](../runbooks/ai-training-plans.md) · **Recipe:** [AI README, "Adding a training agent or node"](../../apps/api/src/ai/README.md#adding-a-training-agent-or-node)
 
 Four cooperating agents build and maintain a training plan. A researcher gathers cited evidence from the web, a planner drafts a plan, a critic reviews it and an evaluator adapts the plan from the person's logged training. The agents run as LangGraph graphs above the AI gateway, inside one server-only queue job per run, and every model call still goes through `AiService`. A deterministic server layer (guardrails, an adaptation envelope, a citation verifier) decides what ships; a model only proposes. A new plan arrives as a draft the owner reviews. An adaptation of an active plan is visible and reversible, or confirmable on request.
 
@@ -310,6 +310,175 @@ Per-endpoint shapes are in `/api/docs`.
 - **Web.** `AgentUsagePanel` (`apps/web/src/components/training/usage/`, prop `runId`) shows the node table with roles, key source and totals, the labelled cap meter (text, not colour alone), the retention note and the "Tokens, not currency" note, and refetches when the run settles. It is mounted in the adaptation review and the run view. `MonthlyAgentUsageSection` (`apps/web/src/components/settings/ai/`) is a section of `/settings/ai` under the platform usage section, not a card or tab: month picker, totals, by role, by kind and key-source split, with its own loading and error state. Error text for `TRAINING_RUN_BUDGET_EXCEEDED` is built from the cap numbers in `services/aiErrors.ts` and `components/settings/ai/aiErrorText.ts`.
 - **Operators.** The admin AI Usage card stays the operator view. To correlate a run with rows, filter `ai_usage_events` by the run's `jobId`.
 
+### 2.13 Quick adaptation and travel workouts
+
+A person with a planned workout today can say what is different (30 minutes, sore chest, only dumbbells, a hotel gym) and get an adjusted version in seconds. `TrainingAdaptationModule` (`apps/api/src/training-adaptation/`) runs one small graph on the [runtime kit](#22-graphs-and-the-run-state-machine) for it. The model chooses and arranges exercises; the server owns every load, the time estimate, equipment support, volume and safety.
+
+**Request** (`POST /api/ai/training/adaptations` and `/context-preview`; Zod DTO in `dto/adaptation-request.dto.ts`, bounds in `ADAPTATION_REQUEST_LIMITS`):
+
+| Field | Contract |
+|---|---|
+| `minutes` | Integer 10 to 240 |
+| `soreness` | `{ muscles: 1 to 8 from the muscle vocabulary, level: mild or moderate }` |
+| `lowEnergy` | Boolean |
+| `equipment` | `{ mode: 'gym' }` (default), `{ mode: 'only', equipmentTypeIds: 1 to 12 types of the chosen gym }` or `{ mode: 'bodyweight' }` |
+| `gymId` | One of the caller's gyms. Default: the plan's gym, else the default gym |
+| `freeText` | Up to 500 characters, trimmed |
+| `useReadiness` | Default `true`: today's four check-in scores may be sent |
+| `baseWorkout` | `planned` (default) or `none`; forced to `none` on a rest day or with no active plan, which builds an ad hoc session |
+
+At least one real change is required (`400 ADAPTATION_NOTHING_TO_CHANGE`, "Tell us what to change"). The body is strict: unknown keys are refused.
+
+#### The graph
+
+The graph runs inside the server-only job `ai.training.adapt.run` (profile 5 minutes, 1 attempt) on a `training_plan_runs` row of kind `adapt`, so runs, events, the token cap, cancel and the SSE stream are the kit's. The nodes live in `training-adaptation/graph/nodes/`; the LangGraph wiring lives in `training-agents/graph/adapt-graph.ts` because the orchestration boundary keeps LangGraph there. The feature supplies its nodes and routes as an `AdaptGraphDefinition`.
+
+```
+context --blocked_safety--> END
+   |
+adapt -> guardrails -> critic --accept (or revise without a major issue)--> finalize -> END
+   ^                      |
+   +---- revise (major issue, one pass left) ----+   the revision goes guardrails -> finalize (no second critic)
+```
+
+| Node | Model | What it does |
+|---|---|---|
+| `context` | none | Builds the minimised context through the one builder, screens the free text again (defence in depth), emits `workout_adaptation.context` |
+| `adapt` | planner | One structured call (`training_adaptation_proposal`), strict mode. On the revise pass the previous checked answer and the critic's issues go in as `<critic-notes>` |
+| `guardrails` | none | Applies the rules table below: repairs what it can, rejects what it cannot |
+| `critic` | critic | One structured call (`training_adaptation_critique`) on the checked proposal: `accept` or `revise` with four checks and short issues. Only `revise` with a `major` issue starts the second pass |
+| `finalize` | none | Assembles proposal, guardrail report, critic report, snapshot and safety; the handler writes them with the terminal status |
+
+`ADAPT_MAX_REVISIONS = 1`: at most two planner passes and one critic round, so a normal run is two provider calls and a revise makes three. A revision that breaks a hard rule keeps the first checked proposal with the warning `revision_rejected`. A critic that cannot answer (an invalid or truncated answer) is recorded `criticReport.skipped = 'error'`; the guardrails run regardless. Stage and event names for the web: `stage.started` and `stage.completed` per node, plus `workout_adaptation.context`, `.proposal`, `.guardrails`, `.critique` and `.ready`, each carrying identifiers, counts and codes only (`ADAPTATION_EVENT_TYPES`).
+
+#### Design stance: the model proposes, the server owns
+
+- **The model** picks exercises from the context's planned list and candidates, orders them, chooses sets, reps, RPE and rest, writes a title, a summary, one to six rationale lines and its assumptions.
+- **The server** owns everything with consequences. The model's exercise keys are checked against the context, its numbers are clamped, its `estimatedMinutes` is ignored and recomputed with the plan builder's duration model, and its priority flags are replaced by the plan's.
+- **No loads.** `adaptationProposalModelSchema` has no weight field. `apply` fills loads from the plan's prescription or the last session, so a model can never prescribe a weight ([design decisions](#6-design-decisions)).
+- **Stored proposal.** `adaptedWorkoutSchema` (1 to 12 exercises, sets 1 to 8, reps 1 to 30, RPE 5 to 10 in half steps, rest 0 to 600 s, `source` of `kept`, `swapped` or `added`, dropped list with a reason of `time`, `sore`, `equipment`, `energy` or `other`) is what `workout_adaptations.proposal` holds, with ids resolved server-side.
+
+#### Adaptation rules
+
+`applyAdaptationRules` (`training-adaptation/rules/adaptation-rules.ts`) is pure and deterministic: no I/O, no clock. Every number below is a constant in `adaptation.constants.ts` (`ADAPTATION_RULES`, `ADAPTED_WORKOUT_LIMITS`) or in the plan guardrails' `limits.ts`; tune them there and update this table. Steps run in this order and each records what it changed in `repairs` or `rejected`:
+
+| Step | Rule | Constants |
+|---|---|---|
+| Shape | Unknown or duplicate keys are removed; `source` and the replaced exercise are corrected; priority comes from the plan; text is clipped | Contract limits |
+| Pain | An exercise on the avoid list or with a pain-flagged set in the last 28 days is substituted within its movement pattern, else removed. Never "push through" | `painFlagDays: 28` |
+| Equipment | An exercise today's equipment cannot support (the gym, the `only` subset or bodyweight) is substituted, else removed | Requirement groups of the exercise library |
+| Bounds | Sets, reps, rest and RPE inside the plan guardrails' per-exercise range and the contract's | `restSeconds` 30 to 300; sets floor `setFloor: 2` |
+| Soreness, mild | Prime-mover sets at most 75 percent of the base (floor 2), RPE at most 8 | `soreness.mild: { setsFactor: 0.75, rpeCap: 8 }` |
+| Soreness, moderate | A prime mover that is kept gets at most 2 sets at RPE at most 6, with a note; priority lifts are not spared. Swapping the muscle out entirely is allowed | `soreness.moderate: { maxSets: 2, rpeCap: 6 }` |
+| Low energy | The request says so, or today's check-in energy is at most 2: RPE at most 7 everywhere, non-priority sets at most base minus 1 (floor 2) | `lowEnergy: { rpeCap: 7, setsBelowBase: 1, checkInEnergyAtMost: 2 }` |
+| Never escalate | With a base: no exercise above its counterpart's sets or RPE (a swap inherits the replaced ceiling, an added exercise the largest planned one) and total sets at most the base's total. Ad hoc: the level's bounds. With no base RPE, RPE is capped at 8 | `defaultRpeCap: 8` |
+| Conservative mode | A pain, injury, recovery or pregnancy word in the free text, a poor check-in or a declared limitation adds the plan guardrails' caps | `GUARDRAIL_LIMITS.conservative`: RPE 7, 4 sets per exercise, 22 per session |
+| Time fit | Estimated minutes at most `minutes`, else T1 drop non-priority exercises from the end (never the last one), T2 one set off non-priority exercises (floor 2), T3 one set off priority exercises (floor 2). Still over: `ADAPTATION_CANNOT_FIT`, "Can't fit these lifts in N minutes; try N+10" | `cannotFitSuggestionStep: 10` |
+
+Hard failures are only two: nothing left after shape, pain and equipment (`ADAPTATION_INVALID`), and a time fit that cannot be met (`ADAPTATION_CANNOT_FIT`). Everything else is repaired and listed in `guardrailReport.repairs`, which the review shows.
+
+#### Safety
+
+- **Urgent stop at the door.** `screenFreeText` (the plan guardrails' G0 screen) runs in `POST /api/ai/training/adaptations` before any run or job exists. An urgent-symptom phrase answers `200 { status: 'blocked_safety', guidance, jobId: null, runId: null }`, stores a `blocked_safety` row without the free text, and makes no provider call. `/context-preview` reports `blocked` and `willCallProvider: false` and stores nothing. The `context` node screens again.
+- **Soreness is not pain.** Soreness is a structured input (mild or moderate) that reduces the muscle's work. Pain is different: a pain-flagged set in the last 28 days or an avoid-list entry excludes the exercise, and pain words in the note switch on conservative mode. Nothing here treats pain as a setting to train through.
+- **Tone cannot relax a rule.** Both prompts open with the fixed safety block, then the untrusted-data block, then the role text. A user's style request changes wording only, and the guardrails run after the model whatever the prompt said. Hostile free text is tested to never produce a proposal that breaks a rule, even when a scripted model obeys it.
+
+#### Context sent to the model
+
+`AdaptationContextBuilder` returns one object: `sent` (exactly what the planner and critic receive inside `<context-json>`), `summary` (rendered from `sent`, so the "What will be sent" panel cannot differ from what is sent) and `facts` (server only, checkpointed, never sent). The snapshot stored on the row is `sent` plus `summary`; the preview and the snapshot are the same object.
+
+| Sent | Never sent |
+|---|---|
+| The request: minutes, soreness, low energy, equipment mode and the names allowed, the free text, base choice | Name, email, date of birth or exact age |
+| Plan header: goal, week, deload flag, priority exercise keys | Internal ids: exercises are named by a stable `key` |
+| Today's planned exercises: key, name, muscles, sets, reps, RPE, rest, whether the equipment supports it | Loads and target weights of the base (the server keeps them in `facts`) |
+| Gym type and equipment names, quantities and capabilities; only the chosen subset for `only` | The gym's name, notes, location, photos, storage keys, and whether it is temporary |
+| Up to 60 candidate exercises (key, name, muscles, pattern, compound, tracking mode), excluding avoid-list and pain-flagged ones | Other gyms, other users' data |
+| The last session's top set and date per planned exercise | Full history, pain notes, workout and measurement notes |
+| Four check-in scores (energy, sleep, soreness, stress) when `useReadiness` and a check-in exists | The check-in note, medications, labs, blood pressure |
+| Constraints: experience, low energy, conservative flag, avoid keys, limitation areas | Documents and photos |
+
+The panel's "excluded" list is `NEVER_SEND` in `training-agents/context/never-send.ts`, the same list the plan flow shows. Hotel-scan photos go only to the equipment scan job, never to an adaptation call.
+
+#### Prompts, markers and schema names
+
+`training-adaptation/prompts/markers.ts` holds the literals the prompts, the tests and any fake provider rely on. They are pinned by `adaptation-prompts.contract.spec.ts`; changing one is a breaking change.
+
+| Constant | Value |
+|---|---|
+| `CONTEXT_JSON_OPEN`, `CONTEXT_JSON_CLOSE` | `<context-json>`, `</context-json>` around the minimised context JSON |
+| `CRITIC_NOTES_OPEN`, `CRITIC_NOTES_CLOSE` | `<critic-notes>`, `</critic-notes>` around the critic's issues on the revise pass |
+| `ADAPTATION_PROPOSAL_SCHEMA_NAME` | `training_adaptation_proposal` |
+| `ADAPTATION_CRITIQUE_SCHEMA_NAME` | `training_adaptation_critique` |
+| `ADAPTATION_PROMPT_VERSION` | `1`, recorded in `guardrailReport.promptVersion` (the prompt text is never stored) |
+
+`blockJson` writes `<` as `<`, so no value can close a block early. `parseContextBlock(input)` reads the JSON back; a fake provider uses it to compute a response from the request, because exercise keys come from the running library. `contextBlock`, `blockJson` and `parseContextBlock` are exported for that purpose.
+
+#### Apply
+
+A `ready` adaptation is applied one of two ways. Both re-run the equipment, library and pain checks against current data first (`staleFindings`).
+
+| | `POST /:id/apply/workout` ("Use for today only") | `POST /:id/apply/plan` ("Update my plan") |
+|---|---|---|
+| Effect | Starts an in-progress workout for the user's local day with the adapted exercises and prefilled sets; links it to today's planned workout when that still exists; the plan is untouched | Writes a new plan version through `ProgramsService.applyChange` in which today's planned workout is the adapted one; change-log kind `adapted`, actor `ai`, origin `ai_adapt`, version meta `source: 'workout_adaptation'` |
+| Extra permission | `workouts:write` | `programs:write` |
+| Without a base | Starts an unlinked workout | `409 ADAPTATION_NO_BASE` |
+| Undo | Delete the workout | The plan's one-tap revert |
+
+- **Server-owned loads.** A kept exercise keeps its plan load rule; a swapped or added one starts from the last time, or blank. More reps than planned drops the prefilled load (never escalate).
+- **Idempotent.** A repeat of the mode that succeeded answers the same result. The other mode after one succeeded is `409 ADAPTATION_ALREADY_APPLIED`. Two taps at once produce one workout and one program session, or one plan version. The claim is a conditional update on `status = 'ready'`, and the plan apply is undone if the plan write fails.
+- **409 codes.** `ADAPTATION_NOT_READY`, `ADAPTATION_ALREADY_APPLIED`, `ADAPTATION_NO_BASE`, `WORKOUT_IN_PROGRESS` (`details.workoutId`, from the one-in-progress index) and `ADAPTATION_STALE` (`details.findings`).
+- **Staleness.** Findings are `exercise_unavailable`, `equipment_changed`, `pain_flagged` and, for a plan apply, `plan_changed` (the plan has a newer version than the base). A one-off is still allowed after the plan moved on: it starts unlinked and answers `planChanged: true`.
+
+#### Routes
+
+Compact table; per-endpoint shapes are in `/api/docs`. Every route sits behind `AiEnabledGuard` plus `ai:use`, is scoped to the caller in SQL (another user's adaptation is `404`) and takes only a UUID id (`400` otherwise).
+
+| Route | Extra permission | Purpose |
+|---|---|---|
+| `POST /api/ai/training/adaptations/context-preview` | none | What would be sent, the planner and critic resolution, `willCallProvider`, safety. No call, nothing stored |
+| `POST /api/ai/training/adaptations` | none | Create: `202 { adaptationId, jobId, runId, status: 'queued' }`, or `200 blocked_safety` |
+| `GET /api/ai/training/adaptations/:id` | none | The view: request, proposal, guardrail and critic reports, safety, sent data, models, stage, error, applied fields |
+| `POST /api/ai/training/adaptations/:id/cancel` | none | Cancel a queued or running one; idempotent |
+| `POST /api/ai/training/adaptations/:id/apply/workout` | `workouts:write` | Use for today only |
+| `POST /api/ai/training/adaptations/:id/apply/plan` | `programs:write` | Update my plan |
+| `DELETE /api/ai/training/adaptations/:id` | none | Discard (cancels first while it runs); `204` |
+
+Live progress reuses the kit: `GET /api/ai/training/runs/:runId` and the SSE `GET /api/ai/training/stream/:runId?after=N`, with the row's `runId`. There is no list route.
+
+#### Jobs and retention
+
+- **`ai.training.adapt.run`**: payload `{ adaptationId }`, subject `training_adaptation`, profile 5 minutes and 1 attempt, server-only (no `nodeResultSchema`, no `persistNodeResult`). It runs the graph through the kit's `AgentCaller`, which calls `AiService.forUser(userId, { jobId })`, so usage rows carry the job id. Terminal AI codes fail the adaptation and the job returns; `AI_RATE_LIMITED` puts both back to `queued`, emits `run.deferred` and defers the job, and the graph resumes from its checkpoint; a deadline fails `ADAPTATION_TIMEOUT`; a job that settles failed with the adaptation still active fails it `ADAPTATION_RUN_LOST`. "Try again" is a new adaptation.
+- **`training.adaptations.purge`**: deletes `workout_adaptations` rows past `expires_at` (created plus `ADAPTATION_TTL_DAYS = 30`) in batches of `ADAPTATIONS_PURGE_BATCH_SIZE = 5000`. A daily 03:20 cron only enqueues.
+- **`gyms.temporary.purge`**: deletes unreferenced temporary gyms; see [gyms-and-equipment.md §2.13](gyms-and-equipment.md#213-temporary-gyms).
+- **One active adaptation per user.** The raw-SQL partial unique index `workout_adaptations_active_per_user_uniq_idx` answers a second start with `409 ADAPTATION_IN_PROGRESS` (`details.adaptationId`, `status`, `runId`). An adapt run does not count against the plan-run index, so it neither waits behind nor blocks a plan run.
+
+#### Errors
+
+| Where | Codes |
+|---|---|
+| `400` | `ADAPTATION_NOTHING_TO_CHANGE`, `ADAPTATION_EQUIPMENT_NOT_IN_GYM`, `ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED` |
+| `403` | `AI_DISABLED` (kill switch, before anything else); a missing permission |
+| `404` | Another user's adaptation or gym, indistinguishable from a missing one |
+| `409` on create | `ADAPTATION_IN_PROGRESS`, `TRAINING_ROLE_UNAVAILABLE` (`details.role`, `state`, `fix`) |
+| `409` on cancel, discard, apply | `ADAPTATION_NOT_CANCELLABLE`, `ADAPTATION_ALREADY_APPLIED`, `ADAPTATION_NOT_READY`, `ADAPTATION_NO_BASE`, `WORKOUT_IN_PROGRESS`, `ADAPTATION_STALE` |
+| On the row (`errorCode`) | `ADAPTATION_CANNOT_FIT`, `ADAPTATION_INVALID`, `ADAPTATION_GYM_NOT_FOUND`, `ADAPTATION_TIMEOUT`, `ADAPTATION_RUN_LOST`, `TRAINING_RUN_BUDGET_EXCEEDED`, `TRAINING_OUTPUT_TRUNCATED`, `TRAINING_SAFETY_STOP`, shared `AI_*` codes |
+
+#### Travel and hotel workouts
+
+The sheet's "Different place" choice creates a temporary gym, scans the room with the existing `ai.equipment.scan` job (no second vision job and no new prompt), confirms the equipment and adapts with `gymId` set to it. The gym is a normal gym with `isTemporary: true`: never the default, saved with the same id by `PATCH /api/gyms/:id`, and purged after `TEMPORARY_GYM_RETENTION_DAYS` unless something references it. An adaptation for a temporary gym with no equipment is refused unless the request is bodyweight only. The lifecycle, the default rules and the finish-summary prompt "Save this gym for future use?" are owned by [gyms-and-equipment.md §2.13](gyms-and-equipment.md#213-temporary-gyms).
+
+#### Usage and the token cap
+
+Usage by node and role, the key-source labels, "tokens, not currency" and the run's token cap are owned by [§2.12](#212-usage-by-agent-role), including what an adapt run does when the cap stops it. The per-run cap is `min(ADAPTATION_MAX_RUN_TOKENS = 120000, ai.training.maxRunTokens)`, never below the settings minimum. The run's `jobId` correlates it with `ai_usage_events` rows.
+
+#### Web
+
+- **Entry.** `AdjustWorkoutEntry` (`apps/web/src/components/training/adapt/`) sits beside Start workout on the Today workout card and on `/train`. It appears only with AI on and `ai:use`; otherwise one line says why, and Start workout is never blocked. On Today an "Adjusted workout ready" chip returns to the latest unapplied ready adaptation started in this browser in the last 24 hours.
+- **Sheet.** `AdaptWorkoutSheet` is a dialog, full-screen on compact windows: chips for minutes, Sore (muscles and level), low energy and equipment, a gym select with "Different place", a note, and a readiness switch. It shows the preview's "What will be sent" summary and which model each role will use, and refuses a request that changes nothing before the round trip.
+- **Run and review.** `/train/adapt/:adaptationId` (`ai:use` and AI on, else back to `/train`) shows the stages (reading the plan, adapting, checking limits, reviewing), then the review: AI badge and "Draft, not medical advice", the diff against the planned workout (kept, swapped, dropped with reason, added; icons and words, never colour alone), estimated against requested minutes, rationale, assumptions, guardrail notes, the critic's verdict or "Not reviewed by the critic", and `AgentUsagePanel`. Actions: Use for today only, Update my plan (disabled with the reason when there was no base), Discard, Adjust again. Each 409 is explained with the step that resolves it; a safety stop shows only the guidance. A failed adaptation shows the failure copy for its error code with **Try again** (reopens the sheet with the last request), **Start the planned workout instead** (links to `/train`) and, for some codes, one extra action; a cancelled one offers **Adjust again**.
+- **AI off.** Both apply routes answer `403 AI_DISABLED`; the review offers "Copy exercises" and the planned workout still starts from Today.
+
 ## 3. Configuration and permissions
 
 **Settings.** No environment variable is added for any of it.
@@ -321,15 +490,16 @@ Per-endpoint shapes are in `/api/docs`.
 | `ai.training.maxCriticRounds` | User settings | 1, 2 or 3; default 2 |
 | `ai.enabled`, `ai.hostedTools.web_search` | `/admin/settings/ai` | Kill switch; the researcher cannot run while web search is off (off by default) |
 | `ai.limits` | `/admin/settings/ai` | Platform request and output caps; apply to every agent call |
+| `ai.training.maxRunTokens` in an adapt run | User settings | Lowers the adapt run's cap (`ADAPTATION_MAX_RUN_TOKENS`, 120,000) and never raises it |
 | `programs.autonomy` | Plan header column | `autonomous` (default) or `ask_first` |
 
 Role resolution states (`GET /api/ai/training/models`, from the feature resolver): `ready`, `auto` (runnable), and the blocking `no_key`, `no_models`, `missing_capability`, `web_search_disabled`, `ai_disabled`. A run that needs a blocked role is refused at start with `409 TRAINING_ROLE_UNAVAILABLE`.
 
 **Cost and caps.** Protection is layered: `ai.limits` on every call; the per-run token cap frozen on the run at start and checked before each call by `RunBudget` (counting input, output and reasoning tokens; rebuilt from the run's usage on resume, so a resumed run spends against the same cap); the output cap of each call clamped to the remaining budget; and a pre-run estimate (`POST /api/ai/training/estimate`, a range, never a quote). One active run per user. Usage is shown as tokens per agent and key source ([§2.12](#212-usage-by-agent-role)); no currency is computed because the platform has no price catalog. A spent budget fails the run `TRAINING_RUN_BUDGET_EXCEEDED`, except that a critique or revision the budget cannot pay for ships the checked draft with `critic_skipped_budget` (create and revise) or `criticReport.skipped = 'token_cap'` and `revision_skipped_token_cap` (adapt).
 
-**Permissions.** `ai:use` for every `/api/ai/training/*` route, usage routes included (behind `AiEnabledGuard`); `programs:read` and `programs:write` for plans; `workouts:write` also for starting a planned workout; `ai_config:read` and `ai_config:write` for the admin switches. The permission matrix is in [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix).
+**Permissions.** `ai:use` for every `/api/ai/training/*` route, usage routes included (behind `AiEnabledGuard`); `programs:read` and `programs:write` for plans; `workouts:write` also for starting a planned workout and for `POST /api/ai/training/adaptations/:id/apply/workout`; `programs:write` also for `apply/plan`; `gyms:write` for saving a temporary gym ([gyms-and-equipment.md §2.13](gyms-and-equipment.md#213-temporary-gyms)); `ai_config:read` and `ai_config:write` for the admin switches. The permission matrix is in [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix).
 
-**Errors.** `details.reason` or `error_code` values: `TRAINING_RUN_ACTIVE` (409, `details.runId`), `TRAINING_ROLE_UNAVAILABLE` (409, `details.role`, `details.state`), `TRAINING_STALE_PLAN` (409, `details.currentVersion`), `TRAINING_EVALUATION_COOLDOWN` (409), `TRAINING_RUN_NOT_RESUMABLE` (409), `TRAINING_RUN_NOT_AWAITING_DECISION` (409), `TRAINING_NOT_IMPLEMENTED` (501, while a kind's graph is not ready), and on the run row `TRAINING_RESEARCH_INSUFFICIENT`, `TRAINING_PLAN_REJECTED`, `TRAINING_RUN_BUDGET_EXCEEDED`, `TRAINING_RUN_LOST`, `TRAINING_CONTEXT_TOO_LARGE`, `TRAINING_SAFETY_STOP`, `TRAINING_APPROVAL_EXPIRED`, plus shared `AI_*` codes.
+**Errors.** `details.reason` or `error_code` values: `TRAINING_RUN_ACTIVE` (409, `details.runId`), `TRAINING_ROLE_UNAVAILABLE` (409, `details.role`, `details.state`), `TRAINING_STALE_PLAN` (409, `details.currentVersion`), `TRAINING_EVALUATION_COOLDOWN` (409), `TRAINING_RUN_NOT_RESUMABLE` (409), `TRAINING_RUN_NOT_AWAITING_DECISION` (409), `TRAINING_NOT_IMPLEMENTED` (501, while a kind's graph is not ready), the adaptation codes in [§2.13](#213-quick-adaptation-and-travel-workouts), and on the run row `TRAINING_RESEARCH_INSUFFICIENT`, `TRAINING_PLAN_REJECTED`, `TRAINING_RUN_BUDGET_EXCEEDED`, `TRAINING_RUN_LOST`, `TRAINING_CONTEXT_TOO_LARGE`, `TRAINING_SAFETY_STOP`, `TRAINING_APPROVAL_EXPIRED`, plus shared `AI_*` codes.
 
 **Notifications.** `training.plan_ready` (after finalize), `training.plan_adapted` (after an autonomous or approved change, and for forced removals applied before a proposal), `training.plan_proposal` (ask-first) and the mandatory `training.plan_safety_stop`. Each is raised after the write commits, outside any transaction; see [the notifications README](../../apps/api/src/notifications/README.md).
 
@@ -345,6 +515,8 @@ Role resolution states (`GET /api/ai/training/models`, from the feature resolver
 | `/api/programs` (list, create, read, patch, structure, activate, pause, archive, duplicate, delete) | `programs:read` or `programs:write` | Plans |
 | `POST /api/programs/:id/autonomy/resume` | `programs:write` | Resume paused automation |
 | `GET /api/programs/:id/versions`, `POST /:id/revert`, `GET /:id/change-log`, `POST /:id/change-log/seen` | read or write | History, undo, banner |
+| `/api/ai/training/adaptations` (context-preview, create, read, cancel, apply/workout, apply/plan, discard) | `ai:use` (+ `workouts:write` or `programs:write` to apply) | Quick adaptation; table in [§2.13](#213-quick-adaptation-and-travel-workouts) |
+| `GET /api/ai/training/runs/:runId/usage`, `GET /api/ai/training/usage` | `ai:use` | [§2.12](#212-usage-by-agent-role) |
 | `GET /api/training/today`, `GET /api/training/signals`, `POST /api/program-workouts/:id/start` | `programs:read` (+ `workouts:write` to start) | Today and signals |
 
 nginx unbuffers `/api/ai/training/stream` ([ARCHITECTURE.md §10.3](../ARCHITECTURE.md#103-nginx-routing)).
@@ -355,6 +527,9 @@ nginx unbuffers `/api/ai/training/stream` ([ARCHITECTURE.md §10.3](../ARCHITECT
 |---|---|
 | Add an agent or node | Follow [the AI README recipe](../../apps/api/src/ai/README.md#adding-a-training-agent-or-node) |
 | Change a limit (sets, RPE, envelope, evaluation spacing) | Edit `guardrails/limits.ts`, `guardrails/envelope-limits.ts` or `evaluation/evaluation.constants.ts`; update the table in §2.6 or §2.8 |
+| Add an agent graph feature like quick adaptation | [The AI README recipe](../../apps/api/src/ai/README.md#adding-an-agent-graph-feature-like-quick-adaptation) |
+| Change an adaptation rule number | Edit `ADAPTATION_RULES` in `training-adaptation/adaptation.constants.ts`; update the rules table in [§2.13](#213-quick-adaptation-and-travel-workouts); `adaptation-rules.table.spec.ts` shows what moves |
+| Change a prompt | Edit `training-adaptation/prompts/`, bump `ADAPTATION_PROMPT_VERSION`, keep the markers and schema names in `markers.ts` (pinned) |
 | Add an event type | `registerRunEventType` beside the emitting node, with a strict schema of identifiers, enums and counts |
 | Add a never-send entry | Add it to `context/never-send.ts`; the canary test picks it up |
 | Allow another provider for the researcher | Needs a provider whose hosted web search the platform drives; extend `RESEARCHER_PROVIDERS` and the provider's adapter under `ai/providers/<provider>/`, with its own SDK boundary spec |
@@ -381,9 +556,20 @@ Tests that enforce the invariants (paths under `apps/api/` unless noted):
 - `test/jobs/cron-enqueue-only.spec.ts`, `on-event-no-io.spec.ts`: the sweep and purge crons only enqueue, and the evaluation listeners do no long-running work.
 - `src/training-agents/graph-runtime-info.spec.ts`, `test/training-agents/training-graph-telemetry.spec.ts`: LangGraph loads at boot and framework telemetry is forced off.
 - `src/training-usage/training-usage.attribution.spec.ts`, `test/ai/training-usage.integration.spec.ts`, `test/training-usage/training-usage.db.spec.ts`: attribution and `typical` rules, the auth, kill-switch and 404 matrix of the usage routes, and the SQL over seeded rows (owner scoping, retention-purged runs, integer casts). Web: `AgentUsagePanel.test.tsx`, `MonthlyAgentUsageSection.test.tsx`.
+- `src/training-adaptation/rules/adaptation-rules.spec.ts`, `adaptation-rules.table.spec.ts`: the rules table, never-escalate, time-fit repair (T1 to T3 and `ADAPTATION_CANNOT_FIT`), soreness, low energy and conservative mode.
+- `src/training-adaptation/graph/adaptation.graph.spec.ts`, `adaptation-token-cap.spec.ts`: the graph on `FakeAiProvider` (accept, exactly one revise pass, urgent stop with zero calls, hostile output repaired, cap behaviour).
+- `src/training-adaptation/prompts/adaptation-prompts.contract.spec.ts`: markers, schema names and prompt version pinned; free text only inside the context block; the safety block first; loads never the model's.
+- `src/training-adaptation/context/adaptation-context.builder.spec.ts`, `build-adaptation-context.spec.ts`, `test/training-adaptation/adaptation-canary.db.spec.ts`: the never-send canary over real rows, preview equals snapshot, ownership scoping and the gym `404`.
+- `src/training-adaptation/dto/adaptation-request.dto.spec.ts`, `adaptation.service.spec.ts`: request bounds and the at-least-one-change rule; create, cancel and apply branches.
+- `test/ai/training-adaptation.integration.spec.ts`: RBAC per route (exact permission strings), kill switch on every route and on apply, validation, hostile free text, urgent stop with an empty provider log, revise ceiling.
+- `test/training-adaptation/adaptation-runtime.db.spec.ts`, `adaptation-apply.db.spec.ts`, `adaptation-apply-edge.db.spec.ts`: one active adaptation per user, an adapt run beside a plan run, apply idempotence under parallel taps, `WORKOUT_IN_PROGRESS`, staleness on real rows, loads never from the model, ownership.
+- `src/training-adaptation/handlers/adaptation-run.handler.spec.ts`: outcomes, rate-limit deferral and resume, cancel, deadline and the settle safety net. `ai-jobs-server-only.spec.ts` and `ai-kill-switch.integration.spec.ts` discover `ai.training.adapt.run` with no edit.
+- `src/training-adaptation/handlers/adaptations-purge.handler.spec.ts`, `tasks/adaptations-purge.task.spec.ts`, `test/training-adaptation/adaptation-purge.db.spec.ts`, `src/gyms/handlers/temporary-gym-purge.handler.spec.ts`, `test/gyms/temporary-gym-purge.db.spec.ts`: purge batches, reference safety of temporary gyms, and crons that only enqueue (`test/jobs/cron-enqueue-only.spec.ts` discovers both).
+- Web (`apps/web/src/__tests__/`): `components/training/adapt/` (sheet, parts, review, hotel step), `pages/AdaptationReviewPage.test.tsx`, `AdaptRoutes.test.tsx`, `utils/reduceRunEvents.adapt.test.ts`, `components/gyms/TemporaryGymChip.test.tsx`.
 - `src/programs/today/no-ai-import.spec.ts`: the programs layer has no AI dependency, so manual plans work with AI off.
 - Real Postgres (`*.db.spec.ts`): `test/training-agents/prisma-checkpoint-saver.db.spec.ts`, `training-plan-runs.db.spec.ts`, `training-runtime.db.spec.ts`, `training-plan-finalize.db.spec.ts`, `training-evaluation.db.spec.ts`, `training-evaluation-run.db.spec.ts` and the cross-story `training-flow.db.spec.ts`.
 - Scenario suites and fixtures: `test/fixtures/training/scenarios/`, `test/training-agents/scenario-fixtures.spec.ts` (every fixture output parses with the real contracts and names only seeded exercises), `test/training-agents/scenarios/*.integration.spec.ts`, `test/fake-responses/fake-responses-server.spec.ts` and the Playwright `tests/e2e/specs/training-plans.spec.ts`. See [TESTING.md](../TESTING.md#fake-responses-server-and-training-scenarios).
+- Playwright: the adaptation spec in `tests/e2e/specs/` runs against the fake OpenAI-compatible server the way `training-plans.spec.ts` runs against the fake Responses server; see [TESTING.md](../TESTING.md#quick-adaptation-suites-and-the-fake-provider-e2e).
 - Plan quality: the evals in [TESTING.md](../TESTING.md#evals).
 
 ## 6. Design decisions
@@ -412,6 +598,20 @@ Tests that enforce the invariants (paths under `apps/api/` unless noted):
 
 **A fake Responses server instead of a test hook.** An `AI_FAKE` switch would be a production test seam and AI must have no environment configuration. The `openai` provider slot's base URL is a real runtime setting, so a standalone fake needs zero production change. It replays the same scenario fixtures as Jest, validated against the contracts, so they cannot drift.
 
+**Adaptation is user-initiated, not an autonomous evaluator.** A person who says "30 minutes, sore chest" wants an answer now and to see it before training. The evaluator adapts the plan from logged history on a schedule and is autonomous with an undo; a same-day adjustment is confirmable by construction (a review, then one of two apply routes). Rejected: routing it through the evaluate graph (wrong cadence, a 48-hour rate limit that would refuse the second adjustment of a week, and plan-level operations for a one-day change).
+
+**Two apply routes, not one.** "Use for today only" and "Update my plan" have different blast radii: a workout row versus a plan version. One route with a flag would hide that in the permission check (`workouts:write` versus `programs:write`) and in the undo. Rejected: always writing the plan (a hotel workout would rewrite home training) and never offering it (a lasting injury would need three manual edits).
+
+**No loads from the model.** A model asked for weights invents them, and a wrong load is the most direct route to injury the feature has. The stored proposal has no load field; `apply` fills loads from the plan or the last session. Rejected: accepting model loads inside a clamp (a clamp that wide is a second prescription engine to maintain).
+
+**One revise round.** A second critic round costs a third and fourth provider call to fix issues the guardrails already bound. The critic is light (four checks), a revision that breaks a rule falls back to the first checked proposal, and the revision is never critiqued again. Rejected: a configurable loop count (the plan flow already has one, and here the deterministic layer makes more rounds low value).
+
+**A temporary gym is a gym.** Reusing the gyms table means the scan, equipment editor, references and purge rules already exist, and saving is a flag flip that keeps the id (so a finished workout still points at the same gym). Rejected: a separate `travel_gyms` table (a copy of the equipment model plus a promote migration) and an in-memory inventory (the scan job needs a gym row to write to).
+
+**Tokens, not currency.** The platform has no price catalog, and a made-up price would be wrong on the first provider change. Usage shows tokens, model and key source, and the cap is in tokens. Rejected: a per-model price table (a maintenance burden that ages silently).
+
+**No rule-based fallback.** With a role unusable the request is refused `409 TRAINING_ROLE_UNAVAILABLE` with the fix, and the planned workout starts as before. A deterministic "shorten it" would be a second adapter that ignores intent and would hide a missing model. The rules run after the model as a validator and repairer, never as a generator.
+
 ## 7. Verification
 
 ```bash
@@ -431,6 +631,25 @@ End to end with the fake provider and no key (see the [runbook](../runbooks/ai-t
 4. Activate a plan, finish a workout with `evaluator-autonomous` selected, and watch the change banner; Undo restores the prior version. Set the plan to ask first, repeat with `evaluator-structural`, and approve or reject the proposal.
 5. Turn AI off at `/admin/settings/ai`: `/api/ai/training/*` answers `403`, the wizard redirects, and the manual builder, Today and the viewer still work.
 
+Quick adaptation:
+
+```bash
+npm test --workspace=api -- training-adaptation training-usage test/ai/training-adaptation
+npm run test:db --workspace=api -- training-adaptation temporary-gym-purge
+npm run test:run --workspace=web -- adapt
+```
+
+Real-key smoke checklist (manual, never in CI; `openai.adapter.live.spec.ts` shows the opt-in pattern for a live suite). A normal run is two provider calls, three with a revise. Record your own token counts from the usage panel rather than quoting a range.
+
+1. Set a real key and planner and critic models at `/settings/ai/agents`; check both roles resolve.
+2. With an active plan and a workout today, open Adjust, choose 30 minutes, Sore chest (mild) and Only dumbbells. Confirm "What will be sent" holds no name, gym name or note, and the stages advance.
+3. In the review, check every exercise is supported by dumbbells, no exercise has more sets or RPE than planned, the estimate is at most 30 minutes, and the rationale matches. Note the per-role tokens and key source.
+4. Use for today only: the logger opens prefilled and the plan is unchanged. Repeat and choose Update my plan: a new plan version with an `adapted` change-log entry, and revert restores the previous one.
+5. Type "chest pain and dizzy" in the note: the guidance card appears, no run starts and the usage panel shows no new call.
+6. Different place: scan two hotel photos, confirm the equipment, adapt, finish the workout and choose Save gym; it appears under permanent gyms.
+7. Set a small run token cap in user settings and adapt again: the cap message appears and, if the proposal exists, "Not reviewed by the critic".
+8. Turn AI off at `/admin/settings/ai`: the entry explains, and the planned workout still starts.
+
 ## History
 
 - #92: the epic, E5 Agentic training plan.
@@ -446,4 +665,8 @@ End to end with the fake provider and no key (see the [runbook](../runbooks/ai-t
 - #102: plan signals and adherence.
 - #103: scenario fixtures, the fake Responses server, end-to-end suites and this spec.
 - #104: plan-quality evals.
+- #105: the epic, E6 Adaptive and travel workouts.
+- #106: quick workout adaptation: the adapt graph, rules, context, apply routes and review UI.
+- #107: travel and hotel workouts: temporary gyms, save and purge, the equipment-unconfirmed refusal.
 - #108: usage and cost by agent role, the token cap surfaced, graceful cap behaviour in adaptation runs.
+- #109: adaptation and travel workouts in this spec, the AI README recipe and the inventories.
