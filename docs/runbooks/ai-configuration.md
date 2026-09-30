@@ -10,7 +10,8 @@ or a new provider adapter, is
 [`apps/api/src/ai/README.md`](../../apps/api/src/ai/README.md).
 
 Everything here happens in the admin UI at `/admin/settings/ai` (and
-`/admin/settings/ai/models`, `/admin/settings/ai/usage`) or through
+`/admin/settings/ai/models`, `/admin/settings/ai/assignments`,
+`/admin/settings/ai/usage`) or through
 `evopathcli api` against the same endpoints. There is no environment variable for
 any of it, and there must never be one.
 
@@ -23,6 +24,8 @@ Source of truth for every claim below:
 - `apps/api/src/common/schemas/settings.schema.ts` — the `ai` system-settings
   namespace: `enabled`, `keyPolicy`, `providers`, `defaults`, `hostedTools`,
   `limits`.
+- `apps/api/src/ai/assignments/` — the model assignments routes and
+  `AiFeatureModelResolver`.
 - `apps/api/src/ai/keys/` — `AiKeyResolver` (the key policy) and the user BYOK
   store.
 - `apps/api/src/ai/core/ai-error.ts` — every `AiErrorCode` in the
@@ -173,6 +176,35 @@ Discovery alone changes nothing a user can reach. On
 Enabling a deprecated model is refused (`409`), and so is enabling an
 unclassified model with no capabilities supplied (`400`): an operator makes the
 capability decision, the platform does not guess one.
+
+### 6.1 Assign models to features
+
+Only administrators choose models; users never do. Enabling a model (above)
+makes it available, and **AI Model Assignments**
+(`/admin/settings/ai/assignments`, `ai_config:read` to view, `ai_config:write`
+to save) decides which one each feature uses:
+
+1. Set the **Default model**. It serves every feature that has no assignment
+   of its own, and `POST /api/ai/responses` calls that omit `model`.
+2. Optionally assign a model per feature: the photo features (gym scan,
+   workout prefill, body metric reading) and the four training agents. The
+   pickers list only models that are enabled, not deprecated, of an enabled
+   provider and capable for that feature. A training agent also takes a
+   reasoning effort.
+3. Save. It takes effect at once on this instance and within five seconds on
+   the others. Or `evopathcli api PUT /api/admin/ai/assignments` with
+   `{ "default": {...}, "features": {...} }`.
+
+A save that names a missing, disabled, deprecated, incapable or
+provider-disabled model is refused with `400 AI_ASSIGNMENT_INVALID`, one entry
+per field, and stores nothing.
+
+Resolution for each user is: the feature's assignment, then the default, then
+an automatic pick among the models that user can use (reasoning first, larger
+context window), else a blocking state. An assignment a user's key cannot
+reach is skipped, not an error: that user runs on the next usable capable
+model. Leave everything unassigned and every feature auto-picks. Check what a
+given user gets with `GET /api/ai/features` as that user.
 
 ## 7. Choose the key policy
 
@@ -670,8 +702,19 @@ reference; the full one is in [`docs/specs/ai-platform.md`](../specs/ai-platform
 | `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it (section 12). |
 | `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. For Azure OpenAI or an OpenAI-compatible server, also the endpoint itself: `details.providerCode: "redirect_refused"` means it answered with a redirect, which is never followed (usually a wrong `baseUrl`), and `details.missing: "baseUrl"` that none is configured (sections 10.4, 10.5). |
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
+| `AI_ASSIGNMENT_INVALID` | 400 | Saving model assignments named a model that cannot serve that field. | `details.errors[]` lists each field and its code; enable or classify the model (section 6) or pick another (section 6.1). |
+| `AI_FEATURE_UNAVAILABLE` | 409 | A photo analysis has no usable model for this user. | `GET /api/ai/features` as the user shows the `state` and `fix`. `no_key`: the user adds a key (section 8). `no_models` or `missing_capability` with `fix: admin`: enable or assign a capable model (sections 6, 6.1). |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output didn't parse against the requested schema. | Usually a model/schema mismatch, or a model too weak to reliably follow the schema; consider `strict: true` or a different model. |
+
+A feature says the user must add a key, or says no model is assigned:
+
+| What the user sees (`state`) | Cause | Fix |
+|---|---|---|
+| "Add your own AI key" (`no_key`) | The user has no key source: no own key, and the org key does not serve them under `byok` | The user adds a key at `/settings/ai` (section 8), or switch to `byok_with_org_fallback` (section 7) |
+| Nothing available to use (`no_models`) | A key source exists but no enabled model is reachable with it | Enable models (section 6) |
+| A model is missing for this feature (`missing_capability`) | No usable model has the feature's capabilities | Enable or classify a capable model (section 6), or the user adds a key that reaches one |
+| Runs on an unexpected model | The assignment is unusable for that user's key, so resolution fell through (`assignmentUnavailable`) | Assign a model every key reaches, or accept the fall-through |
 
 Provider-specific symptoms: Azure OpenAI in section 10.4, an OpenAI-compatible
 server in section 10.5.
@@ -688,6 +731,8 @@ server in section 10.5.
       provider needs one
 - [ ] Catalog refreshed; unclassified models given capabilities; the models
       users should see enabled
+- [ ] Default model and per-feature models assigned at
+      `/admin/settings/ai/assignments` (section 6.1)
 - [ ] `ai:use` granted to whoever should use AI beyond Admin and Contributor
 - [ ] Hosted tools, realtime and limits set deliberately (sections 11–13)
 - [ ] `logPromptContent` left off unless you are actively debugging
