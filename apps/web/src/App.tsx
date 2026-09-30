@@ -25,6 +25,11 @@ import { MaintenanceGate } from './components/common/MaintenanceGate';
 import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { InstallPrompt } from './components/pwa/InstallPrompt';
 
+/** Where an AI plan route sends the user while AI is off or `ai:use` is missing. */
+const PLANS_AI_REDIRECT = {
+  notice: 'Creating a plan with AI is not available right now. You can still view, edit and build plans yourself.',
+};
+
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
@@ -39,6 +44,7 @@ const TrainPage = lazy(() => import('./pages/TrainPage'));
 const TrainExercisesPage = lazy(() => import('./pages/TrainExercisesPage'));
 // E5.6: training plans, also under `/train` (owned by the `train` destination).
 const PlansPage = lazy(() => import('./pages/Train/PlansPage'));
+const PlanWizardPage = lazy(() => import('./pages/Train/PlanWizardPage'));
 // E4.3: one workout (active logger or completed detail), also under `/train`.
 const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
 // E4.5: "Prefill from photo", photos to AI-drafted exercises the user reviews.
@@ -234,6 +240,16 @@ function AppRoutes() {
                     element={
                       <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
                         <PlansPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/train/plans/new"
+                    element={
+                      <RequirePermission permission="ai:use" fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                        <RequireAiEnabled fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                          <PlanWizardPage />
+                        </RequireAiEnabled>
                       </RequirePermission>
                     }
                   />
