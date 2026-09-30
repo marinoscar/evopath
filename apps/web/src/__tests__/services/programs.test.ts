@@ -11,6 +11,7 @@ import {
   formatTargetLoad,
   getProgram,
   getProgramVersion,
+  getTrainingToday,
   listProgramChangeLog,
   listPrograms,
   listProgramVersions,
@@ -19,6 +20,8 @@ import {
   programRefusalOf,
   replaceProgramStructure,
   revertProgram,
+  startProgramWorkout,
+  todayRefusalOf,
   updateProgram,
 } from '../../services/programs';
 
@@ -133,5 +136,27 @@ describe('programs service', () => {
   it('formats a target load in the user unit, or null when open', () => {
     expect(formatTargetLoad(100, 'kg')).toBe('100 kg');
     expect(formatTargetLoad(null, 'kg')).toBeNull();
+  });
+
+  it('reads today with the client date', async () => {
+    const seen = capture('get', '/training/today', { kind: 'no_program', date: '2026-09-30' });
+    const today = await getTrainingToday('2026-09-30');
+    expect(seen.method).toBe('GET');
+    expect(new URL(seen.url!).search).toBe('?date=2026-09-30');
+    expect(today).toEqual({ kind: 'no_program', date: '2026-09-30' });
+  });
+
+  it('starts a planned workout with date and gymId', async () => {
+    const seen = capture('post', `/program-workouts/${P}/start`, { workoutId: LOG, existing: false, planVersion: 2 }, 201);
+    const result = await startProgramWorkout(P, { date: '2026-09-30', gymId: LOG });
+    expect(seen.body).toEqual({ date: '2026-09-30', gymId: LOG });
+    expect(result).toEqual({ workoutId: LOG, existing: false, planVersion: 2 });
+  });
+
+  it('names the in-progress refusal of a start', async () => {
+    capture('post', `/program-workouts/${P}/start`, {}, 409, { reason: 'WORKOUT_IN_PROGRESS', workoutId: LOG });
+    const error = await startProgramWorkout(P, { date: '2026-09-30' }).catch((e) => e);
+    expect(todayRefusalOf(error)).toBe('WORKOUT_IN_PROGRESS');
+    expect(todayRefusalOf(new Error('x'))).toBeNull();
   });
 });

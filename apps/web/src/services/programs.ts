@@ -268,6 +268,130 @@ export interface UpdateProgramInput {
 export type RevertProgramInput = { toVersion: number } | { changeLogId: string };
 
 // -----------------------------------------------------------------------------
+// Today's planned workout (E5.7)
+// -----------------------------------------------------------------------------
+
+/** `details.reason` values `getTrainingToday` and `startProgramWorkout` answer with. */
+export const TODAY_REFUSALS = {
+  /** `date` more than 2 days from the server's today (400). */
+  DATE_OUT_OF_RANGE: 'TODAY_OUT_OF_RANGE',
+  /** The plan was paused, archived or completed before start (409, with `details.status`). */
+  PROGRAM_NOT_ACTIVE: 'PROGRAM_NOT_ACTIVE',
+  /** Another workout is in progress (409); `details.workoutId` is the one to resume. */
+  WORKOUT_IN_PROGRESS: 'WORKOUT_IN_PROGRESS',
+  /** The planned workout has no exercises (409). */
+  PROGRAM_WORKOUT_EMPTY: 'PROGRAM_WORKOUT_EMPTY',
+} as const;
+export type TodayRefusal = (typeof TODAY_REFUSALS)[keyof typeof TODAY_REFUSALS];
+
+export interface TodayProgramRef {
+  id: string;
+  name: string;
+}
+
+export interface TodayProgramWorkoutRef {
+  id: string;
+  name: string;
+  /** ISO weekday 1 (Monday) .. 7 (Sunday). */
+  weekday: number;
+  estimatedMinutes: number | null;
+}
+
+export interface TodaySessionExercise {
+  programExerciseId: string;
+  exercise: {
+    id: string;
+    slug: string;
+    name: string;
+    trackingMode: string;
+    isBodyweight: boolean;
+    primaryMuscles: string[];
+  };
+  isPriority: boolean;
+  sets: number;
+  repMin: number;
+  repMax: number;
+  targetRpe: number | null;
+  restSeconds: number;
+  loadGuidance: LoadGuidance;
+  /** Kilograms; the plan's load (meaningful for `fixed`). */
+  targetLoadKg: number | null;
+  /**
+   * Kilograms; the load to show: `fixed` = `targetLoadKg` (else last top set),
+   * `from_history` = last top set, `choose_start` = null ("Choose a starting load").
+   */
+  suggestedLoadKg: number | null;
+  /** The one-line reason for this prescription. */
+  rationale: string | null;
+  lastTime: { performedOn: string; topSet: { weightKg: number; reps: number } | null } | null;
+  /** Null when the plan has no gym. */
+  availableAtGym: boolean | null;
+}
+
+export interface TodaySession {
+  programId: string;
+  programName: string;
+  programWorkoutId: string;
+  name: string;
+  weekNumber: number;
+  totalWeeks: number;
+  isDeload: boolean;
+  estimatedMinutes: number | null;
+  planVersion: number;
+  /** AI changes not yet marked seen: render the "Plan adjusted" chip when > 0. */
+  unseenChangeCount: number;
+  lastChange: { summary: string; actor: ChangeActor; at: string } | null;
+  exercises: TodaySessionExercise[];
+}
+
+/** `GET /api/training/today`: discriminated by `kind`. `date` echoes the request. */
+export type TrainingToday =
+  | { kind: 'no_program'; date: string }
+  | { kind: 'not_started'; date: string; program: TodayProgramRef; startsOn: string }
+  | { kind: 'program_complete'; date: string; program: TodayProgramRef }
+  | {
+      kind: 'rest_day';
+      date: string;
+      program: TodayProgramRef;
+      weekNumber: number;
+      totalWeeks: number;
+      /** The next occurrence within 14 days, or null. */
+      next: { date: string; weekNumber: number; programWorkout: TodayProgramWorkoutRef } | null;
+    }
+  | {
+      kind: 'workout';
+      date: string;
+      program: TodayProgramRef;
+      programWorkout: TodayProgramWorkoutRef;
+      weekNumber: number;
+      totalWeeks: number;
+      isDeload: boolean;
+      /** A completed workout is linked to this planned workout. */
+      done: boolean;
+      completedWorkoutId: string | null;
+      inProgressWorkoutId: string | null;
+      session: TodaySession;
+    };
+
+export type TrainingTodayKind = TrainingToday['kind'];
+
+export interface StartProgramWorkoutInput {
+  /** The client's local day, `YYYY-MM-DD` (within 2 days of the server's today). */
+  date: string;
+  /** Default: the plan's gym. */
+  gymId?: string;
+}
+
+export interface StartProgramWorkoutResult {
+  /** The E4 workout to open in the logger. */
+  workoutId: string;
+  /** True when the in-progress workout for this planned workout was returned. */
+  existing: boolean;
+  /** The plan version the session was started from. */
+  planVersion: number;
+}
+
+// -----------------------------------------------------------------------------
 // Calls
 // -----------------------------------------------------------------------------
 
@@ -353,6 +477,24 @@ export function markProgramChangesSeen(id: string, upToId: string) {
   return api.post<{ updated: number }>(`${programPath(id)}/change-log/seen`, { upToId });
 }
 
+/**
+ * What the active plan asks for on `date`, the client's local day
+ * (`YYYY-MM-DD`, in the Health Profile time zone when set). `programs:read`.
+ */
+export function getTrainingToday(date: string, options: { signal?: AbortSignal } = {}) {
+  return api.get<TrainingToday>(`/training/today?date=${encodeURIComponent(date)}`, { signal: options.signal });
+}
+
+/**
+ * Starts a planned workout into the logger (`programs:read` + `workouts:write`).
+ * Idempotent while that session is in progress (`existing: true`). 409
+ * `WORKOUT_IN_PROGRESS` carries `details.workoutId` (offer Resume); 409
+ * `PROGRAM_NOT_ACTIVE` means refetch Today.
+ */
+export function startProgramWorkout(programWorkoutId: string, input: StartProgramWorkoutInput) {
+  return api.post<StartProgramWorkoutResult>(`/program-workouts/${encodeURIComponent(programWorkoutId)}/start`, input);
+}
+
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
@@ -369,4 +511,13 @@ export function programRefusalOf(error: unknown): ProgramRefusal | null {
 /** A target load for display in the user's unit, or null when the plan leaves it open. */
 export function formatTargetLoad(kg: number | null | undefined, unit: WeightUnit): string | null {
   return kg === null || kg === undefined ? null : formatWeight(kg, unit);
+}
+
+/** The refusal reason of a Today or start error, when it is one of those. */
+export function todayRefusalOf(error: unknown): TodayRefusal | null {
+  if (!(error instanceof ApiError)) return null;
+  const reason = (error.details as { reason?: unknown } | undefined)?.reason;
+  return typeof reason === 'string' && (Object.values(TODAY_REFUSALS) as string[]).includes(reason)
+    ? (reason as TodayRefusal)
+    : null;
 }
