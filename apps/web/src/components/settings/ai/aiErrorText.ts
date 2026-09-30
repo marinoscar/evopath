@@ -8,7 +8,7 @@
  */
 import { TRAINING_RUN_BUDGET_EXCEEDED, toAiErrorInfo } from '../../../services/aiErrors';
 
-/** Where the per-run token cap is changed (the agent model settings card). */
+/** Where the per-run token cap is changed (Settings, Training agents; the models there are read-only). */
 export const TOKEN_CAP_SETTINGS_PATH = '/settings/ai/agents';
 
 const tokenCount = new Intl.NumberFormat('en-US');

@@ -10,7 +10,8 @@ import { Route, Routes, useParams } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { render, screen, waitFor, within } from '../../../utils/test-utils';
 import { server } from '../../../mocks/server';
-import { AdaptWorkoutSheet } from '../../../../components/training/adapt/AdaptWorkoutSheet';
+import { AdaptWorkoutSheet, startProblem } from '../../../../components/training/adapt/AdaptWorkoutSheet';
+import { ApiError } from '../../../../services/api';
 import { LATEST_ADAPTATION_KEY, type AdaptationRequest } from '../../../../services/trainingAdaptation';
 import { ADAPTATION_ID, ADAPT_RUN_ID, mockPreview, roleModel } from '../../../mocks/fixtures/adaptations';
 
@@ -118,7 +119,7 @@ describe('AdaptWorkoutSheet', () => {
     renderSheet();
     await user.click(screen.getByRole('button', { name: '45 minutes' }));
     const problem = await screen.findByTestId('role-problem-planner');
-    expect(within(problem).getByRole('link', { name: 'Add an AI key' })).toBeInTheDocument();
+    expect(within(problem).getByRole('link', { name: 'Add a key' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Adjust workout' })).toBeDisabled();
   });
 
@@ -150,7 +151,7 @@ describe('AdaptWorkoutSheet', () => {
     server.use(
       http.post('*/api/ai/training/adaptations', () =>
         HttpResponse.json(
-          { statusCode: 409, message: 'Role unavailable', details: { reason: 'TRAINING_ROLE_UNAVAILABLE', role: 'critic', state: 'missing_capability', fix: 'settings' } },
+          { statusCode: 409, message: 'Role unavailable', details: { reason: 'TRAINING_ROLE_UNAVAILABLE', role: 'critic', state: 'missing_capability', fix: 'keys' } },
           { status: 409 },
         ),
       ),
@@ -160,7 +161,40 @@ describe('AdaptWorkoutSheet', () => {
     await user.click(screen.getByRole('button', { name: '15 minutes' }));
     await user.click(screen.getByRole('button', { name: 'Adjust workout' }));
     const problem = await screen.findByTestId('adapt-problem');
-    expect(problem).toHaveTextContent("Critic: this model can't return structured output.");
-    expect(within(problem).getByRole('link', { name: 'Choose a model' })).toBeInTheDocument();
+    expect(problem).toHaveTextContent('The critic agent needs a model with structured output');
+    expect(within(problem).getByRole('link', { name: 'Add a key' })).toHaveAttribute('href', '/settings/ai');
+  });
+
+  it('asks for an administrator on 409 TRAINING_ROLE_UNAVAILABLE fixed by one, never a model choice', async () => {
+    servePreview();
+    server.use(
+      http.post('*/api/ai/training/adaptations', () =>
+        HttpResponse.json(
+          { statusCode: 409, message: 'Role unavailable', details: { reason: 'TRAINING_ROLE_UNAVAILABLE', role: 'planner', state: 'no_models', fix: 'admin' } },
+          { status: 409 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderSheet();
+    await user.click(screen.getByRole('button', { name: '15 minutes' }));
+    await user.click(screen.getByRole('button', { name: 'Adjust workout' }));
+    const problem = await screen.findByTestId('adapt-problem');
+    expect(problem).toHaveTextContent("Your administrator hasn't assigned or enabled one yet.");
+    expect(within(problem).queryByRole('link')).toBeNull();
+  });
+});
+
+describe('startProblem', () => {
+  it('links an AI administrator to the assignments page', () => {
+    const err = new ApiError('Role unavailable', 409, 'TRAINING_ROLE_UNAVAILABLE', {
+      reason: 'TRAINING_ROLE_UNAVAILABLE',
+      role: 'critic',
+      state: 'missing_capability',
+      fix: 'admin',
+    });
+    const problem = startProblem(err, { canAssign: true });
+    expect(problem.link).toEqual({ label: 'Assign a model', to: '/admin/settings/ai/assignments' });
+    expect(startProblem(err).link).toBeUndefined();
   });
 });

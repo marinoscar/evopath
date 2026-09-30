@@ -49,7 +49,7 @@ import {
   type AdaptationRequest,
   type AdaptationRoleModel,
 } from '../../../services/trainingAdaptation';
-import type { RoleResolution } from '../../../services/trainingAgents';
+import type { RoleResolution, RoleResolutionState } from '../../../services/trainingAgents';
 import { AdaptChips, type EquipmentOption } from './AdaptChips';
 import { RoleModelBanner, roleProblem } from './RoleModelBanner';
 import { SentDataSummary } from './SentDataSummary';
@@ -84,7 +84,7 @@ interface SubmitProblem {
   link?: { label: string; to: string };
 }
 
-const RUNNABLE_STATES = ['ready', 'auto', 'stale_preference'];
+const RUNNABLE_STATES: readonly RoleResolutionState[] = ['ready', 'auto'];
 
 function fromResolution(role: 'planner' | 'critic', resolution: RoleResolution | undefined): AdaptationRoleModel | null {
   if (!resolution) return null;
@@ -100,8 +100,12 @@ function fromResolution(role: 'planner' | 'critic', resolution: RoleResolution |
   };
 }
 
-/** A refused start, in words, with the step that fixes it. */
-export function startProblem(err: unknown): SubmitProblem {
+/**
+ * A refused start, in words, with the step that fixes it. `canAssign`: the
+ * caller holds `ai_config:write`, so an administrator's fix links them to the
+ * assignments page.
+ */
+export function startProblem(err: unknown, { canAssign = false }: { canAssign?: boolean } = {}): SubmitProblem {
   const refusal = adaptationRefusalOf(err);
   if (!refusal) return { message: 'Could not start the adjustment. Try again.' };
   const { reason, details, message } = refusal;
@@ -121,9 +125,9 @@ export function startProblem(err: unknown): SubmitProblem {
         state: (typeof details.state === 'string' ? details.state : 'no_models') as AdaptationRoleModel['state'],
         model: null,
         effectiveEffort: null,
-        fix: details.fix === 'keys' || details.fix === 'settings' || details.fix === 'admin' ? details.fix : null,
+        fix: details.fix === 'keys' || details.fix === 'admin' ? details.fix : null,
         runnable: false,
-      });
+      }, { canAssign });
       return { title: 'An agent cannot run', message: problem?.message ?? message, link: problem?.fix ?? undefined };
     }
     case ADAPTATION_REFUSALS.EQUIPMENT_NOT_IN_GYM:
@@ -218,7 +222,7 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
       onClose();
       navigate(`/train/adapt/${encodeURIComponent(started.adaptationId)}`);
     } catch (err) {
-      setProblem(startProblem(err));
+      setProblem(startProblem(err, { canAssign: hasPermission('ai_config:write') }));
       setBusy(false);
     }
   };
