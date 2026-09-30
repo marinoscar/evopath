@@ -105,6 +105,12 @@ export class DoctorService {
       return cached.report;
     }
 
+    // Expired entries are dropped here, so arbitrary `category` values cannot
+    // grow the map past what 15 seconds of requests can put in it.
+    for (const [k, e] of this.cache) {
+      if (this.now() - e.at >= DOCTOR_CACHE_TTL_MS) this.cache.delete(k);
+    }
+
     const report = this.execute(options.category);
     const entry: CacheEntry = { at: this.now(), report };
     this.cache.set(key, entry);
