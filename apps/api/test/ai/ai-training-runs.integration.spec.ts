@@ -25,6 +25,7 @@ import { ACTIVE_RUN_INDEX_NAME } from '../../src/training-agents/runtime/trainin
 import { TrainingRunsService } from '../../src/training-agents/runtime/training-runs.service';
 import { InMemoryRunEventLog } from '../../src/training-agents/testing/in-memory-run-event-log';
 import { createInMemoryTrainingPrisma } from '../../src/training-agents/testing/in-memory-training-prisma';
+import { createRunBody } from '../../src/training-agents/testing/intake-fixtures';
 import { authHeader, createMockTestUser, createMockViewerUser, type TestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, createAiHttpTestApp, parseSse, type AiHttpTestApp } from './ai-http.helper';
 
@@ -201,7 +202,7 @@ describe('/api/ai/training/runs and /stream', () => {
       const res = await request(server())
         .post('/api/ai/training/runs')
         .set(as(alice))
-        .send({ kind: 'create', input: { instruction: FREE_TEXT } })
+        .send(createRunBody({ preferences: FREE_TEXT }))
         .expect(501);
 
       expect(JSON.stringify(res.body)).toContain('TRAINING_NOT_IMPLEMENTED');
@@ -211,11 +212,12 @@ describe('/api/ai/training/runs and /stream', () => {
 
     it('202 { runId, jobId, status: queued } once the graph is ready, with no free text or key anywhere', async () => {
       TRAINING_GRAPH_READY.create = true;
+      const program = db.addProgram(alice.id, 2);
 
       const res = await request(server())
         .post('/api/ai/training/runs')
         .set(as(alice))
-        .send({ kind: 'revise', input: { instruction: FREE_TEXT } })
+        .send({ kind: 'revise', programId: program.id, basedOnVersion: 2, instruction: FREE_TEXT })
         .expect(202);
 
       expect(res.body.data).toEqual({ runId: expect.any(String), jobId: expect.any(String), status: 'queued' });
@@ -233,13 +235,13 @@ describe('/api/ai/training/runs and /stream', () => {
       const res = await request(server())
         .post('/api/ai/training/runs')
         .set(as(alice))
-        .send({ kind: 'create', input: {} })
+        .send(createRunBody())
         .expect(409);
 
       expect(JSON.stringify(res.body)).toContain('TRAINING_RUN_ACTIVE');
       expect(JSON.stringify(res.body)).toContain(active.id);
       // Another user is not blocked by it.
-      await request(server()).post('/api/ai/training/runs').set(as(bob)).send({ kind: 'create', input: {} }).expect(202);
+      await request(server()).post('/api/ai/training/runs').set(as(bob)).send(createRunBody()).expect(202);
     });
 
     it('409 TRAINING_ROLE_UNAVAILABLE names the role and its state', async () => {

@@ -72,20 +72,31 @@ export class TrainingRunsController {
       '`GET /api/ai/training/runs/{runId}`. The models (per agent role) and the token cap are frozen ' +
       'when the run starts. Every model call spends **your** key (or the organisation key, per the ' +
       'key policy).\n\n' +
+      'Body by kind: `create` sends `intake` (goal, experience, days, minutes, weeks, gym, limitations, ' +
+      'avoid list, preferences, `includeBio`, `tailorResearch`, `autonomy`); `revise` sends `programId`, ' +
+      '`basedOnVersion` (the program\'s current version) and `instruction` (at most 500 characters); ' +
+      '`evaluate` sends an optional `programId` and `input`.\n\n' +
       'A request the safety screen stops is answered **200** with `status: "blocked_safety"` and ' +
       '`guidance`: no job is created and no model is called.\n\n' +
       'Refusals (`details.reason`): `TRAINING_NOT_IMPLEMENTED` (**501**) while the agents for this kind ' +
       'of run are not available yet; `TRAINING_RUN_ACTIVE` (**409**, `details.runId` is your run in ' +
       'progress) when you already have a run queued, running or waiting for your decision; ' +
       '`TRAINING_ROLE_UNAVAILABLE` (**409**, `details.role` and `details.state` as in ' +
-      '`GET /api/ai/training/models`) when an agent this kind needs has no usable model.',
+      '`GET /api/ai/training/models`) when an agent this kind needs has no usable model; ' +
+      '`TRAINING_STALE_PLAN` (**409**, `details.currentVersion`) when `basedOnVersion` is not the ' +
+      'program\'s current version. The intake\'s gym and a revised program must be yours (**404**).',
   })
   @ApiDataResponse(TrainingRunStarted, { status: 202, description: 'The run was queued' })
   @ApiResponse({ status: 200, description: 'The safety screen stopped the run (`status: "blocked_safety"`)' })
   @ApiResponse(BAD_REQUEST)
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(FORBIDDEN)
-  @ApiResponse({ status: 409, description: '`TRAINING_RUN_ACTIVE`, `TRAINING_ROLE_UNAVAILABLE`', type: ErrorDto })
+  @ApiResponse({ status: 404, description: 'The intake\'s gym or the revised program is not yours', type: ErrorDto })
+  @ApiResponse({
+    status: 409,
+    description: '`TRAINING_RUN_ACTIVE`, `TRAINING_ROLE_UNAVAILABLE`, `TRAINING_STALE_PLAN`',
+    type: ErrorDto,
+  })
   @ApiResponse({ status: 501, description: '`TRAINING_NOT_IMPLEMENTED`', type: ErrorDto })
   async start(
     @CurrentUser('id') userId: string,

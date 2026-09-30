@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -9,8 +10,10 @@ import {
 import type { Prisma, TrainingPlanRun } from '@prisma/client';
 
 import { TRAINING_MAX_RUN_TOKENS, TRAINING_MIN_RUN_TOKENS } from '../../common/schemas/settings.schema';
+import { gymNotFound } from '../../gyms/gym-views';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { programNotFound } from '../../programs/programs.service';
 import type { FrozenRoleModel } from '../graph/node-context';
 import { DEFAULT_MAX_CRITIC_ROUNDS, type RunKind } from '../graph/run-state';
 import { graphForKind, isGraphReady } from '../graph/training-graphs';
@@ -18,13 +21,15 @@ import { effectiveTokenCap } from '../models/token-estimate';
 import { TrainingModelResolver } from '../models/training-model-resolver.service';
 import { runnable } from '../models/training-models.service';
 import { TRAINING_KIND_ROLES } from '../models/training-role-defaults';
-import type {
-  ListTrainingRunsQuery,
-  StartTrainingRunInput,
-  TrainingRunDecisionInput,
-  TrainingRunListData,
-  TrainingRunStartedData,
-  TrainingRunViewData,
+import {
+  type ListTrainingRunsQuery,
+  type StartTrainingRunInput,
+  startTrainingRunSchema,
+  toRunRequest,
+  type TrainingRunDecisionInput,
+  type TrainingRunListData,
+  type TrainingRunStartedData,
+  type TrainingRunViewData,
 } from './dto/training-runs.dto';
 import { parseRunUsage } from './run-budget';
 import { RunEventsService } from './run-events.service';
@@ -48,10 +53,14 @@ import {
 // OWNER-SCOPED. Every read and write matches on (run id, caller): another
 // user's run is a 404, indistinguishable from one that does not exist.
 //
-// START. The safety screen first (a stop records `blocked_safety` with no job
-// and no provider call), then the graph readiness constant (`501
-// TRAINING_NOT_IMPLEMENTED` while the kind's graph is stubbed), then role
-// resolution (`409 TRAINING_ROLE_UNAVAILABLE` naming the role and its state).
+// START. The request is validated (`create` carries the intake, `revise` the
+// program, `basedOnVersion` and the instruction). Then the safety screen (a
+// stop records `blocked_safety` with no job and no provider call), the graph
+// readiness constant (`501 TRAINING_NOT_IMPLEMENTED` while the kind's graph is
+// stubbed), the request's targets (the intake's gym must be the caller's and
+// the revised program too, else `404`; `basedOnVersion` must be the program's
+// `currentVersion`, else `409 TRAINING_STALE_PLAN`), then role resolution
+// (`409 TRAINING_ROLE_UNAVAILABLE` naming the role and its state).
 // The models and the token cap are FROZEN on the run, and the run row and its
 // `ai.training.plan.run` job are created in ONE transaction. A second active
 // run for the user trips `training_plan_runs_active_per_user_uniq_idx`; that
@@ -82,12 +91,23 @@ export class TrainingRunsService {
     dto: StartTrainingRunInput,
     trigger: TrainingRunTrigger = 'user',
   ): Promise<TrainingRunStartedData> {
-    const kind = dto.kind;
-    const input = dto.input ?? {};
+    const parsed = startTrainingRunSchema.safeParse(dto);
+
+    if (!parsed.success) {
+      throw new BadRequestException({
+        message: 'Invalid training run request',
+        details: { issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) },
+      });
+    }
+
+    const body = parsed.data;
+    const kind = body.kind;
+    // What the run stores and the graph reads as `state.input`.
+    const { request: input, programId } = toRunRequest(body);
     const screened = await this.safety.screen({ userId, kind, input });
 
     if (screened.stop) {
-      return this.recordSafetyStop(userId, dto, trigger, screened.guidance, screened.code);
+      return this.recordSafetyStop(userId, kind, programId, trigger, screened.guidance, screened.code);
     }
 
     if (!isGraphReady(kind)) {
@@ -95,6 +115,25 @@ export class TrainingRunsService {
         message: `Training runs of kind "${kind}" are not available yet.`,
         details: { reason: TRAINING_REASONS.NOT_IMPLEMENTED, graph: graphForKind(kind) },
       });
+    }
+
+    if (body.kind === 'create' && body.intake?.gymId) {
+      const gym = await this.prisma.gym.findFirst({ where: { id: body.intake.gymId, userId }, select: { id: true } });
+      if (!gym) throw gymNotFound();
+    }
+
+    if (body.kind === 'revise' && programId) {
+      const program = await this.prisma.program.findFirst({
+        where: { id: programId, userId },
+        select: { currentVersion: true },
+      });
+      if (!program) throw programNotFound();
+      if (program.currentVersion !== body.basedOnVersion) {
+        throw new ConflictException({
+          message: 'Your plan changed since you opened it; start again from the latest version.',
+          details: { reason: TRAINING_REASONS.STALE_PLAN, currentVersion: program.currentVersion },
+        });
+      }
     }
 
     const { roles, settings, limits } = await this.resolver.resolveForRun(userId);
@@ -134,7 +173,7 @@ export class TrainingRunsService {
             userId,
             kind,
             trigger,
-            programId: dto.programId ?? null,
+            programId,
             input: { request: input, maxCriticRounds } as Prisma.InputJsonValue,
             roleModels: roleModels as Prisma.InputJsonValue,
             tokenCap,
@@ -382,7 +421,8 @@ export class TrainingRunsService {
 
   private async recordSafetyStop(
     userId: string,
-    dto: StartTrainingRunInput,
+    kind: RunKind,
+    programId: string | null,
     trigger: TrainingRunTrigger,
     guidance: string,
     code: string | undefined,
@@ -391,9 +431,9 @@ export class TrainingRunsService {
     const run = await this.prisma.trainingPlanRun.create({
       data: {
         userId,
-        kind: dto.kind,
+        kind,
         trigger,
-        programId: dto.programId ?? null,
+        programId,
         status: 'blocked_safety',
         // Nothing the user typed is kept for a stopped run.
         input: {},
@@ -405,7 +445,7 @@ export class TrainingRunsService {
 
     await auditTrainingRun(this.prisma, this.logger, userId, TRAINING_RUN_AUDIT_ACTIONS.START, {
       runId: run.id,
-      kind: dto.kind,
+      kind,
       status: 'blocked_safety',
       errorCode: run.errorCode,
     });

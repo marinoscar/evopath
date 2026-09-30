@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
+import { freeTextOf } from '../contracts/training-intake.contract';
 import type { RunKind } from '../graph/run-state';
+import { SAFETY_STOP_GUIDANCE } from '../guardrails/safety-keywords';
+import { screenFreeText } from '../guardrails/safety-screen';
 
 // =============================================================================
 // The pre-run safety screen seam
@@ -35,5 +38,21 @@ export interface SafetyScreen {
 export class PassThroughSafetyScreen implements SafetyScreen {
   async screen(): Promise<SafetyScreenResult> {
     return { stop: false };
+  }
+}
+
+/**
+ * Guardrail G0 at run start: stops a request whose free text (goal sentence,
+ * limitation descriptions, preferences, revise instruction) names an urgent
+ * symptom. The conservative level is not decided here: the context builder
+ * recomputes it from the same texts plus readiness, so it is checkpointed
+ * with the run's context.
+ */
+@Injectable()
+export class FreeTextSafetyScreen implements SafetyScreen {
+  async screen(args: { userId: string; kind: RunKind; input: Record<string, unknown> }): Promise<SafetyScreenResult> {
+    const outcome = screenFreeText(freeTextOf(args.input));
+
+    return outcome.level === 'blocked' ? { stop: true, guidance: SAFETY_STOP_GUIDANCE } : { stop: false };
   }
 }

@@ -11,7 +11,7 @@ import { TrainingModelsController } from './models/training-models.controller';
 import { TrainingModelsService } from './models/training-models.service';
 import { TrainingRunsPurgeHandler } from './runtime/handlers/training-runs-purge.handler';
 import { RunEventsService } from './runtime/run-events.service';
-import { PassThroughSafetyScreen, TRAINING_SAFETY_SCREEN } from './runtime/safety-screen';
+import { FreeTextSafetyScreen, TRAINING_SAFETY_SCREEN } from './runtime/safety-screen';
 import { TrainingRunsPurgeTask } from './runtime/tasks/training-runs-purge.task';
 import { TrainingPlanRunHandler } from './runtime/training-plan-run.handler';
 import { TrainingRunsController } from './runtime/training-runs.controller';
@@ -35,8 +35,8 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  *   `RunEventsService` (the sequenced event log), the `ai.training.plan.run`
  *   handler (the graph inside the queue, server-only), and the
  *   `training.runs.purge` handler with its enqueue-only daily task.
- * - `TRAINING_SAFETY_SCREEN`: the pre-run safety screen seam; pass-through
- *   until the urgent-symptom screen replaces the binding.
+ * - `TRAINING_SAFETY_SCREEN`: the pre-run safety screen (guardrail G0,
+ *   `FreeTextSafetyScreen`): urgent-symptom text stops a run before any job.
  */
 @Module({
   imports: [AiConfigModule, AiCoreModule, AiKeysModule, AiRuntimeModule, JobsModule],
@@ -50,7 +50,7 @@ import { TrainingRunsService } from './runtime/training-runs.service';
     TrainingPlanRunHandler,
     TrainingRunsPurgeHandler,
     TrainingRunsPurgeTask,
-    { provide: TRAINING_SAFETY_SCREEN, useClass: PassThroughSafetyScreen },
+    { provide: TRAINING_SAFETY_SCREEN, useClass: FreeTextSafetyScreen },
   ],
   exports: [GraphRuntimeInfo, TrainingModelResolver, TrainingRunsService, RunEventsService],
 })
