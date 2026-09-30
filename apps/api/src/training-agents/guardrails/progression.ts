@@ -20,7 +20,8 @@ import type { GuardrailContext, Violation } from './types';
 //
 // P6 a deload week: sets at most `max(2, round(0.6 x reference))` and either
 // load at most 0.9 x reference or RPE at most reference minus 2 (the
-// reference is the last non-deload exposure). P8 weekly sets for a muscle
+// reference is the last non-deload exposure); and never a load above the
+// reference, even when the RPE was eased. P8 weekly sets for a muscle
 // rising more than 20 percent week over week outside deloads WARNS (week
 // types may legitimately undulate). Repairs clamp.
 // =============================================================================
@@ -89,6 +90,11 @@ export function checkProgression(tree: PlanTree, ctx: GuardrailContext): Violati
           f.add('repair', 'deload_rpe', path, `Deload week: RPE set to ${rpe}.`);
           exercise.targetRpe = rpe;
         }
+      }
+      // A deload never loads an exercise above its last normal week, whichever way it was eased (RPE alone does not license a heavier load).
+      if (exercise.targetLoadKg !== null && ref.targetLoadKg !== null && exercise.targetLoadKg > ref.targetLoadKg) {
+        f.add('repair', 'deload_load', path, `Deload week: load ${exercise.targetLoadKg} kg lowered to ${ref.targetLoadKg} kg, the last normal week's load.`);
+        exercise.targetLoadKg = ref.targetLoadKg;
       }
       continue;
     }

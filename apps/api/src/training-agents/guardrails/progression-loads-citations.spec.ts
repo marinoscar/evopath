@@ -90,6 +90,18 @@ describe('G7 progression bounds', () => {
     expect(checkProgression(tree, ctx).filter((v) => v.severity === 'repair')).toEqual([]);
   });
 
+  it('P6: a deload week that eases RPE still never loads an exercise above its last normal week', () => {
+    const ctx = guardrailContextFixture();
+    const normal = { workouts: [{ weekday: 1, exercises: [ex('goblet_squat', { sets: 3, targetLoadKg: 30, targetRpe: 8 }), ex('push_up')] }] };
+    const deload = { deload: true, workouts: [{ weekday: 1, exercises: [ex('goblet_squat', { sets: 2, targetLoadKg: 500, targetRpe: 6, loadGuidance: 'fixed' as const }), ex('push_up')] }] };
+    const tree = normalizeTree(planTree([normal, deload]));
+
+    const violations = checkProgression(tree, ctx);
+
+    expect(tree.blocks[0].weeks[1].workouts[0].exercises[0].targetLoadKg).toBe(30);
+    expect(codes(violations)).toContain('repair:deload_load');
+  });
+
   it('P8: weekly sets for a muscle rising more than 20 percent warns (never repairs)', () => {
     const ctx = guardrailContextFixture();
     const tree = normalizeTree(
