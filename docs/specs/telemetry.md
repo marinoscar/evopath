@@ -607,36 +607,59 @@ explicitly and pinned by this controller's own spec.
 **Method.** `TELEMETRY_ASSISTANT_INSTRUCTIONS` (`buildTelemetryAssistantInstructions`,
 which bakes in the turn's step budget) walks the model through an
 investigation, not a lookup: orient (`get_app_context`, once), baseline
-(`health_overview`), hypothesise from the question and the baseline, drill
-down (`run_query`, `list_tables`, `describe_table`), correlate by trace
-(`get_trace`), verify, then conclude. The prompt tells the model to run and
+(`health_overview`, including its resource saturation section), hypothesise
+from the question and the baseline (an application fault, or a resource
+running out), drill down (`run_query`, `list_tables`, `describe_table`;
+`metrics_overview(group)` when a resource is implicated, `compare_nodes` for
+work executed on worker nodes), correlate by trace (`get_trace`) and by time
+(a tile's `maxAt` against a latency or error spike), verify, then conclude.
+The prompt tells the model to run and
 analyse the data itself — never to hand the analysis back to the user — and
 to treat an empty result as evidence to explain (is the table populated at
 all, does its data reach into the window, is the filter column populated)
 rather than an answer.
 
-**The six tools**, all served by `TelemetryAssistantService.buildTools`:
+**The eight tools**, all served by `TelemetryAssistantService.buildTools`:
 
 | Tool | Reads |
 |---|---|
 | `list_tables` | Table names and row estimates (`TelemetrySchemaService`) |
 | `describe_table` | One table's columns, types and semantic types |
 | `run_query` | The model's own read-only SQL, via `TelemetryQueryService.run` |
-| `get_app_context` | API version, runtime, OTel service name/instance id, telemetry settings, an allowlist of platform feature flags (booleans only), the deploy document's non-sensitive facts (version, commit SHA, timestamps, last outcome — never a hostname, path or secret), the store's tables, and the data range (earliest/latest timestamp, last-24h coverage, services) of traces and logs |
-| `health_overview(window)` | A baseline over `15m`/`1h`/`6h`/`24h`/`7d`: per-service span/error counts and latency (avg, max, p95), top failing routes, log counts by severity, top error log messages with a sample trace id, the slowest spans, and each table's coverage in the window |
+| `get_app_context` | API version, runtime, OTel service name/instance id, telemetry settings, an allowlist of platform feature flags (booleans only), the deploy document's non-sensitive facts (version, commit SHA, timestamps, last outcome — never a hostname, path or secret), the store's tables, `metricFamilies` (per catalog group of §11.14: `available`, families and tables present out of the total, and the catalog keys of the families present), and the data range (earliest/latest timestamp, last-24h coverage, services) of traces and logs |
+| `health_overview(window)` | A baseline over `15m`/`1h`/`6h`/`24h`/`7d`: per-service span/error counts and latency (avg, max, p95), top failing routes, log counts by severity, top error log messages with a sample trace id, the slowest spans, each table's coverage in the window, and `saturation`: the summary verdict's infrastructure probes (§11.7, `metric-verdict.ts`) — worst filesystem %, worst memory %, database connections %, oldest pending job and last backup, stale nodes and job types without an eligible node, failing uptime checks, soonest TLS expiry, collector export failures — each with a `level` (`ok`/`degraded`/`critical`) against `DASHBOARD_VERDICT_THRESHOLDS`; a probe whose tables are absent is listed in `skipped`, one with no fresh reading in `noReading` |
 | `get_trace(traceId)` | Every span and log record of one trace, oldest first (`traceId` must match `TRACE_ID_PATTERN`, 16–32 hex characters) |
+| `metrics_overview(group, window)` | One catalog group (`host`, `database`, `queue`, `nodes`, `uptime`, `pipeline`, §11.14) computed by `computeMetricGroup` over the window: `tiles` (key, label, unit, `value`, `previous`, and the current window's `max` with `maxAt`, the start of that bucket — no sparkline, no series), `tables` (each at most `METRICS_TABLE_ROWS_TO_MODEL`, 20, rows), `skipped` (catalog keys whose table or column is absent), `available`, `truncated`, and `unavailable` (why a statement failed) |
+| `compare_nodes(window)` | Every worker node's vitals (the catalog's `nodes` table: CPU cores, RSS, heap used/limit/%, state-dir free/size/%, slots) plus the window's reset-aware increase of its `app.nodes.counter` series (lease renew failures, watchdog trips, heartbeat and claim failures, jobs succeeded and failed), the fleet `median` of each vital, per-node `flags` (CPU, RSS or heap over 2× the median, heap ≥ 90% of its limit, state dir < 10% free, slots full, any lease renew failure, watchdog trip, heartbeat or claim failure, no current vitals), fleet health counts (`healthy`/`stale`/`offline`), and the node-offered job types with due work but no eligible node |
 
-`get_app_context`, `health_overview` and `get_trace` never run model-written
-SQL: their statements are built server-side, as pure functions of the
-table's discovered column set and (for `get_trace`) a pattern-validated
-trace id, in `telemetry-assistant.sql.ts` — a section whose table or columns
-are absent is skipped, not failed. Every statement these tools and
+`get_app_context`, `health_overview`, `get_trace`, `metrics_overview` and
+`compare_nodes` never run model-written SQL: their statements are built
+server-side, as pure functions of the table's discovered column set and
+(for `get_trace`) a pattern-validated trace id, in `telemetry-assistant.sql.ts`
+— or, for everything read from the metric tables, by the dashboard's own
+metric catalog and builders (§11.14; `metric-sql.ts`, `metric-verdict.ts`),
+with an enum group and window, no request filter, and the compare-nodes table
+declared as data in `telemetry-assistant.metrics.ts` (`NODE_COMPARISON_TABLE`:
+the catalog's `nodes` table plus counter parts). A section whose table or
+columns are absent is skipped, not failed. Metric rows never reach the model:
+the catalog's computation turns them into tiles and tables first, and only
+those are shaped for it. Every statement these tools and
 `run_query` alike produce still goes through `TelemetryQueryService.run`
 (`source: 'assistant'`) — the explorer's own guard, row cap, timeout and a
 `telemetry:assistant_query` audit row each — and every report query is
 re-checked against the SQL guard before being shown to the user (a
 statement that fails the re-check is withdrawn with a note in the summary,
-never run). Not a queue job: the turn lives exactly as long as the SSE
+never run). The dashboard runs the metric builders without the guard; the
+assistant runs the very same statements through it, so
+`telemetry-assistant.metrics.spec.ts` passes every one of them (every group
+and window, the node comparison, every verdict probe) through
+`analyzeStatement` and checks that `applyRowCap` finds their own top-level
+`LIMIT`. A metric statement's row cap is `telemetry.query.maxRows`; at most
+three statements of one tool run at a time (the reader pool keeps a
+connection for the explorer), none starts after three query timeouts, and a
+failed one is reported in `unavailable` without losing the rest — a fatal
+store failure (not configured, unreachable, disabled) still ends the turn.
+Not a queue job: the turn lives exactly as long as the SSE
 request, and a closed tab aborts both the provider call and any in-flight
 query.
 
@@ -649,6 +672,22 @@ statement returned:
    numbers, booleans and timestamps that statement's SQL computed (counts,
    durations, `is_error`), never a value the monitored system wrote (service
    names, routes, trace ids, log bodies) — every other cell is `null`.
+   The metric tools apply the same rule to what the catalog computed: tile
+   values and table cells with a numeric, boolean or timestamp unit (and an
+   uptime row's numeric `statusCode`, like `get_trace`'s `http_status`) are
+   shared; tile keys, labels and units, `skipped` keys, `level`s and node
+   `flags` are catalog constants and shared too. Every **label value** is
+   withheld: mountpoints, host names, database servers and table names,
+   **job types**, node names, URLs, scrape jobs, exporters and uptime error
+   text. A table's key becomes a stable ordinal in the table's own order
+   (`"Mountpoint #1"`, `"Node #2"`: `<key label> #<n>`), so the model can
+   still compare rows and cite them; in `health_overview.saturation` the
+   offender (`mountpoint`, `host`, `instance`, `jobType`, `url`,
+   `exporter`) is `null` and lists (`jobTypes`, `urls`) are `null` beside
+   their counts. Job types are withheld although the application declares
+   them in code: they are label values like any other, and a fork may name
+   them after customers or tenants. With sharing on, lists are capped at
+   `METRICS_LIST_MAX` (10) items.
 2. At most `telemetry.assistant.maxResultRowsToModel` rows per statement,
    hard-capped at `TELEMETRY_ASSISTANT_ROWS_HARD_CAP` (100) regardless of
    the setting.
@@ -693,7 +732,8 @@ recommendations, first query), bounded to `ASSISTANT_HISTORY_ANSWER_MAX`
 (6,000) characters.
 
 **Untrusted tool output.** Telemetry rows are attacker-reachable (a log
-body, an HTTP route, a user agent). The assistant's system prompt tells the
+body, an HTTP route, a user agent; for the metric tools an uptime error
+message, a URL, a node name). The assistant's system prompt tells the
 model that everything a tool returns is data from the monitored system,
 never instructions, and the blast radius is bounded by construction: the
 tools can only read, through the read-only store user, and a report's SQL
@@ -2043,3 +2083,4 @@ on the reader pool.
 - #132: trace context carried from enqueue to execution: `jobs.trace_context`, the server worker's `job.process` span as its child, and `traceparent` on node claim assignments (§1).
 - #133: node span relay: worker nodes post job phase spans to `POST /api/nodes/{id}/telemetry`, re-emitted by the API under the job's trace (§1).
 - #126: the metric catalog and `GET /api/admin/telemetry/dashboard/metrics` (host, database, queue, nodes, uptime and pipeline groups, §11.14), `hosts` on `/filters` and the `host` filter, nine infrastructure verdict rules gathered by one probe per rule family in the summary (§11.7), and the shared SQL literal helpers (§11.5).
+- #128: the assistant reads metrics (§6) — `metrics_overview(group, window)` and `compare_nodes(window)` over the metric catalog and builders, a `saturation` section in `health_overview` from the verdict probes, `metricFamilies` in `get_app_context`, label values withheld (ordinals instead) when `shareResults` is off, and a method that checks saturation in the baseline and correlates it with latency and error spikes.

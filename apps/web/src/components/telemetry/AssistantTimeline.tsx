@@ -22,18 +22,21 @@ const TOOL_LABELS: Record<string, string> = {
   get_app_context: 'Read app configuration',
   health_overview: 'Health overview',
   get_trace: 'Traced',
+  metrics_overview: 'Metrics overview',
+  compare_nodes: 'Compared worker nodes',
 };
 
 const TRACE_ID_SHORT = 8;
 
-/** What follows the label: the table, the window, or a shortened trace id. */
+/** What follows the label: the table, the metric group and window, the window, or a shortened trace id. */
 function stepTarget(step: TelemetryAssistantStep): string {
   const input = step.input;
   if (!input) return '';
   if (step.tool === 'get_trace' && input.traceId) {
     return input.traceId.length > TRACE_ID_SHORT ? `${input.traceId.slice(0, TRACE_ID_SHORT)}…` : input.traceId;
   }
-  if (step.tool === 'health_overview' && input.window) return input.window;
+  if (step.tool === 'metrics_overview') return [input.group, input.window].filter(Boolean).join(' · ');
+  if ((step.tool === 'health_overview' || step.tool === 'compare_nodes') && input.window) return input.window;
   return input.table ?? '';
 }
 

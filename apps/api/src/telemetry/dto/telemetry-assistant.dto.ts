@@ -37,6 +37,8 @@ export const TELEMETRY_ASSISTANT_TOOLS = [
   'get_app_context',
   'health_overview',
   'get_trace',
+  'metrics_overview',
+  'compare_nodes',
 ] as const;
 export type TelemetryAssistantToolName = (typeof TELEMETRY_ASSISTANT_TOOLS)[number];
 
@@ -45,7 +47,8 @@ export interface TelemetryAssistantStepEvent {
   /** 0-based, across the whole turn. */
   index: number;
   tool: TelemetryAssistantToolName;
-  input?: { table?: string; sql?: string; window?: string; traceId?: string };
+  /** `group` is `metrics_overview`'s metric group (#128). */
+  input?: { table?: string; sql?: string; window?: string; traceId?: string; group?: string };
   /** `run_query` / `get_trace` only: rows the call returned (up to the row cap). */
   rowCount?: number;
   /** `run_query` / `get_trace` only: more rows matched than the row cap allowed. */

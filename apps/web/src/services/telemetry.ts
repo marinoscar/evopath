@@ -593,12 +593,15 @@ export type TelemetryAssistantTool =
   | 'run_query'
   | 'get_app_context'
   | 'health_overview'
-  | 'get_trace';
+  | 'get_trace'
+  | 'metrics_overview'
+  | 'compare_nodes';
 
 export interface TelemetryAssistantStep {
   index: number;
   tool: TelemetryAssistantTool | string;
-  input?: { table?: string; sql?: string; window?: string; traceId?: string };
+  /** `group`: the metric group of a `metrics_overview` step (#128). */
+  input?: { table?: string; sql?: string; window?: string; traceId?: string; group?: string };
   rowCount?: number;
   truncated?: boolean;
   durationMs: number;
