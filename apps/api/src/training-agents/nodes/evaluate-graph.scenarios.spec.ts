@@ -64,6 +64,20 @@ function run(h: ReturnType<typeof harness>, t: ReturnType<typeof setup>, checkpo
   return h.runGraph({ input: { programId: t.programId, input: { trigger: 'workout_finished' } }, ...(checkpointer ? { checkpointer } : {}) });
 }
 
+function doneSession() {
+  return {
+    programWorkoutId: '00000000-0000-4000-8000-000000000001',
+    name: CANARY.workoutName,
+    plannedFor: '2026-09-07',
+    status: 'done' as const,
+    workoutId: null,
+    setsPlanned: 9,
+    setsDone: 9,
+    completionPct: 100,
+    avgRpe: 7,
+  };
+}
+
 function sentText(seen: AiResponseRequest[]): string {
   return seen.map((req) => (typeof req.input === 'string' ? req.input : JSON.stringify(req.input))).join('\n');
 }
@@ -156,6 +170,16 @@ describe('evaluate graph: autonomous', () => {
     expect(t.store.version).toBe(4);
     expect(t.store.changeLog.at(-1)).toMatchObject({ kind: 'reviewed', actor: 'ai', status: 'applied', runId: h.runId });
     expect(t.store.notifications).toEqual([]);
+  });
+
+  it('thin data: fewer than 3 sessions due so far means insufficient data, no change and zero provider calls', async () => {
+    const t = setup({ plateau: false, signals: (s) => void s.sessions.push({ ...doneSession(), status: 'done' }, { ...doneSession(), status: 'missed' }) });
+    const h = harness(t, { evaluator: evaluatorScript([plateauResult([STEP_UP])]) });
+
+    const result = await run(h, t);
+
+    expect(h.runtime.fake.calls).toHaveLength(0);
+    expect(result.state.outcome).toMatchObject({ status: 'no_change', verdict: 'reviewed' });
   });
 
   it('thin data: no completed session means insufficient data, no change and zero provider calls', async () => {

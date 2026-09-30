@@ -13,7 +13,7 @@ import type { AcceptedOperation } from './apply-operations';
 // row ids the server resolved, no provider message, no key, no note.
 //
 // - `evaluation` (node `evaluate`): the sanitised `EvaluationResult`, or why
-//   there is none (`thin_data`: no completed session, no model call;
+//   there is none (`thin_data`: too few sessions so far, no model call;
 //   `budget`: the token budget ran out, so nothing changes).
 // - `changeSet` (nodes `envelope` .. `notify`): the accepted operations
 //   (forced safety removals first) with their row targets, what was clamped
@@ -81,7 +81,7 @@ export function changeSetOf(state: Pick<RunState, 'changeSet'>): ChangeSet | nul
 /** The ordinary review summary when the model said nothing usable. */
 export const DEFAULT_REVIEW_SUMMARY = 'Reviewed your recent training: no change to your plan.';
 export const DEFAULT_ADAPTED_SUMMARY = 'Your coach adjusted your plan.';
-export const THIN_DATA_SUMMARY = 'Not enough completed sessions yet to judge progress; your plan stays as it is.';
+export const THIN_DATA_SUMMARY = 'Not enough sessions yet to judge progress; your plan stays as it is.';
 export const BUDGET_NOTE = 'The review ran out of its token budget, so nothing was changed.';
 export const SERVER_CHECKS_HEADING = 'Checked by the server:';
 

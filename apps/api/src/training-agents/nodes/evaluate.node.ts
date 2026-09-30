@@ -24,8 +24,10 @@ import { EVALUATION_PORT_MISSING, EVALUATION_PROGRAM_MISSING } from './load-sign
 // server can check. Then `runEvaluator` (one structured call, one retry) and
 // `sanitizeEvaluation` (text capped, invented claim ids dropped).
 //
-// No model call at all when no session was completed yet: the result is a
-// server-authored `insufficient_data` / `no_change` (`skipped: thin_data`).
+// No model call at all on THIN DATA (nothing completed yet, or fewer than 3
+// planned sessions due so far): the result is a server-authored
+// `insufficient_data` / `no_change` (`skipped: thin_data`); forced safety
+// removals still apply.
 // A token budget that runs out ends the review as `no_change` with a budget
 // note (`skipped: budget`); a partial change is never applied. Two
 // malformed answers fail the run with the platform code; the plan is
@@ -34,9 +36,22 @@ import { EVALUATION_PORT_MISSING, EVALUATION_PROGRAM_MISSING } from './load-sign
 
 export const MAX_ALTERNATIVES = 40;
 
+/** Planned sessions that were due (done, partial or missed) before a review may change anything. */
+export const MIN_DUE_SESSIONS = 3;
+
 /** Completed or partly completed sessions in the signals. */
 export function completedSessions(context: EvaluateRunContext): number {
   return context.sent.signals.sessions.filter((s) => s.status === 'done' || s.status === 'partial').length;
+}
+
+/** Planned sessions already due: done, partial or missed. */
+export function dueSessions(context: EvaluateRunContext): number {
+  return context.sent.signals.sessions.filter((s) => s.status === 'done' || s.status === 'partial' || s.status === 'missed').length;
+}
+
+/** Too little data to judge: nothing completed yet, or fewer than 3 sessions due so far. */
+export function isThinData(context: EvaluateRunContext): boolean {
+  return completedSessions(context) === 0 || dueSessions(context) < MIN_DUE_SESSIONS;
 }
 
 /** Gym-supported keys outside the plan, minus the avoid list and pain flags; related patterns first. */
@@ -101,7 +116,7 @@ export const runEvaluate: NodeFn = async (state, ctx) => {
     throw new TrainingRunFailedError(TRAINING_REASONS.ROLE_UNAVAILABLE, 'The evaluator agent has no model for this run.', { role: 'evaluator' });
   }
 
-  if (completedSessions(context) === 0) {
+  if (isThinData(context)) {
     const evaluation: EvaluationState = {
       version: EVALUATION_STATE_VERSION,
       result: thinDataResult(),
