@@ -72,7 +72,7 @@ export class OnboardingMetricsService {
         ))::int AS activated,
         percentile_cont(0.5) WITHIN GROUP (
           ORDER BY GREATEST(EXTRACT(EPOCH FROM (f.first_at - c.created_at)), 0)::double precision / 3600.0
-        ) AS median_hours,
+        ) FILTER (WHERE f.first_at IS NOT NULL) AS median_hours,
         (count(*) FILTER (
           WHERE EXISTS (SELECT 1 FROM health_profiles h WHERE h.user_id = c.id)
         ))::int AS health_profile,
