@@ -13,7 +13,7 @@
  * the provenance (`originalAiValue`, `userVerified`). This file only types
  * the routes.
  */
-import { api } from './api';
+import { api, ApiError } from './api';
 import { deleteStorageObject, uploadStorageObject, waitForStorageObjectReady } from './storage';
 
 export type PhotoIntakeStatus = 'draft' | 'scanning' | 'ready' | 'applied' | 'failed';
@@ -245,6 +245,54 @@ export async function acceptAllDraftItems<TValue = unknown>(id: string): Promise
 /** Apply the accepted items; resolves with the kind's own result. */
 export async function applyIntake<TResult = unknown>(id: string): Promise<TResult> {
   return api.post<TResult>(`${base(id)}/apply`);
+}
+
+/**
+ * The attach refusals a file can meet (H2, #186), in words the user can act
+ * on. The API puts the reason in `details.reason` (the top-level `code` is the
+ * generic HTTP one); the server decides, this only phrases it.
+ *
+ * - `TOO_MANY_PAGES` → "This PDF has N pages; the limit is 20."
+ * - `PDF_UNREADABLE` → damaged or password-protected.
+ * - `UNSUPPORTED_MEDIA_TYPE` with `details.contentMismatch` → the bytes are not
+ *   what the name says (a renamed file); without it → a type this kind refuses.
+ * - `OBJECT_TOO_LARGE` → the cap from `details.maxBytes`.
+ *
+ * Anything else keeps the server's (or the browser's) own message.
+ */
+export function intakeFileErrorMessage(err: unknown, kind: 'image' | 'pdf' = 'image'): string {
+  if (err instanceof ApiError) {
+    const details = (err.details && typeof err.details === 'object' ? err.details : {}) as Record<string, unknown>;
+    const reason = typeof details.reason === 'string' ? details.reason : err.code;
+    switch (reason) {
+      case 'TOO_MANY_PAGES': {
+        const pages = typeof details.pages === 'number' ? details.pages : null;
+        const maxPages = typeof details.maxPages === 'number' ? details.maxPages : null;
+        if (pages !== null && maxPages !== null) return `This PDF has ${pages} pages; the limit is ${maxPages}.`;
+        return maxPages !== null ? `This PDF has too many pages; the limit is ${maxPages}.` : 'This PDF has too many pages.';
+      }
+      case 'PDF_UNREADABLE':
+        return "This PDF can't be read. It may be damaged or password-protected; export it again or upload a photo instead.";
+      case 'UNSUPPORTED_MEDIA_TYPE':
+        if (details.contentMismatch === true) {
+          return kind === 'pdf'
+            ? "This file isn't a real PDF. Export the report as a PDF again, or upload a photo."
+            : "This file isn't a real image. Use a JPEG, PNG, GIF or WebP photo.";
+        }
+        return kind === 'pdf'
+          ? "PDFs can't be read here. Upload a photo instead."
+          : "This file type can't be read here. Use a JPEG, PNG, GIF or WebP photo.";
+      case 'OBJECT_TOO_LARGE': {
+        const maxBytes = typeof details.maxBytes === 'number' ? details.maxBytes : null;
+        const limit = maxBytes !== null ? ` of ${Math.round(maxBytes / (1024 * 1024))} MiB` : '';
+        return `This ${kind === 'pdf' ? 'PDF' : 'photo'} is over the size limit${limit}.`;
+      }
+      default:
+        break;
+    }
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return 'Upload failed';
 }
 
 /**

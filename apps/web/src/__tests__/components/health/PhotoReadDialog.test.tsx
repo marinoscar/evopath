@@ -70,7 +70,7 @@ const photo = () => new File(['x'], 'scale.jpg', { type: 'image/jpeg' });
 /** Wait for the photo step, add one photo and press Read. */
 async function addPhotoAndRead(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByText(PHOTO_READ_HELPER_TEXT);
-  await user.upload(screen.getByLabelText('Add photos'), photo());
+  await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
   await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'ready'));
   const read = within(dialog()).getByRole('button', { name: 'Read' });
   await waitFor(() => expect(read).toBeEnabled());
@@ -370,7 +370,7 @@ describe('PhotoReadDialog: failures offer Try again and Enter manually', () => {
       { wrapperOptions: { user: reader, aiEnabled: true } },
     );
     await screen.findByText(PHOTO_READ_HELPER_TEXT);
-    await user.upload(screen.getByLabelText('Add photos'), photo());
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
     await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'error'));
     expect(screen.getByText('File storage is not configured')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry scale.jpg' })).toBeInTheDocument();
@@ -448,7 +448,7 @@ describe('PhotoReadDialog: keep or delete the file (#185)', () => {
     await waitFor(() => expect(api.intakePatches).toEqual([{ id: 'intake-new-1', body: { retainFiles: false } }]));
     await waitFor(() => expect(keepBox()).not.toBeChecked());
 
-    await user.upload(screen.getByLabelText('Add photos'), photo());
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
     await waitFor(() => expect(attachBodies(api)).toHaveLength(1));
     expect(attachBodies(api)[0]).toMatchObject({ retainFiles: false });
     expect(api.intakes.get('intake-new-1')?.photos[0]?.retention).toBe('delete_after_processing');
@@ -457,7 +457,7 @@ describe('PhotoReadDialog: keep or delete the file (#185)', () => {
   it('a photo added with the default choice is attached keeping the file', async () => {
     const { api, user } = setup();
     await screen.findByText(PHOTO_READ_HELPER_TEXT);
-    await user.upload(screen.getByLabelText('Add photos'), photo());
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
     await waitFor(() => expect(attachBodies(api)).toHaveLength(1));
     expect(attachBodies(api)[0]).toMatchObject({ retainFiles: true });
   });

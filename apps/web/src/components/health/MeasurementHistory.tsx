@@ -119,10 +119,13 @@ function PhotoViewerDialog({
   const titleId = useId();
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A PDF source (H2, #186) cannot be drawn by an `<img>`: offer the new tab instead.
+  const [unviewable, setUnviewable] = useState(false);
 
   useEffect(() => {
     setUrl(null);
     setError(null);
+    setUnviewable(false);
     if (!storageObjectId) return;
     let cancelled = false;
     getStorageObjectDownloadUrl(storageObjectId).then(
@@ -149,8 +152,16 @@ function PhotoViewerDialog({
       <DialogContent dividers>
         {error ? (
           <Alert severity="error">{error}</Alert>
+        ) : url && unviewable ? (
+          <Alert severity="info">This file (a PDF, for example) can't be shown here. Open it in a new tab.</Alert>
         ) : url ? (
-          <Box component="img" src={url} alt={label} sx={{ display: 'block', maxWidth: '100%', maxHeight: '70vh', mx: 'auto' }} />
+          <Box
+            component="img"
+            src={url}
+            alt={label}
+            onError={() => setUnviewable(true)}
+            sx={{ display: 'block', maxWidth: '100%', maxHeight: '70vh', mx: 'auto' }}
+          />
         ) : (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress aria-label="Loading photo" />

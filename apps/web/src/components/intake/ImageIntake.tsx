@@ -2,9 +2,14 @@
  * Pick, capture or drop several photos; each shows its own stage — the view
  * over `useImageIntake` (which owns the queue, the downscale and the upload).
  *
- * - "Add photos" opens the file picker (`accept="image/*" multiple`).
+ * - "Add photos" opens the file picker (`accept="image/*" multiple`). When the
+ *   hook takes PDFs (`acceptPdf`, H2 #186) it reads "Add photos or PDFs" and
+ *   accepts `image/*,application/pdf`.
  * - "Take photo" opens a file input with `capture="environment"`: the OS opens
- *   the camera, so no `getUserMedia` and no Permissions-Policy change.
+ *   the camera, so no `getUserMedia` and no Permissions-Policy change. It is
+ *   image-only, always.
+ * - A PDF's tile is a file icon with its name and a "PDF" label (no page
+ *   thumbnail: rendering one would need a PDF library in the browser).
  * - Drag and drop works on the whole area (desktop).
  * - The grid is 2 columns below `sm` and 4 from `sm` up.
  * - Progress is a stage chip per tile and an aggregate "3 of 8 ready" —
@@ -20,6 +25,7 @@ import {
   AddPhotoAlternateOutlined as AddIcon,
   Close as CloseIcon,
   PhotoCameraOutlined as CameraIcon,
+  PictureAsPdfOutlined as PdfIcon,
   Refresh as RetryIcon,
 } from '@mui/icons-material';
 import type { IntakePhotoStage, IntakePhotoState, UseImageIntakeReturn } from '../../hooks/useImageIntake';
@@ -53,6 +59,29 @@ const visuallyHidden = {
   whiteSpace: 'nowrap',
 } as const;
 
+/** The picker's `accept` for an image-only kind, and for one that also takes PDFs. */
+export const IMAGE_ACCEPT = 'image/*';
+export const IMAGE_OR_PDF_ACCEPT = 'image/*,application/pdf';
+export const ADD_PHOTOS_LABEL = 'Add photos';
+export const ADD_PHOTOS_OR_PDFS_LABEL = 'Add photos or PDFs';
+
+/** A PDF's tile: a file icon and a "PDF" label (no rendered page). */
+export function PdfTileFace({ name }: { name: string }) {
+  return (
+    <Box
+      role="img"
+      aria-label={`${name} (PDF)`}
+      data-testid="intake-pdf-face"
+      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}
+    >
+      <PdfIcon sx={{ fontSize: 48 }} color="action" />
+      <Typography variant="overline" sx={{ lineHeight: 1 }}>
+        PDF
+      </Typography>
+    </Box>
+  );
+}
+
 export interface ImageIntakeProps {
   state: UseImageIntakeReturn;
   /** Defaults to the hook's own limit. */
@@ -76,6 +105,7 @@ function PhotoTile({
     <Box
       data-testid="intake-photo-tile"
       data-stage={item.stage}
+      data-kind={item.kind}
       sx={{
         position: 'relative',
         borderRadius: 1,
@@ -88,7 +118,9 @@ function PhotoTile({
       }}
     >
       <Box sx={{ aspectRatio: '1 / 1', bgcolor: 'action.hover', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {item.previewUrl ? (
+        {item.kind === 'pdf' ? (
+          <PdfTileFace name={item.name} />
+        ) : item.previewUrl ? (
           <Box
             component="img"
             src={item.previewUrl}
@@ -149,6 +181,7 @@ export function ImageIntake({ state, maxPhotos, disabled = false, helperText }: 
   const addDisabled = disabled || !canUpload || full;
   const [dragging, setDragging] = useState(false);
   const addInput = useRef<HTMLInputElement>(null);
+  const addLabel = state.acceptPdf ? ADD_PHOTOS_OR_PDFS_LABEL : ADD_PHOTOS_LABEL;
   const takeInput = useRef<HTMLInputElement>(null);
 
   // Announce each tile's stage change once, politely.
@@ -209,15 +242,15 @@ export function ImageIntake({ state, maxPhotos, disabled = false, helperText }: 
         {/* Real buttons that open hidden file inputs: a `<label>` styled as a
             button gets `role="button"`, which `aria-allowed-role` forbids. */}
         <Button variant="contained" startIcon={<AddIcon />} disabled={addDisabled} onClick={() => addInput.current?.click()}>
-          Add photos
+          {addLabel}
         </Button>
         <input
           ref={addInput}
           hidden
           multiple
           type="file"
-          accept="image/*"
-          aria-label="Add photos"
+          accept={state.acceptPdf ? IMAGE_OR_PDF_ACCEPT : IMAGE_ACCEPT}
+          aria-label={addLabel}
           tabIndex={-1}
           onChange={onChange}
           disabled={addDisabled}
@@ -229,7 +262,7 @@ export function ImageIntake({ state, maxPhotos, disabled = false, helperText }: 
           ref={takeInput}
           hidden
           type="file"
-          accept="image/*"
+          accept={IMAGE_ACCEPT}
           capture="environment"
           aria-label="Take photo"
           tabIndex={-1}
@@ -244,7 +277,7 @@ export function ImageIntake({ state, maxPhotos, disabled = false, helperText }: 
         </Alert>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          {helperText ?? `Add up to ${limit} photos, or drop them here.`}
+          {helperText ?? `Add up to ${limit} ${state.acceptPdf ? 'photos or PDFs' : 'photos'}, or drop them here.`}
         </Typography>
       )}
 
@@ -262,7 +295,7 @@ export function ImageIntake({ state, maxPhotos, disabled = false, helperText }: 
 
       <Box
         role="list"
-        aria-label="Photos"
+        aria-label={state.acceptPdf ? 'Photos and PDFs' : 'Photos'}
         sx={{
           display: 'grid',
           gap: 1,

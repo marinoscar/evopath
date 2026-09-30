@@ -14,7 +14,8 @@
  *    "Continue manually" hands over to the quick-entry dialog.
  * 2. Resume the newest unfinished reading intake (`GET /intakes?kind=…&status=
  *    draft,scanning,ready`), or start one (`POST /intakes { kind }`).
- * 3. Up to four photos, the keep-or-delete choice (`RetainFilesControl`, #185:
+ * 3. Up to four photos or PDF reports (H2, #186: "Add photos or PDFs"; a PDF
+ *    is uploaded as it is, "Take photo" stays image-only), the keep-or-delete choice (`RetainFilesControl`, #185:
  *    kept by default; sent on create, `PATCH { retainFiles }` when changed,
  *    and with every attach), the disclosure, and Read (`POST /intakes/:id/analyze`).
  * 4. An indeterminate progress bar while the scan runs. Closing the dialog
@@ -63,6 +64,7 @@ import { AiErrorAlert } from '../ai/AiErrorAlert';
 import { toAiErrorInfo, type AiErrorInfo } from '../../services/aiErrors';
 import { DEFAULT_RETAIN_FILES, applyIntake, createIntake, listIntakes } from '../../services/intake';
 import {
+  BODY_METRIC_READING_ACCEPTS_PDF,
   BODY_METRIC_READING_ITEM_KIND,
   BODY_METRIC_READING_KIND,
   BODY_METRIC_READING_MAX_PHOTOS,
@@ -79,7 +81,8 @@ import { useMeasurementCatalog } from '../../hooks/useMeasurementCatalog';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { ReadingEditor, ReadingValue, emptyReading } from './ReadingDraftValue';
 
-export const PHOTO_READ_HELPER_TEXT = 'Photograph the display so every digit is sharp and in the frame';
+export const PHOTO_READ_HELPER_TEXT =
+  'Photograph the display so every digit is sharp and in the frame, or add the PDF report from your scale or clinic';
 export const UNREADABLE_MESSAGE =
   "We couldn't read a value from this photo. Add it by hand below, or try a clearer photo.";
 export const ENTER_MANUALLY_LABEL = 'Enter manually';
@@ -209,6 +212,7 @@ function PhotoReadSession({
     uploadPhoto,
     removePhoto,
     initialPhotos,
+    acceptPdf: BODY_METRIC_READING_ACCEPTS_PDF,
   });
 
   const [applying, setApplying] = useState(false);
@@ -366,7 +370,7 @@ function PhotoReadSession({
           disabled={busy}
         />
         <Typography variant="body2" color="text.secondary">
-          Frame only the display; avoid including people.
+          Frame only the display; avoid including people. A PDF can have up to 20 pages.
         </Typography>
       </Stack>
     );
