@@ -19,7 +19,12 @@
 
 import { Job } from '@prisma/client';
 
-import { BroadcastStartHandler, BROADCAST_START_TYPE } from './broadcast-start.handler';
+import {
+  BroadcastStartHandler,
+  BROADCAST_START_TYPE,
+  broadcastFirstChunkDedupKey,
+} from './broadcast-start.handler';
+import { buildDedupKey } from '../../../jobs/job-keys';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import type { JobsService } from '../../../jobs/jobs.service';
 import type { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
@@ -226,18 +231,29 @@ describe('BroadcastStartHandler', () => {
     });
   });
 
-  it('enqueues the first chunk with skipDedup, the broadcast subject and backfill', async () => {
+  it('enqueues the first chunk WITH dedup (#162), the broadcast subject and backfill', async () => {
     const { handler, enqueue } = makeHandler();
 
     await handler.process(startJob);
 
+    // Dedup ON: concurrent hand-offs must converge on one first chunk through
+    // the active-dedup index. Every later chunk skips dedup (chunk spec).
     expect(enqueue).toHaveBeenCalledWith({
       type: BROADCAST_CHUNK_TYPE,
       reason: 'backfill',
       subjectType: BROADCAST_SUBJECT_TYPE,
       subjectId: BROADCAST_ID,
-      skipDedup: true,
+      skipDedup: false,
     });
+  });
+
+  it('keys the first chunk per broadcast with the queue\'s own dedup-key format (#162)', () => {
+    expect(broadcastFirstChunkDedupKey(BROADCAST_ID)).toBe(
+      buildDedupKey(BROADCAST_CHUNK_TYPE, BROADCAST_SUBJECT_TYPE, BROADCAST_ID)
+    );
+    expect(broadcastFirstChunkDedupKey('other-broadcast')).not.toBe(
+      broadcastFirstChunkDedupKey(BROADCAST_ID)
+    );
   });
 
   describe('when the compare-and-swap claims nothing', () => {
@@ -297,6 +313,39 @@ describe('BroadcastStartHandler', () => {
   });
 
   describe('resuming a hand-off an earlier attempt claimed (#469)', () => {
+    it(
+      'enqueues the first chunk under the SAME dedup key as the fresh path, so a resume racing ' +
+        'the claim winner converges on one chunk job (#162)',
+      async () => {
+        const fresh = makeHandler();
+        await fresh.handler.process(startJob);
+
+        const resumed = makeHandler({
+          broadcast: {
+            id: BROADCAST_ID,
+            status: 'sending',
+            audienceCutoff: new Date('2026-01-01T00:00:00.000Z'),
+            cursorUserId: null,
+            recipientsDispatched: 0,
+          },
+        });
+        await resumed.handler.process(startJob);
+
+        const [freshInput] = fresh.enqueue.mock.calls[0];
+        const [resumedInput] = resumed.enqueue.mock.calls[0];
+
+        // Neither opts out of dedup, and both resolve to the one
+        // per-broadcast key the active-dedup index collapses on.
+        for (const input of [freshInput, resumedInput]) {
+          expect(input.skipDedup).not.toBe(true);
+          expect(buildDedupKey(input.type, input.subjectType, input.subjectId)).toBe(
+            broadcastFirstChunkDedupKey(BROADCAST_ID)
+          );
+        }
+        expect(resumedInput).toEqual(freshInput);
+      }
+    );
+
     it('routes a sending broadcast to the resume path instead of the CAS', async () => {
       const { handler, updateMany, findFirst } = makeHandler({
         broadcast: {
@@ -350,14 +399,16 @@ describe('BroadcastStartHandler', () => {
         // claim CAS at all.
         expect(updateMany).toHaveBeenCalledTimes(1);
 
-        // Exactly one chunk enqueued, identical args to the fresh path.
+        // Exactly one chunk enqueued, identical args to the fresh path —
+        // including dedup ON, so a resume racing the claim's winner lands on
+        // the same per-broadcast first-chunk key and converges (#162).
         expect(enqueue).toHaveBeenCalledTimes(1);
         expect(enqueue).toHaveBeenCalledWith({
           type: BROADCAST_CHUNK_TYPE,
           reason: 'backfill',
           subjectType: BROADCAST_SUBJECT_TYPE,
           subjectId: BROADCAST_ID,
-          skipDedup: true,
+          skipDedup: false,
         });
 
         // Never touches startedAt/audienceCutoff/status via `update` (only

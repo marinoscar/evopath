@@ -62,7 +62,11 @@ import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { BroadcastFailureListener } from '../../src/notifications/broadcasts/broadcast-failure.listener';
 import { BroadcastsService } from '../../src/notifications/broadcasts/broadcasts.service';
 import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-chunk.handler';
-import { BroadcastStartHandler, BROADCAST_START_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-start.handler';
+import {
+  BroadcastStartHandler,
+  BROADCAST_START_TYPE,
+  broadcastFirstChunkDedupKey,
+} from '../../src/notifications/broadcasts/handlers/broadcast-start.handler';
 import {
   BROADCAST_CHUNK_SIZE,
   BROADCAST_SEND_CONCURRENCY,
@@ -473,6 +477,65 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
     });
     expect(chunkJobs).toHaveLength(1);
   });
+
+  it(
+    'a start execution that reads sending while the claim winner is still handing off ' +
+      'converges on the winner\'s single first chunk (#162)',
+    async () => {
+      const audienceIds = await createUsers(3, 'handoff-race-audience');
+      const broadcast = await createBroadcast();
+
+      // A's JobsService pauses at its enqueue — i.e. strictly AFTER A's claim
+      // CAS, count and recipientsTargeted write have committed, and strictly
+      // BEFORE its first chunk exists. That is the exact window #162 is about,
+      // forced instead of hoped for.
+      const reached = deferred();
+      const gate = deferred();
+      const gatedJobsA = {
+        enqueue: async (params: Parameters<JobsService['enqueue']>[0]) => {
+          reached.resolve();
+          await gate.promise;
+          return jobsA.enqueue(params);
+        },
+      } as unknown as JobsService;
+      const startA = new BroadcastStartHandler(clientA as unknown as PrismaService, gatedJobsA, registryStub());
+      const { startHandler: startB } = handlersFor(clientB, jobsB);
+
+      const runA = startA.process(startJobFor(broadcast.id, 'start-a'));
+      await reached.promise;
+
+      // B, on its own connection, sees `sending` + cutoff + no cursor + no
+      // dispatches + NO chunk row yet, so it takes the #469 resume path and
+      // hands off itself — inserting the first chunk before A does.
+      await startB.process(startJobFor(broadcast.id, 'start-b'));
+      const afterB = await clientA.job.findMany({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+      expect(afterB).toHaveLength(1);
+
+      // Now A's enqueue runs. Its insert hits the active-dedup index on the
+      // per-broadcast first-chunk key and collapses onto B's row.
+      gate.resolve();
+      await expect(runA).resolves.toBeUndefined();
+
+      const chunkJobs = await clientA.job.findMany({
+        where: { type: BROADCAST_CHUNK_TYPE, subjectType: BROADCAST_SUBJECT_TYPE, subjectId: broadcast.id },
+      });
+      expect(chunkJobs).toHaveLength(1);
+      expect(chunkJobs[0].id).toBe(afterB[0].id);
+      expect(chunkJobs[0].dedupKey).toBe(broadcastFirstChunkDedupKey(broadcast.id));
+
+      // And the single chain delivers to each recipient exactly once.
+      const { chunkHandler, stub } = handlersFor(clientA, jobsA);
+      await runChunksToCompletion(chunkHandler, broadcast.id);
+      const finalState = await clientA.notificationBroadcast.findUniqueOrThrow({
+        where: { id: broadcast.id },
+      });
+      expect(finalState.status).toBe('sent');
+      expect(finalState.recipientsTargeted).toBe(audienceIds.length);
+      expect(dispatchedIds(stub.calls).sort()).toEqual([...audienceIds].sort());
+    }
+  );
 
   // ===========================================================================
   // 4. A replayed chunk re-pages from the persisted cursor, never earlier
@@ -1516,7 +1579,7 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
     });
 
     it(
-      'two concurrent resume executions after a post-claim failure produce at most two chunks, ' +
+      'two concurrent resume executions after a post-claim failure converge on one first chunk (#162), ' +
         'and the #459 cursor CAS still collapses the fan-out to exactly one delivery per recipient',
       async () => {
         // At least two full BROADCAST_CHUNK_SIZE pages, so a genuine
@@ -1562,13 +1625,11 @@ describeWithDb('Admin broadcast fan-out (real Postgres)', () => {
           orderBy: { createdAt: 'asc' },
         });
         // Both resume executions may pass the "no chunk exists" read before
-        // either commits its recipientsTargeted write, so up to two FIRST
-        // chunks may be enqueued (unlike the single-claim CAS test above,
-        // this resume guard's existence check is not itself atomic with the
-        // enqueue — the #459 cursor CAS inside the chunk handler is what
-        // bounds the resulting duplication, not this check).
-        expect(chunkRows.length).toBeGreaterThanOrEqual(1);
-        expect(chunkRows.length).toBeLessThanOrEqual(2);
+        // either enqueues, but the first chunk carries a per-broadcast dedup
+        // key (#162), so the active-dedup index collapses the two inserts
+        // onto ONE row. (Before #162 this could be two, bounded only by the
+        // #459 cursor CAS below.)
+        expect(chunkRows).toHaveLength(1);
 
         const { chunkHandler, stub } = handlersFor(clientA, jobsA);
         // Drive every chunk row (both first-chunk duplicates, if two were
