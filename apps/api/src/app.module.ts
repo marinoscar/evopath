@@ -40,6 +40,7 @@ import { IntakeModule } from './intake/intake.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
+import { TrainingAgentsModule } from './training-agents/training-agents.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -239,6 +240,12 @@ import configuration from './config/configuration';
     // `ExercisesService` and `ExerciseAvailabilityService` for E4.2+ and E5.
     ExercisesModule,
     WorkoutsModule,
+
+    // Training agents (E5): the orchestration layer above `AiService`. Loads
+    // `@langchain/langgraph` at boot (`GraphRuntimeInfo` logs its version), so
+    // a CommonJS/ESM mismatch fails the start, and forces framework telemetry
+    // off in code.
+    TrainingAgentsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

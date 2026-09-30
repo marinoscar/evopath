@@ -121,6 +121,7 @@ Every API request passes through the same stages, in this order:
 | Authentication | Passport Google OAuth 2.0, JWT access tokens, rotating refresh-token cookie |
 | Web | React 19, Material UI, react-router 7, Vite |
 | CLI | TypeScript, Commander (subcommands), ink (interactive menu) |
+| Agent orchestration | LangGraph.js (`@langchain/langgraph`, `@langchain/core`), exact-pinned, imported only under `apps/api/src/training-agents/`; model calls stay on `AiService` |
 | Observability | OpenTelemetry SDK, Pino structured logs, GreptimeDB |
 | API reference | OpenAPI generated from code, Scalar UI at `/api/docs`, Spectral lint |
 | Testing | Jest + Supertest (API), Vitest + React Testing Library (web and CLI), Playwright (e2e) |
@@ -236,6 +237,8 @@ In a real terminal with no arguments it opens an interactive ink menu. `evopathc
 The AI platform is an admin-governed, bring-your-own-key capability over five providers: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`. It offers responses (plain, streaming, structured output, function-calling tool loops), embeddings, image generation and editing, transcription, text-to-speech and realtime voice sessions, plus background runs and usage reporting.
 
 A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That client runs one gate pipeline for every call: kill switch, provider and model enablement, capability match, key resolution (the user's own key, or the org key under `byok_with_org_fallback` or for a holder of `ai_config:write`), rate limits and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `apps/api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
+
+`TrainingAgentsModule` (`apps/api/src/training-agents/`) sits above the gateway: it runs agent graphs with LangGraph.js through `LangGraphRunner`, checkpointing to two Prisma-owned tables, and never calls a provider itself. Framework telemetry is forced off in code.
 
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
 - **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; admin-only Playground `/ai`
@@ -396,6 +399,8 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `UserAiKey` | `user_ai_keys` | Encrypted BYOK key per `(userId, provider)`, reachable models |
 | AI | `AiRun` | `ai_runs` | Background AI runs (response, image, transcription, speech) |
 | AI | `AiUsageEvent` | `ai_usage_events` | One row per provider round trip, tokens, key source |
+| AI | `TrainingRunCheckpoint` | `training_run_checkpoints` | Graph checkpoint per `(threadId, checkpointNs, checkpointId)`, node outputs only, no foreign key |
+| AI | `TrainingRunCheckpointWrite` | `training_run_checkpoint_writes` | Pending writes and interrupts of a checkpoint, keyed by plain `threadId` |
 | Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, time zone, bio, version |
 | Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set |
 | Intake | `PhotoIntake` | `photo_intakes` | One photo-to-draft flow per row: kind, status, kind-specific context, chosen provider and model, analyze job, error, result metadata |

@@ -48,7 +48,31 @@ const PROVIDER_SDK_PACKAGES = [
   'replicate',
   'together-ai',
   'ollama',
+  // Agent-framework and model-client packages. An orchestration library
+  // (`@langchain/langgraph`, `@langchain/core`) may sit ABOVE `AiService` in
+  // `training-agents/`; a LangChain provider integration, the `langchain`
+  // umbrella package or the Vercel AI SDK would be a model client of its own
+  // and is banned like any other provider SDK.
+  '@langchain/openai',
+  '@langchain/anthropic',
+  '@langchain/google-genai',
+  '@langchain/google-vertexai',
+  '@langchain/aws',
+  '@langchain/mistralai',
+  '@langchain/cohere',
+  '@langchain/groq',
+  '@langchain/ollama',
+  '@langchain/community',
+  'langchain',
+  'ai',
 ] as const;
+
+/**
+ * Banned package SCOPES: every package under one of these prefixes is a
+ * provider SDK (the Vercel AI SDK ships one `@ai-sdk/<provider>` per vendor),
+ * so the scope itself is banned rather than an ever-growing list of names.
+ */
+const PROVIDER_SDK_SCOPES = ['@ai-sdk/'] as const;
 
 function sourceFiles(dir: string): string[] {
   if (!statSync(dir, { throwIfNoEntry: false })) return [];
@@ -85,12 +109,24 @@ function importSpecifiers(source: string): string[] {
 
 /** True when `specifier` names (or is a subpath of) a banned provider SDK package. */
 function namesProviderSdk(specifier: string): boolean {
-  return PROVIDER_SDK_PACKAGES.some(
-    (pkg) => specifier === pkg || specifier.startsWith(`${pkg}/`),
+  return (
+    PROVIDER_SDK_PACKAGES.some((pkg) => specifier === pkg || specifier.startsWith(`${pkg}/`)) ||
+    PROVIDER_SDK_SCOPES.some((scope) => specifier.startsWith(scope))
   );
 }
 
 describe('no AI provider SDK leaks outside its own adapter directory (#435)', () => {
+  it('matches banned packages, their subpaths and banned scopes, but not look-alikes', () => {
+    expect(namesProviderSdk('@langchain/openai')).toBe(true);
+    expect(namesProviderSdk('langchain/chat_models/universal')).toBe(true);
+    expect(namesProviderSdk('ai')).toBe(true);
+    expect(namesProviderSdk('@ai-sdk/openai')).toBe(true);
+    expect(namesProviderSdk('@langchain/langgraph')).toBe(false);
+    expect(namesProviderSdk('@langchain/core/runnables')).toBe(false);
+    expect(namesProviderSdk('./ai')).toBe(false);
+    expect(namesProviderSdk('aide')).toBe(false);
+  });
+
   describe('apps/api/src', () => {
     const files = sourceFiles(SRC_API).map((file) => ({
       path: file,
