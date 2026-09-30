@@ -1,6 +1,9 @@
-import { loadPersonas } from './personas';
-import { evaluatePersona, type PersonaEvaluation } from './evaluate';
 import type { DraftVariant } from '../support/draft-synth';
+import { PIPELINE_BASELINE, personaDrift, readJson, regressions, updateRequested, writeBaseline, type PipelineBaseline } from './baselines';
+import { evaluatePersona, type PersonaEvaluation } from './evaluate';
+import { PROMPT_VERSIONS } from './prompt-hashes';
+import { loadPersonas } from './personas';
+import { buildReport, renderMarkdown, reportPersona, shouldPrint, writeReport } from './report';
 
 // =============================================================================
 // Pipeline evals: deterministic, free, and part of `npm test`
@@ -168,4 +171,66 @@ describe('prompt-injection-in-goal', () => {
     expect(inert.pass).toBe(true);
     expect(inert.details).toEqual([]);
   });
+});
+
+// ---- baseline and report --------------------------------------------------------
+
+const round = (n: number) => Math.round(n * 1000) / 1000;
+
+/** The fake-mode scores of the good variants and the pass rate over every variant of the persona. */
+async function currentBaseline(): Promise<PipelineBaseline> {
+  const personasOut: PipelineBaseline['personas'] = {};
+  const raws: number[] = [];
+  const shippeds: number[] = [];
+  let passed = 0;
+  let total = 0;
+
+  for (const persona of personas) {
+    const variants: DraftVariant[] = persona.kind === 'safety' ? ['good'] : ['good', 'mediocre', 'hostile', 'broken'];
+    const results = await Promise.all(variants.map((v) => evaluation(persona.id, v)));
+    const good = results[0];
+    personasOut[persona.id] = {
+      good: { raw: good.raw?.score ?? null, shipped: good.shipped?.score ?? null },
+      passRate: round(results.filter((r) => r.passes).length / results.length),
+    };
+    passed += results.filter((r) => r.passes).length;
+    total += results.length;
+    if (persona.kind !== 'safety') {
+      raws.push(good.raw!.score);
+      shippeds.push(good.shipped!.score);
+    }
+  }
+  const mean = (values: number[]) => round(values.reduce((a, b) => a + b, 0) / Math.max(1, values.length));
+  return { suite: 'training-plan-quality', mode: 'pipeline', personas: personasOut, overall: { passRate: round(passed / total), meanRaw: mean(raws), meanShipped: mean(shippeds) } };
+}
+
+describe('baseline', () => {
+  it('every variant of every persona passes, and the good variants score at or above the committed baseline', async () => {
+    const current = await currentBaseline();
+
+    expect(current.overall.passRate).toBe(1);
+    if (updateRequested()) {
+      writeBaseline(PIPELINE_BASELINE, current);
+      return;
+    }
+
+    const baseline = readJson<PipelineBaseline>(PIPELINE_BASELINE);
+    if (!baseline) throw new Error('No pipeline baseline: run `npm run eval:training` with EVAL_UPDATE_BASELINE=1 and commit it.');
+    const drift = personaDrift(current, baseline);
+    if (drift.added.length > 0 || drift.removed.length > 0) {
+      throw new Error(`The persona set changed (added: ${drift.added.join(', ') || 'none'}; removed: ${drift.removed.join(', ') || 'none'}): review the scores, then update the baseline with EVAL_UPDATE_BASELINE=1.`);
+    }
+    expect(regressions(current, baseline)).toEqual([]);
+  });
+});
+
+afterAll(async () => {
+  try {
+    const evaluations = await Promise.all(cache.values());
+    const report = buildReport({ mode: 'pipeline', personas: evaluations.map((e) => reportPersona(e)), promptVersions: PROMPT_VERSIONS });
+    writeReport(report);
+    if (shouldPrint()) console.log(renderMarkdown(report));
+  } catch (error) {
+    console.warn(`The eval report could not be written: ${(error as Error).message}`);
+  }
 });
