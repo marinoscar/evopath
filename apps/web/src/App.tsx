@@ -120,6 +120,8 @@ const AiConfigPage = lazy(() => import('./pages/Admin/AiConfigPage'));
 const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
 // Issue #444, epic #420 — AI usage aggregates.
 const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
+// Issue #173 — the administrator's model per AI feature.
+const AiAssignmentsPage = lazy(() => import('./pages/Admin/AiAssignmentsPage'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
 const UserAgentModelsPage = lazy(() => import('./pages/UserAgentModelsPage'));
 const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage'));
@@ -780,6 +782,19 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <AiUsagePage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/ai/assignments"
+                    element={
+                      <RequirePermission
+                        permission="ai_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <AiAssignmentsPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }
