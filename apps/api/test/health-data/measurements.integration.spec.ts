@@ -44,6 +44,10 @@ function storedRow(userId: string, overrides: Record<string, unknown> = {}) {
     method: 'unspecified',
     origin: 'manual',
     notes: null,
+    referenceLow: null,
+    referenceHigh: null,
+    referenceText: null,
+    flag: null,
     sourceRef: null,
     revision: 1,
     supersedesId: null,
@@ -132,6 +136,21 @@ describe('Measurements (integration)', () => {
       body: { notes: null },
     },
     { method: 'delete', path: `${BASE}/entries/${ENTRY_ID}`, permission: 'health_data:write' },
+    // Lab rows (H3, #187) sit behind the very same permissions.
+    { method: 'get', path: `${BASE}?category=lab`, permission: 'health_data:read' },
+    { method: 'get', path: `${BASE}/series?metricKey=ldl_cholesterol`, permission: 'health_data:read' },
+    {
+      method: 'post',
+      path: BASE,
+      permission: 'health_data:write',
+      body: { readings: [{ metricKey: 'ldl_cholesterol', value: 130, referenceHigh: 99, flag: 'high' }] },
+    },
+    {
+      method: 'patch',
+      path: `${BASE}/entries/${ENTRY_ID}`,
+      permission: 'health_data:write',
+      body: { readings: [{ metricKey: 'ldl_cholesterol', value: 128, flag: 'normal' }] },
+    },
   ];
 
   describe.each(ROUTES)('$method $path', ({ method, path, permission, body }) => {
@@ -336,6 +355,49 @@ describe('Measurements (integration)', () => {
       expect(prisma.measurement.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ userId: viewer.id, origin: 'manual' }),
       });
+    });
+
+    it('creates a lab panel with range and flag, converted to canonical units (H3, #187)', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      const response = await request(server())
+        .post(BASE)
+        .set(authHeader(viewer.accessToken))
+        .send({
+          readings: [
+            { metricKey: 'fasting_glucose', value: 5.55, unit: 'mmol/L', referenceLow: 3.9, referenceHigh: 5.5, flag: 'high' },
+            { metricKey: 'hba1c', value: 5.4, method: 'lab', referenceText: '<5.7', flag: 'normal' },
+          ],
+        })
+        .expect(201);
+
+      const items = response.body.data.items;
+      expect(new Set(items.map((i: any) => i.entryId)).size).toBe(1);
+      expect(items[0]).toMatchObject({ metricKey: 'fasting_glucose', unit: 'mg/dL', flag: 'high', referenceText: null });
+      expect(Math.round(items[0].value)).toBe(100);
+      expect(items[0].referenceLow).toBeCloseTo(70.27, 2);
+      expect(items[1]).toMatchObject({
+        metricKey: 'hba1c',
+        value: 5.4,
+        unit: '%',
+        method: 'lab',
+        referenceLow: null,
+        referenceHigh: null,
+        referenceText: '<5.7',
+        flag: 'normal',
+      });
+    });
+
+    it('refuses a range on a body metric and a lab reading mixed with a body one', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      for (const readings of [
+        [{ metricKey: 'weight', value: 80, flag: 'high' }],
+        [{ metricKey: 'weight', value: 80 }, { metricKey: 'tsh', value: 2 }],
+      ]) {
+        await request(server()).post(BASE).set(authHeader(viewer.accessToken)).send({ readings }).expect(400);
+      }
+      expect(prisma.measurement.create).not.toHaveBeenCalled();
     });
 
     it('saves a blood-pressure pair as two rows with one entryId and one measuredAt', async () => {

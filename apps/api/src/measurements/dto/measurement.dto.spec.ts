@@ -2,6 +2,9 @@ import {
   bloodPressureProblem,
   createMeasurementEntrySchema,
   listMeasurementsQuerySchema,
+  listMetricKeys,
+  MAX_LAB_READINGS_PER_ENTRY,
+  referenceRangeProblem,
   seriesQuerySchema,
   updateMeasurementEntrySchema,
 } from './measurement.dto';
@@ -136,6 +139,117 @@ describe('createMeasurementEntrySchema', () => {
   });
 });
 
+describe('lab readings (H3, #187)', () => {
+  const LAB_KEYS = [
+    'total_cholesterol', 'ldl_cholesterol', 'hdl_cholesterol', 'triglycerides', 'non_hdl_cholesterol', 'apob',
+    'fasting_glucose', 'hba1c', 'hemoglobin', 'tsh', 'ferritin', 'creatinine',
+  ];
+
+  it('accepts a range and flag, converting value and limits to the canonical unit', () => {
+    const parsed = createMeasurementEntrySchema.parse({
+      readings: [
+        {
+          metricKey: 'fasting_glucose',
+          value: 5.55,
+          unit: 'mmol/L',
+          referenceLow: 3.9,
+          referenceHigh: 5.5,
+          referenceText: '  3.9-5.5  ',
+          flag: 'high',
+        },
+      ],
+    });
+
+    const [reading] = parsed.readings;
+    expect(reading.unit).toBe('mg/dL');
+    expect(Math.round(reading.value)).toBe(100);
+    expect(reading.referenceLow).toBeCloseTo(70.27, 2);
+    expect(reading.referenceHigh).toBeCloseTo(99.1, 1);
+    expect(reading).toMatchObject({ referenceText: '3.9-5.5', flag: 'high' });
+  });
+
+  it('converts an HbA1c range given in mmol/mol with the master equation', () => {
+    const [reading] = createMeasurementEntrySchema.parse({
+      readings: [{ metricKey: 'hba1c', value: 53, unit: 'mmol/mol', referenceLow: 20, referenceHigh: 42 }],
+    }).readings;
+
+    expect(reading.value.toFixed(1)).toBe('7.0');
+    expect(reading.referenceLow!.toFixed(1)).toBe('4.0');
+    expect(reading.referenceHigh!.toFixed(1)).toBe('6.0');
+  });
+
+  it('stores an empty referenceText as null and leaves omitted context unset', () => {
+    const [withText, bare] = createMeasurementEntrySchema.parse({
+      readings: [
+        { metricKey: 'tsh', value: 2.1, referenceText: '   ' },
+        { metricKey: 'ferritin', value: 80 },
+      ],
+    }).readings;
+
+    expect(withText.referenceText).toBeNull();
+    expect(bare).not.toHaveProperty('referenceLow');
+    expect(bare).not.toHaveProperty('flag');
+  });
+
+  it('accepts a whole report in one entry, beyond the six-reading body limit', () => {
+    const readings = LAB_KEYS.map((metricKey) => ({ metricKey, value: 1 + (metricKey === 'hba1c' ? 4 : 0) + (metricKey === 'hemoglobin' ? 12 : 0) }));
+    expect(createMeasurementEntrySchema.safeParse({ readings }).success).toBe(true);
+    expect(MAX_LAB_READINGS_PER_ENTRY).toBe(40);
+  });
+
+  it('still refuses seven body/vital readings with the six-reading message', () => {
+    const readings = ['weight', 'body_fat_pct', 'waist_circumference', 'resting_hr', 'weight', 'weight', 'weight'].map(
+      (metricKey) => ({ metricKey, value: 80 }),
+    );
+    const result = createMeasurementEntrySchema.safeParse({ readings });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues).toContainEqual(
+      expect.objectContaining({ path: ['readings'], message: 'readings must contain at most 6 readings' }),
+    );
+  });
+
+  it.each([
+    ['a lab and a body metric in one entry', { readings: [{ metricKey: 'tsh', value: 2 }, { metricKey: 'weight', value: 80 }] }, 'readings'],
+    ['a range on a body metric', { readings: [{ metricKey: 'weight', value: 80, referenceLow: 60 }] }, 'readings.0.referenceLow'],
+    ['a flag on a vital metric', { readings: [{ metricKey: 'resting_hr', value: 60, flag: 'high' }] }, 'readings.0.flag'],
+    ['referenceText on a body metric', { readings: [{ metricKey: 'weight', value: 80, referenceText: 'n' }] }, 'readings.0.referenceText'],
+    ['low above high', { readings: [{ metricKey: 'tsh', value: 2, referenceLow: 4.5, referenceHigh: 0.4 }] }, 'readings.0.referenceLow'],
+    ['an unknown flag', { readings: [{ metricKey: 'tsh', value: 2, flag: 'H' }] }, 'readings.0.flag'],
+    ['referenceText over 100 characters', { readings: [{ metricKey: 'tsh', value: 2, referenceText: 'r'.repeat(101) }] }, 'readings.0.referenceText'],
+    ['a non-numeric limit', { readings: [{ metricKey: 'tsh', value: 2, referenceHigh: '4.5' }] }, 'readings.0.referenceHigh'],
+    ['a unit the analyte does not allow', { readings: [{ metricKey: 'ldl_cholesterol', value: 2, unit: 'g/L' }] }, 'readings.0.unit'],
+    ['a value outside the hard bounds', { readings: [{ metricKey: 'sodium', value: 20 }] }, 'readings.0.value'],
+    ['41 lab readings', { readings: Array.from({ length: 41 }, () => ({ metricKey: 'tsh', value: 2 })) }, 'readings'],
+  ])('refuses %s, naming the field', (_case, body, path) => {
+    expect(issuePaths(createMeasurementEntrySchema.safeParse(body))).toContain(path);
+  });
+
+  it('never echoes a limit or referenceText in an issue message', () => {
+    const result = createMeasurementEntrySchema.safeParse({
+      readings: [{ metricKey: 'tsh', value: 2, referenceLow: 7.654, referenceHigh: 1.234, referenceText: `secret-${'x'.repeat(200)}` }],
+    });
+    const messages = JSON.stringify(result.error!.issues.map((issue) => issue.message));
+    expect(messages).not.toContain('7.654');
+    expect(messages).not.toContain('secret-');
+  });
+
+  it('on edit: omitted context stays undefined (keep), null clears', () => {
+    const [reading] = updateMeasurementEntrySchema.parse({
+      readings: [{ metricKey: 'tsh', value: 2, flag: null, referenceHigh: 4.5 }],
+    }).readings!;
+    expect(reading).toMatchObject({ flag: null, referenceHigh: 4.5 });
+    expect(reading).not.toHaveProperty('referenceLow');
+    expect(reading).not.toHaveProperty('referenceText');
+  });
+
+  it('referenceRangeProblem allows open-ended and equal limits', () => {
+    expect(referenceRangeProblem(undefined, 5)).toBeNull();
+    expect(referenceRangeProblem(5, null)).toBeNull();
+    expect(referenceRangeProblem(5, 5)).toBeNull();
+    expect(referenceRangeProblem(6, 5)).toMatch(/referenceLow/);
+  });
+});
+
 describe('updateMeasurementEntrySchema', () => {
   it('requires at least one property', () => {
     expect(updateMeasurementEntrySchema.safeParse({}).success).toBe(false);
@@ -189,6 +303,25 @@ describe('listMeasurementsQuerySchema', () => {
     [{ from: '2026-02-01T00:00:00Z', to: '2026-01-01T00:00:00Z' }, 'from'],
   ])('refuses %j', (query, path) => {
     expect(issuePaths(listMeasurementsQuerySchema.safeParse(query))).toContain(path);
+  });
+});
+
+describe('listMetricKeys', () => {
+  it('defaults to body and vital, lists lab only on request', () => {
+    const parse = (query: Record<string, string>) => listMetricKeys(listMeasurementsQuerySchema.parse(query));
+
+    expect(parse({})).toEqual(['weight', 'body_fat_pct', 'waist_circumference', 'bp_systolic', 'bp_diastolic', 'resting_hr']);
+    expect(parse({ category: 'lab' })).toContain('hba1c');
+    expect(parse({ category: 'lab' })).not.toContain('weight');
+    expect(parse({ category: 'vital' })).toEqual(['bp_systolic', 'bp_diastolic', 'resting_hr']);
+    expect(parse({ metricKey: 'tsh' })).toEqual(['tsh']);
+    expect(parse({ metricKey: 'tsh', category: 'body' })).toEqual([]);
+  });
+
+  it('refuses a wellness category and accepts a lab metricKey', () => {
+    expect(listMeasurementsQuerySchema.safeParse({ category: 'wellness' }).success).toBe(false);
+    expect(listMeasurementsQuerySchema.safeParse({ metricKey: 'ldl_cholesterol' }).success).toBe(true);
+    expect(listMeasurementsQuerySchema.safeParse({ metricKey: 'energy' }).success).toBe(false);
   });
 });
 
