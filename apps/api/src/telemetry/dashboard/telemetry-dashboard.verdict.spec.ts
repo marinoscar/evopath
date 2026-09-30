@@ -31,6 +31,14 @@ describe('computeVerdict', () => {
       p95Ms: { degraded: 1000, critical: 3000 },
       errorLogs: { minCurrent: 10, degradedRatio: 3, criticalRatio: 10 },
       noDataMinutes: 5,
+      diskUtilizationPct: { degraded: 85, critical: 95 },
+      memoryUtilizationPct: { degraded: 90, critical: 97 },
+      dbConnectionsPct: { degraded: 80, critical: 95 },
+      oldestPendingJobMinutes: { degraded: 10, critical: 30 },
+      tlsDaysLeft: { degraded: 14, critical: 7 },
+      uptimeMinChecksForCritical: 2,
+      collectorFailedPct: { critical: 10 },
+      backupAgeHours: { degraded: 26, critical: 50 },
     });
   });
 
@@ -143,6 +151,234 @@ describe('computeVerdict', () => {
         level: 'no_data',
         reasons: ['No telemetry received recently'],
       });
+    });
+  });
+
+  // ---- infrastructure rules (#126) ----
+
+  describe('infrastructure rules', () => {
+    it('skip every rule whose input is absent or null', () => {
+      expect(
+        computeVerdict(
+          input({
+            disk: null,
+            memory: null,
+            dbConnections: null,
+            oldestPendingJob: null,
+            nodes: null,
+            tls: null,
+            uptimeFailures: null,
+            collector: null,
+            backupAgeHours: null,
+          }),
+        ),
+      ).toEqual({ level: 'healthy', reasons: [] });
+    });
+
+    it('are overridden by no data, like every rule', () => {
+      expect(
+        computeVerdict(input({ lastDataAt: null, disk: { utilizationPct: 99, mountpoint: '/' } })).level,
+      ).toBe('no_data');
+    });
+
+    describe('disk', () => {
+      it.each([
+        [84.9, 'healthy'],
+        [85, 'degraded'],
+        [94.9, 'degraded'],
+        [95, 'critical'],
+      ])('%d%% → %s', (utilizationPct, level) => {
+        expect(computeVerdict(input({ disk: { utilizationPct, mountpoint: '/' } })).level).toBe(level);
+      });
+
+      it('names the mountpoint', () => {
+        expect(computeVerdict(input({ disk: { utilizationPct: 96.24, mountpoint: '/var/lib/data' } })).reasons).toEqual([
+          'Disk 96.2% full (≥ 95%) — mountpoint: /var/lib/data',
+        ]);
+      });
+    });
+
+    describe('memory', () => {
+      it.each([
+        [89.9, 'healthy'],
+        [90, 'degraded'],
+        [97, 'critical'],
+      ])('%d%% → %s', (utilizationPct, level) => {
+        expect(computeVerdict(input({ memory: { utilizationPct, host: 'vm1' } })).level).toBe(level);
+      });
+
+      it('names the host', () => {
+        expect(computeVerdict(input({ memory: { utilizationPct: 91, host: 'vm1' } })).reasons).toEqual([
+          'Memory 91% used (≥ 90%) — host: vm1',
+        ]);
+      });
+    });
+
+    describe('database connections', () => {
+      it.each([
+        [79.9, 'healthy'],
+        [80, 'degraded'],
+        [95, 'critical'],
+      ])('%d%% of max → %s', (utilizationPct, level) => {
+        expect(computeVerdict(input({ dbConnections: { utilizationPct, instance: 'db:5432' } })).level).toBe(level);
+      });
+
+      it('names the server', () => {
+        expect(computeVerdict(input({ dbConnections: { utilizationPct: 81, instance: 'db:5432' } })).reasons).toEqual([
+          'Database connections at 81% of max (≥ 80%) — server: db:5432',
+        ]);
+      });
+    });
+
+    describe('oldest pending job', () => {
+      it.each([
+        [599, 'healthy'],
+        [600, 'degraded'],
+        [1799, 'degraded'],
+        [1800, 'critical'],
+      ])('%d s → %s', (ageSeconds, level) => {
+        expect(computeVerdict(input({ oldestPendingJob: { ageSeconds, jobType: 'export.csv' } })).level).toBe(level);
+      });
+
+      it('names the job type', () => {
+        expect(computeVerdict(input({ oldestPendingJob: { ageSeconds: 900, jobType: 'export.csv' } })).reasons).toEqual([
+          'Oldest pending job waiting 15 min (≥ 10 min) — type: export.csv',
+        ]);
+      });
+    });
+
+    describe('worker nodes', () => {
+      it('is healthy with no stale node and every type served', () => {
+        expect(computeVerdict(input({ nodes: { stale: 0, noEligibleNodeTypes: [] } })).level).toBe('healthy');
+      });
+
+      it('is degraded by a stale node', () => {
+        expect(computeVerdict(input({ nodes: { stale: 2, noEligibleNodeTypes: [] } }))).toEqual({
+          level: 'degraded',
+          reasons: ['2 worker node(s) stale (missed heartbeats)'],
+        });
+      });
+
+      it('is critical when a node-offered type has pending work and no eligible node, naming it', () => {
+        expect(
+          computeVerdict(input({ nodes: { stale: 0, noEligibleNodeTypes: ['report.pdf', 'export.csv'] } })),
+        ).toEqual({
+          level: 'critical',
+          reasons: ['2 job type(s) have pending work and no eligible worker node — type: export.csv, report.pdf'],
+        });
+      });
+    });
+
+    describe('TLS certificate', () => {
+      it.each([
+        [14, 'healthy'],
+        [13.9, 'degraded'],
+        [7, 'degraded'],
+        [6.9, 'critical'],
+        [-1, 'critical'],
+      ])('%d days left → %s', (daysLeft, level) => {
+        expect(computeVerdict(input({ tls: { daysLeft, url: 'https://app.example.com/' } })).level).toBe(level);
+      });
+
+      it('names the URL, and says when it already expired', () => {
+        expect(computeVerdict(input({ tls: { daysLeft: 10, url: 'https://app.example.com/' } })).reasons).toEqual([
+          'TLS certificate expires in 10 days (< 14 days) — url: https://app.example.com/',
+        ]);
+        expect(computeVerdict(input({ tls: { daysLeft: -2.5, url: 'https://app.example.com/' } })).reasons).toEqual([
+          'TLS certificate expired 2.5 days ago (< 7 days) — url: https://app.example.com/',
+        ]);
+      });
+    });
+
+    describe('uptime', () => {
+      it('is healthy with no failing URL', () => {
+        expect(computeVerdict(input({ uptimeFailures: [] })).level).toBe('healthy');
+      });
+
+      it('is degraded when only the latest check failed', () => {
+        expect(
+          computeVerdict(input({ uptimeFailures: [{ url: 'http://nginx/api/health/live', allFailed: false, checks: 20 }] })),
+        ).toEqual({
+          level: 'degraded',
+          reasons: ['Uptime check failed on its latest run (1 URL(s)) — url: http://nginx/api/health/live'],
+        });
+      });
+
+      it('is critical when every check in the lookback failed, naming a down URL', () => {
+        expect(
+          computeVerdict(
+            input({
+              uptimeFailures: [
+                { url: 'http://a/', allFailed: false, checks: 20 },
+                { url: 'http://b/', allFailed: true, checks: 20 },
+              ],
+            }),
+          ),
+        ).toEqual({
+          level: 'critical',
+          reasons: ['Uptime check failing for every check in the lookback (1 URL(s)) — url: http://b/'],
+        });
+      });
+
+      it('needs at least two checks before "every check failed" is critical', () => {
+        expect(
+          computeVerdict(input({ uptimeFailures: [{ url: 'http://b/', allFailed: true, checks: 1 }] })).level,
+        ).toBe('degraded');
+      });
+
+      it('cuts a long URL like any offender', () => {
+        const url = `https://example.com/${'x'.repeat(200)}`;
+        const [reason] = computeVerdict(input({ uptimeFailures: [{ url, allFailed: false, checks: 3 }] })).reasons;
+        expect(reason.endsWith('…')).toBe(true);
+        expect(reason.split('url: ')[1]).toHaveLength(80);
+      });
+    });
+
+    describe('collector exports', () => {
+      it('is healthy without failures', () => {
+        expect(computeVerdict(input({ collector: { failed: 0, sent: 1000, exporter: null } })).level).toBe('healthy');
+      });
+
+      it('is degraded by any failed point, naming the exporter', () => {
+        expect(computeVerdict(input({ collector: { failed: 5, sent: 995, exporter: 'otlphttp/greptime' } }))).toEqual({
+          level: 'degraded',
+          reasons: ['Collector failed to export 5 points (0.5% of attempted) — exporter: otlphttp/greptime'],
+        });
+      });
+
+      it('is critical at 10 % of attempted points', () => {
+        expect(computeVerdict(input({ collector: { failed: 10, sent: 90, exporter: 'otlphttp/greptime' } }))).toEqual({
+          level: 'critical',
+          reasons: ['Collector failed to export 10 points (10% of attempted, ≥ 10%) — exporter: otlphttp/greptime'],
+        });
+      });
+    });
+
+    describe('last backup', () => {
+      it.each([
+        [26, 'healthy'],
+        [26.1, 'degraded'],
+        [50, 'degraded'],
+        [50.1, 'critical'],
+      ])('%d h → %s', (backupAgeHours, level) => {
+        expect(computeVerdict(input({ backupAgeHours })).level).toBe(level);
+      });
+
+      it('says how long ago', () => {
+        expect(computeVerdict(input({ backupAgeHours: 30 })).reasons).toEqual(['Last successful backup 30 h ago (> 26 h)']);
+      });
+    });
+
+    it('reports the worst level and one reason per fired rule', () => {
+      const verdict = computeVerdict(
+        input({
+          disk: { utilizationPct: 90, mountpoint: '/' },
+          backupAgeHours: 60,
+          memory: { utilizationPct: 10, host: 'vm1' },
+        }),
+      );
+      expect(verdict.level).toBe('critical');
+      expect(verdict.reasons).toHaveLength(2);
     });
   });
 });

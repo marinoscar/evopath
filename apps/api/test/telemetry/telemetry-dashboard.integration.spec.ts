@@ -13,6 +13,9 @@ import {
   REQUIRED_LOG_COLUMNS,
   REQUIRED_TRACE_COLUMNS,
 } from '../../src/telemetry/dashboard/telemetry-dashboard.sql';
+import { TelemetryDashboardService } from '../../src/telemetry/dashboard/telemetry-dashboard.service';
+import { METRIC_GROUPS } from '../../src/telemetry/metrics/metric-catalog';
+import { metricCatalogSchema } from '../../src/telemetry/testing/metric-schema.fixture';
 
 // =============================================================================
 // Telemetry dashboard over HTTP (issue #577)
@@ -33,6 +36,7 @@ const ROUTES = [
   `${BASE}/top?kind=routes`,
   `${BASE}/events`,
   `${BASE}/filters`,
+  `${BASE}/metrics?group=host`,
 ];
 
 const POLICY: SystemTelemetryValue = {
@@ -199,6 +203,9 @@ describe('Telemetry dashboard integration', () => {
       ['an unknown kind', `${BASE}/top?kind=slow`],
       ['an unknown severity', `${BASE}/events?severity=debug`],
       ['q over 200 characters', `${BASE}/events?q=${'x'.repeat(201)}`],
+      ['metrics without a group', `${BASE}/metrics`],
+      ['an unknown metric group', `${BASE}/metrics?group=disk`],
+      ['a host over 200 characters', `${BASE}/metrics?group=host&host=${'x'.repeat(201)}`],
     ])('refuses %s with 400', async (_label, route) => {
       const admin = await createMockAdminUser(context);
       await request(context.app.getHttpServer()).get(route).set(authHeader(admin.accessToken)).expect(400);
@@ -229,6 +236,79 @@ describe('Telemetry dashboard integration', () => {
         .get(`${BASE}/top?kind=errors&range=24h&service=my-app-api`)
         .set(authHeader(admin.accessToken))
         .expect(200);
+    });
+  });
+
+  describe('metrics (#126)', () => {
+    beforeEach(() => {
+      // Earlier tests filled the service's result and distinct-values caches
+      // from a schema without metric tables.
+      const dashboard = context.module.get(TelemetryDashboardService) as unknown as {
+        results: { clear(): void };
+        distinct: { clear(): void };
+      };
+      dashboard.results.clear();
+      dashboard.distinct.clear();
+      jest.spyOn(schema, 'getSchema').mockResolvedValue({ tables: [...SCHEMA.tables, ...metricCatalogSchema().tables] });
+      queryReader.mockImplementation(async (sql: string) =>
+        sql.includes('"host_name" AS v')
+          ? { fields: [{ name: 'v', dataTypeID: 25 }], rows: [['vm1']] }
+          : sql.includes(' AS v ')
+            ? { fields: [{ name: 'v', dataTypeID: 25 }], rows: sql.includes('instance') ? [] : [['my-app-api']] }
+            : { fields: [], rows: [] },
+      );
+    });
+
+    it.each(METRIC_GROUPS)('group %s answers the documented shape', async (group) => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=${group}&range=6h`)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(res.body.data).toEqual({
+        range: expect.objectContaining({ bucketSeconds: expect.any(Number) }),
+        generatedAt: expect.any(String),
+        truncated: false,
+        sql: expect.arrayContaining([expect.any(String)]),
+        group,
+        available: true,
+        tiles: expect.any(Array),
+        series: expect.any(Array),
+        tables: expect.any(Array),
+        skipped: [],
+      });
+      expect(res.body.data.range.bucketSeconds).toBeGreaterThanOrEqual(60);
+      expect(context.prismaMock.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'telemetry:dashboard',
+          meta: expect.objectContaining({ route: 'metrics', params: expect.objectContaining({ group }) }),
+        }),
+      });
+    });
+
+    it('lists hosts in /filters', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer()).get(`${BASE}/filters`).set(authHeader(admin.accessToken)).expect(200);
+      expect(res.body.data.hosts).toEqual(['vm1']);
+    });
+
+    it('accepts a known host', async () => {
+      const admin = await createMockAdminUser(context);
+      await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=host&host=vm1`)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+      expect(queryReader.mock.calls.some(([sql]) => String(sql).includes(`"host_name" = 'vm1'`))).toBe(true);
+    });
+
+    it('refuses an unknown host with 400 TELEMETRY_DASHBOARD_BAD_FILTER', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=host&host=${encodeURIComponent("vm1' OR 1=1 --")}`)
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+      expect(res.body.details).toEqual({ field: 'host', reason: 'TELEMETRY_DASHBOARD_BAD_FILTER' });
     });
   });
 });

@@ -77,6 +77,26 @@
 // `UNION` + top-level `ORDER BY … LIMIT`, scalar subqueries, GROUP BY alias.
 // =============================================================================
 
+import {
+  between,
+  bucketInterval,
+  bucketRowLimit,
+  ident,
+  literal,
+  positive,
+  timestampLiteral,
+} from './sql-literals';
+
+export {
+  BUCKET_SIZES_SECONDS,
+  bucketInterval,
+  bucketRowLimit,
+  bucketSecondsFor,
+  ident,
+  literal,
+  timestampLiteral,
+} from './sql-literals';
+
 export const TRACES_TABLE = 'opentelemetry_traces';
 export const LOGS_TABLE = 'opentelemetry_logs';
 export const HEAP_USED_TABLE = 'v8js_memory_heap_used_bytes';
@@ -131,9 +151,6 @@ export const SEVERITY_BANDS = {
 export const EVENT_SEVERITIES = ['error', 'warn', 'info'] as const;
 export type EventSeverity = (typeof EVENT_SEVERITIES)[number];
 
-/** Allowed bucket sizes, ascending. A span/buckets quotient is rounded UP to one of these. */
-export const BUCKET_SIZES_SECONDS = [10, 30, 60, 300, 600, 900, 1800, 3600, 10800, 21600] as const;
-
 /** Top-N lists. */
 export const TOP_N = 10;
 /** Events page size. */
@@ -146,38 +163,9 @@ export const SEARCH_MAX_LENGTH = 200;
 export const ERROR_MESSAGE_CHARS = 200;
 
 // ---- literals ----------------------------------------------------------------
-
-/** Double-quotes an identifier (doubling `"`). Only ever called with the constants above. */
-export function ident(name: string): string {
-  return `"${name.replace(/"/g, '""')}"`;
-}
-
-/** Single-quotes a string literal (doubling `'`). Callers validate the value first. */
-export function literal(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
-/** An ISO timestamp literal from a validated Date. */
-export function timestampLiteral(date: Date): string {
-  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) {
-    throw new RangeError('timestampLiteral needs a valid Date');
-  }
-  return `'${date.toISOString()}'`;
-}
-
-/** `INTERVAL 'n seconds'` for an allowed bucket size. */
-export function bucketInterval(bucketSeconds: number): string {
-  if (!(BUCKET_SIZES_SECONDS as readonly number[]).includes(bucketSeconds)) {
-    throw new RangeError(`bucketSeconds must be one of ${BUCKET_SIZES_SECONDS.join(', ')}`);
-  }
-  return `INTERVAL '${bucketSeconds} seconds'`;
-}
-
-/** The bucket size for a span: span/buckets rounded UP to an allowed size (the largest when above all). */
-export function bucketSecondsFor(spanMs: number, buckets: number): number {
-  const wanted = spanMs / 1000 / buckets;
-  return BUCKET_SIZES_SECONDS.find((size) => size >= wanted) ?? BUCKET_SIZES_SECONDS[BUCKET_SIZES_SECONDS.length - 1];
-}
+//
+// Shared with the metric catalog builders (`../metrics/metric-sql.ts`, #126);
+// re-exported so existing imports keep working.
 
 /**
  * The search text as the inside of an `ILIKE '%…%' ESCAPE '\'` literal:
@@ -205,20 +193,17 @@ export interface DashboardSqlFilters {
   /** Already validated against the distinct instances of the range. */
   instance?: string | null;
   /**
+   * Already validated against the distinct host names of the range (#126).
+   * Only the metric catalog honours it (`../metrics/metric-sql.ts`); the
+   * trace and log templates never read it.
+   */
+  host?: string | null;
+  /**
    * Whether the traces table has the instance column. When it does not, an
    * instance filter matches no trace (the column only appears once an
    * instance id was written).
    */
   tracesHaveInstance?: boolean;
-}
-
-/** Rows a bucketed series over `[from, to)` can produce, plus alignment slack. */
-export function bucketRowLimit(from: Date, to: Date, bucketSeconds: number): number {
-  return Math.ceil((to.getTime() - from.getTime()) / 1000 / bucketSeconds) + 2;
-}
-
-function between(column: string, from: Date, to: Date): string {
-  return `${ident(column)} >= ${timestampLiteral(from)} AND ${ident(column)} < ${timestampLiteral(to)}`;
 }
 
 function traceFilters(filters: DashboardSqlFilters): string {
@@ -527,9 +512,4 @@ export function eventLoopDelayP99Sql(from: Date, to: Date, bucketSeconds: number
     `FROM ${ident(EVENT_LOOP_P99_TABLE)} WHERE ${metricWhere(from, to, service)} ` +
     `GROUP BY t ORDER BY t LIMIT ${bucketRowLimit(from, to, bucketSeconds)}`
   );
-}
-
-function positive(limit: number): number {
-  if (!Number.isSafeInteger(limit) || limit < 1) throw new RangeError(`limit must be a positive integer, got ${limit}`);
-  return limit;
 }

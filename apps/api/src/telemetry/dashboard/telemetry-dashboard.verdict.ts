@@ -16,6 +16,24 @@
 //
 // The level is the worst rule that fired; `reasons` has one line per fired
 // rule with its value, the threshold it crossed and the worst offender.
+//
+// INFRASTRUCTURE RULES (#126), each evaluated only when its input is present
+// (the summary leaves an input undefined when the metric tables behind it do
+// not exist, or hold no fresh rows). No volume guard: each input is already a
+// level, not a rate over a sample.
+//
+//   disk utilization   >= 85 % degraded, >= 95 % critical  (worst mountpoint)
+//   memory utilization >= 90 % degraded, >= 97 % critical  (worst host)
+//   DB connections     >= 80 % degraded, >= 95 % critical  of max_connections
+//   oldest pending job >= 10 min degraded, >= 30 min critical (worst job type)
+//   worker nodes       any stale node degraded; a node-offered job type with
+//                      pending work and no eligible node critical
+//   TLS certificate    < 14 days degraded, < 7 days critical (soonest URL)
+//   uptime check       latest check failed degraded; every check in the
+//                      lookback failed (>= 2 checks) critical
+//   collector exports  any failed point degraded; >= 10 % of attempted
+//                      points failed critical
+//   last backup        > 26 h degraded, > 50 h critical
 // =============================================================================
 
 export const DASHBOARD_VERDICT_THRESHOLDS = {
@@ -31,6 +49,23 @@ export const DASHBOARD_VERDICT_THRESHOLDS = {
   },
   /** Minutes without any trace or log after which the verdict is `no_data`. */
   noDataMinutes: 5,
+  // ---- infrastructure rules (#126) ----
+  /** Worst mountpoint, `>=`. */
+  diskUtilizationPct: { degraded: 85, critical: 95 },
+  /** Worst host, `>=`. */
+  memoryUtilizationPct: { degraded: 90, critical: 97 },
+  /** Backends against `max_connections`, worst server, `>=`. */
+  dbConnectionsPct: { degraded: 80, critical: 95 },
+  /** Oldest due pending job, worst job type, `>=`. */
+  oldestPendingJobMinutes: { degraded: 10, critical: 30 },
+  /** Certificate lifetime left, soonest URL, `<`. */
+  tlsDaysLeft: { degraded: 14, critical: 7 },
+  /** Checks an uptime target must have in the lookback before "every check failed" may be critical. */
+  uptimeMinChecksForCritical: 2,
+  /** Share of attempted exporter points that failed, `>=`, for critical (any failure is degraded). */
+  collectorFailedPct: { critical: 10 },
+  /** Age of the last successful backup, `>`. */
+  backupAgeHours: { degraded: 26, critical: 50 },
 } as const;
 
 export const VERDICT_LEVELS = ['healthy', 'degraded', 'critical', 'no_data'] as const;
@@ -57,6 +92,27 @@ export interface VerdictInput {
   slowestRoute?: string | null;
   /** The most frequent error message, if any. */
   topErrorMessage?: string | null;
+
+  // ---- infrastructure inputs (#126): undefined/null = the rule is skipped ----
+
+  /** Highest filesystem utilization (%) and its mountpoint. */
+  disk?: { utilizationPct: number; mountpoint: string | null } | null;
+  /** Highest memory utilization (%) and its host. */
+  memory?: { utilizationPct: number; host: string | null } | null;
+  /** Highest backends / max_connections (%) and its server (`instance`). */
+  dbConnections?: { utilizationPct: number; instance: string | null } | null;
+  /** Oldest due pending job age (seconds) and its job type. */
+  oldestPendingJob?: { ageSeconds: number; jobType: string | null } | null;
+  /** Worker nodes: how many are stale, and node-offered job types with pending work but no eligible node. */
+  nodes?: { stale: number; noEligibleNodeTypes: readonly string[] } | null;
+  /** Soonest certificate expiry (days) and its URL. */
+  tls?: { daysLeft: number; url: string | null } | null;
+  /** Uptime targets whose latest check failed; `allFailed` when every check in the lookback failed. */
+  uptimeFailures?: ReadonlyArray<{ url: string; allFailed: boolean; checks: number }> | null;
+  /** Collector exporter points over the window: failed and sent, and the exporter with the most failures. */
+  collector?: { failed: number; sent: number; exporter: string | null } | null;
+  /** Hours since the last successful backup. */
+  backupAgeHours?: number | null;
 }
 
 const RANK: Record<VerdictLevel, number> = { healthy: 0, degraded: 1, critical: 2, no_data: 3 };
@@ -123,7 +179,123 @@ export function computeVerdict(input: VerdictInput): DashboardVerdict {
     }
   }
 
+  infrastructureRules(input, fire);
+
   return { level, reasons };
+}
+
+type Fire = (fired: VerdictLevel, reason: string) => void;
+
+/** `>=` thresholds: the level reached, or null. */
+function atLeast(value: number, levels: { degraded: number; critical: number }): 'degraded' | 'critical' | null {
+  return value >= levels.critical ? 'critical' : value >= levels.degraded ? 'degraded' : null;
+}
+
+/** The infrastructure rules (#126). Each runs only when its input is present. */
+function infrastructureRules(input: VerdictInput, fire: Fire): void {
+  const t = DASHBOARD_VERDICT_THRESHOLDS;
+
+  if (input.disk) {
+    const at = atLeast(input.disk.utilizationPct, t.diskUtilizationPct);
+    if (at) {
+      fire(
+        at,
+        `Disk ${formatNumber(input.disk.utilizationPct)}% full (≥ ${t.diskUtilizationPct[at]}%)` +
+          offender('mountpoint', input.disk.mountpoint),
+      );
+    }
+  }
+
+  if (input.memory) {
+    const at = atLeast(input.memory.utilizationPct, t.memoryUtilizationPct);
+    if (at) {
+      fire(
+        at,
+        `Memory ${formatNumber(input.memory.utilizationPct)}% used (≥ ${t.memoryUtilizationPct[at]}%)` +
+          offender('host', input.memory.host),
+      );
+    }
+  }
+
+  if (input.dbConnections) {
+    const at = atLeast(input.dbConnections.utilizationPct, t.dbConnectionsPct);
+    if (at) {
+      fire(
+        at,
+        `Database connections at ${formatNumber(input.dbConnections.utilizationPct)}% of max ` +
+          `(≥ ${t.dbConnectionsPct[at]}%)${offender('server', input.dbConnections.instance)}`,
+      );
+    }
+  }
+
+  if (input.oldestPendingJob) {
+    const minutes = input.oldestPendingJob.ageSeconds / 60;
+    const at = atLeast(minutes, t.oldestPendingJobMinutes);
+    if (at) {
+      fire(
+        at,
+        `Oldest pending job waiting ${formatNumber(minutes)} min (≥ ${t.oldestPendingJobMinutes[at]} min)` +
+          offender('type', input.oldestPendingJob.jobType),
+      );
+    }
+  }
+
+  if (input.nodes) {
+    const stuck = input.nodes.noEligibleNodeTypes;
+    if (stuck.length > 0) {
+      fire(
+        'critical',
+        `${stuck.length} job type(s) have pending work and no eligible worker node` +
+          offender('type', [...stuck].sort().join(', ')),
+      );
+    }
+    if (input.nodes.stale > 0) {
+      fire('degraded', `${input.nodes.stale} worker node(s) stale (missed heartbeats)`);
+    }
+  }
+
+  if (input.tls) {
+    const days = input.tls.daysLeft;
+    const at = days < t.tlsDaysLeft.critical ? 'critical' : days < t.tlsDaysLeft.degraded ? 'degraded' : null;
+    if (at) {
+      fire(
+        at,
+        (days < 0
+          ? `TLS certificate expired ${formatNumber(-days)} days ago`
+          : `TLS certificate expires in ${formatNumber(days)} days`) +
+          ` (< ${t.tlsDaysLeft[at]} days)${offender('url', input.tls.url)}`,
+      );
+    }
+  }
+
+  if (input.uptimeFailures && input.uptimeFailures.length > 0) {
+    const failures = [...input.uptimeFailures].sort((a, b) => a.url.localeCompare(b.url));
+    const down = failures.filter((f) => f.allFailed && f.checks >= t.uptimeMinChecksForCritical);
+    const worst = down[0] ?? failures[0];
+    fire(
+      down.length > 0 ? 'critical' : 'degraded',
+      down.length > 0
+        ? `Uptime check failing for every check in the lookback (${down.length} URL(s))${offender('url', worst.url)}`
+        : `Uptime check failed on its latest run (${failures.length} URL(s))${offender('url', worst.url)}`,
+    );
+  }
+
+  if (input.collector && input.collector.failed > 0) {
+    const attempted = input.collector.failed + input.collector.sent;
+    const pct = attempted > 0 ? (input.collector.failed / attempted) * 100 : 100;
+    const at = pct >= t.collectorFailedPct.critical ? 'critical' : 'degraded';
+    fire(
+      at,
+      `Collector failed to export ${formatNumber(input.collector.failed)} points (${formatNumber(pct)}% of attempted` +
+        `${at === 'critical' ? `, ≥ ${t.collectorFailedPct.critical}%` : ''})${offender('exporter', input.collector.exporter)}`,
+    );
+  }
+
+  if (input.backupAgeHours !== undefined && input.backupAgeHours !== null) {
+    const hours = input.backupAgeHours;
+    const at = hours > t.backupAgeHours.critical ? 'critical' : hours > t.backupAgeHours.degraded ? 'degraded' : null;
+    if (at) fire(at, `Last successful backup ${formatNumber(hours)} h ago (> ${t.backupAgeHours[at]} h)`);
+  }
 }
 
 function offender(label: string, value: string | null | undefined): string {
