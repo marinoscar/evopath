@@ -405,6 +405,7 @@ With every item rejected, `apply` answers `200` with `entryId: null` and writes 
 - Photos are the user's private storage objects, sent to the chosen provider under the key `AiKeyResolver` resolved for the call. The handler never fetches bytes or builds URLs, and the disclosure names the provider and model before **Read**; the dialog suggests framing only the display.
 - No value, prompt, image byte or URL reaches a log line, a span, an audit row, `resultMeta` or an error message: log lines carry ids and codes, and `resultMeta` carries the prompt version, device kind and counts.
 - Discarding an intake deletes, best effort, its photos that no other intake links. Photos linked from a saved reading are kept, because the entry's `sourceRef` points at them.
+- Every photo is also a health document with a keep-or-delete choice (kept by default). A file the user chose to erase is deleted after the save or the discard by a queue job, and History then shows **File deleted**. A kept file survives a discard. See [health-records.md](health-records.md#2-how-it-works).
 - `ai.health.body_metric_reading` has no `nodeResultSchema` and no `persistNodeResult`: it is server-only permanently, so no AI key reaches a worker node.
 
 ## 3. Configuration and permissions
