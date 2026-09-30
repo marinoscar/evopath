@@ -27,7 +27,7 @@
 // this handler needs both on every page.
 //
 // =============================================================================
-// ⚠ THIS JOB TYPE MUST BE ENQUEUED WITH `skipDedup: true`. ALWAYS.
+// ⚠ EVERY CHUNK BUT THE FIRST MUST BE ENQUEUED WITH `skipDedup: true`.
 // =============================================================================
 //
 // Not a preference. Omitting it does not raise an error, fail a job, or log a
@@ -50,10 +50,14 @@
 //
 // Chunks of one broadcast are the textbook case `skipDedup` exists for:
 // several jobs of the same type against the same subject that are genuinely
-// distinct work. Both enqueue sites pass it (here, and the first chunk in
-// `broadcast-start.handler.ts`), and `broadcast-chunk.handler.spec.ts` asserts
-// it explicitly on both — because the failure mode above is exactly the kind
-// that no other test would notice.
+// distinct work. The successor enqueue here and the Resume button's enqueue
+// in `broadcasts.service.ts` pass it, and the specs assert it explicitly —
+// because the failure mode above is exactly the kind that no other test would
+// notice. The ONE exception is the first chunk `broadcast-start.handler.ts`
+// queues (#162): it dedups under a per-broadcast key so two concurrent
+// hand-offs converge on one chain. That cannot trigger the failure above,
+// because the first chunk never enqueues under its own key — its successor
+// carries a NULL key, which never collides.
 //
 // -----------------------------------------------------------------------------
 // ORDERING AND IDEMPOTENCE: DUPLICATE OVER DROP, BOUNDED AT 200

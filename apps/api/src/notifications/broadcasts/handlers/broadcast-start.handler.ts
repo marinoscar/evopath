@@ -32,16 +32,22 @@
 // server-only for the same reason.
 //
 // -----------------------------------------------------------------------------
-// DEDUP IS LEFT ON HERE — AND OFF ON THE CHUNK HANDLER
+// DEDUP IS LEFT ON HERE — AND ON THE FIRST CHUNK, BUT OFF ON EVERY LATER ONE
 // -----------------------------------------------------------------------------
 //
 // This job takes the queue's default (`skipDedup` unset), so while a start job
 // for a broadcast is `pending` or `running`, a second `enqueue` for the same
 // subject returns the row already in flight instead of creating another. A
 // double-clicked "Send now" therefore cannot produce two fan-outs at the job
-// layer at all. The chunk handler needs the opposite and says so at length in
-// its own header — the two settings are deliberate opposites, not an
-// inconsistency.
+// layer at all.
+//
+// The FIRST chunk, enqueued by `handOff` below, also keeps dedup on (#162):
+// its key is `broadcastFirstChunkDedupKey(id)`, one per broadcast, so two
+// executions that both reach `handOff` converge on ONE chunk job through the
+// partial unique index — see the comment at that enqueue. Every LATER chunk
+// (a chunk's successor, and the Resume button's chunk) must skip dedup, and
+// the chunk handler says why at length in its own header. Those NULL keys can
+// never collide with the first chunk's key.
 //
 // Note that dedup is a CONVENIENCE here, not the correctness argument. It is
 // scoped to jobs that are still active, so it says nothing about a start job
@@ -71,10 +77,13 @@
 //     resumed hand-off pages exactly the population the claim defined;
 //   - the recount is the same documented snapshot the fresh path takes
 //     (`recipientsTargeted` means "targeted at send time", not a guarantee);
-//   - if two executions race through the resume (a zombie whose lease was
-//     reaped still running alongside its replacement), each may enqueue a
-//     first chunk, and #459's cursor compare-and-swap in the chunk handler
-//     collapses that to at most one page of duplicate deliveries.
+//   - if two executions race into `handOff` — two resumes (a zombie whose
+//     lease was reaped still running alongside its replacement), or a resume
+//     that read `sending` while the winner of the claim was still counting
+//     (#162) — both enqueue the first chunk under the same per-broadcast
+//     dedup key, and the database collapses them onto ONE active chunk job.
+//     The "no chunk job exists" read below is a fast path, not the gate; the
+//     gate is `jobs_active_dedup_uniq_idx`, atomic with the insert.
 //
 // Side effect worth knowing operationally: a broadcast already stuck in
 // `sending` from before this fix can be repaired by retrying its start job
@@ -85,6 +94,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job } from '@prisma/client';
 
 import { JobHandler } from '../../../jobs/job-handler.interface';
+import { buildDedupKey } from '../../../jobs/job-keys';
 import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
 import { JobsService } from '../../../jobs/jobs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -106,6 +116,18 @@ import { BROADCAST_CHUNK_TYPE } from './broadcast-chunk.handler';
  * one typo away from a "Send now" button that queues work no handler claims.
  */
 export const BROADCAST_START_TYPE = 'admin.broadcast.start';
+
+/**
+ * The `dedup_key` a broadcast's FIRST chunk job carries (#162) — and the only
+ * chunk key that is ever non-NULL, since every later chunk is enqueued with
+ * `skipDedup: true`. It is simply the queue's own key for a deduped
+ * `admin.broadcast.chunk` enqueue against this broadcast (`buildDedupKey`,
+ * the single definition of the format); named here so tests and readers can
+ * point at it.
+ */
+export function broadcastFirstChunkDedupKey(broadcastId: string): string {
+  return buildDedupKey(BROADCAST_CHUNK_TYPE, BROADCAST_SUBJECT_TYPE, broadcastId);
+}
 
 @Injectable()
 export class BroadcastStartHandler implements JobHandler, OnModuleInit {
@@ -342,6 +364,9 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
       return;
     }
 
+    // A FAST PATH, NOT THE GATE (#162). This read cannot see a first chunk
+    // another execution is about to insert; the per-broadcast dedup key on
+    // that insert (see `handOff`) is what keeps a race here to one chunk.
     const existingChunk = await this.prisma.job.findFirst({
       where: {
         type: BROADCAST_CHUNK_TYPE,
@@ -418,14 +443,24 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
     // The handoff. From here the start job is done: every recipient is
     // dispatched by chunk jobs, each of which enqueues its successor.
     //
-    // `skipDedup: true` even on the FIRST chunk, and it is the same
-    // requirement the chunk handler's header explains at length: a chunk
-    // enqueues its successor from inside its own `process()` while it is
-    // itself still `running`, so chunks of one broadcast are legitimately
-    // distinct work sharing a subject — precisely the case `skipDedup`
-    // exists for. Setting it here as well keeps every chunk enqueue in the
-    // fan-out identical, so nobody reading one of them has to work out
-    // whether this one is the exception.
+    // DEDUP ON, FOR THE FIRST CHUNK ONLY (#162). The claim CAS admits one
+    // winner, but the resume path (#469) also reaches this line: a second
+    // start execution that reads the broadcast while the winner is still
+    // between its claim and this enqueue sees `sending`, no cursor, no
+    // dispatches and no chunk row yet — and hands off too. With a NULL key
+    // both inserts would succeed and the broadcast would fan out twice.
+    // Under `broadcastFirstChunkDedupKey(id)` the second insert hits
+    // `jobs_active_dedup_uniq_idx` and `JobsService.enqueue` returns the
+    // chunk already queued, so every concurrent hand-off converges on one
+    // job.
+    //
+    // Why this is safe where the chunk header forbids dedup: the key is held
+    // only while THIS first chunk is `pending`/`running`, and nothing else
+    // ever enqueues under it — its successor and the Resume button's chunk
+    // use `skipDedup: true` (a NULL key never collides), so the chunk
+    // handler's "enqueue returns the caller itself" failure cannot happen.
+    // And a start job that crashed before this line (#469) still resumes:
+    // no active job holds the key, so the retry's insert goes through.
     const chunkJob = await this.jobs.enqueue({
       type: BROADCAST_CHUNK_TYPE,
       // `backfill`, reused rather than extended. `JobReason` has exactly three
@@ -438,7 +473,9 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
       reason: 'backfill',
       subjectType: BROADCAST_SUBJECT_TYPE,
       subjectId: broadcastId,
-      skipDedup: true,
+      // Explicit, so no reader mistakes this for a forgotten flag: the first
+      // chunk DEDUPS, under `broadcastFirstChunkDedupKey(broadcastId)`.
+      skipDedup: false,
     });
 
     return { recipientsTargeted, chunkJobId: chunkJob.id };
