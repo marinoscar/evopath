@@ -6,6 +6,7 @@ import {
   type AiRuntimeHarnessOptions,
 } from '../../ai/testing/ai-runtime-harness';
 import { FAKE_TEXT_MODEL_CAPABILITIES } from '../../ai/testing/fake-ai-provider';
+import { AiFeatureModelResolver } from '../../ai/assignments/ai-feature-model-resolver.service';
 import { TrainingModelResolver } from './training-model-resolver.service';
 
 // The resolver over the real UsableModelsService, AiConfigService,
@@ -19,13 +20,14 @@ const HOSTED = {
 
 function build(opts: AiRuntimeHarnessOptions = {}): { harness: AiRuntimeHarness; resolver: TrainingModelResolver } {
   const harness = createAiRuntimeHarness(opts);
-  const resolver = new TrainingModelResolver(
+  const features = new AiFeatureModelResolver(
     harness.prisma as never,
     harness.aiConfig,
     harness.registry,
     harness.resolver,
     harness.usableModels,
   );
+  const resolver = new TrainingModelResolver(harness.prisma as never, features);
 
   return { harness, resolver };
 }
@@ -81,21 +83,25 @@ describe('TrainingModelResolver', () => {
     expect(Object.values(all).map((r) => r.state)).toEqual(['ai_disabled', 'ai_disabled', 'ai_disabled', 'ai_disabled']);
   });
 
-  it('reads the stored taskModels preference', async () => {
-    const { harness, resolver } = build();
+  it('uses the administrator\'s assignment and effort, ignoring a legacy user taskModels preference (#173)', async () => {
+    const models = [
+      { modelId: HARNESS_MODEL, capabilities: FAKE_TEXT_MODEL_CAPABILITIES },
+      { modelId: 'other', capabilities: FAKE_TEXT_MODEL_CAPABILITIES },
+    ];
+    const { harness, resolver } = build({ models });
     (harness.prisma.userSettings.findUnique as jest.Mock).mockResolvedValue({
-      value: {
-        ai: {
-          defaultModel: null,
-          taskModels: { planner: { provider: 'openai', modelId: HARNESS_MODEL, reasoningEffort: 'low' } },
-        },
-      },
+      value: { ai: { defaultModel: null, taskModels: { planner: { provider: 'openai', modelId: 'other', reasoningEffort: 'low' } } } },
+    });
+    harness.setAssignments({
+      default: null,
+      features: { 'training.planner': { provider: 'openai', modelId: HARNESS_MODEL, reasoningEffort: 'medium' } },
     });
 
     expect(await resolver.resolve(HARNESS_USER, 'planner')).toMatchObject({
       state: 'ready',
-      requestedEffort: 'low',
-      effectiveEffort: 'low',
+      source: 'admin_feature',
+      model: { modelId: HARNESS_MODEL },
+      requestedEffort: 'medium',
     });
   });
 

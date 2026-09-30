@@ -34,9 +34,6 @@ export const TRAINING_ROLE_DEFAULT_EFFORT: Readonly<Record<TrainingAgentRole, Ta
  */
 export const RESEARCHER_PROVIDERS: readonly string[] = ['openai'];
 
-/** Most models listed as `candidates` on a `missing_capability` resolution. */
-export const TRAINING_MAX_CANDIDATES = 5;
-
 /** The roles each run kind needs a model for before it may start. */
 export const TRAINING_KIND_ROLES: Readonly<Record<TrainingRunKind, readonly TrainingAgentRole[]>> = {
   create: ['researcher', 'planner', 'critic', 'evaluator'],

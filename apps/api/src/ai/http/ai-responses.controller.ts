@@ -55,8 +55,8 @@ export class AiResponsesController {
     description:
       'One model response, generated with **your** key for the provider (or the ' +
       'organisation key, when the deployment allows fallback and you have none).\n\n' +
-      '`model` and `provider` are optional: with both omitted your `ai.defaultModel` user ' +
-      'setting is used. `structuredOutput.jsonSchema` is a JSON Schema document; when given, ' +
+      '`model` and `provider` are optional: with both omitted the administrator\'s default model ' +
+      'is used when you can use it, else an automatic pick among your usable models. `structuredOutput.jsonSchema` is a JSON Schema document; when given, ' +
       'the response carries `parsed`, already validated against it (output that does not ' +
       'match is `502` with `details.reason: "AI_STRUCTURED_OUTPUT_INVALID"`). `tools` takes ' +
       '**provider-hosted** tools only — `web_search`, `file_search`, `code_interpreter`, ' +

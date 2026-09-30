@@ -19,9 +19,12 @@ const USER = randomUUID();
 const ready = (role: string): RoleResolution =>
   ({
     role,
+    featureId: `training.${role}` as RoleResolution['featureId'],
     state: 'ready',
+    source: 'admin_feature',
     model: { provider: 'openai', modelId: 'fake-model', displayName: 'Fake', keySource: 'user' },
     needs: [],
+    inputModalities: [],
     requestedEffort: 'high',
     effectiveEffort: 'high',
     fix: null,

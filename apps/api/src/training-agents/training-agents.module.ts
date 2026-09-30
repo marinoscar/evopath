@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AiAssignmentsModule } from '../ai/assignments/ai-assignments.module';
 import { AiConfigModule } from '../ai/config/ai-config.module';
 import { AiCoreModule } from '../ai/core/ai-core.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
@@ -58,7 +59,7 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  *   hourly enqueue-only task.
  */
 @Module({
-  imports: [AiConfigModule, AiCoreModule, AiKeysModule, AiRuntimeModule, JobsModule, ProgramsModule, NotificationsModule],
+  imports: [AiAssignmentsModule, AiConfigModule, AiCoreModule, AiKeysModule, AiRuntimeModule, JobsModule, ProgramsModule, NotificationsModule],
   controllers: [TrainingModelsController, TrainingRunsController],
   providers: [
     GraphRuntimeInfo,

@@ -86,7 +86,7 @@ export const aiResponseRequestSchema = z
   .object({
     /** Provider id. Omit to use your default model's provider (or the only registered one). */
     provider: z.string().min(1).max(64).optional(),
-    /** Model id. Omit to use your `ai.defaultModel` user setting. */
+    /** Model id. Omit to use the administrator's default model (else an automatic pick). */
     model: z.string().min(1).max(200).optional(),
     /** System/developer instructions. */
     instructions: z.string().max(100_000).optional(),

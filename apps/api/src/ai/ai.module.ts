@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AiAssignmentsModule } from './assignments/ai-assignments.module';
 import { AiCatalogModule } from './catalog/ai-catalog.module';
 import { AiConfigModule } from './config/ai-config.module';
 import { AiCoreModule } from './core/ai-core.module';
@@ -35,6 +36,7 @@ import { AiUsageModule } from './usage/ai-usage.module';
     AiRuntimeModule,
     AiHttpModule,
     AiUsageModule,
+    AiAssignmentsModule,
   ],
   // `AiRuntimeModule` is re-exported so a fork's module can simply
   // `imports: [AiModule]` and inject `AiService`.
