@@ -3,7 +3,8 @@
  * banner while a workout is in progress), the exercise library, and History.
  *
  * With `programs:read`, the active plan's session for today comes first
- * (`TodayPlanCard`, shared with the Today page).
+ * (`TodayPlanCard`, shared with the Today page), then "This week" (sessions
+ * done of planned, adherence, a link to the plan's Progress view).
  *
  * `workouts:read` decides whether there is anything to show and
  * `workouts:write` whether Start is offered; the API enforces both. Nothing
@@ -35,6 +36,7 @@ import { WorkoutHistoryList } from '../components/train/WorkoutHistoryList';
 import { WeightUnitLabel } from '../components/train/WeightUnitLabel';
 import { ElapsedTimer } from '../components/train/WorkoutHeader';
 import { TodayPlanCard } from '../components/training/TodayPlanCard';
+import { ThisWeekCard } from '../components/training/ThisWeekCard';
 
 export const TRAIN_SUBTITLE = 'Log a workout in a few taps and look back at every session.';
 export const WORKOUT_IN_PROGRESS_NOTICE = 'You already have a workout in progress.';
@@ -82,6 +84,7 @@ export default function TrainPage() {
             </CardContent>
           </Card>
         )}
+        {canReadPrograms && <ThisWeekCard sx={{ mb: 3 }} />}
 
         {!canRead ? (
           <Alert severity="info">{WORKOUTS_UNAVAILABLE}</Alert>
