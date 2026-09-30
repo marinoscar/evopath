@@ -3,6 +3,9 @@
  * the E1 placeholder. Add gym goes to `/gyms/new`; each card opens
  * `/gyms/:gymId`, sets the default or deletes (after a confirmation).
  *
+ * Temporary gyms (E6.2, the hotel flow) are listed apart, in the Temporary
+ * section, with when they expire and Save instead of Set default.
+ *
  * `gyms:read` decides whether there is anything to show and `gyms:write`
  * enables the mutations; the API enforces both on every call, this only
  * avoids offering what would be refused. Everything here works with AI off.
@@ -16,6 +19,8 @@ import { useGyms } from '../hooks/useGyms';
 import { GYMS_UNAVAILABLE, type GymSummary } from '../services/gyms';
 import { EmptyState } from '../components/common/EmptyState';
 import { GymCard } from '../components/gyms/GymCard';
+import { TemporaryGymsSection } from '../components/gyms/TemporaryGymsSection';
+import { SaveGymDialog } from '../components/gyms/SaveGymPrompt';
 import { ConfirmDialog } from '../components/gyms/ConfirmDialog';
 import { GYMS_SUBTITLE, GYMS_TITLE, deleteGymMessage } from '../components/gyms/gymCopy';
 
@@ -27,10 +32,12 @@ const GRID_SX = {
 } as const;
 
 function GymList({ canWrite }: { canWrite: boolean }) {
-  const { gyms, isLoading, error, forbidden, refresh, setDefault, remove } = useGyms();
+  const { gyms, isLoading, error, forbidden, refresh, setDefault, remove, save } = useGyms();
   // The target outlives `open` so the dialog keeps its text while it closes.
   const [pendingDelete, setPendingDelete] = useState<GymSummary | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [pendingSave, setPendingSave] = useState<GymSummary | null>(null);
+  const [saveOpen, setSaveOpen] = useState(false);
 
   if (forbidden) return <Alert severity="info">{GYMS_UNAVAILABLE}</Alert>;
 
@@ -76,22 +83,50 @@ function GymList({ canWrite }: { canWrite: boolean }) {
     );
   }
 
+  const saved = gyms.filter((gym) => !gym.isTemporary);
+  const askDelete = (g: GymSummary) => {
+    setPendingDelete(g);
+    setDeleteOpen(true);
+  };
+
   return (
     <>
       <Box sx={GRID_SX}>
-        {gyms.map((gym) => (
+        {saved.map((gym) => (
           <GymCard
             key={gym.id}
             gym={gym}
             canWrite={canWrite}
             onSetDefault={(g) => setDefault(g.id)}
-            onDelete={(g) => {
-              setPendingDelete(g);
-              setDeleteOpen(true);
-            }}
+            onDelete={askDelete}
           />
         ))}
       </Box>
+      {saved.length === 0 && (
+        <Typography color="text.secondary" data-testid="gyms-none-saved">
+          No saved gyms yet. Save a temporary gym to keep it, or add one.
+        </Typography>
+      )}
+      <TemporaryGymsSection
+        gyms={gyms}
+        canWrite={canWrite}
+        onSetDefault={(g) => setDefault(g.id)}
+        onDelete={askDelete}
+        onSave={(g) => {
+          setPendingSave(g);
+          setSaveOpen(true);
+        }}
+        gridSx={GRID_SX}
+      />
+      <SaveGymDialog
+        open={saveOpen}
+        gym={pendingSave}
+        otherGyms={gyms}
+        onClose={() => setSaveOpen(false)}
+        onSave={async (input) => {
+          if (pendingSave) await save(pendingSave.id, input);
+        }}
+      />
       <ConfirmDialog
         open={deleteOpen}
         title="Delete gym?"
