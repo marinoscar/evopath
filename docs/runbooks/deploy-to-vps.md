@@ -491,12 +491,25 @@ not implied by `--renew` alone. An expiry that cannot be read is reported as
 exactly that, `expiry unreadable`, never silently treated as "not due" —
 assuming a certificate is healthy is how one quietly expires.
 
-Exit codes mirror `status`: `0` for a report or a successful renewal, `1` when
-the certificate is due or expired and `--renew` was not passed, **or when a
-renewal ran but the proxy's reload afterward failed** (so a cron wrapper
-notices either failure), `2` when nothing is installed at `--root`.
-`--domain` defaults to the domain recorded for the deployment; `--email`
-defaults to `INITIAL_ADMIN_EMAIL` read from that deployment's own `.env`.
+Every call — with or without `--renew` — also probes `<domain>:443` live and
+compares the fingerprint of the certificate the proxy actually serves against
+the one on disk. Neither the expiry report above (only ever reads the file)
+nor the ordinary health checks (which never go through TLS) can catch a
+served/disk mismatch, so this is what a plain, report-only `certs` call now
+tells you in addition to expiry: whether what is actually being served right
+now is the file on disk. A mismatch prints the exact remedy command for this
+deployment's configured proxy runtime (container or host mode), sharing its
+logic with the reload `install`/`update` already run, so the printed command
+can never drift from what the CLI itself would run.
+
+Exit codes mirror `status`: `0` for a report or a successful renewal, and the
+served certificate matching disk; `1` when the certificate is due or expired
+and `--renew` was not passed, when a renewal ran but the proxy's reload
+afterward failed, **or when the proxy is serving a certificate that does not
+match the one on disk** (so a cron wrapper notices any of these), `2` when
+nothing is installed at `--root`. `--domain` defaults to the domain recorded
+for the deployment; `--email` defaults to `INITIAL_ADMIN_EMAIL` read from that
+deployment's own `.env`.
 
 ### 10.1 Renewal is scheduled automatically, but only when nothing else owns it
 
@@ -550,6 +563,11 @@ docker exec <proxy-container> nginx -t && docker exec <proxy-container> nginx -s
 warning on a deployment where renewal is scheduled by something *other* than
 `evopathcli`, it usually means that other mechanism renews but does not reload —
 worth fixing at the source, not just running the command above once.
+
+**If a domain shows a certificate or SSL warning in a browser after a
+deploy**, `evopathcli deploy certs --domain <domain>` (section 10, above) is
+the command that tells you whether this is the cause: it reports whether the
+proxy needs a manual reload and, if so, the exact command to run.
 
 ## 11. Removing a deployment
 
