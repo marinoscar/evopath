@@ -512,8 +512,8 @@ evopathcli deploy update
 
 Brings an already-installed server up to the latest revision (or, with
 `--ref`, to a specific one): preflight, fetch, environment-drift,
-ensure-database, version, build, migrate, seed, restart, health, publish,
-renewal, verify. It refuses to run at all if nothing is installed at
+ensure-database, version, build, migrate, seed, restart, edge-config,
+health, publish, renewal, verify. It refuses to run at all if nothing is installed at
 `--root` yet. `ensure-database` and `renewal` are the same steps `install`
 runs (see above): a database that has since been dropped or renamed gets the
 same create-with-consent prompt, and renewal ownership is (re-)checked and
@@ -528,6 +528,13 @@ If the resolved ref's commit hasn't moved since the last successful run,
 `update` exits `0` **without doing anything** — no rebuild, no restart —
 which is what makes it safe to run unattended, e.g. from cron. `--force`
 rebuilds anyway even when the revision is unchanged.
+
+The one step that runs on every `update`, moved or not, is `edge-config`: it
+compares the sha256 of `infra/nginx/nginx.conf` and `csp.conf` in the
+checkout with what the running nginx reads, and recreates nginx
+(`up -d --no-deps --force-recreate nginx`) when they differ. Those files are
+single-file bind mounts, which a plain restart does not re-bind after git
+replaces them; `restart` therefore recreates nginx too.
 
 The database seed **re-runs by default** on every `update`. The seed is
 entirely upserts, and re-running it is the only way a permission or role a

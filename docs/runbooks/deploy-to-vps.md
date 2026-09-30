@@ -300,13 +300,25 @@ re-seeds, restarts, and re-verifies. `update` refuses outright if nothing is
 installed at `--root` — run `install` first.
 
 **If the revision hasn't moved, `update` exits `0` and does nothing else** —
-no rebuild, no restart, no seed. That's what makes it safe to run
-unattended, for example from cron:
+no rebuild, no restart, no seed — apart from one check (below). That's what
+makes it safe to run unattended, for example from cron:
 
 ```cron
 # Check for a new release every night at 03:00, do nothing if there isn't one
 0 3 * * * cd /opt/infra/apps/repo && evopathcli deploy update --non-interactive >> /var/log/evopathcli-update.log 2>&1
 ```
+
+**Every run checks that nginx serves the checkout's config**, including an
+"already up to date" one. `infra/nginx/nginx.conf` and `csp.conf` are
+single-file bind mounts, and git replaces a file rather than editing it, so a
+container that is only restarted keeps serving the old file (stale security
+headers, CSP or routing). `update` hashes both files in the checkout and in
+the running nginx; if they differ, or nginx isn't running, it recreates nginx
+(`up -d --no-deps --force-recreate nginx`) and checks again, failing with the
+exact command to run by hand if the recreated container still differs. This
+also repairs a checkout you updated by hand with `git pull`. To rebuild and
+redeploy everything else after such a manual pull, run
+`evopathcli deploy update --force`.
 
 Two behaviors are worth knowing before your first `update`; both are
 deliberate:
