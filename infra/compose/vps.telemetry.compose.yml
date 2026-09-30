@@ -48,6 +48,17 @@ services:
     # mount (systemd), which `rslave` requires.
     volumes:
       - /:/hostfs:ro,rslave
+    # Uptime and certificate expiry of the PUBLIC origin (issue #124): the
+    # httpcheck receiver's third target, through DNS, the shared host proxy
+    # and the certificate it serves, exactly as a browser arrives. REPLACES
+    # telemetry.compose.yml's development value (compose merges environment
+    # by key). APP_URL is derived by `evopathcli deploy` as https://<domain>; the
+    # fallback only keeps a hand-built .env without it from failing `up`, and
+    # then probes the stack's own nginx instead. Note that the collector
+    # reaches the domain from INSIDE the host (NAT hairpin): a network that
+    # blocks that shows up as httpcheck_error rows for this URL alone.
+    environment:
+      - UPTIME_PUBLIC_URL=${APP_URL:-http://nginx}/api/health/live
     restart: unless-stopped
     deploy:
       resources:

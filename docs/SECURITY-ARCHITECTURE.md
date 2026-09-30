@@ -723,6 +723,24 @@ container, so it is bounded:
 The Docker socket itself remains confined to `stack-agent` (next section).
 Design: [specs/telemetry.md §11.2](specs/telemetry.md#112-data-sources-what-is-collected-and-why-no-docker-stats).
 
+### Nginx status listener
+
+The collector's `nginx` receiver reads `stub_status`, which counts every
+request the edge serves. It is served on a second listener, kept internal by
+two independent protections (`infra/nginx/nginx.conf`):
+
+- **Not reachable.** The listener is on container port `8081`, which no
+  compose file publishes (dev, prod, vps, vps.telemetry), and the host proxy
+  forwards only to container port `80`.
+- **Not allowed.** The listener admits `127.0.0.1`, `10.0.0.0/8`,
+  `172.16.0.0/12` and `192.168.0.0/16` and denies everything else; every path
+  but `/nginx_status` is `404`.
+
+The public server on port `80` also answers `404` for `/nginx_status`;
+without it the SPA fallback would return `200`. Guardrails:
+`apps/api/test/telemetry/nginx-status-internal.spec.ts` and the compose-file
+tests. Design: [specs/telemetry.md §11.2](specs/telemetry.md#112-data-sources-what-is-collected-and-why-no-docker-stats).
+
 ### Docker socket / stack-agent
 
 A VPS deployment's `stack-agent` service (`infra/compose/vps.compose.yml`,

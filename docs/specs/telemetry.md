@@ -260,6 +260,8 @@ otel-collector                                          (infra/otel/otel-collect
   │   postgresql        the application's PostgreSQL, POSTGRES_HOST:PORT
   │                     (→ transform/postgresql_labels), read-only, every 30 s
   │                     source: `db` on app-network, or the shared `postgres` on devnet
+  │   httpcheck         uptime, latency and TLS expiry of three URLs, every 30 s
+  │   nginx             the edge's stub_status, internal :8081 listener, every 30 s
   ▼
 GreptimeDB standalone v1.2.1                             (infra/compose/telemetry.compose.yml)
   HTTP :4000 (ingest, /health, /dashboard) · Postgres wire :4003
@@ -279,6 +281,10 @@ read from the statistics views as `POSTGRES_MONITOR_USER` (falling back to
 [§11.2](#112-data-sources-what-is-collected-and-why-no-docker-stats) and
 [§11.3](#113-column-findings-verified-live-greptimedb-v121); setup is in the
 [runbook](../runbooks/telemetry.md#82-postgresql-metrics).
+
+It also probes uptime with the `httpcheck` receiver and reads nginx's
+`stub_status` with the `nginx` receiver, in the same pipeline (§11.2, §11.3;
+[runbook](../runbooks/telemetry.md#83-uptime-tls-and-edge-metrics)).
 
 `TelemetryModule` (`apps/api/src/telemetry/telemetry.module.ts`) wires:
 
@@ -1186,7 +1192,7 @@ The dashboard's tiles read three kinds of data already in the store:
   `nodejs_eventloop_delay_p99_seconds`) — the optional runtime tiles, present
   only when the runtime-metrics instrumentation is on.
 
-The collector additionally scrapes four sources itself and writes them to
+The collector additionally scrapes six sources itself and writes them to
 the store as metric tables. The dashboard has no tile for them yet; they are
 queryable in the Explorer and available to the assistant (inventory in §11.3):
 
@@ -1196,6 +1202,8 @@ queryable in the Explorer and available to the assistant (inventory in §11.3):
 | The collector | `prometheus/self`, job `otel-collector` | Points accepted, refused, sent and failed; exporter queue size and capacity |
 | GreptimeDB | `prometheus/self`, job `greptimedb` | HTTP/OTLP request counts and latency, rows ingested, write stalls, memory and CPU limits, process CPU/RSS |
 | PostgreSQL | `postgresql` (30 s), `metrics/local` | Connections against the maximum, commits, rollbacks, deadlocks, database, table and index sizes, cache hits, temp files, scans, rows, vacuum, background-writer and checkpoint activity, locks |
+| Uptime and TLS | `httpcheck` (30 s, `GET`), `metrics/local` | Status class and code, duration, error cause and TLS certificate time remaining, for three URLs |
+| The nginx edge | `nginx` (30 s), `metrics/local` | Requests, accepted and handled connections, current connections by state, from `stub_status` on the internal `:8081` listener |
 
 **How the host is read.** `telemetry.compose.yml` bind-mounts the host's `/`
 read-only at `/hostfs`, and the `hostmetrics` receiver runs with
@@ -1212,6 +1220,42 @@ answers "is the telemetry path moving bytes". CPU, memory, load, paging and
 disk are kernel-global and are the host's.
 
 **PostgreSQL.** The `postgresql` receiver reads the application's server (`POSTGRES_HOST:POSTGRES_PORT`) read-only over the statistics views, through the optional `pg_monitor` login (`POSTGRES_MONITOR_USER`/`POSTGRES_MONITOR_PASSWORD`, blank falls back to the application login). The dashboard does not read these tables; they are reached through the Explorer, the assistant or a BI tool (§9). Operator procedure: [the telemetry runbook](../runbooks/telemetry.md#82-postgresql-metrics).
+
+**Uptime and TLS.** `httpcheck` sends a `GET` to three targets every 30 s:
+
+| Target | Answers |
+|---|---|
+| `http://nginx/api/health/live` | Is the app up through the edge? |
+| `http://api:3000/api/health/live` | Is the API up alone? Up here but down via nginx means a proxy fault. |
+| `${env:UPTIME_PUBLIC_URL}` | Is the public origin reachable, and how long is its certificate valid? |
+
+The probe uses liveness, which touches no database, so a PostgreSQL outage or
+a maintenance-mode readiness `503` does not read as the API being down.
+`httpcheck.tls.cert_remaining` is enabled explicitly (it is off by default).
+Certificates are verified: an expired or mismatched certificate fails the
+handshake, so no `cert_remaining` row is written and an `httpcheck_error` row
+names the cause.
+
+`UPTIME_PUBLIC_URL` is not an `.env` key; each overlay sets it:
+
+- `telemetry.compose.yml`: `http://nginx/nginx-health`, an edge-only check
+  with no TLS rows. It is not `APP_URL`, because the development
+  `APP_URL=http://localhost:3535` would resolve to the collector itself.
+- `vps.telemetry.compose.yml`: `${APP_URL:-http://nginx}/api/health/live`.
+  `evopathcli deploy` derives `APP_URL=https://<domain>`, so TLS expiry works with
+  no setup.
+
+Two VPS caveats. The collector reaches its own domain through NAT hairpin, so a
+network that blocks hairpin shows `httpcheck_error` rows for that URL only.
+`--skip-proxy` installs derive `APP_URL=https://localhost`, so the public check
+fails there; that is expected.
+
+**The nginx edge.** `stub_status` is served by a second `server` block on
+`:8081`, reachable only from private ranges and published by no compose file
+(protections: [SECURITY-ARCHITECTURE.md](../SECURITY-ARCHITECTURE.md#nginx-status-listener)).
+The public listener answers `404` for `/nginx_status`; without that explicit
+location the SPA fallback would return `200`. Operator procedure:
+[the telemetry runbook](../runbooks/telemetry.md#83-uptime-tls-and-edge-metrics).
 
 **Docker container stats are rejected as a source**: reading them means
 talking to the Docker socket, which this template deliberately confines to
@@ -1303,6 +1347,22 @@ machine that serves. There are no `service_name` or job columns.
   maintenance database, whatever `databases` lists. A role without `CONNECT`
   there yields no metrics. The collector opens about two short connections per
   scrape.
+
+#### Uptime, TLS and nginx metric tables
+
+Every table has `greptime_timestamp` and `greptime_value` (`Float64`), and
+String tags. `host_name` is the real host. There are no `service_name` or job
+columns.
+
+| Table | Tags | Notes |
+|---|---|---|
+| `httpcheck_status` | `host_name`, `http_method`, `http_status_class`, `http_status_code`, `http_url` | Five rows per URL per scrape, one per class `1xx` to `5xx`. Value `1` on the matched class, and only that row has `http_status_code` (a string such as `'200'`). All five are `0` when the request errored. |
+| `httpcheck_duration_milliseconds` | `host_name`, `http_url` | Request duration. |
+| `httpcheck_error` | `error_message`, `host_name`, `http_url` | Value `1`. Created and written only on failure; no table or no recent rows means no errors. |
+| `httpcheck_tls_cert_remaining_seconds` | `host_name`, `http_tls_cn`, `http_tls_issuer`, `http_url` | `https` targets only. Negative means expired. The `http.tls.san` list is dropped by GreptimeDB. |
+| `nginx_requests_total` | `host_name` | Cumulative requests. |
+| `nginx_connections_accepted_total`, `nginx_connections_handled_total` | `host_name` | Cumulative connections. |
+| `nginx_connections_current` | `host_name`, `state` | `state` is `active`, `reading`, `writing` or `waiting`. |
 
 ### 11.4 Routes
 
@@ -1607,6 +1667,22 @@ controls instead, just not by selecting a span on the chart itself.
   spans, logs and the two runtime metrics; host data is for the Explorer and
   the assistant until a tile earns its place.
 
+- **Liveness, not readiness, for uptime.** Readiness reads the database and
+  returns `503` during maintenance mode, so a PostgreSQL outage would read as
+  the API being down. Liveness answers "is the process serving".
+- **Three targets, so a fault can be placed.** The API alone against the app
+  through nginx separates an API fault from a proxy fault; the public origin
+  adds DNS, TLS and the host proxy. Rejected: one public-only probe, which
+  cannot tell those apart.
+- **`UPTIME_PUBLIC_URL` set by the overlays, not an `.env` key.** The VPS
+  overlay derives it from `APP_URL`, which `evopathcli deploy` already sets, so
+  TLS expiry needs no configuration. Rejected: a new variable to fill in.
+- **An internal listener for `stub_status`, not a public location.** The
+  status page counts every request, so it is served on `:8081`, which no
+  compose file publishes, behind an allow-list of private ranges. Rejected:
+  a location on the public server guarded only by `allow`/`deny`, one
+  misconfigured proxy away from exposure.
+
 ### 11.13 Application metrics
 
 > **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`
@@ -1781,3 +1857,4 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nod
 - #125: first-party application metrics (`AppMetricsService`): job, backup, auth, AI and notification counters and histograms, and cached queue and backup gauges (§11.13).
 - #123: the collector scrapes the application's PostgreSQL (`postgresql` receiver in `metrics/local`), with an optional `pg_monitor` login and the collector on `devnet`.
 - #131: worker-node fleet gauges (`app.nodes.*`), and delta temporality for every gauge (§11.13).
+- #124: the collector probes uptime and TLS expiry (`httpcheck` receiver on the app through nginx, the API directly and the public origin) and scrapes nginx's `stub_status` from an internal-only `:8081` listener (`nginx` receiver) (§11.2, §11.3, §11.12).
