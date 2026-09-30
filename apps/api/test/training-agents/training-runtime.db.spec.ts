@@ -22,11 +22,13 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Job, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
+import { TRAINING_AGENT_ROLES } from '../../src/common/schemas/settings.schema';
 import { createAiRuntimeHarness, HARNESS_MODEL } from '../../src/ai/testing/ai-runtime-harness';
 import { JobClaimService } from '../../src/jobs/job-claim.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
@@ -34,6 +36,7 @@ import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { JobsService } from '../../src/jobs/jobs.service';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
+import { TRAINING_GRAPH_READY } from '../../src/training-agents/graph/training-graphs';
 import type { NodeFn } from '../../src/training-agents/graph/node-context';
 import { TrainingRunsPurgeHandler } from '../../src/training-agents/runtime/handlers/training-runs-purge.handler';
 import { PrismaCheckpointSaver } from '../../src/training-agents/runtime/prisma-checkpoint-saver';
@@ -150,6 +153,58 @@ describeWithDb('training runtime (real Postgres)', () => {
       const error = await run(u).catch((e: unknown) => e);
 
       expect(isActiveRunConflict(error)).toBe(true);
+    });
+
+    it('two simultaneous TrainingRunsService.create calls for one user: exactly one run, the other 409 with its id', async () => {
+      const saved = { ...TRAINING_GRAPH_READY };
+      TRAINING_GRAPH_READY.create = true;
+
+      try {
+        const u = await user();
+        const ready = {
+          state: 'ready',
+          model: { provider: 'openai', modelId: HARNESS_MODEL, displayName: 'Fake', keySource: 'user' },
+          effectiveEffort: 'high',
+        };
+        const resolver = {
+          resolveForRun: async () => ({
+            roles: Object.fromEntries(TRAINING_AGENT_ROLES.map((role) => [role, ready])),
+            settings: { training: { maxRunTokens: 50_000, maxCriticRounds: 2 } },
+            limits: () => ({ contextWindow: 128_000, maxOutputTokens: 16_384 }),
+          }),
+        };
+        const service = new TrainingRunsService(
+          prisma,
+          new JobsService(prisma),
+          resolver as never,
+          events,
+          { screen: async () => ({ stop: false as const }) },
+        );
+
+        const settled = await Promise.allSettled([
+          service.create(u, { kind: 'create', input: {} }),
+          service.create(u, { kind: 'create', input: {} }),
+        ]);
+
+        const won = settled.filter((r) => r.status === 'fulfilled') as Array<{ value: { runId: string } }>;
+        const lost = settled.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+        const rows = await client.trainingPlanRun.findMany({ where: { userId: u } });
+        threads.push(...rows.map((r) => r.id));
+        jobIds.push(...rows.flatMap((r) => r.jobIds).filter((id): id is string => typeof id === 'string'));
+
+        expect(won).toHaveLength(1);
+        expect(lost).toHaveLength(1);
+        expect(lost[0]!.reason).toBeInstanceOf(ConflictException);
+        expect((lost[0]!.reason as ConflictException).getResponse()).toMatchObject({
+          details: { reason: 'TRAINING_RUN_ACTIVE', runId: won[0]!.value.runId },
+        });
+        // One run, one job, one queued event: the loser left nothing behind.
+        expect(rows.map((r) => r.id)).toEqual([won[0]!.value.runId]);
+        expect(await client.job.count({ where: { subjectType: 'training_run', subjectId: { in: rows.map((r) => r.id) } } })).toBe(1);
+        expect((await events.list(won[0]!.value.runId, 0, 50)).map((e) => e.type)).toEqual(['run.queued']);
+      } finally {
+        Object.assign(TRAINING_GRAPH_READY, saved);
+      }
     });
 
     it('does not match another unique violation', async () => {

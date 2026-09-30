@@ -78,6 +78,8 @@ export interface AiHttpTestAppExtras {
    * routes under `/api/ai/training`. Off by default.
    */
   harnessTrainingResolver?: boolean;
+  /** Further providers to substitute (the training run suite's in-memory service and event log). */
+  overrideProviders?: Array<{ provide: unknown; useValue: unknown }>;
 }
 
 export async function createAiHttpTestApp(
@@ -128,6 +130,7 @@ export async function createAiHttpTestApp(
             },
           ]
         : []),
+      ...(extras.overrideProviders ?? []),
     ],
   });
 
