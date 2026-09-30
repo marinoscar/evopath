@@ -37,6 +37,8 @@ describe('Prisma.WorkerNodeScalarFieldEnum', () => {
       'capabilities',
       'registeredAt',
       'lastHeartbeatAt',
+      'lastVitals',
+      'lastVitalsAt',
       'createdById',
     ].sort();
 

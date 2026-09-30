@@ -61,7 +61,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { WorkerNode } from '@prisma/client';
 
-import { AdminNodeCredentialDto, AdminNodeDto, NodeJobCountsDto } from './dto/node-admin.dto';
+import {
+  AdminNodeCredentialDto,
+  AdminNodeDto,
+  NodeJobCountsDto,
+  NodeVitalsDto,
+} from './dto/node-admin.dto';
 import { deriveNodeHealth, NodeLifecycleService } from './node-lifecycle.service';
 import { NodeCredentialService } from './node-credential.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -304,6 +309,10 @@ export class NodesAdminService {
       capabilities: node.capabilities ?? null,
       registeredAt: node.registeredAt.toISOString(),
       lastHeartbeatAt: node.lastHeartbeatAt ? node.lastHeartbeatAt.toISOString() : null,
+      // Validated by `nodeVitalsSchema` on the way in (#129); JSONB comes back
+      // untyped, so the cast restates what the write already guaranteed.
+      lastVitals: (node.lastVitals as NodeVitalsDto | null) ?? null,
+      lastVitalsAt: node.lastVitalsAt ? node.lastVitalsAt.toISOString() : null,
       owner: {
         id: node.createdBy.id,
         email: node.createdBy.email,

@@ -130,6 +130,132 @@ const claimToken = claimTokenField;
 const capabilities = z.record(z.string(), z.unknown());
 
 // =============================================================================
+// Vitals (issue #129) — carried on the heartbeat
+// =============================================================================
+//
+// WHAT A NODE SAYS ABOUT ITS OWN HEALTH, and the file header's argument
+// applies to every field: these numbers come from a machine this deployment
+// may not own, they are stored verbatim (`WorkerNode.lastVitals`, JSONB) and
+// rendered on the admin fleet page. So the shape is CLOSED and every value is
+// BOUNDED:
+//
+//   - `.strict()` at both levels, unlike `capabilities` above. Capabilities
+//     are an open bag on purpose (the fleet page's business, free to grow);
+//     vitals are a CONTRACT the fleet page reads field by field, and an open
+//     bag here would be an unbounded JSONB write on a route every node hits
+//     every few seconds. A node that learns a new vital needs an API change
+//     first, which is the review this surface should get.
+//   - Every number is finite and non-negative with an explicit ceiling, so
+//     `NaN`/`Infinity`/negative garbage never reaches the row, and a number
+//     too large to be true is refused rather than charted.
+//   - Every string is short and version-shaped, because the three it carries
+//     are version banners rendered as text — never a free-form message.
+//   - Every field is optional. A node reports what it can measure (a node
+//     without `pg_dump` has no `pgDumpVersion`), and an old node sends no
+//     `vitals` key at all, which leaves the stored snapshot untouched.
+//
+// ⚠ THE CEILINGS ARE GENEROUS ON PURPOSE. A vitals value out of range fails
+// the WHOLE heartbeat with a 400, and a node whose heartbeats fail goes stale
+// on the fleet page and is swept offline — a far worse outcome than one odd
+// number. So each ceiling is "physically implausible", not "unusual": disk
+// sizes in particular allow a network filesystem that reports exabytes free
+// (some do), which is why they are not required to be safe integers.
+//
+// REJECTED: a node-supplied timestamp for the snapshot. `lastVitalsAt` is
+// stamped by the SERVER when the heartbeat lands, for the same reason
+// `lastHeartbeatAt` is — a node's clock is one more thing it could get wrong.
+// =============================================================================
+
+/** Ceiling on a counter: a trillion events is past any node's plausible lifetime. */
+const MAX_VITALS_COUNTER = 1e12;
+
+/** Ceiling on a process memory figure (RSS, heap): 1 PiB. */
+const MAX_VITALS_MEMORY_BYTES = 2 ** 50;
+
+/**
+ * Ceiling on a filesystem figure: 2^64 bytes. Not an integer check — a
+ * `statfs` total past 2^53 arrives as a (still finite) double.
+ */
+const MAX_VITALS_DISK_BYTES = 2 ** 64;
+
+/** Ceiling on `cpuPercent`: 100% per core, for up to 128 cores. */
+const MAX_VITALS_CPU_PERCENT = 12_800;
+
+/** Ceiling on event-loop delay: one hour. A loop blocked longer is not sending heartbeats. */
+const MAX_VITALS_EVENT_LOOP_DELAY_MS = 3_600_000;
+
+/** Ceiling on uptime: ten years. */
+const MAX_VITALS_UPTIME_SECONDS = 10 * 365 * 24 * 60 * 60;
+
+/** Cap on a reported version banner (`v24.3.0`, `pg_dump (PostgreSQL) 16.4`). */
+const MAX_VITALS_VERSION_LENGTH = 64;
+
+/**
+ * A finite, non-negative number no larger than `max`. (Zod 4's `z.number()`
+ * already refuses `NaN` and `Infinity`; JSON cannot carry them anyway.)
+ */
+const boundedNumber = (max: number) => z.number().nonnegative().max(max);
+
+/**
+ * A non-negative integer no larger than `max`. `.int()` comes FIRST: Zod 4's
+ * integer check carries its own safe-integer range, and applied after `.max()`
+ * it is that range, not ours, that reaches the generated OpenAPI schema.
+ */
+const boundedInt = (max: number) => z.number().int().nonnegative().max(max);
+
+/** A non-negative integer counter since the node process started. */
+const vitalsCounter = boundedInt(MAX_VITALS_COUNTER);
+
+/** A short, version-shaped string: letters, digits, spaces and `. + - _ ( ) ~`. */
+const vitalsVersion = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_VITALS_VERSION_LENGTH)
+  .regex(/^[0-9A-Za-z .+\-_()~]+$/, 'Must be a version string');
+
+/** Cumulative counters since the node process started; reset on restart. */
+export const nodeVitalsCountersSchema = z
+  .object({
+    claims: vitalsCounter.optional(),
+    emptyPolls: vitalsCounter.optional(),
+    claimFailures: vitalsCounter.optional(),
+    succeeded: vitalsCounter.optional(),
+    failed: vitalsCounter.optional(),
+    rateLimited: vitalsCounter.optional(),
+    leaseRenewals: vitalsCounter.optional(),
+    leaseRenewFailures: vitalsCounter.optional(),
+    heartbeatFailures: vitalsCounter.optional(),
+    watchdogTrips: vitalsCounter.optional(),
+  })
+  .strict();
+
+export const nodeVitalsSchema = z
+  .object({
+    /** Process CPU over the last interval; 100 = one full core. */
+    cpuPercent: boundedNumber(MAX_VITALS_CPU_PERCENT).optional(),
+    rssBytes: boundedInt(MAX_VITALS_MEMORY_BYTES).optional(),
+    heapUsedBytes: boundedInt(MAX_VITALS_MEMORY_BYTES).optional(),
+    heapLimitBytes: boundedInt(MAX_VITALS_MEMORY_BYTES).optional(),
+    eventLoopDelayP99Ms: boundedNumber(MAX_VITALS_EVENT_LOOP_DELAY_MS).optional(),
+    /** Free/total bytes on the filesystem holding the node's state directory. */
+    stateDirFreeBytes: boundedNumber(MAX_VITALS_DISK_BYTES).optional(),
+    stateDirTotalBytes: boundedNumber(MAX_VITALS_DISK_BYTES).optional(),
+    /** Job slots in use / available. Bounded by the same ceiling as `concurrency`. */
+    slotsUsed: boundedInt(MAX_NODE_CONCURRENCY).optional(),
+    slotsTotal: boundedInt(MAX_NODE_CONCURRENCY).optional(),
+    uptimeSeconds: boundedNumber(MAX_VITALS_UPTIME_SECONDS).optional(),
+    counters: nodeVitalsCountersSchema.optional(),
+    cliVersion: vitalsVersion.optional(),
+    nodeVersion: vitalsVersion.optional(),
+    pgDumpVersion: vitalsVersion.optional(),
+  })
+  .strict();
+
+export type NodeVitals = z.infer<typeof nodeVitalsSchema>;
+export type NodeVitalsCounters = z.infer<typeof nodeVitalsCountersSchema>;
+
+// =============================================================================
 // POST /nodes/register
 // =============================================================================
 
@@ -186,6 +312,13 @@ export const heartbeatNodeSchema = z.object({
   concurrency: z.number().int().min(1).max(MAX_NODE_CONCURRENCY).optional(),
 
   capabilities: capabilities.optional(),
+
+  /**
+   * A health snapshot (#129), stored as `lastVitals` with a server-stamped
+   * `lastVitalsAt`. OMITTED leaves the stored snapshot untouched, which is
+   * what every node that predates vitals sends. See "Vitals" above.
+   */
+  vitals: nodeVitalsSchema.optional(),
 });
 
 export class HeartbeatNodeDto extends createZodDto(heartbeatNodeSchema) {}

@@ -435,6 +435,98 @@ describe('Worker node control plane (Integration)', () => {
   });
 
   // ===========================================================================
+  // heartbeat vitals (#129)
+  // ===========================================================================
+
+  describe('heartbeat vitals', () => {
+    const vitals = {
+      cpuPercent: 37.5,
+      rssBytes: 150_000_000,
+      heapUsedBytes: 50_000_000,
+      heapLimitBytes: 4_000_000_000,
+      eventLoopDelayP99Ms: 8.2,
+      stateDirFreeBytes: 20_000_000_000,
+      stateDirTotalBytes: 50_000_000_000,
+      slotsUsed: 1,
+      slotsTotal: 2,
+      uptimeSeconds: 120,
+      counters: { claims: 4, emptyPolls: 30, succeeded: 3, failed: 1 },
+      cliVersion: '1.4.0',
+      nodeVersion: 'v24.3.0',
+      pgDumpVersion: 'pg_dump (PostgreSQL) 16.4',
+    };
+
+    it('200, persists the snapshot, and the admin fleet GET shows it', async () => {
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+
+      const heartbeat = await request(server())
+        .post(`/api/nodes/${NODE_ID}/heartbeat`)
+        .set(authHeader(admin.accessToken))
+        .send({ status: 'online', vitals })
+        .expect(200);
+
+      const { where, data } = (context.prismaMock.workerNode.update as jest.Mock).mock.calls[0][0];
+      expect(where).toEqual({ id: NODE_ID });
+      expect(data.lastVitals).toEqual(vitals);
+      expect(data.lastVitalsAt).toBeInstanceOf(Date);
+
+      // Node-facing responses stay minimal: the node already knows its vitals.
+      expect(heartbeat.body.data).not.toHaveProperty('lastVitals');
+      expect(heartbeat.body.data).not.toHaveProperty('lastVitalsAt');
+
+      // The admin read of the row that update produced.
+      (context.prismaMock.workerNode.findUnique as jest.Mock).mockResolvedValue({
+        ...nodeRow(admin.id, data),
+        createdBy: { id: admin.id, email: 'ops@example.test', displayName: 'Ops' },
+      });
+      (context.prismaMock.job.groupBy as jest.Mock).mockResolvedValue([]);
+
+      const detail = await request(server())
+        .get(`/api/admin/nodes/${NODE_ID}`)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(detail.body.data.lastVitals).toEqual(vitals);
+      expect(detail.body.data.lastVitalsAt).toBe((data.lastVitalsAt as Date).toISOString());
+    });
+
+    it('200 for a pre-vitals heartbeat, leaving the stored snapshot untouched', async () => {
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+
+      await request(server())
+        .post(`/api/nodes/${NODE_ID}/heartbeat`)
+        .set(authHeader(admin.accessToken))
+        .send({ status: 'online' })
+        .expect(200);
+
+      const data = (context.prismaMock.workerNode.update as jest.Mock).mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('lastVitals');
+      expect(data).not.toHaveProperty('lastVitalsAt');
+    });
+
+    it.each([
+      ['an unknown vitals key', { cpuPercent: 1, loadAverage: 3 }],
+      ['an unknown counter', { counters: { claims: 1, bogus: 2 } }],
+      ['an out-of-range value', { slotsUsed: 10_000 }],
+      ['a negative value', { rssBytes: -1 }],
+      ['an oversized version string', { nodeVersion: 'v'.repeat(65) }],
+    ])('400 on %s, and nothing is written', async (_label, bad) => {
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+
+      await request(server())
+        .post(`/api/nodes/${NODE_ID}/heartbeat`)
+        .set(authHeader(admin.accessToken))
+        .send({ vitals: bad })
+        .expect(400);
+
+      expect(context.prismaMock.workerNode.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
   // Lease renewal, result and failure
   // ===========================================================================
 

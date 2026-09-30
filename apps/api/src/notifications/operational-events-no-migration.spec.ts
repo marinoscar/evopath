@@ -96,6 +96,9 @@ const MIGRATIONS_AT_288 = [
   // E5.0: `training_run_checkpoints` and `training_run_checkpoint_writes` —
   // the agent graph's checkpoint tables. Not about notifications.
   '20260930001950_add_training_run_checkpoints',
+  // #129: `worker_nodes.last_vitals`/`last_vitals_at` — a node's heartbeat
+  // health snapshot. About the worker fleet, not notifications.
+  '20260930100000_add_worker_node_vitals',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

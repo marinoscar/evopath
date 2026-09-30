@@ -154,6 +154,33 @@ describe('NodesAdminService', () => {
     });
   });
 
+  describe('vitals (#129)', () => {
+    it('maps the stored snapshot through and renders lastVitalsAt as ISO', async () => {
+      const vitals = { cpuPercent: 5, counters: { claims: 2 }, nodeVersion: 'v24.3.0' };
+      const { service } = makeService([
+        nodeRow('reporting', {
+          lastVitals: vitals,
+          lastVitalsAt: new Date('2026-09-29T12:00:00.000Z'),
+        }),
+      ]);
+
+      const node = await service.getNode('reporting');
+
+      expect(node.lastVitals).toEqual(vitals);
+      expect(node.lastVitalsAt).toBe('2026-09-29T12:00:00.000Z');
+    });
+
+    it('renders explicit nulls for a node that has never reported vitals', async () => {
+      // A row from before the columns existed has neither key at all.
+      const { service } = makeService([nodeRow('quiet')]);
+
+      const [node] = await service.listFleet();
+
+      expect(node.lastVitals).toBeNull();
+      expect(node.lastVitalsAt).toBeNull();
+    });
+  });
+
   describe('getNode', () => {
     it('derives health with the same function the list uses', async () => {
       const silent = nodeRow('silent', { lastHeartbeatAt: new Date(Date.now() - 3_600_000) });

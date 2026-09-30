@@ -257,10 +257,13 @@ export class NodesController {
       '`concurrency` takes effect on the very NEXT claim — the claim endpoint reads the row ' +
       'live rather than caching a value from registration. A node may report only `online` or ' +
       '`offline`: `draining` and `disabled` are operator decisions, and a heartbeat can never ' +
-      'clear either of them.',
+      'clear either of them. An optional `vitals` snapshot (strict, bounded, self-reported) ' +
+      'replaces the stored `lastVitals` and stamps `lastVitalsAt`; omitting it leaves both ' +
+      'untouched. An unknown or out-of-range vital is a 400 for the whole heartbeat.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiResponse({ status: 200, description: 'The refreshed node', type: WorkerNodeDto })
+  @ApiResponse({ status: 400, description: 'The body failed validation (including `vitals`)' })
   async heartbeat(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: HeartbeatNodeDto,
