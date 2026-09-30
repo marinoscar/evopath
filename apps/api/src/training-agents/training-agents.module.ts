@@ -5,6 +5,8 @@ import { AiCoreModule } from '../ai/core/ai-core.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
 import { GraphRuntimeInfo } from './graph-runtime-info';
 import { TrainingModelResolver } from './models/training-model-resolver.service';
+import { TrainingModelsController } from './models/training-models.controller';
+import { TrainingModelsService } from './models/training-models.service';
 
 /**
  * Training agents: the orchestration layer above `AiService`.
@@ -16,13 +18,16 @@ import { TrainingModelResolver } from './models/training-model-resolver.service'
  * models and the AI policy into a state per agent role; it reads through the
  * read-only seams `AiConfigModule` (`AiConfigService`, `AiEnabledGuard`),
  * `AiKeysModule` (`UsableModelsService`, `AiKeyResolver`) and `AiCoreModule`
- * (`AiProviderRegistry`) export, and never sees key material. The spike under
+ * (`AiProviderRegistry`) export, and never sees key material;
+ * `TrainingModelsController` serves it at `/api/ai/training/models` and
+ * `/api/ai/training/estimate`. The spike under
  * `spike/` is deliberately NOT registered here: it is constructed only inside
  * specs.
  */
 @Module({
   imports: [AiConfigModule, AiCoreModule, AiKeysModule],
-  providers: [GraphRuntimeInfo, TrainingModelResolver],
+  controllers: [TrainingModelsController],
+  providers: [GraphRuntimeInfo, TrainingModelResolver, TrainingModelsService],
   exports: [GraphRuntimeInfo, TrainingModelResolver],
 })
 export class TrainingAgentsModule {}
