@@ -60,7 +60,7 @@ export class EvaluationContextLoader implements EvaluationPort {
         where: { programId, userId },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: EVALUATOR_HISTORY_ENTRIES,
-        select: { createdAt: true, kind: true, actor: true, status: true, summary: true, operations: true },
+        select: { createdAt: true, decidedAt: true, kind: true, actor: true, status: true, summary: true, operations: true },
       }),
       this.prisma.programVersion.findMany({
         where: { programId, origin: { in: ['ai_create', 'ai_adapt'] } },

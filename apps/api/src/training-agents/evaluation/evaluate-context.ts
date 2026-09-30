@@ -193,6 +193,14 @@ export interface EvaluateServerFacts {
   /** The full pain list (the compact signals may drop some). */
   pain: ServerPainFact[];
   readinessLowStreak: number;
+  /**
+   * Fingerprints of operations the person undid or declined in the last 14
+   * days (envelope E9; `fingerprints.ts`). Optional: contexts checkpointed
+   * before it existed read as none.
+   */
+  suppressedFingerprints?: string[];
+  /** When the plan's latest applied AI adaptation was made (envelope E7), ISO; null when none. */
+  lastAdaptationAt?: string | null;
 }
 
 export interface SafetyGateResult {

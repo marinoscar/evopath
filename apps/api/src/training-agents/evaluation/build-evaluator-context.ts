@@ -6,6 +6,7 @@ import { daysFrom, occurrenceDate } from '../../programs/today/resolve-today';
 import { trainingIntakeSchema } from '../contracts/training-intake.contract';
 import { briefFromEvidence } from '../finalize/plan-evidence';
 import { conservativeModeOf } from '../guardrails/safety-screen';
+import { suppressedFingerprints } from './fingerprints';
 import {
   EVALUATE_CONTEXT_VERSION,
   type EvaluateRunContext,
@@ -61,7 +62,15 @@ export interface EvaluationSources {
   /** `TrainingSignalsService.forEvaluator` (full; compacted here). */
   signals: PlanSignals;
   /** The latest change log entries, newest first. */
-  changeLog: Array<{ createdAt: Date; kind: string; actor: string; status: string; summary: string; operations: unknown }>;
+  changeLog: Array<{
+    createdAt: Date;
+    decidedAt?: Date | null;
+    kind: string;
+    actor: string;
+    status: string;
+    summary: string;
+    operations: unknown;
+  }>;
   /** Stored version evidence of the plan's AI versions, newest first. */
   evidence: unknown[];
 }
@@ -117,10 +126,50 @@ export function buildEvaluatorContext(sources: EvaluationSources, options: Build
         consecutiveFlaggedSessions: row.consecutiveFlaggedSessions,
       })),
       readinessLowStreak: signals.readiness.lowStreak,
+      suppressedFingerprints: suppressedFingerprints(sources.changeLog, options.now),
+      lastAdaptationAt: lastAdaptationAt(sources.changeLog),
     },
     safety: null,
     builtAt: options.now.toISOString(),
   };
+}
+
+/** The latest applied AI adaptation (kind `adapted`, actor `ai`), ISO; null when none in the entries. */
+function lastAdaptationAt(changeLog: EvaluationSources['changeLog']): string | null {
+  const times = changeLog
+    .filter((row) => row.kind === 'adapted' && row.actor === 'ai' && (row.status === 'applied' || row.status === 'reverted'))
+    .map((row) => row.createdAt.getTime());
+  return times.length ? new Date(Math.max(...times)).toISOString() : null;
+}
+
+/**
+ * Whether a workout is LOCKED (envelope E1): a logged session is linked to
+ * it, or it occurs on or before `asOf` (an unscheduled one: its plan week
+ * ended on or before `asOf`). A plan never activated locks nothing by date.
+ */
+export function isWorkoutLocked(args: {
+  workoutId: string | undefined;
+  weekday: number | null | undefined;
+  weekNumber: number;
+  startDate: string | null;
+  asOf: string;
+  linked: ReadonlySet<string>;
+}): boolean {
+  if (args.workoutId !== undefined && args.linked.has(args.workoutId)) return true;
+  if (!args.startDate) return false;
+  if (args.weekday) return occurrenceDate(args.startDate, args.weekNumber, args.weekday) <= args.asOf;
+  return addDays(args.startDate, 7 * args.weekNumber - 1) <= args.asOf;
+}
+
+/** Every locked workout row of `tree` (see `isWorkoutLocked`). */
+export function lockedWorkoutIdsOf(tree: PlanTree, startDate: string | null, asOf: string, linked: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  for (const block of tree.blocks)
+    for (const week of block.weeks)
+      for (const workout of week.workouts)
+        if (workout.id && isWorkoutLocked({ workoutId: workout.id, weekday: workout.weekday, weekNumber: week.weekNumber, startDate, asOf, linked }))
+          out.push(workout.id);
+  return out;
 }
 
 function renderPlan(
@@ -144,15 +193,12 @@ function renderPlan(
 
   const weeks: EvaluatorPlanWeek[] = [];
   for (const { week, block, lastWeekOfBlock } of allWeeks.sort((a, b) => a.week.weekNumber - b.week.weekNumber)) {
-    const weekEnd = startDate ? addDays(startDate, 7 * week.weekNumber - 1) : null;
     const rendered: EvaluatorPlanWeek = { weekNumber: week.weekNumber, block, isDeload: week.isDeload, lastWeekOfBlock, workouts: [] };
 
     [...week.workouts].sort(byPosition).forEach((workout, w) => {
       const workoutRef = `W${week.weekNumber}-${w + 1}`;
       const date = startDate && workout.weekday ? occurrenceDate(startDate, week.weekNumber, workout.weekday) : null;
-      const locked =
-        (workout.id !== undefined && linked.has(workout.id)) ||
-        (date !== null ? date <= asOf : weekEnd !== null && weekEnd <= asOf);
+      const locked = isWorkoutLocked({ workoutId: workout.id, weekday: workout.weekday, weekNumber: week.weekNumber, startDate, asOf, linked });
       if (workout.id) refByWorkoutId.set(workout.id, workoutRef);
       refs[workoutRef] = { kind: 'workout', weekNumber: week.weekNumber, programWorkoutId: workout.id ?? '', date, locked };
 
