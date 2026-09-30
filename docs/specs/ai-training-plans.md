@@ -349,7 +349,7 @@ adapt -> guardrails -> critic --accept (or revise without a major issue)--> fina
 | `critic` | critic | One structured call (`training_adaptation_critique`) on the checked proposal: `accept` or `revise` with four checks and short issues. Only `revise` with a `major` issue starts the second pass |
 | `finalize` | none | Assembles proposal, guardrail report, critic report, snapshot and safety; the handler writes them with the terminal status |
 
-`ADAPT_MAX_REVISIONS = 1`: at most two planner passes and one critic round, so a normal run is two provider calls and a revise makes three. A revision that breaks a hard rule keeps the first checked proposal with the warning `revision_rejected`. A critic that cannot answer (an invalid or truncated answer) is recorded `criticReport.skipped = 'error'`; the guardrails run regardless. Stage and event names for the web: `stage.started` and `stage.completed` per node, plus `workout_adaptation.context`, `.proposal`, `.guardrails`, `.critique` and `.ready`, each carrying identifiers, counts and codes only (`ADAPTATION_EVENT_TYPES`).
+`ADAPT_MAX_REVISIONS = 1`: at most two planner passes and one critic round, so a normal run is two provider calls and a revise makes three. A revise therefore costs two planner calls and one critic call; the revision is never reviewed again. A revision that breaks a hard rule keeps the first checked proposal with the warning `revision_rejected`. A critic that cannot answer (an invalid or truncated answer) is recorded `criticReport.skipped = 'error'`; the guardrails run regardless. Stage and event names for the web: `stage.started` and `stage.completed` per node, plus `workout_adaptation.context`, `.proposal`, `.guardrails`, `.critique` and `.ready`, each carrying identifiers, counts and codes only (`ADAPTATION_EVENT_TYPES`).
 
 #### Design stance: the model proposes, the server owns
 
@@ -569,7 +569,8 @@ Tests that enforce the invariants (paths under `apps/api/` unless noted):
 - `src/programs/today/no-ai-import.spec.ts`: the programs layer has no AI dependency, so manual plans work with AI off.
 - Real Postgres (`*.db.spec.ts`): `test/training-agents/prisma-checkpoint-saver.db.spec.ts`, `training-plan-runs.db.spec.ts`, `training-runtime.db.spec.ts`, `training-plan-finalize.db.spec.ts`, `training-evaluation.db.spec.ts`, `training-evaluation-run.db.spec.ts` and the cross-story `training-flow.db.spec.ts`.
 - Scenario suites and fixtures: `test/fixtures/training/scenarios/`, `test/training-agents/scenario-fixtures.spec.ts` (every fixture output parses with the real contracts and names only seeded exercises), `test/training-agents/scenarios/*.integration.spec.ts`, `test/fake-responses/fake-responses-server.spec.ts` and the Playwright `tests/e2e/specs/training-plans.spec.ts`. See [TESTING.md](../TESTING.md#fake-responses-server-and-training-scenarios).
-- Playwright: the adaptation spec in `tests/e2e/specs/` runs against the fake OpenAI-compatible server the way `training-plans.spec.ts` runs against the fake Responses server; see [TESTING.md](../TESTING.md#quick-adaptation-suites-and-the-fake-provider-e2e).
+- `test/ai/adaptation-fake-server-contract.spec.ts`: the e2e fake's markers and schema names equal `markers.ts` and its answers parse under the real schemas and the real OpenAI-compatible adapter.
+- Playwright: `tests/e2e/specs/training-adaptation.spec.ts` runs the flow against the OpenAI-compatible fake (`tests/e2e/support/fake-vision-server.mjs`, not the Responses fake); scenarios and run instructions are in [TESTING.md](../TESTING.md#quick-adaptation-suites-and-the-fake-provider-e2e).
 - Plan quality: the evals in [TESTING.md](../TESTING.md#evals).
 
 ## 6. Design decisions
@@ -638,6 +639,8 @@ npm test --workspace=api -- training-adaptation training-usage test/ai/training-
 npm run test:db --workspace=api -- training-adaptation temporary-gym-purge
 npm run test:run --workspace=web -- adapt
 ```
+
+With the fake provider and no key: start the stack with `fake-ai.compose.yml` and run `cd tests/e2e && npm test -- training-adaptation --workers=1` ([TESTING.md](../TESTING.md#quick-adaptation-suites-and-the-fake-provider-e2e)).
 
 Real-key smoke checklist (manual, never in CI; `openai.adapter.live.spec.ts` shows the opt-in pattern for a live suite). A normal run is two provider calls, three with a revise. Record your own token counts from the usage panel rather than quoting a range.
 

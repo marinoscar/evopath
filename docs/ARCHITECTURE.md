@@ -726,6 +726,7 @@ All files live in `infra/compose/` and are layered with repeated `-f` flags from
 | `prod.compose.yml` | Resource limits, restart policies | Production |
 | `vps.compose.yml` | Publishes nothing on a public interface; the app sits behind a shared host proxy. Also adds `stack-agent`, the only service that holds the Docker socket — it lets the admin UI (re)deploy the telemetry containers with no shell step. See [specs/telemetry.md §10](specs/telemetry.md#10-deploying-the-stack-stack-agent). | VPS deployment via `evopathcli deploy`, after `prod.compose.yml` |
 | `vps.telemetry.compose.yml` | Hardens the telemetry stack for a VPS: no collector host ports, GreptimeDB's Postgres wire port on `127.0.0.1` only | VPS deployment, after `telemetry.compose.yml` and `vps.compose.yml` (always layered — the telemetry stack ships with every VPS deployment) |
+| `fake-ai.compose.yml` | Fake AI providers for e2e and development: an OpenAI-compatible server (`fake-ai`, port 4010; gym scan, workout prefill and quick adaptation scenarios) and a Responses server (`fake-ai-responses`, port 4011; training plan scenarios). No key; see [TESTING.md](TESTING.md#end-to-end-tests-playwright) | Local development and Playwright AI specs |
 | `test.compose.yml` | Disposable PostgreSQL (`db-test`, host port 5433) | Real-database test runs |
 | `worker.compose.yml` | Worker node containers from the published image; scale with `--scale worker=N` | Running a worker fleet |
 | `worker.build.compose.yml` | Builds the worker image from source | Developing the worker itself |

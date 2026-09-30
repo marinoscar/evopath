@@ -756,23 +756,66 @@ npm run test:db --workspace=api -- training-adaptation temporary-gym-purge
 npm run test:run --workspace=web -- adapt
 ```
 
-The Playwright spec for adaptation lives in `tests/e2e/specs/`. Like
-`training-plans.spec.ts`, it runs against a fake provider that the API reaches
-over the compose network, needs no real key, runs serially (the fake's scenario
-and request log are global) and is skipped when `E2E_AI=0`. Start the stack with
-the fake-provider compose overlay the spec's header names, then run it by name:
+The Playwright spec is `tests/e2e/specs/training-adaptation.spec.ts` (15 serial
+tests). It runs against the OpenAI-compatible fake that the gym-scan spec uses,
+`tests/e2e/support/fake-vision-server.mjs`, extended with the adaptation models
+and scenarios (`fake-adaptation-scenarios.mjs`); it is not the Responses fake of
+the training-plans spec. It needs the `fake-ai.compose.yml` overlay and no real
+key, runs serially because the fake's scenario and log are global, and is
+skipped when `E2E_AI=0`. Its helpers are `setupFakeAdaptationAi` and its
+teardown in `tests/e2e/helpers/ai.helper.ts` (enable AI, point the compatible
+provider at the fake, classify the models, choose the roles, restore in
+`afterAll`) and `tests/e2e/helpers/training.helper.ts` (seeds a gym, an active
+plan and a check-in through the API). The hotel test uploads photos
+(`tests/e2e/fixtures/hotel-gym-1.jpg`, `hotel-gym-2.jpg`; the fake ignores
+pixels), so object storage must be configured in the admin UI.
 
 ```bash
+cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fake-ai.compose.yml up
 cd tests/e2e && npm test -- training-adaptation --workers=1
 ```
 
-The fake computes an adapted workout from the request itself: it reads the JSON
-between the `<context-json>` markers and answers by the structured-output schema
-name, both pinned in `training-adaptation/prompts/markers.ts`, because exercise
-ids are generated at seed time. Its request log is how the spec asserts data
-minimisation (no canary value, no image part, no gym name in an adaptation call).
-Like every Playwright suite it is **not part of CI**, and a run leaves no state
-behind.
+`FAKE_AI_URL` (runner, default `http://localhost:4010`) and
+`FAKE_AI_API_BASE_URL` (what the API uses, default `http://fake-ai:4010/v1`)
+override the addresses. The models are `fake-planner`, `fake-critic`,
+`fake-vision` and `fake-text-only`, all keyless.
+
+The fake routes a completion on `response_format.json_schema.name` and computes
+the planner's answer from the `<context-json>` block of the request, because
+exercise keys come from the running library. The markers and schema names are
+pinned in `training-adaptation/prompts/markers.ts`. Control routes:
+
+| Route | Purpose |
+|---|---|
+| `POST /__control/scenario` `{ name }` | Sets the default scenario and resets the counters; `GET` lists them |
+| `GET /__control/log?after=<seq>` | One entry per completion: `seq`, `scenario`, `schemaName`, `model`, `imageCount`, `status`, `text` (never image bytes), so a test can assert what was not sent |
+| `POST /__control/reset` | Clears the queue, the log and the counters |
+
+A `SCENARIO:<name>` token in a request's free text overrides the scenario for
+that request. The default is `valid`.
+
+| Scenario | Behaviour |
+|---|---|
+| `valid` | Fitting proposal, critic accepts; scripted usage planner 1,200 in and 300 out, critic 800 in and 120 out |
+| `critic-revise` | First critic answer is `revise` with one major issue; the revise pass drops an accessory. Two planner calls and one critic call |
+| `unknown-exercise` | Adds the key `ghost_lift_9000`, which the guardrails remove |
+| `over-time`, `over-volume` | Exceeds the minutes, or adds 2 sets; the guardrails repair it |
+| `malformed` | Invalid structured output, `AI_STRUCTURED_OUTPUT_INVALID` |
+| `rate-limit` | First adaptation call answers `429` with `Retry-After: 2`, then behaves as `valid` |
+| `slow` | Delays each call by 3 seconds (progress and cancel) |
+| `heavy-tokens` | First planner call reports 9,000 in and 3,000 out (token cap) |
+| `scan-hotel`, `scan-empty` | The equipment scan returns dumbbells, an adjustable bench, a cable machine and a treadmill, or nothing |
+
+`apps/api/test/ai/adaptation-fake-server-contract.spec.ts` is the Jest gate for
+the fake: its literals equal the markers and schema names, its answers parse
+under the real Zod schemas and the real `OpenAiCompatibleProviderAdapter`.
+
+```bash
+cd apps/api && npx jest --config test/jest.config.js test/ai/adaptation-fake-server-contract
+```
+
+Like every Playwright suite the spec is **not part of CI** (Jest is the gate),
+and a run leaves no state behind.
 
 ### Signing in without Google
 
