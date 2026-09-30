@@ -37,6 +37,8 @@ const TrainPage = lazy(() => import('./pages/TrainPage'));
 // E4.1: the exercise library. Owned by the `train` destination through the
 // `/train` prefix.
 const TrainExercisesPage = lazy(() => import('./pages/TrainExercisesPage'));
+// E5.6: training plans, also under `/train` (owned by the `train` destination).
+const PlansPage = lazy(() => import('./pages/Train/PlansPage'));
 // E4.3: one workout (active logger or completed detail), also under `/train`.
 const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
 // E4.5: "Prefill from photo", photos to AI-drafted exercises the user reviews.
@@ -216,6 +218,22 @@ function AppRoutes() {
                     element={
                       <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
                         <PlanProgressPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E5.6: training plans. `programs:read` is the string
+                      `/api/programs` enforces. The AI routes (the wizard and
+                      the live run) add `ai:use` plus AI being on, and
+                      redirect to the list with a notice otherwise; the list,
+                      viewer, editor and history never need AI. Literal
+                      segments (`new`, `runs/...`) are declared before
+                      `:programId` for readers; React Router ranks by
+                      specificity either way. */}
+                  <Route
+                    path="/train/plans"
+                    element={
+                      <RequirePermission permission="programs:read" fallback={<Navigate to="/train" replace />}>
+                        <PlansPage />
                       </RequirePermission>
                     }
                   />

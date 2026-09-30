@@ -24,6 +24,7 @@ import {
   Typography,
 } from '@mui/material';
 import {
+  EventNote as PlansIcon,
   MenuBook as MenuBookIcon,
   PlayArrow as PlayArrowIcon,
 } from '@mui/icons-material';
@@ -82,6 +83,11 @@ export default function TrainPage() {
               </Typography>
               <TodayPlanCard canStart={canWrite} canWritePrograms={hasPermission('programs:write')} />
             </CardContent>
+            <CardActions sx={{ px: 2, pb: 2 }}>
+              <Button component={RouterLink} to="/train/plans" startIcon={<PlansIcon />} sx={{ minHeight: 44 }}>
+                Plans
+              </Button>
+            </CardActions>
           </Card>
         )}
         {canReadPrograms && <ThisWeekCard sx={{ mb: 3 }} />}
