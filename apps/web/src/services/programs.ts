@@ -392,6 +392,139 @@ export interface StartProgramWorkoutResult {
 }
 
 // -----------------------------------------------------------------------------
+// Plan signals (E5.9): GET /api/training/signals
+// -----------------------------------------------------------------------------
+//
+// Facts the server computes about a plan. Every number is finite or null.
+// Weights are kilograms (convert for display); dates are local `YYYY-MM-DD`
+// days; a week is an ISO week keyed by its Monday.
+
+/** `details.reason` values `getTrainingSignals` answers 400 with. */
+export const SIGNALS_REFUSALS = {
+  /** `asOf` more than 2 days from the server's today. */
+  AS_OF_OUT_OF_RANGE: 'SIGNALS_AS_OF_OUT_OF_RANGE',
+  /** `from` after `to`, or a range over 26 weeks (after defaults). */
+  RANGE_INVALID: 'SIGNALS_RANGE_INVALID',
+} as const;
+export type SignalsRefusal = (typeof SIGNALS_REFUSALS)[keyof typeof SIGNALS_REFUSALS];
+
+/** The widest range the route accepts. */
+export const SIGNALS_MAX_WEEKS = 26;
+
+export type PlannedSessionStatus = 'done' | 'partial' | 'missed' | 'upcoming' | 'in_progress';
+export type LiftTrend = 'up' | 'flat' | 'down' | 'insufficient';
+export type RpeTrend = 'rising' | 'flat' | 'falling' | 'insufficient';
+
+export interface AdherenceCounts {
+  /** Due planned sessions: before `asOf`, or already started or done. */
+  planned: number;
+  /** Planned sessions with a completed linked workout (partial ones included). */
+  completed: number;
+  /** Completed planned sessions below 60 percent of their planned sets. */
+  partialSessions: number;
+  missed: number;
+  /** Completed workouts linked to no plan. */
+  extra: number;
+  /** `completed / planned` in percent (one decimal); null when nothing was planned. */
+  adherencePct: number | null;
+}
+
+export interface AdherenceWeek extends AdherenceCounts {
+  weekStart: string;
+  /** Straddles the range edge or is not over yet; left out of averages. */
+  partial: boolean;
+}
+
+export interface PlannedSessionSignal {
+  programWorkoutId: string;
+  name: string;
+  plannedFor: string;
+  status: PlannedSessionStatus;
+  workoutId: string | null;
+  setsPlanned: number;
+  setsDone: number;
+  /** 0..100, one decimal; null without a workout or planned sets. */
+  completionPct: number | null;
+  avgRpe: number | null;
+}
+
+export interface MuscleVolume {
+  muscle: string;
+  weeks: Array<{ weekStart: string; plannedSets: number; hardSets: number }>;
+  totalHardSets: number;
+  /** Null when no hard set was weighted. */
+  tonnageKg: number | null;
+}
+
+export interface LiftPerformance {
+  exerciseId: string;
+  slug: string;
+  name: string;
+  sessions: number;
+  best: { weightKg: number | null; reps: number | null; e1rmKg: number | null };
+  /** Newest first, at most three. */
+  lastTopSets: Array<{ date: string; weightKg: number; reps: number; rpe: number | null }>;
+  trend: LiftTrend;
+  trendPct: number | null;
+  prInRange: boolean;
+}
+
+export interface PainSignal {
+  exerciseId: string;
+  slug: string;
+  name: string;
+  lastFlaggedOn: string;
+  flaggedSessions28d: number;
+  consecutiveFlaggedSessions: number;
+}
+
+export interface PlanSignals {
+  range: { from: string; to: string };
+  asOf: string;
+  /** Null when the caller has no program: adherence is then empty. */
+  programId: string | null;
+  planVersion: number | null;
+  weeksInRange: number;
+  /** A very large history moved `range.from` forward. */
+  truncated: boolean;
+  /** The latest day the plan changed inside the range ("earlier weeks use today's structure"). */
+  planChangedOn: string | null;
+  adherence: {
+    weeks: AdherenceWeek[];
+    totals: AdherenceCounts;
+    missedStreak: number;
+    completedStreak: number;
+  };
+  frequency: { avgPerWeek: number | null; perWeek: Array<{ weekStart: string; sessions: number }> };
+  sessions: PlannedSessionSignal[];
+  volume: MuscleVolume[];
+  performance: LiftPerformance[];
+  effort: { avgRpe: number | null; setsAtRpe9Plus: number; rpeTrend: RpeTrend };
+  pain: PainSignal[];
+  readiness: {
+    days: number;
+    avg: { energy: number | null; sleepQuality: number | null; soreness: number | null; stress: number | null } | null;
+    lowDays: number;
+    lowStreak: number;
+  };
+  body: {
+    weightKg: { latest: number | null; changePerWeek: number | null; points: number };
+    bodyFatPct: { latest: number | null; points: number } | null;
+  };
+}
+
+export interface TrainingSignalsParams {
+  /** Default: the active program. */
+  programId?: string;
+  /** Default: the Monday 7 weeks before `to`'s week. */
+  from?: string;
+  /** Default: `asOf`. */
+  to?: string;
+  /** The client's local day (within 2 days of the server's today). */
+  asOf?: string;
+}
+
+// -----------------------------------------------------------------------------
 // Calls
 // -----------------------------------------------------------------------------
 
@@ -493,6 +626,30 @@ export function getTrainingToday(date: string, options: { signal?: AbortSignal }
  */
 export function startProgramWorkout(programWorkoutId: string, input: StartProgramWorkoutInput) {
   return api.post<StartProgramWorkoutResult>(`/program-workouts/${encodeURIComponent(programWorkoutId)}/start`, input);
+}
+
+/**
+ * Plan signals for a range (`programs:read`, works with AI off). 400 with
+ * `SIGNALS_AS_OF_OUT_OF_RANGE` / `SIGNALS_RANGE_INVALID` (or a validation
+ * error) for bad dates; 404 for a program that is not the caller's.
+ */
+export function getTrainingSignals(params: TrainingSignalsParams = {}, options: { signal?: AbortSignal } = {}) {
+  const query = new URLSearchParams();
+  for (const key of ['programId', 'from', 'to', 'asOf'] as const) {
+    const value = params[key];
+    if (value) query.set(key, value);
+  }
+  const search = query.toString();
+  return api.get<PlanSignals>(`/training/signals${search ? `?${search}` : ''}`, { signal: options.signal });
+}
+
+/** The signals refusal a 400 carries, or null. */
+export function signalsRefusalOf(error: unknown): SignalsRefusal | null {
+  if (!(error instanceof ApiError)) return null;
+  const reason = (error.details as { reason?: unknown } | undefined)?.reason;
+  return typeof reason === 'string' && (Object.values(SIGNALS_REFUSALS) as string[]).includes(reason)
+    ? (reason as SignalsRefusal)
+    : null;
 }
 
 // -----------------------------------------------------------------------------
