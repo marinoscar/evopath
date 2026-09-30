@@ -33,9 +33,9 @@
 #   curl localhost:4011/__control/requests     # per request: agent, model, effort, tool types,
 #                                              # input size, canary hits; never keys, prompts or bodies
 #   curl -X POST localhost:4011/__control/reset
-# The CANARY_TOKENS variable below (values the e2e setup plants in a user's bio,
-# check-in notes and display name) belongs to this fake container only: strings
-# whose occurrences in any request body are counted, so a test can prove data
+# The fake counts the canary markers the e2e setup plants in a user's bio,
+# check-in notes and display name (DEFAULT_CANARY_MARKERS in the server; set
+# CANARY_TOKENS on this container only to override), so a test can prove data
 # minimisation from outside the API. The application has no such variable.
 #
 # Host port 4010:
@@ -67,7 +67,6 @@ services:
       - ../../apps/api/test/fixtures/training:/training:ro
     environment:
       SCENARIO_DIR: /training/scenarios
-      CANARY_TOKENS: E2E-CANARY-BIO-7f3a,E2E-CANARY-NOTE-9c1d,E2E-CANARY-NAME-4b2e
     ports:
       - "4011:4011"
     networks:

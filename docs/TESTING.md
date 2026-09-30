@@ -655,9 +655,10 @@ The request log holds per request the agent, node, round, model, effort, tool
 types, whether a schema was present, input size, canary hits and whether an
 `Authorization` header was present: never a body, prompt or key. The server
 accepts any bearer token of 8 or more characters (`sk-invalid...` is a `401`)
-and never logs or echoes one. Its `CANARY_TOKENS` variable (set on the
-`fake-ai-responses` service in `fake-ai.compose.yml`, never on the application)
-lists strings whose occurrences in any request body are counted, so a test
+and never logs or echoes one. It counts the e2e canary markers
+(`DEFAULT_CANARY_MARKERS` in the server; `CANARY_TOKENS` on the fake container
+overrides them, never on the application): strings whose occurrences in any
+request body are counted, so a test
 proves data minimisation from outside the API. The `openai` provider slot's
 base URL is a runtime setting, so pointing the API at the fake needs no
 production hook and no environment variable. The Jest spec

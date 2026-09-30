@@ -36,9 +36,10 @@
 //   { seq, time, scenario, path, status, agent, node, round, model,
 //     reasoningEffort, toolTypes, hasSchema, inputChars, canaryHits, hasAuthorization }
 //
-// CANARY_TOKENS (fake container only, set by the compose overlay): comma
-// separated strings whose occurrences in any request body are counted in
+// Canary markers: strings whose occurrences in any request body are counted in
 // `canaryHits`, so a test can prove data minimisation from outside the API.
+// DEFAULT_CANARY_MARKERS matches `tests/e2e/helpers/ai.helper.ts`; the
+// CANARY_TOKENS variable (fake container only) overrides it.
 //
 // SCENARIO_DIR defaults to the repository's fixtures folder; PORT to 4011
 // (0 picks a free port). Runs in compose as service `fake-ai-responses`.
@@ -191,8 +192,13 @@ export function buildResponse(id, model, metadata, spec, json, investigation) {
   };
 }
 
+/** The markers the e2e suite plants in user data; kept in step with `tests/e2e/helpers/ai.helper.ts`. */
+export const DEFAULT_CANARY_MARKERS = ['E2E-CANARY-BIO-7f3a', 'E2E-CANARY-NOTE-9c1d', 'E2E-CANARY-NAME-4b2e'];
+
 export function startFakeResponsesServer({ port = Number(process.env.PORT ?? 4011), scenarioDir = process.env.SCENARIO_DIR ?? DEFAULT_SCENARIO_DIR, canaries } = {}) {
-  const canaryTokens = canaries ?? (process.env.CANARY_TOKENS ?? '').split(',').map((token) => token.trim()).filter(Boolean);
+  const canaryTokens = canaries ?? (process.env.CANARY_TOKENS !== undefined
+    ? process.env.CANARY_TOKENS.split(',').map((token) => token.trim()).filter(Boolean)
+    : DEFAULT_CANARY_MARKERS);
 
   const listScenarios = () =>
     readdirSync(scenarioDir)

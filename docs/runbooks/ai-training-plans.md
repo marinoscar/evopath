@@ -79,7 +79,7 @@ Scenarios:
 | `evaluator-regenerate` | The evaluator asks to rebuild the remaining weeks; dropped, because escalation is never automatic |
 | `evaluator-hostile` | Past-session edits, oversized changes, unknown refs, a repeat of an undone change and injection text; nothing out of bounds lands |
 
-`tests/e2e` (`npm test -- training-plans`) does steps 3 to 5 itself. To point the fake at a different canary list, the overlay's `CANARY_TOKENS` variable on the `fake-ai-responses` service is the only knob; the application has no such variable.
+`tests/e2e` (`npm test -- training-plans`) does steps 3 to 5 itself. The fake counts the e2e canary markers built into `fake-responses-server.mjs` (`DEFAULT_CANARY_MARKERS`); to use a different list, set `CANARY_TOKENS` on the `fake-ai-responses` container. The application has no such variable.
 
 ## 4. Enable models for the four roles
 
