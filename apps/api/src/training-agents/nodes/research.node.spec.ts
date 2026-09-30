@@ -396,6 +396,8 @@ describe('research node', () => {
 
   it('an abort mid-call leaves a resumable checkpoint: a fresh runner re-runs research and continues', async () => {
     const prepare = async () => ({ context: { researcher: CONTEXT } });
+    // The downstream agent nodes are stubbed: this test is about research.
+    const nodes = { prepare_context: prepare, plan: STUB_AGENT_NODES.plan, guardrails: STUB_AGENT_NODES.guardrails };
     let block = true;
     const blocking: AgentScript = (_req, ctx) =>
       new Promise((resolve, reject) => {
@@ -404,14 +406,14 @@ describe('research node', () => {
       });
     const h = harness(blocking);
 
-    const running = h.runGraph({ input: {}, nodes: { prepare_context: prepare } });
+    const running = h.runGraph({ input: {}, nodes });
     await waitFor(() => h.runtime.fake.calls.length > 0);
     h.abort();
     await expect(running).rejects.toBeDefined();
 
     block = false;
     const resumed = createNodeContextHarness({ kind: 'create', runId: h.runId, scripts: { researcher: blocking } });
-    const result = await resumed.runGraph({ checkpointer: h.saver, nodes: { prepare_context: prepare } });
+    const result = await resumed.runGraph({ checkpointer: h.saver, nodes });
 
     const stages = (resumed.events.events.get(resumed.runId) ?? []).filter((e) => e.type === 'stage.started').map((e) => e.data.node);
     expect(stages[0]).toBe('research');

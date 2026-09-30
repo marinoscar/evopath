@@ -49,4 +49,6 @@ export const STUB_GUARDRAILS_NODE: NodeFn = async () => ({ guardrailReport: { st
 export const STUB_AGENT_NODES: Readonly<Record<string, NodeFn>> = {
   prepare_context: STUB_PREPARE_CONTEXT_NODE,
   research: STUB_RESEARCH_NODE,
+  plan: STUB_PLAN_NODE,
+  guardrails: STUB_GUARDRAILS_NODE,
 };

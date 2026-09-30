@@ -10,6 +10,7 @@ import { z } from 'zod';
 import type { NodeFn } from '../../src/training-agents/graph/node-context';
 import type { RunState } from '../../src/training-agents/graph/run-state';
 import type { AgentScript } from '../../src/training-agents/testing/node-context-harness';
+import { STUB_AGENT_NODES } from '../../src/training-agents/testing/stub-agent-nodes';
 import type { TrainingAgentRole } from '../../src/common/schemas/settings.schema';
 
 /** Per-call usage every scripted response reports. */
@@ -55,8 +56,14 @@ export function agentScripts(
   };
 }
 
-/** Node overrides that call the agents, standing in for the stories that implement them. */
+/**
+ * Node overrides that call the agents, standing in for the stories that
+ * implement them. The model-free implemented nodes (context, guardrails) are
+ * stubbed: these specs exercise the runtime, not the context or the rules.
+ */
 export const AGENT_NODES: Record<string, NodeFn> = {
+  prepare_context: STUB_AGENT_NODES.prepare_context,
+  guardrails: STUB_AGENT_NODES.guardrails,
   research: async (_state, ctx) => {
     const { parsed } = await ctx.agent.structured({
       role: 'researcher',
