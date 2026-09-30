@@ -30,8 +30,15 @@ describe('metric registry', () => {
       ['stress', 'Stress', 'score', { score: 1 }, 1, 5, 0, 'wellness', true],
     ] as const;
 
-    it('has exactly the ten metrics, in order', () => {
-      expect(catalogView().metrics.map((m) => m.key)).toEqual(EPIC_TABLE.map((row) => row[0]));
+    it('has exactly the ten metrics, in order, before the lab catalog', () => {
+      expect(
+        catalogView()
+          .metrics.filter((m) => m.category !== 'lab')
+          .map((m) => m.key),
+      ).toEqual(EPIC_TABLE.map((row) => row[0]));
+      expect(catalogView().metrics.slice(0, 10).map((m) => m.key)).toEqual(
+        EPIC_TABLE.map((row) => row[0]),
+      );
     });
 
     it.each(EPIC_TABLE)(
@@ -80,13 +87,15 @@ describe('metric registry', () => {
         'clinical',
         'self_report',
         'other',
+        'lab',
+        'point_of_care',
       ]);
       expect(catalogView().methods.every((m) => m.label.length > 0)).toBe(true);
     });
 
     it('returns copies, so a caller cannot mutate the registry', () => {
       const view = catalogView();
-      view.metrics[0].units.push({ unit: 'stone', factor: 6.35, label: 'st' });
+      view.metrics[0].units.push({ unit: 'stone', factor: 6.35, offset: 0, label: 'st' });
       view.metrics[0].methods.push('dexa');
 
       expect(getMetric('weight')!.units).toHaveLength(2);
@@ -137,6 +146,7 @@ describe('metric registry', () => {
         'bp_diastolic',
         'resting_hr',
       ]);
+      expect(isMeasurementMetric('ldl_cholesterol')).toBe(true);
       expect(isMeasurementMetric('energy')).toBe(false);
       expect(isMeasurementMetric('nope')).toBe(false);
     });
