@@ -1,0 +1,67 @@
+{
+  "id": "beginner-fat-loss-home-dumbbells",
+  "kind": "create",
+  "description": "A beginner who wants to lose fat with dumbbells at home.",
+  "profile": {
+    "ageYears": 34,
+    "sexAtBirth": "female",
+    "heightCm": 165,
+    "weightKg": 82
+  },
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "fat_loss",
+      "description": "Lose fat and feel fitter"
+    },
+    "experience": "beginner",
+    "daysPerWeek": 3,
+    "minutesPerSession": 40,
+    "durationWeeks": 8
+  },
+  "gym": {
+    "name": "Home",
+    "equipment": [
+      "dumbbells",
+      "adjustable_bench",
+      "resistance_bands",
+      "yoga_mat"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

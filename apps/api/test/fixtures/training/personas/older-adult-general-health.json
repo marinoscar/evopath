@@ -1,0 +1,77 @@
+{
+  "id": "older-adult-general-health",
+  "kind": "create",
+  "description": "A 64-year-old who wants general health and independence.",
+  "profile": {
+    "ageYears": 64,
+    "sexAtBirth": "female",
+    "heightCm": 162,
+    "weightKg": 68
+  },
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "general",
+      "description": "Stay strong and independent"
+    },
+    "experience": "beginner",
+    "daysPerWeek": 3,
+    "minutesPerSession": 40,
+    "durationWeeks": 8,
+    "limitations": [
+      {
+        "area": "other",
+        "description": "Some joint stiffness in the morning."
+      }
+    ]
+  },
+  "gym": {
+    "name": "Community gym",
+    "equipment": [
+      "dumbbells",
+      "flat_bench",
+      "leg_press",
+      "chest_press_machine",
+      "lat_pulldown",
+      "seated_row_machine",
+      "stationary_bike",
+      "resistance_bands"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

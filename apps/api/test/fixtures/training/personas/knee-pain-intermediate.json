@@ -1,0 +1,100 @@
+{
+  "id": "knee-pain-intermediate",
+  "kind": "create",
+  "description": "An intermediate lifter whose knee aches on deep squats.",
+  "profile": {
+    "ageYears": 41,
+    "sexAtBirth": "female",
+    "heightCm": 168,
+    "weightKg": 71
+  },
+  "history": null,
+  "readiness": {
+    "energy": 3,
+    "sleepQuality": 3,
+    "soreness": 2,
+    "stress": 3
+  },
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "hypertrophy",
+      "description": "Build strength without aggravating my knee"
+    },
+    "experience": "intermediate",
+    "daysPerWeek": 4,
+    "minutesPerSession": 50,
+    "durationWeeks": 8,
+    "limitations": [
+      {
+        "area": "knee",
+        "description": "Aches on deep squats."
+      }
+    ],
+    "avoidExerciseKeys": [
+      "barbell_back_squat"
+    ]
+  },
+  "gym": {
+    "name": "Commercial gym",
+    "equipment": [
+      "barbell",
+      "weight_plates",
+      "dumbbells",
+      "flat_bench",
+      "adjustable_bench",
+      "squat_rack",
+      "power_rack",
+      "cable_machine",
+      "lat_pulldown",
+      "seated_row_machine",
+      "leg_press",
+      "leg_extension_machine",
+      "leg_curl_machine",
+      "chest_press_machine",
+      "shoulder_press_machine",
+      "pec_deck_machine",
+      "calf_raise_machine",
+      "pull_up_bar",
+      "dip_station",
+      "resistance_bands",
+      "kettlebells",
+      "treadmill"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected",
+      "area": "knee"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

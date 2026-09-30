@@ -1,0 +1,96 @@
+{
+  "id": "lower-back-history-intermediate",
+  "kind": "create",
+  "description": "An intermediate lifter with a history of lower back pain.",
+  "profile": {
+    "ageYears": 45,
+    "sexAtBirth": "male",
+    "heightCm": 182,
+    "weightKg": 88
+  },
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "general",
+      "description": "Stay strong while looking after my lower back"
+    },
+    "experience": "intermediate",
+    "daysPerWeek": 3,
+    "minutesPerSession": 50,
+    "durationWeeks": 8,
+    "limitations": [
+      {
+        "area": "back",
+        "description": "Lower back flared up last year."
+      }
+    ],
+    "avoidExerciseKeys": [
+      "conventional_deadlift",
+      "good_morning"
+    ]
+  },
+  "gym": {
+    "name": "Commercial gym",
+    "equipment": [
+      "barbell",
+      "weight_plates",
+      "dumbbells",
+      "flat_bench",
+      "adjustable_bench",
+      "squat_rack",
+      "power_rack",
+      "cable_machine",
+      "lat_pulldown",
+      "seated_row_machine",
+      "leg_press",
+      "leg_extension_machine",
+      "leg_curl_machine",
+      "chest_press_machine",
+      "shoulder_press_machine",
+      "pec_deck_machine",
+      "calf_raise_machine",
+      "pull_up_bar",
+      "dip_station",
+      "resistance_bands",
+      "kettlebells",
+      "treadmill"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected",
+      "area": "back"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

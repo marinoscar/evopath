@@ -1,0 +1,85 @@
+{
+  "id": "six-day-advanced-push-pull-legs",
+  "kind": "create",
+  "description": "An advanced lifter who trains six days a week.",
+  "profile": {
+    "ageYears": 27,
+    "sexAtBirth": "male",
+    "heightCm": 181,
+    "weightKg": 86
+  },
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "hypertrophy",
+      "description": "Push, pull, legs, twice a week"
+    },
+    "experience": "advanced",
+    "daysPerWeek": 6,
+    "minutesPerSession": 75,
+    "durationWeeks": 8
+  },
+  "gym": {
+    "name": "Commercial gym",
+    "equipment": [
+      "barbell",
+      "weight_plates",
+      "dumbbells",
+      "flat_bench",
+      "adjustable_bench",
+      "squat_rack",
+      "power_rack",
+      "cable_machine",
+      "lat_pulldown",
+      "seated_row_machine",
+      "leg_press",
+      "leg_extension_machine",
+      "leg_curl_machine",
+      "chest_press_machine",
+      "shoulder_press_machine",
+      "pec_deck_machine",
+      "calf_raise_machine",
+      "pull_up_bar",
+      "dip_station",
+      "resistance_bands",
+      "kettlebells",
+      "treadmill"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

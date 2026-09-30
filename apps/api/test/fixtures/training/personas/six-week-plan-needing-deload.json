@@ -1,0 +1,85 @@
+{
+  "id": "six-week-plan-needing-deload",
+  "kind": "create",
+  "description": "A six-week plan that must include a deload.",
+  "profile": {
+    "ageYears": 30,
+    "sexAtBirth": "female",
+    "heightCm": 167,
+    "weightKg": 63
+  },
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "strength",
+      "description": "Get stronger over six weeks"
+    },
+    "experience": "intermediate",
+    "daysPerWeek": 3,
+    "minutesPerSession": 60,
+    "durationWeeks": 6
+  },
+  "gym": {
+    "name": "Commercial gym",
+    "equipment": [
+      "barbell",
+      "weight_plates",
+      "dumbbells",
+      "flat_bench",
+      "adjustable_bench",
+      "squat_rack",
+      "power_rack",
+      "cable_machine",
+      "lat_pulldown",
+      "seated_row_machine",
+      "leg_press",
+      "leg_extension_machine",
+      "leg_curl_machine",
+      "chest_press_machine",
+      "shoulder_press_machine",
+      "pec_deck_machine",
+      "calf_raise_machine",
+      "pull_up_bar",
+      "dip_station",
+      "resistance_bands",
+      "kettlebells",
+      "treadmill"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}
