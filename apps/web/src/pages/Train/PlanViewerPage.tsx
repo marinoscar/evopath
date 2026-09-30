@@ -26,7 +26,13 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { ArrowBack as BackIcon, Edit as EditIcon, History as HistoryIcon } from '@mui/icons-material';
+import {
+  ArrowBack as BackIcon,
+  Edit as EditIcon,
+  History as HistoryIcon,
+  ShowChart as ProgressIcon,
+} from '@mui/icons-material';
+import { UNDOS_BEFORE_ASK_FIRST_OFFER, useChangeLog } from '../../hooks/useChangeLog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePlan } from '../../hooks/usePlan';
 import { useTrainingAvailability } from '../../hooks/useTrainingAvailability';
@@ -43,6 +49,13 @@ import { GOAL_LABEL, ORIGIN_LABEL, STATUS_COLOR, STATUS_LABEL } from '../../comp
 import { parseEvidence } from '../../components/training/planEvidence';
 import { PlanEditor } from '../../components/training/PlanEditor';
 import { ReviseWithAi } from '../../components/training/ReviseWithAi';
+import { AutomationPausedBanner } from '../../components/training/AutomationPausedBanner';
+import { AutonomyControl } from '../../components/training/AutonomyControl';
+import { PlanAdjustedBanner } from '../../components/training/PlanAdjustedBanner';
+import { ProposalCard } from '../../components/training/ProposalCard';
+import { ReEvaluateButton } from '../../components/training/ReEvaluateButton';
+import { WeeklyReviewCard } from '../../components/training/WeeklyReviewCard';
+import { formatRelativeTime } from '../../utils/relativeTime';
 
 export const HAS_HISTORY_MESSAGE = 'Workouts were logged from this plan, so it cannot be deleted. Archive it instead.';
 
@@ -83,6 +96,7 @@ export default function PlanViewerPage() {
   const [dirty, setDirty] = useState(false);
   const [leaveTo, setLeaveTo] = useState<string | null>(null);
   const aiAvailability = useTrainingAvailability();
+  const changeLog = useChangeLog(programId);
 
   // The dirty-state guard: a reload or closing the tab asks first. In-app
   // link on this page (Plans) asks through the discard dialog.
@@ -222,11 +236,6 @@ export default function PlanViewerPage() {
           />
           <Chip size="small" variant="outlined" label={`Version ${program.currentVersion}`} />
           <Chip size="small" variant="outlined" label={ORIGIN_LABEL[program.version.origin] ?? program.version.origin} />
-          <Chip
-            size="small"
-            variant="outlined"
-            label={program.autonomy === 'autonomous' ? 'Adjusts automatically' : 'Asks before changes'}
-          />
         </Stack>
 
         {notice && (
@@ -238,6 +247,41 @@ export default function PlanViewerPage() {
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
             {actionError}
           </Alert>
+        )}
+
+        {!editing && (
+          <Stack spacing={2} sx={{ mb: 2, '&:empty': { display: 'none' } }}>
+            {program.autonomyPausedAt && (
+              <AutomationPausedBanner
+                reason={program.autonomyPausedReason}
+                canWrite={canWrite}
+                onResume={async () => {
+                  await plan.resumeAutonomy();
+                  setNotice('Automatic adjustments resumed.');
+                }}
+              />
+            )}
+            {/* Always mounted: renders nothing without an unseen AI change, and keeps the Undo snackbar. */}
+            <PlanAdjustedBanner
+              programId={program.id}
+              changeLog={changeLog}
+              canWrite={canWrite}
+              showOperations
+              onUndone={() => void plan.refresh()}
+            />
+            {changeLog.openProposal && (
+              <ProposalCard
+                entry={changeLog.openProposal}
+                aiVisible={aiAvailability.aiVisible}
+                canWrite={canWrite}
+                onDecide={async (decision) => {
+                  if (!changeLog.openProposal) return;
+                  await changeLog.decide(changeLog.openProposal, decision);
+                  await plan.refresh();
+                }}
+              />
+            )}
+          </Stack>
         )}
 
         {!editing && (
@@ -294,6 +338,14 @@ export default function PlanViewerPage() {
               sx={{ minHeight: 44 }}
             >
               History
+            </Button>
+            <Button
+              component={RouterLink}
+              to={`/train/plans/${encodeURIComponent(program.id)}/progress`}
+              startIcon={<ProgressIcon />}
+              sx={{ minHeight: 44 }}
+            >
+              Progress
             </Button>
           </Stack>
         )}
@@ -357,6 +409,33 @@ export default function PlanViewerPage() {
                 </List>
               </Section>
             )}
+
+            {program.status !== 'archived' && (
+              <Section id="adapt-heading" title="How the plan adapts">
+                <Stack spacing={2}>
+                  <AutonomyControl
+                    value={program.autonomy}
+                    canWrite={canWrite}
+                    onChange={(autonomy) => plan.updateHeader({ autonomy })}
+                    suggestAskFirst={changeLog.recentUndoCount >= UNDOS_BEFORE_ASK_FIRST_OFFER}
+                  />
+                  <Typography variant="body2" color="text.secondary" data-testid="last-evaluated">
+                    {program.lastEvaluatedAt
+                      ? `Last reviewed by your coach ${formatRelativeTime(program.lastEvaluatedAt)}.`
+                      : 'Your coach has not reviewed this plan yet.'}
+                  </Typography>
+                  {aiAvailability.aiVisible && program.status === 'active' && (
+                    <ReEvaluateButton
+                      programId={program.id}
+                      blocker={aiAvailability.blocker('evaluate')}
+                      disabledReason={changeLog.openProposal ? 'Decide on the open suggestion first.' : null}
+                    />
+                  )}
+                </Stack>
+              </Section>
+            )}
+
+            {changeLog.latestReview && <WeeklyReviewCard entry={changeLog.latestReview} />}
 
             {aiAvailability.aiVisible && canWrite && program.status !== 'archived' && (
               <Section id="revise-heading" title="Revise with AI">

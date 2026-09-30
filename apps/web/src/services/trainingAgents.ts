@@ -231,11 +231,15 @@ export const TRAINING_REFUSALS = {
   NOT_RESUMABLE: 'TRAINING_RUN_NOT_RESUMABLE',
   NOT_AWAITING_DECISION: 'TRAINING_RUN_NOT_AWAITING_DECISION',
   STALE_PLAN: 'TRAINING_STALE_PLAN',
+  /** "Re-evaluate now" within 30 minutes of the last one (409, `details.retryAfterSeconds`). */
+  EVALUATION_COOLDOWN: 'TRAINING_EVALUATION_COOLDOWN',
 } as const;
 
 export type StartTrainingRunInput =
   | { kind: 'create'; intake: TrainingIntake }
-  | { kind: 'revise'; programId: string; basedOnVersion: number; instruction: string };
+  | { kind: 'revise'; programId: string; basedOnVersion: number; instruction: string }
+  /** "Re-evaluate now": `programId` defaults to the active plan on the server. */
+  | { kind: 'evaluate'; programId?: string; trigger: 'manual' };
 
 /** `POST /api/ai/training/runs`: 202 `queued`, or 200 `blocked_safety` with `guidance`. */
 export interface TrainingRunStarted {

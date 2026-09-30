@@ -15,6 +15,7 @@ import {
   getProgram,
   pauseProgram,
   replaceProgramStructure,
+  resumeProgramAutonomy,
   revertProgram,
   updateProgram,
   type PlanTree,
@@ -38,6 +39,8 @@ export interface UsePlanReturn {
   duplicate: () => Promise<Program>;
   remove: () => Promise<void>;
   revertTo: (toVersion: number) => Promise<Program>;
+  /** Clears a paused plan's automatic adjustments (E5.8). */
+  resumeAutonomy: () => Promise<Program>;
 }
 
 export function usePlan(programId: string): UsePlanReturn {
@@ -102,6 +105,7 @@ export function usePlan(programId: string): UsePlanReturn {
     updateHeader: (input) => apply(() => updateProgram(programId, input)),
     activate: (startDate) => apply(() => activateProgram(programId, startDate)),
     pause: () => apply(() => pauseProgram(programId)),
+    resumeAutonomy: () => apply(() => resumeProgramAutonomy(programId)),
     archive: () => apply(() => archiveProgram(programId)),
     duplicate: () => duplicateProgram(programId),
     remove: () => deleteProgram(programId),

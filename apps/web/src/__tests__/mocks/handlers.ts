@@ -753,6 +753,11 @@ export const handlers = [
     return HttpResponse.json({ data: mockTrainingRunEstimate });
   }),
 
+  // A plan's change log (E5.8 banners read its first page): empty by default.
+  http.get(`${API_BASE}/programs/:id/change-log`, () => {
+    return HttpResponse.json({ data: { items: [], nextCursor: null } });
+  }),
+
   http.post(`${API_BASE}/ai/responses/stream`, () => {
     return new HttpResponse(toSseBody(mockAiStreamEvents), {
       headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
