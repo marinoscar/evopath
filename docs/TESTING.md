@@ -537,9 +537,9 @@ running application with Playwright.
 tests/e2e/
 ├── playwright.config.ts      # baseURL http://localhost:3535, Chromium
 ├── helpers/auth.helper.ts    # loginAsTestUser, loginAsAdmin/Contributor/Viewer, isLoggedIn, logout
-├── helpers/ai.helper.ts      # configureFakeVisionProvider, setFakeFixture (fake vision provider)
+├── helpers/ai.helper.ts      # configureFakeVisionProvider, setFakeFixture (fake vision provider); setupFakeAi, useScenario (fake Responses server)
 ├── fixtures/auth.fixture.ts  # adminPage / viewerPage fixtures
-└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation, telemetry-dashboard, workouts and workout-prefill specs
+└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation, telemetry-dashboard, workouts, workout-prefill and training-plans specs
 ```
 
 It is not run in CI. Run it against a local stack:
@@ -593,6 +593,150 @@ Outside CI the config starts the dev stack itself
 (`docker compose -f base.compose.yml -f dev.compose.yml up`) and waits for
 `/api/health/live`, reusing a stack that is already up. `BASE_URL` overrides
 the target.
+
+### Fake Responses server and training scenarios
+
+The agentic training-plan flow (see [the spec](specs/ai-training-plans.md))
+spans a browser, an SSE stream, a queue job, a graph with checkpoints and real
+Postgres. Its staged, deterministic scenarios live in **one set of fixtures**
+that both Jest and a fake provider replay, so they cannot drift:
+
+```
+apps/api/test/fixtures/training/
+├── scenarios/*.json     # one file per scenario: per-role call scripts and http behaviour
+├── scenarios/{planner,critic,evaluator}/*.json   # the model outputs the scenarios name
+├── research/*.json      # research fixtures (queries, search sources, citations, brief)
+├── personas/ and signals/   # evals and signals fixtures
+```
+
+A scenario maps an agent role to a list of call specs, answered in order (the
+last entry repeats):
+
+```jsonc
+{
+  "name": "critic-reject-once",
+  "description": "shown by GET /__control/scenarios",
+  "calls": {
+    "researcher": [{ "outputJson": "../research/valid.json", "usage": { "inputTokens": 9000, "outputTokens": 4200, "reasoningTokens": 1500 } }],
+    "planner":    [{ "outputJson": "planner/valid-8w.json" }, { "outputJson": "planner/valid-8w-revised.json" }],
+    "critic":     [{ "outputJson": "critic/reject-volume.json" }, { "outputJson": "critic/approve.json" }],
+    "evaluator":  []
+  },
+  "http": { "rateLimitOnCall": null, "retryAfterSeconds": 2, "delayMs": 0 }
+}
+```
+
+`outputJson` is resolved from the scenarios folder. A research fixture becomes
+a hosted `web_search` call plus a cited message; any other file is the message
+text. `http.rateLimitOnCall` (1-based, over every request since the scenario
+was selected) answers one `429` with `retry-after`; `http.delayMs` delays every
+answer (the server only; Jest does not sleep). A critic call without a
+structured-output schema is an investigation round trip, answered with a fixed
+note and not counted.
+
+**Scenarios.**
+
+| Flow | Scenarios |
+|---|---|
+| Create and revise | `happy`, `critic-reject-once`, `critic-exhausted`, `planner-hostile`, `research-fabricated-url`, `research-insufficient`, `research-page-injection`, `budget-tight`, `rate-limit-once`, `urgent-symptom`, `slow` (delayed, for reload and cancel) |
+| Evaluate | `evaluator-no-change`, `evaluator-autonomous`, `evaluator-structural`, `evaluator-pain-response`, `evaluator-regenerate`, `evaluator-hostile` |
+
+Descriptions are in each file and in the
+[runbook](runbooks/ai-training-plans.md#3-try-it-with-the-fake-provider).
+
+**The fake Responses server** (`tests/e2e/support/fake-responses-server.mjs`,
+`node:http`, no dependencies) speaks the OpenAI Responses API: `GET /v1/models`
+(`fake-frontier`, `fake-fast`) and `POST /v1/responses` (a message with
+`output_text` and `url_citation` annotations, a `web_search_call` item, usage
+with reasoning tokens), routed on `body.metadata.agent` and a per-scenario call
+counter. The control plane is `POST /__control/scenario`, `GET
+/__control/scenarios`, `GET /__control/requests` and `POST /__control/reset`.
+The request log holds per request the agent, node, round, model, effort, tool
+types, whether a schema was present, input size, canary hits and whether an
+`Authorization` header was present: never a body, prompt or key. The server
+accepts any bearer token of 8 or more characters (`sk-invalid...` is a `401`)
+and never logs or echoes one. It counts the e2e canary markers
+(`DEFAULT_CANARY_MARKERS` in the server; `CANARY_TOKENS` on the fake container
+overrides them, never on the application): strings whose occurrences in any
+request body are counted, so a test
+proves data minimisation from outside the API. The `openai` provider slot's
+base URL is a runtime setting, so pointing the API at the fake needs no
+production hook and no environment variable. The Jest spec
+`apps/api/test/fake-responses/fake-responses-server.spec.ts` runs it as a child
+process and covers selection, the 429, auth, the log and canary counting; it
+runs in the default API test script.
+
+**Jest (the CI gate).**
+
+- `test/training-agents/scenario-fixtures.spec.ts` parses every output file with
+  the real Zod contract of its role and asserts the exercise slugs exist in the
+  seed, so a contract or seed change fails here first.
+- `test/training-agents/support/scenario-script.ts`: `scriptFromScenario(name)`
+  returns a `FakeAiProvider` script that routes on `req.metadata.agent` and the
+  per-role call counter; `evaluate-scenario.ts` and `scenario-context.ts` build
+  the plan and context the evaluator fixtures name their refs against.
+- `test/training-agents/scenarios/create-flow.integration.spec.ts` replays the
+  create and revise scenarios through the real `AiService`, runs service,
+  graph, guardrails and `AgentCaller` over `createAiRuntimeHarness()`, asserting
+  the ordered event log, the provider call log (roles, counts, models, efforts,
+  tools), usage, the final status and error code, and that hostile content never
+  reaches the plan. `evaluate-flow.integration.spec.ts` does the same for the
+  evaluate scenarios, the ask-first pause and resume across a restart, envelope
+  clamps, pain, thin data and AI off.
+- `test/training-agents/training-flow.db.spec.ts` (real Postgres) runs one
+  user's journey with real services and the scripted provider: create run,
+  draft, activate, Today, start and finish a workout, the `workout.finished`
+  evaluation, an autonomous change, the banner count, revert, suppression, the
+  ask-first interrupt across a restart, approval, AI off mid-flow.
+
+**Playwright.** `tests/e2e/specs/training-plans.spec.ts`, with
+`setupFakeAi` and its helpers in `tests/e2e/helpers/ai.helper.ts`. It needs the
+overlay on the stack and no real key:
+
+```bash
+cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fake-ai.compose.yml up
+cd tests/e2e && npm test -- training-plans --workers=1
+```
+
+`setupFakeAi` (as admin, through the API) enables AI, points the `openai` slot at
+`http://fake-ai-responses:4011/v1`, stores a fake admin key, refreshes and
+classifies the fake models (only `fake-frontier` gets `hosted_tools`, so
+`fake-fast` exercises the blocked-researcher case), switches web search on, and
+`teardownFakeAi` restores the previous settings in `afterAll`. Each test signs
+in as its own new contributor with its own gym; `setupFakeAiForUser` saves that
+user's fake key and chooses the fake models per role. The
+suite runs serially (the fake's scenario and log are global, and it shares AI
+settings with the other AI specs), waits on what the page shows and never sleeps.
+It covers the happy path, a critic rejecting once, a hostile planner, a
+fabricated source, insufficient research, reload mid-run and cancel, the safety
+stop (no request reaches the fake), canary-free requests, a blocked role, Today,
+autonomous adaptation with Undo, ask-first approve and reject, and AI off.
+
+| Variable | Effect |
+|---|---|
+| `E2E_AI=0` | Skip the suites that need the fake Responses server |
+| `E2E_ALLOW_DOCKER=1` | Also run kill and resume: restarts the `api` container mid-run and expects the run to resume |
+| `E2E_COMPOSE_FILES` | Compose file names for that restart (default `base,dev,devdb,fake-ai`) |
+| `FAKE_RESPONSES_URL` | Host URL of the fake (default `http://localhost:4011`) |
+| `FAKE_RESPONSES_API_BASE_URL` | URL the API uses inside the compose network (default `http://fake-ai-responses:4011/v1`) |
+
+An unreachable fake fails the suite at once with the exact fix. Like the rest of
+the Playwright suites it is **not part of CI**; Jest is the gate.
+
+**Add a scenario.**
+
+1. Add the model outputs under `scenarios/planner/`, `critic/`, `evaluator/` or
+   `research/` (or reuse existing ones), valid against the role's contract.
+2. Add `scenarios/<name>.json` with `calls` per role (empty list for a role the
+   flow never calls) and `http` if it throttles or delays.
+3. Run `npm test --workspace=api -- scenario-fixtures`: the new files must parse
+   and name seeded slugs.
+4. Assert it in `create-flow.integration.spec.ts` or
+   `evaluate-flow.integration.spec.ts` (and the browser spec when a user-visible
+   path changes). Add the scenario name to `ScenarioName` in
+   `tests/e2e/helpers/ai.helper.ts` if Playwright selects it.
+5. Check it by hand: `curl -X POST localhost:4011/__control/scenario -d
+   '{"name":"<name>"}'`, run the flow, then `curl localhost:4011/__control/requests`.
 
 ### Signing in without Google
 

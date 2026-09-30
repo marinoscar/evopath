@@ -1,0 +1,42 @@
+{
+  "name": "research-fabricated-url",
+  "description": "The brief cites a URL the search never returned: the source and its claim are dropped.",
+  "calls": {
+    "researcher": [
+      {
+        "outputJson": "../research/fabricated-url.json",
+        "usage": {
+          "inputTokens": 9000,
+          "outputTokens": 4200,
+          "reasoningTokens": 1500
+        }
+      }
+    ],
+    "planner": [
+      {
+        "outputJson": "planner/valid-8w.json",
+        "usage": {
+          "inputTokens": 14000,
+          "outputTokens": 7800,
+          "reasoningTokens": 3000
+        }
+      }
+    ],
+    "critic": [
+      {
+        "outputJson": "critic/approve.json",
+        "usage": {
+          "inputTokens": 6000,
+          "outputTokens": 700,
+          "reasoningTokens": 400
+        }
+      }
+    ],
+    "evaluator": []
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

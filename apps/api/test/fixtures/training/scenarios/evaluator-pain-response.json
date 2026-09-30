@@ -1,0 +1,24 @@
+{
+  "name": "evaluator-pain-response",
+  "description": "Pain on an exercise: the evaluator swaps it and tries to push another lift, which the envelope blocks.",
+  "calls": {
+    "researcher": [],
+    "planner": [],
+    "critic": [],
+    "evaluator": [
+      {
+        "outputJson": "evaluator/pain-response.json",
+        "usage": {
+          "inputTokens": 5000,
+          "outputTokens": 600,
+          "reasoningTokens": 300
+        }
+      }
+    ]
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

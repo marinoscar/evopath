@@ -1,0 +1,24 @@
+{
+  "name": "evaluator-hostile",
+  "description": "Past-session edit, oversized set changes, load increase after pain, unknown refs and keys, a repeat of an undone change, injection text.",
+  "calls": {
+    "researcher": [],
+    "planner": [],
+    "critic": [],
+    "evaluator": [
+      {
+        "outputJson": "evaluator/hostile.json",
+        "usage": {
+          "inputTokens": 5000,
+          "outputTokens": 600,
+          "reasoningTokens": 300
+        }
+      }
+    ]
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

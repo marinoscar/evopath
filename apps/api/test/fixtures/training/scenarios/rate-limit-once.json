@@ -1,0 +1,42 @@
+{
+  "name": "rate-limit-once",
+  "description": "The second provider request answers 429 with retry-after; the run is deferred and resumes from its checkpoint.",
+  "calls": {
+    "researcher": [
+      {
+        "outputJson": "../research/valid.json",
+        "usage": {
+          "inputTokens": 9000,
+          "outputTokens": 4200,
+          "reasoningTokens": 1500
+        }
+      }
+    ],
+    "planner": [
+      {
+        "outputJson": "planner/valid-8w.json",
+        "usage": {
+          "inputTokens": 14000,
+          "outputTokens": 7800,
+          "reasoningTokens": 3000
+        }
+      }
+    ],
+    "critic": [
+      {
+        "outputJson": "critic/approve.json",
+        "usage": {
+          "inputTokens": 6000,
+          "outputTokens": 700,
+          "reasoningTokens": 400
+        }
+      }
+    ],
+    "evaluator": []
+  },
+  "http": {
+    "rateLimitOnCall": 2,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

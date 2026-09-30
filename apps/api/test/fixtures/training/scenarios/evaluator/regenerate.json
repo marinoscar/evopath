@@ -1,0 +1,23 @@
+{
+  "assessment": {
+    "status": "behind",
+    "summary": "Several weeks were missed and the rest of the plan no longer fits.",
+    "observations": []
+  },
+  "decision": "adjust",
+  "changes": [
+    {
+      "op": "regenerate_remaining",
+      "fromWeek": 5,
+      "instruction": "Rebuild the remaining weeks around two sessions a week.",
+      "reason": "The plan no longer matches the schedule."
+    }
+  ],
+  "userMessage": "The rest of your plan needs a rebuild around your new schedule.",
+  "followUp": {
+    "suggestReview": false,
+    "note": null
+  },
+  "confidence": "low",
+  "evidenceRefs": []
+}

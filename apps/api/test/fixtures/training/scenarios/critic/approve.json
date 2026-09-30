@@ -1,0 +1,16 @@
+{
+  "verdict": "approve",
+  "scores": {
+    "goal_fit": 5,
+    "equipment_feasibility": 5,
+    "volume_intensity": 5,
+    "recovery": 5,
+    "injury_handling": 5,
+    "progression": 5,
+    "adherence_realism": 5,
+    "evidence_alignment": 5
+  },
+  "blockers": [],
+  "suggestions": [],
+  "summary": "Looks good."
+}

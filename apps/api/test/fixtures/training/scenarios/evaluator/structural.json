@@ -1,0 +1,31 @@
+{
+  "assessment": {
+    "status": "stalled",
+    "summary": "The lunges have not progressed in several weeks and a squat variation fits the gym.",
+    "observations": []
+  },
+  "decision": "adjust",
+  "changes": [
+    {
+      "op": "swap_exercise",
+      "target": {
+        "exerciseRef": "W5-1-1",
+        "weeks": {
+          "from": 5,
+          "to": 6
+        }
+      },
+      "withExerciseKey": "goblet_squat",
+      "reason": "Swap the lunge for a squat variation while progress is stalled."
+    }
+  ],
+  "userMessage": "The dumbbell lunge is swapped for goblet squats for two weeks.",
+  "followUp": {
+    "suggestReview": false,
+    "note": null
+  },
+  "confidence": "moderate",
+  "evidenceRefs": [
+    "E2"
+  ]
+}

@@ -15,6 +15,29 @@
 # then refresh the catalog at /admin/settings/ai/models and enable fake-vision
 # with the responses, structured_output and vision_input capabilities.
 #
+# A second, separate server (tests/e2e/support/fake-responses-server.mjs) speaks
+# the OpenAI Responses API for the agentic training plan flow: hosted
+# web_search, structured outputs and reasoning usage, replaying the scenario
+# fixtures in apps/api/test/fixtures/training/scenarios (the same files the Jest
+# scenario suites replay). Point the `openai` provider slot at it at runtime:
+# base URL http://fake-ai-responses:4011/v1, any key of 8 or more characters;
+# refresh the catalog (fake-frontier, fake-fast), classify both with the
+# responses, reasoning and structured_output capabilities and reasoning efforts
+# low, medium and high, add hosted_tools to fake-frontier only (fake-fast cannot
+# search), enable them, and switch Web search on.
+# `npm test` in tests/e2e does all of that itself (training-plans.spec.ts).
+#
+# Host port 4011:
+#   curl -X POST localhost:4011/__control/scenario -d '{"name":"critic-reject-once"}'
+#   curl localhost:4011/__control/scenarios    # every scenario and its description
+#   curl localhost:4011/__control/requests     # per request: agent, model, effort, tool types,
+#                                              # input size, canary hits; never keys, prompts or bodies
+#   curl -X POST localhost:4011/__control/reset
+# The fake counts the canary markers the e2e setup plants in a user's bio,
+# check-in notes and display name (DEFAULT_CANARY_MARKERS in the server; set
+# CANARY_TOKENS on this container only to override), so a test can prove data
+# minimisation from outside the API. The application has no such variable.
+#
 # Host port 4010:
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"leg-curl-placard"}'
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"workout-notebook"}'
@@ -33,5 +56,18 @@ services:
       FIXTURE_DIR: /fixtures
     ports:
       - "4010:4010"
+    networks:
+      - app-network
+
+  fake-ai-responses:
+    image: node:24-alpine
+    command: node /support/fake-responses-server.mjs
+    volumes:
+      - ../../tests/e2e/support:/support:ro
+      - ../../apps/api/test/fixtures/training:/training:ro
+    environment:
+      SCENARIO_DIR: /training/scenarios
+    ports:
+      - "4011:4011"
     networks:
       - app-network

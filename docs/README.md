@@ -45,6 +45,7 @@ In this order:
 | [specs/gyms-and-equipment.md](specs/gyms-and-equipment.md) | Gyms, the equipment catalog and custom equipment, gym photos, AI Scan Gym (`ai.equipment.scan`), optional GPS location, and the `gyms` permissions | you add equipment or a capability to the catalog, read a user's gym equipment, change the scan prompt, or build another photo-to-rows flow |
 | [specs/workouts.md](specs/workouts.md) | The exercise library and custom exercises, workout logging (set model, kilograms canonical, one in progress), personal records, the training summary, AI Prefill from photo (`ai.workout.prefill`), and the `exercises` and `workouts` permissions | you add an exercise to the library, change the record rules, read a user's workouts, change the prefill prompt, or build another photo-to-rows flow |
 | [specs/training-signals.md](specs/training-signals.md) | Plan signals: adherence, frequency, hard sets per muscle, lift trends, effort, pain, readiness and body weight, computed deterministically for the user and for agents | you add or change a signal, read a user's adherence, or build an agent prompt from training facts |
+| [specs/ai-training-plans.md](specs/ai-training-plans.md) | AI training plans: the researcher, planner, critic and evaluator agents, the LangGraph graphs, run state machine, guardrails and adaptation envelope, events, limits, and the fake-provider scenarios | you change or extend the training agents, their guardrails or their tests |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 
@@ -56,6 +57,7 @@ In this order:
 | [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md) | Enrolling, running and operating worker nodes with `evopathcli node` |
 | [runbooks/storage-configuration.md](runbooks/storage-configuration.md) | Setting up object storage, creating the bucket, rotating its key |
 | [runbooks/ai-configuration.md](runbooks/ai-configuration.md) | Turning AI on, choosing the key policy, curating models, switching it off |
+| [runbooks/ai-training-plans.md](runbooks/ai-training-plans.md) | Enabling web search and models for the training agents, the fake provider overlay, cost control, run monitoring and troubleshooting |
 | [runbooks/vapid-keys.md](runbooks/vapid-keys.md) | Generating, enabling, rotating or removing Web Push keys |
 | [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md) | Opening or closing a maintenance window, or recovering from a lockout |
 | [runbooks/database-restore.md](runbooks/database-restore.md) | Restoring the database from a backup, with the app possibly down |

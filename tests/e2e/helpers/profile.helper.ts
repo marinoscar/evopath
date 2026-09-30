@@ -34,3 +34,16 @@ export async function setUnits(api: AuthedApi, unitSystem: UnitSystem): Promise<
     unitSystem,
   });
 }
+
+/** Set the Health Profile bio (a full replace, like `setUnits`); the planner reads it only when the user opts in. */
+export async function setBio(api: AuthedApi, bio: string): Promise<void> {
+  const current = await api.get<HealthProfileBody>('/api/health-profile');
+  await api.put('/api/health-profile', {
+    dateOfBirth: current.dateOfBirth,
+    sexAtBirth: current.sexAtBirth,
+    heightMm: current.heightMm,
+    timeZone: current.timeZone,
+    unitSystem: current.unitSystem,
+    bio,
+  });
+}

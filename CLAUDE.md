@@ -59,6 +59,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Renaming a fork | [docs/RENAMING.md](docs/RENAMING.md) |
 | Device authorization and personal access tokens | [docs/DEVICE-AUTH.md](docs/DEVICE-AUTH.md), [docs/personal-access-tokens.md](docs/personal-access-tokens.md) |
 | Spec: AI platform | [docs/specs/ai-platform.md](docs/specs/ai-platform.md) |
+| Spec: AI training plans (agents, graphs, guardrails, events, limits, scenarios) | [docs/specs/ai-training-plans.md](docs/specs/ai-training-plans.md) |
 | Spec: browser notifications and Web Push | [docs/specs/browser-notifications.md](docs/specs/browser-notifications.md) |
 | Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
@@ -78,10 +79,12 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
+| Runbook: AI training plans (web search, agent models, fake provider, troubleshooting) | [docs/runbooks/ai-training-plans.md](docs/runbooks/ai-training-plans.md) |
 | `evopathcli` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: add a photo-intake kind | [apps/api/src/intake/README.md](apps/api/src/intake/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
+| Recipe: add a training agent or graph node | [apps/api/src/ai/README.md](apps/api/src/ai/README.md#adding-a-training-agent-or-node) |
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
 

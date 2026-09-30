@@ -1,0 +1,50 @@
+{
+  "name": "critic-exhausted",
+  "description": "The critic rejects every round while the guardrails stay clean: the plan ships with open notes.",
+  "calls": {
+    "researcher": [
+      {
+        "outputJson": "../research/valid.json",
+        "usage": {
+          "inputTokens": 9000,
+          "outputTokens": 4200,
+          "reasoningTokens": 1500
+        }
+      }
+    ],
+    "planner": [
+      {
+        "outputJson": "planner/valid-8w.json",
+        "usage": {
+          "inputTokens": 14000,
+          "outputTokens": 7800,
+          "reasoningTokens": 3000
+        }
+      },
+      {
+        "outputJson": "planner/valid-8w-revised.json",
+        "usage": {
+          "inputTokens": 14000,
+          "outputTokens": 7800,
+          "reasoningTokens": 3000
+        }
+      }
+    ],
+    "critic": [
+      {
+        "outputJson": "critic/reject-volume.json",
+        "usage": {
+          "inputTokens": 6000,
+          "outputTokens": 700,
+          "reasoningTokens": 400
+        }
+      }
+    ],
+    "evaluator": []
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

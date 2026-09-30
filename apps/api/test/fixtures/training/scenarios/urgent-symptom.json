@@ -1,0 +1,15 @@
+{
+  "name": "urgent-symptom",
+  "description": "No model call is scripted: an intake mentioning an urgent symptom is stopped by the safety screen before any provider call.",
+  "calls": {
+    "researcher": [],
+    "planner": [],
+    "critic": [],
+    "evaluator": []
+  },
+  "http": {
+    "rateLimitOnCall": null,
+    "retryAfterSeconds": 2,
+    "delayMs": 0
+  }
+}

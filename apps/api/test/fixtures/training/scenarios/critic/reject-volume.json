@@ -1,0 +1,23 @@
+{
+  "verdict": "revise",
+  "scores": {
+    "goal_fit": 4,
+    "equipment_feasibility": 4,
+    "volume_intensity": 3,
+    "recovery": 4,
+    "injury_handling": 4,
+    "progression": 4,
+    "adherence_realism": 4,
+    "evidence_alignment": 4
+  },
+  "blockers": [
+    {
+      "dimension": "volume_intensity",
+      "path": "week 1 > Day 1",
+      "issue": "The first session carries more sets than a beginner recovers from.",
+      "fix": "Trim a set from the accessory work and keep the main lifts."
+    }
+  ],
+  "suggestions": [],
+  "summary": "One blocker on early volume; otherwise sound."
+}
