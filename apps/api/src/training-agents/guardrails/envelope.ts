@@ -704,14 +704,15 @@ export function boundOnTree(
   const model = operations.filter((op) => !op.forced);
   const dropped: EnvelopeFinding[] = [];
   const baseIndex = indexTree(tree);
+  let candidate = applyOperations(tree, forced).tree;
+
+  // E4 compares against the tree after the forced safety removals (a pain
+  // response is exempt, so it must not count against the model's changes).
   const baseVolume = new Map<number, Map<string, number>>();
-  const baseWorkouts = new Map<number, number>();
-  for (const { week } of weeksOf(tree)) {
+  for (const { week } of weeksOf(candidate)) {
     baseVolume.set(week.weekNumber, setsByMuscle(g, week.workouts, GUARDRAIL_LIMITS.uncountedMuscles));
-    baseWorkouts.set(week.weekNumber, week.workouts.length);
   }
 
-  let candidate = applyOperations(tree, forced).tree;
   const baseFindings = guardrailKeys(candidate, g);
   const accepted: AcceptedOperation[] = [...forced];
   const swaps = new Map<string, number>();

@@ -16,7 +16,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { ConflictException } from '@nestjs/common';
+
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 
 import type { PlanTree } from '../../src/programs/contracts/plan-tree.contract';
@@ -249,6 +250,94 @@ describeWithDb('ProgramsService chokepoint (real Postgres)', () => {
         expect(result.reason.getResponse()).toMatchObject({ details: { reason: 'ACTIVE_PROGRAM_CONFLICT' } });
       }
     }
+  });
+
+  it('proposals: recorded without a version, approved once into the same row, closed idempotently', async () => {
+    const userId = await makeUser('proposal');
+    const { programId } = await draft(userId);
+    const runId = randomUUID();
+
+    const { changeLogId } = await service.recordUnappliedChange({
+      userId,
+      programId,
+      status: 'proposed',
+      fromVersion: 1,
+      summary: 'Add a Monday workout',
+      operations: [{ op: 'add_exercise', fingerprint: 'fp' }],
+      runId,
+    });
+    expect(await counts(programId)).toMatchObject({ version: 1, versions: 1, logs: 2 });
+    expect(await client.programChangeLog.findUniqueOrThrow({ where: { id: changeLogId } })).toMatchObject({
+      kind: 'adapted',
+      actor: 'ai',
+      status: 'proposed',
+      fromVersion: 1,
+      toVersion: null,
+      decidedAt: null,
+    });
+
+    const approve = () =>
+      service.applyChange({
+        userId,
+        programId,
+        expectedVersion: 1,
+        origin: 'ai_adapt',
+        actor: 'ai',
+        kind: 'adapted',
+        mutate: withWorkout(1),
+        summary: 'Added a Monday workout',
+        runId,
+        proposalLogId: changeLogId,
+      });
+    const applied = await approve();
+    expect(applied).toMatchObject({ versionNumber: 2, changeLogId });
+    expect(await client.programChangeLog.findUniqueOrThrow({ where: { id: changeLogId } })).toMatchObject({
+      status: 'applied',
+      toVersion: 2,
+      decidedAt: expect.any(Date),
+      summary: 'Added a Monday workout',
+    });
+    expect(await counts(programId)).toMatchObject({ version: 2, versions: 2, logs: 2 });
+
+    // A second approval (another device) is refused and writes nothing.
+    await expect(
+      service.applyChange({
+        userId,
+        programId,
+        expectedVersion: 2,
+        origin: 'ai_adapt',
+        actor: 'ai',
+        kind: 'adapted',
+        mutate: withWorkout(2),
+        summary: 'Again',
+        proposalLogId: changeLogId,
+      }),
+    ).rejects.toMatchObject({ response: { details: { reason: 'NOT_PROPOSED' } } });
+    expect(await counts(programId)).toMatchObject({ version: 2, versions: 2, logs: 2 });
+
+    const other = await service.recordUnappliedChange({ userId, programId, status: 'proposed', fromVersion: 2, summary: 'Another' });
+    expect(await service.resolveProposal(userId, other.changeLogId, 'rejected')).toBe(true);
+    expect(await service.resolveProposal(userId, other.changeLogId, 'superseded')).toBe(false);
+    expect(await client.programChangeLog.findUniqueOrThrow({ where: { id: other.changeLogId } })).toMatchObject({
+      status: 'rejected',
+      decidedAt: expect.any(Date),
+    });
+    const stranger = await makeUser('proposal-stranger');
+    await expect(
+      service.recordUnappliedChange({ userId: stranger, programId, status: 'superseded', fromVersion: 2, summary: 'x' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('resumeAutonomy clears the pause (idempotent, owner-scoped, no version bump)', async () => {
+    const userId = await makeUser('resume');
+    const { programId } = await draft(userId);
+    await client.program.update({ where: { id: programId }, data: { autonomyPausedAt: new Date(), autonomyPausedReason: 'pain_pattern' } });
+
+    const view = await service.resumeAutonomy(userId, programId);
+    expect(view).toMatchObject({ autonomyPausedAt: null, autonomyPausedReason: null, currentVersion: 1 });
+    expect(await client.program.findUniqueOrThrow({ where: { id: programId } })).toMatchObject({ autonomyPausedAt: null, autonomyPausedReason: null });
+    await expect(service.resumeAutonomy(userId, programId)).resolves.toMatchObject({ autonomyPausedAt: null });
+    await expect(service.resumeAutonomy(await makeUser('resume-stranger'), programId)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('deleting the user cascades programs, versions and change log', async () => {
