@@ -483,12 +483,44 @@ export function certificateStatus(target: ProxyTarget): CertInfo {
 }
 
 /**
+ * certbot's own renewal config always records which ACME directory issued
+ * the certificate (issue #196). Staging's is the only one containing
+ * "acme-staging"; production's does not, whether it names the default
+ * directory explicitly or omits `server` entirely.
+ */
+function isStagingCertificate(target: ProxyTarget): boolean {
+  const path = join(target.proxyRoot, 'letsencrypt', 'renewal', `${target.domain}.conf`);
+  if (!existsSync(path)) return false;
+  try {
+    return /acme-staging/i.test(readFileSync(path, 'utf8'));
+  } catch {
+    // Unreadable is not "staging" -- the existing cert is used as before,
+    // which is what happened before this check existed.
+    return false;
+  }
+}
+
+/**
  * Issues a certificate, unless a usable one already exists.
  *
  * Skipping when one exists is not an optimisation: re-issuing on every deploy
  * spends the rate limit (50 certificates per registered domain per week) for
  * nothing, and that limit is per DOMAIN, so it is shared with every other
  * subdomain on the same server.
+ *
+ * ⚠ "EXISTS" IS NOT "TRUSTED" (issue #196). A Let's Encrypt STAGING
+ * certificate satisfies `certificateStatus` exactly as well as a production
+ * one, but every browser rejects it -- it is signed by a deliberately
+ * untrusted root, precisely so testing against it cannot be mistaken for
+ * success. An operator who used `--staging` once while working around a rate
+ * limit, then re-ran without it, would otherwise have that untrusted
+ * certificate served in production forever: nothing here ever looks at it
+ * again to ask whether it should be replaced. So a request that is NOT for
+ * staging, against an existing certificate that IS staging, forces a fresh
+ * issuance instead of skipping. The reverse (an explicit `--staging` request
+ * finding an existing production certificate) never downgrades a trusted
+ * certificate to an untrusted one -- it keeps the better certificate already
+ * there.
  */
 export async function issueCertificate(
   target: ProxyTarget,
@@ -497,14 +529,24 @@ export async function issueCertificate(
   assertValidDomain(target.domain);
 
   const status = certificateStatus(target);
-  if (status.exists) {
+  const replaceStaging = status.exists && options.staging !== true && isStagingCertificate(target);
+
+  if (status.exists && !replaceStaging) {
     options.hooks?.onProgress?.(`Certificate for ${target.domain} already exists`);
     return { issued: false, path: status.path };
+  }
+
+  if (replaceStaging) {
+    options.hooks?.onProgress?.(
+      `Certificate for ${target.domain} was issued by Let's Encrypt's STAGING environment, ` +
+        `which browsers never trust. Requesting a trusted production certificate to replace it.`,
+    );
   }
 
   const argv = certbotArgv(target, effectiveRuntime(target, options), {
     email: options.email,
     staging: options.staging,
+    forceRenewal: replaceStaging,
   });
 
   options.hooks?.onProgress?.(`Requesting a certificate for ${target.domain}`);
