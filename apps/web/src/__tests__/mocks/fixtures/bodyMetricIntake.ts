@@ -67,6 +67,8 @@ export function readingIntake(
     jobId: null,
     errorCode: null,
     errorMessage: null,
+    retention: 'keep',
+    retainFiles: true,
     resultMeta: null,
     createdAt: T0,
     updatedAt: T0,
@@ -109,6 +111,8 @@ export interface ReadingIntakeApiState {
   analyzed: Record<string, unknown>[];
   itemPatches: { itemId: string; body: Record<string, unknown> }[];
   itemPosts: { kind: string; value: Reading }[];
+  /** Bodies of `PATCH /api/intakes/:id` (the keep-or-delete choice). */
+  intakePatches: { id: string; body: Record<string, unknown> }[];
   applied: number;
   discarded: number;
 }
@@ -126,6 +130,7 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
     analyzed: [],
     itemPatches: [],
     itemPosts: [],
+    intakePatches: [],
     applied: 0,
     discarded: 0,
   };
@@ -165,11 +170,16 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
     }),
 
     http.post('*/api/intakes', async ({ request }) => {
-      await record(request, '/api/intakes');
+      const body = ((await record(request, '/api/intakes')) ?? {}) as { retainFiles?: boolean };
       if (options.createError === 'network') return HttpResponse.error();
       if (options.createError) return HttpResponse.json(options.createError.body, { status: options.createError.status });
       state.created += 1;
-      const intake = readingIntake('draft', { id: `intake-new-${state.created}` });
+      const retainFiles = body.retainFiles !== false;
+      const intake = readingIntake('draft', {
+        id: `intake-new-${state.created}`,
+        retainFiles,
+        retention: retainFiles ? 'keep' : 'delete_after_processing',
+      });
       state.intakes.set(intake.id, intake);
       return HttpResponse.json({ data: intake }, { status: 201 });
     }),
@@ -195,6 +205,24 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
       return HttpResponse.json({ data: view(id) });
     }),
 
+    http.patch('*/api/intakes/:id', async ({ request, params }) => {
+      const id = String(params.id);
+      const body = (await record(request, `/api/intakes/${id}`)) as Record<string, unknown>;
+      state.intakePatches.push({ id, body });
+      const intake = state.intakes.get(id);
+      if (!intake) return notFound();
+      if (intake.status === 'applied') {
+        return HttpResponse.json({ code: 'INTAKE_APPLIED', message: 'This intake was already applied' }, { status: 409 });
+      }
+      if (typeof body.retainFiles === 'boolean') {
+        const retention = body.retainFiles ? 'keep' : 'delete_after_processing';
+        intake.retainFiles = body.retainFiles;
+        intake.retention = retention;
+        intake.photos = intake.photos.map((photo) => ({ ...photo, retention }));
+      }
+      return HttpResponse.json({ data: view(id) });
+    }),
+
     http.delete('*/api/intakes/:id', async ({ request, params }) => {
       const id = String(params.id);
       await record(request, `/api/intakes/${id}`);
@@ -205,10 +233,18 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
 
     http.post('*/api/intakes/:id/photos', async ({ request, params }) => {
       const id = String(params.id);
-      const body = (await record(request, `/api/intakes/${id}/photos`)) as { storageObjectId: string };
+      const body = (await record(request, `/api/intakes/${id}/photos`)) as { storageObjectId: string; retainFiles?: boolean };
       const intake = state.intakes.get(id);
       if (!intake) return notFound();
-      const photo = { id: `p-${intake.photos.length + 1}`, storageObjectId: body.storageObjectId, name: 'scale.jpg', sortOrder: intake.photos.length };
+      const keep = body.retainFiles ?? intake.retainFiles;
+      const photo = {
+        id: `p-${intake.photos.length + 1}`,
+        storageObjectId: body.storageObjectId,
+        name: 'scale.jpg',
+        sortOrder: intake.photos.length,
+        healthDocumentId: `doc-${intake.photos.length + 1}`,
+        retention: keep ? ('keep' as const) : ('delete_after_processing' as const),
+      };
       intake.photos.push(photo);
       return HttpResponse.json({ data: photo }, { status: 201 });
     }),

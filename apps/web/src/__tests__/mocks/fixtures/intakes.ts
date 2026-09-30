@@ -142,7 +142,7 @@ export function toItems(drafts: Draft[]): DraftItemView<EquipmentValue>[] {
 }
 
 export function mockIntakePhoto(storageObjectId: string, name: string, sortOrder = 0): PhotoIntakePhotoView {
-  return { id: nextId('p'), storageObjectId, name, sortOrder };
+  return { id: nextId('p'), storageObjectId, name, sortOrder, healthDocumentId: null, retention: null };
 }
 
 export function mockScanIntake(
@@ -161,6 +161,8 @@ export function mockScanIntake(
     jobId: null,
     errorCode: null,
     errorMessage: null,
+    retention: 'keep',
+    retainFiles: true,
     resultMeta: null,
     createdAt: T0,
     updatedAt: T0,

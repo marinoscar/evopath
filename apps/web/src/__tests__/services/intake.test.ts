@@ -20,6 +20,7 @@ import {
   listIntakes,
   removeIntakePhoto,
   updateDraftItem,
+  updateIntakeRetainFiles,
   uploadAndAttach,
 } from '../../services/intake';
 import { ApiError } from '../../services/api';
@@ -104,6 +105,31 @@ describe('services/intake', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(409);
     expect(deleted).toHaveLength(1);
+  });
+
+  it('carries the keep-or-delete choice on create, PATCH and attach (#185)', async () => {
+    const seen = record();
+    await createIntake({ kind: 'body_metric_reading', retainFiles: false });
+    await updateIntakeRetainFiles('in-1', true);
+    await attachIntakePhoto('in-1', 'obj-1', { retainFiles: false });
+    await attachIntakePhoto('in-1', 'obj-2', { retainFiles: undefined });
+    expect(seen.map(({ method, path, body }) => [method, path, body])).toEqual([
+      ['POST', '/intakes', { kind: 'body_metric_reading', retainFiles: false }],
+      ['PATCH', '/intakes/in-1', { retainFiles: true }],
+      ['POST', '/intakes/in-1/photos', { storageObjectId: 'obj-1', retainFiles: false }],
+      ['POST', '/intakes/in-1/photos', { storageObjectId: 'obj-2' }],
+    ]);
+  });
+
+  it('uploadAndAttach reads the choice at attach time', async () => {
+    const seen = record();
+    let keep = true;
+    const upload = uploadAndAttach('in-1', { retainFiles: () => keep });
+    keep = false;
+    const result = await upload(new File(['x'], 'a.jpg', { type: 'image/jpeg' }));
+    expect(seen).toEqual([
+      expect.objectContaining({ path: '/intakes/in-1/photos', body: { storageObjectId: result.storageObjectId, retainFiles: false } }),
+    ]);
   });
 
   it('detachFrom removes the photo from the intake', async () => {

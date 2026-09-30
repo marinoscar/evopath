@@ -128,7 +128,7 @@ export function toPrefillItems(drafts: PrefillDraft[]): DraftItemView<ExerciseDr
 }
 
 export function mockPrefillPhoto(storageObjectId: string, name: string, sortOrder = 0): PhotoIntakePhotoView {
-  return { id: nextId('f'), storageObjectId, name, sortOrder };
+  return { id: nextId('f'), storageObjectId, name, sortOrder, healthDocumentId: null, retention: null };
 }
 
 export function mockPrefillIntake(workoutId: string, overrides: Partial<PrefillIntakeView> = {}): PrefillIntakeView {
@@ -144,6 +144,8 @@ export function mockPrefillIntake(workoutId: string, overrides: Partial<PrefillI
     jobId: null,
     errorCode: null,
     errorMessage: null,
+    retention: 'keep',
+    retainFiles: true,
     resultMeta: null,
     createdAt: T0,
     updatedAt: T0,
