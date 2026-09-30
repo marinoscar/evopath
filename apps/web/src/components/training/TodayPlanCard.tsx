@@ -112,21 +112,24 @@ function PlanAdjustedChip({ session }: { session: TodaySession }) {
  * E5.8: when the plan has unseen AI changes, the "Plan adjusted" banner
  * (summary, Review, one-tap Undo, Dismiss). Falls back to the chip while the
  * change log loads, or when the unseen change is not one the banner shows.
+ * Stays mounted for the whole workout view so the Undo snackbar outlives the
+ * banner; the change log is only read while there are unseen changes.
  */
 function PlanAdjusted({ session, canWrite, onChanged }: { session: TodaySession; canWrite: boolean; onChanged: () => void }) {
-  const changeLog = useChangeLog(session.programId);
-  if (!changeLog.unseenAiChange) {
-    return (
-      <Box sx={{ mb: 1 }}>
-        <PlanAdjustedChip session={session} />
-        <PlanAdjustedBanner programId={session.programId} changeLog={changeLog} canWrite={canWrite} />
-      </Box>
-    );
-  }
+  const unseen = session.unseenChangeCount > 0;
+  const changeLog = useChangeLog(session.programId, { enabled: unseen });
+  const showChip = unseen && !changeLog.unseenAiChange;
   return (
-    <Box sx={{ mb: 1 }}>
-      <PlanAdjustedBanner programId={session.programId} changeLog={changeLog} canWrite={canWrite} onUndone={onChanged} />
-    </Box>
+    <>
+      {showChip && (
+        <Box sx={{ mb: 1 }}>
+          <PlanAdjustedChip session={session} />
+        </Box>
+      )}
+      <Box sx={{ mb: changeLog.unseenAiChange ? 1 : 0 }}>
+        <PlanAdjustedBanner programId={session.programId} changeLog={changeLog} canWrite={canWrite} onUndone={onChanged} />
+      </Box>
+    </>
   );
 }
 
@@ -416,9 +419,7 @@ function Body({
             {today.isDeload && <Chip size="small" label="Deload" />}
             {today.inProgressWorkoutId && <Chip size="small" color="primary" label="In progress" />}
           </Box>
-          {session.unseenChangeCount > 0 && (
-            <PlanAdjusted session={session} canWrite={canWritePrograms} onChanged={onPlanChanged} />
-          )}
+          <PlanAdjusted session={session} canWrite={canWritePrograms} onChanged={onPlanChanged} />
           {empty ? (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               No exercises
