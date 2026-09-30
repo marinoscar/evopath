@@ -1,6 +1,6 @@
 // OPTIONAL live check of the researcher against the real OpenAI API.
 //
-// Skipped unless OPENAI_API_KEY_FOR_TESTS is set: never in CI, and the
+// Skipped unless OPENAI_API_KEY_FOR_TESTS and OPENAI_MODEL_FOR_TESTS are set: never in CI, and the
 // variables are read by this test only, never by the application (keys are
 // runtime settings). It decides which research mode works as the default
 // for a web-search-capable model and proves the citation guardrail against
@@ -30,7 +30,7 @@ import { RunBudget } from '../../src/training-agents/runtime/run-budget';
 import { initialRunState } from '../../src/training-agents/graph/run-state';
 
 const LIVE_KEY = process.env.OPENAI_API_KEY_FOR_TESTS;
-const LIVE_MODEL = process.env.OPENAI_MODEL_FOR_TESTS ?? 'gpt-4.1-mini';
+const LIVE_MODEL = process.env.OPENAI_MODEL_FOR_TESTS ?? '';
 
 const GOALS: Array<[string, ResearcherContextSource]> = [
   [
@@ -88,7 +88,7 @@ function liveClient(adapter: OpenAiProviderAdapter, seen: Array<Awaited<ReturnTy
   return client as AiUserClient;
 }
 
-if (LIVE_KEY) {
+if (LIVE_KEY && LIVE_MODEL) {
   jest.setTimeout(300_000);
 
   describe('researcher (LIVE)', () => {
@@ -132,7 +132,7 @@ if (LIVE_KEY) {
     });
   });
 } else {
-  describe.skip('researcher (LIVE): set OPENAI_API_KEY_FOR_TESTS to run', () => {
+  describe.skip('researcher (LIVE): set OPENAI_API_KEY_FOR_TESTS and OPENAI_MODEL_FOR_TESTS to run', () => {
     it('is skipped without a key', () => undefined);
   });
 }
