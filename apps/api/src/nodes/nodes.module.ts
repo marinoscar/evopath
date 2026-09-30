@@ -180,6 +180,7 @@ import { NodeFleetSweepHandler } from './handlers/node-fleet-sweep.handler';
 import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
 import { NodeSecretSweepTask } from './tasks/node-secret-sweep.task';
 import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
+import { NodesFleetDoctorCheck } from './doctor/nodes-fleet.doctor-check';
 
 @Module({
   imports: [
@@ -213,6 +214,8 @@ import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
     NodeTelemetryService,
     NodeSettlementLedger,
     NodeTelemetryRateLimiter,
+    // Doctor check (#634).
+    NodesFleetDoctorCheck,
   ],
 })
 export class NodesModule {}

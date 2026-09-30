@@ -7,6 +7,8 @@ import { StorageBucketProvisionService } from './storage-bucket-provision.servic
 import { StorageConfigAdminService } from './storage-config-admin.service';
 import { StorageConfigController } from './storage-config.controller';
 import { StorageConnectionTestService } from './storage-connection-test.service';
+import { StorageBucketDoctorCheck } from './doctor/storage-bucket.doctor-check';
+import { StorageConfigDoctorCheck } from './doctor/storage-config.doctor-check';
 
 // =============================================================================
 // StorageConfigModule (issue #375, epic #372)
@@ -75,6 +77,9 @@ import { StorageConnectionTestService } from './storage-connection-test.service'
     StorageConfigAdminService,
     StorageConnectionTestService,
     StorageBucketProvisionService,
+    // Doctor checks (#634): read-only, never the connection test above.
+    StorageConfigDoctorCheck,
+    StorageBucketDoctorCheck,
   ],
 })
 export class StorageConfigModule {}

@@ -5,6 +5,7 @@ import { CredentialsModule } from '../credentials/credentials.module';
 import { EmailSettingsController } from './email-settings.controller';
 import { EmailSettingsService } from './email-settings.service';
 import { EmailTestSendService } from './email-test-send.service';
+import { EmailConfigDoctorCheck } from './doctor/email-config.doctor-check';
 import { SesEmailProvider } from './providers/ses-email.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
 
@@ -64,6 +65,8 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
     EmailTestSendService,
     SesEmailProvider,
     SmtpEmailProvider,
+    // Doctor check (#634): reads the admin view, never sends.
+    EmailConfigDoctorCheck,
   ],
   // EmailTestSendService is deliberately NOT exported: sending a test message
   // is an admin action reached through this module's controller, not a service

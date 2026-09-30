@@ -22,6 +22,7 @@ import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
 } from './notification.types';
+import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
 
 // =============================================================================
 // NotificationsModule (issues #121/#124/#125, epic #109)
@@ -185,6 +186,8 @@ import {
     // listener rather than a `notify()` inside `JobTerminalService`.
     JobFailureNotifier,
     PushNotificationChannel,
+    // Doctor check (#634): validates the active VAPID pair, never sends.
+    PushVapidDoctorCheck,
     {
       provide: NOTIFICATION_CHANNEL_SENDERS,
       useFactory: (

@@ -400,6 +400,15 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 - **UI:** `/train/plans`, `/train/plans/:programId`, `/train/plans/:programId/history`
 - **Permissions:** `programs:read`, `programs:write`
 
+### 5.26 Admin Doctor
+
+`GET /api/admin/doctor` runs a set of read-only checks and answers one question: is every capability of this deployment configured, reachable and healthy? Each capability's own module contributes its checks (`<module>/doctor/`), which register themselves with `DoctorCheckRegistry`. `DoctorService` runs them in parallel, skips a check whose dependency did not pass, bounds each with a timeout, caches the report for 15 seconds and always answers `200`: a failing check is a row with a `remedy` and the settings page that fixes it. No check sends, writes, spends tokens or enqueues a job. The AI category includes the per-feature model assignments (training roles included) and web search. The host-level counterpart is `evopathcli deploy doctor` ([§5.9](#59-evopathcli-cli)).
+
+- **Code:** `apps/api/src/doctor/` (contract, registry, service, controller), `apps/api/src/*/doctor/` (the checks)
+- **UI:** `/admin/settings/doctor` (`apps/web/src/pages/Admin/DoctorPage.tsx`)
+- **Permissions:** `system_settings:read`
+- **Read more:** [specs/doctor.md](specs/doctor.md), [runbooks/doctor.md](runbooks/doctor.md)
+
 ---
 
 ## 6. Data architecture
@@ -524,7 +533,7 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 
 | Permission | Admin | Contributor | Viewer | Gates |
 |---|:-:|:-:|:-:|---|
-| `system_settings:read` | ✓ | | | Read system settings, email, notification policy, maintenance, About; reach `/admin/settings`; view the telemetry services status |
+| `system_settings:read` | ✓ | | | Read system settings, email, notification policy, maintenance, About; run the Doctor (`GET /api/admin/doctor`, `/admin/settings/doctor`); reach `/admin/settings`; view the telemetry services status |
 | `system_settings:write` | ✓ | | | Change system settings, email, notification policy; open or close maintenance; (re)deploy the telemetry services |
 | `user_settings:read` | ✓ | ✓ | ✓ | Read own settings and own uploaded profile picture |
 | `user_settings:write` | ✓ | ✓ | ✓ | Change own settings; upload or remove own profile picture |
@@ -682,6 +691,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/telemetry` | Telemetry | Observability | `telemetry:read` | none (the page that turns telemetry on) |
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
+| `/admin/settings/doctor` | Doctor | Observability | `system_settings:read` | none (reports on AI and telemetry while they are off) |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
@@ -792,6 +802,7 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 - Never log secrets. The AI platform, credential stores and auth guards keep key material out of logs, spans and error bodies by design.
 - Administrators query GreptimeDB with SQL, export results, and ask an AI assistant about them, from the Telemetry Explorer (`/admin/settings/telemetry/explorer`, `telemetry:query`) — see [specs/telemetry.md](specs/telemetry.md).
 - A fixed Telemetry Dashboard (`/admin/settings/telemetry/dashboard`, `telemetry:query`) gives a health verdict, tiles and timelines with no SQL required — see [specs/telemetry.md §11](specs/telemetry.md#11-dashboard).
+- The Doctor (`/admin/settings/doctor`, `system_settings:read`) checks that telemetry capture works (export switches, GreptimeDB connection, tables and retention, data freshness, the stack containers) beside every other capability — see [specs/doctor.md](specs/doctor.md#27-check-inventory).
 - GreptimeDB dashboard: http://localhost:14000/dashboard when `telemetry.compose.yml` is running.
 
 Health endpoints (public, reachable during maintenance):
@@ -815,6 +826,7 @@ Health endpoints (public, reachable during maintenance):
 | A notification event | [notifications/README.md](../apps/api/src/notifications/README.md) |
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
+| A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |

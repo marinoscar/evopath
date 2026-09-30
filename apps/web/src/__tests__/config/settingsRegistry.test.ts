@@ -903,6 +903,10 @@ describe('the Operations group (#266)', () => {
       // Operations section containing exactly one card. What this test still
       // pins is the part that must not move: General and Access resolve to
       // EXACTLY the cards they did before, in order.
+      //
+      // OBSERVABILITY RESOLVES FOR THIS HOLDER TOO since `Doctor` (#634),
+      // for the same reason as About: `doctor/doctor.controller.ts` enforces
+      // `system_settings:read`, so the card mirrors it.
       const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
         ['system_settings:read', 'system_settings:write', 'users:read'].includes(permission),
       );
@@ -911,6 +915,7 @@ describe('the Operations group (#266)', () => {
         'General',
         'Access',
         'Operations',
+        'Observability',
       ]);
       expect(titlesOf(result)).toEqual([
         'Email',
@@ -918,6 +923,7 @@ describe('the Operations group (#266)', () => {
         'Maintenance',
         'Users & Allowlist',
         'About',
+        'Doctor',
       ]);
     });
 
@@ -1169,11 +1175,13 @@ describe('the Observability group (#537)', () => {
 
   it('is APPENDED as the last group, with its cards in declaration order', () => {
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(observability);
-    // `Telemetry Dashboard` (#578) was appended after the Explorer.
+    // `Telemetry Dashboard` (#578) was appended after the Explorer, and
+    // `Doctor` (#634) after the Dashboard.
     expect(observability?.cards.map((card) => card.title)).toEqual([
       'Telemetry',
       'Telemetry Explorer',
       'Telemetry Dashboard',
+      'Doctor',
     ]);
   });
 
@@ -1229,8 +1237,9 @@ describe('the Observability group (#537)', () => {
     const dashboard = cards.get('Telemetry Dashboard');
     const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
 
-    it('is the LAST card of the last group — appended, not inserted', () => {
-      expect(allCards[allCards.length - 1]).toBe(dashboard);
+    it('was appended after the Explorer, not inserted — only Doctor (#634) follows it', () => {
+      expect(allCards[allCards.length - 2]).toBe(dashboard);
+      expect(allCards[allCards.length - 1]?.title).toBe('Doctor');
       expect(dashboard?.disabled).toBeUndefined();
       expect(dashboard?.alwaysShow).toBeUndefined();
     });
@@ -1260,6 +1269,65 @@ describe('the Observability group (#537)', () => {
           telemetry: true,
         }),
       ).toBe('Telemetry Dashboard');
+    });
+  });
+
+  /**
+   * Issue #634. The Doctor page is a registry CARD appended as the last card
+   * of Observability — CLAUDE.md settings-UI rules 1 and 3 as assertions.
+   * Deliberately NOT feature-gated: it reports on AI and telemetry while they
+   * are off, which is when an admin needs it.
+   */
+  describe('the Doctor card (#634)', () => {
+    const doctor = cards.get('Doctor');
+    const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
+
+    it('is declared and routed to /admin/settings/doctor', () => {
+      expect(doctor).toBeDefined();
+      expect(doctor?.path).toBe('/admin/settings/doctor');
+      expect(doctor?.disabled).toBeUndefined();
+      expect(allCards.filter((card) => card.path === doctor?.path)).toHaveLength(1);
+    });
+
+    it('is the LAST card of the last group (Observability) — appended, not inserted', () => {
+      expect(allCards[allCards.length - 1]).toBe(doctor);
+      const owner = ADMIN_SECTIONS.find((section) => section.cards.includes(doctor!));
+      expect(owner?.label).toBe('Observability');
+    });
+
+    it('is not an alwaysShow escape hatch and carries no feature', () => {
+      expect(doctor?.alwaysShow).toBeUndefined();
+      expect(doctor?.feature).toBeUndefined();
+    });
+
+    it('declares the exact permission doctor.controller.ts enforces, and invents none', () => {
+      const controller = readFileSync(resolve(API_SRC, 'doctor/doctor.controller.ts'), 'utf8');
+      expect(doctor?.permission).toBe('system_settings:read');
+      expect(rolesConstants).toContain("SYSTEM_SETTINGS_READ: 'system_settings:read'");
+      expect(controller).toContain('@Auth({ permissions: [PERMISSIONS.SYSTEM_SETTINGS_READ] })');
+      expect(doctor?.permission).not.toBe('doctor:read');
+    });
+
+    it('stays visible while telemetry and AI are off', () => {
+      expect(titles(() => true, { ai: false, telemetry: false })).toContain('Doctor');
+      expect(titles(() => true)).toContain('Doctor');
+    });
+
+    it('appears for an admin holding system_settings:read', () => {
+      expect(titles((permission) => permission === 'system_settings:read')).toContain('Doctor');
+    });
+
+    it('appears in none of the three surfaces for a viewer', () => {
+      const viewer = ['user_settings:read', 'user_settings:write', 'storage:read', 'ai:use'];
+      expect(
+        titles((permission) => viewer.includes(permission), { ai: true, telemetry: true }),
+      ).not.toContain('Doctor');
+    });
+
+    it('resolves its route to its own title, not the hub title', () => {
+      expect(
+        settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/doctor'),
+      ).toBe('Doctor');
     });
   });
 

@@ -342,6 +342,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'database, are fields rather than status codes.',
       },
       {
+        name: 'Doctor',
+        description:
+          'Read-only configuration and health checks for every capability of this deployment, ' +
+          'each with a status, a one-line detail and — when something needs attention — a ' +
+          'remedy and the settings page that fixes it. Gated on `system_settings:read`. ' +
+          'Always answers 200: a failing check is a row, not a status code.',
+      },
+      {
         name: 'Telemetry',
         description:
           'Observability: whether traces, logs and metrics are exported to the telemetry store ' +

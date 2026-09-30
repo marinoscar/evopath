@@ -287,7 +287,7 @@ function toIsoText(text: string): string {
 }
 
 /** A store timestamp as a Date, or null. */
-function toDate(value: unknown): Date | null {
+export function toDate(value: unknown): Date | null {
   if (value === null || value === undefined || value === '') return null;
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null;
   const ms = Date.parse(toIsoText(String(value)));

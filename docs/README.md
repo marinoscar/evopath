@@ -40,6 +40,7 @@ In this order:
 | [specs/database-backup.md](specs/database-backup.md) | Scheduled and on-demand `pg_dump` backups | you change backups or their node offload |
 | [specs/database-restore.md](specs/database-restore.md) | Restore and rollback from a backup | you change restore gates or outcomes |
 | [specs/maintenance-mode.md](specs/maintenance-mode.md) | The 503 maintenance window | you change maintenance behaviour or its layers |
+| [specs/doctor.md](specs/doctor.md) | The admin Doctor: read-only configuration and health checks | you add a check for a capability or read the Doctor's report |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/health-data.md](specs/health-data.md) | Per-user health data: the health profile, measurements with the metric registry, daily check-ins, photo readings, and the `health_data` permissions | you add a health feature, read values off a photo, add a metric, read the profile (units, time zone, height), or read today's readiness |
 | [specs/gyms-and-equipment.md](specs/gyms-and-equipment.md) | Gyms, the equipment catalog and custom equipment, gym photos, AI Scan Gym (`ai.equipment.scan`), optional GPS location, and the `gyms` permissions | you add equipment or a capability to the catalog, read a user's gym equipment, change the scan prompt, or build another photo-to-rows flow |
@@ -66,6 +67,7 @@ In this order:
 | [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md) | Rotating or recovering from the loss of `SECRETS_ENCRYPTION_KEY` |
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
 | [runbooks/telemetry.md](runbooks/telemetry.md) | Enabling the GreptimeDB telemetry overlay, setting retention, configuring the AI assistant, connecting a BI tool |
+| [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor |
 
 ## Developer recipes in the code
 

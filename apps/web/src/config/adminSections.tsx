@@ -60,6 +60,8 @@ import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 // Telemetry Dashboard (#578, epic #576).
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
+// Doctor (#634).
+import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -674,6 +676,20 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         path: '/admin/settings/telemetry/dashboard',
         permission: 'telemetry:query',
         feature: 'telemetry',
+      },
+      {
+        // Issue #634. APPENDED as the last Observability card (append-only).
+        // `system_settings:read`, the exact permission
+        // `doctor/doctor.controller.ts` enforces on `GET /api/admin/doctor`.
+        // NO `feature`, deliberately: the Doctor reports on AI and telemetry
+        // while they are switched off (as `skip`), which is exactly when an
+        // administrator asks why a capability is missing. No `alwaysShow`.
+        title: 'Doctor',
+        description:
+          'Check the configuration, connectivity and health of every capability, including telemetry capture.',
+        Icon: HealthAndSafetyOutlinedIcon,
+        path: '/admin/settings/doctor',
+        permission: 'system_settings:read',
       },
     ],
   },

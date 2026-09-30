@@ -64,6 +64,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: browser notifications and Web Push | [docs/specs/browser-notifications.md](docs/specs/browser-notifications.md) |
 | Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
+| Spec: admin Doctor (check contract, read-only rule, check inventory) | [docs/specs/doctor.md](docs/specs/doctor.md) |
 | Spec: health data (health profile, measurements, check-ins, photo readings, `health_data` permissions) | [docs/specs/health-data.md](docs/specs/health-data.md) |
 | Spec: gyms and equipment (catalog, default gym, provenance, AI Scan Gym, GPS location) | [docs/specs/gyms-and-equipment.md](docs/specs/gyms-and-equipment.md) |
 | Spec: exercise library and workout logging (set model, PRs, training summary, AI Prefill from photo) | [docs/specs/workouts.md](docs/specs/workouts.md) |
@@ -81,12 +82,14 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
 | Runbook: AI training plans (web search, agent models, fake provider, troubleshooting) | [docs/runbooks/ai-training-plans.md](docs/runbooks/ai-training-plans.md) |
+| Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
 | `evopathcli` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: add a photo-intake kind | [apps/api/src/intake/README.md](apps/api/src/intake/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
 | Recipe: add a training agent or graph node | [apps/api/src/ai/README.md](apps/api/src/ai/README.md#adding-a-training-agent-or-node) |
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
+| Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
 
 ## MANDATORY: Issue-Driven Development
