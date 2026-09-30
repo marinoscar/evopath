@@ -413,9 +413,46 @@ export interface AiDefaultModel {
   modelId: string;
 }
 
+/** The training-plan agent roles a user may choose a model for. */
+export type TrainingAgentRole = 'researcher' | 'planner' | 'critic' | 'evaluator';
+
+/** A reasoning effort a task may request. */
+export type TaskReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
+/** One role's model preference; `reasoningEffort: null` means the role default. */
+export interface AiTaskModel {
+  provider: string;
+  modelId: string;
+  reasoningEffort: TaskReasoningEffort | null;
+}
+
+/** Training-run limits; absent or `null` means the server default. */
+export interface AiTrainingLimits {
+  /** 10,000 to 2,000,000; `null` or absent = the server default per run kind. */
+  maxRunTokens?: number | null;
+  /** 1 to 3; absent = 2. */
+  maxCriticRounds?: 1 | 2 | 3;
+}
+
 /** `user_settings.ai` — `defaultModel: null` means "no default chosen". */
 export interface UserAiSettings {
   defaultModel?: AiDefaultModel | null;
+  taskModels?: Partial<Record<TrainingAgentRole, AiTaskModel>>;
+  training?: AiTrainingLimits;
+}
+
+/**
+ * PATCH form of `ai`, merged field by field server-side: absent keeps,
+ * `null` clears. `taskModels.<role>: null` clears one role;
+ * `training.<field>: null` clears one limit.
+ */
+export interface UserAiSettingsPatch {
+  defaultModel?: AiDefaultModel | null;
+  taskModels?: Partial<Record<TrainingAgentRole, AiTaskModel | null>> | null;
+  training?: {
+    maxRunTokens?: number | null;
+    maxCriticRounds?: 1 | 2 | 3 | null;
+  } | null;
 }
 
 /**
@@ -473,8 +510,12 @@ export interface UserSettingsUpdate {
    * exactly the one key it changed and leave every other preference absent.
    */
   notifications?: NotificationPreferencesPatch | null;
-  /** AI preferences (#430). `defaultModel: null` clears the saved default. */
-  ai?: UserAiSettings;
+  /**
+   * AI preferences (#430). Merged field by field: `defaultModel: null` clears
+   * the saved default, `taskModels.<role>: null` one role; `ai: null` clears
+   * the namespace.
+   */
+  ai?: UserAiSettingsPatch | null;
 }
 
 /**

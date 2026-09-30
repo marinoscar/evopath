@@ -1201,4 +1201,120 @@ describe('UserSettingsService', () => {
       expect('notifications' in storedValue).toBe(false);
     });
   });
+
+  // ===========================================================================
+  // ai namespace merge logic: a JSON merge patch per field, so saving the
+  // default model never drops the per-role agent choices and vice versa.
+  // ===========================================================================
+
+  describe('mergeAi (private)', () => {
+    const mergeAi = (current: unknown, patch: unknown) => (service as any).mergeAi(current, patch);
+
+    const gpt = { provider: 'openai', modelId: 'gpt-x' };
+    const planner = { provider: 'openai', modelId: 'gpt-x', reasoningEffort: 'high' };
+    const critic = { provider: 'anthropic', modelId: 'claude-x', reasoningEffort: null };
+
+    it('patch absent leaves the namespace untouched', () => {
+      const current = { defaultModel: gpt, taskModels: { planner } };
+
+      expect(mergeAi(current, undefined)).toBe(current);
+    });
+
+    it('ai: null clears the whole namespace', () => {
+      expect(mergeAi({ defaultModel: gpt, taskModels: { planner } }, null)).toBeUndefined();
+    });
+
+    it('existing behaviour: defaultModel replaces, and null clears only the selection', () => {
+      expect(mergeAi(undefined, { defaultModel: gpt })).toEqual({ defaultModel: gpt });
+      expect(mergeAi({ defaultModel: gpt }, { defaultModel: null })).toEqual({ defaultModel: null });
+    });
+
+    it('saving defaultModel keeps the stored taskModels and training', () => {
+      const current = { defaultModel: null, taskModels: { planner }, training: { maxCriticRounds: 3 } };
+
+      expect(mergeAi(current, { defaultModel: gpt })).toEqual({
+        defaultModel: gpt,
+        taskModels: { planner },
+        training: { maxCriticRounds: 3 },
+      });
+    });
+
+    it('saving taskModels.planner keeps the stored defaultModel', () => {
+      expect(mergeAi({ defaultModel: gpt }, { taskModels: { planner } })).toEqual({
+        defaultModel: gpt,
+        taskModels: { planner },
+      });
+    });
+
+    it('a role object replaces that role and leaves the other roles alone', () => {
+      const next = { provider: 'gemini', modelId: 'g-1', reasoningEffort: 'low' };
+
+      expect(mergeAi({ defaultModel: null, taskModels: { planner, critic } }, { taskModels: { planner: next } })).toEqual({
+        defaultModel: null,
+        taskModels: { planner: next, critic },
+      });
+    });
+
+    it('a role set to null clears only that role', () => {
+      expect(mergeAi({ defaultModel: gpt, taskModels: { planner, critic } }, { taskModels: { planner: null } })).toEqual({
+        defaultModel: gpt,
+        taskModels: { critic },
+      });
+    });
+
+    it('clearing the last role collapses taskModels to absent, not {}', () => {
+      const result = mergeAi({ defaultModel: gpt, taskModels: { planner } }, { taskModels: { planner: null } });
+
+      expect(result).toEqual({ defaultModel: gpt });
+      expect('taskModels' in result).toBe(false);
+    });
+
+    it('taskModels: null clears every role', () => {
+      expect(mergeAi({ defaultModel: gpt, taskModels: { planner, critic } }, { taskModels: null })).toEqual({
+        defaultModel: gpt,
+      });
+    });
+
+    it('training fields merge independently; null deletes one; emptied training collapses', () => {
+      const current = { defaultModel: null, training: { maxRunTokens: 50_000, maxCriticRounds: 1 } };
+
+      expect(mergeAi(current, { training: { maxCriticRounds: 3 } })).toEqual({
+        defaultModel: null,
+        training: { maxRunTokens: 50_000, maxCriticRounds: 3 },
+      });
+      expect(mergeAi(current, { training: { maxRunTokens: null } })).toEqual({
+        defaultModel: null,
+        training: { maxCriticRounds: 1 },
+      });
+      expect(mergeAi(current, { training: { maxRunTokens: null, maxCriticRounds: null } })).toEqual({
+        defaultModel: null,
+      });
+    });
+
+    it('does not mutate the current value it read', () => {
+      const current = { defaultModel: gpt, taskModels: { planner, critic } };
+
+      mergeAi(current, { taskModels: { planner: null } });
+
+      expect(current.taskModels).toEqual({ planner, critic });
+    });
+
+    it('two separate PATCHes keep both the agent choice and the default model', async () => {
+      let storedValue: any = { theme: 'system', profile: { imageSource: 'provider' } };
+      mockPrisma.user.update.mockResolvedValue({} as any);
+      (mockPrisma.userSettings.findUnique as any).mockImplementation(async () => ({
+        ...mockUserSettings,
+        value: storedValue,
+      }));
+      (mockPrisma.userSettings.update as any).mockImplementation(async ({ data }: any) => {
+        storedValue = data.value;
+        return { ...mockUserSettings, value: data.value, version: 2 };
+      });
+
+      await service.patchSettings(mockUserId, { ai: { taskModels: { planner } } } as any);
+      await service.patchSettings(mockUserId, { ai: { defaultModel: gpt } } as any);
+
+      expect(storedValue.ai).toEqual({ defaultModel: gpt, taskModels: { planner } });
+    });
+  });
 });

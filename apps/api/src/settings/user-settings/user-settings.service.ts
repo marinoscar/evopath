@@ -346,20 +346,21 @@ export class UserSettingsService {
   }
 
   /**
-   * Merge the `ai` namespace (#423, epic #419, umbrella #418).
+   * Merge the `ai` namespace as a JSON merge patch, field by field.
    *
-   * - patch absent  -> keep the stored namespace untouched
-   * - patch is `null` -> clear the whole namespace (back to "no default
-   *   model chosen", the same state an untouched account is in)
-   * - patch is an object -> REPLACES the namespace wholesale. Unlike
-   *   `dataTables`/`navigation`, there is only one field
-   *   (`defaultModel`, a single (provider, modelId) pair) and
-   *   `userAiSettingsPatchSchema` makes it REQUIRED-BUT-NULLABLE, not
-   *   independently optional — so whenever a caller sends `ai` at all, it
-   *   already states the field in full (an object, or `null` to clear just
-   *   the selection while keeping the namespace present). There is no
-   *   "field omitted" case to merge field-by-field the way `navigation
-   *   .railCollapsed` has.
+   * - patch absent       -> keep the stored namespace untouched
+   * - patch is `null`    -> clear the whole namespace
+   * - `defaultModel` present (object or `null`) -> replaces it; absent keeps it
+   * - `taskModels: null` -> clears every role; `taskModels.<role>` object
+   *   replaces that role (a role is one coherent choice, like a data table
+   *   entry), `null` deletes it, absent keeps it
+   * - `training: null`   -> clears the limits; `training.<field>` likewise
+   *
+   * Replacing the namespace wholesale (as this did when `defaultModel` was
+   * its only field) would drop the agent choices on every default-model save
+   * and vice versa. An emptied `taskModels` or `training` collapses to
+   * absent; `defaultModel` is always emitted (`null` = none chosen), which
+   * keeps the stored shape `userAiSettingsSchema` has always had.
    */
   private mergeAi(
     current: UserAiSettingsValue | undefined,
@@ -373,7 +374,22 @@ export class UserSettingsService {
       return undefined;
     }
 
-    return { defaultModel: patch.defaultModel };
+    const merged: UserAiSettingsValue = {
+      defaultModel:
+        patch.defaultModel !== undefined ? patch.defaultModel : (current?.defaultModel ?? null),
+    };
+
+    const taskModels = mergeFields(current?.taskModels, patch.taskModels);
+    if (taskModels !== undefined) {
+      merged.taskModels = taskModels;
+    }
+
+    const training = mergeFields(current?.training, patch.training);
+    if (training !== undefined) {
+      merged.training = training;
+    }
+
+    return merged;
   }
 
   /**
@@ -623,4 +639,34 @@ export class UserSettingsService {
   async updateTheme(userId: string, theme: 'light' | 'dark' | 'system') {
     return this.patchSettings(userId, { theme });
   }
+}
+
+/**
+ * One-level JSON merge patch over a flat record: `null` patch clears it, a
+ * `null` field deletes that field, a value replaces it, absent keeps it. An
+ * empty result collapses to `undefined`.
+ */
+function mergeFields<T extends object>(
+  current: T | undefined,
+  patch: { [K in keyof T]?: T[K] | null } | null | undefined,
+): T | undefined {
+  if (patch === undefined) {
+    return current;
+  }
+
+  if (patch === null) {
+    return undefined;
+  }
+
+  const merged: Record<string, unknown> = { ...(current ?? {}) };
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      delete merged[key];
+    } else if (value !== undefined) {
+      merged[key] = value;
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? (merged as T) : undefined;
 }
