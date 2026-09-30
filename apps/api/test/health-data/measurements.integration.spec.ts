@@ -18,6 +18,7 @@ import request from 'supertest';
 
 import { closeTestApp, createTestApp, TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
+import { LAB_METRIC_KEYS } from '../../src/measurements/metric-registry';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {
   authHeader,
@@ -169,7 +170,7 @@ describe('Measurements (integration)', () => {
   // ---------------------------------------------------------------------------
 
   describe('GET /api/measurements/metrics', () => {
-    it('returns the ten-metric catalog in the envelope', async () => {
+    it('returns the ten-metric catalog and the lab analytes in the envelope', async () => {
       const viewer = await createMockViewerUser(context);
 
       const response = await request(server())
@@ -177,7 +178,9 @@ describe('Measurements (integration)', () => {
         .set(authHeader(viewer.accessToken))
         .expect(200);
 
-      expect(response.body.data.metrics).toHaveLength(10);
+      const metrics = response.body.data.metrics as Array<{ category: string }>;
+      expect(metrics.filter((metric) => metric.category !== 'lab')).toHaveLength(10);
+      expect(metrics.filter((metric) => metric.category === 'lab')).toHaveLength(LAB_METRIC_KEYS.length);
       expect(response.body.data.metrics[0]).toMatchObject({
         key: 'weight',
         canonicalUnit: 'kg',
