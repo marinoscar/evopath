@@ -92,3 +92,6 @@ nul
 .claude/settings.local.json
 apps/web/test-results.json
 __pycache__/
+
+# Plan-quality eval reports (written at run time by apps/api/test/evals)
+apps/api/test/evals/reports/

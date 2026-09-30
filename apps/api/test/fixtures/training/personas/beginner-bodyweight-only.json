@@ -1,0 +1,59 @@
+{
+  "id": "beginner-bodyweight-only",
+  "kind": "create",
+  "description": "A beginner with no equipment at all.",
+  "profile": {
+    "ageYears": 23,
+    "sexAtBirth": "male",
+    "heightCm": 175,
+    "weightKg": 70
+  },
+  "history": null,
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "general",
+      "description": "Get generally stronger at home"
+    },
+    "experience": "beginner",
+    "daysPerWeek": 3,
+    "minutesPerSession": 35,
+    "durationWeeks": 6
+  },
+  "gym": null,
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

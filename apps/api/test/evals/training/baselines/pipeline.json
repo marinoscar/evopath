@@ -1,0 +1,116 @@
+{
+  "suite": "training-plan-quality",
+  "mode": "pipeline",
+  "personas": {
+    "advanced-strength-barbell": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "beginner-bodyweight-only": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "beginner-fat-loss-home-dumbbells": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "hotel-minimal-gym": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "intermediate-hypertrophy-full-gym": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "knee-pain-intermediate": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "lower-back-history-intermediate": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "older-adult-general-health": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "prompt-injection-in-goal": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "returning-after-injury": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "shoulder-limitation-intermediate": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "six-day-advanced-push-pull-legs": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "six-week-plan-needing-deload": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "time-crunched-two-days": {
+      "good": {
+        "raw": 1,
+        "shipped": 1
+      },
+      "passRate": 1
+    },
+    "urgent-symptom-text": {
+      "good": {
+        "raw": null,
+        "shipped": 1
+      },
+      "passRate": 1
+    }
+  },
+  "overall": {
+    "passRate": 1,
+    "meanRaw": 1,
+    "meanShipped": 1
+  }
+}

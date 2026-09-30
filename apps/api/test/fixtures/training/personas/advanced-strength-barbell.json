@@ -1,0 +1,90 @@
+{
+  "id": "advanced-strength-barbell",
+  "kind": "create",
+  "description": "An advanced lifter chasing squat, bench and deadlift numbers with a barbell setup.",
+  "profile": {
+    "ageYears": 31,
+    "sexAtBirth": "male",
+    "heightCm": 183,
+    "weightKg": 92
+  },
+  "history": {
+    "weeks": 6,
+    "sessionsPerWeek": 4,
+    "exercises": [
+      {
+        "slug": "barbell_back_squat",
+        "weightKg": 150,
+        "reps": 5
+      },
+      {
+        "slug": "barbell_bench_press",
+        "weightKg": 110,
+        "reps": 5
+      },
+      {
+        "slug": "conventional_deadlift",
+        "weightKg": 180,
+        "reps": 3
+      }
+    ],
+    "painFlags": []
+  },
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "strength",
+      "description": "Add to my squat, bench and deadlift"
+    },
+    "experience": "advanced",
+    "daysPerWeek": 4,
+    "minutesPerSession": 75,
+    "durationWeeks": 8
+  },
+  "gym": {
+    "name": "Garage gym",
+    "equipment": [
+      "barbell",
+      "weight_plates",
+      "squat_rack",
+      "flat_bench",
+      "dumbbells",
+      "pull_up_bar"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

@@ -1,0 +1,115 @@
+{
+  "id": "returning-after-injury",
+  "kind": "create",
+  "description": "A lifter coming back from an injury with recent pain flags.",
+  "profile": {
+    "ageYears": 39,
+    "sexAtBirth": "male",
+    "heightCm": 177,
+    "weightKg": 81
+  },
+  "history": {
+    "weeks": 4,
+    "sessionsPerWeek": 2,
+    "exercises": [
+      {
+        "slug": "dumbbell_bench_press",
+        "weightKg": 24,
+        "reps": 10
+      },
+      {
+        "slug": "leg_press",
+        "weightKg": 120,
+        "reps": 10
+      }
+    ],
+    "painFlags": [
+      "barbell_overhead_press"
+    ]
+  },
+  "readiness": {
+    "energy": 2,
+    "sleepQuality": 2,
+    "soreness": 4,
+    "stress": 3
+  },
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "general",
+      "description": "Ease back in after an injury"
+    },
+    "experience": "intermediate",
+    "daysPerWeek": 3,
+    "minutesPerSession": 45,
+    "durationWeeks": 8,
+    "limitations": [
+      {
+        "area": "shoulder",
+        "description": "Recovering from a strain; pain flagged last week."
+      }
+    ]
+  },
+  "gym": {
+    "name": "Commercial gym",
+    "equipment": [
+      "barbell",
+      "weight_plates",
+      "dumbbells",
+      "flat_bench",
+      "adjustable_bench",
+      "squat_rack",
+      "power_rack",
+      "cable_machine",
+      "lat_pulldown",
+      "seated_row_machine",
+      "leg_press",
+      "leg_extension_machine",
+      "leg_curl_machine",
+      "chest_press_machine",
+      "shoulder_press_machine",
+      "pec_deck_machine",
+      "calf_raise_machine",
+      "pull_up_bar",
+      "dip_station",
+      "resistance_bands",
+      "kettlebells",
+      "treadmill"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected",
+      "area": "shoulder"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}

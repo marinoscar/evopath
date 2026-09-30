@@ -1,0 +1,106 @@
+{
+  "id": "intermediate-hypertrophy-full-gym",
+  "kind": "create",
+  "description": "An intermediate lifter building muscle in a full commercial gym.",
+  "profile": {
+    "ageYears": 29,
+    "sexAtBirth": "male",
+    "heightCm": 180,
+    "weightKg": 79
+  },
+  "history": {
+    "weeks": 6,
+    "sessionsPerWeek": 3,
+    "exercises": [
+      {
+        "slug": "barbell_bench_press",
+        "weightKg": 80,
+        "reps": 8
+      },
+      {
+        "slug": "barbell_row",
+        "weightKg": 70,
+        "reps": 8
+      },
+      {
+        "slug": "leg_press",
+        "weightKg": 180,
+        "reps": 10
+      }
+    ],
+    "painFlags": []
+  },
+  "readiness": null,
+  "brief": "valid",
+  "allowedExercises": null,
+  "intake": {
+    "goal": {
+      "type": "hypertrophy",
+      "description": "Build muscle, especially chest and back"
+    },
+    "experience": "intermediate",
+    "daysPerWeek": 4,
+    "minutesPerSession": 60,
+    "durationWeeks": 8
+  },
+  "gym": {
+    "name": "Commercial gym",
+    "equipment": [
+      "barbell",
+      "weight_plates",
+      "dumbbells",
+      "flat_bench",
+      "adjustable_bench",
+      "squat_rack",
+      "power_rack",
+      "cable_machine",
+      "lat_pulldown",
+      "seated_row_machine",
+      "leg_press",
+      "leg_extension_machine",
+      "leg_curl_machine",
+      "chest_press_machine",
+      "shoulder_press_machine",
+      "pec_deck_machine",
+      "calf_raise_machine",
+      "pull_up_bar",
+      "dip_station",
+      "resistance_bands",
+      "kettlebells",
+      "treadmill"
+    ]
+  },
+  "expect": [
+    {
+      "property": "equipment_feasible"
+    },
+    {
+      "property": "schedule_fits"
+    },
+    {
+      "property": "volume_in_range"
+    },
+    {
+      "property": "limits_respected"
+    },
+    {
+      "property": "loads_safe"
+    },
+    {
+      "property": "citations_valid"
+    },
+    {
+      "property": "goal_fit"
+    },
+    {
+      "property": "progression_present"
+    },
+    {
+      "property": "variety_and_balance"
+    },
+    {
+      "property": "rationale_quality"
+    }
+  ],
+  "injectionPayload": []
+}
