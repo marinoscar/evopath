@@ -41,6 +41,8 @@ model User {
   equipmentTypes         EquipmentType[]
   exercises              Exercise[]
   workouts               Workout[]
+  programs               Program[]
+  programChanges         ProgramChangeLog[]
   trainingPlanRuns       TrainingPlanRun[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
@@ -390,8 +392,8 @@ model StorageObject {
   updatedAt       DateTime            @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  uploadedBy   User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
-  chunks       StorageObjectChunk[]
+  uploadedBy    User?                @relation("UserStorageObjects", fields: [uploadedById], references: [id], onDelete: SetNull)
+  chunks        StorageObjectChunk[]
   intakePhotos  PhotoIntakePhoto[]
   gymPhotos     GymPhoto[]
   workoutPhotos WorkoutPhoto[]
@@ -2740,6 +2742,7 @@ model Gym {
   equipment GymEquipment[]
   photos    GymPhoto[]
   workouts  Workout[]
+  programs  Program[]
 
   @@index([userId])
   @@map("gyms")
@@ -2754,7 +2757,7 @@ model Capability {
   description     String?
   sortOrder       Int      @default(0) @map("sort_order")
 
-  equipmentTypes EquipmentTypeCapability[]
+  equipmentTypes       EquipmentTypeCapability[]
   exerciseRequirements ExerciseRequirement[]
 
   @@map("capabilities")
@@ -2771,11 +2774,12 @@ model EquipmentType {
   ownerUserId String?  @map("owner_user_id") @db.Uuid // null = seeded catalog; set = that user's custom equipment
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  owner        User?                     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  capabilities EquipmentTypeCapability[]
-  gymEquipment GymEquipment[]
+  owner                User?                     @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  capabilities         EquipmentTypeCapability[]
+  gymEquipment         GymEquipment[]
   exerciseRequirements ExerciseRequirement[]
-  workoutExercises WorkoutExercise[]
+  workoutExercises     WorkoutExercise[]
+  programExercises     ProgramExercise[]
 
   @@index([ownerUserId])
   @@map("equipment_types")
@@ -2869,9 +2873,10 @@ model Exercise {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  owner        User?                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  requirements ExerciseRequirement[]
+  owner            User?                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  requirements     ExerciseRequirement[]
   workoutExercises WorkoutExercise[]
+  programExercises ProgramExercise[]
 
   @@index([ownerUserId])
   @@index([movementPattern])
@@ -2912,15 +2917,16 @@ model Workout {
   durationSeconds   Int?      @map("duration_seconds")
   gymId             String?   @map("gym_id") @db.Uuid
   notes             String?
-  programWorkoutId  String?   @map("program_workout_id") @db.Uuid // reserved for E5; deliberately not a foreign key
+  programWorkoutId  String?   @map("program_workout_id") @db.Uuid // the planned workout this one was started from (FK, SET NULL, in the E5.1 migration)
   readinessSnapshot Json?     @map("readiness_snapshot") // copy of the latest check-in at start; informational
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  gym       Gym?              @relation(fields: [gymId], references: [id], onDelete: SetNull)
-  exercises WorkoutExercise[]
-  photos    WorkoutPhoto[]
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gym            Gym?              @relation(fields: [gymId], references: [id], onDelete: SetNull)
+  programWorkout ProgramWorkout?   @relation(fields: [programWorkoutId], references: [id], onDelete: SetNull)
+  exercises      WorkoutExercise[]
+  photos         WorkoutPhoto[]
 
   @@index([userId, date(sort: Desc)])
   @@index([userId, status])
@@ -3085,4 +3091,168 @@ model TrainingRunEvent {
 
   @@unique([runId, seq])
   @@map("training_run_events")
+}
+
+// Training programs (E5.1): the plan tree, immutable versions and the change
+// log. Every content mutation flows through `ProgramsService.applyChange`.
+// Raw SQL in the migration (intentional drift, never `@@unique`):
+// `programs_one_active_per_user_uniq_idx` (one active program per user; Prisma
+// cannot express a partial unique index) and the CHECK constraints
+// `programs_status_chk`, `programs_goal_chk`, `programs_autonomy_chk`,
+// `program_workouts_weekday_chk`, `program_exercises_ranges_chk`. Blocks,
+// weeks and workouts are archived (`archivedAt`), not deleted, so history and
+// logged workouts keep resolving.
+model Program {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  name           String // 1..100, validated in Zod
+  goal           String // strength|hypertrophy|fat_loss|general|endurance|custom (CHECK in migration SQL)
+  status         String    @default("draft") // draft|active|paused|archived|completed (CHECK in migration SQL)
+  source         String    @default("manual") // ai|manual: how the first version was made
+  startDate      DateTime? @map("start_date") @db.Date
+  autonomy       String    @default("autonomous") // autonomous|ask_first (CHECK in migration SQL)
+  gymId          String?   @map("gym_id") @db.Uuid
+  intake         Json? // TrainingIntake snapshot for AI plans
+  currentVersion Int       @default(1) @map("current_version")
+  rationale      String? // <= 4000 chars, validated in Zod
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gym      Gym?               @relation(fields: [gymId], references: [id], onDelete: SetNull)
+  blocks   ProgramBlock[]
+  weeks    ProgramWeek[]
+  versions ProgramVersion[]
+  changes  ProgramChangeLog[]
+
+  @@index([userId, status])
+  @@map("programs")
+}
+
+model ProgramBlock {
+  id         String    @id @default(uuid()) @db.Uuid
+  programId  String    @map("program_id") @db.Uuid
+  position   Int
+  name       String
+  focus      String?
+  rationale  String?
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz
+
+  program Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
+  weeks   ProgramWeek[]
+
+  @@index([programId, position])
+  @@map("program_blocks")
+}
+
+// `programId` is denormalised from the block so a program's weeks are one
+// indexed read. Uniqueness of `weekNumber` among non-archived rows is a
+// service invariant (archived rows keep their number), not an index.
+model ProgramWeek {
+  id         String    @id @default(uuid()) @db.Uuid
+  programId  String    @map("program_id") @db.Uuid
+  blockId    String    @map("block_id") @db.Uuid
+  weekNumber Int       @map("week_number") // 1-based, program-wide
+  isDeload   Boolean   @default(false) @map("is_deload")
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz
+
+  program  Program          @relation(fields: [programId], references: [id], onDelete: Cascade)
+  block    ProgramBlock     @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  workouts ProgramWorkout[]
+
+  @@index([programId, weekNumber])
+  @@index([blockId])
+  @@map("program_weeks")
+}
+
+model ProgramWorkout {
+  id               String    @id @default(uuid()) @db.Uuid
+  weekId           String    @map("week_id") @db.Uuid
+  position         Int
+  weekday          Int? // ISO 1..7 (CHECK in migration SQL)
+  name             String
+  estimatedMinutes Int?      @map("estimated_minutes")
+  rationale        String?
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz
+
+  week      ProgramWeek       @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  exercises ProgramExercise[]
+  logged    Workout[]
+
+  @@index([weekId, position])
+  @@map("program_workouts")
+}
+
+model ProgramExercise {
+  id               String   @id @default(uuid()) @db.Uuid
+  programWorkoutId String   @map("program_workout_id") @db.Uuid
+  exerciseId       String   @map("exercise_id") @db.Uuid
+  position         Int
+  isPriority       Boolean  @default(false) @map("is_priority")
+  targetSets       Int      @map("target_sets") // 1..20 (CHECK in migration SQL)
+  repMin           Int      @map("rep_min")
+  repMax           Int      @map("rep_max") // 1 <= repMin <= repMax <= 100 (CHECK in migration SQL)
+  targetLoadKg     Decimal? @map("target_load_kg") @db.Decimal(7, 3) // canonical kg; null = choose a starting load or from history
+  targetRpe        Decimal? @map("target_rpe") @db.Decimal(3, 1) // 1..10 (CHECK in migration SQL)
+  restSeconds      Int      @map("rest_seconds") // 0..900 (CHECK in migration SQL)
+  loadGuidance     String   @default("choose_start") @map("load_guidance") // choose_start|from_history|fixed
+  rationale        String? // <= 300 chars, validated in Zod
+  evidenceRefs     String[] @default([]) @map("evidence_refs")
+  notes            String?
+
+  programWorkout  ProgramWorkout @relation(fields: [programWorkoutId], references: [id], onDelete: Cascade)
+  exercise        Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  equipmentType   EquipmentType? @relation(fields: [equipmentTypeId], references: [id])
+  equipmentTypeId String?        @db.Uuid
+
+  @@index([programWorkoutId, position])
+  @@index([exerciseId])
+  @@map("program_exercises")
+}
+
+// Immutable snapshot of the non-archived plan at one version. `runId` is a
+// plain column, deliberately not a foreign key: runs outlive programs.
+model ProgramVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  programId     String   @map("program_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  origin        String // initial|ai_create|ai_adapt|manual_edit|revert|duplicate
+  snapshot      Json
+  rationale     String?
+  evidence      Json     @default("[]")
+  runId         String?  @map("run_id") @db.Uuid
+  meta          Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, versionNumber])
+  @@map("program_versions")
+}
+
+model ProgramChangeLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  programId    String    @map("program_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  kind         String // created|adapted|edited|reverted
+  actor        String // ai|user
+  status       String    @default("applied") // applied|proposed|rejected|reverted|superseded|expired
+  fromVersion  Int?      @map("from_version")
+  toVersion    Int?      @map("to_version")
+  runId        String?   @map("run_id") @db.Uuid // plain column, no FK
+  summary      String // <= 300 chars, validated in Zod
+  rationale    String? // <= 2000 chars, validated in Zod
+  operations   Json      @default("[]")
+  citations    Json      @default("[]")
+  revertsLogId String?   @map("reverts_log_id") @db.Uuid
+  seenAt       DateTime? @map("seen_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  decidedAt    DateTime? @map("decided_at") @db.Timestamptz
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([programId, createdAt(sort: Desc)])
+  @@map("program_change_log")
 }

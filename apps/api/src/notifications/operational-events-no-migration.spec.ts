@@ -102,6 +102,10 @@ const MIGRATIONS_AT_288 = [
   // health snapshot. About the worker fleet, not notifications.
   '20260930100000_add_worker_node_vitals',
   '20260930110000_add_training_plan_runs',
+  // E5.1: `programs`, `program_blocks`, `program_weeks`, `program_workouts`,
+  // `program_exercises`, `program_versions`, `program_change_log` and the
+  // `workouts.program_workout_id` foreign key. Not about notifications.
+  '20260930120000_add_training_programs',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
