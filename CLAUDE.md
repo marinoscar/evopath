@@ -188,8 +188,9 @@ Design: [docs/specs/ai-platform.md](docs/specs/ai-platform.md). Recipe: [apps/ap
 3. **AI jobs are server-only, permanently.** Every `ai.*` job type implements neither `nodeResultSchema` nor `persistNodeResult`: a user's BYOK key and the org key are never brokered to a worker node. This is on top of the queue rules above.
 4. **Route guards.** Every consumer route under `/api/ai/*` sits behind `AiEnabledGuard` plus `ai:use`, except `GET /api/ai/config`, which stays open. Every admin route under `/api/admin/ai/*` requires `ai_config:read`/`ai_config:write` and is deliberately **not** behind `AiEnabledGuard`, so an administrator can always turn AI back on.
 5. **New AI settings cards follow the Settings UI Pattern and declare `feature: 'ai'`**, so they are hidden while AI is off. The one exception is the admin `AI` card (`/admin/settings/ai`): it is where AI is switched on, so it carries no `feature`.
+6. **Orchestration libraries stay above the gateway.** `@langchain/langgraph` and `@langchain/core` may be imported only under `apps/api/src/training-agents/`; every model call still goes through `AiService.forUser`; never install a `@langchain/<provider>` package, `langchain`, `langsmith` or `@ai-sdk/*`. Guardrail: `apps/api/test/ai/ai-orchestration-boundary.spec.ts`.
 
-Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secret egress, key policy, jobs server-only, no SDK leak), the per-provider SDK boundary specs and `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` discover routes, job types and cards automatically; see [ai-platform.md §5](docs/specs/ai-platform.md#5-guardrails).
+Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secret egress, key policy, jobs server-only, no SDK leak, orchestration boundary), the per-provider SDK boundary specs and `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` discover routes, job types and cards automatically; see [ai-platform.md §5](docs/specs/ai-platform.md#5-guardrails).
 
 ## MANDATORY: Invariants that are easy to break
 

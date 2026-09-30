@@ -130,6 +130,12 @@ async summarize(userId: string, text: string) {
 }
 ```
 
+Orchestration libraries (`@langchain/langgraph`, `@langchain/core`) are
+allowed above `AiService` in `apps/api/src/training-agents/` only; a graph
+node still calls `forUser` for every model call, and no provider or
+agent-framework package is installed. See the decision in
+[the spec's design decisions](../../../../docs/specs/ai-platform.md#6-design-decisions).
+
 No SDK, no key, no policy check of your own — `forUser` runs the full gate
 pipeline (kill switch, provider/model enablement, capability match, key
 resolution, the `ai.limits` rate limits and output-token clamp — see below),

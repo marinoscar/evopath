@@ -895,7 +895,8 @@ guardrails below discover all of these automatically.
 | Sentinel keys (admin, this user, another user) never appear in bodies, headers, logs, audit `meta`, usage rows, run rows or errors; the ephemeral secret only in `data.clientSecret` | `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
 | The byok/fallback/keyless resolution rule over every inference route, sync and queued | `apps/api/test/ai/ai-key-policy.integration.spec.ts` |
 | Every `ai.*` job type is in `JobHandlerRegistry.serverOnlyTypes()` | `apps/api/test/ai/ai-jobs-server-only.spec.ts` |
-| No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src` | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` |
+| No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src`; the banned list includes the `@langchain/<provider>` packages, `@langchain/community`, `langchain`, `ai` and the `@ai-sdk/` scope | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` |
+| Orchestration packages (`@langchain/langgraph`, `@langchain/langgraph-checkpoint`, `@langchain/core`) are imported only under `apps/api/src/training-agents/`, never by `apps/web/src` | `apps/api/test/ai/ai-orchestration-boundary.spec.ts` |
 | No provider SDK in `ai/core` | `apps/api/src/ai/core/no-provider-sdk.spec.ts` |
 | Each SDK confined to its folder(s) | `apps/api/src/ai/providers/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
 | AI registry cards carry the exact permission their controller enforces | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` |
@@ -913,7 +914,20 @@ guardrails below discover all of these automatically.
 
 - **Owned contract, not the Vercel AI SDK or LangChain.** The governance
   model (two keys, a resolution invariant, per-user reachability, kill
-  switch, audit) is this template's. An adapter may use any SDK internally.
+  switch, audit) is this template's, and the owned contract is the gateway
+  (`AiService`). An adapter may use any SDK internally. An orchestration
+  library may sit above the gateway (next bullet); it is never the contract
+  and never a provider client.
+- **Orchestration above the gateway, providers below it.** An orchestration
+  library (`@langchain/langgraph`) may sit above `AiService` in
+  `apps/api/src/training-agents/`; it never talks to a provider. Every model
+  call still goes through `AiService.forUser`, so keys, the kill switch,
+  capabilities, limits and usage rows stay in one place. Provider and
+  agent-framework packages stay banned. `LangGraphRunner` is the runner that
+  shipped (the hand-rolled fallback was not needed); its checkpoints live in
+  the Prisma-owned `training_run_checkpoints` and
+  `training_run_checkpoint_writes` tables. The consumer of the runner is the
+  future spec ai-training-plans.md.
 - **Responses-shaped, not lowest-common-denominator chat.** A bare
   `chat(messages)` cannot express reasoning, hosted tools, structured output
   or background semantics.
