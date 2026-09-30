@@ -17,6 +17,8 @@ import { DatabaseRestoreRunHandler } from './handlers/db-restore-run.handler';
 import { PgJobRoleBroker } from './pg-job-role.broker';
 import { DatabaseRestorePreflightService } from './restore-preflight.service';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
+import { BackupPgClientDoctorCheck } from './doctor/backup-pg-client.doctor-check';
+import { BackupScheduleDoctorCheck } from './doctor/backup-schedule.doctor-check';
 
 // =============================================================================
 // DbBackupModule (issues #281, #282, #283 and #284, epic #254)
@@ -288,6 +290,9 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
     PgJobRoleBroker,
     DatabaseRestorePreflightService,
     DatabaseRestoreService,
+    // Doctor checks (#634): read-only — never the backup or restore paths.
+    BackupScheduleDoctorCheck,
+    BackupPgClientDoctorCheck,
   ],
   exports: [DatabaseBackupRunnerService, DatabaseBackupRetentionService],
 })

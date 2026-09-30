@@ -13,6 +13,7 @@ import { JobsModule } from './jobs.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
+import { DoctorModule } from '../doctor/doctor.module';
 import { PrismaService } from '../prisma/prisma.service';
 
 // -----------------------------------------------------------------------------
@@ -204,6 +205,9 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
         ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
         EventEmitterModule.forRoot(),
         PrismaModule,
+        // `@Global()` in the app: `JobsModule`'s doctor checks (#634) inject its
+        // registry, so a graph built without `AppModule` must supply it too.
+        DoctorModule,
         JobsModule,
       ],
     })

@@ -20,6 +20,8 @@ import { ProviderThrottleService } from './provider-throttle.service';
 import { JobHistoryPurgeTask } from './tasks/job-history-purge.task';
 import { JobStuckResetTask } from './tasks/job-stuck-reset.task';
 import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
+import { JobsBacklogDoctorCheck } from './doctor/jobs-backlog.doctor-check';
+import { JobsWorkerDoctorCheck } from './doctor/jobs-worker.doctor-check';
 
 // =============================================================================
 // JobsModule (issues #259 - #265, epic #254)
@@ -209,6 +211,9 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
     JobStuckResetTask,
     JobHistoryPurgeTask,
     TempFileJanitorTask,
+    // Doctor checks (#634) — they inject the @Global doctor registry.
+    JobsWorkerDoctorCheck,
+    JobsBacklogDoctorCheck,
   ],
   exports: [
     JobHandlerRegistry,
