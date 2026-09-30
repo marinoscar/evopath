@@ -652,6 +652,16 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
 
     if (moved.count === 0) return change.status;
 
+    // A proposal can only be decided while its run waits: a run that ended
+    // any other way closes it (cancelled: declined; otherwise superseded),
+    // so it never blocks the next evaluation.
+    if (run.kind === 'evaluate' && change.status !== 'succeeded') {
+      await this.prisma.programChangeLog.updateMany({
+        where: { runId: run.id, status: 'proposed' },
+        data: { status: change.status === 'cancelled' ? 'rejected' : 'superseded', decidedAt: new Date() },
+      });
+    }
+
     const tokens = usage ? usage.total : parseRunUsage(run.usage).total;
 
     if (change.status === 'cancelled') {

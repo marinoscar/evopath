@@ -22,24 +22,19 @@ const stages = (h: ReturnType<typeof createNodeContextHarness>) =>
   (h.events.events.get(h.runId) ?? []).filter((e) => e.type === 'stage.started').map((e) => e.data.node);
 
 describe('training graphs on stub nodes', () => {
-  it('every create node is implemented and the create graph is ready; evaluate is not yet', () => {
+  it('every node of both graphs is implemented and both graphs are ready', () => {
     const implemented = [...Object.values(CREATE_GRAPH_NODES), ...Object.values(EVALUATE_GRAPH_NODES)]
       .filter((node) => node.implemented)
       .map((node) => node.name);
     expect(implemented).toEqual(Object.keys(STUB_AGENT_NODES));
-    // The evaluator's deterministic nodes ship first; the rest are stubs until the evaluator does.
-    expect(
-      Object.values(EVALUATE_GRAPH_NODES)
-        .filter((node) => !node.implemented)
-        .map((node) => node.name),
-    ).toEqual(['evaluate', 'envelope', 'critique_light', 'decide', 'record_review', 'record_proposal', 'await_approval', 'apply', 'notify']);
-    expect(TRAINING_GRAPH_READY).toEqual({ create: true, evaluate: false });
+    expect(Object.values(EVALUATE_GRAPH_NODES).filter((node) => !node.implemented)).toEqual([]);
+    expect(TRAINING_GRAPH_READY).toEqual({ create: true, evaluate: true });
     expect(graphForKind('create')).toBe('create');
     expect(graphForKind('revise')).toBe('create');
     expect(graphForKind('evaluate')).toBe('evaluate');
     expect(isGraphReady('create')).toBe(true);
     expect(isGraphReady('revise')).toBe(true);
-    expect(isGraphReady('evaluate')).toBe(false);
+    expect(isGraphReady('evaluate')).toBe(true);
   });
 
   it('create: runs every node once in order, the stub critic approves, and finalize records the outcome', async () => {

@@ -200,7 +200,8 @@ describe('/api/ai/training/runs and /stream', () => {
   });
 
   describe('POST /runs', () => {
-    it('501 TRAINING_NOT_IMPLEMENTED while a kind\'s graph is not ready (evaluate), and creates nothing', async () => {
+    it('501 TRAINING_NOT_IMPLEMENTED while a kind\'s graph is not ready, and creates nothing', async () => {
+      TRAINING_GRAPH_READY.evaluate = false;
       const res = await request(server())
         .post('/api/ai/training/runs')
         .set(as(alice))
@@ -211,6 +212,14 @@ describe('/api/ai/training/runs and /stream', () => {
       expect(JSON.stringify(res.body)).toContain('evaluate');
       expect(db.runs.size).toBe(0);
       expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+
+    it('evaluate runs are available: without an active plan the answer is 404, never 501', async () => {
+      const res = await request(server()).post('/api/ai/training/runs').set(as(alice)).send({ kind: 'evaluate', input: {} });
+
+      expect(res.status).toBe(404);
+      expect(JSON.stringify(res.body)).not.toContain('TRAINING_NOT_IMPLEMENTED');
+      expect(db.runs.size).toBe(0);
     });
 
     it('urgent text in a create intake: 200 blocked_safety with the fixed guidance, zero provider calls, no job', async () => {

@@ -26,7 +26,7 @@ import { graphForKind, isGraphReady } from '../graph/training-graphs';
 import { effectiveTokenCap } from '../models/token-estimate';
 import { TrainingModelResolver } from '../models/training-model-resolver.service';
 import { runnable } from '../models/training-models.service';
-import { TRAINING_KIND_ROLES } from '../models/training-role-defaults';
+import { TRAINING_KIND_OPTIONAL_ROLES, TRAINING_KIND_ROLES } from '../models/training-role-defaults';
 import {
   type ListTrainingRunsQuery,
   type StartTrainingRunInput,
@@ -164,6 +164,18 @@ export class TrainingRunsService {
       };
     }
 
+    for (const role of TRAINING_KIND_OPTIONAL_ROLES[kind]) {
+      const resolution = roles[role];
+      if (!runnable(resolution) || !resolution.model) continue;
+      roleModels[role] = {
+        provider: resolution.model.provider,
+        modelId: resolution.model.modelId,
+        effort: resolution.effectiveEffort,
+        keySource: resolution.model.keySource,
+        ...limits(resolution.model.provider, resolution.model.modelId),
+      };
+    }
+
     let evaluateProgramId: string | null = null;
     if (kind === 'evaluate') {
       evaluateProgramId = await this.evaluateTarget(userId, programId);
@@ -285,6 +297,11 @@ export class TrainingRunsService {
     const run = await this.load(userId, runId);
 
     if (finished.count > 0) {
+      // An open proposal of the cancelled run is declined (it never blocks the next evaluation).
+      if (run.kind === 'evaluate') await this.prisma.programChangeLog.updateMany({
+        where: { runId, userId, status: 'proposed' },
+        data: { status: 'rejected', decidedAt: now },
+      });
       await this.events.emit(runId, 'run.cancelled', {});
       await auditTrainingRun(this.prisma, this.logger, userId, TRAINING_RUN_AUDIT_ACTIONS.CANCEL, {
         runId,
