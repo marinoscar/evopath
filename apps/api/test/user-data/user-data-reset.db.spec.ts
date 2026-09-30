@@ -1,0 +1,239 @@
+// =============================================================================
+// `user.data_reset` on the real database (issue #202)
+// =============================================================================
+//
+// What a mocked Prisma cannot prove: that the deletion order satisfies every
+// real foreign key (the RESTRICTs on custom exercises and equipment, the
+// measurement revision chain's self-RESTRICT), that the cascades remove what
+// the handler relies on them removing, that the explicit checkpoint delete
+// catches rows with no FK, and that everything the handler must KEEP (the
+// account, its identity, its session, another user's data) survives.
+//
+// THIS IS A `*.db.spec.ts` FILE: skipped with a warning when no Postgres is
+// reachable; see `test/jobs/db-test-support.ts`. Needs a migrated database.
+// =============================================================================
+
+import { randomUUID } from 'node:crypto';
+
+import type { Job, PrismaClient } from '@prisma/client';
+
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { UserDataResetHandler } from '../../src/user-data/handlers/user-data-reset.handler';
+import { USER_DATA_RESET_TYPE } from '../../src/user-data/user-data.constants';
+import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+
+const { describeWithDb } = resolveDbSuite('user-data-reset.db.spec');
+
+describeWithDb('user.data_reset (real Postgres)', () => {
+  let client: PrismaClient;
+  const tag = randomUUID().slice(0, 8);
+  const userIds: string[] = [];
+
+  beforeAll(() => {
+    client = createDbClient();
+  });
+
+  afterAll(async () => {
+    await client.job.deleteMany({ where: { subjectId: { in: userIds } } });
+    await client.storageObject.deleteMany({ where: { uploadedById: { in: userIds } } });
+    await client.auditEvent.deleteMany({ where: { targetId: { in: userIds } } });
+    await client.workout.deleteMany({ where: { userId: { in: userIds } } });
+    await client.user.deleteMany({ where: { id: { in: userIds } } });
+    await client.$disconnect();
+  });
+
+  async function user(label: string): Promise<string> {
+    const row = await client.user.create({
+      data: { email: `reset-${label}-${randomUUID().slice(0, 8)}-${tag}@example.com`, displayName: 'Custom Name' },
+    });
+    userIds.push(row.id);
+    return row.id;
+  }
+
+  async function storageObject(userId: string, key: string) {
+    return client.storageObject.create({
+      data: {
+        name: `${key}.jpg`,
+        size: BigInt(10),
+        mimeType: 'image/jpeg',
+        storageKey: `test/${tag}/${key}-${randomUUID()}`,
+        status: 'ready',
+        uploadedById: userId,
+      },
+    });
+  }
+
+  it('deletes the user data in FK order, keeps the account and other users, and tolerates a storage failure', async () => {
+    const a = await user('a');
+    const b = await user('b');
+
+    // --- Account rows that must survive ------------------------------------
+    await client.userIdentity.create({
+      data: { userId: a, provider: 'google', providerSubject: `sub-${tag}` },
+    });
+    await client.refreshToken.create({
+      data: { userId: a, tokenHash: `rt-${tag}`, expiresAt: new Date(Date.now() + 86_400_000) },
+    });
+
+    // --- A's data ------------------------------------------------------------
+    await client.userSettings.create({
+      data: { userId: a, value: { theme: 'dark', profile: { imageSource: 'provider', imageObjectId: null } } },
+    });
+    await client.healthProfile.create({ data: { userId: a } });
+
+    // A measurement revision chain (self-FK ON DELETE RESTRICT).
+    const entryId = randomUUID();
+    const first = await client.measurement.create({
+      data: { userId: a, entryId, metricKey: 'weight', value: 80, unit: 'kg', measuredAt: new Date(), supersededAt: new Date() },
+    });
+    await client.measurement.create({
+      data: { userId: a, entryId, metricKey: 'weight', value: 81, unit: 'kg', measuredAt: new Date(), revision: 2, supersedesId: first.id },
+    });
+
+    // Custom equipment used by A's gym (GymEquipment RESTRICT).
+    const equipment = await client.equipmentType.create({
+      data: { slug: `custom-eq-${tag}`, name: 'My sled', category: 'accessories', ownerUserId: a },
+    });
+    const gym = await client.gym.create({ data: { userId: a, name: 'Home' } });
+    await client.gymEquipment.create({ data: { gymId: gym.id, equipmentTypeId: equipment.id } });
+    const gymPhotoObject = await storageObject(a, 'gym');
+    await client.gymPhoto.create({ data: { gymId: gym.id, storageObjectId: gymPhotoObject.id } });
+    const brokenObject = await storageObject(a, 'broken');
+
+    // Two custom exercises: one only A uses, one B's workout also uses.
+    const privateExercise = await client.exercise.create({
+      data: { slug: `custom-a-${tag}`, name: 'A only', ownerUserId: a, primaryMuscles: ['quads'], movementPattern: 'squat' },
+    });
+    const sharedExercise = await client.exercise.create({
+      data: { slug: `custom-shared-${tag}`, name: 'Shared', ownerUserId: a, primaryMuscles: ['quads'], movementPattern: 'squat' },
+    });
+    const workoutA = await client.workout.create({
+      data: { userId: a, name: 'Leg day', date: new Date('2026-09-01'), startedAt: new Date(), status: 'completed', gymId: gym.id },
+    });
+    await client.workoutExercise.create({ data: { workoutId: workoutA.id, exerciseId: privateExercise.id, position: 0 } });
+    const workoutB = await client.workout.create({
+      data: { userId: b, name: 'B day', date: new Date('2026-09-01'), startedAt: new Date(), status: 'completed' },
+    });
+    await client.workoutExercise.create({ data: { workoutId: workoutB.id, exerciseId: sharedExercise.id, position: 0 } });
+
+    // Training: a run, its checkpoints (no FK), and a pending job about it.
+    const run = await client.trainingPlanRun.create({
+      data: { userId: a, kind: 'create', status: 'succeeded', input: {}, tokenCap: 100000 },
+    });
+    await client.trainingRunCheckpoint.create({
+      data: { threadId: run.id, checkpointId: 'c1', type: 'json', checkpoint: Buffer.from('{}'), metadata: Buffer.from('{}') },
+    });
+    const pendingAboutRun = await client.job.create({
+      data: { type: 'ai.training.plan.run', reason: 'rerun', subjectType: 'training_plan_run', subjectId: run.id },
+    });
+
+    await client.notification.create({ data: { userId: a, eventKey: 'x', title: 't', body: 'b' } });
+    await client.personalAccessToken.create({
+      data: {
+        userId: a,
+        name: 'cli',
+        tokenHash: `pat-${tag}`,
+        tokenPrefix: 'pat_x',
+        durationValue: 1,
+        durationUnit: 'days',
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    // --- B's data, which must be untouched ---------------------------------
+    await client.gym.create({ data: { userId: b, name: 'B gym' } });
+    await client.notification.create({ data: { userId: b, eventKey: 'x', title: 't', body: 'b' } });
+
+    // --- Run the reset -------------------------------------------------------
+    const job = await client.job.create({
+      data: {
+        type: USER_DATA_RESET_TYPE,
+        reason: 'rerun',
+        subjectType: 'user',
+        subjectId: a,
+        status: 'running',
+        payload: { userId: a },
+      },
+    });
+
+    const storage = {
+      delete: jest.fn(async (key: string) => {
+        if (key === brokenObject.storageKey) throw new Error('AccessDenied');
+      }),
+      abortMultipartUpload: jest.fn(),
+    };
+    const handler = new UserDataResetHandler(
+      new JobHandlerRegistry(),
+      client as never,
+      storage as never,
+    );
+
+    await handler.process(job as Job);
+
+    // --- Deleted -------------------------------------------------------------
+    for (const [label, count] of [
+      ['gyms', await client.gym.count({ where: { userId: a } })],
+      ['workouts', await client.workout.count({ where: { userId: a } })],
+      ['measurements', await client.measurement.count({ where: { userId: a } })],
+      ['healthProfile', await client.healthProfile.count({ where: { userId: a } })],
+      ['runs', await client.trainingPlanRun.count({ where: { userId: a } })],
+      ['checkpoints', await client.trainingRunCheckpoint.count({ where: { threadId: run.id } })],
+      ['notifications', await client.notification.count({ where: { userId: a } })],
+      ['pats', await client.personalAccessToken.count({ where: { userId: a } })],
+      ['settings', await client.userSettings.count({ where: { userId: a } })],
+      ['privateExercise', await client.exercise.count({ where: { id: privateExercise.id } })],
+      ['equipment', await client.equipmentType.count({ where: { id: equipment.id } })],
+      ['gymPhotoObject', await client.storageObject.count({ where: { id: gymPhotoObject.id } })],
+      ['pendingJob', await client.job.count({ where: { id: pendingAboutRun.id } })],
+    ] as const) {
+      expect({ label, count }).toEqual({ label, count: 0 });
+    }
+
+    // --- Kept ----------------------------------------------------------------
+    const account = await client.user.findUniqueOrThrow({ where: { id: a } });
+    expect(account.displayName).toBeNull();
+    expect(await client.userIdentity.count({ where: { userId: a } })).toBe(1);
+    expect(await client.refreshToken.count({ where: { userId: a } })).toBe(1);
+    // Still referenced by B's workout: kept rather than failing the reset.
+    expect(await client.exercise.count({ where: { id: sharedExercise.id } })).toBe(1);
+    // The provider refused it: the row stays so a later reset can retry.
+    expect(await client.storageObject.count({ where: { id: brokenObject.id } })).toBe(1);
+    // B is untouched.
+    expect(await client.gym.count({ where: { userId: b } })).toBe(1);
+    expect(await client.workout.count({ where: { userId: b } })).toBe(1);
+    expect(await client.notification.count({ where: { userId: b } })).toBe(1);
+
+    // --- Result and audit ----------------------------------------------------
+    const done = await client.job.findUniqueOrThrow({ where: { id: job.id } });
+    const result = (done.payload as { result: Record<string, number> }).result;
+    expect(result).toMatchObject({
+      gyms: 1,
+      workouts: 1,
+      measurements: 2,
+      healthProfiles: 1,
+      trainingRuns: 1,
+      trainingCheckpoints: 1,
+      customExercises: 1,
+      customEquipment: 1,
+      notifications: 1,
+      accessTokens: 1,
+      userSettings: 1,
+      cancelledJobs: 1,
+      storageObjectsDeleted: 1,
+      storageObjectsFailed: 1,
+    });
+    expect(
+      await client.auditEvent.count({ where: { targetId: a, action: 'user.data_reset.completed' } }),
+    ).toBe(1);
+
+    // --- Retry-safe: a second run deletes nothing more and keeps the counts --
+    const again = await client.job.findUniqueOrThrow({ where: { id: job.id } });
+    await handler.process(again);
+    const rerun = await client.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect((rerun.payload as { result: Record<string, number> }).result).toMatchObject({
+      gyms: 1,
+      measurements: 2,
+      storageObjectsFailed: 1,
+    });
+  });
+});
