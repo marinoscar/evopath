@@ -32,6 +32,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
       prod.compose.yml        # resource limits, restart policies
       vps.compose.yml         # behind a shared host proxy
       vps.telemetry.compose.yml # VPS hardening for the telemetry stack
+      fake-ai.compose.yml     # fake AI providers for e2e (no key)
       test.compose.yml        # disposable real-database test Postgres
       worker.compose.yml      # worker node containers, scalable
       worker.build.compose.yml # build worker image from source

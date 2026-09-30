@@ -136,6 +136,10 @@ node still calls `forUser` for every model call, and no provider or
 agent-framework package is installed. See the decision in
 [the spec's design decisions](../../../../docs/specs/ai-platform.md#6-design-decisions).
 
+For an agent workflow (a graph, a critic loop, a queue job) copy
+[the quick-adaptation recipe](#adding-an-agent-graph-feature-like-quick-adaptation)
+rather than building on `forUser` from scratch.
+
 No SDK, no key, no policy check of your own — `forUser` runs the full gate
 pipeline (kill switch, provider/model enablement, capability match, key
 resolution, the `ai.limits` rate limits and output-token clamp — see below),
@@ -627,6 +631,92 @@ Do not import `@langchain/langgraph` or `@langchain/core` outside
 `training-agents/`, and never from a node or an agent (only the graph files, the
 runner and the checkpoint saver build on it), and never add a provider or agent-framework package (`ai-orchestration-boundary.spec.ts`).
 
+## Adding an agent graph feature like quick adaptation
+
+Quick adaptation (`apps/api/src/training-adaptation/`, design in
+[the spec, §2.13](../../../../docs/specs/ai-training-plans.md#213-quick-adaptation-and-travel-workouts))
+is the smallest complete feature built on the runtime kit: a request, a graph
+with one conditional critic loop, a queue job, deterministic rules after the
+model, two apply routes and a purge. Copy its shape. It demonstrates:
+
+- **A graph with a conditional critic loop.** `context`, `adapt`, `guardrails`,
+  `critic`, at most one revise, `finalize`; the routes are pure functions
+  (`graph/routes.ts`).
+- **Per-role models.** The planner and critic models are the administrator's
+  assignments for `training.planner` and `training.critic`, resolved by
+  `TrainingModelResolver` and frozen on the run at create (409
+  `TRAINING_ROLE_UNAVAILABLE` when a role is unusable, with a fix an admin
+  applies at `/admin/settings/ai/assignments`).
+- **Attributable usage.** The handler calls `AiService.forUser(userId, { jobId })`
+  and every node goes through `AgentCaller` with a `role` and `node`, so
+  usage is reported per node and role.
+- **Terminal-code mapping and rate-limit deferral.** Expected AI refusals fail
+  the adaptation and the job returns; `AI_RATE_LIMITED` returns both to
+  `queued` and defers the job, and the graph resumes from its checkpoint.
+- **Guardrails after the model.** Keys are checked, numbers clamped, the time
+  estimate recomputed; the model never supplies a load.
+- **A minimisation builder whose output is also the preview.** One object,
+  `sent`, feeds both the prompt and the "What will be sent" panel.
+- **Idempotent apply** and an **enqueue-only purge cron**.
+
+Steps:
+
+1. **The table and the run kind.** Add the feature's row (a migration) and, if it
+   needs a kit run for progress, cancel and usage, a run `kind` (`ADAPT_RUN_KIND`
+   in `training-agents/runtime/training-runs.constants.ts`; the migration
+   `allow_adapt_training_run_kind` widens the check constraint). Put any "one
+   active per user" rule in a raw-SQL partial unique index and match its name in
+   the error handler, never a `findFirst` pre-check (see `isActiveAdaptationConflict`).
+   Adapt runs are excluded from the plan-run index so they never queue behind a plan.
+2. **Constants in one file.** `adaptation.constants.ts` holds the job types
+   (permanent once used), stage and warning codes, request and contract limits,
+   the rule numbers and the token cap. The rules table in the spec is rendered
+   from it; tune numbers there only.
+3. **The request and the contracts.** A strict Zod DTO
+   (`dto/adaptation-request.dto.ts`) and two schemas in `contracts/`: the loose
+   strict-mode model schema sent to the provider (keys, not ids; no load field;
+   loose numeric bounds, because the guardrails repair rather than fail the
+   whole answer) and the tight stored schema.
+4. **The minimised context.** One pure builder (`context/build-adaptation-context.ts`)
+   copies an allow-list of fields into `sent`, renders the summary from `sent`
+   and keeps ids, loads and requirement groups in server-only `facts`. Check every
+   new source against `training-agents/context/never-send.ts` and add a canary.
+5. **Prompts and markers.** Prompts open with the safety block and the
+   untrusted-data block (`training-agents/agents/shared/prompt-blocks.ts`), and put
+   user text only inside `contextBlock(...)`. Keep literals other code depends on
+   (the `<context-json>` markers, the structured-output schema names) in one
+   `prompts/markers.ts` and pin them with a contract spec. Bump the prompt version
+   when the text changes.
+6. **Nodes.** Plain async functions `(state, ctx) => update` in
+   `graph/nodes/`, with no LangGraph import. Call models only through `ctx.agent`;
+   register each event type in `graph/events.ts` with a strict schema of
+   counts, enums and codes.
+7. **The graph definition.** `graph/<name>.graph.ts` exports an
+   `AdaptGraphDefinition`-style object of `nodes` and `routes`. The LangGraph
+   wiring (state channels, edges, the checkpointed runner) lives under
+   `training-agents/graph/adapt-graph.ts` because CLAUDE.md AI rule 6 keeps
+   LangGraph there; the feature injects its nodes and imports nothing from
+   LangGraph. A different graph shape gets its own kit file beside it, following
+   that one.
+8. **The job handler.** Register the handler in `onModuleInit`, declare a
+   `profile` (`{ maxRuntimeMs, maxAttempts: 1 }` for a model call), and give it no
+   `nodeResultSchema` or `persistNodeResult`: an `ai.*` job is server-only. Map
+   outcomes as `AdaptationRunHandler` documents: terminal codes fail the row and
+   return, a throttle defers, a deadline fails `*_TIMEOUT`, anything else throws,
+   and a settle safety net fails an orphaned row `*_RUN_LOST`. Emit ids, statuses
+   and codes only: no prompt, model output, user text or key.
+9. **The service and routes.** Create the row, the kit run and the job in one
+   transaction; stop urgent free text before any run exists (`200 blocked_safety`,
+   nothing stored); scope every query to the caller (`404` for another user's id);
+   put `AiEnabledGuard` and `@Auth({ permissions: [ai:use, ...] })` on every route
+   (`/api/ai/*`, AI rules 3 and 4). Apply re-runs the guardrails against current
+   data, is idempotent and claims the row with a conditional update.
+10. **Purge.** A `@Cron` that only enqueues (`enqueueHousekeepingJob`) and a batched
+    handler. `test/jobs/cron-enqueue-only.spec.ts` discovers it.
+11. **Tests.** See the next section. The `test/ai/` guard suites discover the
+    routes and the job type with no edit; add an entry only for a new fixture the
+    kill-switch suite needs.
+
 ## Testing without a real provider
 
 - **`FakeAiProvider`** (`testing/fake-ai-provider.ts`) implements
@@ -684,6 +774,27 @@ runner and the checkpoint saver build on it), and never add a provider or agent-
   unless its thought signature came back). `openai.adapter.live.spec.ts` is the separate, opt-in suite
   that hits the real OpenAI API. `FakeAiProvider` takes
   `supportsPreviousResponseId: false` to drive the full-history tool loop.
+- **Agent graphs.** `createAdaptationGraphHarness()`
+  (`training-adaptation/testing/adaptation-graph-harness.ts`) runs the adapt
+  graph over `FakeAiProvider` with scripted planner and critic answers:
+  `plannerAnswers([...])` and `criticAnswers([...])` return the i-th answer on
+  the i-th call (the last repeats) and record each request in `seen`. It
+  exposes `runGraph`, `runNode`, `calls()`, `events`, `abort()` and takes
+  `{ request, context, scripts, tokenCap, roleModels }`; fixtures are in
+  `adaptation-fixtures.ts` (`UPPER_A`, `adaptationContextFixture`,
+  `onlyDumbbellsRequest`, `proposalAnswer`, `ACCEPT`, `REVISE_MAJOR`). Use
+  `createAdaptationRig` (`adaptation-rig.ts`) to run the service and handler
+  over an in-memory store. Assert on what the fake received (`calls()`), for
+  example that the context sits between the markers and that no private value
+  appears in a request. A new graph gets the same three parts: a harness over
+  `createAiRuntimeHarness`, an in-memory checkpointer
+  (`training-agents/testing/adapt-graph-support.ts`) and scripted answers.
+- **The running stack.** A fake OpenAI-compatible or Responses HTTP server under
+  `tests/e2e/` stands in for a provider so Playwright can drive the whole flow
+  with no key; see
+  [TESTING.md](../../../../docs/TESTING.md#quick-adaptation-suites-and-the-fake-provider-e2e).
+  The prompt markers and schema names it relies on are pinned by
+  `adaptation-prompts.contract.spec.ts`.
 - **`InMemoryAiKeysPrisma`** (`testing/in-memory-ai-keys-prisma.ts`) backs
   the harness's key storage for tests that need `user_ai_keys`/credential
   behaviour without a real database.
