@@ -2002,7 +2002,7 @@ job) from one or more tables.
 | Group | Families (tiles, series) | Ratios | Tables |
 |---|---|---|---|
 | `host` | CPU utilization (`1 − idle`, averaged over CPUs), memory utilization (`state = used`), load 1m, filesystem utilization per mountpoint, disk IO bytes/s, network IO bytes/s (collector namespace, §11.2) | — | Filesystems: used %, used and free bytes |
-| `database` | Connections, max connections, size per database, commits/s, rollbacks/s, deadlocks | Connections used %, cache hit ratio (`hit ÷ (hit + read)` of increases) | Largest tables by size (top 50) |
+| `database` | Connections, max connections, size per database, commits/s, rollbacks/s, deadlocks | Connections used %, cache hit ratio (`hit ÷ (hit + read)` of increases) | Largest tables by size (up to 500) |
 | `queue` | Queue depth (tiles `pending`, `running`), oldest pending job (max over types), jobs settled/min by outcome, job duration p95 (histogram), last successful backup (hours ago) | Job failure ratio (`failed ÷ (succeeded + failed)`) | Job types: pending, running, oldest pending, succeeded, failed, duration p95 |
 | `nodes` | Nodes by health (tiles `healthy`, `stale`, `offline`), job types without an eligible node | — | Nodes: CPU cores, RSS, heap used/limit and %, state-dir free/size and free %, slots; node-offered job types |
 | `uptime` | Check duration per URL, TLS days left per URL, nginx requests/s, nginx connections by state (tile `active`) | — | Uptime targets: up, status code, checks, failed checks, last error, duration, TLS days left |
@@ -2062,8 +2062,12 @@ traces' instance filter.
 family statement covers the previous and current windows and is capped at
 rows per group × 20 groups + 1 (`METRIC_MAX_GROUPS`, ordered by group so the
 cut drops whole trailing groups); a table at 50 keys
-(`METRIC_TABLE_MAX_ROWS`, key-major order so no part is cut); a histogram at
-4,000 rows. Any cut sets `truncated`. The route shares the dashboard's flow
+(`METRIC_TABLE_MAX_ROWS`, key-major order so no part is cut) unless its
+catalog spec sets its own `maxRows` — `largestTables` returns up to 500
+(`LARGEST_TABLES_MAX_ROWS`: every table of a realistic schema, still bounded)
+so the web can offer Top 10/20/50/All, while the assistant's
+`metrics_overview` still hands the model at most 20 rows per table; a
+histogram at 4,000 rows. Any cut sets `truncated`. The route shares the dashboard's flow
 (§11.6): preconditions, window, 15-second result cache keyed by
 `group`/`host` too, schema and distinct-value checks, one audit row
 (`route: "metrics"`) per store read. Each group runs 4–9 statements at once
@@ -2160,3 +2164,6 @@ on the reader pool.
   pipeline) over `/metrics`, each its own panel with "Open in Explorer" and
   "Ask assistant" and hidden when its group is not collected; the Host
   filter; verdict reasons linking to their section (§11.9, §11.10).
+- #176: per-table row caps in the metric catalog (`maxRows`, default 50);
+  `largestTables` returns up to 500 rows so the dashboard can show every
+  table (§11.14).

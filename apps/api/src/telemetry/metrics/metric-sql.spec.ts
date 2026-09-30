@@ -3,6 +3,7 @@ import { analyzeStatement, applyRowCap } from '../query/sql-guard';
 import { metricCatalogSchema, metricTableSchema } from '../testing/metric-schema.fixture';
 import {
   HOST_DISTINCT_TABLE,
+  LARGEST_TABLES_MAX_ROWS,
   METRIC_FAMILIES,
   METRIC_TABLES,
   metricTablesOf,
@@ -16,7 +17,9 @@ import {
   gaugeSeriesSql,
   histogramIncreaseSql,
   latestByKeySql,
+  METRIC_TABLE_MAX_ROWS,
   presentParts,
+  tableMaxRows,
   uptimeErrorsSql,
   uptimeStatusSql,
   type LatestPart,
@@ -114,6 +117,7 @@ describe('metric catalog SQL', () => {
       for (const filters of [NONE, FILTERED]) {
         const sql = latestByKeySql(tableParts(key, TABLES), FROM, TO, filters, {
           orderByValue: spec.orderByValue,
+          maxKeys: tableMaxRows(spec),
         })!;
         expect(sql).toMatchSnapshot();
         expectGuarded(sql);
@@ -152,6 +156,19 @@ describe('metric catalog SQL', () => {
     expect(() =>
       latestByKeySql(tableParts('nodes', TABLES), FROM, TO, NONE, { orderByValue: true })
     ).toThrow(RangeError);
+  });
+
+  it('caps largestTables at its own maxRows, every other table at the default (#176)', () => {
+    const largest = METRIC_TABLES.find((t) => t.key === 'largestTables')!;
+    expect(tableMaxRows(largest)).toBe(LARGEST_TABLES_MAX_ROWS);
+    const sql = latestByKeySql(tableParts('largestTables', TABLES), FROM, TO, NONE, {
+      orderByValue: true,
+      maxKeys: tableMaxRows(largest),
+    })!;
+    expect(sql).toMatch(new RegExp(`ORDER BY v DESC, k LIMIT ${LARGEST_TABLES_MAX_ROWS + 1}$`));
+    expect(sql).toMatch(/LIMIT 501$/);
+    for (const spec of METRIC_TABLES.filter((t) => t.key !== 'largestTables'))
+      expect(tableMaxRows(spec)).toBe(METRIC_TABLE_MAX_ROWS);
   });
 
   it('partitions a counter by every tag column, so each series is diffed on its own', () => {

@@ -27,7 +27,7 @@ import {
   METRIC_HISTOGRAM_MAX_ROWS,
   METRIC_MAX_GROUPS,
   METRIC_MIN_BUCKET_SECONDS,
-  METRIC_TABLE_MAX_ROWS,
+  tableMaxRows,
   uptimeErrorsSql,
   uptimeStatusSql,
   type LatestPart,
@@ -688,14 +688,15 @@ export function buildTable(
   for (const [k, at] of seen) rows.get(k)!.lastSeenAt = new Date(at).toISOString();
 
   const keys = spec.orderByValue ? order : [...order].sort((a, b) => a.localeCompare(b));
+  const maxRows = tableMaxRows(spec);
   return {
     table: {
       key: spec.key,
       label: spec.label,
       columns,
-      rows: keys.slice(0, METRIC_TABLE_MAX_ROWS).map((k) => rows.get(k)!),
+      rows: keys.slice(0, maxRows).map((k) => rows.get(k)!),
     },
-    truncated: keys.length > METRIC_TABLE_MAX_ROWS,
+    truncated: keys.length > maxRows,
   };
 }
 
@@ -740,6 +741,7 @@ export async function computeMetricGroup(input: {
   const tableSql = specs.map((spec) => ({
     latest: latestByKeySql(tableParts(spec, tables), window.from, window.to, filters, {
       orderByValue: spec.orderByValue,
+      maxKeys: tableMaxRows(spec),
     }),
     status: spec.httpcheck
       ? uptimeStatusSql(
@@ -747,7 +749,8 @@ export async function computeMetricGroup(input: {
           window.from,
           window.to,
           filters,
-          spec.filters
+          spec.filters,
+          tableMaxRows(spec)
         )
       : null,
     errors: spec.httpcheck
@@ -756,7 +759,8 @@ export async function computeMetricGroup(input: {
           window.from,
           window.to,
           filters,
-          spec.filters
+          spec.filters,
+          tableMaxRows(spec)
         )
       : null,
   }));
