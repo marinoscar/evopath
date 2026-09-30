@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
+import { AppMetricsService } from '../common/otel/app-metrics.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -18,6 +19,7 @@ describe('AuthService', () => {
   let mockAdminBootstrap: jest.Mocked<AdminBootstrapService>;
   let mockAllowlistService: jest.Mocked<AllowlistService>;
   let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
+  let mockMetrics: { authLogin: jest.Mock; authRefresh: jest.Mock };
 
   const mockGoogleProfile: GoogleProfile = {
     id: 'google-123',
@@ -62,6 +64,11 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AdminBootstrapService, useValue: mockAdminBootstrap },
         { provide: AllowlistService, useValue: mockAllowlistService },
+        // #125: application metrics, stubbed so the outcome labels can be asserted.
+        {
+          provide: AppMetricsService,
+          useValue: (mockMetrics = { authLogin: jest.fn(), authRefresh: jest.fn() }),
+        },
         // #128 wired real notification triggers into this service. The
         // dispatcher is mocked here because these tests are about the
         // service's own behaviour, not about delivery — and because `notify`
@@ -1356,6 +1363,101 @@ describe('AuthService', () => {
       const result = await service.cleanupExpiredTokens();
 
       expect(result).toBe(0);
+    });
+  });
+
+  // #125: every sign-in and refresh outcome is counted with its label.
+  describe('application metrics', () => {
+    it('counts a successful Google login', async () => {
+      const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+      const mockUser = {
+        id: 'user-1',
+        email: mockGoogleProfile.email,
+        isActive: true,
+        userRoles: [{ role: mockRole }],
+      };
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      expect(mockMetrics.authLogin).toHaveBeenCalledTimes(1);
+      expect(mockMetrics.authLogin).toHaveBeenCalledWith('success');
+    });
+
+    it('counts an allowlist rejection, never with the address', async () => {
+      mockAllowlistService.isEmailAllowed.mockResolvedValue(false);
+
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(ForbiddenException);
+
+      expect(mockMetrics.authLogin).toHaveBeenCalledWith('allowlist_rejected');
+      expect(JSON.stringify(mockMetrics.authLogin.mock.calls)).not.toContain(mockGoogleProfile.email);
+    });
+
+    it('counts a disabled account', async () => {
+      const disabled = {
+        id: 'u',
+        email: mockGoogleProfile.email,
+        isActive: false,
+        userRoles: [{ role: { name: 'viewer', rolePermissions: [] } }],
+      };
+      mockPrisma.userIdentity.findUnique.mockResolvedValue({ user: disabled } as any);
+      mockPrisma.user.update.mockResolvedValue(disabled as any);
+
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(ForbiddenException);
+
+      expect(mockMetrics.authLogin).toHaveBeenCalledWith('disabled');
+      expect(mockMetrics.authLogin).not.toHaveBeenCalledWith('success');
+    });
+
+    it('labels each refresh outcome', async () => {
+      const user = { id: 'user-1', email: 'x@example.com', isActive: true, userRoles: [] };
+      const token = {
+        id: 't',
+        userId: 'user-1',
+        tokenHash: 'h',
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+        createdAt: new Date(),
+        user,
+      };
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce(null);
+      await expect(service.refreshAccessToken('a')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce({
+        ...token,
+        expiresAt: new Date(Date.now() - 1),
+      } as any);
+      await expect(service.refreshAccessToken('b')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce({ ...token, revokedAt: new Date() } as any);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 } as any);
+      await expect(service.refreshAccessToken('c')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce({
+        ...token,
+        user: { ...user, isActive: false },
+      } as any);
+      await expect(service.refreshAccessToken('d')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce(token as any);
+      mockPrisma.refreshToken.update.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+      await service.refreshAccessToken('e');
+
+      expect(mockMetrics.authRefresh.mock.calls.map((call) => call[0])).toEqual([
+        'invalid',
+        'expired',
+        'reuse_detected',
+        'user_inactive',
+        'success',
+      ]);
     });
   });
 });

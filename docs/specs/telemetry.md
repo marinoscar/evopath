@@ -1553,6 +1553,71 @@ controls instead, just not by selecting a span on the chart itself.
   spans, logs and the two runtime metrics; host data is for the Explorer and
   the assistant until a tile earns its place.
 
+### 11.13 Application metrics
+
+> **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`
+
+`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are defined: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed `record*` methods; nothing else creates an `app.*` instrument. With `OTEL_ENABLED` unset the service is a no-op.
+
+#### Table naming (verified live, GreptimeDB v1.2.1)
+
+Verified on 2026-09-29 by exporting one point per instrument (cumulative temporality, OTLP protobuf) to a throwaway GreptimeDB. The rules:
+
+| Instrument | Table(s) | Rule |
+|---|---|---|
+| Counter | `<name>_total` | Dots become `_`; `_total` is appended. A curly-brace unit (`{job}`) adds no suffix. |
+| Histogram | `<name>_<unit>_bucket`, `_sum`, `_count` | Unit `s` gives `_seconds`, `By` gives `_bytes`. The `_bucket` table has a string `le` tag (`"0.05"`, `"1"`, `"inf"`). |
+| Gauge, unit `s` or `By` | `<name>_seconds` / `<name>_bytes` | Same unit suffix. |
+| Gauge, curly-brace unit | `<name>` | No suffix. |
+
+Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` tag (the service name again; not the queue `job_type`) and one tag per attribute. Through the collector, `transform/promote_labels` (§11.2) also adds `app_instance_id` and `host_name` (the API container's hostname), so a series can be told apart per deployment and per API replica; the verification above exported straight to GreptimeDB and so showed neither.
+
+#### Metric reference
+
+| Metric | Table(s) | Kind | Unit | Attributes (values) | Recorded |
+|---|---|---|---|---|---|
+| `app.jobs.enqueued` | `app_jobs_enqueued_total` | counter | `{job}` | `job_type` | A job row is created. |
+| `app.jobs.claimed` | `app_jobs_claimed_total` | counter | `{job}` | `job_type`, `executor` (`server`, `node`) | A worker or node claims a job. |
+| `app.jobs.settled` | `app_jobs_settled_total` | counter | `{job}` | `job_type`, `outcome` (`succeeded`, `failed`, `retry-scheduled`, `rate-limit-deferred`, `claim-lost`, `write-failed`), `executor` (`server`, `node`, `unknown`) | A claimed job reaches a settlement outcome. Counted automatically; handlers add nothing. |
+| `app.jobs.duration` | `app_jobs_duration_seconds_{bucket,sum,count}` | histogram | `s` | same as `app.jobs.settled` | With `settled`, only when `startedAt` is known. Buckets 0.05 to 3600. |
+| `app.jobs.reaped` | `app_jobs_reaped_total` | counter | `{job}` | `outcome` (`requeued`, `failed`); `job_type` on `failed` only | The lease reaper recovers an expired job. |
+| `app.backup.runs` | `app_backup_runs_total` | counter | `{run}` | `outcome` (`completed`, `failed`) | A backup run settles. |
+| `app.backup.duration` | `app_backup_duration_seconds_{bucket,sum,count}` | histogram | `s` | `outcome` | With `runs`. |
+| `app.backup.size` | `app_backup_size_bytes_{bucket,sum,count}` | histogram | `By` | `outcome` (`completed`) | A backup completes. |
+| `app.auth.logins` | `app_auth_logins_total` | counter | `{login}` | `provider` (`google`), `outcome` (`success`, `allowlist_rejected`, `disabled`) | An OAuth sign-in resolves. |
+| `app.auth.refreshes` | `app_auth_refreshes_total` | counter | `{refresh}` | `outcome` (`success`, `invalid`, `reuse_detected`, `expired`, `user_inactive`, `device_revoked`) | A refresh-token rotation is attempted. |
+| `app.ai.requests` | `app_ai_requests_total` | counter | `{request}` | `provider`, `model`, `operation`, `status` (`succeeded`, `failed`, `cancelled`), `key_source` | An AI usage event is recorded. |
+| `app.ai.tokens` | `app_ai_tokens_total` | counter | `{token}` | `provider`, `model`, `operation`, `token_type` (`input`, `output`) | With the usage event. |
+| `app.ai.request.duration` | `app_ai_request_duration_seconds_{bucket,sum,count}` | histogram | `s` | `provider`, `model`, `operation`, `status`, `key_source` | With the usage event. |
+| `app.notifications.deliveries` | `app_notifications_deliveries_total` | counter | `{delivery}` | `channel`, `event`, `outcome` (`sent`, `failed`, `rate_limited`, `error`) | A channel delivery attempt ends. |
+| `app.jobs.queue.depth` | `app_jobs_queue_depth` | gauge | `{job}` | `job_type`, `status` (`pending`, `running`) | Observed at collection. |
+| `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
+| `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |
+| `app.backup.last_success.size` | `app_backup_last_success_size_bytes` | gauge | `By` | none | Size of that backup. |
+
+Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{bucket,sum,count}`, `app_backup_size_bytes_{bucket,sum,count}`, `app_jobs_oldest_pending_age_seconds`, `app_jobs_queue_depth`, `app_backup_last_success_timestamp_seconds`, `app_backup_last_success_size_bytes`. The remaining tables follow the same rules.
+
+#### Gauges
+
+- The four gauges are registered only when `OTEL_ENABLED` is set.
+- Their callbacks read PostgreSQL only while the telemetry gate is open (see [§2](#2-the-two-switches)). A closed gate costs no query.
+- Readings are cached for 30 seconds (`GAUGE_CACHE_TTL_MS`) with one read in flight.
+- Every API replica reports the same database-wide values. Take the maximum per timestamp, never the sum.
+
+#### Labels
+
+- Attribute keys are snake_case (`job_type`), so they are plain column names.
+- A value is at most 64 characters of `[A-Za-z0-9_.:/@+-]`; an email-shaped value is rejected.
+- Each key admits at most 100 distinct values per process (`MAX_DISTINCT_VALUES`); later values become `other`.
+- Never a user id, email or URL.
+
+#### Not instrumented
+
+- Backup settlements made by the stale-sweep.
+- Controller-level auth cases (missing profile, missing cookie).
+
+Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` and the hook-site specs beside each caller.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -1613,3 +1678,4 @@ controls instead, just not by selecting a span on the chart itself.
   `/hostfs` mount), its own pipeline counters and a keep-list of GreptimeDB's
   `/metrics`; `app.instance.id` and `host.name` become label columns on every
   metric table (§11.2, §11.3, §11.12).
+- #125: first-party application metrics (`AppMetricsService`): job, backup, auth, AI and notification counters and histograms, and cached queue and backup gauges (§11.13).

@@ -108,13 +108,14 @@
 // settlement and emits nothing.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { PrismaService } from '../prisma/prisma.service';
+import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import { resolveLeaseHorizonMs, resolveMaxAttempts } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
@@ -271,7 +272,9 @@ export class JobStuckService {
     // `JOB_SETTLED_EVENT` exactly as `JobTerminalService` announces its own —
     // otherwise `JobFailureNotifier`, `NodeSecretRevoker` and
     // `BroadcastFailureListener` never hear about the jobs that died hardest.
-    private readonly events: EventEmitter2
+    private readonly events: EventEmitter2,
+    // #125. Optional: see `fallbackAppMetrics`.
+    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics()
   ) {}
 
   /**
@@ -483,6 +486,8 @@ export class JobStuckService {
       failed += rows.length;
 
       for (const settled of rows) {
+        this.metrics.leaseReaped('failed', 1, settled.type);
+
         this.logger.warn(
           `Job ${settled.id} (${settled.type}) was abandoned by its executor on all ` +
             `${settled.attempts} of its attempts; failing it permanently rather than requeueing.`
@@ -542,6 +547,10 @@ export class JobStuckService {
       });
 
       reset += requeued.count;
+
+      // Requeued rows are counted per attempt-budget group, which is one
+      // `updateMany` with no per-row readback — so without `job_type`.
+      this.metrics.leaseReaped('requeued', requeued.count);
     }
 
     if (reset > 0 || failed > 0) {

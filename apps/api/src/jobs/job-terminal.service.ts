@@ -107,6 +107,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
 import { computeBackoffMs, JOB_RANDOM } from './backoff.util';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
 import { emitJobSettled } from './job-settled.emit';
@@ -321,7 +322,9 @@ export class JobTerminalService {
     // the real clock and `Math.random`. See `job-clock.ts` and
     // `backoff.util.ts`.
     @Optional() @Inject(JOB_CLOCK) clock?: JobClock,
-    @Optional() @Inject(JOB_RANDOM) rand?: () => number
+    @Optional() @Inject(JOB_RANDOM) rand?: () => number,
+    // #125. Optional: see `fallbackAppMetrics`.
+    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics()
   ) {
     this.clock = clock ?? systemJobClock;
     this.rand = rand ?? Math.random;
@@ -352,6 +355,10 @@ export class JobTerminalService {
    * exactly while the row is claimed"; a settled row is not claimed.
    */
   async completeSucceeded(job: Job): Promise<JobSettleOutcome> {
+    return this.observed(job, await this.settleSucceeded(job));
+  }
+
+  private async settleSucceeded(job: Job): Promise<JobSettleOutcome> {
     this.throttle.recordSuccess(job.type);
 
     const result = await this.safeTerminalUpdate(job, {
@@ -385,6 +392,30 @@ export class JobTerminalService {
    * `opts` flags are treated identically to a thrown `RateLimitError`.
    */
   async completeFailed(
+    job: Job,
+    error: unknown,
+    opts?: CompleteFailedOptions
+  ): Promise<JobSettleOutcome> {
+    return this.observed(job, await this.settleFailed(job, error, opts));
+  }
+
+  /**
+   * Records one settled executor report as application metrics (#125) and
+   * hands the outcome back unchanged. Duration is claim → settlement
+   * (`startedAt` is stamped by the claim); the metrics service never throws.
+   */
+  private observed(job: Job, outcome: JobSettleOutcome): JobSettleOutcome {
+    const startedAt = job.startedAt instanceof Date ? job.startedAt.getTime() : null;
+    this.metrics.jobSettled(
+      job.type,
+      outcome,
+      startedAt === null ? null : this.clock.now() - startedAt,
+      job.executor
+    );
+    return outcome;
+  }
+
+  private async settleFailed(
     job: Job,
     error: unknown,
     opts?: CompleteFailedOptions

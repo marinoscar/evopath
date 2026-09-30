@@ -22,9 +22,10 @@
 // sum a key that carries nothing.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
 import type { AiUsage } from '../core/types/responses.types';
 import type { AiKeySource } from '../keys/ai-key-resolver.service';
 
@@ -64,11 +65,29 @@ export interface AiUsageRecord {
 export class AiUsageRecorder {
   private readonly logger = new Logger(AiUsageRecorder.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // #125. Optional: see `fallbackAppMetrics`.
+    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+  ) {}
 
   /** Writes one row. Never throws — see the file header. */
   async record(event: AiUsageRecord): Promise<void> {
     const units = usageUnits(event.units);
+
+    // #125. Recorded whether or not the ledger insert below succeeds — the
+    // round-trip happened either way. Low-cardinality fields only (no user,
+    // no job, no request id, no error text); the service never throws.
+    this.metrics.aiUsage({
+      provider: event.provider,
+      model: event.modelId,
+      operation: event.operation,
+      status: event.status,
+      keySource: event.keySource,
+      inputTokens: tokenCount(event.usage?.inputTokens),
+      outputTokens: tokenCount(event.usage?.outputTokens),
+      latencyMs: event.latencyMs,
+    });
 
     try {
       await this.prisma.aiUsageEvent.create({

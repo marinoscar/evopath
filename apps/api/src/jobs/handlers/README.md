@@ -140,6 +140,10 @@ The full reasoning — why the database decides dedup instead of a
 `findFirst` pre-check, and why `skipDedup` costs nothing — is
 [`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md#enqueue-and-dedup).
 
+### Metrics Are Automatic
+
+Enqueue, claim, settlement and duration are counted per `job_type` in the `app.jobs.*` metrics without any handler code. See [telemetry.md §11.13](../../../../../docs/specs/telemetry.md#1113-application-metrics).
+
 ### The Type Appears in the Dashboard Automatically
 
 No migration, no enum, no queue wiring. `Job.type` is a plain string column

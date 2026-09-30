@@ -53,6 +53,39 @@ describe('AiUsageRecorder', () => {
     });
   });
 
+  it('records the round-trip as application metrics, even when the ledger insert fails (#125)', async () => {
+    const create = jest.fn().mockRejectedValue(new Error('db down'));
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const aiUsage = jest.fn();
+    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never, { aiUsage } as never);
+
+    await recorder.record({
+      userId: 'u1',
+      provider: 'openai',
+      modelId: 'gpt-x',
+      operation: 'responses',
+      keySource: 'user',
+      usage: { inputTokens: 10, outputTokens: -1 },
+      latencyMs: 250,
+      status: 'failed',
+      errorCode: 'rate_limited',
+      providerRequestId: 'req_1',
+      jobId: 'job-1',
+    });
+
+    // Low-cardinality fields only: no user, job, request id or error code.
+    expect(aiUsage).toHaveBeenCalledWith({
+      provider: 'openai',
+      model: 'gpt-x',
+      operation: 'responses',
+      status: 'failed',
+      keySource: 'user',
+      inputTokens: 10,
+      outputTokens: null,
+      latencyMs: 250,
+    });
+  });
+
   it('stores missing or nonsensical token counts as null', async () => {
     const create = jest.fn().mockResolvedValue({});
     const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never);
