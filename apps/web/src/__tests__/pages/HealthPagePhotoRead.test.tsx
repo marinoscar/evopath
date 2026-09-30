@@ -16,6 +16,7 @@ vi.mock('../../utils/downscaleImage', async (importOriginal) => {
 });
 
 import HealthPage from '../../pages/HealthPage';
+import { PHOTO_READ_HELPER_TEXT } from '../../components/health/PhotoReadDialog';
 import { resetMeasurementCatalogCache } from '../../hooks/useMeasurementCatalog';
 import { mockHealthProfileSaved } from '../mocks/fixtures/health';
 import { mockLatest } from '../mocks/fixtures/measurements';
@@ -126,7 +127,7 @@ describe('HealthPage: Read from photo', () => {
 
     await user.click(within(log).getByRole('button', { name: 'Read from photo' }));
     const photo = await screen.findByRole('dialog', { name: 'Read from photo' });
-    await within(photo).findByText('Photograph the display so every digit is sharp and in the frame');
+    await within(photo).findByText(PHOTO_READ_HELPER_TEXT);
     await user.click(within(photo).getByRole('button', { name: 'Enter manually' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Read from photo' })).not.toBeInTheDocument());
