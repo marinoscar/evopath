@@ -37,7 +37,7 @@ const RELATIONS: Partial<Record<Model, Record<string, [Model, string]>>> = {
   programSession: { programWorkout: ['programWorkout', 'programWorkoutId'] },
 };
 
-const OPERATORS = new Set(['in', 'not', 'lt', 'lte', 'gt', 'gte']);
+const OPERATORS = new Set(['in', 'notIn', 'not', 'lt', 'lte', 'gt', 'gte']);
 
 export function createInMemoryProgramsPrisma() {
   const tables: Record<Model, Row[]> = Object.fromEntries(MODELS.map((m) => [m, []])) as unknown as Record<Model, Row[]>;
@@ -65,6 +65,7 @@ export function createInMemoryProgramsPrisma() {
         if (ops.every((op) => OPERATORS.has(op))) {
           const c = cond as Row;
           if ('in' in c && !c.in.some((v: unknown) => eq(v, value))) return false;
+          if ('notIn' in c && c.notIn.some((v: unknown) => eq(v, value))) return false;
           if ('not' in c && eq(value, c.not)) return false;
           if ('lt' in c && !(cmp(value, c.lt) < 0)) return false;
           if ('lte' in c && !(cmp(value, c.lte) <= 0)) return false;
