@@ -164,6 +164,27 @@ export async function configureFakeVisionProvider(admin: AuthedApi): Promise<voi
   }
 }
 
+/**
+ * Declare (or withdraw) `file_input` and the `file` input modality on
+ * `fake-vision`, so a body-metric PDF (H2, #186) can be read, or is refused
+ * with `AI_CAPABILITY_UNSUPPORTED` (`details.capability: 'file_input'`) before
+ * any provider call. Call after {@link configureFakeVisionProvider}. The
+ * vision capabilities it declares are kept either way, so the image specs are
+ * unaffected; a spec that turns it on turns it back off when it is done.
+ */
+export async function setFakeVisionFileInput(admin: AuthedApi, enabled: boolean): Promise<void> {
+  const model = await findFakeModel(admin);
+  expect(model, 'fake-vision is not in the catalog; call configureFakeVisionProvider first').toBeTruthy();
+  const capabilities = enabled
+    ? {
+        capabilities: [...VISION_CAPABILITIES.capabilities, 'file_input'],
+        inputModalities: [...VISION_CAPABILITIES.inputModalities, 'file'],
+        outputModalities: VISION_CAPABILITIES.outputModalities,
+      }
+    : VISION_CAPABILITIES;
+  await admin.patch(`/api/admin/ai/models/${encodeURIComponent(model!.id)}`, { capabilities, enabled: true });
+}
+
 // =============================================================================
 // Fake OpenAI Responses server (agentic training plans)
 // =============================================================================
