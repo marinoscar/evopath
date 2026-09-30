@@ -9,8 +9,10 @@ import { GraphRuntimeInfo } from './graph-runtime-info';
 import { TrainingModelResolver } from './models/training-model-resolver.service';
 import { TrainingModelsController } from './models/training-models.controller';
 import { TrainingModelsService } from './models/training-models.service';
+import { TrainingRunsPurgeHandler } from './runtime/handlers/training-runs-purge.handler';
 import { RunEventsService } from './runtime/run-events.service';
 import { PassThroughSafetyScreen, TRAINING_SAFETY_SCREEN } from './runtime/safety-screen';
+import { TrainingRunsPurgeTask } from './runtime/tasks/training-runs-purge.task';
 import { TrainingPlanRunHandler } from './runtime/training-plan-run.handler';
 import { TrainingRunsController } from './runtime/training-runs.controller';
 import { TrainingRunsService } from './runtime/training-runs.service';
@@ -31,7 +33,8 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  * - Runtime kit: `TrainingRunsService` and `TrainingRunsController`
  *   (`/api/ai/training/runs`, `/api/ai/training/stream/:runId`),
  *   `RunEventsService` (the sequenced event log), the `ai.training.plan.run`
- *   handler (the graph inside the queue, server-only).
+ *   handler (the graph inside the queue, server-only), and the
+ *   `training.runs.purge` handler with its enqueue-only daily task.
  * - `TRAINING_SAFETY_SCREEN`: the pre-run safety screen seam; pass-through
  *   until the urgent-symptom screen replaces the binding.
  */
@@ -45,6 +48,8 @@ import { TrainingRunsService } from './runtime/training-runs.service';
     RunEventsService,
     TrainingRunsService,
     TrainingPlanRunHandler,
+    TrainingRunsPurgeHandler,
+    TrainingRunsPurgeTask,
     { provide: TRAINING_SAFETY_SCREEN, useClass: PassThroughSafetyScreen },
   ],
   exports: [GraphRuntimeInfo, TrainingModelResolver, TrainingRunsService, RunEventsService],

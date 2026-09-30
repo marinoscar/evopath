@@ -128,6 +128,8 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // One agentic training run's graph (planner, critic, evaluator, ...), from
   // `POST /api/ai/training/runs`, a resume or a decision.
   'ai.training.plan.run': 'Training plan run',
+  // Daily deletion of finished training runs' events, checkpoints and rows past retention.
+  'training.runs.purge': 'Training runs purge',
   // Sets GreptimeDB's database TTL to `telemetry.retentionDays` (#534, epic #528),
   // nightly and after every telemetry settings save.
   'telemetry.retention.apply': 'Telemetry retention',
