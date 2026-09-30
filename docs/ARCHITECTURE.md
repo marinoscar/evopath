@@ -274,7 +274,8 @@ The `create` graph is live: `prepare_context` → `research` → `plan` → `gua
 - **Revise brief reuse.** A `revise` run does not research. `prepare_context` reuses the plan's stored verified brief when its sources are under 30 days old and the goal and limitations are unchanged; otherwise the planner works without evidence.
 
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
-- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`, `/settings/ai/agents`; admin-only Playground `/ai`
+- **Plan screens.** The web app starts a `create` run from the intake wizard at `/train/plans/new` and follows it at `/train/plans/runs/:runId`. The wizard shows the estimate's `sentData` per agent, the token range and the cap before Start, and sends only the intake. The run view (`hooks/useTrainingRun.ts`) folds the stream into a view model idempotently by `seq` (`utils/reduceRunEvents.ts`) and reconnects with `?after=` the last contiguous `seq`, so a reload or a dropped connection replays without duplicates. Leaving the page never cancels the run. A plan's "Revise with AI" box starts a `revise` run. Every AI affordance is hidden while AI is off or without `ai:use`, and the two AI routes redirect to `/train/plans`.
+- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`, `/settings/ai/agents`, `/train/plans/new`, `/train/plans/runs/:runId`; admin-only Playground `/ai`
 - **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)
 - **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../apps/api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
 
@@ -409,8 +410,10 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 - **Signals:** adherence and progress facts (`GET /api/training/signals`, `programs:read`) are computed on read by a pure aggregator; definitions and limits live in [training-signals.md](specs/training-signals.md).
 - **One active program per user:** the raw-SQL partial unique index `programs_one_active_per_user_uniq_idx` (see [§6.1](#61-prisma-models)). Lifecycle: `draft`, `active`, `paused`, `archived`, `completed`.
 
-- **Code:** `apps/api/src/programs/` (`ProgramsModule`; today's workout in `today/`; contracts in `contracts/`, refusal reasons in `programs.constants.ts`)
+- **Screens:** `/train/plans` lists the plans (Build manually creates a blank one). `/train/plans/:programId` shows one plan: whether it is AI-generated or manual, its rationale, "how it was made" from the version `meta`, the verified sources with evidence chips, and one week at a time. The same screen's edit mode is the manual builder and saves the whole tree with `PUT /structure` and `If-Match` as a new version; a stale version opens a reload dialog that keeps the edits copyable. `/train/plans/:programId/history` lists the versions with a diff against the previous one (`utils/planDiff.ts`), restores a version and pages the change log. None of these need AI.
+- **Code:** `apps/api/src/programs/` (`ProgramsModule`; today's workout in `today/`; contracts in `contracts/`, refusal reasons in `programs.constants.ts`); web `apps/web/src/pages/Train/`, `apps/web/src/components/training/`
 - **Routes:** `/api/training/today`, `/api/program-workouts/:id/start` and `/api/programs` (including `/:id/structure`, `/:id/activate`, `/:id/pause`, `/:id/archive`, `/:id/duplicate`, `/:id/versions`, `/:id/revert` and `/:id/change-log`); details in `/api/docs` (tag "Programs")
+- **UI:** `/train/plans`, `/train/plans/:programId`, `/train/plans/:programId/history`
 - **Permissions:** `programs:read`, `programs:write`
 
 ---
@@ -659,7 +662,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Access | Routes |
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
-| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/train/exercises` and `/train/workouts/:workoutId` (workout logging and the exercise library; see [§5.23](#523-exercise-library) and [§5.24](#524-workout-logging)), `/gyms` (see [§5.22](#522-gyms-and-equipment)), `/activate` (device approval), `/settings` hub and its pages |
+| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/train/exercises` and `/train/workouts/:workoutId` (workout logging and the exercise library; see [§5.23](#523-exercise-library) and [§5.24](#524-workout-logging)), `/train/plans`, `/train/plans/:programId` and `/train/plans/:programId/history` (`programs:read`; see [§5.25](#525-training-programs)), `/train/plans/new` and `/train/plans/runs/:runId` (`ai:use`, AI enabled, else a redirect to `/train/plans`; see [§5.10](#510-ai-platform)), `/gyms` (see [§5.22](#522-gyms-and-equipment)), `/activate` (device approval), `/settings` hub and its pages |
 | Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
