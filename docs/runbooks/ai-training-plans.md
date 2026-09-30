@@ -1,6 +1,6 @@
 # Runbook: Run AI Training Plans
 
-> **Audience:** administrators · **Spec:** [ai-training-plans.md](../specs/ai-training-plans.md) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage` · **Permission:** `ai_config:read` and `ai_config:write`
+> **Audience:** administrators · **Spec:** [ai-training-plans.md](../specs/ai-training-plans.md) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/assignments`, `/admin/settings/ai/usage` · **Permission:** `ai_config:read` and `ai_config:write`
 
 Use this runbook to make the training-plan agents available to users, to keep their cost and reach under control, to try the whole flow with a fake provider and no key, and to diagnose a run that did not do what a user expected. It changes AI settings and model enablement only; it never adds an environment variable. Users bring their own provider key unless you chose the organisation-key fallback (see [ai-configuration.md](ai-configuration.md)).
 
@@ -81,9 +81,9 @@ Scenarios:
 
 `tests/e2e` (`npm test -- training-plans`) does steps 3 to 5 itself. The fake counts the e2e canary markers built into `fake-responses-server.mjs` (`DEFAULT_CANARY_MARKERS`); to use a different list, set `CANARY_TOKENS` on the `fake-ai-responses` container. The application has no such variable.
 
-## 4. Enable models for the four roles
+## 4. Enable and assign models for the four roles
 
-At `/admin/settings/ai/models`, refresh the catalog for each enabled provider and **enable** the models users may reach. Discovery never enables a model.
+At `/admin/settings/ai/models`, refresh the catalog for each enabled provider and **enable** the models users may reach. Discovery never enables a model. Then assign them at `/admin/settings/ai/assignments` (**AI Model Assignments**, [ai-configuration.md](ai-configuration.md) section 6.1).
 
 | Role | Model needs | Provider |
 |---|---|---|
@@ -92,7 +92,7 @@ At `/admin/settings/ai/models`, refresh the catalog for each enabled provider an
 | Critic | `responses`, `structured_output` | Any |
 | Evaluator | `responses`, `structured_output` | Any |
 
-Each user picks a model and reasoning effort per role at `/settings/ai/agents`; without a choice the role uses the user's default model, else an automatic pick among usable capable models. Suggested defaults are `medium` effort for researcher and evaluator and `high` for planner and critic.
+Users do not choose models. Under **AI Model Assignments** you assign a model, and optionally a reasoning effort, to each `training.<role>` feature. A role with no assignment uses the default model, else an automatic pick among the models the user can use and that are capable for the role. An assignment a user's key cannot reach is skipped for that user, not an error. `/settings/ai/agents` shows each user the model chosen for them, read-only. Without an effort the role default applies: `medium` for researcher and evaluator, `high` for planner and critic; an effort the model does not offer is clamped down.
 
 ## 5. What users see when a role is blocked
 
@@ -100,9 +100,9 @@ The agents page and the wizard show each role's state. A run that needs a blocke
 
 | State | Meaning | Fix |
 |---|---|---|
-| `ready`, `auto`, `stale_preference` | Runnable (a stale preference falls back to another model) | None; the user may re-pick |
-| `no_key` | No key source for the user | The user saves a key at `/settings/ai`, or set the key policy to fall back to the organisation key (ai-configuration section 7) |
-| `no_models` | No enabled model for the user's providers | Enable models (section 4) |
+| `ready`, `auto` | Runnable: an assignment, or the automatic pick, is used | None |
+| `no_key` (the user sees "Add your own AI key") | No key source for the user | The user saves a key at `/settings/ai`, or set the key policy to fall back to the organisation key (ai-configuration section 7) |
+| `no_models` | A key source exists but no enabled model is usable with it | Enable models (section 4) |
 | `missing_capability` | No usable model has the role's capabilities (the researcher additionally needs OpenAI) | Enable or classify a capable model; for the researcher, an OpenAI model with `hosted_tools` |
 | `web_search_disabled` | The researcher's switch is off | Section 2 |
 | `ai_disabled` | The kill switch is on | Section 9 |
@@ -130,6 +130,8 @@ A run ends `succeeded`, `failed`, `cancelled`, `blocked_safety`, or pauses as `a
 | Symptom | Cause | Fix |
 |---|---|---|
 | Start disabled, banner names a role | Role unavailable | Table in section 5 |
+| A role runs on a different model than you assigned | The assignment is not usable for that user's key, so resolution fell through to the default or the auto pick (`assignmentUnavailable` in `GET /api/ai/features`) | Assign a model every key reaches, or accept it |
+| Banner says no model is available, but the user has a key | `no_models` or `missing_capability` with `fix: admin`: nothing enabled fits the role | Enable a capable model (section 4) and assign it; this is not an "Add your own AI key" case |
 | Run fails `TRAINING_RESEARCH_INSUFFICIENT` | After one retry, fewer than 3 verified claims or 2 verified sources survived citation checks (the model cited URLs the search did not return, or only low-quality domains) | Retry; widen the goal text; try a stronger researcher model; check web search is on. Nothing is created |
 | Run fails `TRAINING_PLAN_REJECTED` | The plan still violated a hard guardrail after repairs and the critic rounds ran out | Retry with fewer limitations or a simpler goal; try a stronger planner. Nothing is written |
 | Plan created with open notes | The critic still asked for changes after the allowed rounds (`critic_open_notes`), or the critic was skipped or unavailable | Expected; the owner reviews the draft. Raise `maxCriticRounds` if desired |
@@ -161,6 +163,7 @@ Finished runs keep their replayable events and graph checkpoints for 30 days and
 - [ ] **Web search** is on under **Hosted tools**
 - [ ] An OpenAI model with `hosted_tools`, `structured_output` and `responses` is enabled for the researcher
 - [ ] Planner, critic and evaluator models are enabled
+- [ ] Models are assigned at `/admin/settings/ai/assignments` (or left to the automatic pick)
 - [ ] A contributor sees all four roles ready at `/settings/ai/agents`
 - [ ] `ai.limits` and per-model output caps are set as you want
 - [ ] (Development) the fake overlay runs and `curl localhost:4011/__control/scenarios` answers
