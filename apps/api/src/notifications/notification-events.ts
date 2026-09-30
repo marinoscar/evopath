@@ -410,6 +410,19 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     channels: ['browser', 'push'],
     defaultEnabled: true,
   },
+  // Raised by the evaluate graph's `safety_gate` after its `reviewed` system
+  // entry and the automation pause committed: an urgent-symptom phrase in a
+  // recent pain note, or a repeated pain pattern. MANDATORY, like a role
+  // change: a safety stop the person muted is a stop they never hear about.
+  {
+    key: 'training.plan_safety_stop',
+    label: 'Training plan safety stop',
+    description:
+      'Sent when automatic plan adjustments pause for your safety (a worrying symptom or repeated pain). This cannot be turned off.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+    mandatory: true,
+  },
 ];
 
 /**

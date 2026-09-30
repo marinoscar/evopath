@@ -1,4 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 
 import { CheckInsService } from '../check-ins/check-ins.service';
@@ -30,6 +31,7 @@ import {
   workoutNotFound,
   workoutRefusal,
 } from './workout-mapper';
+import { WORKOUT_FINISHED_EVENT, type WorkoutFinishedEvent } from './workout-events';
 import { WorkoutHistoryService } from './workout-history.service';
 import { lockOwnedWorkout } from './workout-lock';
 import { WorkoutPhotoStorageService } from './workout-photo-storage.service';
@@ -85,6 +87,8 @@ export class WorkoutsService {
     private readonly history: WorkoutHistoryService,
     // Optional so a hand-built service (tests) needs none; Nest always injects it.
     @Optional() private readonly photoStorage?: WorkoutPhotoStorageService,
+    // Optional for the same reason: `workout.finished` is only emitted when present.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /**
@@ -320,11 +324,11 @@ export class WorkoutsService {
    * sets with values stay uncompleted. Idempotent on a completed workout.
    */
   async finish(userId: string, workoutId: string, input: FinishWorkoutInput, now: Date = new Date()): Promise<WorkoutViewData> {
-    await this.prisma.$transaction(async (tx) => {
+    const finished = await this.prisma.$transaction(async (tx) => {
       const workout = await lockOwnedWorkout(tx, userId, workoutId);
 
       if (workout.status === 'completed') {
-        return;
+        return false;
       }
 
       let endedAt: Date;
@@ -363,9 +367,25 @@ export class WorkoutsService {
           ...(input.notes !== undefined ? { notes: input.notes } : {}),
         },
       });
+
+      return true;
     });
 
+    // After commit, outside the transaction; only when this call finished it.
+    if (finished) this.emitFinished({ userId, workoutId });
+
     return this.get(userId, workoutId);
+  }
+
+  /** `workout.finished` for its listeners. A listener's failure never fails the finish. */
+  private emitFinished(event: WorkoutFinishedEvent): void {
+    try {
+      this.events?.emit(WORKOUT_FINISHED_EVENT, event);
+    } catch (error) {
+      this.logger.warn(
+        `A ${WORKOUT_FINISHED_EVENT} listener threw: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**

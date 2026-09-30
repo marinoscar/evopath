@@ -53,6 +53,7 @@ import {
   START_DATE_FUTURE_DAYS,
   START_DATE_PAST_DAYS,
   isActiveProgramConflict,
+  type AutonomyPauseReason,
   type ChangeActor,
   type ChangeKind,
   type ChangeOrigin,
@@ -142,6 +143,30 @@ export interface CreateWithTreeInput {
 
 export interface CreateWithTreeResult extends ApplyChangeResult {
   programId: string;
+}
+
+/**
+ * A `reviewed` change log entry: an evaluation that changed nothing, or a
+ * safety stop. `fromVersion = toVersion` = the current version; no bump.
+ */
+export interface RecordReviewInput {
+  userId: string;
+  programId: string;
+  actor: Extract<ChangeActor, 'ai' | 'system'>;
+  summary: string;
+  rationale?: string;
+  operations?: unknown[];
+  citations?: unknown[];
+  runId?: string;
+  /** Pauses automatic adjustments in the same transaction (kept when already paused). */
+  pause?: AutonomyPauseReason;
+}
+
+export interface RecordReviewResult {
+  changeLogId: string;
+  versionNumber: number;
+  /** The pause took effect in this call (false when it was already paused, or none was asked). */
+  paused: boolean;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -678,6 +703,53 @@ export class ProgramsService {
   // ===========================================================================
   // Writes outside the tree
   // ===========================================================================
+
+  /**
+   * Records a review (`kind: reviewed`, `status: applied`, `fromVersion =
+   * toVersion`): the tree and version are untouched. With `pause`, automatic
+   * adjustments pause in the same transaction unless already paused (the
+   * first reason is kept). 404 for a program the caller does not own.
+   * Notifications are the caller's, after this returns.
+   */
+  async recordReview(input: RecordReviewInput): Promise<RecordReviewResult> {
+    this.checkChangeMeta(input);
+    return this.prisma.$transaction(async (tx) => {
+      const program = await tx.program.findFirst({
+        where: { id: input.programId, userId: input.userId },
+        select: { currentVersion: true },
+      });
+      if (!program) throw programNotFound();
+
+      let paused = false;
+      if (input.pause) {
+        const moved = await tx.program.updateMany({
+          where: { id: input.programId, userId: input.userId, autonomyPausedAt: null },
+          data: { autonomyPausedAt: new Date(), autonomyPausedReason: input.pause },
+        });
+        paused = moved.count > 0;
+      }
+
+      const log = await tx.programChangeLog.create({
+        data: {
+          programId: input.programId,
+          userId: input.userId,
+          kind: 'reviewed',
+          actor: input.actor,
+          status: 'applied',
+          fromVersion: program.currentVersion,
+          toVersion: program.currentVersion,
+          runId: input.runId ?? null,
+          summary: input.summary,
+          rationale: input.rationale ?? null,
+          operations: (input.operations ?? []) as Prisma.InputJsonValue,
+          citations: (input.citations ?? []) as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      });
+
+      return { changeLogId: log.id, versionNumber: program.currentVersion, paused };
+    });
+  }
 
   /** A manual draft with one block and one empty week, version 1 (`origin: initial`). */
   async create(userId: string, dto: CreateProgramInput): Promise<ProgramViewData> {

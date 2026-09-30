@@ -15,8 +15,8 @@ import { TRAINING_RUN_STATUSES, TRAINING_RUN_TRIGGERS } from '../training-runs.c
 export const TRAINING_RUN_INPUT_MAX_CHARS = 32_000;
 
 const FORBIDDEN_BY_KIND = {
-  create: ['programId', 'basedOnVersion', 'instruction', 'input'],
-  revise: ['intake', 'input'],
+  create: ['programId', 'basedOnVersion', 'instruction', 'input', 'trigger'],
+  revise: ['intake', 'input', 'trigger'],
   evaluate: ['intake', 'basedOnVersion', 'instruction'],
 } as const;
 
@@ -29,8 +29,10 @@ const REQUIRED_BY_KIND = {
 /**
  * The body of `POST /api/ai/training/runs`, one object for the three kinds:
  * `create` carries `intake`; `revise` carries `programId`, `basedOnVersion`
- * and `instruction`; `evaluate` carries an optional `programId` and the
- * evaluator's own `input`. A field another kind owns is refused.
+ * and `instruction`; `evaluate` carries an optional `programId` (default: the
+ * active plan), the evaluator's own `input` and an optional `trigger:
+ * 'manual'` (a user-started evaluation is always recorded as `manual`). A
+ * field another kind owns is refused.
  */
 export const startTrainingRunSchema = z
   .object({
@@ -50,6 +52,8 @@ export const startTrainingRunSchema = z
         message: `input must be at most ${TRAINING_RUN_INPUT_MAX_CHARS} characters as JSON`,
       })
       .optional(),
+    /** `evaluate`: "Re-evaluate now". Optional; a user-started evaluation is always `manual`. */
+    trigger: z.literal('manual').optional(),
   })
   .strict()
   .superRefine((body, ctx) => {
