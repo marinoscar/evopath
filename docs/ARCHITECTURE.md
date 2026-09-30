@@ -625,7 +625,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
-| `/settings/ai/agents` | Training agents | Security | `ai:use` | `ai` |
+| `/settings/ai/agents` | Training agents | AI | `ai:use` | `ai` |
 | `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
