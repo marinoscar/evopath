@@ -110,7 +110,7 @@ outside any `$transaction`.
 | Channel | Sender | What it does |
 |---|---|---|
 | `email` | `channels/email-notification.channel.ts` | Renders the template mapped in `EVENT_EMAIL_TEMPLATES` and sends it over the configured transport (SMTP settings at `/admin/settings/email`, or SES). A missing mapping is a recorded failure. |
-| `browser` | `channels/browser-notification.channel.ts` | Writes a `notifications` row (the inbox), then publishes it to the user's SSE stream with a server-computed `toast` flag. Titles and bodies are truncated (`MAX_TITLE_LENGTH`, `MAX_BODY_LENGTH`); `link` goes through `sanitizeLink` (root-relative only). |
+| `browser` | `channels/browser-notification.channel.ts` | Writes a `notifications` row (the inbox), then publishes it to the user's SSE stream with a server-computed `toast` flag and a `pushed` flag (§2.12). Titles and bodies are truncated (`MAX_TITLE_LENGTH`, `MAX_BODY_LENGTH`); `link` goes through `sanitizeLink` (root-relative only). |
 | `push` | `channels/push-notification.channel.ts` | Writes its own `notifications` row, then sends an encrypted Web Push message to each of the user's `push_subscriptions` (§2.7). |
 
 `EVENT_BROWSER_TEMPLATES` maps an event to `{ title, body, link? }`. The push
@@ -288,11 +288,10 @@ timeout, and the admin needs the result inline. Nothing outlives the request.
 focused tab, and every window client gets a `push-test-received` message so
 the page can confirm end-to-end delivery. Clicking it navigates without
 marking a notification read. A real (non-test) payload is also always shown as
-an OS notification, focused tab or not (issue #137). The page's SSE handler
-raises no OS toast for a focused tab (§2.12), so this is the only visible
-alert a focused user gets, not a duplicate. Known edge: a backgrounded but
-still open tab can raise its own SSE toast (tagged with the browser-channel
-row id) next to the push one (tagged with the push-channel row id).
+an OS notification, focused tab or not. The page's SSE handler raises no OS
+toast for a focused tab (§2.12), so this is the only visible alert a focused
+user gets, not a duplicate. A backgrounded but still open tab skips its own
+SSE toast when the push will show it (§2.12).
 
 **Icon attribution.** Android attributes a notification to the app that posts
 it. From a browser tab that is the browser (for example Chrome), which a site
@@ -504,12 +503,31 @@ mechanism.
 
 ### 2.12 Foreground suppression and cross-tab dedup
 
-Two independent checks in the page:
+Three independent checks in the page:
 
 - **Foreground suppression.** Show an OS notification only when no window is
   both `document.visibilityState === 'visible'` and `document.hasFocus()`.
   This governs the page's SSE toast only; the service worker shows real Web
   Push payloads regardless of focus (§2.7).
+- **Push-covered suppression.** The SSE `notification` frame carries
+  `pushed: boolean` next to `toast`. It is `true` when the final resolved
+  channel list for that dispatch (admin policy, user preference, mandatory
+  override, `NotifyOptions.channels` narrowing) includes `push`. That list is
+  `NotificationDispatchContext.channels`, which the browser channel only reads.
+  `pushed` means a push will be attempted, not that it succeeded or that this
+  browser is subscribed; a missing field (older server) reads as `false`. In
+  `NotificationContext.tsx`, a tab that is not visible and focused, and whose
+  `toast` allows it, skips its own OS toast only when all of these hold:
+  `pushed` is `true`, the notification config has `pushEnabled` and a
+  `vapidPublicKey`, and `hasActivePushSubscription(key)`
+  (`services/pushSubscription.ts`) is `true`. That helper uses
+  `getRegistration`, never `.ready`, requires the subscription key to match,
+  caches for 30 s, and is invalidated by sync and remove. Every uncertain case
+  (no subscription, config read failure, `pushed` false or missing) shows the
+  page toast. Bell, unread count and row updates are unaffected.
+  Trade-off: if the push service drops the message, a backgrounded tab shows
+  no OS toast, though the inbox row still arrived over SSE. A VAPID rotation
+  mid-session can at worst produce a duplicate, never a missing toast.
 - **Cross-tab dedup.** `showAppNotification` (`browserNotifications.ts`) calls
   `registration.getNotifications({ tag: notification.id })` and skips when a
   notification with that tag exists. Every tab receives the SSE frame; the
@@ -549,7 +567,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 |---|---|---|
 | `GET /api/notifications/events` | Registry events, each with `channels` (policy-filtered, for the preferences matrix) and `declaredChannels` (unfiltered, so the admin policy page keeps listing a suppressed event) | authenticated |
 | `GET /api/notifications/config` | `browserEnabled`, `pushEnabled`, `vapidPublicKey` | authenticated |
-| `GET /api/notifications/stream` | SSE stream of new inbox rows, each with `toast` | authenticated |
+| `GET /api/notifications/stream` | SSE stream of new inbox rows, each with `toast` and `pushed` | authenticated |
 | `GET /api/notifications` | Caller's inbox, paginated (`page`, `pageSize`, `unreadOnly`) | authenticated |
 | `GET /api/notifications/unread-count` | Unread count | authenticated |
 | `POST /api/notifications/:id/read` | Mark one read | authenticated |
