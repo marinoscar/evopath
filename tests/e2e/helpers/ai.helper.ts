@@ -15,11 +15,21 @@ export const FAKE_AI_API_BASE_URL = process.env.FAKE_AI_API_BASE_URL ?? 'http://
 export const FAKE_PROVIDER_ID = 'openai-compatible';
 export const FAKE_MODEL_ID = 'fake-vision';
 
-export type FakeFixture = 'cardio-row-wide' | 'leg-curl-placard' | 'both' | 'workout-placard' | 'workout-notebook' | 'workout-empty';
+export type FakeFixture =
+  | 'cardio-row-wide'
+  | 'leg-curl-placard'
+  | 'both'
+  | 'workout-placard'
+  | 'workout-notebook'
+  | 'workout-empty'
+  | 'body-metric-scale'
+  | 'body-metric-smart-scale-report';
 
 export interface FakeRequestRecord {
   model: string | null;
   imageCount: number;
+  /** File (PDF) parts in the request (H2, #186). */
+  fileCount: number;
   hasResponseFormat: boolean;
 }
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // =============================================================================
-// Fake OpenAI-compatible vision server for "Scan gym" (E3.4) and "Prefill
-// from photo" (E4.5). TEST-ONLY.
+// Fake OpenAI-compatible vision server for "Scan gym" (E3.4), "Prefill
+// from photo" (E4.5) and "Read from photo" body metrics, PDFs included
+// (E2.6, H2 #186). TEST-ONLY.
 // =============================================================================
 //
 // A dependency-free `node:http` server the API reaches as its
@@ -15,10 +16,11 @@
 //   POST /v1/chat/completions    a chat completion whose message content is
 //                                the chosen fixture's `*.model-output.json`
 //   POST /__control/next         { "fixture": "cardio-row-wide" | "leg-curl-placard" | "both"
-//                                  | "workout-placard" | "workout-notebook" | "workout-empty" }
+//                                  | "workout-placard" | "workout-notebook" | "workout-empty"
+//                                  | "body-metric-scale" | "body-metric-smart-scale-report" }
 //                                answers the NEXT completion with it (one-shot)
-//   GET  /__control/requests     [{ model, imageCount, hasResponseFormat }] per
-//                                completion received — never bytes or URLs
+//   GET  /__control/requests     [{ model, imageCount, fileCount, hasResponseFormat }] per
+//                                completion received — never bytes, file names or URLs
 //   POST /__control/reset        forget the queue, the request log and the call counters
 //
 // Quick adaptation and the hotel scan (E6.4), scenarios in
@@ -37,12 +39,15 @@
 // The scenario is global to the process; a `SCENARIO:<name>` token in a
 // request's free text overrides it for that request. The default is `valid`.
 //
-// Without a queued fixture: `cardio-row-wide` for one image, `both` for two or
-// more (and for none).
+// Without a queued fixture: a `body_metric_reading` request (by schema name) is
+// answered `body-metric-smart-scale-report` when it carries a file (PDF) part,
+// else `body-metric-scale`; anything else `cardio-row-wide` for one image,
+// `both` for two or more (and for none).
 //
 // Fixtures are read from FIXTURE_DIR (default: apps/api/test/fixtures next to
 // this repository): the gym scan answers from its `gym-scan/` folder, the
-// workout prefill answers from `workout-prefill/`. PORT defaults to 4010. The
+// workout prefill answers from `workout-prefill/`, the body-metric answers
+// from `body-metric/`. PORT defaults to 4010. The
 // compose overlay `infra/compose/fake-ai.compose.yml` runs it as service
 // `fake-ai`.
 // =============================================================================
@@ -84,7 +89,11 @@ const FIXTURE_FILES = {
   'workout-placard': 'workout-prefill/placard',
   'workout-notebook': 'workout-prefill/notebook',
   'workout-empty': 'workout-prefill/workout-empty',
+  'body-metric-scale': 'body-metric/scale-display',
+  'body-metric-smart-scale-report': 'body-metric/smart-scale-report',
 };
+/** The body-metric reading's structured-output name (`ai.health.body_metric_reading`). */
+const SCHEMA_BODY_METRIC = 'body_metric_reading';
 const FIXTURES = Object.keys(FIXTURE_FILES);
 /** A request body this big is refused (inline images are base64). */
 const MAX_BODY_BYTES = 200 * 1024 * 1024;
@@ -151,6 +160,20 @@ export function countImages(body) {
   return count;
 }
 
+/** File parts (a PDF) across every message (`file` in Chat Completions; `input_file` tolerated). */
+export function countFiles(body) {
+  let count = 0;
+
+  for (const message of Array.isArray(body?.messages) ? body.messages : []) {
+    if (!Array.isArray(message?.content)) continue;
+    for (const part of message.content) {
+      if (part?.type === 'file' || part?.type === 'input_file') count += 1;
+    }
+  }
+
+  return count;
+}
+
 /** The text of every message (`user` only when `role` is given); image parts are skipped. */
 export function messageText(body, role = null) {
   const parts = [];
@@ -166,8 +189,9 @@ export function messageText(body, role = null) {
   return parts.join('\n');
 }
 
-export function chooseFixture(queued, imageCount) {
+export function chooseFixture(queued, imageCount, schemaName = null, fileCount = 0) {
   if (queued) return queued;
+  if (schemaName === SCHEMA_BODY_METRIC) return fileCount > 0 ? 'body-metric-smart-scale-report' : 'body-metric-scale';
   return imageCount === 1 ? 'cardio-row-wide' : 'both';
 }
 
@@ -211,6 +235,7 @@ async function handle(req, res) {
   if (req.method === 'POST' && path === '/v1/chat/completions') {
     const body = await readJson(req);
     const imageCount = countImages(body);
+    const fileCount = countFiles(body);
     const schemaName = typeof body.response_format?.json_schema?.name === 'string' ? body.response_format.json_schema.name : null;
     const allText = messageText(body);
     const userText = messageText(body, 'user');
@@ -218,7 +243,7 @@ async function handle(req, res) {
     const model = typeof body.model === 'string' ? body.model : null;
     const entry = { seq: (state.seq += 1), scenario, schemaName, model, imageCount, status: 200, text: allText };
     state.log.push(entry);
-    state.requests.push({ model, imageCount, hasResponseFormat: Boolean(body.response_format) });
+    state.requests.push({ model, imageCount, fileCount, hasResponseFormat: Boolean(body.response_format) });
 
     if (body.stream) {
       entry.status = 400;
@@ -260,7 +285,7 @@ async function handle(req, res) {
       return send(res, 200, completion(body, JSON.stringify(scanAnswer(scenario, imageCount))));
     }
 
-    const fixture = chooseFixture(state.next, imageCount);
+    const fixture = chooseFixture(state.next, imageCount, schemaName, fileCount);
     state.next = null;
     const content = JSON.stringify(JSON.parse(loadFixture(fixture)));
     return send(res, 200, completion(body, content));
