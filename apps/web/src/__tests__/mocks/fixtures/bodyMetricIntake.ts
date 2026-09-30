@@ -378,12 +378,16 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
     // Files upload already `ready` so the tile does not wait on processing.
     // The first is `obj-1` (the id the canned items cite), then `obj-2`, …
     http.post('*/api/storage/objects', async ({ request }) => {
+      // Read the part's Content-Type from the raw multipart body: parsing it
+      // with `request.formData()` is not reliable across Node/undici versions
+      // (it throws on some, which silently fell back to the default).
       let mimeType = 'image/jpeg';
       try {
-        const file = (await request.formData()).get('file');
-        if (file && typeof file === 'object') mimeType = (file as Blob).type || 'application/octet-stream';
+        const body = await request.text();
+        const match = /name="file"[^\r\n]*\r?\nContent-Type:\s*([^\r\n;]+)/i.exec(body);
+        if (match) mimeType = match[1].trim();
       } catch {
-        // Not multipart: keep the default.
+        // Unreadable body: keep the default.
       }
       state.uploads.push({ type: mimeType });
       const id = `obj-${state.uploads.length}`;
