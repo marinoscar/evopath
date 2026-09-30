@@ -60,7 +60,36 @@ describe('GymDetailPage', () => {
     expect(screen.getByText('Temporary')).toBeInTheDocument();
     expect(screen.getByText('Floor 2')).toBeInTheDocument();
     expect(screen.getByText('Code 1234')).toBeInTheDocument();
+    // E6.2: a temporary gym is never the default; it offers Save gym and says when it expires.
+    expect(screen.queryByRole('button', { name: 'Set default' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save gym' })).toBeInTheDocument();
+    expect(screen.getByTestId('gym-detail-expiry')).toHaveTextContent(/^Expires (in \d+ days?|today) unless you save it\.$/);
+  });
+
+  it('offers Set default on a permanent gym', async () => {
+    statefulGymsApi([mockGymDetail({ id: GYM_ID, name: 'Club', type: 'club', isDefault: false, isTemporary: false })]);
+    renderDetail();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Club' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Set default' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save gym' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gym-detail-expiry')).not.toBeInTheDocument();
+  });
+
+  it('saves a temporary gym with the same id, renamed, and drops the Temporary chip', async () => {
+    const api = statefulGymsApi([
+      mockGymDetail({ id: GYM_ID, name: 'Hotel gym', type: 'hotel', isDefault: false, isTemporary: true }),
+    ]);
+    const user = userEvent.setup();
+    renderDetail();
+    await user.click(await screen.findByRole('button', { name: 'Save gym' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Save Hotel gym for future use?' });
+    const name = within(dialog).getByRole('textbox', { name: /Name/ });
+    await user.clear(name);
+    await user.type(name, 'Marriott Lisbon');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Marriott Lisbon' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Temporary')).not.toBeInTheDocument());
+    expect(api.gyms.find((g) => g.id === GYM_ID)).toMatchObject({ isTemporary: false, name: 'Marriott Lisbon' });
   });
 
   it('groups equipment by category and shows origin and verification tags', async () => {

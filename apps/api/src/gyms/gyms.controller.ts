@@ -27,7 +27,7 @@ import {
   UpdateGymDto,
 } from './dto/gym.dto';
 import { GymLocationResult, SetGymLocationDto } from './dto/gym-location.dto';
-import { GYM_LOCATION_ACCURACY_MAX_METERS, MAX_GYMS_PER_USER } from './gyms.constants';
+import { GYM_LOCATION_ACCURACY_MAX_METERS, MAX_GYMS_PER_USER, TEMPORARY_GYM_RETENTION_DAYS } from './gyms.constants';
 import { GymsService } from './gyms.service';
 
 // =============================================================================
@@ -79,8 +79,11 @@ export class GymsController {
   @ApiOperation({
     summary: 'Create a gym',
     description:
-      'Creates a gym. The caller\'s first gym becomes their default automatically. Names need ' +
-      `not be unique. At most ${MAX_GYMS_PER_USER} gyms per user.`,
+      'Creates a gym. The caller\'s first permanent gym becomes their default automatically; a ' +
+      'temporary gym (`isTemporary: true`, e.g. a hotel on a trip) never becomes the default, and ' +
+      `is deleted by a daily job after ${TEMPORARY_GYM_RETENTION_DAYS} days without changes unless a ` +
+      'workout, a live adaptation, a plan or a running scan references it. Names need ' +
+      `not be unique. At most ${MAX_GYMS_PER_USER} gyms per user (temporary ones included).`,
   })
   @ApiDataResponse(GymDetail, { status: 201, description: 'The new gym (with empty equipment and photos)' })
   @ApiResponse({
@@ -122,7 +125,10 @@ export class GymsController {
     description:
       'Changes any of name, type, description, notes, isTemporary, latitude and longitude. ' +
       'Latitude and longitude are given together (both numbers, or both null to clear). ' +
-      'The default moves only through `POST /api/gyms/{id}/default`.',
+      'The default moves only through `POST /api/gyms/{id}/default`, with two exceptions for the ' +
+      'temporary flag: marking the default gym temporary clears its default and the oldest ' +
+      'permanent gym becomes the default; saving a temporary gym (`isTemporary: false`, same id) ' +
+      'makes it the default only when the caller has no default, never replacing one.',
   })
   @ApiParam(GYM_ID_PARAM)
   @ApiDataResponse(GymDetail, { description: 'The gym as it now stands' })
@@ -130,6 +136,11 @@ export class GymsController {
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(NO_GYMS_WRITE)
   @ApiResponse(GYM_NOT_FOUND)
+  @ApiResponse({
+    status: 409,
+    description: '`details.reason: DEFAULT_CONFLICT` — the temporary flag changed while the default moved concurrently; retry',
+    type: ErrorDto,
+  })
   update(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -164,7 +175,7 @@ export class GymsController {
     summary: 'Make a gym my default',
     description:
       'Atomically makes this gym the caller\'s default and clears the previous one. Already the ' +
-      'default is a no-op.',
+      'default is a no-op. A temporary gym cannot be the default.',
   })
   @ApiParam(GYM_ID_PARAM)
   @ApiDataResponse(GymDetail, { description: 'The gym, now the default' })
@@ -174,7 +185,10 @@ export class GymsController {
   @ApiResponse(GYM_NOT_FOUND)
   @ApiResponse({
     status: 409,
-    description: '`details.reason: DEFAULT_CONFLICT` — the default changed concurrently twice; retry',
+    description:
+      '`details.reason: DEFAULT_CONFLICT` — the default changed concurrently twice; retry. ' +
+      '`details.reason: TEMPORARY_GYM_NOT_DEFAULT` — the gym is temporary; save it first ' +
+      '(`PATCH` with `isTemporary: false`)',
     type: ErrorDto,
   })
   setDefault(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {

@@ -59,6 +59,8 @@ import { ReadinessCard } from '../components/train/StartWorkoutDialog';
 import { PrefillButton } from '../components/train/PrefillButton';
 import { WorkoutPhotos } from '../components/train/WorkoutPhotos';
 import type { WorkoutLocationState } from '../services/workoutPrefill';
+import { SaveGymPrompt } from '../components/gyms/SaveGymPrompt';
+import type { GymSummary } from '../services/gyms';
 
 export const WORKOUT_NOT_FOUND_TITLE = 'Workout not found';
 
@@ -127,7 +129,8 @@ export default function WorkoutPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const unit = useWeightUnit();
-  const { gyms } = useGyms({ enabled: canRead && hasPermission('gyms:read') });
+  const canWriteGyms = hasPermission('gyms:write');
+  const { gyms, save: saveGym } = useGyms({ enabled: canRead && hasPermission('gyms:read') });
   const w = useWorkout(canRead ? workoutId : undefined);
   const workout = w.workout;
 
@@ -146,6 +149,8 @@ export default function WorkoutPage() {
   const [finishing, setFinishing] = useState(false);
   const [confirmFinish, setConfirmFinish] = useState<string[] | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // E6.2: the temporary gym the finished workout was at, captured when the summary opens.
+  const [promptGym, setPromptGym] = useState<GymSummary | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -235,6 +240,9 @@ export default function WorkoutPage() {
     try {
       for (const setId of markDone) await w.updateSet(setId, { completed: true });
       await w.finish();
+      const gymId = workout?.gym?.id;
+      const atGym = gymId ? gyms.find((g) => g.id === gymId) : undefined;
+      setPromptGym(canWriteGyms && atGym?.isTemporary ? atGym : null);
       setSummaryOpen(true);
     } catch (err) {
       setActionError(workoutErrorMessage(err, 'Could not finish the workout'));
@@ -462,7 +470,15 @@ export default function WorkoutPage() {
         </DialogActions>
       </Dialog>
 
-      <WorkoutSummaryDialog open={summaryOpen} workout={workout} unit={unit} onClose={() => setSummaryOpen(false)} />
+      <WorkoutSummaryDialog open={summaryOpen} workout={workout} unit={unit} onClose={() => setSummaryOpen(false)}>
+        {promptGym && (
+          <SaveGymPrompt
+            gym={promptGym}
+            otherGyms={gyms}
+            onSave={(input) => saveGym(promptGym.id, input)}
+          />
+        )}
+      </WorkoutSummaryDialog>
 
       {canWrite && completed && (
         <EditWorkoutDialog

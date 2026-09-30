@@ -54,6 +54,8 @@ export interface AdaptationContextSource {
   gym: {
     id: string;
     type: string | null;
+    /** A temporary gym (E6.2, the hotel flow) must have confirmed equipment unless the request is bodyweight-only. */
+    isTemporary?: boolean;
     equipment: Array<{ equipmentTypeId: string; name: string; quantity: number }>;
     /** Capabilities each equipment type provides. */
     capabilities: Array<{ equipmentTypeId: string; id: string; slug: string }>;
@@ -98,12 +100,21 @@ export function intakeFacts(intake: unknown, goal: string): {
   };
 }
 
-/** The inventory today's equipment choice allows; throws when an `only` type is not in the gym. */
+export const GYM_EQUIPMENT_UNCONFIRMED_MESSAGE = 'Confirm the equipment first';
+
+/**
+ * The inventory today's equipment choice allows; throws when an `only` type is
+ * not in the gym, or when a temporary gym has no equipment yet and the request
+ * is not bodyweight-only (the hotel flow's scan was not confirmed).
+ */
 export function effectiveInventory(
   request: AdaptationRequest,
   gym: AdaptationContextSource['gym'],
 ): { inventory: GymInventoryIds | null; names: string[] } {
   const mode = request.equipment?.mode ?? 'gym';
+  if (gym?.isTemporary && gym.equipment.length === 0 && mode !== 'bodyweight') {
+    throw new AdaptationContextError('ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED', GYM_EQUIPMENT_UNCONFIRMED_MESSAGE);
+  }
   if (!gym && request.equipment?.mode === 'only') {
     throw new AdaptationContextError('ADAPTATION_EQUIPMENT_NOT_IN_GYM', 'There is no gym to choose equipment from.', {
       equipmentTypeIds: request.equipment.equipmentTypeIds,

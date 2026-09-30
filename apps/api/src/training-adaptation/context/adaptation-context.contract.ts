@@ -194,7 +194,7 @@ export function snapshotOf(context: AdaptationContext): AdaptationContextSnapsho
 /** Why a context could not be built (the service maps these to 400/404; the graph to a failed run). */
 export class AdaptationContextError extends Error {
   constructor(
-    readonly code: 'ADAPTATION_GYM_NOT_FOUND' | 'ADAPTATION_EQUIPMENT_NOT_IN_GYM',
+    readonly code: 'ADAPTATION_GYM_NOT_FOUND' | 'ADAPTATION_EQUIPMENT_NOT_IN_GYM' | 'ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED',
     message: string,
     readonly details: Record<string, unknown> = {},
   ) {

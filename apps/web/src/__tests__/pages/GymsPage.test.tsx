@@ -184,4 +184,63 @@ describe('GymsPage', () => {
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
   });
+
+  describe('Temporary section (E6.2)', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
+
+    it('lists temporary gyms apart with "Expires in N days", Save and Delete, and no Set default', async () => {
+      statefulGymsApi([
+        mockGymDetail({ name: 'Home Gym', isDefault: true }),
+        mockGymDetail({ name: 'Hotel gym Sep 20', type: 'hotel', isDefault: false, isTemporary: true, updatedAt: daysAgo(10) }),
+      ]);
+      const { container } = renderGyms();
+      const section = await screen.findByRole('region', { name: 'Temporary' });
+      expect(within(section).getByText(/deleted 30 days after its last change unless you save it/)).toBeInTheDocument();
+      const card = within(section).getByRole('region', { name: 'Hotel gym Sep 20' });
+      expect(within(card).getByRole('heading', { level: 3, name: 'Hotel gym Sep 20' })).toBeInTheDocument();
+      expect(within(card).getByTestId('gym-card-expiry')).toHaveTextContent('Expires in 20 days');
+      expect(within(card).getByRole('button', { name: 'Save Hotel gym Sep 20' })).toBeInTheDocument();
+      expect(within(card).getByRole('button', { name: 'Delete Hotel gym Sep 20' })).toBeInTheDocument();
+      expect(within(card).queryByRole('button', { name: /Set .* as default/ })).toBeNull();
+
+      // The saved gym stays in the main list, outside the section.
+      const home = screen.getByRole('region', { name: 'Home Gym' });
+      expect(section).not.toContainElement(home);
+      expect(await axe(container)).toHaveNoViolations();
+    });
+
+    it('renders no Temporary section without temporary gyms', async () => {
+      statefulGymsApi([mockGymDetail({ name: 'Home Gym' })]);
+      renderGyms();
+      await screen.findByRole('region', { name: 'Home Gym' });
+      expect(screen.queryByRole('region', { name: 'Temporary' })).toBeNull();
+    });
+
+    it('Save moves the gym to the main list with the same id', async () => {
+      const temp = mockGymDetail({ name: 'Hotel gym Sep 20', type: 'hotel', isDefault: false, isTemporary: true });
+      const api = statefulGymsApi([mockGymDetail({ name: 'Home Gym', isDefault: true }), temp]);
+      const user = userEvent.setup();
+      renderGyms();
+      await user.click(await screen.findByRole('button', { name: 'Save Hotel gym Sep 20' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Save Hotel gym Sep 20 for future use?' });
+      const name = within(dialog).getByRole('textbox', { name: /Name/ });
+      await user.clear(name);
+      await user.type(name, 'Marriott Lisbon');
+      await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Temporary' })).toBeNull());
+      const card = await screen.findByRole('region', { name: 'Marriott Lisbon' });
+      expect(within(card).queryByText('Temporary')).toBeNull();
+      expect(api.gyms.find((g) => g.id === temp.id)).toMatchObject({ name: 'Marriott Lisbon', isTemporary: false, isDefault: false });
+    });
+
+    it('with only temporary gyms says there is no saved gym yet', async () => {
+      statefulGymsApi([mockGymDetail({ name: 'Hotel gym', type: 'hotel', isDefault: false, isTemporary: true })]);
+      renderGyms();
+      expect(await screen.findByTestId('gyms-none-saved')).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Temporary' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'No gyms yet' })).toBeNull();
+    });
+  });
 });

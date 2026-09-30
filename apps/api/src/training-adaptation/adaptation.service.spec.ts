@@ -190,6 +190,43 @@ describe('AdaptationService', () => {
       expect(rig.db.adaptations.size).toBe(0);
     });
 
+    describe('a temporary gym (E6.2)', () => {
+      const emptyTemporary = { ...ADAPT_FULL_GYM, isTemporary: true, equipment: [], capabilities: [] };
+
+      it('with no equipment is 400 ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED "Confirm the equipment first" on create and preview', async () => {
+        rig.source = { gym: emptyTemporary };
+
+        for (const call of [rig.service.create(HARNESS_USER, { gymId: ADAPT_GYM_ID }), rig.service.preview(HARNESS_USER, { gymId: ADAPT_GYM_ID })]) {
+          const error = await failure(call);
+          expect(statusOf(error)).toBe(400);
+          expect((error.getResponse() as { message: string }).message).toBe('Confirm the equipment first');
+          expect(detailsOf(error)).toMatchObject({
+            reason: 'ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED',
+            issues: [{ path: 'gymId', message: 'Confirm the equipment first' }],
+          });
+        }
+        expect(rig.db.adaptations.size).toBe(0);
+        expect(rig.jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('with no equipment is accepted in bodyweight mode', async () => {
+        rig.source = { gym: emptyTemporary };
+
+        await expect(
+          rig.service.create(HARNESS_USER, { minutes: 30, gymId: ADAPT_GYM_ID, equipment: { mode: 'bodyweight' } }),
+        ).resolves.toMatchObject({ status: 'queued' });
+      });
+
+      it('with confirmed equipment is accepted like any gym and stored as the adaptation gym', async () => {
+        rig.source = { gym: { ...ADAPT_FULL_GYM, isTemporary: true } };
+
+        const started = await create({ minutes: 30, gymId: ADAPT_GYM_ID });
+
+        expect(started.status).toBe('queued');
+        expect(rig.db.getAdaptation(started.adaptationId)!.gymId).toBe(ADAPT_GYM_ID);
+      });
+    });
+
     it('a gym that is not the caller\'s is a 404 on create and preview', async () => {
       rig.contextPort.build = jest.fn(async () => {
         throw new AdaptationContextError('ADAPTATION_GYM_NOT_FOUND', 'Gym not found');

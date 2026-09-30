@@ -41,9 +41,9 @@ The column list, relations and delete rules are in `apps/api/prisma/schema.prism
 At most one gym per user is the default. The database decides, not the service:
 
 - `gyms_user_default_uniq_idx` is a raw-SQL partial unique index (`(user_id) WHERE is_default = true`) that exists only in the migration SQL. Prisma cannot express it. Never declare it as `@@unique` and never replace it with a `findFirst` pre-check.
-- The first gym a user creates becomes the default.
+- The first permanent gym a user creates becomes the default. A temporary gym never does ([section 2.13](#213-temporary-gyms)).
 - `POST /api/gyms/:id/default` demotes the old default and promotes the target in one transaction.
-- Deleting the default promotes the oldest remaining gym in the same transaction; deleting the last gym leaves none.
+- Deleting the default promotes the oldest remaining permanent gym in the same transaction; deleting the last permanent gym leaves none.
 - A write that loses the race for the slot gets a unique violation, retries once, and then answers `409` with `details.reason: DEFAULT_CONFLICT`.
 
 ### 2.3 The catalog and slug permanence
@@ -199,6 +199,35 @@ The overlay mounts all of `apps/api/test/fixtures` read-only and the server read
 
 Fixtures are chosen by the control endpoint, not by image hash: the web client downscales photos with a canvas, so the bytes the fake receives differ from the committed files. Without a queued fixture, one image gets `cardio-row-wide` and two or more get `both`. The Playwright specs that use it are listed in [TESTING.md](../TESTING.md#end-to-end-tests-playwright).
 
+### 2.13 Temporary gyms
+
+A temporary gym is a gym with `isTemporary: true`: the place the hotel flow of a workout adaptation creates before it scans the room (`POST /api/gyms` with `type: hotel`, `isTemporary: true`, from `apps/web/src/components/training/adapt/HotelGymScanStep.tsx`). It is otherwise an ordinary gym: same equipment, photos and scan (`GymScanFlow` runs the one `ai.equipment.scan` job). The hotel flow caps a scan at six photos client-side only.
+
+**Default rules** (`apps/api/src/gyms/gyms.service.ts`):
+
+- A temporary gym is never the default, not even a user's first gym.
+- `POST /api/gyms/:id/default` on a temporary gym answers `409` with `details.reason: TEMPORARY_GYM_NOT_DEFAULT` ("Save this gym before making it your default").
+- **Save gym** is `PATCH /api/gyms/:id` with `isTemporary: false` (optionally `name`, `type`). The gym keeps its id, equipment and photos. It becomes the default only when the user has no default; it never displaces an existing one.
+- Marking the default gym temporary clears its default flag and promotes the oldest permanent gym, in the same transaction. Either flag change can lose the race for the slot and answer `409 DEFAULT_CONFLICT` (retry).
+- `GET /api/gyms` includes temporary gyms unless `includeTemporary=false`. `/gyms` lists them in a separate section with an "Expires in N days" note (`TemporaryGymsSection.tsx`, the web copy of the retention constant) and Save or Delete actions; `SaveGymPrompt.tsx` offers the save after the workout.
+- An adaptation for a temporary gym with no equipment refuses `400` with `details.reason: ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED` ("Confirm the equipment first") unless the request's equipment mode is bodyweight. The web disables Continue until the gym has equipment or the user chooses Bodyweight only. `isTemporary` is never sent to the model.
+
+**Retention.** `TEMPORARY_GYM_RETENTION_DAYS = 30` in `gyms.constants.ts` (a code constant: no env var, no setting) counts from `gyms.updated_at`, so any edit restarts it. The `gyms.temporary.purge` job (`handlers/temporary-gym-purge.handler.ts`) is enqueued daily at 03:30 by `tasks/temporary-gym-purge.task.ts`, which only enqueues. It is server-only (it deletes storage objects, a privilege a node never holds) and takes the default execution profile.
+
+A temporary gym is purged only when all hold:
+
+| Condition | Why |
+|---|---|
+| `isTemporary` and unchanged for 30 days | Permanent gyms are never touched |
+| No workout references it (any status) | A logged workout keeps its place |
+| No adaptation `queued`, `running` or `ready` references it | Applying a ready adaptation re-reads the gym |
+| No `draft`, `active` or `paused` program references it | A plan built for the trip keeps its gym; archived and completed plans do not hold it |
+| No `gym_equipment` photo intake for it is `scanning` | The scan is analysing its photos now |
+
+Candidates are read in batches of 200 (at most 50 batches per run; the next run continues). Each is deleted in its own transaction through `GymsService.removeTemporary`, which shares its delete path with `DELETE /api/gyms/:id` and re-applies every condition in the delete's own `WHERE`, so a gym referenced after it was selected is skipped and retried the next day. After the commit the gym's photo objects are deleted from storage (objects another row still holds are kept). Any per-gym failure fails the job, which retries idempotently.
+
+**Known gap.** Nothing cleans up an abandoned photo intake (a scan the user never applied or deleted); the intake subsystem has no such sweep, and the purge does not widen it. Only a `scanning` intake holds a gym.
+
 ## 3. Configuration and permissions
 
 **Settings and environment.** None. The feature adds no environment variable and no settings page. AI, the vision model and the key policy are configured at runtime ([ai-configuration runbook](../runbooks/ai-configuration.md)); storage at `/admin/settings/storage`.
@@ -220,7 +249,7 @@ The `gym_equipment` kind declares `requiredPermissions` (`gyms:read`, `gyms:writ
 | Route | Permission |
 |---|---|
 | `GET`, `POST /api/gyms`; `GET`, `PATCH`, `DELETE /api/gyms/:id` | `gyms:read` (reads), `gyms:write` |
-| `POST /api/gyms/:id/default` | `gyms:write` |
+| `POST /api/gyms/:id/default` | `gyms:write` (`409 TEMPORARY_GYM_NOT_DEFAULT` on a temporary gym) |
 | `PUT`, `DELETE /api/gyms/:id/location` | `gyms:write` |
 | `GET`, `POST /api/gyms/:id/equipment`; `PATCH`, `DELETE .../equipment/:equipmentId` | `gyms:read` (list), `gyms:write` |
 | `GET /api/gyms/:id/photos`; `PATCH .../photos/:photoId` | `gyms:read`, `gyms:write` |
@@ -249,6 +278,7 @@ Refusals carry `details.reason` (values in `GYM_REFUSALS`, `apps/api/src/gyms/gy
 - `apps/api/test/gyms/gyms.integration.spec.ts`: the HTTP contract through the real guards: `401` without a token, `403` without the exact permission on every route, `storage:write` on photo attach and remove, the `{ data }` envelope, and owner scoping.
 - `apps/api/test/gyms/gyms.db.spec.ts`: the raw-SQL `gyms_user_default_uniq_idx` and `CHECK` constraints, cascade and restrict rules, and that re-seeding leaves counts unchanged and custom types untouched.
 - `apps/api/test/gyms/gyms-api.db.spec.ts`: concurrent "make default" leaves one default; deleting the default promotes the oldest; a deleted gym's storage objects are gone; catalog search by alias; custom-type ownership and the in-use rule; the AI-row snapshot.
+- `apps/api/src/gyms/handlers/temporary-gym-purge.handler.spec.ts`, `tasks/temporary-gym-purge.task.spec.ts`: the purge selection and reference rules, storage cleanup, and that the cron only enqueues.
 - `apps/api/test/gyms/gym-catalog.spec.ts`: the seeded catalogs are well formed (unique slugs, known capability slugs, known categories).
 - `apps/api/test/gyms/gym-equipment-scan.db.spec.ts`: both reference examples run through create, attach, analyze, the real job and read-back, and yield exactly `*.expected-drafts.json`; apply merge and photo attach.
 - `apps/api/test/gyms/fake-vision-server.spec.ts`: the fake server through the production OpenAI-compatible adapter.
@@ -301,3 +331,4 @@ Then walk it in the app (`http://localhost:3535`, sign in at `/testing/login`):
 - Optional GPS location on a gym: #51.
 - End-to-end tests and this spec: #55.
 - Location blocked guidance and the map picker: #121.
+- Hotel and temporary gym flow: temporary gyms, the default rules, the `gyms.temporary.purge` job and the adaptation equipment check: #107.

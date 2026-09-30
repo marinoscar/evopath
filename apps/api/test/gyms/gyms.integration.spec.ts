@@ -820,4 +820,77 @@ describe('Gyms (integration)', () => {
       );
     });
   });
+  // ---------------------------------------------------------------------------
+  // Temporary gyms over HTTP (E6.2): never the default, saved under the same id
+  // ---------------------------------------------------------------------------
+
+  describe('temporary gyms', () => {
+    it('POST /api/gyms with isTemporary never makes even the first gym the default', async () => {
+      const user = await createMockContributorUser(context);
+      prisma.gym.count.mockResolvedValue(0);
+      prisma.gym.create.mockImplementation(async ({ data }: any) => gymRow(user.id, data));
+
+      const response = await request(server())
+        .post('/api/gyms')
+        .set(authHeader(user.accessToken))
+        .send({ name: 'Hotel gym', type: 'hotel', isTemporary: true })
+        .expect(201);
+
+      expect(prisma.gym.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: user.id, type: 'hotel', isTemporary: true, isDefault: false }),
+      });
+      expect(response.body.data).toEqual(expect.objectContaining({ isTemporary: true, isDefault: false }));
+    });
+
+    it('POST /api/gyms/:id/default on a temporary gym is 409 TEMPORARY_GYM_NOT_DEFAULT and writes nothing', async () => {
+      const user = await createMockContributorUser(context);
+      prisma.gym.findFirst.mockResolvedValue(gymRow(user.id, { isTemporary: true, isDefault: false }));
+
+      const response = await request(server()).post(`/api/gyms/${GYM}/default`).set(authHeader(user.accessToken)).expect(409);
+
+      expect(response.body.details.reason).toBe('TEMPORARY_GYM_NOT_DEFAULT');
+      expect(response.body.message).toBe('Save this gym before making it your default');
+      expect(prisma.gym.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('PATCH /api/gyms/:id { isTemporary: false, name, type } saves the gym under the same id without taking the default', async () => {
+      const user = await createMockContributorUser(context);
+      prisma.gym.findFirst
+        .mockResolvedValueOnce(gymRow(user.id, { isTemporary: true, isDefault: false })) // findOwned
+        .mockResolvedValue({ ...gymRow(user.id, { isTemporary: false, isDefault: false, name: 'Hilton Lisbon', type: 'club' }), equipment: [], photos: [] }); // get
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+      prisma.gym.count.mockResolvedValue(1); // the user already has a default: the slot is not empty
+
+      const response = await request(server())
+        .patch(`/api/gyms/${GYM}`)
+        .set(authHeader(user.accessToken))
+        .send({ isTemporary: false, name: 'Hilton Lisbon', type: 'club' })
+        .expect(200);
+
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: user.id },
+        data: { isTemporary: false, name: 'Hilton Lisbon', type: 'club' },
+      });
+      expect(response.body.data.id).toBe(GYM);
+      expect(response.body.data.isTemporary).toBe(false);
+      expect(response.body.data.isDefault).toBe(false);
+    });
+
+    it('PATCH /api/gyms/:id refuses a non-boolean isTemporary with 400', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(server()).patch(`/api/gyms/${GYM}`).set(authHeader(user.accessToken)).send({ isTemporary: 'no' }).expect(400);
+
+      expect(prisma.gym.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('GET /api/gyms includes temporary gyms by default', async () => {
+      const user = await createMockContributorUser(context);
+      prisma.gym.findMany.mockResolvedValue([]);
+
+      await request(server()).get('/api/gyms').set(authHeader(user.accessToken)).expect(200);
+
+      expect(prisma.gym.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: user.id } }));
+    });
+  });
 });

@@ -31,6 +31,16 @@ describe('useGyms', () => {
     const hotel = result.current.gyms.find((g) => g.name === 'Hotel gym')!;
     expect(hotel.isDefault).toBe(false);
 
+    // E6.2: a temporary gym cannot be the default until it is saved.
+    await expect(result.current.setDefault(hotel.id)).rejects.toMatchObject({
+      status: 409,
+      details: { reason: 'TEMPORARY_GYM_NOT_DEFAULT' },
+    });
+    await act(async () => {
+      await result.current.save(hotel.id, { name: 'Hotel gym' });
+    });
+    expect(result.current.gyms.find((g) => g.id === hotel.id)).toMatchObject({ isTemporary: false, isDefault: false });
+
     await act(async () => {
       await result.current.setDefault(hotel.id);
     });
