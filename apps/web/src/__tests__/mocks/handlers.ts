@@ -21,6 +21,7 @@ import {
   mockUserAiKeys,
   toSseBody,
 } from './fixtures/ai';
+import { mockMonthlyUsage, mockRunUsage } from './fixtures/trainingUsage';
 import {
   mockTelemetryAdminConfig,
   mockTelemetryConnectionAutomaticStored,
@@ -757,6 +758,17 @@ export const handlers = [
 
   http.post(`${API_BASE}/ai/training/estimate`, () => {
     return HttpResponse.json({ data: mockTrainingRunEstimate });
+  }),
+
+  // Agent usage (E6.3): one run's usage by step, and one month (no typical
+  // numbers by default, so no "Typically about N tokens" hint appears).
+  http.get(`${API_BASE}/ai/training/runs/:runId/usage`, ({ params }) => {
+    return HttpResponse.json({ data: mockRunUsage({ runId: String(params.runId) }) });
+  }),
+
+  http.get(`${API_BASE}/ai/training/usage`, ({ request }) => {
+    const month = new URL(request.url).searchParams.get('month') ?? undefined;
+    return HttpResponse.json({ data: mockMonthlyUsage(month ? { month } : {}) });
   }),
 
   // A plan's change log (E5.8 banners read its first page): empty by default.

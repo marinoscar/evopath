@@ -3,6 +3,8 @@
  * `aiErrorCopy` mapping; training codes have their own sentences.
  */
 import { aiErrorCopy } from '../ai/AiErrorAlert';
+import { TRAINING_RUN_BUDGET_EXCEEDED } from '../../services/aiErrors';
+import { TOKEN_CAP_SETTINGS_PATH, tokenCapText } from '../settings/ai/aiErrorText';
 
 export interface RunErrorCopy {
   title: string;
@@ -18,11 +20,6 @@ const TRAINING_COPY: Record<string, RunErrorCopy> = {
   TRAINING_PLAN_REJECTED: {
     title: 'The plan did not pass the checks',
     body: 'The agents could not produce a plan that passes the safety and feasibility checks. Try again, or change your answers.',
-  },
-  TRAINING_RUN_BUDGET_EXCEEDED: {
-    title: 'The token cap was reached',
-    body: 'The run used its whole token cap before the plan was finished. Raise the cap, or try again.',
-    action: { label: 'Change the cap', to: '/settings/ai/agents' },
   },
   TRAINING_STALE_PLAN: {
     title: 'Your plan changed meanwhile',
@@ -57,7 +54,22 @@ const TRAINING_COPY: Record<string, RunErrorCopy> = {
   INTERNAL_ERROR: { title: 'Something went wrong', body: 'The run failed unexpectedly. Try again.' },
 };
 
-export function runErrorCopy(code: string | null | undefined): RunErrorCopy {
+/** The run's cap, when known: the cap message then carries the numbers. */
+export interface RunErrorContext {
+  cap?: { limitTokens: number; usedTokens: number } | null;
+}
+
+/** "Stopped at your limit of 20,000 tokens per run (used 20,340). Raise it in AI settings." */
+export function tokenCapCopy(cap?: RunErrorContext['cap']): RunErrorCopy {
+  return {
+    title: 'Stopped at your token limit',
+    body: tokenCapText(cap),
+    action: { label: 'Change the limit', to: TOKEN_CAP_SETTINGS_PATH },
+  };
+}
+
+export function runErrorCopy(code: string | null | undefined, context: RunErrorContext = {}): RunErrorCopy {
+  if (code === TRAINING_RUN_BUDGET_EXCEEDED) return tokenCapCopy(context.cap);
   if (code && TRAINING_COPY[code]) return TRAINING_COPY[code];
   if (code && code.startsWith('AI_')) {
     const copy = aiErrorCopy({ code, message: '' });

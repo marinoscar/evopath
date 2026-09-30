@@ -30,6 +30,9 @@ import { TrainingTodayService } from './today/training-today.service';
  * `TrainingSignalsService` (exported for the plan evaluator):
  * `forEvaluator` / `compactForEvaluator`. `WorkoutsModule` supplies
  * `WorkoutHistoryService.priorBuckets` so PRs follow E4.4's definitions.
+ *
+ * `TrainingTodayService` is exported for the quick workout adaptation (E6.1),
+ * which adapts the workout it resolves for today.
  */
 @Module({
   imports: [CheckInsModule, ExercisesModule, WorkoutsModule],
@@ -41,6 +44,6 @@ import { TrainingTodayService } from './today/training-today.service';
     TrainingSignalsController,
   ],
   providers: [ProgramsService, TrainingTodayService, SignalsLoader, TrainingSignalsService],
-  exports: [ProgramsService, TrainingSignalsService],
+  exports: [ProgramsService, TrainingSignalsService, TrainingTodayService],
 })
 export class ProgramsModule {}

@@ -3,9 +3,10 @@
  *
  * Bring your own key: one card per provider the administrator has enabled,
  * where the user saves (server-verified), tests and removes their own key;
- * then the models that key (or the organisation's) can reach and, last, the
- * user's own usage over the last 30 days (#444), a section of this page
- * rather than a tab. There is no model choice here: every AI model is an
+ * then the models that key (or the organisation's) can reach, the user's own
+ * usage over the last 30 days (#444), a section of this page rather than a
+ * tab, and under it what the training agents used per month (E6.3), also a
+ * section. There is no model choice here: every AI model is an
  * administrator's assignment (#173, `/admin/settings/ai/assignments`).
  *
  * A THIN PAGE WRAPPER, NOT `UserSettingsSection` — the same call as
@@ -27,6 +28,7 @@ import { UserAiKeyCard } from '../components/settings/ai/UserAiKeyCard';
 import { KeylessProviderCard } from '../components/settings/ai/KeylessProviderCard';
 import { UsableAiModelsList } from '../components/settings/ai/UsableAiModelsList';
 import { MyAiUsageSection } from '../components/settings/ai/MyAiUsageSection';
+import { MonthlyAgentUsageSection } from '../components/settings/ai/MonthlyAgentUsageSection';
 
 export default function UserAiKeysPage() {
   const { hasPermission } = usePermissions();
@@ -108,6 +110,8 @@ export default function UserAiKeysPage() {
             />
 
             <MyAiUsageSection />
+
+            <MonthlyAgentUsageSection />
           </Stack>
         )}
       </Box>

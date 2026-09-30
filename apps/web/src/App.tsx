@@ -54,6 +54,8 @@ const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
 const WorkoutPrefillPage = lazy(() => import('./pages/WorkoutPrefillPage'));
 // E5.9: a plan's Progress view (signals), also under `/train`.
 const PlanProgressPage = lazy(() => import('./pages/PlanProgressPage'));
+// E6.1: one quick workout adaptation (live run, then review), also under `/train`.
+const AdaptationReviewPage = lazy(() => import('./pages/AdaptationReviewPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
 // E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
@@ -264,6 +266,19 @@ function AppRoutes() {
                       <RequirePermission permission="ai:use" fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
                         <RequireAiEnabled fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
                           <PlanRunPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E6.1: a quick workout adaptation. Every route under
+                      `/api/ai/training/adaptations` needs `ai:use` and AI
+                      being on, so the page does too; otherwise back to Train. */}
+                  <Route
+                    path="/train/adapt/:adaptationId"
+                    element={
+                      <RequirePermission permission="ai:use" fallback={<Navigate to="/train" replace />}>
+                        <RequireAiEnabled fallback={<Navigate to="/train" replace />}>
+                          <AdaptationReviewPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }

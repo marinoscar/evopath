@@ -116,9 +116,11 @@ const MIGRATIONS_AT_288 = [
   // automation pause) and the `missed_sessions` run trigger. About plan
   // evaluation, not notifications.
   '20260930150000_add_program_evaluation_state',
+  '20260930160000_add_workout_adaptations',
+  '20260930170000_allow_adapt_training_run_kind',
   // #173: deletes the retired `ai.defaultModel`/`ai.taskModels` from
   // `user_settings.value`. About AI model selection, not notifications.
-  '20260930160000_remove_user_ai_model_choices',
+  '20260930180000_remove_user_ai_model_choices',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

@@ -97,8 +97,8 @@ const tokenTotals = z
   .strict();
 
 const LIFECYCLE_SCHEMAS: Record<LifecycleEventType, z.ZodType> = {
-  'run.queued': z.object({ kind: z.enum(['create', 'revise', 'evaluate']), trigger: z.string().max(32) }).strict(),
-  'run.started': z.object({ kind: z.enum(['create', 'revise', 'evaluate']) }).strict(),
+  'run.queued': z.object({ kind: z.enum(['create', 'revise', 'evaluate', 'adapt']), trigger: z.string().max(32) }).strict(),
+  'run.started': z.object({ kind: z.enum(['create', 'revise', 'evaluate', 'adapt']) }).strict(),
   'run.resumed': z
     .object({ resumeCount: COUNT, decision: z.enum(['approve', 'reject']).optional() })
     .strict(),

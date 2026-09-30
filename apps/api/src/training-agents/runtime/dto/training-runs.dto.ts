@@ -5,7 +5,7 @@ import { AI_KEY_SOURCES } from '../../../ai/keys/dto/usable-ai-model.dto';
 import { TASK_REASONING_EFFORTS, TRAINING_AGENT_ROLES } from '../../../common/schemas/settings.schema';
 import { createRunRequestSchema, reviseRunRequestSchema, trainingIntakeSchema } from '../../contracts/training-intake.contract';
 import { TRAINING_RUN_KINDS } from '../../models/token-estimate';
-import { TRAINING_RUN_STATUSES, TRAINING_RUN_TRIGGERS } from '../training-runs.constants';
+import { ADAPT_RUN_KIND, TRAINING_RUN_STATUSES, TRAINING_RUN_TRIGGERS } from '../training-runs.constants';
 
 // =============================================================================
 // /api/ai/training/runs and /api/ai/training/stream
@@ -146,7 +146,8 @@ const usageTotalsSchema = z.object({
 
 export const trainingRunViewSchema = z.object({
   id: z.string().uuid(),
-  kind: z.enum(TRAINING_RUN_KINDS),
+  /** `adapt`: a quick workout adaptation's run (`/api/ai/training/adaptations`); never listed, started or resumed here. */
+  kind: z.enum([...TRAINING_RUN_KINDS, ADAPT_RUN_KIND]),
   trigger: z.enum(TRAINING_RUN_TRIGGERS),
   status: z.enum(TRAINING_RUN_STATUSES),
   /** The node running now. */
@@ -163,6 +164,17 @@ export const trainingRunViewSchema = z.object({
     }),
   ),
   tokenCap: z.number().int(),
+  /**
+   * The cap as a meter (E6.3): `usedTokens` counts input, output and reasoning
+   * tokens, exactly what the budget enforces; `reached` when the count is at
+   * or over `limitTokens` or the run failed `TRAINING_RUN_BUDGET_EXCEEDED`.
+   */
+  cap: z.object({
+    limitTokens: z.number().int(),
+    usedTokens: z.number().int(),
+    reached: z.boolean(),
+    reason: z.literal('token_cap').optional(),
+  }),
   usage: z.object({
     byRole: z.record(z.string(), usageTotalsSchema),
     byNode: z.record(z.string(), usageTotalsSchema),

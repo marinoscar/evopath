@@ -168,3 +168,27 @@ export class RunBudget {
     };
   }
 }
+
+/** The failure code a spent budget ends a run with (`RunBudgetExceededError.code`). */
+export const RUN_BUDGET_EXCEEDED_CODE = 'TRAINING_RUN_BUDGET_EXCEEDED';
+
+/**
+ * A run's token cap as a user sees it (E6.3): the frozen limit, the tokens
+ * counted against it (the SAME count `RunBudget` enforces:
+ * `countedTokens(usage.total)`), and whether the cap stopped anything.
+ * `reached` is true when the count is at or over the limit (a skipped critic
+ * or revision) or the run failed with the budget code.
+ */
+export interface RunCapState {
+  limitTokens: number;
+  usedTokens: number;
+  reached: boolean;
+  reason?: 'token_cap';
+}
+
+export function runCapState(tokenCap: number, usage: unknown, errorCode: string | null): RunCapState {
+  const usedTokens = countedTokens(parseRunUsage(usage).total);
+  const reached = usedTokens >= tokenCap || errorCode === RUN_BUDGET_EXCEEDED_CODE;
+
+  return { limitTokens: tokenCap, usedTokens, reached, ...(reached ? { reason: 'token_cap' as const } : {}) };
+}

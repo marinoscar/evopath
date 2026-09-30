@@ -68,14 +68,22 @@ export interface RoleResolution {
   fix: 'keys' | 'admin' | null;
 }
 
-export type TrainingRunKind = 'create' | 'revise' | 'evaluate';
+/**
+ * A training run's kind as the run view reports it. `adapt` (E6.1) is a quick
+ * workout adaptation (`/api/ai/training/adaptations`); it has no entry in the
+ * models view's limits or `canRun`, which cover the plan kinds only.
+ */
+export type TrainingRunKind = 'create' | 'revise' | 'evaluate' | 'adapt';
+
+/** The plan-making kinds `GET /api/ai/training/models` and the estimate know about. */
+export type TrainingPlanRunKind = Exclude<TrainingRunKind, 'adapt'>;
 
 /** `GET /api/ai/training/models`. */
 export interface TrainingModelsView {
   roles: Record<TrainingAgentRole, RoleResolution>;
   webSearch: { adminEnabled: boolean };
   limits: {
-    defaultRunTokens: Record<TrainingRunKind, number>;
+    defaultRunTokens: Record<TrainingPlanRunKind, number>;
     minRunTokens: number;
     hardMaxRunTokens: number;
   };
@@ -94,7 +102,7 @@ export interface TokenRange {
 
 /** `POST /api/ai/training/estimate` body. */
 export interface EstimateTrainingRunInput {
-  kind: TrainingRunKind;
+  kind: TrainingPlanRunKind;
   criticRounds?: 1 | 2 | 3;
   contextChars?: number;
   /** `create`: with it the answer carries `sentData`. */
@@ -275,6 +283,12 @@ export interface TrainingRunView {
     >
   >;
   tokenCap: number;
+  /**
+   * The cap as a meter (E6.3): `usedTokens` counts what the budget enforces
+   * (input, output and reasoning); `reached` when the count is at or over the
+   * limit or the run failed `TRAINING_RUN_BUDGET_EXCEEDED`.
+   */
+  cap: { limitTokens: number; usedTokens: number; reached: boolean; reason?: 'token_cap' };
   usage: {
     byRole: Record<string, TrainingUsageTotals>;
     byNode: Record<string, TrainingUsageTotals>;

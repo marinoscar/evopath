@@ -203,6 +203,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.equipment.scan': null, // filled in per-test: needs a scanning gym_equipment intake (E3.4)
       'ai.workout.prefill': null, // filled in per-test: needs a scanning workout_prefill intake (E4.5)
       'ai.training.plan.run': null, // filled in per-test: needs a queued training_plan_runs row (E5.3)
+      'ai.training.adapt.run': null, // filled in per-test: needs a queued workout_adaptations row and its run (E6.1)
     };
 
     let registry: JobHandlerRegistry;
@@ -535,6 +536,70 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       );
       // It never moved to `running`.
       expect(prisma.trainingPlanRun.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'running' }) }),
+      );
+    });
+
+    it('ai.training.adapt.run: disabled makes zero provider calls, adaptation fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.training.adapt.run');
+      expect(handler).toBeDefined();
+
+      const adaptationId = '88888888-8888-4888-8888-888888888888';
+      const runId = '99999999-9999-4999-8999-999999999999';
+      const prisma = app.context.prismaMock;
+
+      // A `queued` adaptation and its `adapt` run, the way `POST /api/ai/training/adaptations` leaves them.
+      (prisma.workoutAdaptation.findUnique as jest.Mock).mockResolvedValue({
+        id: adaptationId,
+        userId: HARNESS_USER,
+        status: 'queued',
+        request: { minutes: 30, useReadiness: true, baseWorkout: 'planned' },
+        runId,
+        jobId: 'job-kill-switch',
+      });
+      (prisma.trainingPlanRun.findUnique as jest.Mock).mockResolvedValue({
+        id: runId,
+        userId: HARNESS_USER,
+        kind: 'adapt',
+        trigger: 'user',
+        status: 'queued',
+        jobId: 'job-kill-switch',
+        jobIds: ['job-kill-switch'],
+        input: { request: { adaptationId }, maxCriticRounds: 1 },
+        roleModels: {
+          planner: { provider: 'openai', modelId: 'fake-model', effort: 'medium', keySource: 'user' },
+          critic: { provider: 'openai', modelId: 'fake-model', effort: 'medium', keySource: 'user' },
+        },
+        tokenCap: 100_000,
+        usage: {},
+        cancelRequestedAt: null,
+        resumeCount: 0,
+        startedAt: null,
+      });
+      (prisma.workoutAdaptation.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      (prisma.trainingPlanRun.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.training.adapt.run',
+          subjectType: 'training_adaptation',
+          subjectId: adaptationId,
+          payload: { adaptationId },
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.workoutAdaptation.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: adaptationId, status: { in: ['queued'] } },
+          data: expect.objectContaining({ status: 'failed', errorCode: 'AI_DISABLED' }),
+        }),
+      );
+      // It never moved to `running`.
+      expect(prisma.workoutAdaptation.updateMany).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'running' }) }),
       );
     });

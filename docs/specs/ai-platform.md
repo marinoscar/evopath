@@ -93,7 +93,7 @@ Configuration lives in four places, split by sensitivity:
   `PUT /api/admin/ai/assignments` writes it (§2.18).
 - The user `ai` settings object holds only `training` and is strict: any other
   key is a normal zod 400. The migration
-  `20260930160000_remove_user_ai_model_choices` deleted the stored
+  `20260930180000_remove_user_ai_model_choices` deleted the stored
   `ai.defaultModel` and `ai.taskModels` values.
 
 - Provider ids are `AI_PROVIDER_IDS` in
@@ -619,6 +619,7 @@ org key must never be brokered to a worker node.
 | `ai.audio.speech` | `{ runId }` | 5 min, 2 attempts | A retry rewrites the same key. |
 | `ai.keys.recheck` | `{ provider }` | 30 min, 3 attempts | Weekly cron, and on catalog sync. |
 | `ai.usage.purge` | none | 30 min, 3 attempts | Daily at 05:00 via `enqueueHousekeepingJob`; 5000 ids per batch. |
+| `ai.training.adapt.run` | `{ adaptationId }` | 5 min, 1 attempt | One quick workout adaptation on a `training_plan_runs` row of kind `adapt`; a model call is not safe to retry blindly. |
 
 - Media jobs extend `AiMediaRunHandler` (claim, cancel, deadline, outcomes,
   retries, settle safety net).
@@ -1089,4 +1090,4 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
   `GET/PUT /api/admin/ai/assignments`, `GET /api/ai/features`, server-side
   intake analyze models, and the retirement of `ai.defaultModel` and
   `ai.taskModels.*`, deleted from `user_settings` by migration
-  `20260930160000_remove_user_ai_model_choices`.
+  `20260930180000_remove_user_ai_model_choices`.
