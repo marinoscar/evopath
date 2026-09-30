@@ -10,7 +10,7 @@
  * review (`AiDraftReview`). This file only adds the `body_metric_reading`
  * kind's value view and editor (`ReadingDraftValue.tsx`) and the steps:
  *
- * 1. `useVisionAvailability()`: anything but `ready` shows the notice, whose
+ * 1. `useVisionAvailability('body_metric_reading')`: anything but `ready` shows the notice, whose
  *    "Continue manually" hands over to the quick-entry dialog.
  * 2. Resume the newest unfinished reading intake (`GET /intakes?kind=…&status=
  *    draft,scanning,ready`), or start one (`POST /intakes { kind }`).
@@ -51,6 +51,7 @@ import {
   useImageIntake,
   usePhotoIntake,
   useVisionAvailability,
+  useRefreshOnFeatureRefusal,
   uploadAndAttach,
   detachFrom,
   type UseVisionAvailabilityReturn,
@@ -204,12 +205,13 @@ function PhotoReadSession({
 
   const busy = scan.isMutating || applying;
   const status = intake?.status ?? null;
-  const selected = vision.selected;
+  const selected = vision.model;
+  useRefreshOnFeatureRefusal(scan.error, vision.refresh);
 
   const read = async () => {
     if (!selected) return;
     setApplyFailure(null);
-    await scan.analyze({ provider: selected.provider, modelId: selected.modelId });
+    await scan.analyze(selected);
   };
 
   const save = async () => {
@@ -392,7 +394,7 @@ function PhotoReadFlow({
   onEnterManually,
   onApplied,
 }: Omit<SessionProps, 'intakeId' | 'vision' | 'catalog'>) {
-  const vision = useVisionAvailability();
+  const vision = useVisionAvailability('body_metric_reading');
   const { catalog } = useMeasurementCatalog();
   const [intakeId, setIntakeId] = useState<string | null>(null);
   const [startError, setStartError] = useState<AiErrorInfo | null>(null);
@@ -423,7 +425,12 @@ function PhotoReadFlow({
     return (
       <>
         <DialogContent dividers>
-          <NoVisionModelNotice reason={vision.status === 'ready' ? 'loading' : vision.status} onManual={onEnterManually} />
+          <NoVisionModelNotice
+            reason={vision.status === 'ready' ? 'loading' : vision.status}
+            fix={vision.fix}
+            onRetry={() => void vision.refresh()}
+            onManual={onEnterManually}
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>Close</Button>

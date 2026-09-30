@@ -1,9 +1,10 @@
 /**
  * One mode's model selection — issue #445 (generalised from #434's chat).
  *
- * Defaults to the caller's saved `user_settings.ai.defaultModel` when it is
- * among `models`, else the first of them; and re-picks when the selection
- * stops being offered (the list changed under it).
+ * Defaults to `preferred` when it is among `models`, else the first of them;
+ * and re-picks when the selection stops being offered (the list changed
+ * under it). The Playground passes no preference (#173: users have no
+ * default model), so every mode starts on its first model.
  */
 import { useEffect, useState } from 'react';
 import type { UsableAiModel } from '../../../services/ai';

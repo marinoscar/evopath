@@ -20,7 +20,7 @@ import WorkoutPrefillPage, { NOTHING_RECOGNIZED, PREFILL_PRIVACY_NOTE } from '..
 import WorkoutPage from '../../pages/WorkoutPage';
 import { clearPhotoUrlCache } from '../../components/intake/StoragePhotoThumb';
 import { mockHealthProfileSaved } from '../mocks/fixtures/health';
-import { mockUsableAiModels } from '../mocks/fixtures/ai';
+import { mockAiFeaturesView, mockBlockedFeatureView } from '../mocks/fixtures/aiFeatures';
 import { mockEntry, mockSet, mockWorkout, statefulWorkoutsApi, type WorkoutsApiState } from '../mocks/fixtures/workouts';
 import { mockExercise, statefulExercisesApi } from '../mocks/fixtures/exercises';
 import {
@@ -115,22 +115,17 @@ describe('WorkoutPrefillPage', () => {
     expect(api.calls).toEqual([]);
   });
 
-  it('without a vision model says so and creates no intake', async () => {
+  it('without an assigned model says so and creates no intake', async () => {
     const api = statefulPrefillApi();
     server.use(
-      http.get('*/api/ai/models', () =>
-        HttpResponse.json({
-          data: [
-            {
-              ...mockUsableAiModels[0],
-              capabilities: { capabilities: ['responses'], inputModalities: ['text'], outputModalities: ['text'] },
-            },
-          ],
-        }),
+      http.get('*/api/ai/features', () =>
+        HttpResponse.json({ data: mockAiFeaturesView({ workout_prefill: mockBlockedFeatureView('workout_prefill', 'missing_capability', 'admin') }) }),
       ),
     );
     renderPrefill();
-    expect(await screen.findByText('None of your available models can read images')).toBeInTheDocument();
+    expect(
+      await screen.findByText("Your administrator hasn't assigned an AI model that can read photos yet."),
+    ).toBeInTheDocument();
     expect(api.calls).toEqual([]);
   });
 
@@ -196,7 +191,7 @@ describe('WorkoutPrefillPage', () => {
     await user.click(analyze);
     expect(await screen.findByTestId('prefill-scanning')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Analyzing 1 photo in 1 request.');
-    expect(api.calls.find((c) => c.path.endsWith('/analyze'))?.body).toEqual({ provider: 'openai', modelId: 'gpt-5-mini' });
+    expect(api.calls.find((c) => c.path.endsWith('/analyze'))?.body).toEqual({});
 
     expect(await screen.findByTestId('prefill-review', {}, { timeout: 8000 })).toBeInTheDocument();
     expect(rows()).toHaveLength(1);

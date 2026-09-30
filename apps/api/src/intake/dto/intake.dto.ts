@@ -127,15 +127,30 @@ export class AttachPhotoDto extends createZodDto(attachPhotoSchema) {}
 
 export const analyzeIntakeSchema = z
   .object({
-    provider: z.string().trim().min(1).max(64).meta({ description: 'An enabled AI provider, e.g. `openai`.' }),
+    provider: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .optional()
+      .meta({
+        description:
+          'Deprecated (#173): the model is the administrator\'s assignment for this intake kind\'s AI feature. ' +
+          'Omit it. When sent, it must name the resolved model or the request is refused 409 `AI_MODEL_ASSIGNMENT_LOCKED`.',
+      }),
     modelId: z
       .string()
       .trim()
       .min(1)
       .max(200)
-      .meta({ description: 'An enabled model of that provider with `vision_input` and `structured_output`.' }),
+      .optional()
+      .meta({ description: 'Deprecated (#173); see `provider`. Sent together with `provider` or not at all.' }),
   })
-  .strict();
+  .strict()
+  .refine((body) => (body.provider === undefined) === (body.modelId === undefined), {
+    message: 'Send provider and modelId together, or neither',
+    path: ['modelId'],
+  });
 
 export class AnalyzeIntakeDto extends createZodDto(analyzeIntakeSchema) {}
 export type AnalyzeIntakeInput = z.output<typeof analyzeIntakeSchema>;

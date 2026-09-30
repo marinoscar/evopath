@@ -6,51 +6,25 @@ import {
   userSettingsPatchSchema,
 } from './settings.schema';
 
-// `ai.taskModels` and `ai.training`: every field optional (existing accounts
-// stay valid), bounded limits rejected at the PATCH, null clears in the patch.
+// `ai.training`: every field optional, bounded limits rejected at the PATCH,
+// null clears in the patch. Both shapes are strict.
 
 describe('user ai settings schemas', () => {
-  const planner = { provider: 'openai', modelId: 'gpt-x', reasoningEffort: 'high' };
-
-  it('an existing stored value with only defaultModel stays valid', () => {
-    expect(userAiSettingsSchema.safeParse({ defaultModel: null }).success).toBe(true);
-    expect(
-      userAiSettingsSchema.safeParse({ defaultModel: { provider: 'openai', modelId: 'm' } }).success,
-    ).toBe(true);
-  });
-
-  it('accepts taskModels and training in the stored shape', () => {
-    const value = {
-      defaultModel: null,
-      taskModels: { planner, critic: { ...planner, reasoningEffort: null } },
-      training: { maxRunTokens: 50_000, maxCriticRounds: 3 },
-    };
+  it('accepts training in the stored/PUT shape', () => {
+    const value = { training: { maxRunTokens: 50_000, maxCriticRounds: 3 } };
 
     expect(userAiSettingsSchema.parse(value)).toEqual(value);
+    expect(userAiSettingsSchema.parse({})).toEqual({});
   });
 
-  it('rejects an unknown reasoning effort', () => {
-    expect(
-      userAiSettingsSchema.safeParse({
-        defaultModel: null,
-        taskModels: { planner: { ...planner, reasoningEffort: 'extreme' } },
-      }).success,
-    ).toBe(false);
+  it('rejects an unknown key in the PUT and PATCH shapes', () => {
+    expect(userAiSettingsSchema.safeParse({ unknownKey: null }).success).toBe(false);
+    expect(userAiSettingsPatchSchema.safeParse({ unknownKey: null }).success).toBe(false);
+    expect(userSettingsPatchSchema.safeParse({ ai: { unknownKey: null } }).success).toBe(false);
   });
 
-  it('the patch accepts a body without defaultModel (it is optional now)', () => {
-    expect(userAiSettingsPatchSchema.parse({ taskModels: { planner } })).toEqual({
-      taskModels: { planner },
-    });
-  });
-
-  it('the patch accepts null for one role, for taskModels, for training and for each training field', () => {
-    for (const body of [
-      { taskModels: { planner: null } },
-      { taskModels: null },
-      { training: null },
-      { training: { maxRunTokens: null, maxCriticRounds: null } },
-    ]) {
+  it('the patch accepts null for training and for each training field', () => {
+    for (const body of [{ training: null }, { training: { maxRunTokens: null, maxCriticRounds: null } }]) {
       expect(userAiSettingsPatchSchema.safeParse(body).success).toBe(true);
     }
   });

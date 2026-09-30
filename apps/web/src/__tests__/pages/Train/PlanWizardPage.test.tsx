@@ -139,7 +139,8 @@ describe('PlanWizardPage review and start', () => {
     renderWizard();
     const agents = await screen.findByRole('list', { name: 'Agents' });
     expect(within(agents).getByTestId('role-row-researcher')).toHaveTextContent('Frontier One, medium effort, your key');
-    expect(within(agents).getAllByRole('link', { name: /Change the/ })[0]).toHaveAttribute('href', '/settings/ai/agents');
+    // Models are an administrator's choice (#173): no per-role Change link.
+    expect(within(agents).queryByRole('link', { name: /Change the/ })).not.toBeInTheDocument();
 
     const panel = await screen.findByTestId('sent-data-panel');
     expect(within(panel).getByText(/Researcher \(frontier-1\): 2 sections/)).toBeInTheDocument();

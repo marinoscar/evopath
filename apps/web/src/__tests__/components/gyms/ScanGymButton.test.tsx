@@ -1,7 +1,7 @@
 /**
  * `ScanGymButton` (E3.4): a link to `/gyms/:gymId/scan` when the scan can
  * run; otherwise a disabled button described by the reason (missing
- * permission, AI off, no key, no vision model). A caller without the
+ * permission, AI off, no key, no assigned model, a failed check). A caller without the
  * permissions causes no AI request.
  */
 import { describe, expect, it } from 'vitest';
@@ -9,13 +9,19 @@ import { http, HttpResponse } from 'msw';
 import { render, screen, mockUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
 import { ScanGymButton } from '../../../components/gyms/ScanGymButton';
-import { mockUsableAiModels } from '../../mocks/fixtures/ai';
+import { mockAiFeaturesView, mockBlockedFeatureView } from '../../mocks/fixtures/aiFeatures';
 
 const GYM_ID = '00000000-0000-4000-8000-a00000000123';
 const SCANNER = { ...mockUser, permissions: [...mockUser.permissions, 'storage:write', 'intakes:read', 'intakes:write'] };
 
-function withModels(data: unknown[]) {
-  server.use(http.get('*/api/ai/models', () => HttpResponse.json({ data })));
+function withFeature(view: ReturnType<typeof mockAiFeaturesView> | null) {
+  server.use(
+    http.get('*/api/ai/features', () =>
+      view
+        ? HttpResponse.json({ data: view })
+        : HttpResponse.json({ statusCode: 500, code: 'INTERNAL', message: 'boom' }, { status: 500 }),
+    ),
+  );
 }
 
 describe('ScanGymButton', () => {
@@ -24,17 +30,23 @@ describe('ScanGymButton', () => {
     expect(await screen.findByRole('link', { name: 'Scan gym' })).toHaveAttribute('href', `/gyms/${GYM_ID}/scan`);
   });
 
-  it.each<[string, boolean, unknown[], string]>([
-    ['AI is off', false, mockUsableAiModels, 'AI is turned off for this app.'],
-    ['there is no key', true, [], 'Add your own AI key in Settings → AI to scan.'],
+  it.each<[string, boolean, ReturnType<typeof mockAiFeaturesView> | null, string]>([
+    ['AI is off', false, mockAiFeaturesView(), 'AI is turned off for this app.'],
     [
-      'no model reads images',
+      'there is no key',
       true,
-      [{ ...mockUsableAiModels[0], capabilities: { capabilities: ['responses'], inputModalities: ['text'], outputModalities: ['text'] } }],
-      'None of your available models can read images.',
+      mockAiFeaturesView({ gym_scan: mockBlockedFeatureView('gym_scan', 'no_key', 'keys') }),
+      'Add your own AI key in Settings → AI Keys to scan.',
     ],
-  ])('is disabled with the reason when %s', async (_case, aiEnabled, models, reason) => {
-    withModels(models);
+    [
+      'no model is assigned',
+      true,
+      mockAiFeaturesView({ gym_scan: mockBlockedFeatureView('gym_scan', 'missing_capability', 'admin') }),
+      "Your administrator hasn't assigned an AI model that can read photos yet.",
+    ],
+    ['the check fails', true, null, "Couldn't check AI availability."],
+  ])('is disabled with the reason when %s', async (_case, aiEnabled, view, reason) => {
+    withFeature(view);
     render(<ScanGymButton gymId={GYM_ID} />, { wrapperOptions: { user: SCANNER, aiEnabled } });
     const button = await screen.findByRole('button', { name: 'Scan gym' });
     expect(button).toBeDisabled();
@@ -49,9 +61,9 @@ describe('ScanGymButton', () => {
   ])('is disabled without %s and asks nothing of the AI API', async (permission, reason) => {
     let modelReads = 0;
     server.use(
-      http.get('*/api/ai/models', () => {
+      http.get('*/api/ai/features', () => {
         modelReads += 1;
-        return HttpResponse.json({ data: mockUsableAiModels });
+        return HttpResponse.json({ data: mockAiFeaturesView() });
       }),
     );
     const user = { ...SCANNER, permissions: SCANNER.permissions.filter((p) => p !== permission) };

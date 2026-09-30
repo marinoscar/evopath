@@ -21,7 +21,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { Alert, AlertTitle, Box, Button, LinearProgress, Skeleton, Stack, Typography } from '@mui/material';
 import { useGymScanIntake } from '../../hooks/useGymScanIntake';
-import type { UseVisionAvailabilityReturn } from '../../hooks/useVisionAvailability';
+import {
+  useRefreshOnFeatureRefusal,
+  type UseVisionAvailabilityReturn,
+} from '../../hooks/useVisionAvailability';
 import {
   AiDraftReview,
   AiVisionDisclosure,
@@ -240,13 +243,14 @@ function ScanSteps({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const status = intake.intake?.status ?? 'draft';
-  const selected = availability.selected;
+  const selected = availability.model;
   const photoCount = Math.max(intake.photos.length, photos.readyCount);
+  useRefreshOnFeatureRefusal(intake.error, availability.refresh);
 
   const scan = async () => {
     if (!selected) return;
     setScanStartedAt(Date.now());
-    const started = await intake.analyze({ provider: selected.provider, modelId: selected.modelId });
+    const started = await intake.analyze(selected);
     if (started) setAddingPhotos(false);
   };
 

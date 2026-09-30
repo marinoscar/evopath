@@ -21,7 +21,7 @@ import { AI_REALTIME_INSTRUCTIONS_MAX_CHARS } from '../../core/types/media.types
 
 export const aiRealtimeSessionRequestSchema = z
   .object({
-    /** Provider id. Omit to use your default model's provider (or the only registered one). */
+    /** Provider id. Omit to use the administrator's default model's provider (or the only registered one). */
     provider: z.string().min(1).max(64).optional(),
     /**
      * A model with `realtime`. Omit to use the first such model available to you

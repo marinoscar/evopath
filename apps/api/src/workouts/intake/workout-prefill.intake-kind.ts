@@ -108,6 +108,7 @@ export class WorkoutPrefillIntakeKind implements IntakeKind<WorkoutPrefillIntake
   readonly contextSchema = contextSchema;
   readonly valueSchema = workoutPrefillValueSchema;
   readonly analyzeJobType = WORKOUT_PREFILL_JOB_TYPE;
+  readonly aiFeature = 'workout_prefill' as const;
   readonly maxPhotos = WORKOUT_PREFILL_MAX_PHOTOS;
   readonly itemKinds = [WORKOUT_PREFILL_ITEM_KIND] as const;
   /**

@@ -33,29 +33,60 @@ export interface TrainingBlocker {
   fix: { label: string; to: string } | null;
 }
 
-/** One sentence per blocking role state, with where it is fixed. */
-export function blockerFor(role: TrainingAgentRole, state: RoleResolutionState): TrainingBlocker {
+/** Where an AI administrator assigns the agents' models (#173). */
+export const AI_ASSIGNMENTS_PATH = '/admin/settings/ai/assignments';
+
+export interface BlockerOptions {
+  /** Who can fix it, when the API said (`RoleResolution.fix`). */
+  fix?: 'keys' | 'admin' | null;
+  /** The caller holds `ai_config:write`: link them to the assignments page for an administrator's fix. */
+  canAssign?: boolean;
+}
+
+/**
+ * One sentence per blocking role state, with where it is fixed. Models are
+ * an administrator's choice (#173): a user is never sent to pick one, only to
+ * add a key when a key is what is missing.
+ */
+export function blockerFor(
+  role: TrainingAgentRole,
+  state: RoleResolutionState,
+  { fix, canAssign = false }: BlockerOptions = {},
+): TrainingBlocker {
   const who = `The ${ROLE_LABEL[role].toLowerCase()} agent`;
+  const addKey = { label: 'Add a key', to: '/settings/ai' };
+  const assign = canAssign ? { label: 'Assign a model', to: AI_ASSIGNMENTS_PATH } : null;
+  const needs = role === 'researcher' ? 'web search (an OpenAI model with hosted tools)' : 'structured output';
   switch (state) {
     case 'no_key':
-      return { message: `${who} needs an AI key.`, fix: { label: 'Add a key', to: '/settings/ai' } };
+      return { message: `${who} needs an AI key.`, fix: addKey };
     case 'no_models':
-      return { message: `${who} has no enabled model. Ask an administrator to enable one, or add a key.`, fix: null };
-    case 'missing_capability':
       return {
-        message:
-          role === 'researcher'
-            ? `${who} needs web search: choose an OpenAI model that supports hosted tools.`
-            : `${who} needs a model with structured output.`,
-        fix: { label: 'Choose a model', to: AGENT_SETTINGS_PATH },
+        message: `${who} has no model available. Your administrator hasn't assigned or enabled one yet.`,
+        fix: assign,
+      };
+    case 'missing_capability':
+      if (fix === 'keys') {
+        return {
+          message: `${who} needs a model with ${needs}, and none of the models your keys reach has it. Add a key for a provider that does.`,
+          fix: addKey,
+        };
+      }
+      if (fix === 'admin') {
+        return {
+          message: `${who} needs a model with ${needs}. Your administrator hasn't assigned one yet.`,
+          fix: assign,
+        };
+      }
+      return {
+        message: `${who} needs a model with ${needs}, and none is available to you. Ask your administrator to assign one.`,
+        fix: assign,
       };
     case 'web_search_disabled':
       return {
         message: `${who} needs web search: an administrator can turn it on at Admin, AI, Hosted tools, Web search.`,
         fix: null,
       };
-    case 'stale_preference':
-      return { message: `${who}'s saved model is no longer available.`, fix: { label: 'Choose a model', to: AGENT_SETTINGS_PATH } };
     case 'ai_disabled':
       return { message: 'AI is switched off for this app.', fix: null };
     default:
@@ -115,7 +146,10 @@ export function useTrainingAvailability(): UseTrainingAvailabilityReturn {
       if (models.canRun[kind]) return null;
       const first = models.canRun.blockers[0];
       return first
-        ? blockerFor(first.role, first.state)
+        ? blockerFor(first.role, first.state, {
+            fix: models.roles[first.role]?.fix,
+            canAssign: hasPermission('ai_config:write'),
+          })
         : { message: 'The AI agents are not ready.', fix: { label: 'Check the agents', to: AGENT_SETTINGS_PATH } };
     },
     [config.enabled, configLoading, error, hasPermission, models],

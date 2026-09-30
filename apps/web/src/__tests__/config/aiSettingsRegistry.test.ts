@@ -29,6 +29,7 @@ function readApiSource(relPath: string): string {
 
 const rolesConstants = readApiSource('common/constants/roles.constants.ts');
 const aiAdminController = readApiSource('ai/config/ai-admin.controller.ts');
+const aiAssignmentsController = readApiSource('ai/assignments/ai-assignments-admin.controller.ts');
 const userAiKeysController = readApiSource('ai/keys/user-ai-keys.controller.ts');
 
 /** Every admin + user card whose destination is part of the AI surface. */
@@ -72,6 +73,11 @@ describe('AI settings registry — literal permission parity with the API (#435)
     it('ai-admin.controller.ts really does enforce PERMISSIONS.AI_CONFIG_READ on a GET route', () => {
       expect(aiAdminController).toContain('PERMISSIONS.AI_CONFIG_READ');
       expect(aiAdminController).toContain('PERMISSIONS.AI_CONFIG_WRITE');
+    });
+
+    it('ai-assignments-admin.controller.ts (#173) enforces the same read/write pair', () => {
+      expect(aiAssignmentsController).toMatch(/@Get\('assignments'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_CONFIG_READ\] \}\)/);
+      expect(aiAssignmentsController).toMatch(/@Put\('assignments'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_CONFIG_WRITE\] \}\)/);
     });
 
     it('is never confused with ai:use — an admin AI card must not mirror the per-user permission', () => {
@@ -138,6 +144,7 @@ describe('AI settings registry — literal permission parity with the API (#435)
       expect(titles).not.toContain('AI');
       expect(titles).not.toContain('AI Models');
       expect(titles).not.toContain('AI Usage');
+      expect(titles).not.toContain('AI Model Assignments');
     });
   });
 });

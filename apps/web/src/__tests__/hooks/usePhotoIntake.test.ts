@@ -136,7 +136,7 @@ describe('usePhotoIntake', () => {
     await waitFor(() => expect(result.current.scanError).toEqual({ code: 'AI_PROVIDER_ERROR', message: 'The provider failed' }));
   });
 
-  it('analyze posts the model, flips to scanning and polls', async () => {
+  it('analyze posts an empty body (the server picks the model), flips to scanning and polls', async () => {
     let body: unknown = null;
     script([intake('draft'), intake('ready', { items: [item('a')] })]);
     server.use(
@@ -153,8 +153,13 @@ describe('usePhotoIntake', () => {
       ok = await result.current.analyze({ provider: 'openai', modelId: 'gpt-5-mini' });
     });
     expect(ok).toBe(true);
-    expect(body).toEqual({ provider: 'openai', modelId: 'gpt-5-mini' });
-    expect(result.current.intake).toMatchObject({ status: 'scanning', jobId: 'job-1' });
+    expect(body).toEqual({});
+    expect(result.current.intake).toMatchObject({
+      status: 'scanning',
+      jobId: 'job-1',
+      provider: 'openai',
+      modelId: 'gpt-5-mini',
+    });
     await waitFor(() => expect(result.current.intake?.status).toBe('ready'));
   });
 
@@ -171,7 +176,7 @@ describe('usePhotoIntake', () => {
     const { result } = renderHook(() => usePhotoIntake('in-1', { intervalMs: FAST }));
     await waitFor(() => expect(result.current.intake).not.toBeNull());
     await act(async () => {
-      await result.current.analyze({ provider: 'openai', modelId: 'm' });
+      await result.current.analyze();
     });
     expect(result.current.error).toMatchObject({ code: 'AI_DISABLED', status: 403 });
     expect(result.current.intake?.status).toBe('draft');

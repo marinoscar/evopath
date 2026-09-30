@@ -1,6 +1,8 @@
 import type { DraftItem, PhotoIntake, Prisma } from '@prisma/client';
 import type { z } from 'zod';
 
+import type { AiFeatureId } from '../common/schemas/settings.schema';
+
 // =============================================================================
 // IntakeKind — what one photo-intake flow plugs in (E3.1)
 // =============================================================================
@@ -17,7 +19,9 @@ import type { z } from 'zod';
 //     (the analyzer job's own writes go through `IntakeService.replaceAiDrafts`,
 //     which validates them the same way);
 //   - `analyzeJobType` names the server-only `ai.*` job that reads the photos
-//     (`null` = a manual-only kind; `POST /intakes/:id/analyze` refuses it);
+//     (`null` = a manual-only kind; `POST /intakes/:id/analyze` refuses it),
+//     and `aiFeature` the AI feature whose administrator-assigned model it
+//     uses (#173);
 //   - `apply` turns the accepted items into real rows, inside the transaction
 //     the intake module opens, so a throw leaves the intake unapplied.
 //
@@ -82,6 +86,13 @@ export interface IntakeKind<TContext = unknown, TValue = unknown> {
   readonly valueSchema: z.ZodType<TValue>;
   /** The job that analyzes the photos, e.g. `'ai.equipment.scan'`; `null` = manual-only kind. */
   readonly analyzeJobType: string | null;
+  /**
+   * The AI feature whose administrator-assigned model analyzes this kind's
+   * photos (#173), e.g. `'gym_scan'`. Required when `analyzeJobType` is set
+   * (the registry refuses a kind without it); the analyze route resolves the
+   * model through `AiFeatureModelResolver` for this feature.
+   */
+  readonly aiFeature?: AiFeatureId;
   /** The most photos one intake may hold. Default 48. */
   readonly maxPhotos?: number;
   /**

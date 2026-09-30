@@ -1072,8 +1072,26 @@ describe('the AI group (#425)', () => {
     // It was the last group until `Observability` (#537) was appended after it.
     expect(ADMIN_SECTIONS[3]).toBe(aiSection);
     expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability']);
-    // `AI Usage` (#444) is appended after `AI Models`, never inserted.
-    expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models', 'AI Usage']);
+    // `AI Usage` (#444) is appended after `AI Models`, and `AI Model
+    // Assignments` (#173) after it, never inserted.
+    expect(aiSection?.cards.map((card) => card.title)).toEqual([
+      'AI',
+      'AI Models',
+      'AI Usage',
+      'AI Model Assignments',
+    ]);
+  });
+
+  it('gates AI Model Assignments (#173) on ai_config:read, feature-gated, nested under the AI route', () => {
+    expect(cards.get('AI Model Assignments')).toMatchObject({
+      path: '/admin/settings/ai/assignments',
+      permission: 'ai_config:read',
+      feature: 'ai',
+    });
+    const path = '/admin/settings/ai/assignments';
+    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, { ai: true })).toBe(
+      'AI Model Assignments',
+    );
   });
 
   it('gates both cards on ai_config:read — the admin AI controller’s read permission', () => {

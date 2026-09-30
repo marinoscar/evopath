@@ -27,10 +27,18 @@ export {
 } from '../../hooks/useImageIntake';
 export {
   useVisionAvailability,
-  visionModels,
+  useRefreshOnFeatureRefusal,
+  visionStatusOf,
   type VisionAvailabilityStatus,
+  type VisionModel,
   type UseVisionAvailabilityReturn,
 } from '../../hooks/useVisionAvailability';
+export {
+  visionNoticeCopy,
+  visionShortReason,
+  AI_ASSIGNMENTS_PATH,
+  type VisionNoticeCopy,
+} from './visionAvailabilityCopy';
 export { usePhotoIntake, type UsePhotoIntakeOptions, type UsePhotoIntakeReturn } from '../../hooks/usePhotoIntake';
 export { downscaleImage, UnsupportedImageError, type DownscaleImageOptions } from '../../utils/downscaleImage';
 export {

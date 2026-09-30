@@ -26,7 +26,7 @@ import {
 // =============================================================================
 
 const imageFields = {
-  /** Provider id. Omit to use your default model's provider (or the only registered one). */
+  /** Provider id. Omit to use the administrator's default model's provider (or the only registered one). */
   provider: z.string().min(1).max(64).optional(),
   /** The image model. Required. */
   model: z.string().min(1).max(200),

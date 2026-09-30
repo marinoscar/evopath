@@ -195,6 +195,19 @@ describe('AiConfigAdminService', () => {
   });
 
   describe('replace', () => {
+    it('carries the stored ai.assignments through untouched — a config save never wipes them (#173)', async () => {
+      const assignments = {
+        default: { provider: 'openai', modelId: 'm1' },
+        features: { gym_scan: { provider: 'openai', modelId: 'v1' } },
+      };
+      stored = { ...policy(), assignments };
+
+      await service.replace(input(), 'admin-1');
+
+      expect(systemSettings.patchSettings.mock.calls[0][0].ai.assignments).toEqual(assignments);
+      expect(stored.assignments).toEqual(assignments);
+    });
+
     it('writes the namespace, invalidates the cache before auditing, and audits field names only', async () => {
       const order: string[] = [];
       aiConfig.invalidateCache.mockImplementation(() => order.push('invalidate'));

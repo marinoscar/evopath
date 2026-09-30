@@ -127,14 +127,14 @@ describe('estimateRunTokens', () => {
 describe('effectiveTokenCap', () => {
   it.each(TRAINING_RUN_KINDS)('%s: the default when unset', (kind) => {
     expect(effectiveTokenCap(kind, undefined)).toBe(TRAINING_DEFAULT_RUN_TOKENS[kind]);
-    expect(effectiveTokenCap(kind, { defaultModel: null })).toBe(TRAINING_DEFAULT_RUN_TOKENS[kind]);
-    expect(effectiveTokenCap(kind, { defaultModel: null, training: { maxRunTokens: null } })).toBe(
+    expect(effectiveTokenCap(kind, {})).toBe(TRAINING_DEFAULT_RUN_TOKENS[kind]);
+    expect(effectiveTokenCap(kind, { training: { maxRunTokens: null } })).toBe(
       TRAINING_DEFAULT_RUN_TOKENS[kind],
     );
   });
 
   it('the user setting when set', () => {
-    expect(effectiveTokenCap('evaluate', { defaultModel: null, training: { maxRunTokens: 50_000 } })).toBe(50_000);
+    expect(effectiveTokenCap('evaluate', { training: { maxRunTokens: 50_000 } })).toBe(50_000);
   });
 
   it('defaults are 400k, 400k, 150k', () => {

@@ -169,6 +169,36 @@ describe('MetricSection — per group', () => {
   });
 });
 
+describe('MetricSection — Top N on Largest tables (#176)', () => {
+  const manyTables = (count: number) => {
+    const base = mockDashboardMetrics.database.tables[0];
+    return {
+      ...base,
+      rows: Array.from({ length: count }, (_, i) => ({ key: `t${i + 1}`, sizeBytes: (count - i) * 1024 ** 2, lastSeenAt: base.rows[0].lastSeenAt })),
+    };
+  };
+
+  it('Largest tables starts at Top 10 with a "Showing 10 of N" line', () => {
+    window.localStorage.clear();
+    renderSection('database', loaded('database', { tables: [manyTables(63)] }));
+    const region = screen.getByRole('region', { name: 'Database' });
+    const table = within(region).getByRole('table', { name: 'Largest tables' });
+    expect(within(table).getAllByRole('rowheader')).toHaveLength(10);
+    expect(within(region).getByRole('combobox', { name: 'Rows to show for Largest tables' })).toHaveTextContent('Top 10');
+    expect(region).toHaveTextContent('Showing 10 of 63');
+  });
+
+  it('other tables have no Top N selector, however long', () => {
+    const queue = mockDashboardMetrics.queue;
+    const jobTypes = queue.tables[0];
+    const long = { ...jobTypes, rows: Array.from({ length: 25 }, (_, i) => ({ ...jobTypes.rows[0], key: `job.${i}` })) };
+    renderSection('queue', loaded('queue', { tables: [long] }));
+    const region = screen.getByRole('region', { name: 'Job queue' });
+    expect(within(within(region).getByRole('table', { name: 'Job types' })).getAllByRole('rowheader')).toHaveLength(25);
+    expect(within(region).queryByRole('combobox')).not.toBeInTheDocument();
+  });
+});
+
 describe('MetricSection — states', () => {
   it('is hidden entirely when the group is not available', () => {
     renderSection('pipeline', loaded('pipeline'));

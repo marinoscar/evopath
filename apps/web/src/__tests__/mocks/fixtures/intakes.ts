@@ -276,12 +276,13 @@ export function statefulIntakeApi(
       return new HttpResponse(null, { status: 204 });
     }),
     http.post(`${API}/intakes/:id/analyze`, async ({ request, params }) => {
-      const body = (await record(request, `/intakes/${params.id}/analyze`)) as { provider: string; modelId: string };
+      await record(request, `/intakes/${params.id}/analyze`);
       const intake = find(String(params.id));
       if (!intake) return notFound();
       intake.status = 'scanning';
-      intake.provider = body.provider;
-      intake.modelId = body.modelId;
+      // The server resolves the model (#173); the body names none.
+      intake.provider = 'openai';
+      intake.modelId = 'gpt-5-mini';
       intake.jobId = 'job-scan-1';
       intake.errorCode = null;
       intake.errorMessage = null;

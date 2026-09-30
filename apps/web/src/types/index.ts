@@ -414,31 +414,18 @@ export interface UserSettings {
   notifications?: NotificationPreferences;
   /**
    * AI preferences (#430, epic #419). Optional and usually absent: no account
-   * has it until the user picks a default model on `/settings/ai`.
+   * has it until the user sets a training-run limit on `/settings/ai/agents`.
    */
   ai?: UserAiSettings;
   updatedAt: string;
   version: number;
 }
 
-/** The model a user's AI requests default to — a provider/model pair, never a key. */
-export interface AiDefaultModel {
-  provider: string;
-  modelId: string;
-}
-
-/** The training-plan agent roles a user may choose a model for. */
+/** The training-plan agent roles. */
 export type TrainingAgentRole = 'researcher' | 'planner' | 'critic' | 'evaluator';
 
 /** A reasoning effort a task may request. */
 export type TaskReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
-
-/** One role's model preference; `reasoningEffort: null` means the role default. */
-export interface AiTaskModel {
-  provider: string;
-  modelId: string;
-  reasoningEffort: TaskReasoningEffort | null;
-}
 
 /** Training-run limits; absent or `null` means the server default. */
 export interface AiTrainingLimits {
@@ -448,21 +435,19 @@ export interface AiTrainingLimits {
   maxCriticRounds?: 1 | 2 | 3;
 }
 
-/** `user_settings.ai` — `defaultModel: null` means "no default chosen". */
+/**
+ * `user_settings.ai`: the caller's training-run limits. Models are not a user
+ * setting (#173): an administrator assigns them.
+ */
 export interface UserAiSettings {
-  defaultModel?: AiDefaultModel | null;
-  taskModels?: Partial<Record<TrainingAgentRole, AiTaskModel>>;
   training?: AiTrainingLimits;
 }
 
 /**
  * PATCH form of `ai`, merged field by field server-side: absent keeps,
- * `null` clears. `taskModels.<role>: null` clears one role;
- * `training.<field>: null` clears one limit.
+ * `null` clears. `training.<field>: null` clears one limit.
  */
 export interface UserAiSettingsPatch {
-  defaultModel?: AiDefaultModel | null;
-  taskModels?: Partial<Record<TrainingAgentRole, AiTaskModel | null>> | null;
   training?: {
     maxRunTokens?: number | null;
     maxCriticRounds?: 1 | 2 | 3 | null;
@@ -525,9 +510,8 @@ export interface UserSettingsUpdate {
    */
   notifications?: NotificationPreferencesPatch | null;
   /**
-   * AI preferences (#430). Merged field by field: `defaultModel: null` clears
-   * the saved default, `taskModels.<role>: null` one role; `ai: null` clears
-   * the namespace.
+   * AI preferences (#430): the training-run limits only (#173). Merged field
+   * by field; `ai: null` clears the namespace.
    */
   ai?: UserAiSettingsPatch | null;
 }

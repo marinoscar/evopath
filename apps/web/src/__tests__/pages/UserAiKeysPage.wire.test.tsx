@@ -1,18 +1,16 @@
 /**
  * `/settings/ai` — the WIRE contract (issue #430, epic #419).
  *
- * No hook is mocked: `useUserAiKeys`, `useUsableAiModels` and
- * `useUserSettings` run for real and only the network is faked, with MSW —
+ * No hook is mocked: `useUserAiKeys` and `useUsableAiModels`
+ * run for real and only the network is faked, with MSW —
  * the same approach as `StorageConfigPage.wire.test.tsx`. What is pinned:
  *
  *   1. SAVE sends `{ apiKey }` to `PUT /api/ai/keys/:provider` exactly once,
  *      then re-reads the usable models (a new key changes what is reachable).
  *   2. TEST sends the typed key when there is one, and `{}` (the stored key)
  *      for Re-check.
- *   3. THE DEFAULT MODEL ROUND-TRIPS through user settings:
- *      `PATCH /api/user-settings` with `{ ai: { defaultModel } }` and the
- *      loaded version as `If-Match`, and a reload reads it back selected.
- *      "No default" sends `defaultModel: null`.
+ *   3. NO MODEL CHOICE (#173): the page never writes the user settings
+ *      document; every model is an administrator's assignment.
  */
 import { describe, it, expect } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
@@ -29,7 +27,6 @@ import {
   mockUsableAiModelsMixed,
   mockAiUsageReport,
 } from '../mocks/fixtures/ai';
-import type { UserSettings } from '../../types';
 
 async function renderPage() {
   const user = userEvent.setup();
@@ -38,13 +35,6 @@ async function renderPage() {
     expect(screen.queryByLabelText('Loading AI keys')).not.toBeInTheDocument(),
   );
   return { user, ...view };
-}
-
-async function openDefaultPicker(user: ReturnType<typeof userEvent.setup>) {
-  const select = await screen.findByRole('combobox', { name: 'Default model' });
-  await waitFor(() => expect(select).not.toHaveAttribute('aria-disabled', 'true'));
-  await user.click(select);
-  return screen.findByRole('listbox');
 }
 
 describe('UserAiKeysPage — wire', () => {
@@ -95,76 +85,24 @@ describe('UserAiKeysPage — wire', () => {
     expect(bodies).toEqual([{ apiKey: 'sk-typed-5555' }, {}]);
   });
 
-  it('round-trips the default model through PATCH /api/user-settings', async () => {
-    let stored: UserSettings = { ...mockUserSettings, version: 7 };
-    const patches: { body: unknown; ifMatch: string | null }[] = [];
-    server.use(
-      http.get('*/api/ai/models', () => HttpResponse.json({ data: mockUsableAiModelsMixed })),
-      http.get('*/api/user-settings', () => HttpResponse.json({ data: stored })),
-      http.patch('*/api/user-settings', async ({ request }) => {
-        const body = (await request.json()) as Partial<UserSettings>;
-        patches.push({ body, ifMatch: request.headers.get('If-Match') });
-        stored = { ...stored, ...body, version: stored.version + 1 };
-        return HttpResponse.json({ data: stored });
-      }),
-    );
-    const { user, unmount } = await renderPage();
-
-    const listbox = await openDefaultPicker(user);
-    await user.click(within(listbox).getByRole('option', { name: 'OpenAI · GPT-5' }));
-
-    await screen.findByText('Default model saved.');
-    expect(patches).toEqual([
-      { body: { ai: { defaultModel: { provider: 'openai', modelId: 'gpt-5' } } }, ifMatch: '7' },
-    ]);
-
-    // A fresh visit reads the saved default back, selected.
-    unmount();
-    await renderPage();
-    const select = await screen.findByRole('combobox', { name: 'Default model' });
-    await waitFor(() => expect(select).toHaveTextContent('OpenAI · GPT-5'));
-    expect(stored.ai).toEqual({ defaultModel: { provider: 'openai', modelId: 'gpt-5' } });
-  });
-
-  it('"No default" clears the saved default with null', async () => {
-    let stored: UserSettings = {
-      ...mockUserSettings,
-      ai: { defaultModel: { provider: 'openai', modelId: 'gpt-5-mini' } },
-    };
+  it('never writes the user settings document: models are not a user choice (#173)', async () => {
     const patches: unknown[] = [];
     server.use(
       http.get('*/api/ai/models', () => HttpResponse.json({ data: mockUsableAiModelsMixed })),
-      http.get('*/api/user-settings', () => HttpResponse.json({ data: stored })),
       http.patch('*/api/user-settings', async ({ request }) => {
-        const body = (await request.json()) as Partial<UserSettings>;
-        patches.push(body);
-        stored = { ...stored, ...body, version: stored.version + 1 };
-        return HttpResponse.json({ data: stored });
+        patches.push(await request.json());
+        return HttpResponse.json({ data: mockUserSettings });
+      }),
+      http.put('*/api/user-settings', async ({ request }) => {
+        patches.push(await request.json());
+        return HttpResponse.json({ data: mockUserSettings });
       }),
     );
-    const { user } = await renderPage();
+    await renderPage();
 
-    const listbox = await openDefaultPicker(user);
-    await user.click(within(listbox).getByRole('option', { name: 'No default' }));
-
-    await screen.findByText('Default model saved.');
-    expect(patches).toEqual([{ ai: { defaultModel: null } }]);
-  });
-
-  it('shows the error when saving the default fails', async () => {
-    server.use(
-      http.get('*/api/ai/models', () => HttpResponse.json({ data: mockUsableAiModelsMixed })),
-      http.patch('*/api/user-settings', () =>
-        HttpResponse.json({ code: 'BAD_REQUEST', message: 'Invalid settings' }, { status: 400 }),
-      ),
-    );
-    const { user } = await renderPage();
-
-    const listbox = await openDefaultPicker(user);
-    await user.click(within(listbox).getByRole('option', { name: 'OpenAI · GPT-5 mini' }));
-
-    expect(await screen.findByText('Invalid settings')).toBeInTheDocument();
-    expect(screen.queryByText('Default model saved.')).not.toBeInTheDocument();
+    await screen.findByRole('region', { name: 'OpenAI key' });
+    expect(screen.queryByRole('combobox', { name: 'Default model' })).not.toBeInTheDocument();
+    expect(patches).toEqual([]);
   });
 
   it('shows the caller\'s own last-30-days usage at the foot of the page (#444)', async () => {

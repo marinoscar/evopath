@@ -39,6 +39,7 @@ import { mockHealthProfileEmpty } from './fixtures/health';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
 import { mockTodayCheckInEmpty } from './fixtures/checkIns';
 import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
+import { mockAiFeaturesView } from './fixtures/aiFeatures';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -743,6 +744,11 @@ export const handlers = [
 
   http.get(`${API_BASE}/ai/models`, () => {
     return HttpResponse.json({ data: mockUsableAiModels });
+  }),
+
+  // Every AI feature resolved for the caller (#173): all ready by default.
+  http.get(`${API_BASE}/ai/features`, () => {
+    return HttpResponse.json({ data: mockAiFeaturesView() });
   }),
 
   // Training agents: role states and the typical-plan estimate.

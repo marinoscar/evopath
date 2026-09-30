@@ -27,7 +27,7 @@ import {
   statefulIntakeApi,
   toItems,
 } from '../mocks/fixtures/intakes';
-import { mockUsableAiModels } from '../mocks/fixtures/ai';
+import { mockAiFeaturesView, mockBlockedFeatureView } from '../mocks/fixtures/aiFeatures';
 
 const GYM_ID = '00000000-0000-4000-8000-a00000000777';
 const SCANNER = {
@@ -99,22 +99,17 @@ describe('GymScanPage', () => {
     expect(api.calls).toEqual([]);
   });
 
-  it('without a vision model says so and creates no intake', async () => {
+  it('without an assigned model says so and creates no intake', async () => {
     const api = statefulIntakeApi();
     server.use(
-      http.get('*/api/ai/models', () =>
-        HttpResponse.json({
-          data: [
-            {
-              ...mockUsableAiModels[0],
-              capabilities: { capabilities: ['responses'], inputModalities: ['text'], outputModalities: ['text'] },
-            },
-          ],
-        }),
+      http.get('*/api/ai/features', () =>
+        HttpResponse.json({ data: mockAiFeaturesView({ gym_scan: mockBlockedFeatureView('gym_scan', 'missing_capability', 'admin') }) }),
       ),
     );
     renderScan();
-    expect(await screen.findByText('None of your available models can read images')).toBeInTheDocument();
+    expect(
+      await screen.findByText("Your administrator hasn't assigned an AI model that can read photos yet."),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue manually' })).toBeInTheDocument();
     expect(api.calls).toEqual([]);
   });
@@ -164,7 +159,7 @@ describe('GymScanPage', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Analyzing 1 photo in 1 request.');
     expect(screen.getByTestId('gym-scan-elapsed')).toHaveTextContent(/Elapsed 0:0\d/);
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-    expect(api.calls.find((c) => c.path.endsWith('/analyze'))?.body).toEqual({ provider: 'openai', modelId: 'gpt-5-mini' });
+    expect(api.calls.find((c) => c.path.endsWith('/analyze'))?.body).toEqual({});
 
     expect(await screen.findByTestId('gym-scan-review', {}, { timeout: 8000 })).toBeInTheDocument();
     expect(rows()).toHaveLength(4);

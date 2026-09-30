@@ -1,6 +1,12 @@
 import type { TelemetryQueryResult } from '../greptime/greptime.client';
 import { metricCatalogSchema } from '../testing/metric-schema.fixture';
-import { familiesOf, metricTablesOf, tablesOf, type MetricTables } from './metric-catalog';
+import {
+  familiesOf,
+  LARGEST_TABLES_MAX_ROWS,
+  metricTablesOf,
+  tablesOf,
+  type MetricTables,
+} from './metric-catalog';
 import {
   computeMetricGroup,
   METRIC_FRESH_MS,
@@ -488,6 +494,44 @@ describe('computeMetricGroup', () => {
         METRIC_TABLE_MAX_ROWS
       );
       expect(out.truncated).toBe(true);
+    });
+
+    it('cap largestTables at its own maxRows, not the default (#176)', async () => {
+      const sized = (n: number) =>
+        latest(
+          Array.from(
+            { length: n },
+            (_, i) =>
+              ['sizeBytes', `public.t${String(i).padStart(4, '0')}`, n - i, T('21:59')] as [
+                string,
+                string,
+                number,
+                string,
+              ]
+          )
+        );
+      // Past the default cap but within its own: every row kept, not truncated.
+      const within = await compute(
+        'database',
+        byTable([['postgresql_table_size_bytes', sized(METRIC_TABLE_MAX_ROWS + 30)]])
+      );
+      expect(within.out.tables.find((t) => t.key === 'largestTables')!.rows).toHaveLength(
+        METRIC_TABLE_MAX_ROWS + 30
+      );
+      expect(within.out.truncated).toBe(false);
+      expect(within.runner.sql.find((s) => s.includes('postgresql_table_size_bytes'))).toMatch(
+        new RegExp(`LIMIT ${LARGEST_TABLES_MAX_ROWS + 1}$`)
+      );
+
+      // Past its own cap: cut there and flagged.
+      const beyond = await compute(
+        'database',
+        byTable([['postgresql_table_size_bytes', sized(LARGEST_TABLES_MAX_ROWS + 1)]])
+      );
+      expect(beyond.out.tables.find((t) => t.key === 'largestTables')!.rows).toHaveLength(
+        LARGEST_TABLES_MAX_ROWS
+      );
+      expect(beyond.out.truncated).toBe(true);
     });
 
     it('keep the SQL order for a value-ordered table', async () => {

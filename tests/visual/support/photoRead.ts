@@ -8,9 +8,12 @@ import { FIXED_NOW } from './health';
  * the most recently registered route first, and every path not handled here
  * falls back to the health fixtures). It answers:
  *
- * - `/api/ai/config` (AI on) and `/api/ai/models` (one vision model on the
- *   user's own key), read through the harness's `?ai=on` provider and by
- *   `useVisionAvailability`;
+ * - `/api/ai/config` (AI on), read through the harness's `?ai=on` provider,
+ *   and `/api/ai/features` (#173: the administrator's per-feature model
+ *   assignment, resolved server side), read by `useVisionAvailability`.
+ *   `body_metric_reading` is ready on `openai` / `gpt-5-mini` with the
+ *   user's own key. The browser no longer reads `/api/ai/models` or picks a
+ *   model, so nothing here serves it;
  * - `/api/intakes` (the resume list) and `/api/intakes/:id` with ONE intake
  *   in the requested state: `draft` (the photo step) or `ready` (a
  *   blood-pressure cuff reading under review);
@@ -52,19 +55,24 @@ const AI_CONFIG = {
   providers: [{ id: 'openai', displayName: 'OpenAI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true }],
 };
 
-const MODELS = [
-  {
-    provider: 'openai',
-    modelId: 'gpt-5-mini',
-    displayName: 'GPT-5 mini',
-    capabilities: {
-      capabilities: ['responses', 'vision_input', 'structured_output'],
-      inputModalities: ['text', 'image'],
-      outputModalities: ['text'],
+/** `GET /api/ai/features` (`AiFeaturesView`): the photo-read feature resolved and ready. */
+const AI_FEATURES = {
+  features: [
+    {
+      featureId: 'body_metric_reading',
+      label: 'Body metric photo reading',
+      group: 'photo',
+      state: 'ready',
+      source: 'admin_feature',
+      model: { provider: 'openai', modelId: 'gpt-5-mini', displayName: 'GPT-5 mini', keySource: 'user' },
+      needs: ['vision_input', 'structured_output'],
+      inputModalities: ['image'],
+      requestedEffort: null,
+      effectiveEffort: null,
+      fix: null,
     },
-    keySource: 'user',
-  },
-];
+  ],
+};
 
 function item(
   id: string,
@@ -191,7 +199,7 @@ export async function mockPhotoReadApi(page: Page, scenario: PhotoReadScenario):
     const url = new URL(route.request().url());
     const path = url.pathname;
     if (path === '/api/ai/config') return answer(route, AI_CONFIG);
-    if (path === '/api/ai/models') return answer(route, MODELS);
+    if (path === '/api/ai/features') return answer(route, AI_FEATURES);
     if (path === '/api/measurements') return answer(route, history());
     if (path === '/api/intakes' && route.request().method() === 'GET') {
       const { photos, items, ...summary } = intake(scenario);

@@ -68,6 +68,7 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
   readonly contextSchema = contextSchema;
   readonly valueSchema = valueSchema;
   readonly analyzeJobType = 'ai.equipment.scan'; // null = manual-only kind
+  readonly aiFeature = 'gym_scan'; // required with an analyzeJobType
   readonly itemKinds = ['equipment'] as const;
   // apply writes gym rows: the gym routes' permissions, on top of intakes:*
   readonly requiredPermissions = { read: [PERMISSIONS.GYMS_READ], write: [PERMISSIONS.GYMS_WRITE] };
@@ -98,6 +99,7 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
 | `contextSchema` | Validates `PhotoIntake.context` on create. A kind without context uses an optional schema. A failure is a 400 with `details.issues` prefixed `context`. |
 | `valueSchema` | Validates every `DraftItem.value`: a user's add or edit, and the analyzer job's items in `replaceAiDrafts`. |
 | `analyzeJobType` | The server-only `ai.*` job type, or `null`. A `null` kind answers `analyze` with 400 `MANUAL_ONLY_KIND`. |
+| `aiFeature` | Required when `analyzeJobType` is set: the AI feature id (`AI_FEATURE_IDS`) whose administrator-assigned model analyzes this kind. `IntakeKindRegistry.register` throws for an analyzer kind without one. Register a new id first (see [the AI README](../ai/README.md)). |
 | `maxPhotos` | Optional; default 48 (`DEFAULT_INTAKE_MAX_PHOTOS`). |
 | `itemKinds` | Optional allow-list for `DraftItem.kind`. Omitted means any non-empty string. |
 | `requiredPermissions` | Optional `{ read?, write? }`: permissions this kind needs on top of the routes' `intakes:read` / `intakes:write`. See [Kind Permissions](#kind-permissions). |
@@ -136,7 +138,10 @@ Write one `ai.*` `JobHandler` per kind, following
 [the job handlers README](../jobs/handlers/README.md). It is enqueued for you:
 `POST /api/intakes/:id/analyze` flips the intake to `scanning` and enqueues
 `analyzeJobType` with `{ intakeId }` as payload in one transaction, storing
-`provider`, `modelId` and `jobId` on the intake. The handler:
+`provider`, `modelId` and `jobId` on the intake. The request body is `{}`: the
+server resolves the model from the kind's `aiFeature` for the caller
+(administrator's feature assignment, then default, then an automatic pick), so
+neither the client nor the kind chooses one. The handler:
 
 1. Reads the intake (`provider`, `modelId`, `userId`) and its photos by id.
 2. Calls the model through `AiService.forUser(intake.userId)`, with the photos
@@ -301,6 +306,8 @@ Refusals carry a machine-readable `details.reason` next to the message.
 | `INVALID_INTAKE_STATUS` | 409 | The operation does not fit the current status (`details.status`). |
 | `NOT_SCANNING` | 409 | `replaceAiDrafts` on an intake that is no longer `scanning`. |
 | `USE_REJECT` | 409 | `DELETE` on an AI item. |
+| `AI_FEATURE_UNAVAILABLE` | 409 | The kind's `aiFeature` resolves to a blocking state for the caller (`details.state`, `details.fix`: a key or an administrator). |
+| `AI_MODEL_ASSIGNMENT_LOCKED` | 409 | The request named a model other than the resolved one; `details.provider` and `details.modelId` name it. |
 
 An analyze refused by the AI gates uses the AI platform's reasons
 (`AI_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_CAPABILITY_UNSUPPORTED`), listed in

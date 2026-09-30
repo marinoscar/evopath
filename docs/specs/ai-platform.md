@@ -1,6 +1,6 @@
 # AI Platform
 
-> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [apps/api/src/ai/README.md](../../apps/api/src/ai/README.md)
+> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/assignments`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [apps/api/src/ai/README.md](../../apps/api/src/ai/README.md)
 
 The AI platform gives an app built from this template one admin-governed,
 bring-your-own-key (BYOK), multi-provider AI capability. Feature code injects
@@ -55,7 +55,7 @@ Configuration lives in four places, split by sensitivity:
 | `ai` namespace of `system_settings` | Everything non-secret (below) |
 | `CredentialsService`, purpose `'ai'`, name `<providerId>` | The admin (org) key per provider, encrypted, with a masked hint |
 | `user_ai_keys` table | One BYOK key per `(userId, provider)`, encrypted under cipher purpose `'ai_user_key'`, cascade-deleted with the user |
-| `user_settings.ai` | `{ defaultModel: { provider, modelId } \| null }` |
+| `user_settings.ai` | Only `training` (`maxRunTokens`, `maxCriticRounds`); users hold no model preference |
 
 ```ts
 // ai namespace (defaults in comments)
@@ -75,7 +75,26 @@ Configuration lives in four places, split by sensitivity:
   hostedTools: { web_search, file_search, code_interpreter, image_generation, mcp /*all false*/,
                  mcpAllowedHosts: string[] },
   limits: { perUser?, orgKey?, perModel? } /*{} — unlimited, §2.22*/ }
+
+// ai.assignments (system setting, not in the ai namespace)
+{ default: { provider, modelId } | null,
+  features: { [featureId]: { provider, modelId, reasoningEffort? } | null } }
 ```
+
+- **Administrators choose every model; users choose none.** The
+  `ai.assignments` system setting names a default model and, per feature, a
+  model. Feature ids are `AI_FEATURE_IDS` (`settings.schema.ts`): `gym_scan`,
+  `workout_prefill`, `body_metric_reading`, `training.researcher`,
+  `training.planner`, `training.critic`, `training.evaluator`. What each needs
+  of its model is `AI_FEATURES` in `ai/assignments/ai-features.ts`.
+- `reasoningEffort` is accepted only on `training.*` features.
+- `PUT /api/admin/ai/config` and `PUT /api/system-settings` carry
+  `ai.assignments` through unchanged when it is omitted; only
+  `PUT /api/admin/ai/assignments` writes it (§2.18).
+- The user `ai` settings object holds only `training` and is strict: any other
+  key is a normal zod 400. The migration
+  `20260930180000_remove_user_ai_model_choices` deleted the stored
+  `ai.defaultModel` and `ai.taskModels` values.
 
 - Provider ids are `AI_PROVIDER_IDS` in
   `apps/api/src/common/schemas/settings.schema.ts`.
@@ -191,8 +210,10 @@ and usage steps.
 | 8 | Record one `ai_usage_events` row per round trip (success, failure or cancellation) | — |
 | 9 | Trace an `ai.request` span (provider, model, operation, key source, status, tokens) | — |
 
-With no `model` in the request, the caller's `user_settings.ai.defaultModel`
-applies (chat operations only). Queued operations run steps 1–4 when they
+With no `model` in the request, the administrator's default model applies when
+the caller can use it, else an automatic pick among the caller's usable
+`responses` models (chat operations only). An explicit `model` and the
+Playground are unchanged. Queued operations run steps 1–4 when they
 enqueue and the whole pipeline again when the job executes.
 
 ### 2.5 Normalized request and response
@@ -528,6 +549,45 @@ usable(user) = { enabled AND not deprecated } ∩ { reachable with the user's ke
 is the single-model check and the one origin of `AI_MODEL_NOT_ENABLED`,
 `AI_MODEL_NOT_REACHABLE`, `AI_KEY_REQUIRED` and `AI_CAPABILITY_UNSUPPORTED`.
 
+### 2.18a Feature model resolution
+
+`AiFeatureModelResolver` (`ai/assignments/`) answers "which model does this
+feature use for this caller". It is the only place a model is chosen for a
+feature; consumers never pick one themselves. Steps, first match wins:
+
+1. The administrator's assignment for the feature (`source: admin_feature`).
+2. The administrator's default model (`admin_default`).
+3. An automatic pick (`auto`): reasoning-capable first, then the larger context
+   window, then `modelId`.
+4. Otherwise a blocking state.
+
+A step applies only when its model is **usable** for the caller (§2.18) and
+**capable** for the feature (needed capabilities, `image` input for the photo
+features, the researcher's provider and web-search switch). An assignment that
+fails either check is reported as `assignmentUnavailable` and resolution falls
+through, so a user is never blocked while any capable model is usable for them.
+
+| `state` | Meaning | Fixed by (`fix`) |
+|---|---|---|
+| `ready` | An assignment (feature or default) is used | none |
+| `auto` | Nothing assigned was usable; the auto pick is used | none |
+| `no_key` | No key source at all for the caller | `keys` |
+| `no_models` | A key source exists but no enabled model is usable | `admin` |
+| `missing_capability` | Usable models exist, none fit the feature; up to five `candidates` | `keys` when an enabled candidate exists, else `admin` |
+| `web_search_disabled` | The feature needs hosted web search and the switch is off | `admin` |
+| `ai_disabled` | The kill switch is off | `admin` |
+
+A training feature's effort is the assignment's `reasoningEffort`, else the
+role's default, clamped to an effort the model offers (`effortNote: clamped`).
+`GET /api/ai/features` returns the caller's resolution for every feature.
+Intake analyze routes resolve their kind's `aiFeature` server-side (see the
+[intake README](../../apps/api/src/intake/README.md)).
+
+Saving an assignment (`PUT /api/admin/ai/assignments`) validates each model:
+in the catalog, enabled, not deprecated, provider enabled, and for a feature
+capable for it (the default only needs to be enabled). A refusal is a 400
+`AI_ASSIGNMENT_INVALID` with one `details.errors[]` entry per field.
+
 ### 2.19 Kill switch
 
 `ai.enabled = false` shuts the consumer side and leaves the admin side open:
@@ -673,6 +733,9 @@ status-derived value (`FORBIDDEN`, …); **the AI code travels in
 | `AI_INVALID_REQUEST` | 400 | The request is malformed or over a limit. |
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | Output did not parse against the schema. |
 | `AI_STORAGE_UNAVAILABLE` | 503 | Object storage unconfigured or unusable for a storage-backed input or output. |
+| `AI_ASSIGNMENT_INVALID` | 400 | `PUT /api/admin/ai/assignments` refused; `details.errors[].code` is one of `AI_ASSIGNMENT_MODEL_NOT_FOUND`, `_MODEL_DISABLED`, `_MODEL_DEPRECATED`, `_PROVIDER_DISABLED`, `_MODEL_INCAPABLE`, `_EFFORT_UNSUPPORTED`. |
+| `AI_FEATURE_UNAVAILABLE` | 409 | An intake analyze route resolved its feature to a blocking state (`details.state`, `details.fix`). |
+| `AI_MODEL_ASSIGNMENT_LOCKED` | 409 | An intake analyze request named a model other than the resolved one; `details.provider` and `details.modelId` name the resolved one. |
 
 `AiError.cause` is non-enumerable, so an SDK error echoing headers never
 reaches `JSON.stringify`. In a job, `throw err.toRateLimitError() ?? err`
@@ -769,7 +832,7 @@ features call them for ordinary users.
 
 ## 3. Configuration and permissions
 
-**Settings:** the `ai` namespace (§2.1). **Environment:** none. Do not add
+**Settings:** the `ai` namespace and the `ai.assignments` system setting (§2.1). **Environment:** none. Do not add
 `OPENAI_API_KEY` or any equivalent.
 
 **Permissions** (matrix in [ARCHITECTURE.md](../ARCHITECTURE.md)):
@@ -782,9 +845,12 @@ features call them for ordinary users.
   the account.
 
 **Settings UI:** the admin `AI` group has **AI** (`/admin/settings/ai`, no
-`feature`, so it stays reachable to switch AI on), **AI Models** and **AI
-Usage** (both `feature: 'ai'`), all gated on `ai_config:read`. The user card
-**AI Keys** (`/settings/ai`) is gated on `ai:use` with `feature: 'ai'`.
+`feature`, so it stays reachable to switch AI on), **AI Models**, **AI Model
+Assignments** (`/admin/settings/ai/assignments`) and **AI Usage** (all
+`feature: 'ai'`), all gated on `ai_config:read`. The user card **AI Keys**
+(`/settings/ai`) is gated on `ai:use` with `feature: 'ai'` and holds keys only:
+it has no model picker. Photo flows and Settings, Training agents show the
+administrator's model read-only.
 
 **Admin API** (`/api/admin/ai/*`, tag `AI Administration`, not behind
 `AiEnabledGuard`):
@@ -799,6 +865,8 @@ Usage** (both `feature: 'ai'`), all gated on `ai_config:read`. The user card
 | `GET /api/admin/ai/models` | Paginated catalog, filterable | `ai_config:read` |
 | `PATCH /api/admin/ai/models/{id}` | Enable/disable, override capabilities (`admin_override`); 409 for deprecated, 400 unclassified without capabilities | `ai_config:write` |
 | `POST /api/admin/ai/models/refresh` | Enqueue `ai.catalog.refresh`; 409 without admin key unless keyless | `ai_config:write` |
+| `GET /api/admin/ai/assignments` | The stored assignments plus, for the default and each feature, the eligible models and a `warning` when a stored assignment no longer is | `ai_config:read` |
+| `PUT /api/admin/ai/assignments` | Full replace of `ai.assignments`; `If-Match` (409 on mismatch); 400 `AI_ASSIGNMENT_INVALID` writes nothing; audit action `ai_config:assignments` (field names only) | `ai_config:write` |
 | `GET /api/admin/ai/usage` | Usage report, any `groupBy`, filters `userId`/`provider`/`model` | `ai_config:read` |
 
 **Consumer API** (`/api/ai/*`, tag `AI`, `AiEnabledGuard` + `ai:use` unless
@@ -812,6 +880,7 @@ noted):
 | `DELETE /api/ai/keys/{provider}` | Remove key; 204, idempotent |
 | `POST /api/ai/keys/{provider}/test` | `credentials`, `list_models` only (no billed call); always 200 |
 | `GET /api/ai/models` | Usable models (§2.18) |
+| `GET /api/ai/features` | The caller's resolved model or blocking state for every AI feature (§2.18a) |
 | `POST /api/ai/responses` | One response |
 | `POST /api/ai/responses/stream` | Same, as SSE (§2.6) |
 | `POST /api/ai/embeddings` | Embeddings (§2.11) |
@@ -913,6 +982,16 @@ guardrails below discover all of these automatically.
 
 ## 6. Design decisions
 
+- **Model selection is the administrator's alone.** Users differ in which keys
+  they hold, not in which model suits a feature; a per-user picker produced
+  stale preferences and a second place to debug. Rejected: a per-user choice
+  layered on an admin default, and a per-user choice only for the training
+  agents.
+- **An unusable assignment falls through instead of blocking.** A user whose
+  key does not reach the assigned model can still run the feature on the next
+  usable capable model; the resolution reports `assignmentUnavailable` so the
+  cause stays visible. Rejected: blocking, which strands users on an
+  administrator's choice that their key cannot serve.
 - **Owned contract, not the Vercel AI SDK or LangChain.** The governance
   model (two keys, a resolution invariant, per-user reachability, kill
   switch, audit) is this template's, and the owned contract is the gateway
@@ -1007,3 +1086,8 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
   terminal run code.
 - #516: removed the unseeded `storage:read_any` bypass from the storage-input
   resolver; it is ownership-only.
+- #173: admin-only model selection. `ai.assignments`, the feature resolver,
+  `GET/PUT /api/admin/ai/assignments`, `GET /api/ai/features`, server-side
+  intake analyze models, and the retirement of `ai.defaultModel` and
+  `ai.taskModels.*`, deleted from `user_settings` by migration
+  `20260930180000_remove_user_ai_model_choices`.

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AiAssignmentsModule } from '../ai/assignments/ai-assignments.module';
 import { AiConfigModule } from '../ai/config/ai-config.module';
 import { AiCoreModule } from '../ai/core/ai-core.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
@@ -34,8 +35,9 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  * `AgentCaller`). `GraphRuntimeInfo` loads the runtime at boot and logs its
  * version.
  *
- * - Models: `TrainingModelResolver` turns the caller's per-role model
- *   preferences, usable models and the AI policy into a state per agent role,
+ * - Models: `TrainingModelResolver` turns the administrator's model
+ *   assignments (#173), the caller's usable models and the AI policy into a
+ *   state per agent role (via `AiFeatureModelResolver`),
  *   through read-only seams, and never sees key material;
  *   `TrainingModelsController` serves `/api/ai/training/models` and
  *   `/api/ai/training/estimate`.
@@ -58,7 +60,7 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  *   hourly enqueue-only task.
  */
 @Module({
-  imports: [AiConfigModule, AiCoreModule, AiKeysModule, AiRuntimeModule, JobsModule, ProgramsModule, NotificationsModule],
+  imports: [AiAssignmentsModule, AiConfigModule, AiCoreModule, AiKeysModule, AiRuntimeModule, JobsModule, ProgramsModule, NotificationsModule],
   controllers: [TrainingModelsController, TrainingRunsController],
   providers: [
     GraphRuntimeInfo,

@@ -3,7 +3,7 @@
  * list from photos, next to the manual "Add equipment".
  *
  * When the scan cannot run, the button stays visible but disabled, with the
- * reason written under it (AI off, no key, no vision model, or a missing
+ * reason written under it (AI off, no key, no model assigned, or a missing
  * permission). The AI availability is only asked for when the caller holds
  * every permission the scan needs, so a viewer causes no AI request at all.
  */
@@ -39,8 +39,8 @@ function ScanButtonView({ gymId, reason }: { gymId: string; reason: string | nul
 }
 
 function ScanButtonWithAvailability({ gymId }: { gymId: string }) {
-  const availability = useVisionAvailability();
-  return <ScanButtonView gymId={gymId} reason={scanAvailabilityReason(availability.status)} />;
+  const availability = useVisionAvailability('gym_scan');
+  return <ScanButtonView gymId={gymId} reason={scanAvailabilityReason(availability)} />;
 }
 
 export function ScanGymButton({ gymId }: { gymId: string }) {

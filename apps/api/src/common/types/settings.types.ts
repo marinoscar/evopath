@@ -63,10 +63,11 @@ export interface UserSettingsValue {
    */
   notifications?: NotificationsValue;
   /**
-   * AI preferences (#423, epic #419, umbrella #418): which (provider, model)
-   * an AI surface should pre-select. Absent means "no default model chosen"
-   * — the same sparse-optional contract every namespace above follows, so an
-   * untouched account is not materialised with a preference nobody set.
+   * AI preferences (#423, epic #419, umbrella #418): the training limits
+   * (`training`); models are assigned by the administrator (#173). Absent
+   * means "no limits set" — the same sparse-optional contract every namespace above
+   * follows, so an untouched account is not materialised with a preference
+   * nobody set.
    *
    * NON-SECRET ONLY: a user's own provider key is `UserAiKey.secret`, in its
    * own table, never here. See `userAiSettingsSchema` for the full argument.
@@ -389,6 +390,9 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     // #450: no limits — every field of `ai.limits` is optional and absent
     // means unlimited, so an upgrade never starts refusing calls by itself.
     limits: {},
+    // #173: nothing assigned — every AI feature auto-picks among the caller's
+    // usable capable models until an administrator assigns one.
+    assignments: { default: null, features: {} },
   },
   // ---------------------------------------------------------------------------
   // Telemetry policy (epic #528, story #533)

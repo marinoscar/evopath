@@ -384,10 +384,15 @@ export class IntakeAnalyzeController {
   @ApiOperation({
     summary: 'Analyze the photos with AI',
     description:
-      'Queues the intake kind\'s analyzer job with the chosen model and answers **202** at once; ' +
-      'poll `GET /api/intakes/{id}` until the status leaves `scanning`. Needs at least one photo, a ' +
-      'kind with an analyzer, and a usable model with `vision_input` and `structured_output`. A ' +
-      '`failed` intake may be analyzed again.\n\n' +
+      'Queues the intake kind\'s analyzer job and answers **202** at once; poll ' +
+      '`GET /api/intakes/{id}` until the status leaves `scanning`. Needs at least one photo and a ' +
+      'kind with an analyzer. A `failed` intake may be analyzed again.\n\n' +
+      'The model is chosen by the administrator, not the client: the assignment for the kind\'s AI ' +
+      'feature (see `GET /api/ai/features`), else the administrator\'s default, else an automatic ' +
+      'pick among your usable vision models. Send an empty JSON object (`{}`). `provider`/`modelId`, if sent, ' +
+      'must equal the resolved model, else **409** `AI_MODEL_ASSIGNMENT_LOCKED` (`details.provider`, ' +
+      '`details.modelId` name the resolved one). No usable model is **409** `AI_FEATURE_UNAVAILABLE` ' +
+      '(`details.featureId`, `details.state`, `details.fix`).\n\n' +
       'AI refusals carry the code in `details.reason`: `AI_DISABLED`, `AI_PROVIDER_DISABLED`, ' +
       '`AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE` (403); ' +
       '`AI_CAPABILITY_UNSUPPORTED` (400).',
@@ -411,7 +416,9 @@ export class IntakeAnalyzeController {
   @ApiResponse(NOT_FOUND)
   @ApiResponse({
     status: 409,
-    description: 'Already `scanning` or `applied` (`details.reason`: `INTAKE_SCANNING`, `ALREADY_APPLIED`)',
+    description:
+      'Already `scanning` or `applied`, or the model is unavailable or locked (`details.reason`: ' +
+      '`INTAKE_SCANNING`, `ALREADY_APPLIED`, `AI_FEATURE_UNAVAILABLE`, `AI_MODEL_ASSIGNMENT_LOCKED`)',
     type: ErrorDto,
   })
   analyze(

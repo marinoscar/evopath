@@ -114,6 +114,7 @@ export class GymEquipmentIntakeKind
   readonly contextSchema = contextSchema;
   readonly valueSchema = gymEquipmentValueSchema;
   readonly analyzeJobType = EQUIPMENT_SCAN_JOB_TYPE;
+  readonly aiFeature = 'gym_scan' as const;
   readonly maxPhotos = GYM_EQUIPMENT_INTAKE_MAX_PHOTOS;
   readonly itemKinds = [EQUIPMENT_ITEM_KIND] as const;
   /**

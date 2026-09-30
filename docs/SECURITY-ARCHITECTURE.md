@@ -506,7 +506,7 @@ and permission relations) and `request.requestUser` is the flattened
 `targetType`, `targetId`, `meta` (JSON) and `createdAt`, indexed on actor,
 target and time. Actions are `<area>:<verb>` strings, for example
 `allowlist:add`, `user:roles_update`, `system_settings:patch`,
-`storage:object:delete`, `storage_config:test`, `ai_config:set_key`.
+`storage:object:delete`, `storage_config:test`, `ai_config:set_key`, `ai_config:assignments`.
 Audit `meta` never contains key material.
 
 ### Health data

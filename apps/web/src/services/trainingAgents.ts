@@ -1,21 +1,24 @@
 /**
- * The training agents' model settings, read side (`/api/ai/training/*`), as
- * the web app sees it.
+ * The training agents' models, read side (`/api/ai/training/*`), as the web
+ * app sees it.
  *
  * Shaped after `services/ai.ts`: `services/api.ts` stays the transport and this
  * module holds the two calls next to the types they produce. Both routes sit
  * behind `ai:use` and the AI kill switch (`403 AI_DISABLED` while AI is off).
  *
- * The role resolution is GUIDANCE computed by the API from the caller's saved
- * choices, usable models and the administrator's switches; the browser only
- * renders it. The preferences themselves are written through the user settings
- * document (`ai.taskModels`, `ai.training`), not through these routes.
+ * The role resolution is GUIDANCE computed by the API from the
+ * administrator's model assignments (#173: every model and effort is an
+ * administrator's choice at `/admin/settings/ai/assignments`), the caller's
+ * usable models and the administrator's switches; the browser only renders
+ * it. The caller's own run limits are written through the user settings
+ * document (`ai.training`), not through these routes.
  *
  * No response here carries key material: `keySource` says whose key pays,
  * never the key.
  */
 import { API_BASE_URL, api, ApiError } from './api';
 import type { AiKeySource } from './ai';
+import type { FeatureModelSource } from './aiAssignments';
 import { connectSse, type SseConnection, type SseState } from './sse';
 import type { TaskReasoningEffort, TrainingAgentRole } from '../types';
 
@@ -34,7 +37,6 @@ export type RoleResolutionState =
   | 'no_key'
   | 'no_models'
   | 'missing_capability'
-  | 'stale_preference'
   | 'web_search_disabled'
   | 'ai_disabled';
 
@@ -49,18 +51,21 @@ export interface RoleResolution {
   state: RoleResolutionState;
   /** Absent in every blocking state. */
   model?: TrainingModelRef & { displayName: string; keySource: AiKeySource };
+  /** Where the model came from: an administrator's assignment or default, or the automatic pick. */
+  source?: FeatureModelSource | null;
   /** Capabilities this role requires of its model. */
   needs: string[];
-  /** What the user chose, or the role default. */
+  /** What the administrator assigned, or the role default. */
   requestedEffort: TaskReasoningEffort | null;
   /** What will actually be sent: always an effort the model offers, or null. */
   effectiveEffort: TaskReasoningEffort | null;
   effortNote?: 'clamped' | 'model_has_no_reasoning';
-  /** The saved model when it is no longer usable. */
-  stalePreference?: TrainingModelRef;
+  /** An administrator's assignment the caller's key cannot use; resolution fell through. */
+  assignmentUnavailable?: TrainingModelRef;
   /** For `missing_capability`: up to five catalog models that would work. */
   candidates?: Array<TrainingModelRef & { displayName: string; enabled: boolean }>;
-  fix: 'settings' | 'keys' | 'admin' | null;
+  /** Who can fix a blocking state: the caller (add a key) or an administrator. */
+  fix: 'keys' | 'admin' | null;
 }
 
 /**

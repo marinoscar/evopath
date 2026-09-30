@@ -31,23 +31,27 @@ import type {
 /**
  * A request as a fork writes it. `model` (and `provider`) are optional:
  *
- *   - both omitted  -> the caller's `ai.defaultModel` user setting, else
- *                      `AI_INVALID_REQUEST` ('No model selected');
- *   - `model` alone -> `provider` is the default model's provider, else the
- *                      only registered provider, else `AI_INVALID_REQUEST`.
+ *   - both omitted  -> the administrator's default model (`ai.assignments
+ *                      .default`, #173) when the caller can use it, else a
+ *                      deterministic pick among the caller's usable
+ *                      `responses` models, else `AI_INVALID_REQUEST`
+ *                      ('No model selected');
+ *   - `model` alone -> `provider` is the administrator's default model's
+ *                      provider, else the only registered provider, else
+ *                      `AI_INVALID_REQUEST`.
  */
 export type AiRequest = Omit<AiResponseRequest, 'model'> & { provider?: string; model?: string };
 
 /**
  * `embed`'s request. `model` is REQUIRED — vectors from different models are
  * not comparable, so an embedding model is never inferred from the caller's
- * chat `ai.defaultModel`. `provider` resolves as for `AiRequest`.
+ * implicit default model. `provider` resolves as for `AiRequest`.
  */
 export type AiEmbedRequest = Omit<AiEmbeddingRequest, 'model'> & { provider?: string; model: string };
 
 /**
  * `generateImage`'s request. `model` is REQUIRED — an image model is never
- * inferred from the caller's chat `ai.defaultModel`. `provider` resolves as
+ * inferred from the implicit default model. `provider` resolves as
  * for `AiRequest`.
  */
 export type AiGenerateImageRequest = Omit<AiImageGenerationRequest, 'model'> & { provider?: string; model: string };
@@ -73,7 +77,7 @@ export type AiEditImageRequest = AiGenerateImageRequest & {
  *
  * `model` is optional: omitted, the first model the caller can use that
  * declares `audio_transcription` (by provider, then model id — the order
- * `GET /api/ai/models` lists them in) — never the chat `ai.defaultModel`.
+ * `GET /api/ai/models` lists them in) — never the implicit default model.
  */
 export interface AiTranscribeRequest {
   storageObjectId: string;
@@ -115,8 +119,8 @@ export interface AiSpeakRequest {
  * `createRealtimeSession`'s request (#449, docs/specs/ai-platform.md §2.15).
  *
  * `model` is optional: omitted, the first model the caller can use that
- * declares `realtime` (in `GET /api/ai/models` order) — never the chat
- * `ai.defaultModel`. `voice` defaults to the model's first listed voice.
+ * declares `realtime` (in `GET /api/ai/models` order) — never the
+ * implicit default model. `voice` defaults to the model's first listed voice.
  * Everything here is the session's INITIAL configuration: the browser that
  * holds the ephemeral secret may change it over its data channel.
  */

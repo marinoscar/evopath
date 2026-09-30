@@ -38,9 +38,16 @@ import { applySummary, type GymDetailLocationState } from '../services/gymScan';
 /** Gate on the AI being able to read photos; the manual path stays one click away. */
 function ScanGate({ gymId, onManual }: { gymId: string; onManual: () => void }) {
   const navigate = useNavigate();
-  const availability = useVisionAvailability();
+  const availability = useVisionAvailability('gym_scan');
   if (availability.status !== 'ready') {
-    return <NoVisionModelNotice reason={availability.status} onManual={onManual} />;
+    return (
+      <NoVisionModelNotice
+        reason={availability.status}
+        fix={availability.fix}
+        onRetry={() => void availability.refresh()}
+        onManual={onManual}
+      />
+    );
   }
   return (
     <GymScanFlow
