@@ -123,6 +123,7 @@ export const APP_METRIC_NAMES = {
   aiTokens: 'app.ai.tokens',
   aiDuration: 'app.ai.request.duration',
   notificationDeliveries: 'app.notifications.deliveries',
+  healthDocumentPurges: 'app.health.documents.purges',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -206,6 +207,10 @@ const AUTH_REFRESH_OUTCOMES = new Set<string>([
 const AI_STATUSES = new Set<string>(['succeeded', 'failed', 'cancelled']);
 
 export type NotificationDeliveryOutcome = 'sent' | 'failed' | 'rate_limited' | 'error';
+
+/** How one `health.document.purge` attempt ended (H1, #185). */
+export type HealthDocumentPurgeOutcome = 'purged' | 'failed';
+const HEALTH_DOCUMENT_PURGE_OUTCOMES = new Set<string>(['purged', 'failed']);
 const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
 
 export interface AiUsageMetric {
@@ -286,6 +291,7 @@ export class AppMetricsService implements OnModuleInit {
   private readonly aiTokens: Counter;
   private readonly aiDuration: Histogram;
   private readonly notificationDeliveries: Counter;
+  private readonly healthDocumentPurges: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -369,6 +375,10 @@ export class AppMetricsService implements OnModuleInit {
     this.notificationDeliveries = m.createCounter(N.notificationDeliveries, {
       description: 'Notification delivery attempts, by channel, event and outcome.',
       unit: '{delivery}',
+    });
+    this.healthDocumentPurges = m.createCounter(N.healthDocumentPurges, {
+      description: 'Health document file purges (delete after processing), by outcome.',
+      unit: '{document}',
     });
   }
 
@@ -515,6 +525,17 @@ export class AppMetricsService implements OnModuleInit {
         event: eventKey ? this.boundLabel('notification_event', eventKey) : UNKNOWN_LABEL,
         outcome: enumLabel(outcome, NOTIFICATION_OUTCOMES),
       }),
+    );
+  }
+
+  // ===========================================================================
+  // Health documents
+  // ===========================================================================
+
+  /** One `health.document.purge` attempt ended: the file was erased, or the attempt failed (and is retried). */
+  healthDocumentPurge(outcome: HealthDocumentPurgeOutcome): void {
+    this.safely(() =>
+      this.healthDocumentPurges.add(1, { outcome: enumLabel(outcome, HEALTH_DOCUMENT_PURGE_OUTCOMES) }),
     );
   }
 
