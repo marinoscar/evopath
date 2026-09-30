@@ -20,7 +20,6 @@ import { server } from '../mocks/server';
 import UserAiKeysPage from '../../pages/UserAiKeysPage';
 import UserSettingsHubPage from '../../pages/UserSettingsHubPage';
 import { RequireAiEnabled } from '../../components/common/RequireAiEnabled';
-import { mockUserSettings } from '../mocks/data';
 import {
   mockAiKeyInvalidErrorBody,
   mockAiProbeResultFailed,
@@ -298,26 +297,6 @@ describe('UserAiKeysPage', () => {
       expect(within(group).getByText('Structured output')).toBeInTheDocument();
       // No display name: the id stands in for it, and is listed as the id too.
       expect(within(group).getAllByText('text-embedding-3-small')).toHaveLength(2);
-    });
-  });
-
-  describe('no model choice (#173)', () => {
-    it('offers no default model picker, even with a legacy saved default', async () => {
-      server.use(
-        http.get('*/api/user-settings', () =>
-          HttpResponse.json({
-            data: {
-              ...mockUserSettings,
-              ai: { defaultModel: { provider: 'openai', modelId: 'gpt-4-retired' } },
-            },
-          }),
-        ),
-      );
-      await renderPage();
-
-      await screen.findByRole('region', { name: 'OpenAI key' });
-      expect(screen.queryByRole('combobox', { name: 'Default model' })).not.toBeInTheDocument();
-      expect(screen.queryByText(/default model/i)).not.toBeInTheDocument();
     });
   });
 

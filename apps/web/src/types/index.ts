@@ -437,9 +437,7 @@ export interface AiTrainingLimits {
 
 /**
  * `user_settings.ai`: the caller's training-run limits. Models are not a user
- * setting (#173): an administrator assigns them. A stored document may still
- * carry legacy `defaultModel` / `taskModels` keys; the web ignores them and
- * never sends them back (the API rejects both on write).
+ * setting (#173): an administrator assigns them.
  */
 export interface UserAiSettings {
   training?: AiTrainingLimits;

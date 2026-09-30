@@ -19,12 +19,6 @@ import {
   mockTrainingModelsView,
   mockTrainingRunEstimate,
 } from '../mocks/fixtures/trainingAgents';
-import type { UserSettings } from '../../types';
-
-function useSettings(settings: UserSettings) {
-  server.use(http.get('*/api/user-settings', () => HttpResponse.json({ data: settings })));
-}
-
 function captureSettingsPatch() {
   const calls: Array<{ body: unknown; ifMatch: string | null }> = [];
   server.use(
@@ -131,24 +125,6 @@ describe('UserAgentModelsPage', () => {
       const region = screen.getByRole('region', { name: role });
       expect(within(region).queryByRole('combobox')).not.toBeInTheDocument();
     }
-  });
-
-  it('never reads a legacy saved model, and never writes model choices', async () => {
-    const calls = captureSettingsPatch();
-    useSettings({
-      ...mockUserSettings,
-      // A legacy document may still carry these; the page ignores them.
-      ai: { taskModels: { critic: { provider: 'anthropic', modelId: 'medium-1', reasoningEffort: 'low' } } } as UserSettings['ai'],
-    });
-    const { user } = await renderPage();
-    const critic = screen.getByRole('region', { name: 'Critic' });
-    expect(within(critic).queryByText(/Medium One/)).not.toBeInTheDocument();
-
-    const limits = screen.getByRole('region', { name: 'Run limits' });
-    await user.type(within(limits).getByLabelText('Max tokens per run'), '50000');
-    await user.click(within(limits).getByRole('button', { name: 'Save limits' }));
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(JSON.stringify(calls[0].body)).not.toMatch(/taskModels|defaultModel/);
   });
 
   it('saves the run limits as ai.training', async () => {

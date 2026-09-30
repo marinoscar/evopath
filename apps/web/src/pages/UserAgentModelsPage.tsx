@@ -10,8 +10,7 @@
  * A THIN PAGE WRAPPER, like `UserAiKeysPage`. The limits live in the user
  * settings document (`ai.training`) and are saved through `useUserSettings`
  * (PATCH `/api/user-settings`, `If-Match` on the loaded version); the role
- * states are re-read after every save. The API rejects `ai.defaultModel` and
- * `ai.taskModels`, so this page never sends either.
+ * states are re-read after every save.
  *
  * Reachability is gated outside this file: the route wraps it in
  * `RequirePermission('ai:use')` and `RequireAiEnabled`, and the registry card
