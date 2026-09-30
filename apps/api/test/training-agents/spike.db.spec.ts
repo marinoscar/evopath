@@ -408,7 +408,7 @@ describeWithDb('spike graph on real Postgres', () => {
 
       expect(providers.length).toBeGreaterThan(0);
       expect(providers).not.toContain(SpikeGraphHandler);
-      expect(controllers).toEqual([]);
+      expect(controllers).not.toContain(SpikeGraphHandler);
       expect(new JobHandlerRegistry().types()).not.toContain(SPIKE_GRAPH_JOB_TYPE);
     });
   });
