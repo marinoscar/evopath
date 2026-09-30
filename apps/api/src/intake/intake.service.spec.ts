@@ -10,6 +10,8 @@ import { IntakeService } from './intake.service';
 import { StorageObjectReferences } from './storage-object-references';
 import type { IntakeInputInspector } from './intake-input-inspector';
 import { trustingInputInspector } from './testing/input-inspector.stub';
+import { AiError } from '../ai/core/ai-error';
+import { PDF_INPUT_UNSUPPORTED_MESSAGE } from './intake-inputs';
 
 // =============================================================================
 // IntakeService — the provenance and state invariants, over a mocked Prisma
@@ -327,6 +329,105 @@ describe('IntakeService', () => {
 
       await expect(service.attachPhoto(USER, INTAKE, OBJECT)).rejects.toBeInstanceOf(ConflictException);
     });
+
+    describe('file content and PDFs (H2, #186)', () => {
+      const readyPdf = { ...readyImage, name: 'scale-report.pdf', mimeType: 'application/pdf', storageKey: 'k/pdf' };
+      const inspect = () => inputs.inspect as jest.Mock;
+
+      function pdfKind(overrides: Partial<IntakeKind<unknown, StubValue>> = {}) {
+        registry.register(stubKind({ acceptedInputs: ['image', 'pdf'], ...overrides }));
+      }
+
+      beforeEach(() => {
+        prisma.photoIntakePhoto.create.mockResolvedValue({
+          id: 'photo-1',
+          intakeId: INTAKE,
+          storageObjectId: OBJECT,
+          sortOrder: 0,
+          createdAt: new Date(),
+          storageObject: { name: 'x' },
+        } as never);
+      });
+
+      it('an image-only kind refuses a PDF with UNSUPPORTED_MEDIA_TYPE, before reading any bytes', async () => {
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(reasonOf(error)).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(((error as BadRequestException).getResponse() as any).details.allowed).not.toContain('application/pdf');
+        expect(inspect()).not.toHaveBeenCalled();
+        expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+      });
+
+      it('a kind accepting PDFs attaches one after reading its stored bytes', async () => {
+        pdfKind();
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+
+        await service.attachPhoto(USER, INTAKE, OBJECT);
+
+        expect(inspect()).toHaveBeenCalledWith('k/pdf', 'pdf');
+        expect(prisma.photoIntakePhoto.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('an image is sniffed too, and a non-image under an image type is refused', async () => {
+        prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, storageKey: 'k/img' } as never);
+        inspect().mockResolvedValueOnce({ detected: null, pages: null, oversize: false });
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(inspect()).toHaveBeenCalledWith('k/img', 'image');
+        expect(reasonOf(error)).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(((error as BadRequestException).getResponse() as any).details.contentMismatch).toBe(true);
+        expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['a renamed non-PDF', { detected: null, pages: null, oversize: false }, 'UNSUPPORTED_MEDIA_TYPE'],
+        ['an image renamed to .pdf', { detected: 'image', pages: null, oversize: false }, 'UNSUPPORTED_MEDIA_TYPE'],
+        ['a PDF over the default 20-page cap', { detected: 'pdf', pages: 21, oversize: false }, 'TOO_MANY_PAGES'],
+        ['a PDF whose pages cannot be counted', { detected: 'pdf', pages: null, oversize: false }, 'PDF_UNREADABLE'],
+        ['a stored file larger than its row claimed', { detected: 'pdf', pages: null, oversize: true }, 'OBJECT_TOO_LARGE'],
+      ])('refuses %s with 400, writing nothing', async (_label, inspection, reason) => {
+        pdfKind();
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+        inspect().mockResolvedValueOnce(inspection);
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect(reasonOf(error)).toBe(reason);
+        expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+      });
+
+      it('names the page count and the cap, and honours a kind-level maxPdfPages', async () => {
+        pdfKind({ maxPdfPages: 2 });
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+        inspect().mockResolvedValueOnce({ detected: 'pdf', pages: 3, oversize: false });
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(((error as BadRequestException).getResponse() as any).details).toMatchObject({
+          reason: 'TOO_MANY_PAGES',
+          pages: 3,
+          maxPages: 2,
+        });
+      });
+
+      it('caps a PDF at 50 MiB (not the 20 MiB image cap) on the recorded size', async () => {
+        pdfKind();
+        prisma.storageObject.findUnique.mockResolvedValue({ ...readyPdf, size: BigInt(30 * 1024 * 1024) } as never);
+        await service.attachPhoto(USER, INTAKE, OBJECT);
+        expect(prisma.photoIntakePhoto.create).toHaveBeenCalledTimes(1);
+
+        prisma.storageObject.findUnique.mockResolvedValue({ ...readyPdf, size: BigInt(51 * 1024 * 1024) } as never);
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+        expect(((error as BadRequestException).getResponse() as any).details).toMatchObject({
+          reason: 'OBJECT_TOO_LARGE',
+          maxBytes: 50 * 1024 * 1024,
+        });
+      });
+    });
   });
 
   describe('detachPhoto and discard', () => {
@@ -444,6 +545,87 @@ describe('IntakeService', () => {
         data: { jobId: '66666666-6666-4666-8666-666666666666' },
       });
       expect(started).toEqual({ intakeId: INTAKE, jobId: '66666666-6666-4666-8666-666666666666' });
+    });
+
+    describe('with a PDF attached (H2, #186)', () => {
+      const pdfPhoto = {
+        storageObjectId: OBJECT,
+        storageObject: { mimeType: 'application/pdf', size: BigInt(2048), storageKey: 'k/pdf' },
+      };
+
+      beforeEach(() => {
+        registry.register(stubKind({ acceptedInputs: ['image', 'pdf'] }));
+        prisma.photoIntakePhoto.findMany.mockResolvedValue([pdfPhoto] as never);
+      });
+
+      it('re-reads the PDF and asks the model gate for file_input too', async () => {
+        await service.analyze(USER, INTAKE, {});
+
+        expect(inputs.inspect).toHaveBeenCalledWith('k/pdf', 'pdf');
+        expect(usableModels.assertUsable).toHaveBeenCalledWith(USER, 'openai', 'vision-1', [
+          'vision_input',
+          'structured_output',
+          'file_input',
+        ]);
+        expect(jobs.enqueueWithin).toHaveBeenCalledTimes(1);
+      });
+
+      it('a model without file_input gets the typed, user-readable error, and nothing is queued', async () => {
+        usableModels.assertUsable.mockRejectedValue(
+          new AiError('AI_CAPABILITY_UNSUPPORTED', 'Model "vision-1" does not support file_input.', {
+            details: { provider: 'openai', model: 'vision-1', capability: 'file_input' },
+          }),
+        );
+
+        const error = (await caught(service.analyze(USER, INTAKE, {}))) as AiError;
+
+        expect(error).toBeInstanceOf(AiError);
+        expect(error.code).toBe('AI_CAPABILITY_UNSUPPORTED');
+        expect(error.message).toBe(PDF_INPUT_UNSUPPORTED_MESSAGE);
+        expect((error.getResponse() as any).details).toMatchObject({ capability: 'file_input', inputKind: 'pdf' });
+        expect(prisma.photoIntake.updateMany).not.toHaveBeenCalled();
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('a model whose input modalities lack "file" is refused the same way', async () => {
+        usableModels.assertUsable.mockResolvedValue({
+          model: { capabilities: { capabilities: ['file_input'], inputModalities: ['text', 'image'] } },
+        });
+
+        const error = (await caught(service.analyze(USER, INTAKE, {}))) as AiError;
+
+        expect(error.message).toBe(PDF_INPUT_UNSUPPORTED_MESSAGE);
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('a PDF over the page cap is refused at analyze too, before the model is resolved', async () => {
+        (inputs.inspect as jest.Mock).mockResolvedValueOnce({ detected: 'pdf', pages: 40, oversize: false });
+
+        expect(reasonOf(await caught(service.analyze(USER, INTAKE, {})))).toBe('TOO_MANY_PAGES');
+        expect(features.resolve).not.toHaveBeenCalled();
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('a PDF on a kind that no longer accepts PDFs is refused at analyze', async () => {
+        registry.register(stubKind());
+
+        expect(reasonOf(await caught(service.analyze(USER, INTAKE, {})))).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('images only: no bytes are read and file_input is not asked for', async () => {
+        prisma.photoIntakePhoto.findMany.mockResolvedValue([
+          { storageObjectId: OBJECT, storageObject: { mimeType: 'image/png', size: BigInt(10), storageKey: 'k/img' } },
+        ] as never);
+
+        await service.analyze(USER, INTAKE, {});
+
+        expect(inputs.inspect).not.toHaveBeenCalled();
+        expect(usableModels.assertUsable).toHaveBeenCalledWith(USER, 'openai', 'vision-1', [
+          'vision_input',
+          'structured_output',
+        ]);
+      });
     });
 
     it('refuses a model the gate refuses, and queues nothing', async () => {
