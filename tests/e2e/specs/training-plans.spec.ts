@@ -49,8 +49,11 @@ import { setBio, setUnits } from '../helpers/profile.helper';
  * Contributor with its own gym and units, and no test sleeps: assertions wait
  * on what the page shows.
  *
- * Not covered here yet: the evaluation scenarios (autonomous adaptation with
- * Undo, ask-first approval); they arrive with the evaluation stories.
+ * The evaluation scenarios (autonomous adaptation with Undo, ask-first approve
+ * and reject) assert the outcome through the API, which is verified, and drive
+ * the adaptation banner, Undo, Approve and Reject through role and text
+ * selectors written against the E5.8 UI before it landed: if the UI wording
+ * differs, adjust `ADAPTATION_UI` below, nothing else.
  */
 
 const RUN_URL = /\/train\/plans\/runs\/[0-9a-f-]{36}$/;
@@ -139,7 +142,7 @@ async function reviewPlanId(page: Page): Promise<string> {
 }
 
 /** Start a create run through the API (skips the wizard); the intake matches the fixtures. */
-async function startRunViaApi(owner: Owner, scenario: ScenarioName): Promise<string> {
+async function startRunViaApi(owner: Owner, scenario: ScenarioName, autonomy: 'autonomous' | 'ask_first' = 'autonomous'): Promise<string> {
   await useScenario(scenario);
   const started = await owner.api.post<{ runId: string; status: string }>('/api/ai/training/runs', {
     kind: 'create',
@@ -150,7 +153,7 @@ async function startRunViaApi(owner: Owner, scenario: ScenarioName): Promise<str
       minutesPerSession: 45,
       durationWeeks: 8,
       gymId: owner.gym.id,
-      autonomy: 'autonomous',
+      autonomy,
     },
   });
   return started.runId;
@@ -357,28 +360,75 @@ test.describe('Training plans with the fake Responses provider', () => {
     const todayIso = await putTodayIntoPlan(owner.api, programId);
     await owner.api.post(`/api/programs/${programId}/activate`, { startDate: todayIso });
 
-    await page.goto('/');
-    const card = page.getByTestId('today-plan');
-    await expect(card).toHaveAttribute('data-kind', 'workout', { timeout: 30_000 });
-    await card.getByRole('button', { name: 'Start planned workout' }).click();
-    await expect(page).toHaveURL(/\/train\/workouts\/[0-9a-f-]{36}$/);
-
-    // Log the first set: fill whatever the planned set leaves empty, then complete it.
-    const weight = page.getByLabel('Set 1 weight in lb', { exact: true });
-    if ((await weight.count()) > 0 && (await weight.inputValue()) === '') await weight.fill('20');
-    const reps = page.getByLabel('Set 1 reps', { exact: true });
-    if ((await reps.inputValue()) === '') await reps.fill('10');
-    const complete = page.getByRole('button', { name: 'Complete set 1' });
-    if ((await complete.getAttribute('aria-pressed')) !== 'true') await complete.click();
-    await expect(complete).toHaveAttribute('aria-pressed', 'true');
-
-    await page.getByRole('button', { name: 'Finish', exact: true }).click();
-    const summary = page.getByRole('dialog', { name: 'Workout finished' });
-    await expect(summary).toBeVisible();
-    await summary.getByRole('button', { name: 'Done' }).click();
+    await finishTodaysPlannedWorkout(page);
 
     await page.goto('/');
     await expect(page.getByTestId('today-plan')).toContainText(': done', { timeout: 30_000 });
+  });
+
+  test('autonomous adaptation: finishing a workout triggers an evaluation, the plan adapts, the banner shows and Undo restores it', async ({ page, owner }) => {
+    const runId = await startRunViaApi(owner, 'happy');
+    const programId = await programOfRun(owner.api, runId);
+    await activateStartedLastWeek(owner.api, programId);
+    await useScenario('evaluator-autonomous');
+    const after = await lastRequestSeq();
+
+    await finishTodaysPlannedWorkout(page);
+
+    // The evaluation ran without a question: version 2, one applied AI entry.
+    await waitForVersion(owner.api, programId, 2);
+    const [entry] = await adaptedEntries(owner.api, programId);
+    expect(entry).toMatchObject({ kind: 'adapted', actor: 'ai', status: 'applied', fromVersion: 1, toVersion: 2 });
+    const requests = (await fakeResponsesRequests(after)).filter((r) => r.agent === 'evaluator');
+    expect(requests).toHaveLength(1);
+    expect(requests.every((r) => r.canaryHits === 0 && r.hasSchema)).toBe(true);
+
+    // The banner says so, and Undo (one tap) restores the plan as version 3.
+    await page.goto(`/train/plans/${programId}`);
+    await expect(page.getByText(ADAPTATION_UI.banner).first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: ADAPTATION_UI.undo }).first().click();
+    await waitForVersion(owner.api, programId, 3);
+    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ id: entry.id, status: 'reverted' });
+  });
+
+  test('ask first: the proposal appears and Approve applies it', async ({ page, owner }) => {
+    const runId = await startRunViaApi(owner, 'happy', 'ask_first');
+    const programId = await programOfRun(owner.api, runId);
+    await activateStartedLastWeek(owner.api, programId);
+    await useScenario('evaluator-autonomous');
+
+    await finishTodaysPlannedWorkout(page);
+
+    // Paused for the owner: a proposed entry, the plan untouched.
+    await evaluateRun(owner.api, programId, 'awaiting_approval');
+    expect(await currentVersion(owner.api, programId)).toBe(1);
+    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'proposed', toVersion: null });
+
+    await page.goto(`/train/plans/${programId}`);
+    await expect(page.getByText(ADAPTATION_UI.proposal).first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: ADAPTATION_UI.approve }).first().click();
+
+    await waitForVersion(owner.api, programId, 2);
+    await evaluateRun(owner.api, programId, 'succeeded');
+    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'applied', fromVersion: 1, toVersion: 2 });
+  });
+
+  test('ask first: Reject leaves the plan as it was and records the decision', async ({ page, owner }) => {
+    const runId = await startRunViaApi(owner, 'happy', 'ask_first');
+    const programId = await programOfRun(owner.api, runId);
+    await activateStartedLastWeek(owner.api, programId);
+    await useScenario('evaluator-autonomous');
+
+    await finishTodaysPlannedWorkout(page);
+    await evaluateRun(owner.api, programId, 'awaiting_approval');
+
+    await page.goto(`/train/plans/${programId}`);
+    await expect(page.getByText(ADAPTATION_UI.proposal).first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: ADAPTATION_UI.reject }).first().click();
+
+    await evaluateRun(owner.api, programId, 'succeeded');
+    expect(await currentVersion(owner.api, programId)).toBe(1);
+    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'rejected', toVersion: null });
   });
 
   test('AI off: AI routes answer 403 and the wizard redirects; the manual builder, Today and the viewer still work', async ({ page, owner, browser, baseURL }) => {
@@ -425,6 +475,105 @@ test.describe('Training plans with the fake Responses provider', () => {
       .toBe('Ready');
   });
 });
+
+/** Today's planned workout, started, one set logged, finished from the summary: the `workout.finished` trigger. */
+async function finishTodaysPlannedWorkout(page: Page): Promise<void> {
+  await page.goto('/');
+  const card = page.getByTestId('today-plan');
+  await expect(card).toHaveAttribute('data-kind', 'workout', { timeout: 30_000 });
+  await card.getByRole('button', { name: 'Start planned workout' }).click();
+  await expect(page).toHaveURL(/\/train\/workouts\/[0-9a-f-]{36}$/);
+
+  // Log the first set: fill whatever the planned set leaves empty, then complete it.
+  const weight = page.getByLabel('Set 1 weight in lb', { exact: true });
+  if ((await weight.count()) > 0 && (await weight.inputValue()) === '') await weight.fill('20');
+  const reps = page.getByLabel('Set 1 reps', { exact: true });
+  if ((await reps.inputValue()) === '') await reps.fill('10');
+  const complete = page.getByRole('button', { name: 'Complete set 1' });
+  if ((await complete.getAttribute('aria-pressed')) !== 'true') await complete.click();
+  await expect(complete).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  const summary = page.getByRole('dialog', { name: 'Workout finished' });
+  await expect(summary).toBeVisible();
+  await summary.getByRole('button', { name: 'Done' }).click();
+}
+
+/** `YYYY-MM-DD` of the local date `days` from now. */
+function localDate(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toLocaleDateString('en-CA');
+}
+
+/**
+ * A plan with a workout on today's weekday, activated to have started a week
+ * ago (the furthest back activation allows): week 1 is entirely past (three
+ * sessions due, so the evaluator has data) and today's session is week 2's.
+ */
+async function activateStartedLastWeek(api: AuthedApi, programId: string): Promise<void> {
+  await putTodayIntoPlan(api, programId);
+  await api.post(`/api/programs/${programId}/activate`, { startDate: localDate(-7) });
+}
+
+interface ProgramBody {
+  currentVersion: number;
+  autonomy: string;
+}
+
+async function currentVersion(api: AuthedApi, programId: string): Promise<number> {
+  return (await api.get<ProgramBody>(`/api/programs/${programId}`)).currentVersion;
+}
+
+async function waitForVersion(api: AuthedApi, programId: string, version: number): Promise<void> {
+  await expect
+    .poll(() => currentVersion(api, programId), { message: `the plan never reached version ${version}`, timeout: 120_000, intervals: [1_000, 2_000] })
+    .toBe(version);
+}
+
+interface ChangeLogEntryBody {
+  kind: string;
+  actor: string;
+  status: string;
+  fromVersion: number | null;
+  toVersion: number | null;
+  id: string;
+}
+
+async function adaptedEntries(api: AuthedApi, programId: string): Promise<ChangeLogEntryBody[]> {
+  const page = await api.get<{ items: ChangeLogEntryBody[] }>(`/api/programs/${programId}/change-log`);
+  return page.items.filter((entry) => entry.kind === 'adapted');
+}
+
+/** The newest evaluate run of the plan, once it has reached `status`. */
+async function evaluateRun(api: AuthedApi, programId: string, status: string): Promise<{ id: string; status: string }> {
+  let found: { id: string; status: string } | undefined;
+  await expect
+    .poll(
+      async () => {
+        const list = await api.get<{ items: Array<{ id: string; kind: string; status: string }> }>(
+          `/api/ai/training/runs?programId=${programId}&status=${status}`,
+        );
+        found = list.items.find((run) => run.kind === 'evaluate');
+        return found?.status;
+      },
+      { message: `no evaluate run reached ${status}`, timeout: 120_000, intervals: [1_000, 2_000] },
+    )
+    .toBe(status);
+  return found!;
+}
+
+/**
+ * UNVERIFIED selectors for the E5.8 adaptation surface (written before the UI
+ * landed, role and text based on purpose). Change them here if the wording differs.
+ */
+const ADAPTATION_UI = {
+  banner: /(adjusted|changed|updated) your plan|plan (was|has been) (adjusted|changed|updated)/i,
+  undo: /^Undo/,
+  proposal: /suggest(ed|s)?|proposal|proposed change/i,
+  approve: /^Approve/,
+  reject: /^(Reject|Decline|Not now)/,
+};
 
 /** ISO weekday (1 Monday .. 7 Sunday) of a local date. */
 function isoWeekday(date: Date): number {

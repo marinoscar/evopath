@@ -200,7 +200,13 @@ export type ScenarioName =
   | 'urgent-symptom'
   | 'budget-tight'
   | 'rate-limit-once'
-  | 'slow';
+  | 'slow'
+  | 'evaluator-no-change'
+  | 'evaluator-autonomous'
+  | 'evaluator-structural'
+  | 'evaluator-hostile'
+  | 'evaluator-pain-response'
+  | 'evaluator-regenerate';
 
 /** One request the fake received: names, counts and flags only, never a key, prompt or body. */
 export interface FakeResponsesRequest {
