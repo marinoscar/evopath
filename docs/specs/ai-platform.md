@@ -91,8 +91,10 @@ Configuration lives in four places, split by sensitivity:
 - `PUT /api/admin/ai/config` and `PUT /api/system-settings` carry
   `ai.assignments` through unchanged when it is omitted; only
   `PUT /api/admin/ai/assignments` writes it (§2.18).
-- The retired user settings `ai.defaultModel` and `ai.taskModels.*` are refused
-  with a 400 on write; a stored legacy value is ignored on read.
+- The user `ai` settings object holds only `training` and is strict: any other
+  key is a normal zod 400. The migration
+  `20260930160000_remove_user_ai_model_choices` deleted the stored
+  `ai.defaultModel` and `ai.taskModels` values.
 
 - Provider ids are `AI_PROVIDER_IDS` in
   `apps/api/src/common/schemas/settings.schema.ts`.
@@ -1086,4 +1088,5 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
 - #173: admin-only model selection. `ai.assignments`, the feature resolver,
   `GET/PUT /api/admin/ai/assignments`, `GET /api/ai/features`, server-side
   intake analyze models, and the retirement of `ai.defaultModel` and
-  `ai.taskModels.*`.
+  `ai.taskModels.*`, deleted from `user_settings` by migration
+  `20260930160000_remove_user_ai_model_choices`.

@@ -293,7 +293,7 @@ Plan-viewer pieces (`apps/web/src/components/training/`):
 
 | Setting | Where | Meaning |
 |---|---|---|
-| `ai.assignments.features['training.<role>']` | System setting, `/admin/settings/ai/assignments` | `{ provider, modelId, reasoningEffort? }` per role, each optional. Precedence: the role's assignment, then `ai.assignments.default`, then a deterministic auto pick among usable capable models, else a blocking state ([ai-platform.md §2.18a](ai-platform.md#218a-feature-model-resolution)). The effort is the assignment's, else the role default, clamped to what the model offers. The retired `ai.taskModels` and `ai.defaultModel` user settings are refused on write |
+| `ai.assignments.features['training.<role>']` | System setting, `/admin/settings/ai/assignments` | `{ provider, modelId, reasoningEffort? }` per role, each optional. Precedence: the role's assignment, then `ai.assignments.default`, then a deterministic auto pick among usable capable models, else a blocking state ([ai-platform.md §2.18a](ai-platform.md#218a-feature-model-resolution)). The effort is the assignment's, else the role default, clamped to what the model offers. Per-user model settings no longer exist; migration `20260930160000_remove_user_ai_model_choices` deleted `ai.taskModels` and `ai.defaultModel` |
 | `ai.training.maxRunTokens` | User settings | Per-run token cap, 10,000 to 2,000,000. Absent: 400,000 for `create` and `revise`, 150,000 for `evaluate` |
 | `ai.training.maxCriticRounds` | User settings | 1, 2 or 3; default 2 |
 | `ai.enabled`, `ai.hostedTools.web_search` | `/admin/settings/ai` | Kill switch; the researcher cannot run while web search is off (off by default) |
