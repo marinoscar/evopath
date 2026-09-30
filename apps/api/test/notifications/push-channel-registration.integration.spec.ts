@@ -56,16 +56,10 @@ function channelsOf(context: TestContext): string[] {
 }
 
 describe('NOTIFICATION_CHANNEL_SENDERS: push is unconditionally registered (#355)', () => {
-  describe('no VAPID configuration anywhere (env vars unset, no admin-configured row)', () => {
+  describe('no VAPID configuration anywhere (no admin-configured row)', () => {
     let context: TestContext;
 
     beforeAll(async () => {
-      // Belt-and-braces: `.env.test` already declares neither key, but a
-      // prior describe block in a shared worker process must not be able to
-      // leak env state into this one.
-      delete process.env.VAPID_PUBLIC_KEY;
-      delete process.env.VAPID_PRIVATE_KEY;
-
       context = await createTestApp({ useMockDatabase: true });
     });
 
@@ -92,33 +86,6 @@ describe('NOTIFICATION_CHANNEL_SENDERS: push is unconditionally registered (#355
       const channels = channelsOf(context);
       expect(channels.filter((c) => c === 'push')).toHaveLength(1);
       expect(channels.sort()).toEqual(['browser', 'email', 'push']);
-    });
-  });
-
-  describe('legacy env vars ARE configured (a pre-#355 deployment that never touches the admin UI)', () => {
-    let context: TestContext;
-
-    beforeAll(async () => {
-      process.env.VAPID_PUBLIC_KEY = 'test-public-key';
-      process.env.VAPID_PRIVATE_KEY = 'test-private-key';
-
-      context = await createTestApp({ useMockDatabase: true });
-    });
-
-    afterAll(async () => {
-      delete process.env.VAPID_PUBLIC_KEY;
-      delete process.env.VAPID_PRIVATE_KEY;
-
-      await closeTestApp(context);
-    });
-
-    beforeEach(() => {
-      resetPrismaMock();
-      setupBaseMocks();
-    });
-
-    it('includes "push" — the same as with no env vars, since registration is no longer gated on them', () => {
-      expect(channelsOf(context)).toContain('push');
     });
   });
 });

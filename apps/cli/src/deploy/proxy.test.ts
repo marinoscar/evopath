@@ -124,6 +124,7 @@ describe('renderVhost', () => {
 
   it('gives the AI response stream its own unbuffered block', () => {
     const block = rendered.slice(rendered.indexOf('location /api/ai/responses/stream'));
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
     expect(block).toContain('proxy_buffering off;');
     expect(block).toContain('proxy_read_timeout 600s;');
     expect(block).toContain("proxy_set_header Connection        '';");
@@ -132,6 +133,7 @@ describe('renderVhost', () => {
   it('gives the telemetry assistant stream its own unbuffered block', () => {
     const block = rendered.slice(rendered.indexOf('location /api/admin/telemetry/assistant/stream'));
     expect(rendered).toContain('location /api/admin/telemetry/assistant/stream {');
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
     expect(block).toContain('proxy_buffering off;');
     expect(block).toContain('proxy_read_timeout 600s;');
     expect(block).toContain("proxy_set_header Connection        '';");
@@ -140,12 +142,24 @@ describe('renderVhost', () => {
   it('gives the training run stream its own unbuffered block', () => {
     const block = rendered.slice(rendered.indexOf('location /api/ai/training/stream {'));
     expect(rendered).toContain('location /api/ai/training/stream {');
+    // Regression for #194: this line was `proxy_pass http://127.0.0.1:\${target.bindPort};`
+    // in the template - the escaped `$` meant nginx received the literal text
+    // `${target.bindPort}` instead of a port number and refused to start.
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
     expect(block).toContain('proxy_buffering off;');
     expect(block).toContain('proxy_cache off;');
     expect(block).toContain('chunked_transfer_encoding off;');
     expect(block).toContain('proxy_read_timeout 600s;');
     expect(block).toContain('proxy_send_timeout 600s;');
     expect(block).toContain("proxy_set_header Connection        '';");
+  });
+
+  it('never leaks an unresolved template-literal placeholder into the rendered config', () => {
+    // A stray backslash before a `${...}` interpolation in the template (like
+    // the #194 bug above) survives as literal `${...}` text in the output,
+    // which nginx's config parser then chokes on. Catch that failure mode
+    // regardless of which block it recurs in.
+    expect(rendered).not.toMatch(/\$\{/);
   });
 
   it('is deterministic, so a re-run produces no spurious diff', () => {
@@ -348,6 +362,91 @@ describe('issueCertificate', () => {
   it('reports an absent certificate', () => {
     const root = makeProxyRoot();
     expect(certificateStatus(target(root)).exists).toBe(false);
+  });
+
+  // ===========================================================================
+  // Staging-certificate replacement (issue #196)
+  // ===========================================================================
+
+  function writeExistingCert(root: string): void {
+    const live = join(root, 'letsencrypt', 'live', 'app.example.test');
+    mkdirSync(live, { recursive: true });
+    writeFileSync(join(live, 'fullchain.pem'), 'cert');
+  }
+
+  function writeRenewalConf(root: string, contents: string): void {
+    const renewal = join(root, 'letsencrypt', 'renewal');
+    mkdirSync(renewal, { recursive: true });
+    writeFileSync(join(renewal, 'app.example.test.conf'), contents);
+  }
+
+  it('replaces an existing STAGING certificate with a trusted one when not asked for staging', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    writeRenewalConf(
+      root,
+      'server = https://acme-staging-v02.api.letsencrypt.org/directory\n',
+    );
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+    });
+
+    expect(result.issued).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('--force-renewal');
+  });
+
+  it('does not force-renew a STAGING certificate when staging is explicitly asked for again', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    writeRenewalConf(
+      root,
+      'server = https://acme-staging-v02.api.letsencrypt.org/directory\n',
+    );
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+      staging: true,
+    });
+
+    // Already has what was asked for -- no reason to spend the rate limit.
+    expect(result.issued).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('does not force-renew a PRODUCTION certificate (no regression)', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    writeRenewalConf(root, 'server = https://acme-v02.api.letsencrypt.org/directory\n');
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+    });
+
+    expect(result.issued).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('treats a missing renewal conf as not-staging and skips as before', async () => {
+    const root = makeProxyRoot();
+    writeExistingCert(root);
+    // No renewal/ directory at all -- renewal metadata missing/unreadable.
+
+    const calls: string[][] = [];
+    const result = await issueCertificate(target(root), {
+      runCommand: fakeRunCommand(() => ({ exitCode: 0 }), calls),
+      email: 'admin@example.test',
+    });
+
+    expect(result.issued).toBe(false);
+    expect(calls).toEqual([]);
   });
 });
 

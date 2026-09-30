@@ -158,14 +158,18 @@ describe('PushTestService', () => {
     expect(result.hints.some((h) => /switched off/i.test(h))).toBe(true);
   });
 
-  it('reports source env when no admin row exists but a pair is active', async () => {
+  it('reports source none when no admin row exists', async () => {
+    pushConfig.resolveActiveVapidConfig.mockResolvedValue(null);
     prisma.systemSettings.findUnique.mockResolvedValue(null);
 
     const result = await service.runTest(USER_ID, {});
 
-    expect(result.config.source).toBe('env');
+    expect(result.config.source).toBe('none');
     expect(result.config.enabled).toBeNull();
-    expect(result.config.active).toBe(true);
+    expect(result.config.active).toBe(false);
+    expect(
+      result.config.problems.some((p) => /no admin configuration for Web Push/.test(p)),
+    ).toBe(true);
   });
 
   it('no_subscriptions: active config, caller has none', async () => {
