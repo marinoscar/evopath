@@ -218,8 +218,11 @@ test.describe('Prefill from photo with the fake vision provider', () => {
     // Add a missing exercise by hand.
     await review.getByRole('button', { name: 'Add missing item' }).click();
     const add = review.getByTestId('draft-item-add');
+    // The library has no plain "Cable row" (its cable row is "Seated row"), so the
+    // manual row is a new custom exercise named by hand.
     await add.getByRole('combobox', { name: 'Exercise', exact: true }).fill('Cable row');
-    await page.getByRole('option', { name: 'Cable row', exact: true }).click();
+    await page.getByRole('option', { name: /New custom exercise/ }).click();
+    await add.getByRole('textbox', { name: /^Exercise name/ }).fill('Cable row');
     await add.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(rowNamed(review, 'Cable row')).toBeVisible();
     await expect(rowNamed(review, 'Cable row').getByText('You added')).toBeVisible();
