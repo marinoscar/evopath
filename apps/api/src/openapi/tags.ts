@@ -98,7 +98,8 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
         description:
           'The calling user\'s first-run checklist: onboarding UI state from the `onboarding` ' +
           'user-settings namespace plus steps derived from their data, and, for callers with ' +
-          '`system_settings:read`, the deployment setup steps derived from the Doctor. Read-only.',
+          '`system_settings:read`, the deployment setup steps derived from the Doctor; plus, for ' +
+          'administrators, aggregate new-user activation metrics. Read-only.',
       },
       {
         name: 'Health Profile',
