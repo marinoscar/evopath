@@ -324,7 +324,7 @@ export function adaptationRefusalOf(error: unknown): AdaptationRefusal | null {
 // convenience only (the row itself is the truth); every access is guarded
 // because storage can be missing or throw.
 
-export const LATEST_ADAPTATION_KEY = 'evopath.latestAdaptation';
+export const LATEST_ADAPTATION_KEY = 'adaptation-latest.v1';
 /** How long the resume chip may offer an adaptation. */
 export const RESUME_WINDOW_MS = 24 * 60 * 60_000;
 
