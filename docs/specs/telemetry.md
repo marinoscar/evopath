@@ -1611,7 +1611,7 @@ controls instead, just not by selecting a span on the chart itself.
 
 > **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`
 
-`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are defined: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed `record*` methods; nothing else creates an `app.*` instrument. With `OTEL_ENABLED` unset the service is a no-op.
+`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are defined: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed `record*` methods. The only other code that creates `app.*` instruments is the node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below), and it takes its names from the same `APP_METRIC_NAMES` table. With `OTEL_ENABLED` unset the service is a no-op.
 
 #### Table naming (verified live, GreptimeDB v1.2.1)
 
@@ -1648,15 +1648,30 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
 | `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |
 | `app.backup.last_success.size` | `app_backup_last_success_size_bytes` | gauge | `By` | none | Size of that backup. |
+| `app.nodes.count` | `app_nodes_count` | gauge | `{node}` | `status` (`online`, `draining`, `offline`, `disabled`), `health` (`healthy`, `stale`, `offline`) | Worker nodes by status and derived health. All seven valid pairs are observed, zeros included. |
+| `app.nodes.cpu.utilization` | `app_nodes_cpu_utilization` | gauge | `{core}` | `node_id`, `node_name` | The node's reported `cpuPercent / 100` (1.5 = one and a half cores). |
+| `app.nodes.memory.rss` | `app_nodes_memory_rss_bytes` | gauge | `By` | `node_id`, `node_name` | The node process's resident set size. |
+| `app.nodes.heap.used` | `app_nodes_heap_used_bytes` | gauge | `By` | `node_id`, `node_name` | V8 heap in use. |
+| `app.nodes.heap.limit` | `app_nodes_heap_limit_bytes` | gauge | `By` | `node_id`, `node_name` | V8 heap limit. |
+| `app.nodes.event_loop.delay.p99` | `app_nodes_event_loop_delay_p99_seconds` | gauge | `s` | `node_id`, `node_name` | The reported `eventLoopDelayP99Ms / 1000`. |
+| `app.nodes.state_dir.free` | `app_nodes_state_dir_free_bytes` | gauge | `By` | `node_id`, `node_name` | Free space on the filesystem that holds the node's state directory. |
+| `app.nodes.state_dir.total` | `app_nodes_state_dir_total_bytes` | gauge | `By` | `node_id`, `node_name` | Size of that filesystem. |
+| `app.nodes.slots.used` | `app_nodes_slots_used` | gauge | `{slot}` | `node_id`, `node_name` | Job slots in use. |
+| `app.nodes.slots.total` | `app_nodes_slots_total` | gauge | `{slot}` | `node_id`, `node_name` | Job slots offered. |
+| `app.nodes.uptime` | `app_nodes_uptime_seconds` | gauge | `s` | `node_id`, `node_name` | Node process uptime. |
+| `app.nodes.counter` | `app_nodes_counter` | gauge | `{event}` | `node_id`, `node_name`, `counter` (`claims`, `empty_polls`, `claim_failures`, `succeeded`, `failed`, `rate_limited`, `lease_renewals`, `lease_renew_failures`, `heartbeat_failures`, `watchdog_trips`) | The node's cumulative counters. They reset when the node process restarts, so read them with a reset-aware rate. |
+| `app.nodes.types.no_eligible_node` | `app_nodes_types_no_eligible_node` | gauge | `{type}` | `job_type` | For each node-offered type with due pending jobs: `1` when no `online`, `healthy` node lists the type as eligible, else `0`. See [worker-nodes.md](worker-nodes.md#fleet-metrics). |
 
 Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{bucket,sum,count}`, `app_backup_size_bytes_{bucket,sum,count}`, `app_jobs_oldest_pending_age_seconds`, `app_jobs_queue_depth`, `app_backup_last_success_timestamp_seconds`, `app_backup_last_success_size_bytes`. The remaining tables follow the same rules.
 
 #### Gauges
 
-- The four gauges are registered only when `OTEL_ENABLED` is set.
+- The gauges are registered only when `OTEL_ENABLED` is set. The four queue and backup gauges live in `AppMetricsService`. The `app.nodes.*` gauges live in `apps/api/src/nodes/node-fleet-metrics.service.ts`, the one sanctioned sibling: it needs `NodeOffloadService` and the fleet policy, which the global module cannot import without a cycle. It takes its meter, clock and gate from `AppMetricsService.gaugeContext()` and its names from `APP_METRIC_NAMES`.
 - Their callbacks read PostgreSQL only while the telemetry gate is open (see [§2](#2-the-two-switches)). A closed gate costs no query.
 - Readings are cached for 30 seconds (`GAUGE_CACHE_TTL_MS`) with one read in flight.
 - Every API replica reports the same database-wide values. Take the maximum per timestamp, never the sum.
+- Gauges are exported with delta temporality (`GatedPushMetricExporter.selectAggregationTemporality`); counters and histograms keep the OTLP default, cumulative. A gauge has no temporality on the wire, so the only effect is that a collection exports exactly the attribute sets its callback observed. Under cumulative, `@opentelemetry/sdk-metrics` 2.x re-exports every attribute set it has ever seen at its last value, so an offline node or a drained job type would keep reporting a frozen reading.
+- Per-node series (`node_id`, `node_name`) are capped at 200 nodes per collection: nodes that are not `offline`, with vitals newer than 3 × `nodes.staleHeartbeatSeconds`, newest first. `node_id` is the row UUID and `node_name` is sanitised to the label shape. Both are bounded by that cap rather than by `MAX_DISTINCT_VALUES`.
 
 #### Labels
 
@@ -1670,7 +1685,7 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 - Backup settlements made by the stale-sweep.
 - Controller-level auth cases (missing profile, missing cookie).
 
-Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` and the hook-site specs beside each caller.
+Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, the gauge-temporality case in `apps/api/src/common/otel/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
 
 - **PostgreSQL is scraped by the collector, not instrumented in the API.**
   The `postgresql` receiver reads the statistics views from outside the
@@ -1765,3 +1780,4 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` and the hook-site 
   metric table (§11.2, §11.3, §11.12).
 - #125: first-party application metrics (`AppMetricsService`): job, backup, auth, AI and notification counters and histograms, and cached queue and backup gauges (§11.13).
 - #123: the collector scrapes the application's PostgreSQL (`postgresql` receiver in `metrics/local`), with an optional `pg_monitor` login and the collector on `devnet`.
+- #131: worker-node fleet gauges (`app.nodes.*`), and delta temporality for every gauge (§11.13).

@@ -61,6 +61,12 @@
  *   2. **Per credential** — create, revoke. In the section below, for the
  *      reasons above.
  *
+ * Beside them sits one READ action, "View vitals" (#131), offered to every
+ * `nodes:read` holder: the node's full self-reported snapshot in
+ * `NodeVitalsDialog`. The compact form is the table's "Vitals" column, and the
+ * fleet-wide saturation and low-disk counts are in the summary strip — see
+ * `workerVitals.tsx` for why none of it re-derives freshness.
+ *
  * There is deliberately NO selection and no bulk bar: nothing on this page acts
  * on a set of nodes, and a checkbox column that gates no action is a column of
  * dead controls plus a tab stop per row for a keyboard user.
@@ -95,10 +101,12 @@ import {
   Typography,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import { Navigate } from 'react-router-dom';
 import { DataTable } from '../../components/datatable';
 import type { DataTableRowAction } from '../../components/datatable';
 import { NodeCredentials } from '../../components/admin/NodeCredentials';
+import { NodeVitalsDialog } from '../../components/admin/NodeVitalsDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
   WORKER_NODES_POLL_INTERVAL_MS,
@@ -109,6 +117,7 @@ import {
 } from '../../hooks/useWorkerNodes';
 import type { WorkerNode } from '../../services/nodes';
 import { NODES_TABLE_ID, buildWorkerNodeColumns } from './workersTable';
+import { countLowDisk, fleetSaturation, formatPercent } from './workerVitals';
 
 /** Mirrors the `Worker Nodes` card in `config/adminSections.tsx`, word for word. */
 const PAGE_TITLE = 'Worker Nodes';
@@ -167,6 +176,19 @@ export default function WorkersPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   /**
+   * The node whose vitals dialog is open, BY ID. The dialog is handed the row
+   * from the current `nodes` on every render, so the fleet poll keeps it live;
+   * a node deleted by another administrator closes it rather than leaving a
+   * snapshot of a machine that no longer exists.
+   */
+  const [vitalsNodeId, setVitalsNodeId] = useState<string | null>(null);
+  const vitalsNode = useMemo(
+    () =>
+      vitalsNodeId ? (nodes.find((candidate) => candidate.id === vitalsNodeId) ?? null) : null,
+    [nodes, vitalsNodeId],
+  );
+
+  /**
    * The instant every relative timestamp on this page is measured against.
    *
    * ONE CLOCK FOR THE WHOLE RENDER, advanced on each refresh rather than read
@@ -201,12 +223,28 @@ export default function WorkersPage() {
   const canWrite = hasPermission('nodes:write');
 
   const rowActions = useMemo(() => {
-    // The ARRAY is gated, never a rendered control: a reader without
-    // `nodes:write` gets an array that does not CONTAIN this, so it is absent
-    // from the grid, the tablet expander and the phone card at once.
-    if (!canWrite) return [] as DataTableRowAction<WorkerNode>[];
+    /**
+     * Reading a node's vitals is not a write, so every `nodes:read` holder gets
+     * it (#131). A row action rather than a click target on the row, for the
+     * same reason delete is one: it appears in the grid, the tablet expander
+     * and the phone card from this one declaration, with an accessible name
+     * that says which node it opens.
+     */
+    const view: DataTableRowAction<WorkerNode> = {
+      id: 'vitals',
+      label: 'View vitals',
+      icon: <MonitorHeartIcon fontSize="small" />,
+      onClick: (node) => setVitalsNodeId(node.id),
+    };
+
+    // The WRITE actions are gated as an array, never as a rendered control: a
+    // reader without `nodes:write` gets an array that does not CONTAIN delete,
+    // so it is absent from the grid, the tablet expander and the phone card at
+    // once.
+    if (!canWrite) return [view];
 
     return [
+      view,
       {
         id: 'delete',
         label: 'Delete node',
@@ -287,6 +325,15 @@ export default function WorkersPage() {
     return tally;
   }, [nodes]);
 
+  /**
+   * Fleet vitals (#131): slot saturation over HEALTHY nodes that reported
+   * slots, and how many nodes' last report shows a nearly full state
+   * directory. Arithmetic over self-reported numbers, display only — see
+   * `workerVitals.tsx`.
+   */
+  const saturation = useMemo(() => fleetSaturation(nodes), [nodes]);
+  const lowDisk = useMemo(() => countLowDisk(nodes), [nodes]);
+
   // Defence, not the gate — `App.tsx` wraps the route in `RequirePermission`
   // with this same string, exactly as every sibling admin page does. It sits
   // after every hook so the hook order never changes.
@@ -343,6 +390,21 @@ export default function WorkersPage() {
           />
           <StatTile label="Claimed" value={summary.claimed} hint="Assigned, not started" />
           <StatTile label="Running" value={summary.running} />
+          <StatTile
+            label="Saturation"
+            value={saturation.fraction === null ? '—' : `${saturation.used} / ${saturation.total}`}
+            hint={
+              saturation.fraction === null
+                ? 'No healthy node reporting slots'
+                : `${formatPercent(saturation.fraction)} of slots in use`
+            }
+          />
+          <StatTile
+            label="Low disk"
+            value={lowDisk}
+            emphasis={lowDisk > 0 ? 'warning' : 'default'}
+            hint="Under 10% free"
+          />
         </Stack>
 
         {error && (
@@ -382,6 +444,12 @@ export default function WorkersPage() {
             {credentialsError}
           </Alert>
         )}
+
+        <NodeVitalsDialog
+          node={vitalsNode}
+          now={renderedAt}
+          onClose={() => setVitalsNodeId(null)}
+        />
 
         <NodeCredentials
           credentials={credentials}

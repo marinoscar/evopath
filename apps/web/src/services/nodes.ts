@@ -36,6 +36,8 @@
  *   `NodeOwner`             → `NodeOwnerDto`                       (node-admin.dto.ts)
  *   `NodeJobCounts`         → `NodeJobCountsDto`                   (node-admin.dto.ts)
  *   `WorkerNode`            → `AdminNodeDto`                       (node-admin.dto.ts)
+ *   `NodeVitals`            → `NodeVitalsDto`                      (node-admin.dto.ts)
+ *   `NodeVitalsCounters`    → `NodeVitalsCountersDto`              (node-admin.dto.ts)
  *   `NodeCredential`        → `AdminNodeCredentialDto`             (node-admin.dto.ts)
  *   `NodeCredentialCreated` → `NodeCredentialCreatedResponseDto`   (node-credential-response.dto.ts)
  *   `CreateNodeCredentialInput` → `createNodeCredentialSchema`     (create-node-credential.dto.ts)
@@ -138,6 +140,51 @@ export interface NodeJobCounts {
   total: number;
 }
 
+/** Cumulative counters since the node process started (`NodeVitalsCountersDto`). */
+export interface NodeVitalsCounters {
+  /** Claim calls that returned at least one job. */
+  claims?: number;
+  /** Claim calls that returned no jobs. */
+  emptyPolls?: number;
+  claimFailures?: number;
+  succeeded?: number;
+  failed?: number;
+  rateLimited?: number;
+  leaseRenewals?: number;
+  leaseRenewFailures?: number;
+  heartbeatFailures?: number;
+  /** Times the node's job watchdog aborted a job. */
+  watchdogTrips?: number;
+}
+
+/**
+ * The last health snapshot a node reported on its heartbeat (`NodeVitalsDto`,
+ * issue #129/#131).
+ *
+ * SELF-REPORTED AND DISPLAY-ONLY: the API bounds every field on the way in but
+ * never schedules on it, and neither does this app. EVERY FIELD IS OPTIONAL — a
+ * node reports what it can measure — so every reader must render an absent
+ * field as "not reported", never as zero.
+ */
+export interface NodeVitals {
+  /** Process CPU over the last interval; 100 = one full core (so may exceed 100). */
+  cpuPercent?: number;
+  rssBytes?: number;
+  heapUsedBytes?: number;
+  heapLimitBytes?: number;
+  eventLoopDelayP99Ms?: number;
+  /** Free/total bytes on the filesystem holding the node's state directory. */
+  stateDirFreeBytes?: number;
+  stateDirTotalBytes?: number;
+  slotsUsed?: number;
+  slotsTotal?: number;
+  uptimeSeconds?: number;
+  counters?: NodeVitalsCounters;
+  cliVersion?: string;
+  nodeVersion?: string;
+  pgDumpVersion?: string;
+}
+
 /** One node as `GET /api/admin/nodes` returns it (`AdminNodeDto`). */
 export interface WorkerNode {
   id: string;
@@ -160,6 +207,10 @@ export interface WorkerNode {
   lastHeartbeatAt: string | null;
   owner: NodeOwner;
   jobCounts: NodeJobCounts;
+  /** The last vitals snapshot, or `null` when the node has never sent one. */
+  lastVitals: NodeVitals | null;
+  /** When `lastVitals` was received, or `null` with it. */
+  lastVitalsAt: string | null;
 }
 
 /**

@@ -98,6 +98,7 @@ import { formatRelativeTime } from '../../utils/relativeTime';
 // and a fleet page whose timestamps are formatted differently from the queue
 // page an operator just came from has the same problem in a worse place.
 import { formatDateTime, shortId } from './jobsTable';
+import { NodeVitalsCell, vitalsSummaryText } from './workerVitals';
 
 /**
  * Persistence keys for `user_settings.dataTables`. Constants, never derived
@@ -373,6 +374,23 @@ export function buildWorkerNodeColumns(now: Date): DataTableColumn<WorkerNode>[]
           </Typography>
         </Tooltip>
       ),
+    },
+    {
+      /**
+       * The node's last self-reported vitals (#131), compacted to two lines.
+       * `secondary`, so it is a grid column on desktop and a card field on a
+       * phone. The scalar is `vitalsSummaryText` — the CSV gets the same
+       * sentence a screen reader would, "No vitals" included, rather than an
+       * empty cell that reads as a failed load. The full snapshot is one click
+       * away in the "View vitals" row action (`NodeVitalsDialog`).
+       */
+      id: 'vitals',
+      label: 'Vitals',
+      priority: 'secondary',
+      minWidth: 240,
+      flex: 1,
+      value: (node) => vitalsSummaryText(node),
+      render: (node) => <NodeVitalsCell node={node} now={now} />,
     },
     {
       /**

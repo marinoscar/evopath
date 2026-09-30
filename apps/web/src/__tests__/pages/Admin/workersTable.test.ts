@@ -31,6 +31,7 @@ import {
 } from '../../../pages/Admin/workersTable';
 import { NODE_HEALTHS, NODE_STATUSES, nodeCredentialStatus } from '../../../services/nodes';
 import type { NodeCredential, WorkerNode } from '../../../services/nodes';
+import { fullVitals } from '../../mocks/fixtures/nodeVitals';
 
 const NOW = new Date('2026-01-01T12:00:00.000Z');
 
@@ -50,6 +51,8 @@ function node(overrides: Partial<WorkerNode> = {}): WorkerNode {
     lastHeartbeatAt: '2026-01-01T11:59:00.000Z',
     owner: { id: 'u1', email: 'ops@example.com', name: 'Ops' },
     jobCounts: { running: 1, pending: 2, succeeded: 30, failed: 3, total: 36 },
+    lastVitals: null,
+    lastVitalsAt: null,
     ...overrides,
   };
 }
@@ -214,6 +217,17 @@ describe('the fleet columns', () => {
     expect(formatEligibleTypes([])).toBe('None declared');
     expect(column<WorkerNode>(nodeColumns, 'eligibleTypes').value?.(node({ eligibleTypes: [] })))
       .toBe('None declared');
+  });
+
+  it('carries a Vitals column (#131) whose CSV scalar is the summary sentence', () => {
+    const vitals = column<WorkerNode>(nodeColumns, 'vitals');
+    // A card field on a phone, a grid column on desktop.
+    expect(vitals.priority).toBe('secondary');
+    expect(vitals.value?.(node({ lastVitals: fullVitals }))).toBe(
+      'CPU 42% · RSS 512 MB · Heap 25% · Disk 50% free · Slots 1/4',
+    );
+    expect(vitals.value?.(node({ lastVitals: null }))).toBe('No vitals');
+    expect(vitals.value?.(node({ health: 'stale', lastVitals: fullVitals }))).toMatch(/^Stale: /);
   });
 
   it('shows one owner identifier, preferring the display name', () => {
