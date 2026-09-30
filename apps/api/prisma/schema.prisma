@@ -45,6 +45,7 @@ model User {
   programChanges         ProgramChangeLog[]
   programSessions        ProgramSession[]
   trainingPlanRuns       TrainingPlanRun[]
+  workoutAdaptations     WorkoutAdaptation[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
@@ -2755,6 +2756,7 @@ model Gym {
   photos    GymPhoto[]
   workouts  Workout[]
   programs  Program[]
+  workoutAdaptations WorkoutAdaptation[]
 
   @@index([userId])
   @@map("gyms")
@@ -3087,6 +3089,52 @@ model TrainingPlanRun {
   @@index([userId, createdAt(sort: Desc)])
   @@index([programId])
   @@map("training_plan_runs")
+}
+
+// One quick adaptation of a workout ("I have 30 minutes", "I'm sore", "only
+// dumbbells"), produced by the `ai.training.adapt.run` job. Statuses are plain
+// strings (queued|running|ready|failed|cancelled|blocked_safety|applied|discarded).
+// `runId` and `jobId` are plain columns (no FK): the kit's run table
+// `training_plan_runs` is plan-specific (kind CHECK), so this stays a dedicated
+// table; `appliedWorkoutId`/`appliedPlanVersionId` are outcome links without FKs
+// so deleting the workout or version never blocks. `gymId` is a real column so a
+// purge can test references in SQL. At most one ACTIVE (queued|running)
+// adaptation per user is enforced by the raw-SQL partial unique index
+// `workout_adaptations_active_per_user_uniq_idx` (migration SQL only; Prisma
+// cannot express it, never declare it as @@unique).
+model WorkoutAdaptation {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  status                String    @default("queued")
+  request               Json
+  gymId                 String?   @map("gym_id") @db.Uuid
+  baseRef               Json?     @map("base_ref") // { planId, planVersionId, planWorkoutId, date }
+  contextSnapshot       Json      @default("{}") @map("context_snapshot") // exact minimised context sent; key-free
+  proposal              Json?
+  guardrailReport       Json      @default("{}") @map("guardrail_report")
+  criticReport          Json?     @map("critic_report")
+  safety                Json      @default("{}")
+  models                Json      @default("{}")
+  runId                 String?   @map("run_id") @db.Uuid
+  jobId                 String?   @map("job_id") @db.Uuid
+  errorCode             String?   @map("error_code")
+  errorMessage          String?   @map("error_message")
+  appliedAs             String?   @map("applied_as") // one_off | plan_change
+  appliedWorkoutId      String?   @map("applied_workout_id") @db.Uuid
+  appliedPlanVersionId  String?   @map("applied_plan_version_id") @db.Uuid
+  appliedAt             DateTime? @map("applied_at") @db.Timestamptz
+  expiresAt             DateTime  @map("expires_at") @db.Timestamptz
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gym  Gym? @relation(fields: [gymId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([gymId])
+  @@index([expiresAt])
+  @@map("workout_adaptations")
 }
 
 // Persisted, sequenced progress log a browser replays by cursor. `seq` is
