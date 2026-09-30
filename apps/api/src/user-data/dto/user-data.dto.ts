@@ -28,6 +28,8 @@ export const userDataSummarySchema = z.object({
   photoIntakes: count,
   workoutAdaptations: count,
   userCredentials: count,
+  /** Health documents (lab reports, body-metric photos), kept files or not. */
+  healthDocuments: count,
 });
 
 /** `POST /api/user-data/reset` body. Anything but the exact phrase is a 400. */
@@ -53,6 +55,8 @@ export const userDataResetResultSchema = z.object({
   measurements: count,
   healthProfiles: count,
   photoIntakes: count,
+  /** Added after the first release: a result written before it reads as 0, not as malformed. */
+  healthDocuments: count.default(0),
   programs: count,
   programChangeLogs: count,
   trainingRuns: count,

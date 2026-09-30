@@ -11,7 +11,8 @@
 //
 //   1. COLLECT the storage objects to delete: every object the user uploaded
 //      (`uploadedById`, which includes the avatar), every object linked through
-//      the user's photo intakes, gym photos and workout photos, and the avatar
+//      the user's photo intakes, gym photos, workout photos and health
+//      documents (`storageObjectId`, SET NULL on the object), and the avatar
 //      named by the settings (`profile.imageObjectId`). The ids are written to
 //      `payload.objectIds` BEFORE step 2, because step 2 cascades away the link
 //      rows that name them: a retry after step 2 committed still knows them.
@@ -48,6 +49,13 @@
 //                                     `supersedesId` is cleared first: the
 //                                     self-FK is ON DELETE RESTRICT.
 //   PhotoIntake                       userId (cascades PhotoIntakePhoto, DraftItem)
+//   HealthDocument                    userId — explicitly (it cascades only from
+//                                     the User row, which is kept; the intake
+//                                     link is SET NULL). Its file is collected
+//                                     in step 1 and deleted in step 3: the
+//                                     `health_documents` reference checker
+//                                     only guards the intake's own cleanup,
+//                                     and the document is gone by step 3.
 //   Gym                               userId (cascades GymEquipment, GymPhoto,
 //                                     GymEquipmentPhoto)
 //   Workout                           userId (cascades WorkoutExercise, SetLog,
@@ -75,7 +83,9 @@
 //   StorageObject (+Chunk)            step 3
 //   User.profileImageUrl/displayName  cleared (displayName mirrors a setting)
 //   Job (pending, others')            a PENDING job whose subject is a deleted
-//                                     row is deleted; see below
+//                                     row is deleted (including a
+//                                     `health.document.purge` for a deleted
+//                                     document: step 3 deletes its file)
 //
 // KEPT:
 //   User, UserIdentity, UserRole      the account and its access
@@ -129,6 +139,7 @@ const ZERO_ROW_COUNTS: DeletedRowCounts = {
   measurements: 0,
   healthProfiles: 0,
   photoIntakes: 0,
+  healthDocuments: 0,
   programs: 0,
   programChangeLogs: 0,
   trainingRuns: 0,
@@ -277,7 +288,7 @@ export class UserDataResetHandler implements JobHandler, OnModuleInit {
 
   /** Step 1: every storage object id the reset must delete. */
   async collectObjectIds(userId: string): Promise<string[]> {
-    const [uploaded, intakePhotos, gymPhotos, workoutPhotos, settings] = await Promise.all([
+    const [uploaded, intakePhotos, gymPhotos, workoutPhotos, healthDocuments, settings] = await Promise.all([
       this.prisma.storageObject.findMany({ where: { uploadedById: userId }, select: { id: true } }),
       this.prisma.photoIntakePhoto.findMany({
         where: { intake: { userId } },
@@ -288,6 +299,11 @@ export class UserDataResetHandler implements JobHandler, OnModuleInit {
         where: { workout: { userId } },
         select: { storageObjectId: true },
       }),
+      // A purged document has already given its file up (`storageObjectId` null).
+      this.prisma.healthDocument.findMany({
+        where: { userId, storageObjectId: { not: null } },
+        select: { storageObjectId: true },
+      }),
       this.prisma.userSettings.findUnique({ where: { userId }, select: { value: true } }),
     ]);
 
@@ -296,6 +312,9 @@ export class UserDataResetHandler implements JobHandler, OnModuleInit {
     intakePhotos.forEach((row) => ids.add(row.storageObjectId));
     gymPhotos.forEach((row) => ids.add(row.storageObjectId));
     workoutPhotos.forEach((row) => ids.add(row.storageObjectId));
+    healthDocuments.forEach((row) => {
+      if (row.storageObjectId) ids.add(row.storageObjectId);
+    });
 
     const settingsValue = settings?.value as { profile?: unknown } | null | undefined;
     const avatarId = settingsValue ? normalizeProfileSettings(settingsValue.profile).imageObjectId : null;
@@ -318,18 +337,19 @@ export class UserDataResetHandler implements JobHandler, OnModuleInit {
 
     // Ids the rest of the system may name without a foreign key: checkpoints
     // (thread = run or adaptation id) and pending jobs' subjects.
-    const [runs, adaptations, intakes, workouts, gyms, programs] = await Promise.all([
+    const [runs, adaptations, intakes, workouts, gyms, programs, healthDocuments] = await Promise.all([
       tx.trainingPlanRun.findMany({ where: { userId }, select: { id: true } }),
       tx.workoutAdaptation.findMany({ where: { userId }, select: { id: true } }),
       tx.photoIntake.findMany({ where: { userId }, select: { id: true } }),
       tx.workout.findMany({ where: { userId }, select: { id: true } }),
       tx.gym.findMany({ where: { userId }, select: { id: true } }),
       tx.program.findMany({ where: { userId }, select: { id: true } }),
+      tx.healthDocument.findMany({ where: { userId }, select: { id: true } }),
     ]);
     const threadIds = [...runs, ...adaptations].map((row) => row.id);
     const subjectIds = [
       ...threadIds,
-      ...[...intakes, ...workouts, ...gyms, ...programs].map((row) => row.id),
+      ...[...intakes, ...workouts, ...gyms, ...programs, ...healthDocuments].map((row) => row.id),
       ...objectIds,
     ];
 
@@ -359,6 +379,9 @@ export class UserDataResetHandler implements JobHandler, OnModuleInit {
     counts.programChangeLogs = (await tx.programChangeLog.deleteMany({ where: { userId } })).count;
     counts.programs = (await tx.program.deleteMany({ where: { userId } })).count;
 
+    // Health documents cascade only from the (kept) User row, so they are
+    // deleted explicitly; their intake link is SET NULL. Files: step 3.
+    counts.healthDocuments = (await tx.healthDocument.deleteMany({ where: { userId } })).count;
     counts.photoIntakes = (await tx.photoIntake.deleteMany({ where: { userId } })).count;
     // Before custom equipment (GymEquipment RESTRICTs the equipment type).
     counts.gyms = (await tx.gym.deleteMany({ where: { userId } })).count;

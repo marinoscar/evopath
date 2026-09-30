@@ -59,6 +59,7 @@ export class UserDataService {
       photoIntakes,
       workoutAdaptations,
       userCredentials,
+      healthDocuments,
     ] = await Promise.all([
       this.prisma.workout.count({ where: { userId } }),
       this.prisma.gym.count({ where: { userId } }),
@@ -74,6 +75,7 @@ export class UserDataService {
       this.prisma.photoIntake.count({ where: { userId } }),
       this.prisma.workoutAdaptation.count({ where: { userId } }),
       this.prisma.userCredential.count({ where: { userId } }),
+      this.prisma.healthDocument.count({ where: { userId } }),
     ]);
 
     return {
@@ -91,6 +93,7 @@ export class UserDataService {
       photoIntakes,
       workoutAdaptations,
       userCredentials,
+      healthDocuments,
     };
   }
 
