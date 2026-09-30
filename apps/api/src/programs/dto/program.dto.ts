@@ -5,6 +5,7 @@ import { isRealDate } from '../../check-ins/local-date';
 import { optionalText, requiredName } from '../../gyms/dto/fields';
 import { LOAD_GUIDANCE, PLAN_LIMITS, planTreeSchema } from '../contracts/plan-tree.contract';
 import {
+  AUTONOMY_PAUSE_REASONS,
   CHANGE_ACTORS,
   CHANGE_KINDS,
   CHANGE_LOG_PAGE_SIZE_DEFAULT,
@@ -122,6 +123,15 @@ const programHeaderSchema = z.object({
   startDate: z.iso.date().nullable(),
   gymId: z.uuid().nullable(),
   currentVersion: z.number().int(),
+  autonomyPausedAt: z.iso
+    .datetime()
+    .nullable()
+    .meta({ description: 'When automatic adjustments were paused (a safety stop, or the owner); null while they run.' }),
+  autonomyPausedReason: z
+    .enum(AUTONOMY_PAUSE_REASONS)
+    .nullable()
+    .meta({ description: 'Why automatic adjustments are paused; null while they run.' }),
+  lastEvaluatedAt: z.iso.datetime().nullable().meta({ description: 'When the last evaluation run started; null when never.' }),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
