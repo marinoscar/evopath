@@ -40,7 +40,7 @@ A fake OpenAI Responses server lets you run the full flow with no key, no cost a
 
    You see `current` and every scenario with its description.
 3. As admin at `/admin/settings/ai`: enable AI and the **OpenAI** provider, set its base URL to `http://fake-ai-responses:4011/v1`, and switch **Web search** on.
-4. At `/admin/settings/ai/models`, refresh the catalog. The fake lists `fake-frontier` and `fake-fast`, unclassified. Edit each: capabilities `responses`, `reasoning`, `structured_output`, `hosted_tools`; reasoning efforts `low`, `medium`, `high`; enable both.
+4. At `/admin/settings/ai/models`, refresh the catalog. The fake lists `fake-frontier` and `fake-fast`, unclassified. Edit each: capabilities `responses`, `reasoning`, `structured_output`; reasoning efforts `low`, `medium`, `high`; enable both. Add `hosted_tools` to `fake-frontier`, which the researcher needs. The end-to-end setup leaves `fake-fast` without `hosted_tools`, which is how it tests a blocked researcher; add it there too if you want either model to work for every role.
 5. As a contributor at `/settings/ai`, save any key of 8 or more characters (for example `sk-fake-e2e-0000`). The fake accepts any such key and answers `401` to one starting `sk-invalid`. It never logs, echoes or stores a key. Do not use it to test key validation.
 6. Pick a scenario, then run a plan at `/train/plans/new`:
 

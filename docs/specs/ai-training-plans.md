@@ -36,7 +36,7 @@ A plan is a tree (`Program` > block > week > workout > exercise) with immutable,
 
 ### 2.2 Graphs and the run state machine
 
-`TrainingAgentsModule` builds each graph per job with that job's `NodeContext` bound in and compiles it over `PrismaCheckpointSaver`. Only `graph/create-graph.ts`, `graph/evaluate-graph.ts`, the runner and the saver import LangGraph. Nodes are plain functions; routes are pure functions in `graph/routes.ts`.
+`TrainingAgentsModule` builds each graph per job with that job's `NodeContext` bound in and compiles it over `PrismaCheckpointSaver`. Nodes and agents never import LangGraph; only `graph/create-graph.ts`, `graph/evaluate-graph.ts`, the runner and the saver build on it (the module and the boot check only load it). Nodes are plain functions; routes are pure functions in `graph/routes.ts`.
 
 **Create graph** (`create` and `revise` runs):
 
