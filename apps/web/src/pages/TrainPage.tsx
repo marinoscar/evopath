@@ -2,6 +2,9 @@
  * Train (`/train`), E4.3. The weight unit in use, Start workout (or a Resume
  * banner while a workout is in progress), the exercise library, and History.
  *
+ * With `programs:read`, the active plan's session for today comes first
+ * (`TodayPlanCard`, shared with the Today page).
+ *
  * `workouts:read` decides whether there is anything to show and
  * `workouts:write` whether Start is offered; the API enforces both. Nothing
  * here involves AI.
@@ -31,6 +34,7 @@ import { StartWorkoutDialog } from '../components/train/StartWorkoutDialog';
 import { WorkoutHistoryList } from '../components/train/WorkoutHistoryList';
 import { WeightUnitLabel } from '../components/train/WeightUnitLabel';
 import { ElapsedTimer } from '../components/train/WorkoutHeader';
+import { TodayPlanCard } from '../components/training/TodayPlanCard';
 
 export const TRAIN_SUBTITLE = 'Log a workout in a few taps and look back at every session.';
 export const WORKOUT_IN_PROGRESS_NOTICE = 'You already have a workout in progress.';
@@ -40,6 +44,7 @@ export default function TrainPage() {
   const canRead = hasPermission('workouts:read');
   const canWrite = hasPermission('workouts:write');
   const canBrowseExercises = hasPermission('exercises:read');
+  const canReadPrograms = hasPermission('programs:read');
   const navigate = useNavigate();
   const unit = useWeightUnit();
   const history = useWorkouts({ enabled: canRead });
@@ -66,6 +71,17 @@ export default function TrainPage() {
         <Box sx={{ mb: 3 }}>
           <WeightUnitLabel unit={unit} />
         </Box>
+
+        {canReadPrograms && (
+          <Card variant="outlined" component="section" aria-labelledby="today-plan-heading" sx={{ mb: 3 }}>
+            <CardContent sx={{ '&:last-child': { pb: 0 } }}>
+              <Typography id="today-plan-heading" variant="h6" component="h2" sx={{ mb: 1 }}>
+                Today&apos;s plan
+              </Typography>
+              <TodayPlanCard canStart={canWrite} canWritePrograms={hasPermission('programs:write')} />
+            </CardContent>
+          </Card>
+        )}
 
         {!canRead ? (
           <Alert severity="info">{WORKOUTS_UNAVAILABLE}</Alert>
