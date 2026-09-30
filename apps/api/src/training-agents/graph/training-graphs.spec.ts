@@ -1,5 +1,6 @@
 import { CREATE_GRAPH_NODES, EVALUATE_GRAPH_NODES } from '../nodes';
 import { createNodeContextHarness } from '../testing/node-context-harness';
+import { STUB_AGENT_NODES } from '../testing/stub-agent-nodes';
 import { routeAfterCritique, routeAfterEnvelope, routeAfterPrepare } from './routes';
 import { initialRunState } from './run-state';
 import { TRAINING_GRAPH_READY, graphForKind, isGraphReady } from './training-graphs';
@@ -8,8 +9,11 @@ const stages = (h: ReturnType<typeof createNodeContextHarness>) =>
   (h.events.events.get(h.runId) ?? []).filter((e) => e.type === 'stage.started').map((e) => e.data.node);
 
 describe('training graphs on stub nodes', () => {
-  it('every node is a stub and every graph still answers not-implemented', () => {
-    expect(Object.values(CREATE_GRAPH_NODES).every((node) => node.implemented === false)).toBe(true);
+  it('only the implemented agent nodes are real, and every graph still answers not-implemented', () => {
+    const implemented = Object.values(CREATE_GRAPH_NODES)
+      .filter((node) => node.implemented)
+      .map((node) => node.name);
+    expect(implemented).toEqual(Object.keys(STUB_AGENT_NODES));
     expect(Object.values(EVALUATE_GRAPH_NODES).every((node) => node.implemented === false)).toBe(true);
     expect(TRAINING_GRAPH_READY).toEqual({ create: false, evaluate: false });
     expect(graphForKind('create')).toBe('create');
@@ -21,7 +25,7 @@ describe('training graphs on stub nodes', () => {
   it('create: runs every node once in order, the stub critic approves, and finalize records the outcome', async () => {
     const h = createNodeContextHarness({ kind: 'create' });
 
-    const result = await h.runGraph({ input: {} });
+    const result = await h.runGraph({ input: {}, nodes: STUB_AGENT_NODES });
 
     expect(result.interrupt).toBeNull();
     expect(stages(h)).toEqual(['prepare_context', 'research', 'plan', 'guardrails', 'critique', 'finalize']);
@@ -35,7 +39,7 @@ describe('training graphs on stub nodes', () => {
   it('revise: skips research', async () => {
     const h = createNodeContextHarness({ kind: 'revise' });
 
-    await h.runGraph({ input: {} });
+    await h.runGraph({ input: {}, nodes: STUB_AGENT_NODES });
 
     expect(stages(h)).toEqual(['prepare_context', 'plan', 'guardrails', 'critique', 'finalize']);
   });
@@ -46,6 +50,7 @@ describe('training graphs on stub nodes', () => {
     const result = await h.runGraph({
       input: { maxCriticRounds: 3 },
       nodes: {
+        ...STUB_AGENT_NODES,
         critique: async (state) => {
           const round = (state.roundCounters.critique ?? 0) + 1;
           return { verdicts: [{ approve: false, round }], roundCounters: { critique: round } };
@@ -74,7 +79,7 @@ describe('training graphs on stub nodes', () => {
   it('evaluate: autonomous applies without pausing', async () => {
     const h = createNodeContextHarness({ kind: 'evaluate' });
 
-    const result = await h.runGraph({ input: {} });
+    const result = await h.runGraph({ input: {}, nodes: STUB_AGENT_NODES });
 
     expect(result.interrupt).toBeNull();
     expect(stages(h)).toEqual(['load_signals', 'evaluate', 'envelope', 'apply']);
@@ -104,6 +109,7 @@ describe('training graphs on stub nodes', () => {
     const running = h.runGraph({
       input: {},
       nodes: {
+        ...STUB_AGENT_NODES,
         plan: async (_state, ctx) => {
           if (blockPlan) {
             await new Promise((_resolve, reject) =>
@@ -122,7 +128,7 @@ describe('training graphs on stub nodes', () => {
     // A new controller: the harness's own signal is spent, so run the graph directly.
     blockPlan = false;
     const resumed = createNodeContextHarness({ kind: 'create', runId: h.runId });
-    const result = await resumed.runGraph({ checkpointer: h.saver });
+    const result = await resumed.runGraph({ checkpointer: h.saver, nodes: STUB_AGENT_NODES });
 
     expect(stages(resumed)).toEqual(['plan', 'guardrails', 'critique', 'finalize']);
     expect(result.state.outcome?.status).toBe('completed');

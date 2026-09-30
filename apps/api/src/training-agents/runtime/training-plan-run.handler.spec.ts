@@ -13,6 +13,7 @@ import type { NodeFn } from '../graph/node-context';
 import { InMemoryRunEventLog } from '../testing/in-memory-run-event-log';
 import { createInMemoryTrainingPrisma } from '../testing/in-memory-training-prisma';
 import { createNodeContextHarness, HARNESS_FROZEN_MODEL } from '../testing/node-context-harness';
+import { STUB_AGENT_NODES } from '../testing/stub-agent-nodes';
 import { RunBudgetExceededError } from './run-budget';
 import { TrainingSafetyStopError } from './training-run-errors';
 import { TrainingPlanRunHandler, type TrainingRunHandlerOptions } from './training-plan-run.handler';
@@ -36,7 +37,13 @@ function setup(opts: { options?: TrainingRunHandlerOptions; scripts?: Parameters
     harness.runtime.aiConfig,
     events as never,
     runs as never,
-    { checkpointer: () => saver, cancelPollMs: 10, heartbeatMs: 10_000, ...opts.options },
+    {
+      checkpointer: () => saver,
+      cancelPollMs: 10,
+      heartbeatMs: 10_000,
+      ...opts.options,
+      nodes: { ...STUB_AGENT_NODES, ...opts.options?.nodes },
+    },
   );
 
   const queued = (overrides: Parameters<typeof db.add>[0] = {}) =>

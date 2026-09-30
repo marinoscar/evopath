@@ -28,3 +28,20 @@ export class TrainingRunAbort extends Error {
     this.name = 'TrainingRunAbort';
   }
 }
+
+/**
+ * A node ended the run as `failed` with a `TRAINING_*` reason it chose
+ * (`TRAINING_RESEARCH_INSUFFICIENT`, `TRAINING_ROLE_UNAVAILABLE`, ...). The
+ * handler records `code` and the fixed, user-facing `message`; the job
+ * returns normally (no retry). `details` are identifiers only.
+ */
+export class TrainingRunFailedError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details: Record<string, string | number | boolean | null> = {},
+  ) {
+    super(message);
+    this.name = 'TrainingRunFailedError';
+  }
+}
