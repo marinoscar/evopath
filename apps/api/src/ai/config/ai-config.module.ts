@@ -11,6 +11,8 @@ import { AiEnabledGuard } from './ai-enabled.guard';
 import { AiModelsAdminService } from './ai-models-admin.service';
 import { AiProviderTestService } from './ai-provider-test.service';
 import { AiPublicController } from './ai-public.controller';
+import { AiEnabledDoctorCheck } from './doctor/ai-enabled.doctor-check';
+import { AiProvidersDoctorCheck } from './doctor/ai-providers.doctor-check';
 
 // =============================================================================
 // AiConfigModule (issue #428, epic #419)
@@ -34,6 +36,9 @@ import { AiPublicController } from './ai-public.controller';
     AiConfigAdminService,
     AiProviderTestService,
     AiModelsAdminService,
+    // Doctor checks (#634): policy and key STATUS only — no model call.
+    AiEnabledDoctorCheck,
+    AiProvidersDoctorCheck,
   ],
   exports: [AiConfigService, AiEnabledGuard],
 })
