@@ -959,4 +959,252 @@ describe('IntakeService', () => {
       expect(prisma.photoIntake.findMany.mock.calls[0][0]!.where).toEqual({ userId: USER });
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // File retention and health documents (H1, #185)
+  // ---------------------------------------------------------------------------
+
+  describe('retainFiles and health documents', () => {
+    const DOC = '77777777-7777-4777-8777-777777777777';
+    const DOC_2 = '77777777-7777-4777-8777-777777777778';
+    const readyImage = {
+      id: OBJECT,
+      name: 'scale.jpg',
+      status: 'ready',
+      mimeType: 'image/jpeg',
+      size: BigInt(2048),
+      uploadedById: USER,
+    };
+
+    beforeEach(() => {
+      registry.register(stubKind({ kind: 'health_stub', healthDocumentKind: 'body_metric' }));
+    });
+
+    it('create stores retention keep by default and delete_after_processing for retainFiles: false', async () => {
+      prisma.photoIntake.create.mockResolvedValue({ ...intakeRow({ retention: 'keep' }), photos: [], items: [] } as never);
+
+      const view = await service.create(USER, { kind: 'test_stub' });
+      await service.create(USER, { kind: 'test_stub', retainFiles: true });
+      await service.create(USER, { kind: 'test_stub', retainFiles: false });
+
+      expect(prisma.photoIntake.create.mock.calls.map(([args]) => args.data.retention)).toEqual([
+        'keep',
+        'keep',
+        'delete_after_processing',
+      ]);
+      expect(view).toMatchObject({ retention: 'keep', retainFiles: true });
+    });
+
+    it('the view reports delete_after_processing as retainFiles: false and each photo its document', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue({
+        ...intakeRow({ kind: 'health_stub', retention: 'delete_after_processing' }),
+        photos: [{ id: 'p1', storageObjectId: OBJECT, sortOrder: 0, storageObject: { name: 'scale.jpg' } }],
+        items: [],
+        healthDocuments: [{ id: DOC, storageObjectId: OBJECT, retention: 'delete_after_processing' }],
+      } as never);
+
+      const view = await service.get(USER, INTAKE);
+
+      expect(view).toMatchObject({ retention: 'delete_after_processing', retainFiles: false });
+      expect(view.photos[0]).toMatchObject({ healthDocumentId: DOC, retention: 'delete_after_processing' });
+    });
+
+    describe('attachPhoto', () => {
+      beforeEach(() => {
+        prisma.storageObject.findUnique.mockResolvedValue(readyImage as never);
+        prisma.photoIntakePhoto.count.mockResolvedValue(0);
+        prisma.photoIntakePhoto.aggregate.mockResolvedValue({ _max: { sortOrder: null } } as never);
+        prisma.photoIntakePhoto.create.mockResolvedValue({
+          id: 'p1',
+          intakeId: INTAKE,
+          storageObjectId: OBJECT,
+          sortOrder: 0,
+          storageObject: { name: 'scale.jpg' },
+        } as never);
+        prisma.healthDocument.create.mockImplementation((async (args: { data: Record<string, unknown> }) => ({
+          id: DOC,
+          storageObjectId: args.data.storageObjectId,
+          retention: args.data.retention,
+        })) as never);
+      });
+
+      it("a health kind writes one document from the object's metadata, with the intake's retention", async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(
+          intakeRow({ kind: 'health_stub', status: 'draft', retention: 'delete_after_processing' }) as never,
+        );
+
+        const view = await service.attachPhoto(USER, INTAKE, OBJECT);
+
+        expect(prisma.healthDocument.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: {
+              userId: USER,
+              kind: 'body_metric',
+              storageObjectId: OBJECT,
+              originalName: 'scale.jpg',
+              mimeType: 'image/jpeg',
+              sizeBytes: BigInt(2048),
+              retention: 'delete_after_processing',
+              intakeId: INTAKE,
+            },
+          }),
+        );
+        expect(view).toMatchObject({ healthDocumentId: DOC, retention: 'delete_after_processing' });
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      });
+
+      it('retainFiles on the attach overrides the intake choice for that file', async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(
+          intakeRow({ kind: 'health_stub', status: 'draft', retention: 'keep' }) as never,
+        );
+
+        await service.attachPhoto(USER, INTAKE, OBJECT, undefined, { retainFiles: false });
+
+        expect(prisma.healthDocument.create.mock.calls[0][0].data.retention).toBe('delete_after_processing');
+      });
+
+      it('a kind without healthDocumentKind writes no document', async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'draft' }) as never);
+
+        const view = await service.attachPhoto(USER, INTAKE, OBJECT, undefined, { retainFiles: false });
+
+        expect(prisma.healthDocument.create).not.toHaveBeenCalled();
+        expect(view).toMatchObject({ healthDocumentId: null, retention: null });
+      });
+    });
+
+    it('detach removes the file\'s document with the link, before the object cleanup', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub' }) as never);
+      prisma.photoIntakePhoto.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.healthDocument.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+
+      await service.detachPhoto(USER, INTAKE, OBJECT);
+
+      expect(prisma.healthDocument.deleteMany).toHaveBeenCalledWith({
+        where: { intakeId: INTAKE, userId: USER, storageObjectId: OBJECT, fileDeletedAt: null },
+      });
+      expect(prisma.healthDocument.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+        objects.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('discard enqueues one purge per delete_after_processing document, in the delete transaction', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub' }) as never);
+      prisma.photoIntakePhoto.findMany.mockResolvedValue([] as never);
+      prisma.healthDocument.findMany.mockResolvedValue([{ id: DOC }, { id: DOC_2 }] as never);
+      prisma.photoIntake.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.discard(USER, INTAKE);
+
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { intakeId: INTAKE, userId: USER, retention: 'delete_after_processing', fileDeletedAt: null },
+        }),
+      );
+      // Read before the delete, which sets their intake_id to NULL.
+      expect(prisma.healthDocument.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.photoIntake.deleteMany.mock.invocationCallOrder[0],
+      );
+      expect(jobs.enqueueWithin.mock.calls.map(([, input]) => input)).toEqual([
+        expect.objectContaining({
+          type: 'health.document.purge',
+          subjectType: 'health_document',
+          subjectId: DOC,
+          payload: { healthDocumentId: DOC },
+        }),
+        expect.objectContaining({ subjectId: DOC_2, payload: { healthDocumentId: DOC_2 } }),
+      ]);
+    });
+
+    it('a discard that loses to a concurrent apply enqueues nothing', async () => {
+      prisma.photoIntake.findFirst
+        .mockResolvedValueOnce(intakeRow({ kind: 'health_stub' }) as never)
+        .mockResolvedValue(intakeRow({ kind: 'health_stub', status: 'applied' }) as never);
+      prisma.photoIntakePhoto.findMany.mockResolvedValue([] as never);
+      prisma.healthDocument.findMany.mockResolvedValue([{ id: DOC }] as never);
+      prisma.photoIntake.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.discard(USER, INTAKE)).rejects.toBeInstanceOf(ConflictException);
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+
+    it('apply hands the kind its documents and enqueues the purges after its writes', async () => {
+      const healthKind = stubKind({ kind: 'health_stub', healthDocumentKind: 'body_metric' });
+      registry.register(healthKind);
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub' }) as never);
+      prisma.draftItem.count.mockResolvedValue(0);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      prisma.draftItem.findMany.mockResolvedValue([] as never);
+      prisma.healthDocument.findMany
+        .mockResolvedValueOnce([{ id: DOC, storageObjectId: OBJECT }] as never)
+        .mockResolvedValueOnce([{ id: DOC }] as never);
+
+      await service.apply(USER, INTAKE);
+
+      expect(healthKind.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ healthDocuments: [{ id: DOC, storageObjectId: OBJECT }] }),
+      );
+      expect(jobs.enqueueWithin).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({ type: 'health.document.purge', subjectId: DOC }),
+      );
+      expect((healthKind.apply as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+        jobs.enqueueWithin.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('apply of a kind without healthDocumentKind reads no documents and enqueues nothing', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.draftItem.count.mockResolvedValue(0);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      prisma.draftItem.findMany.mockResolvedValue([] as never);
+
+      await service.apply(USER, INTAKE);
+
+      expect(prisma.healthDocument.findMany).not.toHaveBeenCalled();
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      expect(kind.apply).toHaveBeenCalledWith(expect.objectContaining({ healthDocuments: [] }));
+    });
+
+    describe('updateContext with retainFiles', () => {
+      beforeEach(() => {
+        prisma.photoIntake.findFirst.mockResolvedValue({
+          ...intakeRow({ kind: 'health_stub', context: { label: 'kept' } }),
+          photos: [],
+          items: [],
+          healthDocuments: [],
+        } as never);
+        prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      });
+
+      it('a body with only retainFiles changes the retention of the intake and its documents, not the context', async () => {
+        await service.updateContext(USER, INTAKE, { retainFiles: false });
+
+        const data = prisma.photoIntake.updateMany.mock.calls[0][0].data;
+        expect(data).toEqual({ retention: 'delete_after_processing' });
+        expect(prisma.healthDocument.updateMany).toHaveBeenCalledWith({
+          where: { intakeId: INTAKE, userId: USER, fileDeletedAt: null },
+          data: { retention: 'delete_after_processing' },
+        });
+      });
+
+      it('a body without retainFiles replaces the context as before and leaves retention alone', async () => {
+        await service.updateContext(USER, INTAKE, { context: { label: 'new' } });
+
+        const data = prisma.photoIntake.updateMany.mock.calls[0][0].data;
+        expect(data).toEqual({ context: { label: 'new' } });
+        expect(prisma.healthDocument.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('once applied, a retention change is refused 409 ALREADY_APPLIED', async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub', status: 'applied' }) as never);
+
+        const error = await caught(service.updateContext(USER, INTAKE, { retainFiles: false }));
+
+        expect(reasonOf(error)).toBe('ALREADY_APPLIED');
+        expect(prisma.healthDocument.updateMany).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

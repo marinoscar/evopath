@@ -273,6 +273,24 @@ describe('AppMetricsService', () => {
         ]),
       );
     });
+
+    it('counts health document purges by outcome (H1, #185)', async () => {
+      const { service, reader } = setup();
+
+      service.healthDocumentPurge('purged');
+      service.healthDocumentPurge('purged');
+      service.healthDocumentPurge('failed');
+
+      const all = await collect(reader);
+
+      expect(metric(all, 'app.health.documents.purges').descriptor.unit).toBe('{document}');
+      expect(points(all, 'app.health.documents.purges')).toEqual(
+        expect.arrayContaining([
+          { attributes: { outcome: 'purged' }, value: 2 },
+          { attributes: { outcome: 'failed' }, value: 1 },
+        ]),
+      );
+    });
   });
 
   describe('label bounding', () => {
@@ -332,6 +350,7 @@ describe('AppMetricsService', () => {
         service.aiUsage({ provider: 'p', model: 'm', operation: 'o', status: 'succeeded', latencyMs: 1, inputTokens: 1 }),
       ).not.toThrow();
       expect(() => service.notificationDelivery('email', 'sent')).not.toThrow();
+      expect(() => service.healthDocumentPurge('purged')).not.toThrow();
     });
 
     it('the fallback instance (no DI) works against the global no-op meter', () => {
