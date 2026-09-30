@@ -23,6 +23,8 @@ import {
   NotificationChannelPreferencesValue,
   NotificationsPatchValue,
   NotificationsValue,
+  OnboardingPatchValue,
+  OnboardingValue,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import type {
   UserAiSettingsPatchValue,
@@ -68,6 +70,9 @@ export class UserSettingsService {
         ? { notifications: value.notifications }
         : {}),
       ...(value.ai !== undefined ? { ai: value.ai } : {}),
+      ...(value.onboarding !== undefined
+        ? { onboarding: value.onboarding }
+        : {}),
       updatedAt,
       version,
     };
@@ -238,6 +243,14 @@ export class UserSettingsService {
       merged.ai = mergedAi;
     }
 
+    const mergedOnboarding = this.mergeOnboarding(
+      current.onboarding,
+      dto.onboarding,
+    );
+    if (mergedOnboarding !== undefined) {
+      merged.onboarding = mergedOnboarding;
+    }
+
     // Enforce the caps AFTER the merge — see assertDataTableLimit.
     this.assertDataTableLimit(merged.dataTables);
     this.assertNotificationLimit(merged.notifications);
@@ -369,6 +382,24 @@ export class UserSettingsService {
     const training = mergeFields(current?.training, patch.training);
 
     return training !== undefined ? { training } : undefined;
+  }
+
+  /**
+   * Merge the `onboarding` namespace (#203) field-wise.
+   *
+   * - patch absent         -> keep the stored namespace untouched
+   * - patch is `null`      -> clear the whole namespace
+   * - field omitted        -> stored value untouched
+   * - field set to a value -> replaces the stored value
+   * - field set to `null`  -> deletes the field ("not seen" / "no goal")
+   *
+   * An emptied namespace collapses to absent.
+   */
+  private mergeOnboarding(
+    current: OnboardingValue | undefined,
+    patch: OnboardingPatchValue | null | undefined,
+  ): OnboardingValue | undefined {
+    return mergeFields(current, patch);
   }
 
   /**

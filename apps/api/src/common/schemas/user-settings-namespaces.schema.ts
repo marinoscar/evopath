@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { NOTIFICATION_CHANNELS } from '../../notifications/notification-events';
 import type { NotificationPreferences } from '../../notifications/notification-preferences';
+import type { ProgramGoal } from '../../programs/programs.constants';
 
 // =============================================================================
 // User Settings Namespaces: `dataTables`, `navigation`, `notifications`
@@ -371,3 +372,52 @@ export type NotificationsValueMatchesDispatcherShape = [
 ] extends [NotificationPreferences]
   ? true
   : false;
+
+// =============================================================================
+// `onboarding` (#203): first-run welcome and getting-started checklist state
+// =============================================================================
+//
+// UI state only: when the welcome dialog was seen, when the checklist was
+// dismissed, and the goal the user picked on the welcome dialog (it seeds the
+// plan wizard's goal and orders the checklist). Whether a checklist STEP is
+// done is never stored here; `GET /api/onboarding` derives it from the data.
+//
+// Sparse like every namespace in this file: absent means "never seen, never
+// dismissed, no goal". No `.default()`.
+
+/**
+ * The goals the welcome dialog offers: `programs.goal` minus `custom`, which
+ * needs a free-text description the dialog does not collect.
+ */
+export const ONBOARDING_GOALS = [
+  'strength',
+  'hypertrophy',
+  'fat_loss',
+  'endurance',
+  'general',
+] as const satisfies readonly Exclude<ProgramGoal, 'custom'>[];
+
+export const onboardingGoalSchema = z.enum(ONBOARDING_GOALS);
+
+/**
+ * Stored and PUT form. Each field is nullable because `null` is a meaningful
+ * value in the contract ("not yet" / "no goal"); the PATCH merge deletes a
+ * field sent as `null`, so a stored row normally carries only set values.
+ */
+export const onboardingSettingsSchema = z
+  .object({
+    welcomeSeenAt: z.iso.datetime().nullable().optional(),
+    checklistDismissedAt: z.iso.datetime().nullable().optional(),
+    goal: onboardingGoalSchema.nullable().optional(),
+  })
+  .strict();
+
+/**
+ * PATCH form: shallow merge of the provided keys; an explicit `null` clears
+ * that key (the web's "Getting started" menu item resets both timestamps).
+ */
+export const onboardingPatchSchema = onboardingSettingsSchema;
+
+export type OnboardingGoal = z.infer<typeof onboardingGoalSchema>;
+export type OnboardingValue = z.infer<typeof onboardingSettingsSchema>;
+export type OnboardingPatchValue = z.infer<typeof onboardingPatchSchema>;
