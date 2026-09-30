@@ -28,6 +28,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { JobsModule } from './jobs/jobs.module';
 import { DbBackupModule } from './db-backup/db-backup.module';
 import { LoggerModule } from './common/logger/logger.module';
+import { AppMetricsModule } from './common/otel/app-metrics.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
@@ -40,6 +41,7 @@ import { IntakeModule } from './intake/intake.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
+import { TrainingAgentsModule } from './training-agents/training-agents.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -71,6 +73,10 @@ import configuration from './config/configuration';
 
     // Logger
     LoggerModule,
+
+    // Application metrics (#125): the one `app` meter every feature records
+    // into. Global; a no-op unless OTEL_ENABLED installed the SDK.
+    AppMetricsModule,
 
     // Feature modules
     CommonModule,
@@ -239,6 +245,12 @@ import configuration from './config/configuration';
     // `ExercisesService` and `ExerciseAvailabilityService` for E4.2+ and E5.
     ExercisesModule,
     WorkoutsModule,
+
+    // Training agents (E5): the orchestration layer above `AiService`. Loads
+    // `@langchain/langgraph` at boot (`GraphRuntimeInfo` logs its version), so
+    // a CommonJS/ESM mismatch fails the start, and forces framework telemetry
+    // off in code.
+    TrainingAgentsModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

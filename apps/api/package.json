@@ -45,6 +45,8 @@
     "@fastify/cookie": "~11.0.2",
     "@fastify/multipart": "^10.0.0",
     "@google/genai": "^2.24.0",
+    "@langchain/core": "1.2.13",
+    "@langchain/langgraph": "1.4.18",
     "@nestjs/common": "^11.1.12",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.12",
@@ -85,6 +87,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@langchain/langgraph-checkpoint-validation": "^1.1.1",
     "@nestjs/cli": "^11.0.16",
     "@nestjs/schematics": "^11.0.9",
     "@nestjs/testing": "^11.1.12",

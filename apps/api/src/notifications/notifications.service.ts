@@ -1,6 +1,10 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  AppMetricsService,
+  fallbackAppMetrics,
+} from '../common/otel/app-metrics.service';
 import { describeThrown } from './describe-thrown';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import {
@@ -198,6 +202,9 @@ export class NotificationsService implements OnModuleDestroy {
     private readonly policy: NotificationPolicyService,
     @Inject(NOTIFICATION_CHANNEL_SENDERS)
     senders: NotificationChannelSender[],
+    // #125. Optional: see `fallbackAppMetrics`.
+    @Optional()
+    private readonly metrics: AppMetricsService = fallbackAppMetrics(),
   ) {
     this.senders = new Map();
 
@@ -1222,6 +1229,7 @@ export class NotificationsService implements OnModuleDestroy {
       // enforced rather than assumed.
       const error = `Channel '${channel}' threw: ${describeThrown(err)}`;
       this.logger.error(`Delivery of '${event.key}' failed: ${error}`);
+      this.metrics.notificationDelivery(channel, 'error', event.key);
       await this.deliveries.markFailed(deliveryId, error);
       return {};
     }
@@ -1239,12 +1247,20 @@ export class NotificationsService implements OnModuleDestroy {
         `Delivery of '${event.key}' over '${channel}' failed: ${error}`,
       );
 
+      this.metrics.notificationDelivery(
+        channel,
+        result.rateLimited ? 'rate_limited' : 'failed',
+        event.key,
+      );
+
       await this.deliveries.markFailed(deliveryId, error);
 
       // Reported AFTER the row is written, so a caller that stops on this
       // verdict never races the record of what it is stopping over.
       return { rateLimited: result.rateLimited, retryAfterMs: result.retryAfterMs };
     }
+
+    this.metrics.notificationDelivery(channel, 'sent', event.key);
 
     await this.deliveries.markSent(deliveryId, result.messageId);
 

@@ -2979,3 +2979,41 @@ model SetLog {
   @@unique([workoutExerciseId, setNumber])
   @@map("set_logs")
 }
+
+// One graph checkpoint of an agent run, written by the Prisma checkpoint saver
+// after every node. `threadId` is the run id as plain text, deliberately not a
+// foreign key: checkpoints never block deleting a run, and the saver can be
+// used before a runs table exists. Only node outputs are serialised here, never
+// raw provider message history, so provider continuation state is never
+// stored. Ordering uses `checkpointId` (monotonic), not `createdAt`.
+model TrainingRunCheckpoint {
+  threadId           String   @map("thread_id")
+  checkpointNs       String   @default("") @map("checkpoint_ns")
+  checkpointId       String   @map("checkpoint_id")
+  parentCheckpointId String?  @map("parent_checkpoint_id")
+  type               String // serde type tag from dumpsTyped
+  checkpoint         Bytes // serialised checkpoint (node outputs only)
+  metadata           Bytes // serialised metadata
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@id([threadId, checkpointNs, checkpointId])
+  @@index([threadId, createdAt])
+  @@map("training_run_checkpoints")
+}
+
+// Pending writes attached to a checkpoint (task outputs, interrupts, resume
+// values). Idempotent per (taskId, idx). Same no-foreign-key `threadId` rule
+// as `TrainingRunCheckpoint`.
+model TrainingRunCheckpointWrite {
+  threadId     String @map("thread_id")
+  checkpointNs String @default("") @map("checkpoint_ns")
+  checkpointId String @map("checkpoint_id")
+  taskId       String @map("task_id")
+  idx          Int
+  channel      String
+  type         String
+  value        Bytes
+
+  @@id([threadId, checkpointNs, checkpointId, taskId, idx])
+  @@map("training_run_checkpoint_writes")
+}

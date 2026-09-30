@@ -250,6 +250,12 @@ otel-collector                                          (infra/otel/otel-collect
   │ basicauth/greptime (GREPTIME_WRITER_USER/PASSWORD)
   ├─ traces  → otlphttp/greptime_traces  (adds x-greptime-pipeline-name: greptime_trace_v1)
   └─ logs, metrics → otlphttp/greptime
+  │
+  │ metrics/local pipeline: scraped by the collector itself (§11.2)
+  │   hostmetrics       host CPU, memory, load, paging, disk, filesystem, network
+  │                     via the read-only /hostfs bind mount (host.name from /etc/hostname)
+  │   prometheus/self   the collector's own counters (127.0.0.1:8888) and a
+  │                     keep-list of GreptimeDB's /metrics
   ▼
 GreptimeDB standalone v1.2.1                             (infra/compose/telemetry.compose.yml)
   HTTP :4000 (ingest, /health, /dashboard) · Postgres wire :4003
@@ -279,6 +285,11 @@ Five controllers, all tagged `Telemetry` in the OpenAPI document:
 (policy + status), `TelemetryExplorerController` (query/schema/export),
 `TelemetryAssistantController` (the SSE route) and
 `TelemetryDashboardController` (§11).
+
+The collector also scrapes the host it runs on and the telemetry pipeline
+itself, in a separate `metrics/local` pipeline (§11.2, §11.3). Both pipelines
+run `transform/promote_labels`, which copies `app.instance.id` and `host.name`
+onto every data point so they become label columns on every metric table.
 
 GreptimeDB creates tables on first write, with no migration step: typically
 `opentelemetry_traces` (spans), `opentelemetry_logs` (log records), and one
@@ -1150,9 +1161,9 @@ at most 2,000 characters overall, any one message (a log body, an error
 line, a verdict reason) clipped to 200, at most five list entries per
 panel, and at most one sample trace id.
 
-### 11.2 Data sources, and why no CPU/memory/disk
+### 11.2 Data sources: what is collected, and why no Docker stats
 
-The dashboard reads exactly three kinds of data already in the store:
+The dashboard's tiles read three kinds of data already in the store:
 
 - **Server spans** (`opentelemetry_traces`, `span_kind = 'SPAN_KIND_SERVER'`)
   — requests, status classes, latency, routes.
@@ -1162,21 +1173,37 @@ The dashboard reads exactly three kinds of data already in the store:
   `nodejs_eventloop_delay_p99_seconds`) — the optional runtime tiles, present
   only when the runtime-metrics instrumentation is on.
 
-**There is no CPU, memory or disk tile for the host or container**, because
-this template collects none of that today: the OTel Node SDK instruments the
-process (traces, logs, the two runtime metrics above), not the machine it
-runs on. Adding host-level metrics is a real follow-up, not a design
-rejection: the natural next step is the collector's `hostmetricsreceiver`
-(CPU, memory, disk, network, filesystem), scraping through a **read-only**
-bind mount of the host's `/proc`, `/sys` and root filesystem (commonly
-`/hostfs`) into the collector container — no new agent, no privileged
-container, and no change to what the API or the dashboard authenticate as.
-**Docker container stats were considered and rejected as a source**: reading
-them means talking to the Docker socket, which this template deliberately
-confines to `stack-agent` alone (see [§10](#10-deploying-the-stack-stack-agent)
-and [SECURITY-ARCHITECTURE.md](../SECURITY-ARCHITECTURE.md)) — handing the
-collector, or the API, a second path to that socket is exactly the blast-radius
-increase the sidecar exists to avoid.
+The collector additionally scrapes three sources itself and writes them to
+the store as metric tables. The dashboard has no tile for them yet; they are
+queryable in the Explorer and available to the assistant (inventory in §11.3):
+
+| Source | Receiver | What it describes |
+|---|---|---|
+| The host | `hostmetrics` (30 s) | CPU, memory, load, paging, disk, filesystem, and network (see the caveat below) |
+| The collector | `prometheus/self`, job `otel-collector` | Points accepted, refused, sent and failed; exporter queue size and capacity |
+| GreptimeDB | `prometheus/self`, job `greptimedb` | HTTP/OTLP request counts and latency, rows ingested, write stalls, memory and CPU limits, process CPU/RSS |
+
+**How the host is read.** `telemetry.compose.yml` bind-mounts the host's `/`
+read-only at `/hostfs`, and the `hostmetrics` receiver runs with
+`root_path: /hostfs`, so it reads the host's `/proc`, `/sys` and mount table
+instead of the container's. No new agent, no privileged container, no
+`pid: host` and no Docker socket (mitigations:
+[SECURITY-ARCHITECTURE.md](../SECURITY-ARCHITECTURE.md)). The filesystem
+scraper excludes pseudo and container filesystems (`overlay`, `tmpfs`,
+`/var/lib/docker/...`, `/run`, `/proc`, ...), so only real disks produce series.
+
+**Network caveat.** `system_network_*` describes the **collector container's**
+interfaces (`eth0` on the compose network, `lo`), not the host's NICs. It still
+answers "is the telemetry path moving bytes". CPU, memory, load, paging and
+disk are kernel-global and are the host's.
+
+**Docker container stats are rejected as a source**: reading them means
+talking to the Docker socket, which this template deliberately confines to
+`stack-agent` alone (see [§10](#10-deploying-the-stack-stack-agent) and
+[SECURITY-ARCHITECTURE.md](../SECURITY-ARCHITECTURE.md)). Handing the
+collector, or the API, a second path to that socket is exactly the
+blast-radius increase the sidecar exists to avoid. Per-container CPU and
+memory are therefore not collected.
 
 ### 11.3 Column findings (verified live, GreptimeDB v1.2.1)
 
@@ -1192,7 +1219,36 @@ account. These override the issue text where they differ:
 | `opentelemetry_logs` | Severity comes from **`severity_number`** (OTel standard), not `severity_text` (lower-case pino labels): error `>= 17` (17 error, 21 fatal), warn `13..16`, info `9..12`, other `< 9` or `NULL`. |
 | `opentelemetry_logs` | Service and instance are **not** flattened columns here: they are keys of the JSON column `resource_attributes`, read with `json_get_string(resource_attributes, '["service.name"]')` / `'["app.instance.id"]'` — a bare `'service.name'` path returns `NULL` because `.` is a path separator in that function. |
 | `opentelemetry_logs` | `trace_id`/`span_id` may be `''` for a log emitted outside a request. |
-| Runtime metric tables | Prometheus-style columns (`greptime_timestamp`, `greptime_value`, `service_name`, …) with **no instance column** — the instance filter does not apply to the runtime tiles. `v8js_memory_heap_used_bytes` has one row per heap space per export, so it is summed per export before being averaged per bucket. Both are exported every 60 s, so a bucket finer than a minute is half empty. |
+| Runtime metric tables | Prometheus-style columns (`greptime_timestamp`, `greptime_value`, `service_name`, …) with `app_instance_id` and `host_name` label columns on rows written since the collector began promoting them (`NULL` on older rows). For API metrics `host_name` is the API container's hostname (the SDK host detector), not the host's. The dashboard's instance filter still does not apply to the runtime tiles. `v8js_memory_heap_used_bytes` has one row per heap space per export, so it is summed per export before being averaged per bucket. Both are exported every 60 s, so a bucket finer than a minute is half empty. |
+
+Host and pipeline metric tables (verified live, collector 0.145.0: 83 tables
+about 70 s after start). Every metric table has `greptime_timestamp`
+(`TIMESTAMP`) and `greptime_value` (`Float64` field); every other column is a
+tag. Host tables carry `host_name` (the host's real name) and no
+`service_name`/`job`.
+
+| Group | Tables (tag columns beyond `host_name`) |
+|---|---|
+| CPU | `system_cpu_time_seconds_total`, `system_cpu_utilization_ratio` (`cpu`, `state`); `system_cpu_load_average_1m`, `_5m`, `_15m` |
+| Memory | `system_memory_usage_bytes`, `system_memory_utilization_ratio` (`state`: used, free, cached, buffered, slab_reclaimable, slab_unreclaimable) |
+| Filesystem | `system_filesystem_usage_bytes` (`device`, `mode`, `mountpoint`, `state`, `type`); `system_filesystem_utilization_ratio` (same, no `state`); `system_filesystem_inodes_usage` |
+| Disk | `system_disk_io_bytes_total` (`device`, `direction`); `system_disk_io_time_seconds_total`, `_merged_total`, `_operation_time_seconds_total`, `_operations_total`, `_pending_operations`, `_weighted_io_time_seconds_total` |
+| Network (collector container) | `system_network_io_bytes_total` (`device`, `direction`); `system_network_packets_total`, `_errors_total`, `_dropped_total`, `_connections` |
+| Paging | `system_paging_operations_total` (`direction`, `type`); `system_paging_faults_total` |
+| Collector self (`service_name` = `otelcol-contrib`) | `otelcol_exporter_sent_metric_points_total`, `otelcol_exporter_send_failed_metric_points_total` (`exporter`, `host_name`, `instance`, `job`, `service_instance_id`, `service_name`, `service_version`); `otelcol_exporter_queue_size`, `_queue_capacity`; `otelcol_receiver_accepted_metric_points_total`, `_refused_metric_points_total`, `_failed_metric_points_total` (`receiver`, `transport`); `otelcol_processor_*`, `otelcol_scraper_*`, `otelcol_process_*` |
+| GreptimeDB self (`job`/`service_name` = `greptimedb`, `instance` = `greptimedb:4000`) | `greptime_servers_http_requests_total` (`code`, `db`, `method`, `path`), `greptime_servers_http_requests_elapsed_bucket` (`le`), `greptime_mito_write_stalling_count` (`worker`), `greptime_mito_region_count`, `greptime_mito_write_buffer_bytes`, `greptime_mito_flush_*`, `greptime_frontend_otlp_metrics_rows_total`, `greptime_app_version`, `greptime_cpu_limit_in_millicores`, `greptime_memory_limit_in_bytes`, `process_resident_memory_bytes` and other `process_*` |
+| Scrape health | `up` and `scrape_*`, from the Prometheus receiver |
+
+Two findings shape the configuration:
+
+- GreptimeDB turns **data point** attributes into label columns but keeps
+  only a fixed few resource attributes (`service.name`, `service.version`,
+  `deployment.environment`, `service.instance.id`) and silently drops
+  `host.name` and `app.instance.id`. `transform/promote_labels` copies those
+  two onto each data point. A table that predates them gains the columns, with
+  `NULL` in old rows.
+- A data point `service.name` lands in the same `service_name` column as the
+  resource one, so it is not copied.
 
 ### 11.4 Routes
 
@@ -1465,10 +1521,102 @@ controls instead, just not by selecting a span on the chart itself.
   errors differing only in an embedded id show up as two rows, which is a
   known limitation an administrator can see immediately rather than a
   silent miscount.
-- **No host CPU/memory/disk today** (§11.2): rejected implementing it now in
-  favour of shipping the request/log/runtime picture first; the
-  `hostmetricsreceiver` path is a scoped follow-up, not blocked on anything
-  in this change.
+- **`host.name` from the host's `/etc/hostname`.** Inside a container every
+  in-process source (`os.Hostname()`, the `system` resource detector, even
+  `/hostfs/proc/sys/kernel/hostname`, since the UTS namespace is the reader's)
+  returns the container id, which changes on every recreate. The config's
+  `file` provider reads `/hostfs/etc/hostname` at startup. Whitespace is
+  stripped, because the value arrives with its trailing newline. The collector
+  refuses to start when the file is missing, rather than labelling the host
+  with a container id. Rejected: `resourcedetection` (container id) and a
+  `HOST_NAME` variable (a second source of truth to configure).
+- **Host metrics get their own pipeline.** Only in `metrics/local` is it true
+  that the data describes this machine, so only there is `host.name` stamped.
+  An OTLP sender keeps whatever `host.name` it reported.
+- **Network is the collector's namespace, and stays.** `/proc/net` resolves to
+  `/proc/self/net`, the reader's network namespace. Host NIC throughput would
+  need `network_mode: host`, rejected: the collector must sit on the compose
+  network and stay unpublished. The series remain because they show whether
+  the telemetry path is moving bytes.
+- **`rslave` on the VPS overlay only.** It makes a disk mounted after the
+  collector started appear under `/hostfs`; without it the filesystem scraper
+  reports the root disk's usage under the new mount point. It needs a shared
+  `/`, which systemd hosts have, and fails on private-`/` hosts such as Docker
+  Desktop, so `telemetry.compose.yml` leaves propagation at the default.
+- **A keep-list for GreptimeDB's `/metrics`.** Every metric becomes its own
+  table and GreptimeDB exports about 130; the `metric_relabel_configs`
+  keep-list retains about 30 (version, HTTP/OTLP front door, write stalls,
+  limits, process). `/metrics` needs no credentials, so the scrape config
+  carries none. The collector's own metrics are exposed on `127.0.0.1:8888`
+  only and are not published.
+- **No host metric tiles yet.** The dashboard's fixed tiles (§11.1) still read
+  spans, logs and the two runtime metrics; host data is for the Explorer and
+  the assistant until a tile earns its place.
+
+### 11.13 Application metrics
+
+> **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`
+
+`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are defined: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed `record*` methods; nothing else creates an `app.*` instrument. With `OTEL_ENABLED` unset the service is a no-op.
+
+#### Table naming (verified live, GreptimeDB v1.2.1)
+
+Verified on 2026-09-29 by exporting one point per instrument (cumulative temporality, OTLP protobuf) to a throwaway GreptimeDB. The rules:
+
+| Instrument | Table(s) | Rule |
+|---|---|---|
+| Counter | `<name>_total` | Dots become `_`; `_total` is appended. A curly-brace unit (`{job}`) adds no suffix. |
+| Histogram | `<name>_<unit>_bucket`, `_sum`, `_count` | Unit `s` gives `_seconds`, `By` gives `_bytes`. The `_bucket` table has a string `le` tag (`"0.05"`, `"1"`, `"inf"`). |
+| Gauge, unit `s` or `By` | `<name>_seconds` / `<name>_bytes` | Same unit suffix. |
+| Gauge, curly-brace unit | `<name>` | No suffix. |
+
+Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` tag (the service name again; not the queue `job_type`) and one tag per attribute. Through the collector, `transform/promote_labels` (§11.2) also adds `app_instance_id` and `host_name` (the API container's hostname), so a series can be told apart per deployment and per API replica; the verification above exported straight to GreptimeDB and so showed neither.
+
+#### Metric reference
+
+| Metric | Table(s) | Kind | Unit | Attributes (values) | Recorded |
+|---|---|---|---|---|---|
+| `app.jobs.enqueued` | `app_jobs_enqueued_total` | counter | `{job}` | `job_type` | A job row is created. |
+| `app.jobs.claimed` | `app_jobs_claimed_total` | counter | `{job}` | `job_type`, `executor` (`server`, `node`) | A worker or node claims a job. |
+| `app.jobs.settled` | `app_jobs_settled_total` | counter | `{job}` | `job_type`, `outcome` (`succeeded`, `failed`, `retry-scheduled`, `rate-limit-deferred`, `claim-lost`, `write-failed`), `executor` (`server`, `node`, `unknown`) | A claimed job reaches a settlement outcome. Counted automatically; handlers add nothing. |
+| `app.jobs.duration` | `app_jobs_duration_seconds_{bucket,sum,count}` | histogram | `s` | same as `app.jobs.settled` | With `settled`, only when `startedAt` is known. Buckets 0.05 to 3600. |
+| `app.jobs.reaped` | `app_jobs_reaped_total` | counter | `{job}` | `outcome` (`requeued`, `failed`); `job_type` on `failed` only | The lease reaper recovers an expired job. |
+| `app.backup.runs` | `app_backup_runs_total` | counter | `{run}` | `outcome` (`completed`, `failed`) | A backup run settles. |
+| `app.backup.duration` | `app_backup_duration_seconds_{bucket,sum,count}` | histogram | `s` | `outcome` | With `runs`. |
+| `app.backup.size` | `app_backup_size_bytes_{bucket,sum,count}` | histogram | `By` | `outcome` (`completed`) | A backup completes. |
+| `app.auth.logins` | `app_auth_logins_total` | counter | `{login}` | `provider` (`google`), `outcome` (`success`, `allowlist_rejected`, `disabled`) | An OAuth sign-in resolves. |
+| `app.auth.refreshes` | `app_auth_refreshes_total` | counter | `{refresh}` | `outcome` (`success`, `invalid`, `reuse_detected`, `expired`, `user_inactive`, `device_revoked`) | A refresh-token rotation is attempted. |
+| `app.ai.requests` | `app_ai_requests_total` | counter | `{request}` | `provider`, `model`, `operation`, `status` (`succeeded`, `failed`, `cancelled`), `key_source` | An AI usage event is recorded. |
+| `app.ai.tokens` | `app_ai_tokens_total` | counter | `{token}` | `provider`, `model`, `operation`, `token_type` (`input`, `output`) | With the usage event. |
+| `app.ai.request.duration` | `app_ai_request_duration_seconds_{bucket,sum,count}` | histogram | `s` | `provider`, `model`, `operation`, `status`, `key_source` | With the usage event. |
+| `app.notifications.deliveries` | `app_notifications_deliveries_total` | counter | `{delivery}` | `channel`, `event`, `outcome` (`sent`, `failed`, `rate_limited`, `error`) | A channel delivery attempt ends. |
+| `app.jobs.queue.depth` | `app_jobs_queue_depth` | gauge | `{job}` | `job_type`, `status` (`pending`, `running`) | Observed at collection. |
+| `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
+| `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |
+| `app.backup.last_success.size` | `app_backup_last_success_size_bytes` | gauge | `By` | none | Size of that backup. |
+
+Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{bucket,sum,count}`, `app_backup_size_bytes_{bucket,sum,count}`, `app_jobs_oldest_pending_age_seconds`, `app_jobs_queue_depth`, `app_backup_last_success_timestamp_seconds`, `app_backup_last_success_size_bytes`. The remaining tables follow the same rules.
+
+#### Gauges
+
+- The four gauges are registered only when `OTEL_ENABLED` is set.
+- Their callbacks read PostgreSQL only while the telemetry gate is open (see [§2](#2-the-two-switches)). A closed gate costs no query.
+- Readings are cached for 30 seconds (`GAUGE_CACHE_TTL_MS`) with one read in flight.
+- Every API replica reports the same database-wide values. Take the maximum per timestamp, never the sum.
+
+#### Labels
+
+- Attribute keys are snake_case (`job_type`), so they are plain column names.
+- A value is at most 64 characters of `[A-Za-z0-9_.:/@+-]`; an email-shaped value is rejected.
+- Each key admits at most 100 distinct values per process (`MAX_DISTINCT_VALUES`); later values become `other`.
+- Never a user id, email or URL.
+
+#### Not instrumented
+
+- Backup settlements made by the stale-sweep.
+- Controller-level auth cases (missing profile, missing cookie).
+
+Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` and the hook-site specs beside each caller.
 
 ## History
 
@@ -1526,3 +1674,8 @@ controls instead, just not by selecting a span on the chart itself.
   reused from the Explorer.
 - #580: this document's §11 written and verified against the shipped code,
   including the drill-down actions above.
+- #122: the collector scrapes the host (`hostmetrics` over a read-only
+  `/hostfs` mount), its own pipeline counters and a keep-list of GreptimeDB's
+  `/metrics`; `app.instance.id` and `host.name` become label columns on every
+  metric table (§11.2, §11.3, §11.12).
+- #125: first-party application metrics (`AppMetricsService`): job, backup, auth, AI and notification counters and histograms, and cached queue and backup gauges (§11.13).

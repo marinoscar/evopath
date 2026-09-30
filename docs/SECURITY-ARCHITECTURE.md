@@ -701,6 +701,28 @@ generates `infra/compose/.env` with random secrets at mode `0600`. Never
 commit `.env`. In production, inject secrets from your platform's secret
 manager and use different values per environment.
 
+### Collector host mount
+
+The telemetry collector bind-mounts the host's `/` read-only at `/hostfs`
+(`infra/compose/telemetry.compose.yml`) so its `hostmetrics` receiver can read
+the host's `/proc`, `/sys` and mount table. The mount exposes host files to a
+container, so it is bounded:
+
+- **read-only** (`:ro`); the collector cannot write to the host.
+- **`/hostfs/run` is masked by a `tmpfs`**, which hides `/run/docker.sock` and
+  `/run/containerd` beneath the mount. The scrapers never read them.
+- **unprivileged**: the collector runs as uid 10001 (not root, not in the
+  `docker` group), with no `privileged`, no `pid: host` and no socket mount.
+- **loopback self-metrics**: the collector's own metrics listen on
+  `127.0.0.1:8888` and are not published.
+- **no credentials in scrape config**: GreptimeDB's `/metrics` is scraped
+  without any.
+- **VPS**: `vps.telemetry.compose.yml` adds `rslave` propagation so later host
+  mounts are seen; it changes visibility of mounts, not access rights.
+
+The Docker socket itself remains confined to `stack-agent` (next section).
+Design: [specs/telemetry.md §11.2](specs/telemetry.md#112-data-sources-what-is-collected-and-why-no-docker-stats).
+
 ### Docker socket / stack-agent
 
 A VPS deployment's `stack-agent` service (`infra/compose/vps.compose.yml`,
