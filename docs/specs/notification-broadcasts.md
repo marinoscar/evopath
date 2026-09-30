@@ -181,7 +181,8 @@ There is no second scheduler.
 **`admin.broadcast.start`.** Dedup left on, so a double-clicked "Send now"
 cannot enqueue two. It loads the broadcast (missing row: no-op), performs the
 claim CAS, counts the audience into `recipientsTargeted`, and enqueues the
-first chunk with `skipDedup: true`. The `recipientsTargeted` write is
+first chunk with dedup **on**, under the per-broadcast key
+`broadcastFirstChunkDedupKey(id)` (#162). The `recipientsTargeted` write is
 conditional on `status = 'sending'`, so a cancel between claim and hand-off
 stops the enqueue.
 
@@ -194,16 +195,20 @@ finds `sending` and finishes the hand-off, recounting against the **stored**
 - `cursorUserId` is null and `recipientsDispatched` is 0;
 - no `admin.broadcast.chunk` job exists for this broadcast, in any status.
 
-Otherwise it does nothing. An operator repairs a stranded broadcast by retrying
-its start job from the Jobs page.
+Otherwise it does nothing. The chunk-existence read is a fast path, not the
+gate: a resume that races the claim winner's hand-off (or another resume)
+enqueues the first chunk under the same per-broadcast dedup key, so
+`jobs_active_dedup_uniq_idx` collapses the two onto one chunk job (#162). An
+operator repairs a stranded broadcast by retrying its start job from the Jobs
+page; the key is free once no first chunk is active.
 
-**`admin.broadcast.chunk`.** Always enqueued with **`skipDedup: true`**, by
-both the start handler and the chunk handler enqueuing its successor. Chunk
+**`admin.broadcast.chunk`.** Every chunk after the first is enqueued with
+**`skipDedup: true`**: the chunk handler's successor and the Resume action's
+chunk. (The first chunk dedups, above; nothing else ever uses its key.) Chunk
 *n* enqueues chunk *n+1* while itself `running`; with dedup on,
 `JobsService.enqueue` returns the in-flight job (chunk *n*) instead of
 inserting. Nothing throws, every job reads `succeeded`, and the broadcast
-silently stops after one page. The handler specs assert the flag on both
-sites.
+silently stops after one page. The handler specs assert the flag.
 
 Each chunk:
 
@@ -439,8 +444,9 @@ an audit event with identifiers and shape, never the composed body.
 API unit specs (`apps/api/src/`):
 
 - `notifications/broadcasts/handlers/broadcast-start.handler.spec.ts`: claim
-  CAS, one-instant stamping, `audienceWhere()` count, `skipDedup: true`, the
-  resume conditions, cancel between claim and hand-off.
+  CAS, one-instant stamping, `audienceWhere()` count, first chunk deduped under
+  the per-broadcast key on both the fresh and resume paths, the resume
+  conditions, cancel between claim and hand-off.
 - `notifications/broadcasts/handlers/broadcast-chunk.handler.spec.ts`: status
   guard, keyset paging, `notifyNow` dispatch, cursor-after-send, successor only
   with `skipDedup: true`, mid-page cancel, cursor CAS, rate-limit stop.
@@ -470,7 +476,8 @@ API integration and database suites (`apps/api/test/broadcasts/`):
 - `broadcast-fanout.db.spec.ts` (`npm run test:db`): real handlers and
   `JobsService` against Postgres with `notifyNow` stubbed. Exact audience
   (active, `createdAt ≤ cutoff`), concurrent start claims resolve to one
-  winner, replay after cursor advance, cancel between and during chunks,
+  winner, a start that resumes while the winner is mid-hand-off converges on
+  one first chunk (#162), replay after cursor advance, cancel between and during chunks,
   failure listener through the real `JobTerminalService` and through the
   reaper, stranded-start recovery, resume, and two concurrent chains
   collapsing to one.

@@ -407,7 +407,7 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 | `nodes.fleet.sweep` | `nodes/handlers/node-fleet-sweep.handler.ts` | 10-minute cron | No |
 | `nodes.fleet.prune` | `nodes/handlers/node-fleet-prune.handler.ts` | Daily cron | No |
 | `admin.broadcast.start` | `notifications/broadcasts/handlers/broadcast-start.handler.ts` | Broadcast send/schedule | No |
-| `admin.broadcast.chunk` | `notifications/broadcasts/handlers/broadcast-chunk.handler.ts` | `admin.broadcast.start` fan-out (`skipDedup`) | No |
+| `admin.broadcast.chunk` | `notifications/broadcasts/handlers/broadcast-chunk.handler.ts` | `admin.broadcast.start` fan-out (first chunk deduped per broadcast, successors `skipDedup`) | No |
 | `db.backup.run` | `db-backup/handlers/db-backup-run.handler.ts` | Backup schedule or `POST /api/admin/db-backup/runs` | **Yes** (offered only when enabled) |
 | `db.backup.sweep` | `db-backup/handlers/db-backup-sweep.handler.ts` | Backup scheduler cron | No |
 | `db.restore.run` | `db-backup/handlers/db-restore-run.handler.ts` | `POST /api/admin/db-backup/runs/{id}/restore` | No (permanently) |
