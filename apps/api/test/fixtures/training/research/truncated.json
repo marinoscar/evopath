@@ -1,0 +1,14 @@
+{
+  "description": "The model hit its output limit mid-answer.",
+  "queries": [
+    "resistance training frequency guidelines"
+  ],
+  "searchSources": [
+    "https://www.acsm.org/education-resources/trending-topics-resources/resistance-training-guidelines?utm_source=openai",
+    "https://pubmed.ncbi.nlm.nih.gov/27102172/",
+    "https://www.nsca.com/education/articles/kinetic-select/knee-friendly-training/"
+  ],
+  "citations": [],
+  "rawText": "{\"summary\":\"Train each muscle twice",
+  "finishReason": "length"
+}

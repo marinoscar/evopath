@@ -78,20 +78,20 @@ export async function runResearcher(
   opts: ResearchOptions = {},
 ): Promise<ResearchOutcome> {
   const responses: AiResponse[] = [];
-  let mode: ResearchMode = opts.mode ?? DEFAULT_RESEARCH_MODE;
+  const state: OnceState = { mode: opts.mode ?? DEFAULT_RESEARCH_MODE };
   let nudge: string | undefined;
   let searchContextSize: AiWebSearchTool['searchContextSize'] = 'high';
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const round = attempt;
     let raw: EvidenceBrief;
 
     try {
-      const once = await researchOnce(ctx, context, { mode, nudge, searchContextSize, round }, responses);
-      raw = once.brief;
-      mode = once.mode;
+      raw = await researchOnce(ctx, context, { nudge, searchContextSize, round: attempt }, state, responses);
     } catch (err) {
-      if (err instanceof AgentOutputTruncated) {
+      // A cut-off answer: the free-text search call reports it directly; a
+      // structured answer cut off mid-JSON surfaces as an invalid structured
+      // output (the single-mode one already fell back to two-step).
+      if (err instanceof AgentOutputTruncated || isInvalidStructuredOutput(err)) {
         if (attempt === 2) throw researchInsufficient('truncated');
         searchContextSize = 'medium';
         nudge = RESEARCH_TRUNCATION_NUDGE;
@@ -102,7 +102,7 @@ export async function runResearcher(
 
     const verified = verifyBrief(raw, collectVerifiedUrls(responses), {
       now: ctx.now(),
-      researchMode: mode,
+      researchMode: state.mode,
       searchQueries: collectSearchQueries(responses),
     });
 
@@ -116,23 +116,32 @@ export async function runResearcher(
   throw researchInsufficient('too_few_sources');
 }
 
-interface OnceOptions {
+function isInvalidStructuredOutput(err: unknown): boolean {
+  return err instanceof AiError && err.code === 'AI_STRUCTURED_OUTPUT_INVALID';
+}
+
+/** Carried across attempts: once the run fell back to two-step, it stays there. */
+interface OnceState {
   mode: ResearchMode;
+}
+
+interface OnceOptions {
   nudge?: string;
   searchContextSize: AiWebSearchTool['searchContextSize'];
   round: number;
 }
 
-/** One attempt in `mode`; a single-mode schema failure falls back to two-step. Appends every response. */
+/** One attempt in `state.mode`; a single-mode schema failure switches `state` to two-step. Appends every response. */
 async function researchOnce(
   ctx: NodeContext,
   context: ResearcherContext,
   opts: OnceOptions,
+  state: OnceState,
   responses: AiResponse[],
-): Promise<{ brief: EvidenceBrief; mode: ResearchMode }> {
+): Promise<EvidenceBrief> {
   const webSearch: AiWebSearchTool = { type: 'web_search', searchContextSize: opts.searchContextSize };
 
-  if (opts.mode === 'single') {
+  if (state.mode === 'single') {
     try {
       const { parsed, response } = await ctx.agent.structured({
         role: 'researcher',
@@ -145,9 +154,10 @@ async function researchOnce(
         input: renderResearcherInput(context, opts.nudge),
       });
       responses.push(response);
-      return { brief: parsed, mode: 'single' };
+      return parsed;
     } catch (err) {
       if (!(err instanceof AiError) || !TWO_STEP_FALLBACK_CODES.has(err.code)) throw err;
+      state.mode = 'two_step';
     }
   }
 
@@ -173,5 +183,5 @@ async function researchOnce(
   // The shaping call has no tools: it cannot add a verified URL, only use one.
   responses.push({ ...response, output: [] });
 
-  return { brief: parsed, mode: 'two_step' };
+  return parsed;
 }
