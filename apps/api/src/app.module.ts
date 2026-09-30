@@ -47,6 +47,7 @@ import { TrainingAgentsModule } from './training-agents/training-agents.module';
 import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
 import { TrainingUsageModule } from './training-usage/training-usage.module';
 import { DoctorModule } from './doctor/doctor.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -282,6 +283,10 @@ import configuration from './config/configuration';
     // Training agent usage (E6.3): `/api/ai/training/runs/:runId/usage` and
     // `/api/ai/training/usage`, read-only, tokens by node, role and month.
     TrainingUsageModule,
+
+    // First-run onboarding (#203): `GET /api/onboarding`, read-only; the user
+    // checklist from cheap existence queries, the admin one from the Doctor.
+    OnboardingModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

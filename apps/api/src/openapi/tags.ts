@@ -94,6 +94,13 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '(`PUT`) and JSON Merge Patch (`PATCH`).',
       },
       {
+        name: 'Onboarding',
+        description:
+          'The calling user\'s first-run checklist: onboarding UI state from the `onboarding` ' +
+          'user-settings namespace plus steps derived from their data, and, for callers with ' +
+          '`system_settings:read`, the deployment setup steps derived from the Doctor. Read-only.',
+      },
+      {
         name: 'Health Profile',
         description:
           'The calling user\'s health profile: date of birth, sex at birth, height, unit system, ' +
