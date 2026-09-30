@@ -102,6 +102,9 @@ const MIGRATIONS_AT_288 = [
   // health snapshot. About the worker fleet, not notifications.
   '20260930100000_add_worker_node_vitals',
   '20260930110000_add_training_plan_runs',
+  // #132: `jobs.trace_context` — the enqueuing request's W3C traceparent.
+  // About job tracing, not notifications.
+  '20260930120000_add_job_trace_context',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

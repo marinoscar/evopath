@@ -69,6 +69,7 @@ What it is not:
 | `executor` | `server` or `node`; audit, kept on terminal rows |
 | `last_error` | Last failure message, truncated at 2000 characters |
 | `provider_key`, `model_version` | Audit columns written by `recordProvider` |
+| `trace_context` | W3C `traceparent` of the span active at enqueue, or `NULL`; written once at insert (see [Trace context](#trace-context)) |
 
 Two partial indexes exist only in `prisma/migrations/20260906120000_add_jobs/migration.sql`, because Prisma cannot express a `WHERE` on an index: `jobs_active_dedup_uniq_idx` (the dedup enforcement) plus `jobs_attempts_gt1_idx` and `jobs_succeeded_duration_idx` (insights). This is intentional schema drift; do not add a `@@unique` to the model.
 
@@ -147,6 +148,14 @@ INSERT → P2002 on jobs_active_dedup_uniq_idx → re-read the ACTIVE row → re
 - If the re-read finds no active row (the holder settled in between), enqueue inserts again. The loop is bounded at three attempts, then errors.
 
 `recordProvider(jobId, providerKey, modelVersion)` writes the two audit columns and never throws; a failed annotation must not fail a job whose work succeeded.
+
+### Trace context
+
+Queued work stays connected to the request (or cron tick) that queued it (#132). Both enqueue paths build the row in `buildJobCreateData`, which calls `captureJobTraceContext()` (`apps/api/src/jobs/job-trace-context.ts`): it runs `propagation.inject(context.active(), carrier)` and keeps only the `traceparent` value, validated against `^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$` (all-zero ids rejected, bounded at 256 characters). No active span, OTel off (the API's no-op propagator writes nothing) or an invalid value all store `NULL`, and the capture never throws. `tracestate` is not kept: nothing in the stack sets it, and the parent identity is all a child span needs.
+
+- **Server worker.** `JobWorker.runJob` starts a `job.process <type>` span (kind `CONSUMER`, attributes `job.id`, `job.type`, `job.attempts`, `job.executor`, `job.outcome`) as a **child** of the stored context (`jobParentContext` → `propagation.extract`) and makes it active for the handler, so the handler's own spans (Prisma, HTTP, AI) nest under it. Parent-child rather than a span link, because before #132 the worker started no span at all: the handler's spans were roots, there was no existing trace a link would have had to preserve, and one trace ("this request queued this job, and here is what it did") is what an operator reads in the explorer. A row with no stored context gives a root span; the slot loop's ambient context is never inherited. Each retry is a new child of the same enqueuing span. `failed`, `retry-scheduled` and `write-failed` outcomes set the span status to `ERROR`. If the tracer throws, the job runs untraced; tracing never fails a job.
+- **Node claim.** Each claim assignment carries `traceparent` (re-validated on the way out; `null` when absent or malformed), see [worker-nodes.md](worker-nodes.md).
+- The admin job list does not expose `trace_context` (`JOB_LIST_SELECT`).
 
 ### Claim
 
@@ -536,6 +545,8 @@ Paths are under `apps/api/`. `*.db.spec.ts` suites run against real PostgreSQL (
 | `src/jobs/rate-limit.error.spec.ts`, `src/jobs/backoff.util.spec.ts`, `src/jobs/provider-throttle.service.spec.ts` | Classification, `Retry-After` parsing, jitter bounds, gate extend/clear/cap |
 | `src/jobs/job.worker.spec.ts` | Worker modes incl. `system` as the offer-set complement; typo warns once; per-claim resolution; timeout frees the slot with no `unhandledRejection`; no batch barrier; unknown type is permanent; renewal ticker; shutdown |
 | `src/jobs/job.worker.bootstrap.spec.ts` | A slow-registering handler is in the first claim |
+| `src/jobs/job-trace-context.spec.ts`, the `trace context (#132)` cases in `jobs.service.spec.ts` and `the job span (#132)` in `job.worker.spec.ts` | `traceparent` captured from the active span on both enqueue paths, `NULL` otherwise, invalid values dropped, never throws; the job span is a child of the stored context (root without one), active for the handler, and a throwing tracer does not fail the job |
+| `test/jobs/job-trace-context.db.spec.ts` | `trace_context` is nullable `text`; enqueue stores it and the claim returns it; the dedup index is untouched |
 | `src/jobs/node-offload.service.spec.ts`, `test/db-backup/db-backup-node-offload.integration.spec.ts` | Offer set and its `system`-mode complement over the real module graph |
 | `src/jobs/job-stuck.service.spec.ts`, `test/jobs/job-stuck-reset.db.spec.ts` | Four signals, two phases, one emit per given-up row, concurrent reapers safe |
 | `src/jobs/tasks/job-stuck-reset.task.spec.ts` | Reaper runs in every mode, stops only for `JOBS_REAPER_ENABLED=false` |
@@ -599,4 +610,5 @@ In a running app:
 - Epic #345: #346 execution profiles; #347 in-process lease renewal and the fourth reaper signal; #351/#352 database backup as a job; #353 every long-running activity is a job.
 - #361: `claim_token`. #364: token on the node plane. #456: broadcast chunk throttle key.
 - #459: broadcast failure listener. #468: reaper give-up emits `job.settled`. #477: claim-conditional terminal writes. #480: `canDelete` veto.
+- #132: `trace_context` — the enqueuing span's `traceparent`, parent of the server worker's job span and handed to nodes on claim.
 - #520: post-upload object processing becomes the `storage.object.process` job, replacing the `storage.object.uploaded` `@OnEvent` listener; `test/jobs/on-event-no-io.spec.ts` added as its tripwire.

@@ -106,6 +106,14 @@ export interface NodeJobAssignment {
    * this value into a request body.
    */
   claimToken?: string | null;
+  /**
+   * The W3C `traceparent` of the span that ENQUEUED this job (#132), or `null`
+   * when nothing was traced at enqueue. Optional because a server older than
+   * #132 does not send it. Not used by this CLI yet — a later change (B5)
+   * starts the node's execution span as its child. Correlation data only,
+   * never a credential.
+   */
+  traceparent?: string | null;
 }
 
 /**

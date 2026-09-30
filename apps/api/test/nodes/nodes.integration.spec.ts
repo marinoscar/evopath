@@ -432,6 +432,46 @@ describe('Worker node control plane (Integration)', () => {
       expect(assignment.claimToken).toBe(CLAIM_TOKEN);
       expect(assignment.job).not.toHaveProperty('claimToken');
     });
+
+    it('hands the node the enqueuing traceparent as a sibling of the job (#132)', async () => {
+      const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+      (context.prismaMock.$queryRaw as jest.Mock).mockResolvedValue([
+        { ...jobRow(), traceContext: traceparent },
+      ]);
+
+      const response = await request(server())
+        .post(`/api/nodes/${NODE_ID}/claim`)
+        .set(authHeader(admin.accessToken))
+        .send({})
+        .expect(200);
+
+      const [assignment] = response.body.data.jobs;
+      expect(assignment.traceparent).toBe(traceparent);
+      expect(assignment.job).not.toHaveProperty('traceContext');
+      expect(assignment.job).not.toHaveProperty('traceparent');
+    });
+
+    it.each([
+      ['no trace context', null],
+      ['a malformed stored value', 'not-a-traceparent'],
+    ])('sends traceparent: null for %s (#132)', async (_label, traceContext) => {
+      const admin = await createMockAdminUser(context);
+      givenNode(admin.id);
+      (context.prismaMock.$queryRaw as jest.Mock).mockResolvedValue([
+        { ...jobRow(), traceContext },
+      ]);
+
+      const response = await request(server())
+        .post(`/api/nodes/${NODE_ID}/claim`)
+        .set(authHeader(admin.accessToken))
+        .send({})
+        .expect(200);
+
+      const [assignment] = response.body.data.jobs;
+      expect(assignment).toHaveProperty('traceparent', null);
+    });
   });
 
   // ===========================================================================

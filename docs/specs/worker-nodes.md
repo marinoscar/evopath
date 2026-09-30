@@ -95,7 +95,7 @@ A node id belonging to another owner answers `403`, not `404`. Node ids are prin
 - A `disabled` node gets `403`: its answer will not change by polling.
 - A `draining` node gets an empty list: it is in a normal state and must keep heartbeating and renewing while it finishes.
 
-The claim response carries, per assignment, `{ job, params, renewIntervalMs, claimToken }`. `claimToken` sits beside the job DTO, not inside it (`dto/node-response.dto.ts`). `params` is a separate bag so a server-minted value is never mistaken for a column. The lease length is derived by `resolveJobLeaseMs` in `job.worker.ts`, the single derivation both executors read.
+The claim response carries, per assignment, `{ job, params, renewIntervalMs, claimToken, traceparent }`. `claimToken` sits beside the job DTO, not inside it (`dto/node-response.dto.ts`). `traceparent` (#132) is the W3C trace context of the span that enqueued the job (`jobs.trace_context`, see [job-queue.md, Trace context](job-queue.md#trace-context)), re-validated by `toNodeJobAssignment` and `null` when nothing was traced; it is correlation data, not a credential. It is optional for a node: an older CLI ignores the unknown key, and the CLI mirror (`NodeJobAssignment` in `apps/cli/src/node/node-api.ts`) declares it but does not use it yet. `params` is a separate bag so a server-minted value is never mistaken for a column. The lease length is derived by `resolveJobLeaseMs` in `job.worker.ts`, the single derivation both executors read.
 
 ### Lease and claim token
 
@@ -352,7 +352,7 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 | `apps/api/src/common/maintenance/maintenance.guard.spec.ts` | `OPAQUE_BEARER_PREFIXES` contains `NODE_TOKEN_PREFIX` |
 | `apps/api/test/auth/pat-universality.integration.spec.ts` | A PAT stays universal (why nodes need their own family) |
 | `apps/api/src/nodes/nodes.service.spec.ts` | Register-or-reattach incl. `P2002`; the three claim filters; lease guard's five conditions one at a time across `renew`/`result`/`failure` |
-| `apps/api/test/nodes/nodes.integration.spec.ts` | `409` on late submission, Zod issues in `details`, `claimToken` round trip, `400` for a non-uuid token; heartbeat vitals persisted and shown by the admin read, `400` for unknown or out-of-range vitals |
+| `apps/api/test/nodes/nodes.integration.spec.ts` | `409` on late submission, Zod issues in `details`, `claimToken` round trip, `400` for a non-uuid token; `traceparent` on the assignment (`null` when absent or malformed); heartbeat vitals persisted and shown by the admin read, `400` for unknown or out-of-range vitals |
 | `apps/api/src/nodes/dto/node-control-plane.dto.spec.ts` | Vitals schema: strict at both levels, every bound, a pre-vitals heartbeat still parses |
 | `apps/api/src/nodes/node-fleet-metrics.service.spec.ts` | Fleet gauges: health derivation, vitals freshness and the 200-node cap, counter mapping, no-eligible-node computation, no query while the gate is closed or OTel is off |
 | `apps/api/test/nodes/node-claim-contention.db.spec.ts` | Real Postgres: a node and the in-process worker never claim the same row |
@@ -419,3 +419,4 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - #364: claim token on the node control plane. #477: claim-conditional settle writes.
 - #129: node vitals on the heartbeat (`last_vitals`, `last_vitals_at`).
 - #131: fleet metrics (`app.nodes.*` gauges).
+- #132: `traceparent` on each claim assignment.

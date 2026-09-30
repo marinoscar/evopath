@@ -20,6 +20,9 @@
 
 import { Job, Prisma } from '@prisma/client';
 
+import { propagation } from '@opentelemetry/api';
+
+import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
 import { buildDedupKey } from './job-keys';
 import { isActiveDedupConflict, JobsService } from './jobs.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -197,6 +200,68 @@ describe('JobsService', () => {
       expect(data.priority).toBeUndefined();
       expect(data.scheduledFor).toBeUndefined();
       expect(data.payload).toBeUndefined();
+    });
+  });
+
+  describe('trace context (#132)', () => {
+    let tracing: TestTracing;
+
+    beforeEach(() => {
+      tracing = installTestTracing();
+      create.mockResolvedValue(jobRow());
+    });
+
+    afterEach(() => {
+      tracing.uninstall();
+    });
+
+    it('enqueue stores the active span as a W3C traceparent', async () => {
+      await tracing.tracer.startActiveSpan('POST /api/things', async (span) => {
+        await service.enqueue({ type: 'example.echo', reason: 'upload' });
+        const { traceId, spanId } = span.spanContext();
+        expect(create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ traceContext: `00-${traceId}-${spanId}-01` }),
+        });
+        span.end();
+      });
+    });
+
+    it('enqueueWithin stores it too — one builder, both paths', async () => {
+      const txCreate = jest.fn().mockResolvedValue(jobRow());
+      const tx = { job: { create: txCreate } } as unknown as Prisma.TransactionClient;
+
+      await tracing.tracer.startActiveSpan('POST /api/things', async (span) => {
+        await service.enqueueWithin(tx, { type: 'example.echo', reason: 'upload' });
+        expect(txCreate.mock.calls[0][0].data.traceContext).toBe(
+          `00-${span.spanContext().traceId}-${span.spanContext().spanId}-01`
+        );
+        span.end();
+      });
+    });
+
+    it('stores null when no span is active', async () => {
+      await service.enqueue({ type: 'example.echo', reason: 'upload' });
+      expect(create.mock.calls[0][0].data.traceContext).toBeNull();
+    });
+
+    it('stores null, and still enqueues, when the propagator yields an invalid value', async () => {
+      const inject = jest.spyOn(propagation, 'inject').mockImplementation((_ctx, carrier) => {
+        (carrier as Record<string, string>).traceparent = '00-not-a-traceparent';
+      });
+
+      await expect(service.enqueue({ type: 'example.echo', reason: 'upload' })).resolves.toBeDefined();
+      expect(create.mock.calls[0][0].data.traceContext).toBeNull();
+      inject.mockRestore();
+    });
+
+    it('never fails an enqueue because the propagator throws', async () => {
+      const inject = jest.spyOn(propagation, 'inject').mockImplementation(() => {
+        throw new Error('propagator exploded');
+      });
+
+      await expect(service.enqueue({ type: 'example.echo', reason: 'upload' })).resolves.toBeDefined();
+      expect(create.mock.calls[0][0].data.traceContext).toBeNull();
+      inject.mockRestore();
     });
   });
 
