@@ -4,8 +4,10 @@ import { AiAssignmentsModule } from '../ai/assignments/ai-assignments.module';
 import { AiConfigModule } from '../ai/config/ai-config.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
 import { JobsModule } from '../jobs/jobs.module';
+import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { StorageModule } from '../storage/storage.module';
 import { IntakeAnalyzeController, IntakesController } from './intake.controller';
+import { IntakeInputInspector } from './intake-input-inspector';
 import { IntakeKindRegistry } from './intake-kind.registry';
 import { IntakeService } from './intake.service';
 import { StorageObjectReferences } from './storage-object-references';
@@ -23,13 +25,15 @@ import { StorageObjectReferences } from './storage-object-references';
  * switch), `AiKeysModule` supplies `UsableModelsService` (the analyze
  * route's model gate), `AiAssignmentsModule` `AiFeatureModelResolver` (the
  * administrator-assigned model the analyzer uses, #173), `JobsModule` the enqueue and `StorageModule`
- * `ObjectsService` (deleting a discarded photo). `PrismaService` comes from
+ * `ObjectsService` (deleting a discarded photo), and `StorageProvidersModule`
+ * the `STORAGE_PROVIDER` `IntakeInputInspector` reads an attached file's bytes
+ * back through (magic bytes, PDF page count; H2, #186). `PrismaService` comes from
  * the global `PrismaModule`.
  */
 @Module({
-  imports: [AiAssignmentsModule, AiConfigModule, AiKeysModule, JobsModule, StorageModule],
+  imports: [AiAssignmentsModule, AiConfigModule, AiKeysModule, JobsModule, StorageModule, StorageProvidersModule],
   controllers: [IntakesController, IntakeAnalyzeController],
-  providers: [IntakeKindRegistry, IntakeService, StorageObjectReferences],
+  providers: [IntakeKindRegistry, IntakeService, IntakeInputInspector, StorageObjectReferences],
   exports: [IntakeKindRegistry, IntakeService, StorageObjectReferences],
 })
 export class IntakeModule {}

@@ -57,6 +57,7 @@ import { JobsService } from '../../src/jobs/jobs.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { loadExpectedDrafts, loadModelOutput, type GymScanExample } from '../fixtures/gym-scan.fixtures';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { trustingInputInspector } from '../../src/intake/testing/input-inspector.stub';
 
 const { describeWithDb } = resolveDbSuite('gym-equipment-scan.db.spec');
 
@@ -212,6 +213,7 @@ describeWithDb('"Scan gym" end to end (real Postgres)', () => {
       { assertUsable: jest.fn(async () => ({})) } as never,
       objects as never,
       stubFeatureResolver({ provider: HARNESS_PROVIDER, modelId: HARNESS_MODEL }) as never,
+      trustingInputInspector(),
       references,
     );
     handler = new EquipmentScanHandler(new JobHandlerRegistry(), harness.ai, intakes, vocabulary, prisma);

@@ -32,6 +32,7 @@ import {
   type AiRuntimeHarnessOptions,
 } from '../../src/ai/testing/ai-runtime-harness';
 import type { FakeAiScript } from '../../src/ai/testing/fake-ai-provider';
+import { IntakeInputInspector } from '../../src/intake/intake-input-inspector';
 import { TrainingModelResolver } from '../../src/training-agents/models/training-model-resolver.service';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
@@ -134,6 +135,9 @@ export async function createAiHttpTestApp(
       // the `ai.image.generate` handler read and write the same objects.
       { provide: AiStorageInputResolver, useValue: harness.inputs },
       { provide: AiOutputWriter, useValue: harness.outputs },
+      // H2 (#186): an intake attach reads the file's bytes back from the same
+      // in-memory storage (magic bytes, PDF page count).
+      { provide: IntakeInputInspector, useValue: new IntakeInputInspector(harness.storage.provider) },
       ...(extras.harnessUsableModels ? [{ provide: UsableModelsService, useValue: harness.usableModels }] : []),
       ...(featureResolver ? [{ provide: AiFeatureModelResolver, useValue: featureResolver }] : []),
       ...(extras.harnessTrainingResolver && featureResolver

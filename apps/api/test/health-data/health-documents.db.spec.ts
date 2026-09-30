@@ -52,6 +52,7 @@ import type { PrismaService } from '../../src/prisma/prisma.service';
 import { ObjectsService } from '../../src/storage/objects/objects.service';
 import { cleanupTmpDir, TmpDirStorageProvider } from '../helpers/tmp-storage-provider.helper';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { trustingInputInspector } from '../../src/intake/testing/input-inspector.stub';
 
 const { describeWithDb } = resolveDbSuite('health-documents.db.spec');
 
@@ -156,6 +157,7 @@ describeWithDb('health documents and file retention (real Postgres)', () => {
       { assertUsable: jest.fn(async () => ({})) } as never,
       objects,
       stubFeatureResolver({ provider: 'openai', modelId: 'vision-model' }) as never,
+      trustingInputInspector(),
       references,
     );
     purge = new HealthDocumentPurgeHandler(new JobHandlerRegistry(), prisma, objects, {

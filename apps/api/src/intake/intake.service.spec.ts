@@ -8,6 +8,8 @@ import { IntakeKindRegistry } from './intake-kind.registry';
 import { stubFeatureResolver } from '../ai/testing/feature-resolver.stub';
 import { IntakeService } from './intake.service';
 import { StorageObjectReferences } from './storage-object-references';
+import type { IntakeInputInspector } from './intake-input-inspector';
+import { trustingInputInspector } from './testing/input-inspector.stub';
 
 // =============================================================================
 // IntakeService — the provenance and state invariants, over a mocked Prisma
@@ -107,6 +109,7 @@ describe('IntakeService', () => {
   let usableModels: { assertUsable: jest.Mock };
   let objects: { delete: jest.Mock };
   let features: ReturnType<typeof stubFeatureResolver>;
+  let inputs: IntakeInputInspector;
   let service: IntakeService;
   let references: StorageObjectReferences;
   let kind: IntakeKind<unknown, StubValue>;
@@ -121,6 +124,7 @@ describe('IntakeService', () => {
     usableModels = { assertUsable: jest.fn(async () => ({})) };
     objects = { delete: jest.fn(async () => undefined) };
     features = stubFeatureResolver({ provider: 'openai', modelId: 'vision-1' });
+    inputs = trustingInputInspector();
     references = new StorageObjectReferences();
     service = new IntakeService(
       prisma as never,
@@ -129,6 +133,7 @@ describe('IntakeService', () => {
       usableModels as never,
       objects as never,
       features as never,
+      inputs,
       references,
     );
   });

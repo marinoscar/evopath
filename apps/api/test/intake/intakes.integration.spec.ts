@@ -43,6 +43,7 @@ import { forEachOperation, type MutableDocument } from '../../src/openapi/types'
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { mockPrismaTransaction } from '../mocks/prisma.mock';
 import { type AiHttpTestApp, createAiHttpTestApp } from '../ai/ai-http.helper';
+import { JPEG_BYTES } from '../../src/intake/testing/pdf-bytes';
 
 const INTAKE = '33333333-3333-4333-8333-333333333333';
 const ITEM = '44444444-4444-4444-8444-444444444444';
@@ -378,7 +379,9 @@ describe('/api/intakes over HTTP (E3.1)', () => {
     });
 
     it('attaches a ready image the caller owns (201)', async () => {
-      prisma.storageObject.findUnique.mockResolvedValue(readyImage);
+      // The attach reads the stored bytes back (magic bytes, H2 #186).
+      const stored = t.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'image/jpeg', bytes: JPEG_BYTES });
+      prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, storageKey: stored.storageKey });
       prisma.photoIntakePhoto.create.mockResolvedValue({
         id: '99999999-9999-4999-8999-999999999999',
         intakeId: INTAKE,
