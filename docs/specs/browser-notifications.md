@@ -287,7 +287,19 @@ timeout, and the admin needs the result inline. Nothing outlives the request.
 **Service worker.** A payload with `test: true` is always shown, even with a
 focused tab, and every window client gets a `push-test-received` message so
 the page can confirm end-to-end delivery. Clicking it navigates without
-marking a notification read.
+marking a notification read. A real (non-test) payload shows no OS
+notification while an app tab is visible and focused: the worker hands it to
+the page, and the in-app SSE toast covers it, which avoids a duplicate.
+
+**Icon attribution.** Android attributes a notification to the app that posts
+it. From a browser tab that is the browser (for example Chrome), which a site
+cannot override. The payload `icon` still appears as the large image and the
+`badge` is the status-bar glyph; the badge must be a white and transparent
+silhouette, or Android draws a blank square. An installed PWA (a WebAPK) is
+attributed to the app with its own icon; "Add to Home screen" as a plain
+shortcut is not. `apps/web/pwa/manifest.ts` already meets the installability
+requirements. The diagnostics report's `isStandalone: false` marks a browser
+tab.
 
 **UI.** The **Test & diagnostics** section on `/admin/settings/push`
 (`PushTestPanel.tsx`, `services/pushDiagnostics.ts`): permission check and
