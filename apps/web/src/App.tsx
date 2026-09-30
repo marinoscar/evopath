@@ -45,6 +45,7 @@ const TrainExercisesPage = lazy(() => import('./pages/TrainExercisesPage'));
 // E5.6: training plans, also under `/train` (owned by the `train` destination).
 const PlansPage = lazy(() => import('./pages/Train/PlansPage'));
 const PlanWizardPage = lazy(() => import('./pages/Train/PlanWizardPage'));
+const PlanRunPage = lazy(() => import('./pages/Train/PlanRunPage'));
 // E4.3: one workout (active logger or completed detail), also under `/train`.
 const WorkoutPage = lazy(() => import('./pages/WorkoutPage'));
 // E4.5: "Prefill from photo", photos to AI-drafted exercises the user reviews.
@@ -249,6 +250,16 @@ function AppRoutes() {
                       <RequirePermission permission="ai:use" fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
                         <RequireAiEnabled fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
                           <PlanWizardPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/train/plans/runs/:runId"
+                    element={
+                      <RequirePermission permission="ai:use" fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                        <RequireAiEnabled fallback={<Navigate to="/train/plans" replace state={PLANS_AI_REDIRECT} />}>
+                          <PlanRunPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }
