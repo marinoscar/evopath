@@ -105,6 +105,10 @@ const MIGRATIONS_AT_288 = [
   // #132: `jobs.trace_context` — the enqueuing request's W3C traceparent.
   // About job tracing, not notifications.
   '20260930120000_add_job_trace_context',
+  // E5.1: `programs`, `program_blocks`, `program_weeks`, `program_workouts`,
+  // `program_exercises`, `program_versions`, `program_change_log` and the
+  // `workouts.program_workout_id` foreign key. Not about notifications.
+  '20260930130000_add_training_programs',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

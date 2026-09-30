@@ -366,6 +366,22 @@ A workout is one logged training session of exercises and sets, stored in kilogr
 - **UI:** `/train`, `/train/workouts/:workoutId`, `/train/workouts/:workoutId/prefill`, and the Today card
 - **Permissions:** `workouts:read`, `workouts:write`; prefill also needs `exercises:write`
 
+### 5.25 Training programs
+
+A program is a user's training plan: a tree of blocks, weeks, workouts and exercise prescriptions, stored in kilograms, owner-scoped (another user's program is a 404). No AI is involved in this layer, so manual plans work with AI switched off.
+
+- **Tree:** `Program` > `ProgramBlock` > `ProgramWeek` > `ProgramWorkout` > `ProgramExercise`. Each exercise prescription references an `Exercise` (deletion restricted) and carries sets, a rep range, optional load and RPE, and rest.
+- **Immutable versions:** every content change bumps `Program.currentVersion` and writes a `ProgramVersion` row holding the full snapshot of the tree, its origin, rationale and evidence. `(programId, versionNumber)` is unique; version rows are never updated.
+- **Change log:** every change writes a `ProgramChangeLog` row (kind, actor, status, from and to version, operations, citations, `revertsLogId`). It is listed newest first with keyset pagination.
+- **One write chokepoint:** `ProgramsService.applyChange` is the only writer of an existing tree; manual edits (`PUT /api/programs/:id/structure`), reverts and future agent adaptations all go through it. `createWithTree` is the only other writer (version 1). The write diffs the tree against the stored rows in one transaction and bumps the version with a conditional update on `currentVersion`, so a stale `If-Match` is a 409 `TRAINING_STALE_PLAN` and nothing changes. An archived program refuses edits (`PROGRAM_ARCHIVED`).
+- **Revert:** `POST /api/programs/:id/revert` restores a version's tree as a new version (`origin: revert`), or undoes the latest applied change by `changeLogId`, marking that entry `reverted`. History is never rewritten.
+- **Archive, not delete:** a workout, week or block that has logged workouts linked to it is archived (`archivedAt`) instead of deleted, so history keeps its link; `DELETE /api/programs/:id` refuses with `PROGRAM_HAS_HISTORY` when any logged workout links in.
+- **One active program per user:** the raw-SQL partial unique index `programs_one_active_per_user_uniq_idx` (see [§6.1](#61-prisma-models)). Lifecycle: `draft`, `active`, `paused`, `archived`, `completed`.
+
+- **Code:** `apps/api/src/programs/` (`ProgramsModule`; contracts in `contracts/`, refusal reasons in `programs.constants.ts`)
+- **Routes:** `/api/programs` (including `/:id/structure`, `/:id/activate`, `/:id/pause`, `/:id/archive`, `/:id/duplicate`, `/:id/versions`, `/:id/revert` and `/:id/change-log`); details in `/api/docs` (tag "Programs")
+- **Permissions:** `programs:read`, `programs:write`
+
 ---
 
 ## 6. Data architecture
@@ -425,14 +441,21 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Gyms | `GymEquipmentPhoto` | `gym_equipment_photos` | Join of a gym equipment row to the gym photos that show it (composite key) |
 | Training | `Exercise` | `exercises` | Exercise keyed by a permanent `slug`: muscles, movement pattern, tracking mode, `origin` (`seed`, `user`, `ai`), `status` (`active`, `pending_review`), nullable `proposedByRunId` (no foreign key); `ownerUserId` null for the seeded library, set for a user's custom exercise |
 | Training | `ExerciseRequirement` | `exercise_requirements` | One option of one requirement group: `groupIndex`, and an equipment type or a capability (a CHECK allows exactly one); groups are ANDed, options inside a group ORed |
-| Training | `Workout` | `workouts` | One logged session: `date`, `status` (`in_progress`, `completed`), start and end times, `durationSeconds`, optional `gymId` (set null when the gym is deleted), `readinessSnapshot` JSON, reserved `programWorkoutId` (no foreign key); at most one `in_progress` row per user, enforced by the raw-SQL partial unique index `workouts_user_in_progress_uniq_idx` |
+| Training | `Workout` | `workouts` | One logged session: `date`, `status` (`in_progress`, `completed`), start and end times, `durationSeconds`, optional `gymId` (set null when the gym is deleted), `readinessSnapshot` JSON, optional `programWorkoutId` (foreign key to `program_workouts`, set null on delete); at most one `in_progress` row per user, enforced by the raw-SQL partial unique index `workouts_user_in_progress_uniq_idx` |
 | Training | `WorkoutExercise` | `workout_exercises` | One exercise in a workout at a dense 0-based `position`, with an optional equipment type used; the exercise reference restricts deletion of an exercise in use |
 | Training | `WorkoutPhoto` | `workout_photos` | Link from a workout to a `storage_objects` row (unique per object, cascade on both sides) with an optional caption; written when a `workout_prefill` intake is applied |
 | Training | `SetLog` | `set_logs` | One set: `setNumber` (dense from 1, unique per workout exercise), `weightKg`, `reps`, time, `distanceMeters`, RPE, RIR, rest, `isWarmup`, `completed`, `painFlag`; value ranges guarded by the `set_logs_ranges_chk` CHECK |
+| Training | `Program` | `programs` | One training plan per row: `name`, `goal`, `status` (`draft`, `active`, `paused`, `archived`, `completed`), `source`, `autonomy` (`autonomous`, `ask_first`), optional `gymId` (set null when the gym is deleted), `intake` JSON, `currentVersion`; at most one `active` row per user, enforced by the raw-SQL partial unique index `programs_one_active_per_user_uniq_idx` |
+| Training | `ProgramBlock` | `program_blocks` | A phase of a program at a `position`, with optional `focus`; `archivedAt` set instead of deletion when logged history exists |
+| Training | `ProgramWeek` | `program_weeks` | A week of a block (`weekNumber`, `isDeload`); cascade on the block; archived like blocks |
+| Training | `ProgramWorkout` | `program_workouts` | A planned session in a week: `position`, optional `weekday` (1 to 7), estimated minutes; logged workouts link to it through `workouts.program_workout_id` (set null on delete) |
+| Training | `ProgramExercise` | `program_exercises` | One prescription: exercise, `position`, `isPriority`, target sets, rep range, optional load (kg) and RPE, rest, `loadGuidance`, evidence refs; value ranges guarded by the `program_exercises_ranges_chk` CHECK |
+| Training | `ProgramVersion` | `program_versions` | Immutable full snapshot of a program's tree per `versionNumber` (unique with `programId`), with `origin`, rationale, evidence, optional plain `runId` |
+| Training | `ProgramChangeLog` | `program_change_log` | One change to a program: `kind`, `actor`, `status` (`applied`, `reverted`, ...), from and to version, `operations`, `citations`, `revertsLogId`, `seenAt`; indexed by `(programId, createdAt DESC)` |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
-Five indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `gyms_user_default_uniq_idx` (one default gym per user) `workouts_user_in_progress_uniq_idx` (one in-progress workout per user) and `training_plan_runs_active_per_user_uniq_idx` (one active training run per user). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
+Six indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `gyms_user_default_uniq_idx` (one default gym per user), `workouts_user_in_progress_uniq_idx` (one in-progress workout per user), `training_plan_runs_active_per_user_uniq_idx` (one active training run per user) and `programs_one_active_per_user_uniq_idx` (one active program per user). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
 
 ### 6.2 Settings storage
 
@@ -522,10 +545,12 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `exercises:write` | ✓ | ✓ | ✓ | Create, edit, approve and delete own custom exercises (`POST/PATCH/DELETE /api/exercises*`, `POST /api/exercises/:id/approve`) |
 | `workouts:read` | ✓ | ✓ | ✓ | Read own workouts, exercises and sets (`GET /api/workouts*`) |
 | `workouts:write` | ✓ | ✓ | ✓ | Start, edit, finish and delete own workouts, their exercises and sets (`POST/PATCH/DELETE /api/workouts*`) |
+| `programs:read` | ✓ | ✓ | ✓ | Read own training programs, versions and change log (`GET /api/programs*`) |
+| `programs:write` | ✓ | ✓ | ✓ | Create, edit, activate, pause, archive, duplicate, revert and delete own programs (`POST/PATCH/PUT/DELETE /api/programs*`) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`, `exercises:*`, `workouts:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`, `exercises:*`, `workouts:*`, `programs:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 

@@ -201,6 +201,8 @@ export const PERMISSIONS = [
   // Workout logging (E4.2): the caller's own workouts, self-service.
   { name: 'workouts:read', description: 'Read own workouts, exercises and sets' },
   { name: 'workouts:write', description: 'Create, edit and delete own workouts, exercises and sets' },
+  { name: 'programs:read', description: 'Read own training programs, versions and change log' },
+  { name: 'programs:write', description: 'Create, edit, activate, revert and archive own training programs' },
 ] as const;
 
 // Role to permissions mapping
@@ -285,6 +287,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.2 — own workout logging, self-service; all three roles.
     'workouts:read',
     'workouts:write',
+    // E5.1 — own training programs, self-service; all three roles. Running
+    // agents needs `ai:use` (Viewer lacks it).
+    'programs:read',
+    'programs:write',
   ],
   contributor: [
     'user_settings:read',
@@ -314,6 +320,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.2 — own workout logging, self-service; all three roles.
     'workouts:read',
     'workouts:write',
+    // E5.1 — own training programs, self-service; all three roles. Running
+    // agents needs `ai:use` (Viewer lacks it).
+    'programs:read',
+    'programs:write',
   ],
   viewer: [
     'user_settings:read',
@@ -338,6 +348,10 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.2 — own workout logging, self-service; all three roles.
     'workouts:read',
     'workouts:write',
+    // E5.1 — own training programs, self-service; all three roles. Running
+    // agents needs `ai:use` (Viewer lacks it).
+    'programs:read',
+    'programs:write',
     // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
     // is the DEFAULT role every new user lands in (see `ROLES` above and
     // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto

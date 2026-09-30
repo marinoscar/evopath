@@ -41,6 +41,7 @@ import { IntakeModule } from './intake/intake.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
+import { ProgramsModule } from './programs/programs.module';
 import { TrainingAgentsModule } from './training-agents/training-agents.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -245,6 +246,12 @@ import configuration from './config/configuration';
     // `ExercisesService` and `ExerciseAvailabilityService` for E4.2+ and E5.
     ExercisesModule,
     WorkoutsModule,
+
+    // Training programs (E5.1): `/api/programs` under `programs:*`: the plan
+    // tree, immutable versions, change log and revert. Exports
+    // `ProgramsService` (its `applyChange` is the single content writer) for
+    // the plan agents. Manual only; no AI import.
+    ProgramsModule,
 
     // Training agents (E5): the orchestration layer above `AiService`. Loads
     // `@langchain/langgraph` at boot (`GraphRuntimeInfo` logs its version), so

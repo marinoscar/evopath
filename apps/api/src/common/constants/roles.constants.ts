@@ -212,6 +212,11 @@ export const PERMISSIONS = {
   // Workout logging (E4.2): the caller's own workouts, self-service.
   WORKOUTS_READ: 'workouts:read',
   WORKOUTS_WRITE: 'workouts:write',
+
+  // Training programs (E5.1): the caller's own plans, self-service. Running
+  // agents additionally needs `ai:use`.
+  PROGRAMS_READ: 'programs:read',
+  PROGRAMS_WRITE: 'programs:write',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
