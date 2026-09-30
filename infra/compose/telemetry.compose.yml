@@ -88,6 +88,12 @@ services:
       # POSTGRES_SSL=true into the receiver's inverse `tls.insecure: false`
       # (see the comment on the postgresql receiver). Do not move it to .env.
       - POSTGRES_TLS_INSECURE_WHEN_SSL_true=false
+      # The httpcheck receiver's PUBLIC target (issue #124). Not an .env key:
+      # outside a VPS there is no public origin the collector can reach
+      # (APP_URL=http://localhost:3535 is the collector itself in here), so it
+      # checks nginx's own health route instead. vps.telemetry.compose.yml
+      # replaces it with <APP_URL>/api/health/live, which adds TLS expiry.
+      - UPTIME_PUBLIC_URL=http://nginx/nginx-health
     ports:
       - "4327:4317"   # OTLP gRPC receiver (remapped to avoid conflict)
       - "4328:4318"   # OTLP HTTP receiver (remapped to avoid conflict)

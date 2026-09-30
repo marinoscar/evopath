@@ -422,6 +422,91 @@ provider's admin login. `host_name` is the collector's host, not the database's.
 | Collector cannot resolve the host on a VPS | Shared `postgres` container is on `devnet` | Confirm the collector is on `devnet` (`telemetry.compose.yml`) and `POSTGRES_HOST` matches the container name |
 | Database unreachable | Down or blocked | The collector keeps running and other pipelines are unaffected; it logs a scrape error every 30 s until the server returns |
 
+### 8.3 Uptime, TLS and edge metrics
+
+The collector probes three URLs every 30 s and reads nginx's connection
+counters. Nothing to enable: they flow whenever the collector does. Query them
+in the Explorer; the dashboard does not show them. Tables:
+[spec §11.3](../specs/telemetry.md#113-column-findings-verified-live-greptimedb-v121).
+
+**What is checked:**
+
+| URL | Meaning |
+|---|---|
+| `http://nginx/api/health/live` | The app through the edge |
+| `http://api:3000/api/health/live` | The API alone. Up here but down via nginx is a proxy fault. |
+| `UPTIME_PUBLIC_URL` | The public origin, with TLS certificate expiry for `https` |
+
+The probe uses liveness, so a PostgreSQL outage or maintenance mode does not
+read as the API being down.
+
+**`UPTIME_PUBLIC_URL`.** It is not an `.env` key; the overlays set it:
+
+| Deployment | Value | Result |
+|---|---|---|
+| Development and non-VPS (`telemetry.compose.yml`) | `http://nginx/nginx-health` | Edge-only check, no TLS rows |
+| VPS (`vps.telemetry.compose.yml`) | `${APP_URL:-http://nginx}/api/health/live` | `evopathcli deploy` derives `APP_URL=https://<domain>`, so TLS expiry works with no setup |
+
+**Verify.** After one or two scrape intervals, in the Explorer:
+
+```sql
+SHOW TABLES LIKE 'httpcheck_%'
+```
+
+You should see `httpcheck_status` and `httpcheck_duration_milliseconds`, plus
+`httpcheck_tls_cert_remaining_seconds` on a VPS. `httpcheck_error` exists only
+after a failure. For nginx, `SHOW TABLES LIKE 'nginx_%'` lists the four tables.
+
+**Caveats**
+
+- Certificates are verified. An expired or mismatched certificate fails the
+  handshake: no `cert_remaining` row is written and an `httpcheck_error` row
+  names the cause.
+- On a VPS the collector reaches its own domain through NAT hairpin. A network
+  that blocks hairpin produces `httpcheck_error` rows for the public URL only.
+- `--skip-proxy` installs derive `APP_URL=https://localhost`, so the public
+  check fails there. That is expected.
+- `httpcheck_status` has five rows per URL per scrape, one per status class.
+  Filter on `greptime_value = 1`.
+- The nginx status endpoint is internal (port 8081, not published), so you
+  cannot open it from outside the compose network.
+
+**Example queries**
+
+Latest status per URL:
+
+```sql
+SELECT DISTINCT ON (http_url) http_url, http_status_code, greptime_timestamp
+FROM httpcheck_status
+WHERE greptime_value = 1
+ORDER BY http_url, greptime_timestamp DESC
+```
+
+Days of certificate left:
+
+```sql
+SELECT DISTINCT ON (http_url) http_url, greptime_value / 86400 AS days_left
+FROM httpcheck_tls_cert_remaining_seconds
+ORDER BY http_url, greptime_timestamp DESC
+```
+
+Recent failures and their cause:
+
+```sql
+SELECT greptime_timestamp, http_url, error_message
+FROM httpcheck_error
+WHERE greptime_timestamp > now() - INTERVAL '1 hour'
+ORDER BY greptime_timestamp DESC
+```
+
+Current nginx connections by state:
+
+```sql
+SELECT DISTINCT ON (state) state, greptime_value
+FROM nginx_connections_current
+ORDER BY state, greptime_timestamp DESC
+```
+
 ## 9. Point a deployment at a GreptimeDB, or rotate credentials, from the UI
 
 The GreptimeDB connection the API uses is resolved at runtime, not fixed

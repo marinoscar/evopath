@@ -141,3 +141,34 @@ describe('telemetry.compose.yml collector reaches PostgreSQL (#123)', () => {
     for (const key of used) expect(keys.has(key ?? ''), key).toBe(true);
   });
 });
+
+describe('httpcheck public target (#124)', () => {
+  const telemetry = readFileSync(resolve(COMPOSE_DIR, 'telemetry.compose.yml'), 'utf8');
+  const vps = readFileSync(resolve(COMPOSE_DIR, 'vps.telemetry.compose.yml'), 'utf8');
+  const collectorConfig = readFileSync(
+    resolve(COMPOSE_DIR, '..', 'otel', 'otel-collector-config.yaml'),
+    'utf8',
+  );
+
+  it('is read by the collector config from UPTIME_PUBLIC_URL', () => {
+    expect(collectorConfig).toMatch(/- endpoint: \$\{env:UPTIME_PUBLIC_URL\}/);
+  });
+
+  it('defaults to an in-stack URL outside a VPS, never to APP_URL', () => {
+    // APP_URL is http://localhost:3535 in development: inside the collector
+    // container that is the collector itself, so every check would fail.
+    expect(telemetry).toContain('- UPTIME_PUBLIC_URL=http://nginx/nginx-health');
+  });
+
+  it('points at the public APP_URL on a VPS, with an in-stack fallback', () => {
+    expect(vps).toContain('- UPTIME_PUBLIC_URL=${APP_URL:-http://nginx}/api/health/live');
+  });
+
+  it('is not a key of .env.example (compose derives it)', () => {
+    const template = readFileSync(resolve(COMPOSE_DIR, '.env.example'), 'utf8');
+    const keys = new Set(parseEnvExample(template).map((spec) => spec.key));
+
+    expect(keys.has('UPTIME_PUBLIC_URL')).toBe(false);
+    expect(keys.has('APP_URL')).toBe(true);
+  });
+});
