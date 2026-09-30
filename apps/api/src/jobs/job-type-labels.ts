@@ -125,6 +125,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Reads a scale or blood-pressure-cuff display off a photo intake into draft
   // readings the user reviews (E2.6, #64) — `POST /api/intakes/:id/analyze`.
   'ai.health.body_metric_reading': 'AI photo reading (body metric)',
+  // Transcribes a lab report (PDF or page photos) into draft lab results the
+  // user reviews (H4, #188) — `POST /api/intakes/:id/analyze`.
+  'ai.health.lab_report': 'AI lab report reading',
   // One agentic training run's graph (planner, critic, evaluator, ...), from
   // `POST /api/ai/training/runs`, a resume or a decision.
   'ai.training.plan.run': 'Training plan run',
