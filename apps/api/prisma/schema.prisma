@@ -43,6 +43,7 @@ model User {
   workouts               Workout[]
   programs               Program[]
   programChanges         ProgramChangeLog[]
+  programSessions        ProgramSession[]
   trainingPlanRuns       TrainingPlanRun[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
@@ -2938,6 +2939,7 @@ model Workout {
   programWorkout ProgramWorkout?   @relation(fields: [programWorkoutId], references: [id], onDelete: SetNull)
   exercises      WorkoutExercise[]
   photos         WorkoutPhoto[]
+  programSession ProgramSession?
 
   @@index([userId, date(sort: Desc)])
   @@index([userId, status])
@@ -3136,6 +3138,7 @@ model Program {
   weeks    ProgramWeek[]
   versions ProgramVersion[]
   changes  ProgramChangeLog[]
+  sessions ProgramSession[]
 
   @@index([userId, status])
   @@map("programs")
@@ -3190,6 +3193,7 @@ model ProgramWorkout {
   week      ProgramWeek       @relation(fields: [weekId], references: [id], onDelete: Cascade)
   exercises ProgramExercise[]
   logged    Workout[]
+  sessions  ProgramSession[]
 
   @@index([weekId, position])
   @@map("program_workouts")
@@ -3266,4 +3270,29 @@ model ProgramChangeLog {
 
   @@index([programId, createdAt(sort: Desc)])
   @@map("program_change_log")
+}
+
+// A logged workout started from a planned one (E5.7): the link plus the
+// prescription AS IT WAS at start, so a later plan change never rewrites what
+// was planned for a past session. Planned-versus-done reads this row.
+model ProgramSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  programId        String   @map("program_id") @db.Uuid
+  programWorkoutId String?  @map("program_workout_id") @db.Uuid // SetNull backstop; workouts with history are archived, not deleted
+  workoutId        String   @unique @map("workout_id") @db.Uuid // the E4 workout; deleting it removes the link
+  versionNumber    Int      @map("version_number") // the plan version the session was started from
+  plannedSnapshot  Json     @map("planned_snapshot") // [{ exerciseId, slug, sets, repMin, repMax, targetRpe, targetLoadKg, loadGuidance, isPriority }]
+  plannedFor       DateTime @map("planned_for") @db.Date // the occurrence date the client asked for
+  startedAt        DateTime @default(now()) @map("started_at") @db.Timestamptz
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program        Program         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  programWorkout ProgramWorkout? @relation(fields: [programWorkoutId], references: [id], onDelete: SetNull)
+  workout        Workout         @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@index([programId, plannedFor])
+  @@index([programWorkoutId])
+  @@index([userId])
+  @@map("program_sessions")
 }
