@@ -112,6 +112,10 @@ const MIGRATIONS_AT_288 = [
   // E5.7: `program_sessions` — a logged workout's link to the planned one,
   // with the prescription snapshotted at start. Not about notifications.
   '20260930140000_add_program_sessions',
+  // E5.8: `programs` evaluation state (requested/evaluated timestamps, the
+  // automation pause) and the `missed_sessions` run trigger. About plan
+  // evaluation, not notifications.
+  '20260930150000_add_program_evaluation_state',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

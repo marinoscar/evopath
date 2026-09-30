@@ -37,7 +37,15 @@ export const CANCELLABLE_RUN_STATUSES: readonly TrainingRunStatus[] = [
   'interrupted',
 ];
 
-export const TRAINING_RUN_TRIGGERS = ['user', 'weekly', 'workout_finished', 'manual', 'resume', 'system'] as const;
+export const TRAINING_RUN_TRIGGERS = [
+  'user',
+  'weekly',
+  'workout_finished',
+  'missed_sessions',
+  'manual',
+  'resume',
+  'system',
+] as const;
 
 export type TrainingRunTrigger = (typeof TRAINING_RUN_TRIGGERS)[number];
 

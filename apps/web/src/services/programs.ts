@@ -40,8 +40,8 @@ export type ProgramSource = 'ai' | 'manual';
 export const VERSION_ORIGINS = ['initial', 'ai_create', 'ai_adapt', 'manual_edit', 'revert', 'duplicate'] as const;
 export type VersionOrigin = (typeof VERSION_ORIGINS)[number];
 
-export type ChangeKind = 'created' | 'adapted' | 'edited' | 'reverted';
-export type ChangeActor = 'ai' | 'user';
+export type ChangeKind = 'created' | 'adapted' | 'edited' | 'reverted' | 'reviewed';
+export type ChangeActor = 'ai' | 'user' | 'system';
 export const CHANGE_STATUSES = ['applied', 'proposed', 'rejected', 'reverted', 'superseded', 'expired'] as const;
 export type ChangeStatus = (typeof CHANGE_STATUSES)[number];
 

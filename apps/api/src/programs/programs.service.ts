@@ -49,6 +49,7 @@ import {
   PROGRAM_REASONS,
   PROGRAM_TRANSITIONS,
   PROGRAM_TX_TIMEOUT_MS,
+  REVIEW_KINDS,
   START_DATE_FUTURE_DAYS,
   START_DATE_PAST_DAYS,
   isActiveProgramConflict,
@@ -287,9 +288,12 @@ export class ProgramsService {
     if (input.changeLogId !== undefined) {
       const entry = await this.prisma.programChangeLog.findFirst({
         where: { id: input.changeLogId, programId },
-        select: { id: true, fromVersion: true },
+        select: { id: true, fromVersion: true, kind: true },
       });
       if (!entry) throw new NotFoundException('Change log entry not found');
+      if (REVIEW_KINDS.includes(entry.kind as ChangeKind)) {
+        throw conflict(PROGRAM_REASONS.NOT_REVERTIBLE, 'This entry is a review that changed nothing; there is nothing to undo.');
+      }
       if (entry.fromVersion === null) {
         throw conflict(PROGRAM_REASONS.NOT_REVERTIBLE, 'This change created the plan and cannot be undone; archive the plan instead.');
       }
@@ -341,7 +345,7 @@ export class ProgramsService {
           });
           if (reverted.count === 0) {
             const latest = await tx.programChangeLog.findFirst({
-              where: { programId, status: 'applied', toVersion: expectedVersion },
+              where: { programId, status: 'applied', toVersion: expectedVersion, kind: { notIn: [...REVIEW_KINDS] } },
               orderBy: { createdAt: 'desc' },
               select: { id: true },
             });
@@ -613,7 +617,7 @@ export class ProgramsService {
         select: { versionNumber: true, origin: true, createdAt: true, runId: true },
       }),
       this.prisma.programChangeLog.findMany({
-        where: { programId, toVersion: { not: null }, status: { not: 'proposed' } },
+        where: { programId, toVersion: { not: null }, status: { not: 'proposed' }, kind: { notIn: [...REVIEW_KINDS] } },
         orderBy: { createdAt: 'asc' },
         select: { id: true, summary: true, toVersion: true },
       }),
@@ -639,7 +643,7 @@ export class ProgramsService {
         },
       }),
       this.prisma.programChangeLog.findFirst({
-        where: { programId, toVersion: versionNumber, status: { not: 'proposed' } },
+        where: { programId, toVersion: versionNumber, status: { not: 'proposed' }, kind: { notIn: [...REVIEW_KINDS] } },
         orderBy: { createdAt: 'desc' },
         select: { id: true, summary: true },
       }),
