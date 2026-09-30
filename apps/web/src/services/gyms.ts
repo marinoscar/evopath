@@ -255,7 +255,10 @@ export function listGyms(options: { includeTemporary?: boolean } = {}): Promise<
   return api.get<GymSummary[]>(`/gyms${query}`);
 }
 
-/** `POST /gyms` (`gyms:write`). The first gym of a user becomes the default. */
+/**
+ * `POST /gyms` (`gyms:write`). The first permanent gym of a user becomes the
+ * default; a temporary gym never does (E6.2).
+ */
 export function createGym(input: GymInput): Promise<GymDetail> {
   return api.post<GymDetail>('/gyms', input);
 }
@@ -278,6 +281,16 @@ export async function deleteGym(id: string): Promise<void> {
 /** `POST /gyms/:id/default` (`gyms:write`). */
 export function setDefaultGym(id: string): Promise<GymDetail> {
   return api.post<GymDetail>(`${gymPath(id)}/default`);
+}
+
+/**
+ * "Save gym" (E6.2): promote a temporary gym to a permanent one, optionally
+ * renamed and retyped. `PATCH /gyms/:id { isTemporary: false }` keeps the
+ * same id, so workouts and adaptations that reference it keep working; the
+ * API decides the default (it only fills an empty default slot).
+ */
+export function saveTemporaryGym(id: string, input: { name?: string; type?: GymType } = {}): Promise<GymDetail> {
+  return updateGym(id, { ...input, isTemporary: false });
 }
 
 /** `PUT /gyms/:id/location` body (E3.5). */
@@ -438,3 +451,78 @@ export function isForbidden(err: unknown): boolean {
 export const GYMS_UNAVAILABLE = 'Gyms are not available for your account.';
 export const PHOTOS_UNAVAILABLE =
   'Adding photos needs permission to upload files, which your account does not have.';
+
+// -----------------------------------------------------------------------------
+// Temporary gyms (E6.2): the hotel flow's lifecycle
+// -----------------------------------------------------------------------------
+
+/** `details.reason` values of the gyms API the web app explains. */
+export const GYM_REFUSALS = {
+  GYM_LIMIT: 'GYM_LIMIT',
+  DEFAULT_CONFLICT: 'DEFAULT_CONFLICT',
+  TEMPORARY_GYM_NOT_DEFAULT: 'TEMPORARY_GYM_NOT_DEFAULT',
+} as const;
+
+/** Most gyms one user may have (mirrors the API's `MAX_GYMS_PER_USER`). */
+export const MAX_GYMS_PER_USER = 50;
+
+/**
+ * Days a temporary gym may sit unchanged before the daily purge deletes it
+ * (mirrors the API's `TEMPORARY_GYM_RETENTION_DAYS`; display only, the
+ * purge job decides).
+ */
+export const TEMPORARY_GYM_RETENTION_DAYS = 30;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Whole days until `updatedAt + 30 days`, never negative; `null` for an unreadable date. */
+export function temporaryGymDaysLeft(updatedAt: string, now: number = Date.now()): number | null {
+  const changed = Date.parse(updatedAt);
+  if (!Number.isFinite(changed)) return null;
+  const left = changed + TEMPORARY_GYM_RETENTION_DAYS * DAY_MS - now;
+  return Math.max(0, Math.ceil(left / DAY_MS));
+}
+
+/** "Expires in 12 days", "Expires in 1 day", "Expires today". */
+export function temporaryGymExpiryText(updatedAt: string, now: number = Date.now()): string {
+  const days = temporaryGymDaysLeft(updatedAt, now);
+  if (days === null) return `Expires ${TEMPORARY_GYM_RETENTION_DAYS} days after its last change`;
+  if (days === 0) return 'Expires today';
+  return `Expires in ${days} ${days === 1 ? 'day' : 'days'}`;
+}
+
+/** The `details.reason` of a failed gyms call, or `null`. */
+export function gymRefusalReason(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  const details = err.details;
+  if (details && typeof details === 'object' && typeof (details as { reason?: unknown }).reason === 'string') {
+    return (details as { reason: string }).reason;
+  }
+  return null;
+}
+
+export const GYM_LIMIT_MESSAGE = `You have ${MAX_GYMS_PER_USER} gyms; delete a saved one or wait for temporary gyms to expire.`;
+export const TEMPORARY_GYM_NOT_DEFAULT_MESSAGE = 'Save this gym before making it your default.';
+
+/**
+ * A failed gyms call in words, with the gyms-API refusals the E6.2 flow meets
+ * spelled out; anything else falls back to {@link gymErrorMessage}.
+ */
+export function gymRefusalMessage(err: unknown, fallback: string): string {
+  switch (gymRefusalReason(err)) {
+    case GYM_REFUSALS.GYM_LIMIT:
+      return GYM_LIMIT_MESSAGE;
+    case GYM_REFUSALS.TEMPORARY_GYM_NOT_DEFAULT:
+      return TEMPORARY_GYM_NOT_DEFAULT_MESSAGE;
+    case GYM_REFUSALS.DEFAULT_CONFLICT:
+      return 'Your gyms changed at the same moment. Try again.';
+    default:
+      return gymErrorMessage(err, fallback);
+  }
+}
+
+/** "Hotel gym Sep 30": the hotel flow's default name. */
+export function hotelGymDefaultName(date: Date = new Date()): string {
+  const short = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `Hotel gym ${short}`;
+}

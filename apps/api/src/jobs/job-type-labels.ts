@@ -135,6 +135,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'training.runs.purge': 'Training runs purge',
   // Daily deletion of workout adaptations past `expires_at` (30 days).
   'training.adaptations.purge': 'Workout adaptations purge',
+  // Daily deletion of abandoned temporary gyms (E6.2, the hotel flow): older
+  // than 30 days and referenced by no workout, live adaptation, plan or scan.
+  'gyms.temporary.purge': 'Temporary gym purge',
   // Hourly: expires unanswered plan proposals and starts the weekly,
   // missed-sessions and deferred plan evaluations that are due.
   'training.evaluation.sweep': 'Training evaluation sweep',

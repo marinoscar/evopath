@@ -30,6 +30,9 @@ import type { PlannedExercise } from '../components/training/adapt/adaptationDif
 import { ACTIVE_ADAPTATION_STATUSES } from '../services/trainingAdaptation';
 import { useAgentRunUsage } from '../hooks/useAgentUsage';
 import { AgentUsagePanel } from '../components/training/usage';
+import { useGyms } from '../hooks/useGyms';
+import { SaveGymPrompt } from '../components/gyms/SaveGymPrompt';
+import type { GymSummary } from '../services/gyms';
 
 export const COPY_EXERCISES_NOTICE = 'The adjusted exercises were copied. Add them from the exercise library.';
 
@@ -54,6 +57,20 @@ export default function AdaptationReviewPage({ runOptions, previewDelayMs }: Ada
   const canApplyWorkout = hasPermission('workouts:write');
   const canApplyPlan = hasPermission('programs:write');
   const today = useTrainingToday({ enabled: canReadPrograms && !!adaptation?.baseRef });
+
+  // E6.2: an adaptation for a temporary gym applied as a plan change asks
+  // "Save {name} for future use?". The target is captured once, so the
+  // outcome stays on screen after the list refetches.
+  const planChangeGymId =
+    adaptation?.status === 'applied' && adaptation.appliedAs === 'plan_change' ? adaptation.gymId : null;
+  const canSaveGym = hasPermission('gyms:read') && hasPermission('gyms:write');
+  const { gyms, save: saveGym } = useGyms({ enabled: canSaveGym && !!planChangeGymId });
+  const [promptGym, setPromptGym] = useState<GymSummary | null>(null);
+  useEffect(() => {
+    if (promptGym || !planChangeGymId) return;
+    const gym = gyms.find((g) => g.id === planChangeGymId);
+    if (gym?.isTemporary) setPromptGym(gym);
+  }, [gyms, planChangeGymId, promptGym]);
 
   const status = adaptation?.status;
   const working = !!status && ACTIVE_ADAPTATION_STATUSES.includes(status);
@@ -210,6 +227,16 @@ export default function AdaptationReviewPage({ runOptions, previewDelayMs }: Ada
           Adjusted workout
         </Typography>
         {body}
+        {promptGym && (
+          <Box sx={{ mt: 2 }}>
+            <SaveGymPrompt
+              gym={promptGym}
+              otherGyms={gyms}
+              headingComponent="h2"
+              onSave={(input) => saveGym(promptGym.id, input)}
+            />
+          </Box>
+        )}
         {usageRunId && (
           <Box sx={{ mt: 3 }}>
             <AgentUsagePanel runId={usageRunId} state={runUsage} />

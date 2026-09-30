@@ -41,7 +41,8 @@ import { useGym } from '../hooks/useGym';
 import {
   GYMS_UNAVAILABLE,
   GYM_TYPE_LABEL,
-  gymErrorMessage,
+  gymRefusalMessage,
+  temporaryGymExpiryText,
   type GymEquipment,
   type GymPhoto,
 } from '../services/gyms';
@@ -56,6 +57,7 @@ import { useCompactDialog } from '../components/gyms/useCompactDialog';
 import { deleteGymMessage } from '../components/gyms/gymCopy';
 import { ScanGymButton } from '../components/gyms/ScanGymButton';
 import { GymLocationField } from '../components/gyms/GymLocationField';
+import { SaveGymDialog } from '../components/gyms/SaveGymPrompt';
 import type { GymDetailLocationState } from '../services/gymScan';
 
 const EDIT_FORM_ID = 'gym-edit-form';
@@ -73,6 +75,7 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
   const g = useGym(gymId);
   const incoming = (location.state ?? null) as GymDetailLocationState | null;
   const [editOpen, setEditOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(Boolean(incoming?.openPicker) && canWrite);
   const [flash, setFlash] = useState<string | null>(incoming?.flash ?? null);
@@ -144,7 +147,7 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
     try {
       await g.setDefault();
     } catch (err) {
-      setActionError(gymErrorMessage(err, 'Could not set the default gym'));
+      setActionError(gymRefusalMessage(err, 'Could not set the default gym'));
     } finally {
       setDefaultBusy(false);
     }
@@ -188,6 +191,11 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
             {gym.isDefault && <Chip size="small" color="primary" label="Default" />}
             {gym.isTemporary && <Chip size="small" color="secondary" variant="outlined" label="Temporary" />}
           </Stack>
+          {gym.isTemporary && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-testid="gym-detail-expiry">
+              {temporaryGymExpiryText(gym.updatedAt)} unless you save it.
+            </Typography>
+          )}
           {gym.description && (
             <Typography sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>{gym.description}</Typography>
           )}
@@ -202,7 +210,12 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
             <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
               Edit
             </Button>
-            {!gym.isDefault && (
+            {gym.isTemporary && (
+              <Button variant="contained" onClick={() => setSaveOpen(true)}>
+                Save gym
+              </Button>
+            )}
+            {!gym.isDefault && !gym.isTemporary && (
               <Button onClick={() => void makeDefault()} disabled={defaultBusy}>
                 Set default
               </Button>
@@ -310,6 +323,13 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
           </Button>
         </DialogActions>
       </Dialog>
+
+      <SaveGymDialog
+        open={saveOpen}
+        gym={gym.isTemporary ? gym : null}
+        onClose={() => setSaveOpen(false)}
+        onSave={(input) => g.update({ ...input, isTemporary: false })}
+      />
 
       <EquipmentPickerDialog
         open={pickerOpen}

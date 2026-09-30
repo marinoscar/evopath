@@ -85,6 +85,8 @@ export const ADAPTATION_REASONS = {
   NOTHING_TO_CHANGE: 'ADAPTATION_NOTHING_TO_CHANGE',
   /** 400: an `only` equipment type is not in the chosen gym. */
   EQUIPMENT_NOT_IN_GYM: 'ADAPTATION_EQUIPMENT_NOT_IN_GYM',
+  /** 400: the chosen gym is temporary and has no equipment, and the request is not bodyweight-only (E6.2). */
+  GYM_EQUIPMENT_UNCONFIRMED: 'ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED',
   /** 409: another adaptation is queued or running (`details.adaptationId`). */
   IN_PROGRESS: 'ADAPTATION_IN_PROGRESS',
   /** 409: a role has no usable model (`details.role`, `details.state`), the E5 kit's reason. */

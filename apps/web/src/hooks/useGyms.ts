@@ -5,10 +5,12 @@ import {
   gymErrorMessage,
   isForbidden,
   listGyms,
+  saveTemporaryGym,
   setDefaultGym,
   type GymDetail,
   type GymInput,
   type GymSummary,
+  type GymType,
 } from '../services/gyms';
 import { useIsMounted } from './useIsMounted';
 
@@ -29,6 +31,8 @@ export interface UseGymsReturn {
   create: (input: GymInput) => Promise<GymDetail>;
   setDefault: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  /** "Save gym" (E6.2): make a temporary gym permanent (same id), then refetch. */
+  save: (id: string, input?: { name?: string; type?: GymType }) => Promise<void>;
 }
 
 /** E3.3. The caller's gyms, `GET /api/gyms`, with the list-level mutations. */
@@ -88,5 +92,13 @@ export function useGyms({ enabled = true }: UseGymsOptions = {}): UseGymsReturn 
     [refresh],
   );
 
-  return { gyms, isLoading, error, forbidden, refresh, create, setDefault, remove };
+  const save = useCallback(
+    async (id: string, input: { name?: string; type?: GymType } = {}) => {
+      await saveTemporaryGym(id, input);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  return { gyms, isLoading, error, forbidden, refresh, create, setDefault, remove, save };
 }

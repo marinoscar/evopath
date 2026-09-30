@@ -304,6 +304,31 @@ describe('effectiveInventory', () => {
     expect(() => effectiveInventory(onlyDumbbellsRequest(), null)).toThrow(AdaptationContextError);
   });
 
+  describe('a temporary gym (E6.2, the hotel flow)', () => {
+    const emptyTemporary = { ...ADAPT_FULL_GYM, isTemporary: true, equipment: [], capabilities: [] };
+
+    it('with no equipment is ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED in the gym and only modes', () => {
+      for (const request of [adaptationRequestFixture({ minutes: 30 }), onlyDumbbellsRequest()]) {
+        expect(() => effectiveInventory(request, emptyTemporary)).toThrow(
+          expect.objectContaining({ code: 'ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED', message: 'Confirm the equipment first' }),
+        );
+      }
+    });
+
+    it('with no equipment is fine for bodyweight only', () => {
+      const request = adaptationRequestFixture({ minutes: 30, equipment: { mode: 'bodyweight' } });
+      expect(effectiveInventory(request, emptyTemporary)).toEqual({ inventory: null, names: [] });
+    });
+
+    it('with confirmed equipment works like any gym; an empty PERMANENT gym is not refused', () => {
+      const confirmed = effectiveInventory(adaptationRequestFixture({ minutes: 30 }), { ...ADAPT_FULL_GYM, isTemporary: true });
+      expect(confirmed.inventory!.equipmentTypeIds).toHaveLength(ADAPT_FULL_GYM.equipment.length);
+
+      const emptyPermanent = { ...emptyTemporary, isTemporary: false };
+      expect(effectiveInventory(adaptationRequestFixture({ minutes: 30 }), emptyPermanent).inventory!.equipmentTypeIds).toEqual([]);
+    });
+  });
+
   it('no gym means bodyweight only; the gym mode keeps every type', () => {
     expect(effectiveInventory(adaptationRequestFixture({ minutes: 30 }), null)).toEqual({ inventory: null, names: [] });
     const all = effectiveInventory(adaptationRequestFixture({ minutes: 30 }), ADAPT_FULL_GYM);

@@ -8,13 +8,14 @@ import { describe, it, expect } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
-import { render, screen, waitFor } from '../utils/test-utils';
+import { render, screen, waitFor, within } from '../utils/test-utils';
 import { server } from '../mocks/server';
 import AdaptationReviewPage from '../../pages/AdaptationReviewPage';
 import { fakeRunStream } from '../utils/fakeRunStream';
 import { mockRun } from '../mocks/fixtures/programs';
 import { ADAPTATION_ID, ADAPT_RUN_ID, adaptRunEvents, mockAdaptation } from '../mocks/fixtures/adaptations';
 import type { AdaptationView } from '../../services/trainingAdaptation';
+import { mockGymDetail, statefulGymsApi } from '../mocks/fixtures/gyms';
 
 function serve(initial: AdaptationView) {
   let current = initial;
@@ -121,5 +122,34 @@ describe('AdaptationReviewPage', () => {
     );
     renderPage();
     expect(await screen.findByText(/does not exist, it expired, or it is not yours/)).toBeInTheDocument();
+  });
+
+  describe('a temporary gym applied as a plan change (E6.2)', () => {
+    const HOTEL_ID = '00000000-0000-4000-8000-a00000000e62';
+
+    it('asks "Save {name} for future use?" and saves it', async () => {
+      const gyms = statefulGymsApi([
+        mockGymDetail({ id: HOTEL_ID, name: 'Hotel gym Sep 30', type: 'hotel', isDefault: false, isTemporary: true }),
+      ]);
+      serve(mockAdaptation({ status: 'applied', appliedAs: 'plan_change', gymId: HOTEL_ID }));
+      const user = userEvent.setup();
+      renderPage();
+      const prompt = await screen.findByRole('region', { name: 'Save Hotel gym Sep 30 for future use?' });
+      expect(within(prompt).getByRole('heading', { level: 2 })).toBeInTheDocument();
+      await user.click(within(prompt).getByRole('button', { name: 'Save gym' }));
+      await user.click(within(prompt).getByRole('button', { name: 'Save' }));
+      expect(await screen.findByTestId('save-gym-saved')).toBeInTheDocument();
+      expect(gyms.gyms[0].isTemporary).toBe(false);
+    });
+
+    it('does not ask when the adaptation was used for today only', async () => {
+      statefulGymsApi([
+        mockGymDetail({ id: HOTEL_ID, name: 'Hotel gym Sep 30', type: 'hotel', isDefault: false, isTemporary: true }),
+      ]);
+      serve(mockAdaptation({ status: 'applied', appliedAs: 'one_off', gymId: HOTEL_ID }));
+      renderPage();
+      await screen.findByText('Used for today.');
+      expect(screen.queryByTestId('save-gym-prompt')).toBeNull();
+    });
   });
 });

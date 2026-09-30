@@ -89,6 +89,21 @@ describe('GymsService', () => {
       expect(prisma.gym.create).toHaveBeenLastCalledWith({ data: expect.objectContaining({ isDefault: false }) });
     });
 
+    it('never makes a temporary gym the default, even the first one (E6.2)', async () => {
+      prisma.gym.count.mockResolvedValue(0);
+      prisma.gym.create.mockResolvedValue(gymRow({ isTemporary: true }) as any);
+
+      const gym = await service.create(USER, { ...input, type: 'hotel' as const, isTemporary: true });
+
+      expect(prisma.gym.create).toHaveBeenCalledTimes(1);
+      expect(prisma.gym.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ isTemporary: true, isDefault: false }),
+      });
+      // Only the limit count: the default slot is not even consulted.
+      expect(prisma.gym.count).toHaveBeenCalledTimes(1);
+      expect(gym.isDefault).toBe(false);
+    });
+
     it('refuses the 51st gym with GYM_LIMIT', async () => {
       prisma.gym.count.mockResolvedValue(50);
 
@@ -143,6 +158,17 @@ describe('GymsService', () => {
       expect(prisma.$transaction).toHaveBeenCalledTimes(2);
     });
 
+    it('refuses a temporary gym with 409 TEMPORARY_GYM_NOT_DEFAULT and writes nothing (E6.2)', async () => {
+      prisma.gym.findFirst.mockResolvedValue(gymRow({ isTemporary: true }) as any);
+
+      await expect(service.setDefault(USER, GYM)).rejects.toMatchObject({
+        status: 409,
+        response: { details: { reason: 'TEMPORARY_GYM_NOT_DEFAULT' } },
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.gym.updateMany).not.toHaveBeenCalled();
+    });
+
     it('is a 404 for a gym the caller does not own', async () => {
       prisma.gym.findFirst.mockResolvedValue(null);
 
@@ -164,7 +190,7 @@ describe('GymsService', () => {
 
       expect(prisma.gym.deleteMany).toHaveBeenCalledWith({ where: { id: GYM, userId: USER } });
       expect(prisma.gym.findFirst).toHaveBeenLastCalledWith({
-        where: { userId: USER },
+        where: { userId: USER, isTemporary: false },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true },
       });
@@ -208,12 +234,124 @@ describe('GymsService', () => {
       prisma.gym.findFirst.mockResolvedValue({ ...gymRow(), equipment: [], photos: [] } as any);
       prisma.gym.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.update(USER, GYM, { notes: null, isTemporary: true });
+      await service.update(USER, GYM, { notes: null, name: 'Garage' });
 
       expect(prisma.gym.updateMany).toHaveBeenCalledWith({
         where: { id: GYM, userId: USER },
-        data: { notes: null, isTemporary: true },
+        data: { notes: null, name: 'Garage' },
       });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('marking the default gym temporary clears its default and promotes the oldest permanent gym, in one transaction', async () => {
+      prisma.gym.findFirst
+        .mockResolvedValueOnce(gymRow({ isDefault: true }) as any) // findOwned
+        .mockResolvedValueOnce({ id: OTHER } as any) // oldest permanent gym
+        .mockResolvedValue({ ...gymRow({ isTemporary: true }), equipment: [], photos: [] } as any); // get
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+      prisma.gym.count.mockResolvedValue(0);
+
+      await service.update(USER, GYM, { notes: null, isTemporary: true });
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: USER },
+        data: { notes: null, isTemporary: true, isDefault: false },
+      });
+      expect(prisma.gym.findFirst).toHaveBeenNthCalledWith(2, {
+        where: { userId: USER, isTemporary: false },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      expect(prisma.gym.update).toHaveBeenCalledWith({ where: { id: OTHER }, data: { isDefault: true } });
+    });
+
+    it('saving a temporary gym keeps its id and never replaces an existing default', async () => {
+      prisma.gym.findFirst
+        .mockResolvedValueOnce(gymRow({ isTemporary: true }) as any)
+        .mockResolvedValue({ ...gymRow(), equipment: [], photos: [] } as any);
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+      prisma.gym.count.mockResolvedValue(1); // a default exists
+
+      const gym = await service.update(USER, GYM, { isTemporary: false, name: 'Hilton gym' });
+
+      expect(prisma.gym.updateMany).toHaveBeenCalledWith({
+        where: { id: GYM, userId: USER },
+        data: { isTemporary: false, name: 'Hilton gym' },
+      });
+      expect(prisma.gym.update).not.toHaveBeenCalled();
+      expect(gym.id).toBe(GYM);
+    });
+
+    it('saving the user\'s only permanent gym fills the empty default slot', async () => {
+      prisma.gym.findFirst
+        .mockResolvedValueOnce(gymRow({ isTemporary: true }) as any)
+        .mockResolvedValueOnce({ id: GYM } as any)
+        .mockResolvedValue({ ...gymRow({ isDefault: true }), equipment: [], photos: [] } as any);
+      prisma.gym.updateMany.mockResolvedValue({ count: 1 });
+      prisma.gym.count.mockResolvedValue(0);
+
+      await service.update(USER, GYM, { isTemporary: false });
+
+      expect(prisma.gym.update).toHaveBeenCalledWith({ where: { id: GYM }, data: { isDefault: true } });
+    });
+
+    it('is a 404 when the gym vanished before the flag change', async () => {
+      prisma.gym.findFirst.mockResolvedValueOnce(gymRow({ isTemporary: true }) as any);
+      prisma.gym.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.update(USER, GYM, { isTemporary: false })).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.gym.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeTemporary (the gyms.temporary.purge path)', () => {
+    const where = { updatedAt: { lt: NOW } };
+
+    it('deletes only while still temporary and matching, in one transaction, then deletes the photos\' objects', async () => {
+      prisma.gymPhoto.findMany.mockResolvedValue([{ storageObjectId: 'obj-1' }] as any);
+      prisma.gym.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.gym.count.mockResolvedValue(1);
+      const isHeld = jest.fn().mockResolvedValue(false);
+
+      await expect(service.removeTemporary(USER, GYM, { where, isHeld })).resolves.toBe(true);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(isHeld).toHaveBeenCalledWith(prisma, GYM);
+      expect(prisma.gym.deleteMany).toHaveBeenCalledWith({
+        where: { updatedAt: { lt: NOW }, isTemporary: true, id: GYM, userId: USER },
+      });
+      expect(storage.deleteObjects).toHaveBeenCalledWith(USER, ['obj-1']);
+    });
+
+    it('always requires isTemporary, whatever the caller\'s where says', async () => {
+      prisma.gymPhoto.findMany.mockResolvedValue([]);
+      prisma.gym.deleteMany.mockResolvedValue({ count: 0 });
+
+      await service.removeTemporary(USER, GYM, { where: { isTemporary: false } });
+
+      expect(prisma.gym.deleteMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({ isTemporary: true }),
+      });
+    });
+
+    it('skips a held gym: no delete, no storage call', async () => {
+      await expect(
+        service.removeTemporary(USER, GYM, { where, isHeld: jest.fn().mockResolvedValue(true) }),
+      ).resolves.toBe(false);
+
+      expect(prisma.gym.deleteMany).not.toHaveBeenCalled();
+      expect(storage.deleteObjects).not.toHaveBeenCalled();
+    });
+
+    it('skips a gym that no longer matches (referenced or changed since selection)', async () => {
+      prisma.gymPhoto.findMany.mockResolvedValue([{ storageObjectId: 'obj-1' }] as any);
+      prisma.gym.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.removeTemporary(USER, GYM, { where })).resolves.toBe(false);
+
+      expect(prisma.gym.update).not.toHaveBeenCalled();
+      expect(storage.deleteObjects).not.toHaveBeenCalled();
     });
   });
 

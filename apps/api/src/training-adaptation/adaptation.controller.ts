@@ -45,7 +45,14 @@ import { AdaptationIdParamDto, AdaptationRequestDto } from './dto/adaptation-req
 // =============================================================================
 
 const ID_PARAM = { name: 'id', description: 'The adaptation id returned by `POST /api/ai/training/adaptations`.' } as const;
-const BAD_REQUEST = { status: 400, description: 'Validation error (`ADAPTATION_NOTHING_TO_CHANGE`: "Tell us what to change")', type: ErrorDto } as const;
+const BAD_REQUEST = {
+  status: 400,
+  description:
+    'Validation error (`ADAPTATION_NOTHING_TO_CHANGE`: "Tell us what to change"; `ADAPTATION_EQUIPMENT_NOT_IN_GYM`; ' +
+    '`ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED`: "Confirm the equipment first", a temporary gym with no equipment ' +
+    'and an equipment mode other than `bodyweight`)',
+  type: ErrorDto,
+} as const;
 const UNAUTHENTICATED = { status: 401, description: 'Not authenticated', type: ErrorDto } as const;
 const FORBIDDEN = { status: 403, description: '`AI_DISABLED`, or a missing permission', type: ErrorDto } as const;
 const NOT_FOUND = { status: 404, description: 'No such adaptation of yours', type: ErrorDto } as const;
@@ -67,7 +74,9 @@ export class AdaptationController {
       'agent model resolver), whether a provider would be called, and the safety screen\'s answer. Calls no ' +
       'provider and stores nothing. Today is the server\'s today in your Health Profile time zone.\n\n' +
       '`400` for a request that changes nothing ("Tell us what to change") or an `only` equipment type the gym ' +
-      'does not have (`ADAPTATION_EQUIPMENT_NOT_IN_GYM`); `404` for a gym that is not yours.',
+      'does not have (`ADAPTATION_EQUIPMENT_NOT_IN_GYM`), or a temporary gym (the hotel flow) with no ' +
+      'equipment yet unless `equipment.mode` is `bodyweight` (`ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED`, "Confirm ' +
+      'the equipment first"); `404` for a gym that is not yours (temporary or not).',
   })
   @ApiDataResponse(AdaptationPreview, { description: 'What would be sent' })
   @ApiResponse(BAD_REQUEST)

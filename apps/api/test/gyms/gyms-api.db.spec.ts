@@ -148,7 +148,8 @@ describeWithDb('gyms services (real Postgres)', () => {
     const userId = await makeUser('default');
 
     const first = await gyms.create(userId, { name: 'Home', type: 'home' });
-    const second = await gyms.create(userId, { name: 'Hotel', type: 'hotel', isTemporary: true });
+    // A permanent second gym: a temporary one can never be the default (E6.2).
+    const second = await gyms.create(userId, { name: 'Hotel', type: 'hotel' });
 
     expect(first.isDefault).toBe(true);
     expect(second.isDefault).toBe(false);

@@ -10,6 +10,9 @@
  * `workouts:write` whether Start is offered; the API enforces both. The one
  * AI affordance, "Adjust today's workout" (E6.1), is gated on AI being on
  * and `ai:use` and never replaces Start.
+ *
+ * E6.2: a "Save {name}?" chip keeps the latest unsaved temporary gym (the
+ * hotel flow's) one tap from being saved.
  */
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
@@ -40,6 +43,7 @@ import { ElapsedTimer } from '../components/train/WorkoutHeader';
 import { TodayPlanCard } from '../components/training/TodayPlanCard';
 import { ThisWeekCard } from '../components/training/ThisWeekCard';
 import { AdjustWorkoutEntry } from '../components/training/adapt/AdjustWorkoutEntry';
+import { TemporaryGymChip } from '../components/gyms/TemporaryGymChip';
 
 export const TRAIN_SUBTITLE = 'Log a workout in a few taps and look back at every session.';
 export const WORKOUT_IN_PROGRESS_NOTICE = 'You already have a workout in progress.';
@@ -95,6 +99,7 @@ export default function TrainPage() {
         {canReadPrograms && <ThisWeekCard sx={{ mb: 3 }} />}
         {/* E6.1: "Adjust today's workout", hidden with a reason when AI is off. */}
         <AdjustWorkoutEntry sx={{ mb: 3 }} />
+        <TemporaryGymChip sx={{ mb: 3 }} />
 
         {!canRead ? (
           <Alert severity="info">{WORKOUTS_UNAVAILABLE}</Alert>

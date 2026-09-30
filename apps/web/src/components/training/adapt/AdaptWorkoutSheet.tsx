@@ -8,6 +8,10 @@
  * dialog-presentation idiom of `useCompactDialog`, not one of the five
  * navigation breakpoint gates. Focus moves to the title when it opens.
  *
+ * "Different place" in the gym select (E6.2) swaps the form for
+ * `HotelGymScanStep`: make a temporary gym, scan or fill it, confirm, and
+ * come back with it selected.
+ *
  * The API decides: the at-least-one rule is mirrored so the button can say
  * "Tell us what to change" before the round trip, and every refusal is
  * explained with the step that fixes it.
@@ -54,8 +58,14 @@ import { AdaptChips, type EquipmentOption } from './AdaptChips';
 import { RoleModelBanner, roleProblem } from './RoleModelBanner';
 import { SentDataSummary } from './SentDataSummary';
 import { buildRequest, draftFromRequest, type AdaptDraft } from './adaptDraft';
+import { HotelGymScanStep, type HotelGymResult } from './HotelGymScanStep';
+import type { GymDetail } from '../../../services/gyms';
 
 export const ADAPT_SHEET_TITLE = "Adjust today's workout";
+/** The gym select's "Different place" value (never a gym id). */
+export const DIFFERENT_PLACE = '__different_place__';
+export const DIFFERENT_PLACE_LABEL = 'Different place (scan a new gym)';
+export const TEMPORARY_GYM_HINT = 'A temporary gym. After the workout you can save it for future use.';
 
 const tokenCount = new Intl.NumberFormat('en-US');
 
@@ -130,6 +140,11 @@ export function startProblem(err: unknown, { canAssign = false }: { canAssign?: 
       }, { canAssign });
       return { title: 'An agent cannot run', message: problem?.message ?? message, link: problem?.fix ?? undefined };
     }
+    case ADAPTATION_REFUSALS.GYM_EQUIPMENT_UNCONFIRMED:
+      return {
+        title: 'Confirm the equipment first',
+        message: 'This gym has no equipment yet. Choose Different place to scan it or add equipment, or choose Bodyweight only.',
+      };
     case ADAPTATION_REFUSALS.EQUIPMENT_NOT_IN_GYM:
       return { message: "Some of the equipment you chose isn't at this gym. Choose again." };
     case ADAPTATION_REFUSALS.AI_DISABLED:
@@ -144,7 +159,7 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
   const canReadGyms = hasPermission('gyms:read');
-  const { gyms } = useGyms({ enabled: open && canReadGyms });
+  const { gyms, refresh: refreshGyms } = useGyms({ enabled: open && canReadGyms });
   const { checkIn } = useCheckIn({ enabled: open && hasPermission('health_data:read') });
   const { models } = useTrainingAvailability();
   // Read only while open; a failed read simply shows no hint.
@@ -153,6 +168,9 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<SubmitProblem | null>(null);
   const [triedSubmit, setTriedSubmit] = useState(false);
+  // E6.2: the "Different place" step, and the temporary gym it made (kept while the sheet is open).
+  const [mode, setMode] = useState<'form' | 'hotel'>('form');
+  const [hotelGym, setHotelGym] = useState<GymDetail | null>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
 
   // A fresh sheet every time it opens.
@@ -162,6 +180,7 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
       setProblem(null);
       setTriedSubmit(false);
       setBusy(false);
+      setMode('form');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -184,7 +203,7 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
   const request = useMemo(() => buildRequest(draft, equipmentGymId ?? null), [draft, equipmentGymId]);
   const requestProblem = adaptationRequestProblem(request);
   const { preview, isLoading: previewLoading, error: previewError } = useAdaptationPreview(request, {
-    enabled: open,
+    enabled: open && mode === 'form',
     delayMs: previewDelayMs,
   });
 
@@ -229,6 +248,30 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
 
   const freeTextLength = draft.freeText.length;
 
+  const hotelDone = ({ gym, bodyweight }: HotelGymResult) => {
+    if (gym) {
+      setHotelGym(gym);
+      void refreshGyms();
+    }
+    change({
+      ...(gym ? { gymId: gym.id } : {}),
+      equipment: bodyweight ? 'bodyweight' : 'gym',
+      equipmentTypeIds: [],
+    });
+    setMode('form');
+  };
+  const hotelBack = (gym: GymDetail | null) => {
+    if (gym) {
+      setHotelGym(gym);
+      void refreshGyms();
+    }
+    setMode('form');
+  };
+
+  // The temporary gym just made may not be in the list yet.
+  const gymOptions = hotelGym && !gyms.some((g) => g.id === hotelGym.id) ? [...gyms, hotelGym] : gyms;
+  const selectedGym = gymOptions.find((g) => g.id === draft.gymId) ?? null;
+
   return (
     <Dialog
       open={open}
@@ -243,108 +286,123 @@ export function AdaptWorkoutSheet({ open, onClose, initialRequest, previewDelayM
         {ADAPT_SHEET_TITLE}
       </DialogTitle>
       <DialogContent dividers>
-        <Stack spacing={2.5}>
-          <Typography variant="body2" color="text.secondary" data-testid="adapt-base">
-            {preview
-              ? preview.base
-                ? `Adjusting ${preview.base.name}. You decide what to do with the result.`
-                : 'No planned workout today: you get a fresh session. You decide what to do with it.'
-              : 'Say what is different today. You decide what to do with the result.'}
-          </Typography>
-          <RoleModelBanner models={roleModels} />
-          <AdaptChips
-            draft={draft}
-            onChange={change}
-            equipmentOptions={equipmentOptions}
-            suggestions={suggestions}
-            disabled={busy}
-          />
-          {canReadGyms && (
-            <TextField
-              select
-              label="Gym"
-              value={draft.gymId}
-              disabled={busy}
-              onChange={(e) => change({ gymId: e.target.value, equipmentTypeIds: [] })}
-              fullWidth
-              helperText="Where you'll train today."
-            >
-              <MenuItem value="">The plan&apos;s gym, or your default gym</MenuItem>
-              {gyms.map((gym) => (
-                <MenuItem key={gym.id} value={gym.id}>
-                  {gym.name}
-                  {gym.isDefault ? ' (default)' : ''}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-          <TextField
-            label="Anything else? (optional)"
-            placeholder="Left shoulder feels tight"
-            value={draft.freeText}
-            disabled={busy}
-            onChange={(e) => change({ freeText: e.target.value.slice(0, ADAPTATION_LIMITS.freeTextChars) })}
-            multiline
-            minRows={2}
-            fullWidth
-            helperText={`${freeTextLength}/${ADAPTATION_LIMITS.freeTextChars}`}
-            slotProps={{ htmlInput: { maxLength: ADAPTATION_LIMITS.freeTextChars } }}
-          />
-          <FormControlLabel
-            control={
-              <Switch
-                checked={draft.useReadiness}
-                disabled={busy}
-                onChange={(e) => change({ useReadiness: e.target.checked })}
-              />
-            }
-            label="Use today's readiness"
-          />
-          {preview?.blocked && (
-            <Alert severity="warning" data-testid="adapt-blocked">
-              <AlertTitle>This needs attention first</AlertTitle>
-              {preview.blocked.guidance}
-            </Alert>
-          )}
-          <SentDataSummary sentData={preview?.sentData ?? null} isLoading={previewLoading} error={previewError} />
-          {problem && (
-            <Alert severity="warning" role="alert" data-testid="adapt-problem">
-              {problem.title && <AlertTitle>{problem.title}</AlertTitle>}
-              {problem.message}{' '}
-              {problem.link && (
-                <Link component={RouterLink} to={problem.link.to} onClick={onClose}>
-                  {problem.link.label}
-                </Link>
-              )}
-            </Alert>
-          )}
-          {triedSubmit && requestProblem && (
-            <Alert severity="info" role="alert" data-testid="adapt-invalid">
-              {requestProblem}
-            </Alert>
-          )}
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2, flexWrap: 'wrap' }}>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          {typical && (
-            <Typography id="adapt-typical-tokens" variant="body2" color="text.secondary" data-testid="adapt-typical-tokens">
-              {typicalTokensText(typical.medianTokens)}
+        {mode === 'hotel' ? (
+          <HotelGymScanStep initialGym={hotelGym} onDone={hotelDone} onBack={hotelBack} />
+        ) : (
+          <Stack spacing={2.5}>
+            <Typography variant="body2" color="text.secondary" data-testid="adapt-base">
+              {preview
+                ? preview.base
+                  ? `Adjusting ${preview.base.name}. You decide what to do with the result.`
+                  : 'No planned workout today: you get a fresh session. You decide what to do with it.'
+                : 'Say what is different today. You decide what to do with the result.'}
             </Typography>
-          )}
-        </Box>
-        <Button onClick={onClose} disabled={busy}>
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          onClick={() => void submit()}
-          disabled={busy || roleBlocked}
-          aria-describedby={typical ? 'adapt-typical-tokens' : undefined}
-        >
-          {busy ? 'Starting…' : 'Adjust workout'}
-        </Button>
-      </DialogActions>
+            <RoleModelBanner models={roleModels} />
+            <AdaptChips
+              draft={draft}
+              onChange={change}
+              equipmentOptions={equipmentOptions}
+              suggestions={suggestions}
+              disabled={busy}
+            />
+            {canReadGyms && (
+              <TextField
+                select
+                label="Gym"
+                value={draft.gymId}
+                disabled={busy}
+                onChange={(e) => {
+                  if (e.target.value === DIFFERENT_PLACE) {
+                    setProblem(null);
+                    setMode('hotel');
+                    return;
+                  }
+                  change({ gymId: e.target.value, equipmentTypeIds: [] });
+                }}
+                fullWidth
+                helperText={selectedGym?.isTemporary ? TEMPORARY_GYM_HINT : "Where you'll train today."}
+              >
+                <MenuItem value="">The plan&apos;s gym, or your default gym</MenuItem>
+                {gymOptions.map((gym) => (
+                  <MenuItem key={gym.id} value={gym.id}>
+                    {gym.name}
+                    {gym.isDefault ? ' (default)' : ''}
+                    {gym.isTemporary ? ' (temporary)' : ''}
+                  </MenuItem>
+                ))}
+                <MenuItem value={DIFFERENT_PLACE}>{DIFFERENT_PLACE_LABEL}</MenuItem>
+              </TextField>
+            )}
+            <TextField
+              label="Anything else? (optional)"
+              placeholder="Left shoulder feels tight"
+              value={draft.freeText}
+              disabled={busy}
+              onChange={(e) => change({ freeText: e.target.value.slice(0, ADAPTATION_LIMITS.freeTextChars) })}
+              multiline
+              minRows={2}
+              fullWidth
+              helperText={`${freeTextLength}/${ADAPTATION_LIMITS.freeTextChars}`}
+              slotProps={{ htmlInput: { maxLength: ADAPTATION_LIMITS.freeTextChars } }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={draft.useReadiness}
+                  disabled={busy}
+                  onChange={(e) => change({ useReadiness: e.target.checked })}
+                />
+              }
+              label="Use today's readiness"
+            />
+            {preview?.blocked && (
+              <Alert severity="warning" data-testid="adapt-blocked">
+                <AlertTitle>This needs attention first</AlertTitle>
+                {preview.blocked.guidance}
+              </Alert>
+            )}
+            <SentDataSummary sentData={preview?.sentData ?? null} isLoading={previewLoading} error={previewError} />
+            {problem && (
+              <Alert severity="warning" role="alert" data-testid="adapt-problem">
+                {problem.title && <AlertTitle>{problem.title}</AlertTitle>}
+                {problem.message}{' '}
+                {problem.link && (
+                  <Link component={RouterLink} to={problem.link.to} onClick={onClose}>
+                    {problem.link.label}
+                  </Link>
+                )}
+              </Alert>
+            )}
+            {triedSubmit && requestProblem && (
+              <Alert severity="info" role="alert" data-testid="adapt-invalid">
+                {requestProblem}
+              </Alert>
+            )}
+          </Stack>
+        )}
+      </DialogContent>
+      {mode === 'form' && (
+        <DialogActions sx={{ px: 3, py: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {typical && (
+              <Typography id="adapt-typical-tokens" variant="body2" color="text.secondary" data-testid="adapt-typical-tokens">
+                {typicalTokensText(typical.medianTokens)}
+              </Typography>
+            )}
+          </Box>
+          <Button onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void submit()}
+            disabled={busy || roleBlocked}
+            aria-describedby={typical ? 'adapt-typical-tokens' : undefined}
+          >
+            {busy ? 'Starting…' : 'Adjust workout'}
+          </Button>
+        </DialogActions>
+      )}
     </Dialog>
   );
 }

@@ -269,6 +269,7 @@ A type is registered with a strict Zod schema (`registerRunEventType`); `append`
 - **`ai.training.plan.run`** executes one run. Payload `{ runId }`, subject `training_run`. Profile 25 minutes, 1 attempt; server-only permanently (no `nodeResultSchema`, no `persistNodeResult`). A provider throttle defers the job without charging the attempt. A deadline or shutdown interrupts the run at its checkpoint. A job that settles `failed` while its run is still `running` or `queued` interrupts the run and queues one automatic resume, at most twice; past that the run fails `TRAINING_RUN_LOST`.
 - **`training.evaluation.sweep`**: hourly at minute 7, only while AI is on; profile 10 minutes, 3 attempts.
 - **`training.runs.purge`**: daily at 05:30. For finished runs, events and checkpoints are deleted after 30 days and the run row after 365 days; orphaned checkpoints go after 30 days. Constants in `runtime/training-retention.ts`.
+- **Adapting to a different place.** The adjust-workout sheet can scan a hotel room into a temporary gym and adapt to it. A temporary gym with no equipment is refused `400 ADAPTATION_GYM_EQUIPMENT_UNCONFIRMED` unless the request is bodyweight only. Lifecycle, save and purge rules: [gyms-and-equipment.md §2.13](gyms-and-equipment.md#213-temporary-gyms).
 - **Cancel.** A cancel is observed on a 2-second poll (even from another replica); an open proposal of a cancelled evaluate run is declined.
 - **Audit.** Start, cancel, resume, decision and completion write audit rows with ids, statuses and codes only.
 
