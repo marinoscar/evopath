@@ -34,6 +34,10 @@ export const PLAN_LIMITS = {
   evidenceRefMax: 200,
   targetSets: { min: 1, max: 20 },
   reps: { min: 1, max: 100 },
+  /** Cardio prescription: the exercise's total time, seconds (1 min .. 10 h). */
+  targetDurationSeconds: { min: 60, max: 36000 },
+  /** Cardio prescription: the exercise's total distance, meters (100 m .. 100 km), at most 2 decimals. */
+  targetDistanceMeters: { min: 100, max: 100000, decimals: 2 },
   targetLoadKg: { min: 0, max: 1000, decimals: 3 },
   targetRpe: { min: 1, max: 10, step: 0.5 },
   restSeconds: { min: 0, max: 900 },
@@ -84,15 +88,67 @@ const targetRpe = z
   .transform((value) => value ?? null)
   .meta({ description: 'Target RPE, 1..10 in steps of 0.5, or null.' });
 
+const targetSets = z
+  .number()
+  .int()
+  .min(PLAN_LIMITS.targetSets.min)
+  .max(PLAN_LIMITS.targetSets.max)
+  .nullable()
+  .optional()
+  .transform((value) => value ?? null)
+  .meta({ description: 'Sets, 1..20. Required for a reps prescription; optional (null) for a cardio one.' });
+
+function repsField(which: string) {
+  return z
+    .number()
+    .int()
+    .min(PLAN_LIMITS.reps.min)
+    .max(PLAN_LIMITS.reps.max)
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null)
+    .meta({ description: `${which} reps, 1..100. Required for a reps prescription; null for a cardio one.` });
+}
+
+const targetDurationSeconds = z
+  .number()
+  .int()
+  .min(PLAN_LIMITS.targetDurationSeconds.min)
+  .max(PLAN_LIMITS.targetDurationSeconds.max)
+  .nullable()
+  .optional()
+  .transform((value) => value ?? null)
+  .meta({ description: 'Cardio prescription: total time in seconds, 60..36000; null for a reps prescription.' });
+
+const targetDistanceMeters = z
+  .number()
+  .min(PLAN_LIMITS.targetDistanceMeters.min)
+  .max(PLAN_LIMITS.targetDistanceMeters.max)
+  .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, { message: 'At most 2 decimal places' })
+  .nullable()
+  .optional()
+  .transform((value) => value ?? null)
+  .meta({ description: 'Cardio prescription: total distance in meters, 100..100000; null for a reps prescription.' });
+
+/**
+ * One prescribed exercise. Exactly one SHAPE: reps (`targetSets`, `repMin`,
+ * `repMax` set, both targets null) or cardio (`repMin`/`repMax` null, a
+ * `targetDurationSeconds` and/or `targetDistanceMeters`, `targetSets`
+ * optional). Which shape an exercise may take depends on its tracking mode
+ * (`prescription.ts`), which this schema cannot see: the service and the
+ * guardrails check it against the library.
+ */
 export const planExerciseSchema = z
   .object({
     id,
     exerciseId: z.uuid(),
     position,
     isPriority: z.boolean().default(false),
-    targetSets: z.number().int().min(PLAN_LIMITS.targetSets.min).max(PLAN_LIMITS.targetSets.max),
-    repMin: z.number().int().min(PLAN_LIMITS.reps.min).max(PLAN_LIMITS.reps.max),
-    repMax: z.number().int().min(PLAN_LIMITS.reps.min).max(PLAN_LIMITS.reps.max),
+    targetSets,
+    repMin: repsField('Minimum'),
+    repMax: repsField('Maximum'),
+    targetDurationSeconds,
+    targetDistanceMeters,
     targetLoadKg,
     targetRpe,
     restSeconds: z.number().int().min(PLAN_LIMITS.restSeconds.min).max(PLAN_LIMITS.restSeconds.max),
@@ -106,7 +162,28 @@ export const planExerciseSchema = z
     equipmentTypeId: z.uuid().nullable().optional().transform((value) => value ?? null),
   })
   .strict()
-  .refine((exercise) => exercise.repMin <= exercise.repMax, { path: ['repMax'], message: 'repMax must be at least repMin' });
+  .superRefine((exercise, ctx) => {
+    const cardio = exercise.targetDurationSeconds !== null || exercise.targetDistanceMeters !== null;
+    const reps = exercise.repMin !== null || exercise.repMax !== null;
+    if (cardio && reps) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['repMin'],
+        message: 'Prescribe either sets and reps, or a duration and/or distance, not both',
+      });
+      return;
+    }
+    if (!cardio) {
+      for (const field of ['targetSets', 'repMin', 'repMax'] as const) {
+        if (exercise[field] === null) {
+          ctx.addIssue({ code: 'custom', path: [field], message: 'Required for a sets-and-reps prescription' });
+        }
+      }
+      if (exercise.repMin !== null && exercise.repMax !== null && exercise.repMin > exercise.repMax) {
+        ctx.addIssue({ code: 'custom', path: ['repMax'], message: 'repMax must be at least repMin' });
+      }
+    }
+  });
 
 export const planWorkoutSchema = z
   .object({
@@ -288,4 +365,24 @@ export function emptyPlanTree(): PlanTree {
   return {
     blocks: [{ position: 0, name: 'Block 1', focus: null, rationale: null, weeks: [{ weekNumber: 1, isDeload: false, workouts: [] }] }],
   };
+}
+
+/** A prescribed exercise in the reps shape (sets, rep range). */
+export type RepsPlanExercise = PlanExercise & { targetSets: number; repMin: number; repMax: number };
+
+/** True for a reps prescription: sets and a rep range, no duration or distance target. */
+export function isRepsExercise(exercise: PlanExercise): exercise is RepsPlanExercise {
+  return (
+    exercise.targetSets !== null &&
+    exercise.repMin !== null &&
+    exercise.repMax !== null &&
+    // `?? null`: a tree built in memory before these fields existed reads as reps.
+    (exercise.targetDurationSeconds ?? null) === null &&
+    (exercise.targetDistanceMeters ?? null) === null
+  );
+}
+
+/** The sets an exercise counts for (session and muscle volume): a cardio prescription without a count is one. */
+export function setsOf(exercise: Pick<PlanExercise, 'targetSets'>): number {
+  return exercise.targetSets ?? 1;
 }

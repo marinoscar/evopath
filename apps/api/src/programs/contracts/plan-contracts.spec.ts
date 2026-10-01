@@ -130,8 +130,54 @@ describe('planTreeSchema', () => {
   });
 });
 
+describe('planTreeSchema: prescription shapes', () => {
+  const walk = (overrides: Record<string, unknown> = {}) =>
+    exercise({ targetSets: undefined, repMin: undefined, repMax: undefined, targetDurationSeconds: 1800, restSeconds: 0, ...overrides });
+  const one = (ex: Record<string, unknown>) => tree({ weeks: [{ weekNumber: 1, workouts: [workout({ exercises: [ex] })] }] });
+
+  it('fills both cardio targets with null on a reps prescription (and on a snapshot written before them)', () => {
+    const ex = planTreeSchema.parse(tree()).blocks[0].weeks[0].workouts[0].exercises[0];
+    expect(ex).toMatchObject({ targetSets: 3, repMin: 8, repMax: 12, targetDurationSeconds: null, targetDistanceMeters: null });
+  });
+
+  it.each([
+    ['a duration', walk()],
+    ['a distance', walk({ targetDurationSeconds: undefined, targetDistanceMeters: 5000 })],
+    ['both targets', walk({ targetDistanceMeters: 2500.5 })],
+    ['a duration and a set count', walk({ targetSets: 4, targetDurationSeconds: 300 })],
+  ])('accepts a cardio prescription with %s', (_label, ex) => {
+    expect(messages(one(ex))).toEqual([]);
+    const parsed = planTreeSchema.parse(one(ex)).blocks[0].weeks[0].workouts[0].exercises[0];
+    expect(parsed.repMin).toBeNull();
+    expect(parsed.repMax).toBeNull();
+  });
+
+  it.each([
+    ['reps and a duration', exercise({ targetDurationSeconds: 1800 }), 'repMin', /either sets and reps/],
+    ['no prescription at all', exercise({ targetSets: undefined, repMin: undefined, repMax: undefined }), 'targetSets', /Required/],
+    ['sets without reps', exercise({ repMin: null, repMax: null }), 'repMin', /Required/],
+    ['a duration under a minute', walk({ targetDurationSeconds: 59 }), 'targetDurationSeconds', /./],
+    ['a duration over 10 hours', walk({ targetDurationSeconds: 36001 }), 'targetDurationSeconds', /./],
+    ['a distance under 100 m', walk({ targetDistanceMeters: 99 }), 'targetDistanceMeters', /./],
+    ['a distance over 100 km', walk({ targetDistanceMeters: 100000.5 }), 'targetDistanceMeters', /./],
+    ['a distance with 3 decimals', walk({ targetDistanceMeters: 1000.125 }), 'targetDistanceMeters', /2 decimal/],
+    ['21 sets of cardio', walk({ targetSets: 21 }), 'targetSets', /./],
+  ])('rejects %s', (_label, ex, field, message) => {
+    const issues = messages(one(ex));
+    expect(issues.some((issue) => issue.includes(field) && message.test(issue))).toBe(true);
+  });
+});
+
 describe('plan snapshots', () => {
   const header = { name: 'P', goal: 'strength', notes: null, rationale: 'Why', autonomy: 'autonomous', gymId: null };
+
+  it('round-trips a cardio prescription', () => {
+    const parsed = planTreeSchema.parse(
+      tree({ weeks: [{ weekNumber: 1, workouts: [workout({ exercises: [exercise({ targetSets: null, repMin: null, repMax: null, targetDistanceMeters: 5000 })] })] }] }),
+    );
+    const result = parseSnapshot(JSON.parse(JSON.stringify(snapshotOf(header as never, parsed))));
+    expect(result.ok && treeFromSnapshot(result.snapshot)).toEqual(parsed);
+  });
 
   it('round-trips a tree with its row ids preserved', () => {
     const ids = { block: randomUUID(), week: randomUUID(), workout: randomUUID(), exercise: randomUUID() };
