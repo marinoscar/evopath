@@ -3,6 +3,7 @@ import {
   APP_NAME,
   callout,
   detailRows,
+  formatEmailTimestamp,
   html,
   layoutAttachments,
   paragraph,
@@ -10,6 +11,8 @@ import {
   renderLayout,
   textCallout,
   textDetailLines,
+  timestampRow,
+  type DetailRow,
 } from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -54,7 +57,7 @@ export interface TestEmailData {
   /** Transport that actually carried this message. The key diagnostic fact. */
   providerKind: EmailProviderKind;
 
-  /** When the send was initiated. Rendered as UTC — see `formatTimestamp`. */
+  /** When the send was initiated. Rendered via `formatEmailTimestamp` (UTC). */
   sentAt: Date;
 
   /**
@@ -92,25 +95,15 @@ const PROVIDER_LABELS: Record<EmailProviderKind, string> = {
 };
 
 /**
- * ISO 8601, in UTC, with the `Z` left on.
- *
- * NOT LOCALISED, deliberately. The server does not know the reader's time
- * zone, and a locale-formatted timestamp with no offset ("31/08/2026, 14:05")
- * is ambiguous in exactly the situation this email exists for — correlating a
- * message against a log line or a delivery record, both of which are UTC.
- * An unfamiliar format the reader can match against a log beats a familiar one
- * they cannot.
- */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
-/**
  * Render the test message.
  */
 export function testEmail(data: TestEmailData): RenderedEmail {
   const providerLabel = PROVIDER_LABELS[data.providerKind];
-  const timestamp = formatTimestamp(data.sentAt);
+  // Shared formatter: UTC, said explicitly, never the host's zone or locale.
+  // The SUBJECT keeps seconds (see below); the body reads at minute precision.
+  const sentAtRow = timestampRow('Sent at', data.sentAt);
+  const timestamp = sentAtRow.value;
+  const subjectTimestamp = formatEmailTimestamp(data.sentAt, { seconds: true });
 
   // The timestamp is IN THE SUBJECT, which looks like clutter and is not.
   // Gmail and Outlook both thread on identical subject lines, so a second test
@@ -118,7 +111,9 @@ export function testEmail(data: TestEmailData): RenderedEmail {
   // entirely — turning "I fixed the config and retried, nothing arrived" into
   // a false negative at the exact moment the admin is trying to tell whether
   // their change worked. Distinct subjects keep each attempt a separate row.
-  const subject = `Test email from ${APP_NAME} (${timestamp})`;
+  // Seconds are kept here (and only here) so two sends within the same minute
+  // still get distinct subjects.
+  const subject = `Test email from ${APP_NAME} (${subjectTimestamp})`;
 
   const title = 'Your email configuration works';
   const eyebrow = 'Test';
@@ -130,9 +125,9 @@ export function testEmail(data: TestEmailData): RenderedEmail {
   // The facts, in one list both parts render from. `triggeredBy` is a display
   // name from an OAuth profile and `recipientEmail` came straight off an admin
   // form: the html half escapes them through `detailRows`.
-  const facts: { label: string; value: string }[] = [
+  const facts: Array<DetailRow & { value: string }> = [
     { label: 'Provider', value: providerLabel },
-    { label: 'Sent at', value: timestamp },
+    sentAtRow,
     { label: 'Delivered to', value: data.recipientEmail },
   ];
   if (data.triggeredBy) {

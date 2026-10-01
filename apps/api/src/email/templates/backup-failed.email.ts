@@ -3,6 +3,7 @@ import {
   callout,
   codeBlock,
   detailRows,
+  formatEmailDuration,
   html,
   layoutAttachments,
   paragraph,
@@ -10,6 +11,8 @@ import {
   renderLayout,
   textCallout,
   textDetailLines,
+  timestampRow,
+  type DetailRow,
 } from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -76,11 +79,6 @@ export interface BackupFailedEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const DB_BACKUP_ADMIN_PATH = '/admin/settings/db-backup';
 
-/** ISO 8601 in UTC — matched against log lines, never against a wall clock. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
 /** `null` is a fact about the row, not a blank. Give it words. */
 function orNone(value: string | null): string {
   return value === null || value.trim().length === 0 ? 'Not recorded' : value;
@@ -100,9 +98,6 @@ const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
  * Render the backup-failure message.
  */
 export function backupFailedEmail(data: BackupFailedEmailData): RenderedEmail {
-  const failedAt = formatTimestamp(data.failedAt);
-  const startedAt =
-    data.startedAt === null ? 'Not recorded' : formatTimestamp(data.startedAt);
   const error = orNone(data.error);
   const trigger = orNone(data.trigger);
   const sentence = outcomeSentence(data.outcome);
@@ -120,13 +115,21 @@ export function backupFailedEmail(data: BackupFailedEmailData): RenderedEmail {
 
   const intro = `A database backup of ${APP_NAME} did not complete. ${sentence}`;
   const calloutTitle = 'You have one fewer recovery point';
-  const facts = [
+  // Timestamps go through the shared formatter (`1 Oct 2026, 02:00 UTC`); the
+  // duration is derived from the two instants already in the data, and is
+  // omitted when the start was never recorded rather than guessed.
+  const duration =
+    data.startedAt === null
+      ? undefined
+      : formatEmailDuration(data.startedAt, data.failedAt);
+  const facts: Array<DetailRow & { value: string }> = [
     { label: 'Run id', value: data.runId, mono: true },
     { label: 'Outcome', value: data.outcome },
     { label: 'Triggered by', value: trigger },
-    { label: 'Started at', value: startedAt },
-    { label: 'Settled at', value: failedAt },
+    timestampRow('Started at', data.startedAt),
+    timestampRow('Settled at', data.failedAt),
   ];
+  if (duration !== undefined) facts.push({ label: 'Duration', value: duration });
   const reasonLabel = 'Recorded reason';
 
   // THE CONSEQUENCE LEADS, in the callout directly under the opening line:

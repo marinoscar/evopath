@@ -259,4 +259,25 @@ describe.each(EMAIL_TEMPLATE_NAMES)('template contract: "%s"', (name) => {
     expect(rendered.html).not.toContain('<script>alert(document.cookie)</script>');
     expect(rendered.html).not.toContain('<img src=x onerror=alert(1)>');
   });
+
+  it('shows no raw ISO 8601 timestamp to a reader — every instant goes through formatEmailTimestamp', () => {
+    // An ISO string ("2026-01-01T00:00:00.000Z") reads like a database dump.
+    // The precise instant may stay in the html for machines, but ONLY inside a
+    // `datetime="..."` attribute, never as visible text.
+    const iso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+    const visibleHtml = rendered.html.replace(/datetime="[^"]*"/g, '');
+
+    expect(rendered.subject).not.toMatch(iso);
+    expect(rendered.text).not.toMatch(iso);
+    expect(visibleHtml).not.toMatch(iso);
+  });
+
+  it('wraps every rendered timestamp in a <time> element whose datetime is the exact ISO instant', () => {
+    const times = [...rendered.html.matchAll(/<time datetime="([^"]+)"[^>]*>([^<]*)<\/time>/g)];
+
+    for (const [, datetime, label] of times) {
+      expect(datetime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(label).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC$/);
+    }
+  });
 });

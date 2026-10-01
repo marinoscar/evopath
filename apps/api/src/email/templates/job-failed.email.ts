@@ -10,6 +10,7 @@ import {
   renderLayout,
   textCallout,
   textDetailLines,
+  timestampRow,
 } from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -78,7 +79,7 @@ export interface JobFailedEmailData {
    */
   executor: string | null;
 
-  /** When the job was settled `failed`. Rendered as UTC; see `formatTimestamp`. */
+  /** When the job was settled `failed`. Rendered via `formatEmailTimestamp` (UTC). */
   failedAt: Date;
 
   /**
@@ -92,15 +93,6 @@ export interface JobFailedEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const JOBS_ADMIN_PATH = '/admin/settings/jobs';
 
-/**
- * ISO 8601, in UTC, with the `Z` left on — the same choice, for the same
- * reason, as every other template here: the server does not know the reader's
- * time zone, and this timestamp's job is to be matched against a log line.
- */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
 /** `null` is a fact about the row, not a blank. Give it words. */
 function orNone(value: string | null): string {
   return value === null || value.trim().length === 0 ? 'Not recorded' : value;
@@ -113,7 +105,6 @@ const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
  * Render the job-failure message.
  */
 export function jobFailedEmail(data: JobFailedEmailData): RenderedEmail {
-  const timestamp = formatTimestamp(data.failedAt);
   const error = orNone(data.error);
   const executor = orNone(data.executor);
 
@@ -137,7 +128,7 @@ export function jobFailedEmail(data: JobFailedEmailData): RenderedEmail {
     { label: 'Job id', value: data.jobId, mono: true },
     { label: 'Attempts', value: String(data.attempts) },
     { label: 'Ran on', value: executor },
-    { label: 'Failed at', value: timestamp },
+    timestampRow('Failed at', data.failedAt),
   ];
   const errorLabel = 'Last error reported by the handler';
 

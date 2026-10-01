@@ -9,6 +9,8 @@ import {
   renderLayout,
   textCallout,
   textDetailLines,
+  timeHtml,
+  timestampRow,
 } from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -92,11 +94,6 @@ export interface RestoreCompletedEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const DB_BACKUP_ADMIN_PATH = '/admin/settings/db-backup';
 
-/** ISO 8601 in UTC — matched against log lines, never against a wall clock. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
 /** `null` is a fact about the row, not a blank. Give it words. */
 function orNone(value: string | null): string {
   return value === null || value.trim().length === 0 ? 'Not recorded' : value;
@@ -108,11 +105,12 @@ function orNone(value: string | null): string {
 export function restoreCompletedEmail(
   data: RestoreCompletedEmailData,
 ): RenderedEmail {
-  const completedAt = formatTimestamp(data.completedAt);
-  const takenAt =
-    data.backupTakenAt === null
-      ? 'Not recorded'
-      : formatTimestamp(data.backupTakenAt);
+  const takenAtRow = timestampRow('Backup taken at', data.backupTakenAt);
+  const takenAt = takenAtRow.value;
+  // Inline in the opening sentence: `<time datetime>` for a valid instant,
+  // escaped words ("Not recorded") otherwise.
+  const takenAtHtml =
+    data.backupTakenAt === null ? html`${takenAt}` : timeHtml(data.backupTakenAt);
   const triggeredBy = orNone(data.triggeredBy);
   const rollback =
     data.preRestoreBackupId === null
@@ -135,15 +133,15 @@ export function restoreCompletedEmail(
     'The process that performed the restore exited immediately afterwards so a supervisor could start one with a connection pool built against the restored database. A restart at the time above is expected, not a separate incident.';
   const facts = [
     { label: 'Restored from run', value: data.runId, mono: true },
-    { label: 'Backup taken at', value: takenAt },
-    { label: 'Restore completed', value: completedAt },
+    takenAtRow,
+    timestampRow('Restore completed', data.completedAt),
     { label: 'Triggered by', value: triggeredBy },
   ];
 
   // IT LEADS WITH DATA LOSS (see the header block): the opening paragraph
   // names the cut-off before the success callout says the swap worked.
   const bodyHtml = html`
-    ${paragraph(html`The database behind ${APP_NAME} has been <strong>replaced</strong> with the contents of a backup archive. The application is now serving the state it was in at <strong style="white-space:nowrap;">${takenAt}</strong>; anything written after that point is <strong>not present</strong>.`)}
+    ${paragraph(html`The database behind ${APP_NAME} has been <strong>replaced</strong> with the contents of a backup archive. The application is now serving the state it was in at <strong style="white-space:nowrap;">${takenAtHtml}</strong>; anything written after that point is <strong>not present</strong>.`)}
     ${callout({ tone: 'success', title: calloutTitle, body: rollback })}
     ${detailRows(facts)}
     ${paragraph(restart, { tone: 'muted' })}

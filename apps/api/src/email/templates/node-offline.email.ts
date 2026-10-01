@@ -9,6 +9,7 @@ import {
   renderLayout,
   textCallout,
   textDetailLines,
+  timestampRow,
 } from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -64,11 +65,6 @@ export interface NodeOfflineEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const WORKERS_ADMIN_PATH = '/admin/settings/workers';
 
-/** ISO 8601 in UTC — matched against log lines, never against a wall clock. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
 /**
  * A never-heartbeated node gets WORDS rather than a blank cell.
  *
@@ -76,11 +72,7 @@ function formatTimestamp(value: Date): string {
  * most alarming value in the message must not render as whitespace that reads
  * like a formatting bug.
  */
-function formatHeartbeat(value: Date | null): string {
-  return value === null
-    ? 'Never — it registered and never sent a heartbeat'
-    : formatTimestamp(value);
-}
+const NEVER_HEARTBEATED = 'Never — it registered and never sent a heartbeat';
 
 /** The recipient's own notification settings page, appended to `appUrl`. */
 const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
@@ -89,8 +81,12 @@ const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
  * Render the node-offline message.
  */
 export function nodeOfflineEmail(data: NodeOfflineEmailData): RenderedEmail {
-  const heartbeat = formatHeartbeat(data.lastHeartbeatAt);
-  const markedAt = formatTimestamp(data.markedOfflineAt);
+  const heartbeatRow = timestampRow(
+    'Last heartbeat',
+    data.lastHeartbeatAt,
+    NEVER_HEARTBEATED,
+  );
+  const heartbeat = heartbeatRow.value;
 
   // The SUBJECT DELIBERATELY DOES NOT CARRY THE NODE NAME. Subject lines are
   // not HTML and are therefore not escaped by the `html` tag, so putting an
@@ -117,8 +113,8 @@ export function nodeOfflineEmail(data: NodeOfflineEmailData): RenderedEmail {
   const facts = [
     { label: 'Node', value: data.nodeName },
     { label: 'Node id', value: data.nodeId, mono: true },
-    { label: 'Last heartbeat', value: heartbeat },
-    { label: 'Marked offline at', value: markedAt },
+    heartbeatRow,
+    timestampRow('Marked offline at', data.markedOfflineAt),
     { label: 'Stale after', value: `${data.staleAfterMinutes} minute(s)` },
   ];
 
@@ -131,7 +127,10 @@ export function nodeOfflineEmail(data: NodeOfflineEmailData): RenderedEmail {
   const htmlDocument = renderLayout({
     title,
     eyebrow,
-    previewText: `${data.nodeName} last checked in at ${heartbeat}.`,
+    previewText:
+      data.lastHeartbeatAt === null
+        ? `${data.nodeName} never checked in.`
+        : `${data.nodeName} last checked in at ${heartbeat}.`,
     bodyHtml,
     ctaLabel,
     ctaUrl,

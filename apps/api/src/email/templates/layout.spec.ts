@@ -1,5 +1,17 @@
 import { html, SafeHtml } from './safe-html';
-import { APP_NAME, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  detailRows,
+  formatEmailDuration,
+  formatEmailTimestamp,
+  plainText,
+  renderLayout,
+  textDetailLines,
+  timeHtml,
+  timestampRow,
+} from './layout';
+import { roleChangedEmail } from './role-changed.email';
+import { testEmail } from './test-email.email';
 
 // =============================================================================
 // layout.ts — tests (issue #123, epic #109)
@@ -385,5 +397,137 @@ describe('renderLayout + plainText — rejected CTA drops the button in BOTH par
     expect(htmlOut).not.toContain('javascript:');
     expect(textOut).not.toContain('Dangerous button');
     expect(textOut).not.toContain('javascript:');
+  });
+});
+
+// =============================================================================
+// Timestamps — formatEmailTimestamp and friends
+// =============================================================================
+
+describe('formatEmailTimestamp', () => {
+  it('renders a UTC instant as day, English month, year, 24-hour time and an explicit zone', () => {
+    expect(formatEmailTimestamp(new Date('2026-10-01T02:00:03.000Z'))).toBe(
+      '1 Oct 2026, 02:00 UTC',
+    );
+    expect(formatEmailTimestamp(new Date('2026-10-01T21:59:59.999Z'))).toBe(
+      '1 Oct 2026, 21:59 UTC',
+    );
+  });
+
+  it('converts an input carrying a non-UTC offset to UTC (never the host zone)', () => {
+    // 01:30 at +05:30 is 20:00 UTC on the PREVIOUS day.
+    expect(formatEmailTimestamp('2026-03-01T01:30:00+05:30')).toBe(
+      '28 Feb 2026, 20:00 UTC',
+    );
+    // A negative offset that pushes the instant into the next day.
+    expect(formatEmailTimestamp('2026-06-15T22:15:00-04:00')).toBe(
+      '16 Jun 2026, 02:15 UTC',
+    );
+  });
+
+  it('crosses month and year boundaries correctly', () => {
+    expect(formatEmailTimestamp('2026-01-31T23:59:00Z')).toBe('31 Jan 2026, 23:59 UTC');
+    expect(formatEmailTimestamp('2026-02-01T00:00:00Z')).toBe('1 Feb 2026, 00:00 UTC');
+    expect(formatEmailTimestamp('2026-12-31T23:30:00-01:00')).toBe(
+      '1 Jan 2027, 00:30 UTC',
+    );
+  });
+
+  it('accepts a Date and an ISO string for the same instant and renders them identically', () => {
+    const iso = '2026-10-01T09:42:17.000Z';
+    expect(formatEmailTimestamp(iso)).toBe(formatEmailTimestamp(new Date(iso)));
+  });
+
+  it('includes seconds only when asked', () => {
+    expect(
+      formatEmailTimestamp('2026-10-01T09:42:07.000Z', { seconds: true }),
+    ).toBe('1 Oct 2026, 09:42:07 UTC');
+  });
+
+  it('returns invalid input unchanged rather than throwing', () => {
+    expect(formatEmailTimestamp('not a date')).toBe('not a date');
+    expect(formatEmailTimestamp('')).toBe('');
+    expect(formatEmailTimestamp(new Date('garbage'))).toBe('Invalid Date');
+  });
+});
+
+describe('timeHtml and timestampRow', () => {
+  it('timeHtml wraps the human string in <time> with the exact ISO instant', () => {
+    expect(timeHtml('2026-10-01T04:00:03+02:00').toString()).toBe(
+      '<time datetime="2026-10-01T02:00:03.000Z" style="white-space:nowrap;">1 Oct 2026, 02:00 UTC</time>',
+    );
+  });
+
+  it('timeHtml renders invalid input as escaped text with no <time> element', () => {
+    const out = timeHtml('<b>soon</b>').toString();
+    expect(out).toBe('&lt;b&gt;soon&lt;/b&gt;');
+  });
+
+  it('timestampRow gives the text part the human string and the html part a <time> wrapper', () => {
+    const row = timestampRow('Changed at', new Date('2026-10-01T09:42:17.000Z'));
+
+    expect(textDetailLines([row])).toEqual(['  Changed at:  1 Oct 2026, 09:42 UTC']);
+    expect(detailRows([row]).toString()).toContain(
+      '<time datetime="2026-10-01T09:42:17.000Z" style="white-space:nowrap;">1 Oct 2026, 09:42 UTC</time>',
+    );
+  });
+
+  it('timestampRow renders null as words, with no <time> element', () => {
+    const row = timestampRow('Started at', null);
+    expect(row.value).toBe('Not recorded');
+    expect(detailRows([row]).toString()).not.toContain('<time');
+    expect(timestampRow('Last heartbeat', null, 'Never').value).toBe('Never');
+  });
+});
+
+describe('formatEmailDuration', () => {
+  it.each([
+    ['2026-10-01T02:00:03Z', '2026-10-01T02:00:34Z', '31 s'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T02:00:00Z', '0 s'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T02:02:04Z', '2 min 4 s'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T02:10:00Z', '10 min'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T03:05:59Z', '1 h 5 min'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T04:00:00Z', '2 h'],
+    ['2026-09-29T02:00:00Z', '2026-10-01T05:00:00Z', '2 d 3 h'],
+  ])('%s -> %s is %s', (start, end, expected) => {
+    expect(formatEmailDuration(start, end)).toBe(expected);
+  });
+
+  it('returns undefined for a negative span or an invalid input, so the caller omits the row', () => {
+    expect(formatEmailDuration('2026-10-01T02:00:10Z', '2026-10-01T02:00:00Z')).toBeUndefined();
+    expect(formatEmailDuration('nope', '2026-10-01T02:00:00Z')).toBeUndefined();
+  });
+});
+
+describe('templates outside the operational set use the shared formatter', () => {
+  it('role-changed shows the human timestamp in both parts and the preheader', () => {
+    const out = roleChangedEmail({
+      recipientEmail: 'a@example.com',
+      previousRoles: ['viewer'],
+      currentRoles: ['admin'],
+      changedAt: new Date('2026-10-01T09:42:17.000Z'),
+    });
+
+    expect(out.text).toMatch(/Changed at:\s+1 Oct 2026, 09:42 UTC/);
+    expect(out.html).toContain('changed at 1 Oct 2026, 09:42 UTC.');
+    expect(out.html).toContain('<time datetime="2026-10-01T09:42:17.000Z"');
+    expect(out.text).not.toContain('2026-10-01T');
+  });
+
+  it('test-email keeps seconds in the subject so two sends a few seconds apart do not thread together', () => {
+    const first = testEmail({
+      recipientEmail: 'a@example.com',
+      providerKind: 'smtp',
+      sentAt: new Date('2026-10-01T14:05:09.000Z'),
+    });
+    const second = testEmail({
+      recipientEmail: 'a@example.com',
+      providerKind: 'smtp',
+      sentAt: new Date('2026-10-01T14:05:41.000Z'),
+    });
+
+    expect(first.subject).toContain('(1 Oct 2026, 14:05:09 UTC)');
+    expect(first.subject).not.toBe(second.subject);
+    expect(first.text).toMatch(/Sent at:\s+1 Oct 2026, 14:05 UTC/);
   });
 });

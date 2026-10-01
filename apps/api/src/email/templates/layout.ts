@@ -313,12 +313,161 @@ export function paragraph(
   return html`<p style="margin:0 0 16px 0;font-family:${FONT};font-size:15px;line-height:24px;">${content}</p>`;
 }
 
+// -----------------------------------------------------------------------------
+// Timestamps and durations
+// -----------------------------------------------------------------------------
+//
+// EVERY TIMESTAMP A TEMPLATE RENDERS GOES THROUGH `formatEmailTimestamp`, in
+// both parts, so one message never shows two formats and no template grows its
+// own `toISOString()` again. A raw ISO string ("2026-10-01T02:00:03.000Z")
+// reads like a database dump; a locale-formatted one with no zone
+// ("01/10/2026, 02:00") is ambiguous about both the day/month order and the
+// zone. The format here is neither:
+//
+//     1 Oct 2026, 02:00 UTC
+//
+//   * UTC, always, and SAID — the server does not know the reader's zone, and
+//     the logs and audit rows a reader correlates against are UTC.
+//   * English month abbreviation, so day and month cannot be swapped.
+//   * 24-hour clock, no seconds: minute precision is what a human reads; the
+//     precise instant stays available to machines in the HTML part through
+//     the `datetime` attribute of a `<time>` element (see `timeHtml` and
+//     `DetailRow.datetime`).
+//
+// BUILT BY HAND from the `getUTC*` accessors rather than with `Intl` or
+// `toLocaleString`, so the output cannot depend on the host's locale, ICU
+// build or time zone — templates are pure functions of their data.
+
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const;
+
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/** Parse a `Date | string` into a valid `Date`, or `null` when it is not one. */
+function toValidDate(value: Date | string): Date | null {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Options for {@link formatEmailTimestamp}. */
+export interface EmailTimestampOptions {
+  /**
+   * Include seconds (`02:00:03 UTC`). Off by default; use it only where two
+   * values a few seconds apart must stay distinguishable (a subject line that
+   * must not thread with the previous send).
+   */
+  seconds?: boolean;
+}
+
+/**
+ * Format an instant for a human reader of an email: `1 Oct 2026, 02:00 UTC`.
+ *
+ * Deterministic and locale-independent: always UTC, English month
+ * abbreviation, 24-hour clock, no seconds unless asked for. A string input is
+ * parsed with `new Date(string)`, so an ISO value with any offset
+ * (`2026-10-01T04:00:00+02:00`) renders as its UTC equivalent.
+ *
+ * NEVER THROWS. Input that is not a valid instant is returned unchanged (a
+ * string as-is, an invalid `Date` as `String(date)`), because a message with
+ * an odd-looking value is better than a message that was never sent.
+ */
+export function formatEmailTimestamp(
+  value: Date | string,
+  opts: EmailTimestampOptions = {},
+): string {
+  const date = toValidDate(value);
+  if (date === null) return String(value);
+
+  const time = `${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}`;
+  const seconds = opts.seconds ? `:${pad2(date.getUTCSeconds())}` : '';
+  return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}, ${time}${seconds} UTC`;
+}
+
+/**
+ * The precise ISO 8601 instant for a `datetime` attribute, or `undefined` when
+ * the input is not a valid instant (the caller then renders no `<time>`).
+ */
+export function emailTimestampIso(value: Date | string): string | undefined {
+  const date = toValidDate(value);
+  return date === null ? undefined : date.toISOString();
+}
+
+/**
+ * A timestamp as inline HTML: the human string from
+ * {@link formatEmailTimestamp}, wrapped in `<time datetime="<ISO>">` so the
+ * exact instant stays machine-readable, and kept on one line so the date and
+ * the zone are never split. An invalid input renders as escaped text only.
+ */
+export function timeHtml(value: Date | string): SafeHtml {
+  const label = formatEmailTimestamp(value);
+  const iso = emailTimestampIso(value);
+  return iso === undefined
+    ? html`${label}`
+    : html`<time datetime="${iso}" style="white-space:nowrap;">${label}</time>`;
+}
+
+/**
+ * The elapsed time between two instants, for a reader: `31 s`, `2 min 4 s`,
+ * `1 h 5 min`, `2 d 3 h`. Two units at most — the precision a human needs to
+ * tell "it died at once" from "it ran for an hour". Returns `undefined` when
+ * either input is invalid or `end` is before `start`, so a caller can simply
+ * omit the row rather than render a negative or nonsense duration.
+ */
+export function formatEmailDuration(
+  start: Date | string,
+  end: Date | string,
+): string | undefined {
+  const from = toValidDate(start);
+  const to = toValidDate(end);
+  if (from === null || to === null) return undefined;
+
+  const totalSeconds = Math.round((to.getTime() - from.getTime()) / 1000);
+  if (totalSeconds < 0) return undefined;
+
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return hours > 0 ? `${days} d ${hours} h` : `${days} d`;
+  if (hours > 0) return minutes > 0 ? `${hours} h ${minutes} min` : `${hours} h`;
+  if (minutes > 0) return seconds > 0 ? `${minutes} min ${seconds} s` : `${minutes} min`;
+  return `${seconds} s`;
+}
+
 /** One fact in a {@link detailRows} table. */
 export interface DetailRow {
   label: string;
   value: string | SafeHtml;
   /** Set for identifiers (ids, hashes) so they read as such and wrap anywhere. */
   mono?: boolean;
+  /**
+   * The precise ISO 8601 instant when `value` is a human timestamp. The HTML
+   * part then wraps the value in `<time datetime="...">` (kept on one line);
+   * the text part ignores it. Build the pair with {@link timestampRow}.
+   */
+  datetime?: string;
+}
+
+/**
+ * A {@link DetailRow} for an instant: the human string from
+ * {@link formatEmailTimestamp} as the value (which the text part shows), with
+ * the exact ISO instant carried for the HTML `<time>` wrapper. `null` renders
+ * `whenNull` instead, as plain words.
+ */
+export function timestampRow(
+  label: string,
+  value: Date | string | null,
+  whenNull = 'Not recorded',
+): DetailRow & { value: string } {
+  if (value === null) return { label, value: whenNull };
+  return {
+    label,
+    value: formatEmailTimestamp(value),
+    datetime: emailTimestampIso(value),
+  };
 }
 
 /**
@@ -340,9 +489,12 @@ export function detailRows(rows: readonly DetailRow[]): SafeHtml {
     // Bold monospace reads as shouting; identifiers stay regular weight and
     // are set apart by the face instead.
     const valueWeight = row.mono ? 'normal' : 'bold';
+    const value = row.datetime
+      ? html`<time datetime="${row.datetime}" style="white-space:nowrap;">${row.value}</time>`
+      : row.value;
     return html`<tr>
       <td class="em-muted em-rule em-detail-label" width="34%" valign="top" style="width:34%;padding:10px 16px 10px 0;${ruleCss}font-family:${FONT};font-size:13px;line-height:20px;color:${MUTED_COLOR};vertical-align:top;">${row.label}</td>
-      <td class="em-text em-rule em-detail-value" valign="top" style="padding:10px 0;${ruleCss}font-family:${valueFont};font-size:${valueSize};line-height:20px;font-weight:${valueWeight};color:${TEXT_COLOR};vertical-align:top;word-break:break-word;overflow-wrap:anywhere;">${row.value}</td>
+      <td class="em-text em-rule em-detail-value" valign="top" style="padding:10px 0;${ruleCss}font-family:${valueFont};font-size:${valueSize};line-height:20px;font-weight:${valueWeight};color:${TEXT_COLOR};vertical-align:top;word-break:break-word;overflow-wrap:anywhere;">${value}</td>
     </tr>`;
   });
 

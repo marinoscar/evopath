@@ -9,6 +9,7 @@ import {
   renderLayout,
   textCallout,
   textDetailLines,
+  timestampRow,
 } from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -79,7 +80,7 @@ export interface RoleChangedEmailData {
   /** Roles held AFTER the change, as stored. May be empty — access can be removed entirely. */
   currentRoles: string[];
 
-  /** When the change was made. Rendered as UTC; see `formatTimestamp`. */
+  /** When the change was made. Rendered via `formatEmailTimestamp` (UTC). */
   changedAt: Date;
 
   /**
@@ -108,22 +109,13 @@ function formatRoles(roles: string[]): string {
 }
 
 /**
- * ISO 8601, in UTC, with the `Z` left on — the same choice, for the same
- * reason, as `test-email.email.ts`: the server does not know the reader's time
- * zone, and this timestamp's job is to be matched against an audit row or a
- * log line, both of which are UTC.
- */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
-/**
  * Render the role-change message.
  */
 export function roleChangedEmail(data: RoleChangedEmailData): RenderedEmail {
   const previous = formatRoles(data.previousRoles);
   const current = formatRoles(data.currentRoles);
-  const timestamp = formatTimestamp(data.changedAt);
+  const changedAtRow = timestampRow('Changed at', data.changedAt);
+  const timestamp = changedAtRow.value;
 
   const subject = `Your access to ${APP_NAME} has changed`;
 
@@ -141,7 +133,7 @@ export function roleChangedEmail(data: RoleChangedEmailData): RenderedEmail {
     { label: 'Account', value: data.recipientEmail },
     { label: 'Previously', value: previous },
     { label: 'Now', value: current },
-    { label: 'Changed at', value: timestamp },
+    changedAtRow,
   ];
   const calloutTitle = 'When it takes effect';
   const calloutBody =
