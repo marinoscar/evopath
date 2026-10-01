@@ -1,3 +1,5 @@
+import { ANDROID_APK_STEM, ANDROID_PACKAGE_NAME } from '@app/shared';
+
 import { ANDROID_RELEASES_KEY_PREFIX } from '../../storage/storage-key-prefixes';
 
 // =============================================================================
@@ -68,7 +70,18 @@ export function androidReleaseKey(releaseId: string): string {
   return `${ANDROID_RELEASES_KEY_PREFIX}${releaseId}.apk`;
 }
 
-/** The download's file name. `versionName` is validated to `[0-9A-Za-z._+-]`. */
+/**
+ * The Android app's applicationId as the identity derives it
+ * (`com.<repo>.android`, from `@app/shared`). Documentation only: an upload
+ * names its own package, and the server never assumes this one.
+ */
+export const DEFAULT_ANDROID_PACKAGE_NAME = ANDROID_PACKAGE_NAME;
+
+/**
+ * The download's file name, `<repo>-android-<versionName>.apk` (the stem comes
+ * from `@app/shared`, so a renamed fork serves its own name). `versionName` is
+ * validated to `[0-9A-Za-z._+-]`.
+ */
 export function apkFileName(versionName: string): string {
-  return `evopath-android-${versionName}.apk`;
+  return `${ANDROID_APK_STEM}-${versionName}.apk`;
 }

@@ -22,6 +22,7 @@ process.env.SECRETS_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
 
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { ANDROID_APK_STEM, ANDROID_PACKAGE_NAME } from '@app/shared';
 import request from 'supertest';
 
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
@@ -47,7 +48,7 @@ import { resetPrismaMock } from '../mocks/prisma.mock';
 const ADMIN = '/api/admin/android-app/releases';
 const LATEST = '/api/android-app/releases/latest';
 const SHA = Array.from({ length: 32 }, () => 'AB').join(':');
-const PKG = 'com.evopath.android';
+const PKG = ANDROID_PACKAGE_NAME;
 const MISSING_ID = '99999999-9999-4999-8999-999999999999';
 
 function apkBytes(size = 4096): Buffer {
@@ -496,7 +497,7 @@ describe('Android APK releases (Integration)', () => {
         .expect(200);
 
       expect(response.headers['content-type']).toBe('application/vnd.android.package-archive');
-      expect(response.headers['content-disposition']).toBe('attachment; filename="evopath-android-0.7.0.apk"');
+      expect(response.headers['content-disposition']).toBe(`attachment; filename="${ANDROID_APK_STEM}-0.7.0.apk"`);
       expect(response.headers['content-length']).toBe(String(apk.length));
       expect((response.body as Buffer).equals(apk)).toBe(true);
     });
