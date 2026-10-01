@@ -496,6 +496,7 @@ export function HealthProfileSettings({
               </FormLabel>
               <RadioGroup
                 name="health-lab-units"
+                aria-labelledby="health-lab-units-label"
                 value={form.labUnits}
                 onChange={(e) => update({ labUnits: e.target.value as LabUnits })}
                 aria-describedby="health-lab-units-helper"

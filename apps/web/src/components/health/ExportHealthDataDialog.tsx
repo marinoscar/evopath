@@ -405,9 +405,12 @@ export function ExportHealthDataDialog({
 
             {datasets.includes('labs') && (
               <FormControl component="fieldset" disabled={creating}>
-                <FormLabel component="legend">Lab units</FormLabel>
+                <FormLabel component="legend" id={`${idBase}-lab-units-label`}>
+                  Lab units
+                </FormLabel>
                 <RadioGroup
                   name={`${idBase}-lab-units`}
+                  aria-labelledby={`${idBase}-lab-units-label`}
                   value={labUnits}
                   onChange={(event) => setLabUnitsChoice(event.target.value as LabUnits)}
                 >
