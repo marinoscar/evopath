@@ -7,11 +7,44 @@
     <!-- Web Push delegated from the PWA through the TWA, and (later) sync notifications. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Health Connect: read-only. Types are switchable per type in Health sync. -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+    <uses-permission android:name="android.permission.health.READ_BODY_FAT" />
+    <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <!-- Requested only when Health Connect supports it (HealthConnectFeatures). -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+
     <queries>
         <!-- Lets androidbrowserhelper find a browser that supports Custom Tabs / TWAs. -->
         <intent>
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
+        <!-- Health Connect (Android 13 and below ship it as an app). -->
+        <package android:name="com.google.android.apps.healthdata" />
+        <!-- Common Health Connect sources, to show their names (see healthconnect/SourceApps.kt). -->
+        <package android:name="com.sec.android.app.shealth" />
+        <package android:name="com.ouraring.oura" />
+        <package android:name="com.fitbit.FitbitMobile" />
+        <package android:name="com.google.android.apps.fitness" />
+        <package android:name="com.google.android.apps.wearables.maestro.companion" />
+        <package android:name="com.garmin.android.apps.connectmobile" />
+        <package android:name="com.withings.wiscale2" />
+        <package android:name="com.strava" />
+        <package android:name="fi.polar.polarflow" />
+        <package android:name="com.huawei.health" />
+        <package android:name="com.xiaomi.wearable" />
+        <package android:name="com.mi.health" />
+        <package android:name="com.xiaomi.hm.health" />
+        <package android:name="com.huami.watch.hmwatchmanager" />
+        <package android:name="com.whoop.android" />
+        <package android:name="com.myfitnesspal.android" />
     </queries>
 
     <application
@@ -77,6 +110,28 @@
                     android:host="health-sync" />
             </intent-filter>
         </activity>
+
+        <!-- Health Connect privacy rationale (Android 13 and below: from the permission screen). -->
+        <activity
+            android:name=".healthconnect.PermissionsRationaleActivity"
+            android:exported="true"
+            android:label="@string/health_rationale_title">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Android 14+: the same screen from Settings → permission usage. -->
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".healthconnect.PermissionsRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Lets the PWA's notifications and other trusted features be delegated to this app. -->
         <service

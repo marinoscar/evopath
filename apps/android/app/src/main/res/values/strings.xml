@@ -6,4 +6,5 @@
     <string name="shortcut_health_sync_short">Health sync</string>
     <string name="shortcut_health_sync_long">Open Health sync</string>
     <string name="shortcut_health_sync_disabled">Health sync is unavailable</string>
+    <string name="health_rationale_title">Health data use</string>
 </resources>
