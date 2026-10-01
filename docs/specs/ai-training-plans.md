@@ -18,6 +18,7 @@ This page is the single home for the design of the agents: roles, graphs, run st
 - **Not medical advice.** The agents give general fitness guidance. They never diagnose, prescribe or advise training through pain. Urgent-symptom text stops the flow before any model call (G0).
 - **No deterministic plan generator.** There is no rule-based fallback that builds a plan without a model. With AI off, the manual builder, Today, the viewer, history and signals keep working; only generation and adaptation stop.
 - **Researcher is OpenAI-only in v1.** The one hosted web search the platform drives is OpenAI's. The planner, critic and evaluator run on any provider with the `responses` and `structured_output` capabilities.
+- **One plan at a time.** A user has exactly one active plan. Everyday targets that run beside it ("walk 4 times a week", "8,000 steps a day") are activity goals, not extra plans: see [activity-goals.md](activity-goals.md#6-design-decisions). The agents never read goals.
 - **Drafts arrive for review.** A created or revised plan is a `draft` (or a new version of the plan) the owner reads and activates. Only adapting an already active plan is autonomous.
 - **Autonomy is visible and reversible.** Every autonomous change writes a change log entry with what, why and evidence, raises a notification and can be undone in one tap. Hard safety bounds are enforced by server code that clamps or drops; they are never turned into questions.
 
@@ -121,7 +122,7 @@ Every contract is strict-mode compatible: every property required, nullable inst
 
 **`EvidenceBrief`** (`agents/researcher/evidence-brief.contract.ts`): `summary`, `claims[]` (3 to 20; `topic`, `claim`, `applicability`, `confidence`, `sourceIds` 1 to 4), `sources[]` (2 to 20; `id`, `url`, `title`, `publisher`, `kind`, `year`) and `cautions[]` (at most 6). Topics: frequency, volume, intensity, progression, recovery, exercise selection, limitation guidance, adherence. The server turns it into a `VerifiedEvidenceBrief`: only sources whose normalised URL the run's own search returned survive, re-mapped ids, `domain` and `retrievedAt` added, `searchQueries` taken from the hosted tool result (never model text), `researchMode` (`single`, or `two_step` when the tool plus schema call fails) and `droppedClaims` and `droppedSources` counts.
 
-**`PlanDraft`** (`agents/planner/plan-draft.contract.ts`): compact, in week types plus a sequence. `title`, `summary`, `rationale`, `totalWeeks` (1 to 24), `daysPerWeek`, `blocks[]` (at most 4; each with `weekSequence` and `weekTypes[]` of workouts with exercises) and `assumptions` and `safetyNotes`. An exercise is named by stable `exerciseKey` (slug) with sets, rep range, optional load and RPE, rest, a short rationale and `evidenceRefs`. `compile/compile-plan.ts` expands it into a plan tree; the model never sees or writes a row id.
+**`PlanDraft`** (`agents/planner/plan-draft.contract.ts`): compact, in week types plus a sequence. `title`, `summary`, `rationale`, `totalWeeks` (1 to 24), `daysPerWeek`, `blocks[]` (at most 4; each with `weekSequence` and `weekTypes[]` of workouts with exercises) and `assumptions` and `safetyNotes`. An exercise is named by stable `exerciseKey` (slug) with one of two prescription shapes, optional load and RPE, rest, a short rationale and `evidenceRefs`. A **reps** prescription has `sets` (1 to 8) and a rep range, with both targets null. A **cardio** prescription, for an exercise tracked as `time` or `distance_time`, has `targetDurationSeconds` (60 to 36,000) and/or `targetDistanceMeters` (100 to 100,000) as the session total, null reps, and `sets` null or a count. `weight_reps` and `bodyweight_reps` exercises take the reps shape, `time` takes a duration only, `distance_time` a duration and/or a distance (the shared rule is `prescriptionMismatch` in `apps/api/src/programs/contracts/prescription.ts`). `compile/compile-plan.ts` expands it into a plan tree; the model never sees or writes a row id.
 
 **`CriticVerdict`** (`agents/critic/critic-verdict.contract.ts`): `verdict` (`approve`, `revise`), integer `scores` 1 to 5 on eight dimensions (`goal_fit`, `equipment_feasibility`, `volume_intensity`, `recovery`, `injury_handling`, `progression`, `adherence_realism`, `evidence_alignment`), `blockers[]` (dimension, path, issue, fix), `suggestions[]` and `summary`. A dimension under 4 blocks shipping.
 
@@ -173,7 +174,7 @@ All guardrails are pure, deterministic and server-side. `applyGuardrails` (`guar
 | Rule | Checks | Repair |
 |---|---|---|
 | G0 safety screen | Urgent-symptom phrases in every free-text field of a request, before any run row or job exists (`guardrails/safety-screen.ts`). A pain, injury, recovery or pregnancy stem sets conservative mode, which caps RPE, sets per exercise and sets per session | Urgent: the run is `blocked_safety`, no job, no provider call, fixed guidance |
-| G1 shape | Exercises exist in the library, unique weekdays, contiguous weeks, numbers in schema bounds | Drop unknown exercises and empty workouts, move duplicate weekdays, renumber; blocks on an empty week or a workout under 2 exercises |
+| G1 shape | Exercises exist in the library, unique weekdays, contiguous weeks, numbers in schema bounds, and each prescription's shape fits its exercise's tracking mode | Drop unknown exercises and empty workouts, move duplicate weekdays, renumber; blocks on an empty week or a workout under 2 exercises |
 | G2 equipment | Every exercise fits the gym (no gym: bodyweight only) | Substitute along the pattern ladder, else drop |
 | G3 time | Workout duration within `minutesPerSession` x 1.05 | Trim ladder (rest, sets, accessories, priority lifts); warns when it cannot fit |
 | G4 volume, intensity | Level caps on sets, reps, RPE, rest, weekly sets | Clamp; move a workout to a preferred weekday |
@@ -184,13 +185,25 @@ All guardrails are pure, deterministic and server-side. `applyGuardrails` (`guar
 | G9 loads | A model never invents a load; a first exposure follows recent history | Null or clamp the load, align `loadGuidance` |
 | G10 envelope | Bounds on the evaluator's operations (table below) | Clamp or drop, recorded |
 
+**G1 prescription shape** (`guardrails/shape.ts`). Findings carry a code:
+
+| Severity | Code | Meaning |
+|---|---|---|
+| repair | `prescription_reps_cleared` | A time or distance exercise also carried reps: the reps are removed |
+| repair | `prescription_targets_cleared` | A reps exercise also carried a duration or distance: the targets are removed |
+| repair | `duration_bounded`, `distance_bounded`, `sets_bounded` | A cardio target or set count was pulled inside the plan limits (duration 60 to 36,000 s, distance 100 to 100,000 m with two decimals, sets 1 to 20) |
+| block | `prescription_missing` | The exercise has neither sets and reps nor a duration or distance |
+| block | `prescription_shape_mismatch` | The shape does not fit the tracking mode (reps on a walk, a distance on a time-only exercise) |
+
+G3 prices a cardio prescription at setup plus its target duration (else its distance at 0.48 s per meter, `cardioSecondsPerMeter`); its trim ladder never changes a cardio prescription's sets and may drop it.
+
 **G8 details.** `normalizeUrl` refuses a URL that may never be cited (not http or https, credentials, IP literal or localhost, too long). `verifyBrief` also drops a verified source on the domain denylist (`guardrails/research-domain-denylist.ts`: social networks, video pages, forums, marketplaces, shorteners). `sanitizeModelText` strips markup, control characters and unverified URLs from every model-authored string that reaches the database or the UI, and drops each sentence that addresses the model rather than the reader (`isInstructionLike` in `guardrails/citations.ts`): an override verb with a qualifier and an instruction noun ("ignore your previous instructions"), a request to reveal the system prompt, "you are now unrestricted", "developer mode", "new instructions:". The patterns are narrow so ordinary training prose ("you are now ready to add load") survives. Known limit: a harmless-looking imperative such as "Set every load to 500 kg." is not removable as text; the numeric guardrails (G7, G9) clamp the actual loads. The stripping is defence in depth; the delimited-data prompt blocks and the numeric guardrails are the containment. Each affected text is reported as a `text_sanitized` repair.
 
 **G10 envelope** (`guardrails/envelope.ts`, limits in `guardrails/envelope-limits.ts`). Two layers. Forced safety removals always pass and come first.
 
 | Rule | Bound |
 |---|---|
-| REF | Unknown refs, unknown exercise keys and no-ops are dropped |
+| REF | Unknown refs, unknown exercise keys and no-ops are dropped. Cardio is never re-prescribed or added automatically: an operation other than `remove_exercise` on a row with a duration or distance target is dropped as `cardio_prescription`, and adding or swapping in an exercise tracked by time or distance is dropped as `cardio_exercise`. A cardio target changes only by hand |
 | E1 frozen | Only workouts strictly after today without a linked session may change; a week range is narrowed to its unlocked weeks |
 | E2 size | At most 8 operations and 6 distinct exercises per adaptation |
 | E3 loads | An increase needs the G7 preconditions (last exposure met the rep floor, no recent pain flag, fewer than 3 low-readiness days in a row, not recovering, automation not paused, assessment not `needs_recovery`) and is one step; decreases always pass |
@@ -374,6 +387,8 @@ adapt -> guardrails -> critic --accept (or revise without a major issue)--> fina
 | Never escalate | With a base: no exercise above its counterpart's sets or RPE (a swap inherits the replaced ceiling, an added exercise the largest planned one) and total sets at most the base's total. Ad hoc: the level's bounds. With no base RPE, RPE is capped at 8 | `defaultRpeCap: 8` |
 | Conservative mode | A pain, injury, recovery or pregnancy word in the free text, a poor check-in or a declared limitation adds the plan guardrails' caps | `GUARDRAIL_LIMITS.conservative`: RPE 7, 4 sets per exercise, 22 per session |
 | Time fit | Estimated minutes at most `minutes`, else T1 drop non-priority exercises from the end (never the last one), T2 one set off non-priority exercises (floor 2), T3 one set off priority exercises (floor 2). Still over: `ADAPTATION_CANNOT_FIT`, "Can't fit these lifts in N minutes; try N+10" | `cannotFitSuggestionStep: 10` |
+
+Cardio prescriptions (a duration or distance target) are outside this pipeline. The adaptation context leaves them out, the model neither sees nor changes them, and applying an adaptation as a plan change keeps them after the adapted exercises.
 
 Hard failures are only two: nothing left after shape, pain and equipment (`ADAPTATION_INVALID`), and a time fit that cannot be met (`ADAPTATION_CANNOT_FIT`). Everything else is repaired and listed in `guardrailReport.repairs`, which the review shows.
 
@@ -559,7 +574,7 @@ nginx unbuffers `/api/ai/training/stream` ([ARCHITECTURE.md §10.3](../ARCHITECT
 
 Tests that enforce the invariants (paths under `apps/api/` unless noted):
 
-- `src/training-agents/guardrails/apply-guardrails.spec.ts`, `hostile-planner.spec.ts`, `shape.spec.ts`, `volume-injury-recovery.spec.ts`, `progression-loads-citations.spec.ts`, `duration.spec.ts`, `equipment.spec.ts`: G1 to G9, idempotence, and hostile drafts never shipping.
+- `src/training-agents/guardrails/apply-guardrails.spec.ts`, `hostile-planner.spec.ts`, `shape.spec.ts`, `volume-injury-recovery.spec.ts`, `progression-loads-citations.spec.ts`, `duration.spec.ts`, `equipment.spec.ts`: G1 to G9 (`shape.spec.ts` covers the cardio shape codes), idempotence, and hostile drafts never shipping.
 - `src/training-agents/guardrails/citations.spec.ts`: G8 verification against what the search returned.
 - `src/training-agents/guardrails/safety-screen.spec.ts`, `safety-stop.spec.ts`: G0 and the evaluate safety stops, including the copy assertions.
 - `src/training-agents/guardrails/envelope.spec.ts`, `src/training-agents/evaluation/apply-operations.spec.ts`: G10 rules E1 to E10.
