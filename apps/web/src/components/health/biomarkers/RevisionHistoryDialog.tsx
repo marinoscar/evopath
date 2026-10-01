@@ -20,7 +20,9 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
+import { useMemo } from 'react';
 import { useMeasurementRevisions } from '../../../hooks/useBiomarkers';
+import { convertLabRow, labUnitsNote, type LabDisplay, type LabUnits } from '../../../utils/labUnits';
 import { referenceRangeText } from '../../../services/labReport';
 import { formatLabValue } from '../../../utils/biomarkers';
 import { withUnit } from '../../../utils/measurementUnits';
@@ -39,14 +41,34 @@ export interface RevisionHistoryDialogProps {
   /** The reading to show; `null` = closed. */
   measurementId: string | null;
   label: string;
+  /** #234: how the analyte is shown (unit, precision, conversion). Omitted = canonical, as stored. */
+  display?: LabDisplay;
+  /** The analyte's canonical unit: only rows in it are converted. */
+  canonicalUnit?: string;
+  /** Names the unit system the values are in. */
+  labUnits?: LabUnits;
+  /** Display precision when no `display` is given. */
   decimals?: number;
   onClose: () => void;
 }
 
-export function RevisionHistoryDialog({ measurementId, label, decimals, onClose }: RevisionHistoryDialogProps) {
+export function RevisionHistoryDialog({
+  measurementId,
+  label,
+  display,
+  canonicalUnit,
+  labUnits,
+  decimals: decimalsProp,
+  onClose,
+}: RevisionHistoryDialogProps) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
-  const { data, isLoading, error, notFound, refresh } = useMeasurementRevisions(measurementId);
+  const { data: raw, isLoading, error, notFound, refresh } = useMeasurementRevisions(measurementId);
+  const data = useMemo(
+    () => (raw && display && canonicalUnit ? raw.map((row) => convertLabRow(row, display, canonicalUnit)) : raw),
+    [raw, display, canonicalUnit],
+  );
+  const decimals = display?.decimals ?? decimalsProp;
   const titleId = 'revision-history-title';
 
   const body = () => {
@@ -125,6 +147,7 @@ export function RevisionHistoryDialog({ measurementId, label, decimals, onClose 
         {REVISION_HISTORY_TITLE}
         <Box component="span" sx={{ display: 'block', typography: 'body2', color: 'text.secondary' }}>
           {label}
+          {labUnits ? ` · ${labUnitsNote(labUnits)}` : ''}
         </Box>
       </DialogTitle>
       <DialogContent>{body()}</DialogContent>

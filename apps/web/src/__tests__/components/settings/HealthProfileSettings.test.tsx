@@ -194,6 +194,7 @@ describe('HealthProfileSettings', () => {
         unitSystem: 'imperial',
         timeZone: 'America/New_York',
         bio: 'Training for a half marathon.',
+        labUnits: 'conventional',
       });
     });
 
@@ -307,7 +308,45 @@ describe('HealthProfileSettings', () => {
       expect(screen.getByRole('textbox', { name: 'Height (inches)' })).toBeDisabled();
       expect(screen.getByRole('combobox', { name: 'Time zone' })).toBeDisabled();
       expect(screen.getByRole('textbox', { name: 'Bio' })).toBeDisabled();
+      expect(screen.getByRole('radio', { name: 'US conventional (mg/dL)' })).toBeDisabled();
+      expect(screen.getByRole('radio', { name: 'SI (mmol/L)' })).toBeDisabled();
       expect(saveButton()).toBeDisabled();
+    });
+  });
+
+  describe('lab units (#234)', () => {
+    it('shows the stored preference, conventional by default', () => {
+      setup();
+      const group = screen.getByRole('radiogroup', { name: 'Lab units' });
+      expect(within(group).getByRole('radio', { name: 'US conventional (mg/dL)' })).toBeChecked();
+      expect(within(group).getByRole('radio', { name: 'SI (mmol/L)' })).not.toBeChecked();
+    });
+
+    it('a profile with no labUnits (an older answer) reads as conventional and saves it', async () => {
+      const { labUnits: _omit, ...older } = mockHealthProfileSaved;
+      void _omit;
+      const { user, onSave } = setup({ profile: older as HealthProfile });
+      expect(screen.getByRole('radio', { name: 'US conventional (mg/dL)' })).toBeChecked();
+      await user.click(saveButton());
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(savedInput(onSave).labUnits).toBe('conventional');
+    });
+
+    it('choosing SI saves labUnits: si with the rest of the profile', async () => {
+      const { user, onSave } = setup();
+      await user.click(screen.getByRole('radio', { name: 'SI (mmol/L)' }));
+      await user.click(saveButton());
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(savedInput(onSave)).toMatchObject({ labUnits: 'si', unitSystem: 'imperial', heightMm: 1778 });
+    });
+
+    it('a stored SI preference is shown and can be switched back', async () => {
+      const { user, onSave } = setup({ profile: { ...mockHealthProfileSaved, labUnits: 'si' } });
+      expect(screen.getByRole('radio', { name: 'SI (mmol/L)' })).toBeChecked();
+      await user.click(screen.getByRole('radio', { name: 'US conventional (mg/dL)' }));
+      await user.click(saveButton());
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(savedInput(onSave).labUnits).toBe('conventional');
     });
   });
 

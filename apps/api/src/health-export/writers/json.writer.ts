@@ -2,17 +2,20 @@
 // Health export writer: JSON (H7, #191)
 // =============================================================================
 //
-// `{ schemaVersion, exportedAt, range, includeHistory, profile, datasets }`,
+// `{ schemaVersion, exportedAt, range, includeHistory, labUnits, profile, datasets }`,
 // streamed one row at a time so a long history is never one big string.
 // `profile` is null unless the profile dataset was selected; `datasets` holds
 // one array per other selected dataset, keyed by dataset name, each row keyed
-// by the column keys (unit in the key: `weight_kg`). Values are canonical.
+// by the column keys (unit in the key: `weight_kg`). Values are canonical,
+// except lab rows, which are in `labUnits` (#234; each row names its `unit`).
+// `labUnits` is an additive field: `schemaVersion` stays 1.
 // =============================================================================
 
 import { Readable } from 'node:stream';
 
 import { z } from 'zod';
 
+import { LAB_UNIT_SYSTEMS } from '../../measurements/metric-registry';
 import type { HealthExportData } from '../health-export-data';
 import { HEALTH_EXPORT_DATASETS, HEALTH_EXPORT_SCHEMA_VERSION } from '../health-export.constants';
 
@@ -30,6 +33,7 @@ export const healthExportJsonFileSchema = z
     exportedAt: z.iso.datetime(),
     range: z.object({ from: date, to: date }).strict(),
     includeHistory: z.boolean(),
+    labUnits: z.enum(LAB_UNIT_SYSTEMS),
     profile: z
       .object({
         name: z.string().nullable(),
@@ -54,6 +58,7 @@ function* jsonChunks(data: HealthExportData): Generator<string> {
     exportedAt: data.exportedAt.toISOString(),
     range: data.range,
     includeHistory: data.includeHistory,
+    labUnits: data.labUnits,
     profile: data.profile,
   };
 

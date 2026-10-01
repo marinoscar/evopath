@@ -14,6 +14,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import { addDays, isRealDate } from '../../check-ins/local-date';
+import { DEFAULT_LAB_UNITS, LAB_UNIT_SYSTEMS } from '../../measurements/metric-registry';
 import {
   HEALTH_EXPORT_DATASETS,
   HEALTH_EXPORT_DOWNLOAD_URL_TTL_SECONDS,
@@ -34,6 +35,8 @@ const formatSchema = z.enum(HEALTH_EXPORT_FORMATS).meta({
 });
 
 const datasetSchema = z.enum(HEALTH_EXPORT_DATASETS);
+
+const labUnitsSchema = z.enum(LAB_UNIT_SYSTEMS);
 
 const datasetsSchema = z
   .array(datasetSchema)
@@ -63,6 +66,12 @@ export const createHealthExportSchema = z
       .boolean()
       .default(false)
       .meta({ description: 'Also export superseded revisions of edited readings. Deleted readings are never exported.' }),
+    labUnits: labUnitsSchema.optional().meta({
+      description:
+        'Units for lab results: `conventional` (US conventional, e.g. mg/dL) or `si` (e.g. mmol/L). ' +
+        "Omitted = the caller's health-profile `labUnits` (`conventional` without a profile). Only the " +
+        'labs dataset and the PDF lab values change; other datasets stay in canonical units.',
+    }),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -123,6 +132,8 @@ export const healthExportJobPayloadSchema = z.object({
   to: dateSchema,
   datasets: z.array(datasetSchema).min(1),
   includeHistory: z.boolean(),
+  /** Resolved at request time; jobs queued before #234 carry none and read as conventional. */
+  labUnits: labUnitsSchema.default(DEFAULT_LAB_UNITS),
   /** Validated on read by {@link readHealthExportResult}; opaque here so a bad one never wedges the job. */
   result: z.unknown().optional(),
 });
@@ -143,6 +154,7 @@ export const healthExportSchema = z.object({
   to: z.string().meta({ format: 'date' }),
   datasets: z.array(datasetSchema),
   includeHistory: z.boolean(),
+  labUnits: labUnitsSchema.meta({ description: 'The units lab results were (or will be) exported in.' }),
   createdAt: z.iso.datetime(),
   completedAt: z.iso.datetime().nullable(),
   expiresAt: z.iso.datetime().nullable().meta({ description: 'When the file is removed; null until ready.' }),

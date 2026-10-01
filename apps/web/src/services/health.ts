@@ -21,6 +21,14 @@ export type SexAtBirth = (typeof SEX_AT_BIRTH_VALUES)[number];
 export const UNIT_SYSTEMS = ['metric', 'imperial'] as const;
 export type UnitSystem = (typeof UNIT_SYSTEMS)[number];
 
+/**
+ * Issue #234: how blood work is SHOWN (and exported). `conventional` is the
+ * US convention (mg/dL); `si` the metric's catalog `siUnit` (mmol/L, µmol/L).
+ * Storage is always canonical; this changes display only.
+ */
+export const LAB_UNITS_VALUES = ['conventional', 'si'] as const;
+export type LabUnits = (typeof LAB_UNITS_VALUES)[number];
+
 /** The bounds the API enforces on `heightMm` (integer millimetres). */
 export const HEIGHT_MM_MIN = 500;
 export const HEIGHT_MM_MAX = 2500;
@@ -42,6 +50,8 @@ export interface HealthProfile {
   /** IANA name, e.g. `Europe/Madrid` or `UTC`. */
   timeZone: string | null;
   bio: string | null;
+  /** Issue #234: the unit system blood work is shown in (`conventional` by default). */
+  labUnits: LabUnits;
   /** `0` when no row exists yet. Pass back as `If-Match` on the next `PUT`. */
   version: number;
   updatedAt: string | null;
@@ -49,9 +59,12 @@ export interface HealthProfile {
 
 /**
  * The body of `PUT`: a FULL replace. A nullable field sent as `null` clears
- * it, and the API's schema is strict, so nothing but these six keys is sent.
+ * it, and the API's schema is strict, so nothing but these keys is sent.
+ * `labUnits` is optional: omitted, the API keeps the stored preference.
  */
-export type HealthProfileInput = Omit<HealthProfile, 'version' | 'updatedAt'>;
+export type HealthProfileInput = Omit<HealthProfile, 'version' | 'updatedAt' | 'labUnits'> & {
+  labUnits?: LabUnits;
+};
 
 /** `GET /api/health-profile` (`health_data:read`). */
 export function getHealthProfile(): Promise<HealthProfile> {
@@ -76,6 +89,7 @@ export function saveHealthProfile(
     unitSystem: input.unitSystem,
     timeZone: input.timeZone,
     bio: input.bio,
+    ...(input.labUnits !== undefined ? { labUnits: input.labUnits } : {}),
   };
   return api.put<HealthProfile>('/health-profile', body, {
     headers:
@@ -114,9 +128,13 @@ export type MetricKey = (typeof QUICK_ENTRY_METRIC_KEYS)[number];
 
 export interface MetricUnitDef {
   unit: string;
-  /** Multiply a value in `unit` by this to get the canonical unit. */
+  /** Multiply a value in `unit` by this (then add `offset`) to get the canonical unit. */
   factor: number;
+  /** Affine conversions only (HbA1c mmol/mol → %): `canonical = value × factor + offset`. */
+  offset?: number;
   label: string;
+  /** Display precision in this unit (#234); falls back to the metric's `decimals`. */
+  decimals?: number;
 }
 
 /** One metric of `GET /api/measurements/metrics`. */
@@ -140,6 +158,11 @@ export interface MetricDef {
   panel?: string | null;
   /** Lab analytes only: other names labs print for it (matched by the server). */
   aliases?: string[];
+  /**
+   * Issue #234: the unit lab results are shown in under the SI preference, one
+   * of `units[].unit`; `null` for non-lab metrics (optional for older payloads).
+   */
+  siUnit?: string | null;
 }
 
 export interface MeasurementMethodDef {

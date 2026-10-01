@@ -22,6 +22,12 @@
 // analyte and SI units are accepted alternatives. The factors are
 // analyte-specific where molar mass matters (glucose, cholesterol ...).
 //
+// LAB UNIT PREFERENCE (#234). Each analyte also names its `siUnit` (one of
+// its units, the canonical one when SI and conventional agree) and that
+// unit's display `decimals`. The user's `labUnits` preference picks the unit
+// a lab value is SHOWN in ({@link labDisplayUnit}, {@link toDisplayUnit});
+// storage stays canonical.
+//
 // Deliberately free of Nest and Prisma imports: it is pure data plus pure
 // functions, trivially unit-testable, and importable from any later feature
 // (check-ins, photo intake) without pulling in a module.
@@ -78,6 +84,11 @@ export interface MetricUnitDef {
   /** Added after `factor`; omitted = 0. Only HbA1c in mmol/mol has one. */
   offset?: number;
   label: string;
+  /**
+   * Display precision of a value shown in this unit (#234). Omitted = the
+   * metric's `decimals` (which is the canonical unit's precision).
+   */
+  decimals?: number;
 }
 
 export interface MetricScaleDef {
@@ -107,6 +118,12 @@ export interface MetricDef {
   panel?: LabPanel;
   /** Lab analytes only: other names labs print, matched by {@link resolveLabAnalyte}. */
   aliases?: readonly string[];
+  /**
+   * Lab analytes only (#234): the unit shown when the user prefers SI lab
+   * units. Always one of `units`; equals `canonicalUnit` when SI and US
+   * conventional agree (U/L, mmol/L electrolytes, %).
+   */
+  siUnit?: string;
 }
 
 const BODY_WEIGHT_METHODS = ['unspecified', 'scale', 'smart_scale', 'clinical', 'other'] as const;
@@ -162,6 +179,11 @@ interface LabSpec {
   unit: string;
   /** Accepted alternatives: unit -> factor to the canonical unit (or `[factor, offset]`). */
   alt?: Readonly<Record<string, number | readonly [number, number]>>;
+  /**
+   * The SI unit (#234) and its display precision: one of `alt`. Omitted =
+   * SI and US conventional agree, so the canonical unit is shown either way.
+   */
+  si?: readonly [unit: string, decimals: number];
   min: number;
   max: number;
   decimals: number;
@@ -169,11 +191,17 @@ interface LabSpec {
 }
 
 function lab(key: string, spec: LabSpec): MetricDef {
-  const alternatives = Object.entries(spec.alt ?? {}).map(([unit, conversion]): MetricUnitDef =>
-    typeof conversion === 'number'
-      ? { unit, factor: conversion, label: unit }
-      : { unit, factor: conversion[0], offset: conversion[1], label: unit },
-  );
+  const alternatives = Object.entries(spec.alt ?? {}).map(([unit, conversion]): MetricUnitDef => {
+    const def: MetricUnitDef =
+      typeof conversion === 'number'
+        ? { unit, factor: conversion, label: unit }
+        : { unit, factor: conversion[0], offset: conversion[1], label: unit };
+    return spec.si?.[0] === unit ? { ...def, decimals: spec.si[1] } : def;
+  });
+
+  if (spec.si && !alternatives.some((unit) => unit.unit === spec.si![0])) {
+    throw new Error(`Lab ${key}: SI unit ${spec.si[0]} is not one of its units`);
+  }
 
   return {
     key,
@@ -190,6 +218,7 @@ function lab(key: string, spec: LabSpec): MetricDef {
     daily: false,
     panel: spec.panel,
     aliases: spec.aliases,
+    siUnit: spec.si?.[0] ?? spec.unit,
   };
 }
 
@@ -210,76 +239,76 @@ const HBA1C_IFCC: readonly [number, number] = [per(10.929), 2.15];
 const LAB_METRICS: readonly MetricDef[] = [
   // --- Lipids ---------------------------------------------------------------
   lab('total_cholesterol', {
-    label: 'Total cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL },
+    label: 'Total cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL }, si: ['mmol/L', 2],
     min: 0, max: 1000, decimals: 0,
     aliases: ['Cholesterol', 'Cholesterol, total', 'TC', 'Serum cholesterol', 'CHOL'],
   }),
   lab('ldl_cholesterol', {
-    label: 'LDL cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL },
+    label: 'LDL cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL }, si: ['mmol/L', 2],
     min: 0, max: 1000, decimals: 0,
     aliases: ['LDL', 'LDL-C', 'LDL Cholesterol', 'LDL Chol Calc', 'LDL cholesterol calculated', 'Low density lipoprotein', 'Low-density lipoprotein cholesterol'],
   }),
   lab('hdl_cholesterol', {
-    label: 'HDL cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL },
+    label: 'HDL cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL }, si: ['mmol/L', 2],
     min: 0, max: 300, decimals: 0,
     aliases: ['HDL', 'HDL-C', 'HDL Cholesterol', 'High density lipoprotein', 'High-density lipoprotein cholesterol'],
   }),
   lab('triglycerides', {
-    label: 'Triglycerides', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': TRIGLYCERIDE_MMOL },
+    label: 'Triglycerides', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': TRIGLYCERIDE_MMOL }, si: ['mmol/L', 2],
     min: 0, max: 10000, decimals: 0,
     aliases: ['TG', 'TRIG', 'Triglyceride', 'Triglycerides, serum'],
   }),
   lab('non_hdl_cholesterol', {
-    label: 'Non-HDL cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL },
+    label: 'Non-HDL cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL }, si: ['mmol/L', 2],
     min: 0, max: 1000, decimals: 0,
     aliases: ['Non-HDL', 'Non HDL-C', 'Non-HDL Cholesterol'],
   }),
   lab('apob', {
-    label: 'Apolipoprotein B', panel: 'lipids', unit: 'mg/dL', alt: { 'g/L': 100 },
+    label: 'Apolipoprotein B', panel: 'lipids', unit: 'mg/dL', alt: { 'g/L': 100 }, si: ['g/L', 2],
     min: 0, max: 500, decimals: 0,
     aliases: ['ApoB', 'Apo B', 'Apo-B', 'Apolipoprotein B-100', 'Apolipoprotein B100'],
   }),
 
   // --- Glycemic ---------------------------------------------------------------
   lab('fasting_glucose', {
-    label: 'Fasting glucose', panel: 'glycemic', unit: 'mg/dL', alt: { 'mmol/L': GLUCOSE_MMOL },
+    label: 'Fasting glucose', panel: 'glycemic', unit: 'mg/dL', alt: { 'mmol/L': GLUCOSE_MMOL }, si: ['mmol/L', 1],
     min: 0, max: 2000, decimals: 0,
     aliases: ['Glucose', 'Glucose, fasting', 'FPG', 'Fasting plasma glucose', 'Fasting blood glucose', 'FBG', 'Blood sugar', 'GLU'],
   }),
   lab('hba1c', {
-    label: 'HbA1c', panel: 'glycemic', unit: '%', alt: { 'mmol/mol': HBA1C_IFCC },
+    label: 'HbA1c', panel: 'glycemic', unit: '%', alt: { 'mmol/mol': HBA1C_IFCC }, si: ['mmol/mol', 0],
     min: 3, max: 25, decimals: 1,
     aliases: ['A1c', 'Hemoglobin A1c', 'Haemoglobin A1c', 'Glycated hemoglobin', 'Glycated haemoglobin', 'Glycosylated hemoglobin', 'Hb A1c', 'HgbA1c'],
   }),
   lab('fasting_insulin', {
-    label: 'Fasting insulin', panel: 'glycemic', unit: 'µIU/mL', alt: { 'mIU/L': 1, 'pmol/L': per(6) },
+    label: 'Fasting insulin', panel: 'glycemic', unit: 'µIU/mL', alt: { 'mIU/L': 1, 'pmol/L': per(6) }, si: ['pmol/L', 0],
     min: 0, max: 1000, decimals: 1,
     aliases: ['Insulin', 'Insulin, fasting', 'Serum insulin'],
   }),
 
   // --- Complete blood count ---------------------------------------------------
   lab('hemoglobin', {
-    label: 'Hemoglobin', panel: 'cbc', unit: 'g/dL', alt: { 'g/L': 0.1, 'mmol/L': 1.611 },
+    label: 'Hemoglobin', panel: 'cbc', unit: 'g/dL', alt: { 'g/L': 0.1, 'mmol/L': 1.611 }, si: ['g/L', 0],
     min: 0, max: 30, decimals: 1,
     aliases: ['Hgb', 'Hb', 'Haemoglobin', 'HGB'],
   }),
   lab('hematocrit', {
-    label: 'Hematocrit', panel: 'cbc', unit: '%', alt: { 'L/L': 100 },
+    label: 'Hematocrit', panel: 'cbc', unit: '%', alt: { 'L/L': 100 }, si: ['L/L', 2],
     min: 0, max: 100, decimals: 1,
     aliases: ['Hct', 'Haematocrit', 'Packed cell volume', 'PCV'],
   }),
   lab('rbc_count', {
-    label: 'Red blood cells', panel: 'cbc', unit: '10^6/µL', alt: { '10^12/L': 1 },
+    label: 'Red blood cells', panel: 'cbc', unit: '10^6/µL', alt: { '10^12/L': 1 }, si: ['10^12/L', 2],
     min: 0, max: 15, decimals: 2,
     aliases: ['RBC', 'Red blood cell count', 'Erythrocytes', 'Red cell count', 'Erythrocyte count'],
   }),
   lab('wbc_count', {
-    label: 'White blood cells', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 },
+    label: 'White blood cells', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 }, si: ['10^9/L', 1],
     min: 0, max: 500, decimals: 1,
     aliases: ['WBC', 'White blood cell count', 'Leukocytes', 'White cell count', 'Leukocyte count'],
   }),
   lab('platelet_count', {
-    label: 'Platelets', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 },
+    label: 'Platelets', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 }, si: ['10^9/L', 0],
     min: 0, max: 3000, decimals: 0,
     aliases: ['PLT', 'Platelet count', 'Thrombocytes'],
   }),
@@ -306,17 +335,17 @@ const LAB_METRICS: readonly MetricDef[] = [
     aliases: ['ALP', 'Alk Phos', 'ALKP'],
   }),
   lab('total_bilirubin', {
-    label: 'Total bilirubin', panel: 'cmp', unit: 'mg/dL', alt: { 'µmol/L': per(17.1) },
+    label: 'Total bilirubin', panel: 'cmp', unit: 'mg/dL', alt: { 'µmol/L': per(17.1) }, si: ['µmol/L', 0],
     min: 0, max: 50, decimals: 1,
     aliases: ['Bilirubin', 'Bilirubin, total', 'TBIL', 'T. Bili', 'Total bili'],
   }),
   lab('albumin', {
-    label: 'Albumin', panel: 'cmp', unit: 'g/dL', alt: { 'g/L': 0.1 },
+    label: 'Albumin', panel: 'cmp', unit: 'g/dL', alt: { 'g/L': 0.1 }, si: ['g/L', 0],
     min: 0, max: 10, decimals: 1,
     aliases: ['ALB', 'Serum albumin'],
   }),
   lab('creatinine', {
-    label: 'Creatinine', panel: 'cmp', unit: 'mg/dL', alt: { 'µmol/L': per(88.42) },
+    label: 'Creatinine', panel: 'cmp', unit: 'mg/dL', alt: { 'µmol/L': per(88.42) }, si: ['µmol/L', 0],
     min: 0, max: 30, decimals: 2,
     aliases: ['CREA', 'Creat', 'Serum creatinine', 'Creatinine, serum', 'SCr'],
   }),
@@ -326,7 +355,7 @@ const LAB_METRICS: readonly MetricDef[] = [
     aliases: ['Estimated GFR', 'Estimated glomerular filtration rate', 'GFR estimated', 'eGFR non-African American', 'eGFR CKD-EPI'],
   }),
   lab('bun', {
-    label: 'Blood urea nitrogen', panel: 'cmp', unit: 'mg/dL', alt: { 'mmol/L': per(0.357) },
+    label: 'Blood urea nitrogen', panel: 'cmp', unit: 'mg/dL', alt: { 'mmol/L': per(0.357) }, si: ['mmol/L', 1],
     min: 0, max: 300, decimals: 0,
     aliases: ['BUN', 'Urea nitrogen', 'Urea nitrogen, blood'],
   }),
@@ -348,29 +377,29 @@ const LAB_METRICS: readonly MetricDef[] = [
     aliases: ['Thyroid stimulating hormone', 'Thyroid-stimulating hormone', 'Thyrotropin', 'TSH, 3rd generation'],
   }),
   lab('free_t4', {
-    label: 'Free T4', panel: 'thyroid', unit: 'ng/dL', alt: { 'pmol/L': per(12.87) },
+    label: 'Free T4', panel: 'thyroid', unit: 'ng/dL', alt: { 'pmol/L': per(12.87) }, si: ['pmol/L', 1],
     min: 0, max: 10, decimals: 2,
     aliases: ['FT4', 'Free thyroxine', 'Thyroxine, free', 'T4, free'],
   }),
   lab('free_t3', {
-    label: 'Free T3', panel: 'thyroid', unit: 'pg/mL', alt: { 'pmol/L': per(1.536) },
+    label: 'Free T3', panel: 'thyroid', unit: 'pg/mL', alt: { 'pmol/L': per(1.536) }, si: ['pmol/L', 1],
     min: 0, max: 30, decimals: 1,
     aliases: ['FT3', 'Free triiodothyronine', 'Triiodothyronine, free', 'T3, free'],
   }),
 
   // --- Iron -------------------------------------------------------------------------
   lab('ferritin', {
-    label: 'Ferritin', panel: 'iron', unit: 'ng/mL', alt: { 'µg/L': 1 },
+    label: 'Ferritin', panel: 'iron', unit: 'ng/mL', alt: { 'µg/L': 1 }, si: ['µg/L', 0],
     min: 0, max: 100000, decimals: 0,
     aliases: ['FERR', 'Serum ferritin'],
   }),
   lab('serum_iron', {
-    label: 'Iron', panel: 'iron', unit: 'µg/dL', alt: { 'µmol/L': IRON_UMOL },
+    label: 'Iron', panel: 'iron', unit: 'µg/dL', alt: { 'µmol/L': IRON_UMOL }, si: ['µmol/L', 1],
     min: 0, max: 1000, decimals: 0,
     aliases: ['Iron', 'Fe', 'Iron, serum', 'Iron, total', 'Serum iron'],
   }),
   lab('tibc', {
-    label: 'Total iron-binding capacity', panel: 'iron', unit: 'µg/dL', alt: { 'µmol/L': IRON_UMOL },
+    label: 'Total iron-binding capacity', panel: 'iron', unit: 'µg/dL', alt: { 'µmol/L': IRON_UMOL }, si: ['µmol/L', 0],
     min: 0, max: 1500, decimals: 0,
     aliases: ['TIBC', 'Iron binding capacity', 'Total iron binding capacity'],
   }),
@@ -382,12 +411,12 @@ const LAB_METRICS: readonly MetricDef[] = [
 
   // --- Other ------------------------------------------------------------------------
   lab('vitamin_d_25oh', {
-    label: '25-OH vitamin D', panel: 'other', unit: 'ng/mL', alt: { 'nmol/L': per(2.496) },
+    label: '25-OH vitamin D', panel: 'other', unit: 'ng/mL', alt: { 'nmol/L': per(2.496) }, si: ['nmol/L', 0],
     min: 0, max: 300, decimals: 0,
     aliases: ['Vitamin D', 'Vitamin D, 25-hydroxy', '25-hydroxyvitamin D', '25(OH)D', '25-OH D', 'Calcidiol', 'Vit D'],
   }),
   lab('vitamin_b12', {
-    label: 'Vitamin B12', panel: 'other', unit: 'pg/mL', alt: { 'pmol/L': per(0.7378) },
+    label: 'Vitamin B12', panel: 'other', unit: 'pg/mL', alt: { 'pmol/L': per(0.7378) }, si: ['pmol/L', 0],
     min: 0, max: 10000, decimals: 0,
     aliases: ['B12', 'Vit B12', 'Cobalamin', 'Cyanocobalamin'],
   }),
@@ -397,22 +426,22 @@ const LAB_METRICS: readonly MetricDef[] = [
     aliases: ['hsCRP', 'High-sensitivity C-reactive protein', 'High sensitivity CRP', 'C-reactive protein, high sensitivity', 'CRP, cardiac'],
   }),
   lab('testosterone_total', {
-    label: 'Total testosterone', panel: 'other', unit: 'ng/dL', alt: { 'nmol/L': per(0.03467) },
+    label: 'Total testosterone', panel: 'other', unit: 'ng/dL', alt: { 'nmol/L': per(0.03467) }, si: ['nmol/L', 1],
     min: 0, max: 5000, decimals: 0,
     aliases: ['Testosterone', 'Testosterone, total', 'Serum testosterone'],
   }),
   lab('testosterone_free', {
-    label: 'Free testosterone', panel: 'other', unit: 'pg/mL', alt: { 'pmol/L': per(3.467), 'ng/dL': 10 },
+    label: 'Free testosterone', panel: 'other', unit: 'pg/mL', alt: { 'pmol/L': per(3.467), 'ng/dL': 10 }, si: ['pmol/L', 0],
     min: 0, max: 1000, decimals: 1,
     aliases: ['Testosterone, free', 'Free T'],
   }),
   lab('cortisol', {
-    label: 'Cortisol', panel: 'other', unit: 'µg/dL', alt: { 'nmol/L': per(27.59) },
+    label: 'Cortisol', panel: 'other', unit: 'µg/dL', alt: { 'nmol/L': per(27.59) }, si: ['nmol/L', 0],
     min: 0, max: 200, decimals: 1,
     aliases: ['Cortisol, serum', 'Serum cortisol', 'Cortisol, AM', 'Morning cortisol'],
   }),
   lab('uric_acid', {
-    label: 'Uric acid', panel: 'other', unit: 'mg/dL', alt: { 'µmol/L': per(59.48) },
+    label: 'Uric acid', panel: 'other', unit: 'mg/dL', alt: { 'µmol/L': per(59.48) }, si: ['µmol/L', 0],
     min: 0, max: 30, decimals: 1,
     aliases: ['Urate', 'Serum uric acid', 'Uric acid, serum'],
   }),
@@ -648,6 +677,42 @@ export function fromCanonical(key: string, canonicalValue: number, unit: string)
   return (canonicalValue - (unitDef.offset ?? 0)) / unitDef.factor;
 }
 
+/** The lab-unit preference (#234): US conventional (canonical) or SI. */
+export const LAB_UNIT_SYSTEMS = ['conventional', 'si'] as const;
+export type LabUnits = (typeof LAB_UNIT_SYSTEMS)[number];
+export const DEFAULT_LAB_UNITS: LabUnits = 'conventional';
+
+/**
+ * The unit a value of `metric` is shown in under the `labUnits` preference:
+ * the SI unit for a lab analyte when `si`, else the canonical unit. Non-lab
+ * metrics always answer their canonical unit (they follow `unitSystem`).
+ */
+export function labDisplayUnit(metric: MetricDef | string, labUnits: LabUnits): string {
+  const def = typeof metric === 'string' ? BY_KEY.get(metric) : metric;
+  if (!def) throw new MetricRegistryError('unknown_metric', `Unknown metric ${String(metric)}`);
+  return labUnits === 'si' && def.siUnit ? def.siUnit : def.canonicalUnit;
+}
+
+/** Display precision of a value of `key` shown in `unit`: the unit's own, else the metric's. */
+export function unitDecimals(key: string, unit: string): number {
+  const metric = BY_KEY.get(key);
+  const unitDef = unitFor(key, unit);
+  if (!metric || !unitDef) {
+    throw new MetricRegistryError('unknown_unit', `Unit is not allowed for ${key}`);
+  }
+  return unitDef.decimals ?? metric.decimals;
+}
+
+/**
+ * A canonical value shown in `targetUnit`, rounded to that unit's display
+ * precision ({@link unitDecimals}). Display only: never store the result.
+ */
+export function toDisplayUnit(key: string, canonicalValue: number, targetUnit: string): number {
+  const scale = 10 ** unitDecimals(key, targetUnit);
+  const rounded = Math.round(fromCanonical(key, canonicalValue, targetUnit) * scale) / scale;
+  return rounded === 0 ? 0 : rounded;
+}
+
 /** Whether a CANONICAL value lies inside the metric's hard bounds (inclusive). */
 export function isWithinBounds(key: string, canonicalValue: number): boolean {
   const metric = BY_KEY.get(key);
@@ -707,7 +772,7 @@ export interface MetricCatalogView {
     label: string;
     category: MetricCategory;
     canonicalUnit: string;
-    units: Array<MetricUnitDef & { offset: number }>;
+    units: Array<MetricUnitDef & { offset: number; decimals: number }>;
     displayUnit: { metric: string; imperial: string };
     min: number;
     max: number;
@@ -717,6 +782,7 @@ export interface MetricCatalogView {
     daily: boolean;
     panel: LabPanel | null;
     aliases: string[];
+    siUnit: string | null;
   }>;
   methods: Array<{ key: string; label: string }>;
 }
@@ -729,7 +795,11 @@ export function catalogView(): MetricCatalogView {
       label: metric.label,
       category: metric.category,
       canonicalUnit: metric.canonicalUnit,
-      units: metric.units.map((unit) => ({ ...unit, offset: unit.offset ?? 0 })),
+      units: metric.units.map((unit) => ({
+        ...unit,
+        offset: unit.offset ?? 0,
+        decimals: unit.decimals ?? metric.decimals,
+      })),
       displayUnit: { ...metric.displayUnit },
       min: metric.min,
       max: metric.max,
@@ -739,6 +809,7 @@ export function catalogView(): MetricCatalogView {
       daily: metric.daily,
       panel: metric.panel ?? null,
       aliases: [...(metric.aliases ?? [])],
+      siUnit: metric.siUnit ?? null,
     })),
     methods: MEASUREMENT_METHODS.map((method) => ({ key: method.key, label: method.label })),
   };

@@ -26,7 +26,6 @@ function formatDate(iso: string): string {
 }
 
 export const BIOMARKERS_TITLE = 'Biomarkers';
-export const STANDARD_UNITS_NOTE = 'Values are shown in standard units (US conventional, such as mg/dL).';
 
 /** Read by screen readers only: the arrow is decorative. */
 const visuallyHidden = {

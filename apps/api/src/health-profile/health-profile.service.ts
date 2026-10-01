@@ -9,6 +9,7 @@ import {
   type HealthProfile,
   type HealthProfileField,
   type HealthProfileInput,
+  type LabUnits,
   type SexAtBirth,
   type UnitSystem,
 } from './dto/health-profile.dto';
@@ -38,6 +39,7 @@ const EMPTY_PROFILE: HealthProfile = {
   unitSystem: 'metric',
   timeZone: null,
   bio: null,
+  labUnits: 'conventional',
   version: 0,
   updatedAt: null,
 };
@@ -191,6 +193,8 @@ function toColumns(input: HealthProfileInput) {
     unitSystem: input.unitSystem,
     timeZone: input.timeZone,
     bio: input.bio,
+    // Omitted = keep the stored preference (the column default on create).
+    ...(input.labUnits !== undefined ? { labUnits: input.labUnits } : {}),
   };
 }
 
@@ -202,6 +206,7 @@ function toProfile(row: HealthProfileRow): HealthProfile {
     unitSystem: row.unitSystem as UnitSystem,
     timeZone: row.timeZone,
     bio: row.bio,
+    labUnits: row.labUnits === 'si' ? 'si' : ('conventional' satisfies LabUnits),
     version: row.version,
     updatedAt: row.updatedAt.toISOString(),
   };

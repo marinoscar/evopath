@@ -29,10 +29,14 @@ import {
   Card,
   CardContent,
   FormControl,
+  FormControlLabel,
   FormHelperText,
+  FormLabel,
   InputAdornment,
   InputLabel,
   MenuItem,
+  Radio,
+  RadioGroup,
   Select,
   Stack,
   TextField,
@@ -45,14 +49,20 @@ import {
   DOB_MAX_AGE_YEARS,
   HEIGHT_MM_MAX,
   HEIGHT_MM_MIN,
+  LAB_UNITS_VALUES,
   isHealthProfileConflict,
   type HealthProfile,
   type HealthProfileInput,
+  type LabUnits,
   type SexAtBirth,
   type UnitSystem,
 } from '../../services/health';
 import { ApiError } from '../../services/api';
 import { cmTextToMm, feetInchesToMm, mmToCmText, mmToFeetInches } from '../../utils/heightUnits';
+import { LAB_UNITS_LABELS, labUnitsOf } from '../../utils/labUnits';
+
+export const LAB_UNITS_HELPER_TEXT =
+  'How blood work is shown and exported. Your results are stored the same either way.';
 
 export const HEALTH_PROFILE_CONFLICT_MESSAGE =
   'This profile changed elsewhere. Reload to continue.';
@@ -160,6 +170,7 @@ interface FormState {
   inchesText: string;
   timeZone: string;
   bio: string;
+  labUnits: LabUnits;
 }
 
 function heightTexts(heightMm: number | null) {
@@ -181,6 +192,7 @@ function initialForm(profile: HealthProfile): FormState {
     // A suggestion only: nothing is stored until the user saves.
     timeZone: profile.timeZone ?? browserTimeZone() ?? '',
     bio: profile.bio ?? '',
+    labUnits: labUnitsOf(profile),
   };
 }
 
@@ -253,6 +265,7 @@ function toInput(form: FormState): HealthProfileInput {
     unitSystem: form.unitSystem,
     timeZone: tz || null,
     bio: bio || null,
+    labUnits: form.labUnits,
   };
 }
 
@@ -476,6 +489,24 @@ export function HealthProfileSettings({
               )}
               {errors.height && <FormHelperText error>{errors.height}</FormHelperText>}
             </Box>
+
+            <FormControl component="fieldset" disabled={disabled}>
+              <FormLabel component="legend" id="health-lab-units-label">
+                Lab units
+              </FormLabel>
+              <RadioGroup
+                name="health-lab-units"
+                aria-labelledby="health-lab-units-label"
+                value={form.labUnits}
+                onChange={(e) => update({ labUnits: e.target.value as LabUnits })}
+                aria-describedby="health-lab-units-helper"
+              >
+                {LAB_UNITS_VALUES.map((value) => (
+                  <FormControlLabel key={value} value={value} control={<Radio />} label={LAB_UNITS_LABELS[value]} />
+                ))}
+              </RadioGroup>
+              <FormHelperText id="health-lab-units-helper">{LAB_UNITS_HELPER_TEXT}</FormHelperText>
+            </FormControl>
 
             {timeZones ? (
               <Autocomplete

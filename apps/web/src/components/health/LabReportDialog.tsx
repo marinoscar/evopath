@@ -86,6 +86,8 @@ import {
   type LabReportValue,
 } from '../../services/labReport';
 import { useMeasurementCatalog } from '../../hooks/useMeasurementCatalog';
+import { useLabUnits } from '../../hooks/useLabUnits';
+import type { LabUnits } from '../../utils/labUnits';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { withUnit } from '../../utils/measurementUnits';
 import { LabReportReview } from './LabReportReview';
@@ -255,11 +257,12 @@ interface SessionProps {
   pollIntervalMs?: number;
   vision: UseVisionAvailabilityReturn;
   catalog: MetricCatalog | null;
+  labUnits: LabUnits;
   onClose: () => void;
   onApplied: (result: LabReportApplyResult) => void;
 }
 
-function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, onClose, onApplied }: SessionProps) {
+function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits, onClose, onApplied }: SessionProps) {
   const scan = usePhotoIntake<LabReportValue, LabReportContext>(intakeId, pollIntervalMs ? { intervalMs: pollIntervalMs } : {});
   const { intake } = scan;
   const isMounted = useIsMounted();
@@ -458,6 +461,7 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, onClose, 
           items={items}
           photos={intake.photos}
           catalog={catalog}
+          labUnits={labUnits}
           busy={busy}
           refusedIds={refusedIds}
           onAcceptItem={(id) => void scan.acceptItem(id)}
@@ -568,6 +572,7 @@ function LabReportFlow({
 }) {
   const vision = useVisionAvailability('lab_report');
   const { catalog } = useMeasurementCatalog();
+  const { labUnits } = useLabUnits();
   const [intakeId, setIntakeId] = useState<string | null>(null);
   const [startError, setStartError] = useState<AiErrorInfo | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -633,6 +638,7 @@ function LabReportFlow({
       pollIntervalMs={pollIntervalMs}
       vision={vision}
       catalog={catalog}
+      labUnits={labUnits}
       onClose={onClose}
       onApplied={onApplied}
     />

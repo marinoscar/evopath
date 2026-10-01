@@ -94,6 +94,58 @@ describeWithDb('health_profiles (real Postgres)', () => {
     });
   });
 
+  it('defaults lab_units to conventional for a row written without it (#234)', async () => {
+    const userId = await makeUser('labunits-default');
+
+    // Raw insert: proves the column default, as a row that predates the column gets.
+    await client.$executeRaw`INSERT INTO health_profiles (id, user_id, updated_at) VALUES (${randomUUID()}::uuid, ${userId}::uuid, now())`;
+
+    await expect(service.get(userId)).resolves.toMatchObject({ labUnits: 'conventional', unitSystem: 'metric' });
+  });
+
+  it('stores the SI lab-unit preference, keeps it when omitted, and never touches measurements (#234)', async () => {
+    const userId = await makeUser('labunits-si');
+    const measurement = await client.measurement.create({
+      data: {
+        userId,
+        entryId: randomUUID(),
+        metricKey: 'ldl_cholesterol',
+        value: 124,
+        unit: 'mg/dL',
+        measuredAt: new Date('2026-09-01T08:00:00.000Z'),
+        method: 'lab',
+        origin: 'manual',
+      },
+    });
+
+    await service.put(userId, INPUT);
+    const saved = await service.put(userId, { ...INPUT, labUnits: 'si' }, 1);
+    expect(saved).toMatchObject({ labUnits: 'si', version: 2 });
+    expect((await client.healthProfile.findUnique({ where: { userId } }))?.labUnits).toBe('si');
+
+    // A client that does not send the field keeps the stored preference.
+    const kept = await service.put(userId, { ...INPUT, heightMm: 1801 }, 2);
+    expect(kept).toMatchObject({ labUnits: 'si', heightMm: 1801, version: 3 });
+    await expect(service.get(userId)).resolves.toMatchObject({ labUnits: 'si' });
+
+    const audits = await client.auditEvent.findMany({
+      where: { targetType: 'health_profile', targetId: userId },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(audits.map((a) => a.meta)).toEqual([
+      { fields: ['dateOfBirth', 'sexAtBirth', 'heightMm', 'unitSystem', 'timeZone', 'bio'] },
+      { fields: ['labUnits'] },
+      { fields: ['heightMm'] },
+    ]);
+
+    // Storage stays canonical: the measurement row is untouched.
+    await expect(client.measurement.findUniqueOrThrow({ where: { id: measurement.id } })).resolves.toMatchObject({
+      value: 124,
+      unit: 'mg/dL',
+      updatedAt: measurement.updatedAt,
+    });
+  });
+
   it('deletes the profile when its user is deleted (cascade)', async () => {
     const userId = await makeUser('cascade');
     await client.healthProfile.create({ data: { userId, heightMm: 1800 } });

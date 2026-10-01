@@ -190,6 +190,7 @@ describe('Health export (integration)', () => {
       ['a range over ten years', { ...VALID, from: '2010-01-01' }],
       ['a range ending in the future', { ...VALID, to: '2099-01-01' }],
       ['an unknown property', { ...VALID, userId: '55555555-5555-4555-8555-555555555555' }],
+      ['an unknown labUnits', { ...VALID, labUnits: 'metric' }],
     ])('refuses %s with 400 and queues nothing', async (_case, body) => {
       const user = await createMockViewerUser(context);
 
@@ -197,6 +198,51 @@ describe('Health export (integration)', () => {
 
       expect(res.body.code).toBe('BAD_REQUEST');
       expect(prisma.job.create).not.toHaveBeenCalled();
+    });
+
+    describe('labUnits (#234)', () => {
+      beforeEach(() => {
+        prisma.job.create.mockImplementation(async ({ data }: any) => ({
+          id: EXPORT_ID,
+          status: 'pending',
+          createdAt: new Date('2026-09-30T10:00:00.000Z'),
+          finishedAt: null,
+          ...data,
+        }));
+      });
+
+      it.each([
+        ['the profile preference when omitted', { labUnits: 'si' }, undefined, 'si'],
+        ['conventional without a profile', null, undefined, 'conventional'],
+        ['the request over the profile', { labUnits: 'si' }, 'conventional', 'conventional'],
+        ['si when asked', null, 'si', 'si'],
+      ])('uses %s, stores it on the job and echoes it', async (_case, profile, requested, expected) => {
+        const user = await createMockViewerUser(context);
+        prisma.healthProfile.findUnique.mockResolvedValue(profile);
+
+        const body = requested ? { ...VALID, labUnits: requested } : VALID;
+        const res = await request(server()).post(BASE).set(authHeader(user.accessToken)).send(body).expect(202);
+
+        expect(res.body.data.labUnits).toBe(expected);
+        expect(prisma.job.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ payload: expect.objectContaining({ labUnits: expected }) }),
+        });
+        if (requested) expect(prisma.healthProfile.findUnique).not.toHaveBeenCalled();
+        else
+          expect(prisma.healthProfile.findUnique).toHaveBeenCalledWith({
+            where: { userId: user.id },
+            select: { labUnits: true },
+          });
+      });
+
+      it('reads a job queued before the preference existed as conventional', async () => {
+        const user = await createMockViewerUser(context);
+        prisma.job.findMany.mockResolvedValue([jobRow(user.id)]);
+
+        const res = await request(server()).get(BASE).set(authHeader(user.accessToken)).expect(200);
+
+        expect(res.body.data.items[0].labUnits).toBe('conventional');
+      });
     });
 
     it('answers 429 while three exports are in flight', async () => {

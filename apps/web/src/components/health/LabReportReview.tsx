@@ -44,6 +44,7 @@ import {
   type LabReportValue,
 } from '../../services/labReport';
 import { AnalytePicker, LabResultEditor, LabResultView } from './LabResultValue';
+import { DEFAULT_LAB_UNITS, labUnitsNote, type LabUnits } from '../../utils/labUnits';
 
 export const ADD_MISSING_VALUE_LABEL = 'Add missing value';
 
@@ -51,6 +52,8 @@ export interface LabReportReviewProps {
   items: DraftItemView<LabReportValue>[];
   photos: { storageObjectId: string; name: string }[];
   catalog: MetricCatalog | null;
+  /** #234: the unit system values are shown in (and new analytes default to). */
+  labUnits?: LabUnits;
   busy?: boolean;
   /** Item ids the server last refused as unresolved (shown with an error border). */
   refusedIds?: readonly string[];
@@ -103,6 +106,7 @@ export function LabReportReview({
   items,
   photos,
   catalog,
+  labUnits = DEFAULT_LAB_UNITS,
   busy = false,
   refusedIds = [],
   onAcceptItem,
@@ -128,9 +132,11 @@ export function LabReportReview({
   const groups = groupByPanel(active);
   const refused = new Set(refusedIds);
 
-  const renderValue = (item: DraftItemView<LabReportValue>) => <LabResultView value={item.value} catalog={catalog} />;
+  const renderValue = (item: DraftItemView<LabReportValue>) => (
+    <LabResultView value={item.value} catalog={catalog} labUnits={labUnits} />
+  );
   const renderEditor = ({ value, onChange }: { value: LabReportValue; onChange: (value: LabReportValue) => void }) => (
-    <LabResultEditor value={value} onChange={onChange} catalog={catalog} />
+    <LabResultEditor value={value} onChange={onChange} catalog={catalog} labUnits={labUnits} />
   );
 
   const rowProps = {
@@ -174,6 +180,9 @@ export function LabReportReview({
 
   return (
     <Box data-testid="lab-report-review">
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }} data-testid="lab-units-note">
+        {labUnitsNote(labUnits)}. Edits are saved in the unit you pick.
+      </Typography>
       {active.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {rejected.length > 0 ? 'Every result was rejected.' : 'No results were read.'} Add anything that is missing below.
@@ -204,7 +213,7 @@ export function LabReportReview({
           <Typography variant="subtitle2" component="h3" sx={{ mb: 1 }}>
             {ADD_MISSING_VALUE_LABEL}
           </Typography>
-          <LabResultEditor value={newValue} onChange={setNewValue} catalog={catalog} />
+          <LabResultEditor value={newValue} onChange={setNewValue} catalog={catalog} labUnits={labUnits} />
           <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
             <Button
               size="small"

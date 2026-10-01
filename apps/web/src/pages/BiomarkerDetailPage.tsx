@@ -6,9 +6,10 @@
  *
  * The analyte must be a lab metric of the catalog (`GET /api/measurements/metrics`);
  * anything else reads "not found" without asking the API for its results.
- * Values are canonical and shown as they are (docs/specs/health-records.md §2.8).
+ * Values are canonical (docs/specs/health-records.md §2.8) and shown in the
+ * profile's lab unit preference (#234): converted for display, never stored.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link as RouterLink, useParams } from 'react-router-dom';
 import { Alert, Box, Button, Container, Pagination, Skeleton, Stack, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -19,6 +20,8 @@ import type { LabMeasurement } from '../services/biomarkers';
 import { usePermissions } from '../hooks/usePermissions';
 import { useMeasurementCatalog } from '../hooks/useMeasurementCatalog';
 import { useBiomarkerResults, useBiomarkerSeries } from '../hooks/useBiomarkers';
+import { useLabUnits } from '../hooks/useLabUnits';
+import { convertLabPoint, convertLabRow, labDisplay, labUnitsNote } from '../utils/labUnits';
 import { EmptyState } from '../components/common/EmptyState';
 import { BIOMARKERS_TITLE } from '../components/health/biomarkers/BiomarkerList';
 import { BiomarkerTrendChart } from '../components/health/biomarkers/BiomarkerTrendChart';
@@ -53,6 +56,17 @@ function BiomarkerDetail({ analyteKey }: { analyteKey: string }) {
   const [historyOf, setHistoryOf] = useState<LabMeasurement | null>(null);
   const series = useBiomarkerSeries(known ? analyteKey : null);
   const results = useBiomarkerResults(known ? analyteKey : null, page);
+  const { labUnits, isLoading: labUnitsLoading } = useLabUnits();
+  const display = useMemo(() => labDisplay(metric, labUnits), [metric, labUnits]);
+  const canonicalUnit = metric?.canonicalUnit ?? '';
+  const points = useMemo(
+    () => (series.data?.points ?? []).map((point) => convertLabPoint(point, display)),
+    [series.data, display],
+  );
+  const rows = useMemo(
+    () => (results.data?.items ?? []).map((row) => convertLabRow(row, display, canonicalUnit)),
+    [results.data, display, canonicalUnit],
+  );
 
   if (errorStatus === 403 || series.forbidden || results.forbidden) {
     return <Alert severity="info">{HEALTH_DATA_UNAVAILABLE}</Alert>;
@@ -75,15 +89,16 @@ function BiomarkerDetail({ analyteKey }: { analyteKey: string }) {
   }
 
   const label = metric.label;
-  const unit = metric.canonicalUnit;
-  const points = series.data?.points ?? [];
-  const rows = results.data?.items ?? [];
+  const unit = display.unit;
+  const decimals = display.decimals;
 
   const trend = () => {
     if (series.error && !series.isLoading) {
       return <RetryAlert message={`Could not load the chart. ${series.error}`} onRetry={series.refresh} />;
     }
-    if (!series.data) return <Skeleton variant="rounded" height={300} data-testid="biomarker-chart-skeleton" />;
+    if (!series.data || labUnitsLoading) {
+      return <Skeleton variant="rounded" height={300} data-testid="biomarker-chart-skeleton" />;
+    }
     if (points.length === 0) {
       return (
         <EmptyState
@@ -97,7 +112,7 @@ function BiomarkerDetail({ analyteKey }: { analyteKey: string }) {
     return (
       <Stack spacing={1.5}>
         {series.data.truncated && <Alert severity="info">Showing your most recent 1000 results.</Alert>}
-        <BiomarkerTrendChart label={label} unit={unit} decimals={metric.decimals} points={points} />
+        <BiomarkerTrendChart label={label} unit={unit} decimals={decimals} points={points} />
         {points.some((p) => p.referenceLow !== null || p.referenceHigh !== null) && (
           <Typography variant="caption" color="text.secondary">
             The shaded band is the reference range printed with each result; labs can print different ranges.
@@ -111,7 +126,9 @@ function BiomarkerDetail({ analyteKey }: { analyteKey: string }) {
     if (results.error && !results.isLoading) {
       return <RetryAlert message={`Could not load the results. ${results.error}`} onRetry={results.refresh} />;
     }
-    if (!results.data) return <Skeleton variant="rounded" height={200} data-testid="biomarker-results-skeleton" />;
+    if (!results.data || labUnitsLoading) {
+      return <Skeleton variant="rounded" height={200} data-testid="biomarker-results-skeleton" />;
+    }
     if (rows.length === 0) {
       return (
         <Typography color="text.secondary">No results yet.</Typography>
@@ -119,7 +136,7 @@ function BiomarkerDetail({ analyteKey }: { analyteKey: string }) {
     }
     return (
       <Stack spacing={2}>
-        <BiomarkerResults label={label} decimals={metric.decimals} rows={rows} onShowHistory={setHistoryOf} />
+        <BiomarkerResults label={label} decimals={decimals} rows={rows} onShowHistory={setHistoryOf} />
         {results.data.totalPages > 1 && (
           <Pagination
             count={results.data.totalPages}
@@ -142,8 +159,8 @@ function BiomarkerDetail({ analyteKey }: { analyteKey: string }) {
         <Typography variant="h4" component="h1" gutterBottom>
           {label}
         </Typography>
-        <Typography color="text.secondary">
-          {panelLabel(metric.panel)} · Shown in {unit}, the standard unit for this test.
+        <Typography color="text.secondary" data-testid="lab-units-note">
+          {panelLabel(metric.panel)} · Shown in {unit}. {labUnitsNote(labUnits)}.
         </Typography>
       </Box>
 
@@ -165,7 +182,9 @@ function BiomarkerDetail({ analyteKey }: { analyteKey: string }) {
       <RevisionHistoryDialog
         measurementId={historyOf?.id ?? null}
         label={label}
-        decimals={metric.decimals}
+        display={display}
+        canonicalUnit={metric.canonicalUnit}
+        labUnits={labUnits}
         onClose={() => setHistoryOf(null)}
       />
     </>
