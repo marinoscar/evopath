@@ -22,6 +22,13 @@ export declare const THEME_COLOR: string;
 export declare const BACKGROUND_COLOR: string;
 
 /**
+ * The brand mark's sun. A LOGO-ONLY colour, never a UI colour (see `index.js`).
+ *
+ * Typed `string`, not a literal — see the note on `THEME_COLOR`.
+ */
+export declare const ACCENT_COLOR: string;
+
+/**
  * `APP_NAME` as a lowercase hyphenated token (`'Some Name'` -> `'some-name'`), for
  * the contexts where spaces and capitals are wrong.
  *

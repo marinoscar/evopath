@@ -1,14 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  Stack,
-  Divider,
-  useTheme,
-} from '@mui/material';
+import { Box, Card, Typography, Stack, Divider } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import { APP_NAME, THEME_COLOR } from '@app/shared';
 import { useAuth } from '../contexts/AuthContext';
 import { OAuthButton } from '../components/auth/OAuthButton';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
@@ -18,11 +12,48 @@ interface LocationState {
   from?: { pathname: string; search: string };
 }
 
+/** One calm line about what the product is for, under the name. */
+const TAGLINE = 'Your path to better health, measured.';
+
+/** The brand glyph's size in the wide layout's brand panel. */
+const BRAND_GLYPH_SIZE = 120;
+
+/**
+ * Where the sun sits inside the glyph, as a fraction of its box. The glow
+ * behind the glyph is centred here so the light appears to come from the sun.
+ * Approximate on purpose (it is a soft gradient, not geometry): the exact sun
+ * position lives in `brandMarkPaths.generated.ts`.
+ */
+const SUN_X = 0.73;
+const SUN_Y = 0.16;
+
+/**
+ * The sign-in page.
+ *
+ * LAYOUT
+ * - `md` and up: one card split in two. Left, a brand panel: the brand teal
+ *   with a soft glow radiating from the logo's sun, the large glyph, the
+ *   product name and a one-line tagline. Right, the sign-in panel on
+ *   `background.paper`.
+ * - Below `md`: one column. A compact brand header (plate mark + name) above
+ *   the sign-in card.
+ *
+ * The switch is pure CSS (`display` per breakpoint), not a `useMediaQuery`
+ * mount gate, so this page adds nothing to the five coupled `sm` gates in
+ * `Layout.tsx` / `BottomNav` / `AppBar` / `SettingsHub` (it does not mount
+ * `Layout` at all). Whichever brand block is hidden is `display: none`, so it
+ * is also out of the accessibility tree: the product name is announced once.
+ *
+ * COLOUR
+ * The brand panel is `primary.main` in light mode (which is `THEME_COLOR`) and
+ * stays the brand teal `THEME_COLOR` in dark mode rather than taking the dark
+ * scheme's lighter primary: it is the logo's ground, and the logo is
+ * brand-fixed (see `BrandMark`). Everything else uses scheme tokens.
+ */
 export default function LoginPage() {
   const { isAuthenticated, isLoading, providers, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const theme = useTheme();
 
   // Get the return URL from location state (set by ProtectedRoute)
   const state = location.state as LocationState | null;
@@ -46,27 +77,107 @@ export default function LoginPage() {
       sx={{
         minHeight: '100vh',
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: theme.palette.background.default,
-        p: 2,
+        bgcolor: 'background.default',
+        px: 2,
+        py: { xs: 4, md: 6 },
       }}
     >
+      {/* Compact brand header, below md only. Decorative mark: the name
+          beside it is the text. */}
+      <Stack
+        direction="row"
+        spacing={1.5}
+        sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', mb: 3 }}
+      >
+        <BrandMark size={56} variant="plate" aria-hidden />
+        <Typography component="p" variant="h5" sx={{ fontWeight: 700 }}>
+          {APP_NAME}
+        </Typography>
+      </Stack>
+
       <Card
         sx={{
-          maxWidth: 400,
           width: '100%',
-          boxShadow: theme.shadows[10],
+          maxWidth: { xs: 400, md: 880 },
+          display: 'flex',
+          overflow: 'hidden',
+          boxShadow: 10,
         }}
       >
-        <CardContent sx={{ p: 4 }}>
-          {/* Logo/Header. The mark is decorative here: the page title and the
-              document title already name the product, so it is hidden from
-              assistive technology rather than announced a third time. */}
+        {/* Brand panel, md and up. */}
+        <Box
+          sx={(theme) => ({
+            display: { xs: 'none', md: 'flex' },
+            flex: '1 1 45%',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+            p: 6,
+            minHeight: 480,
+            color: 'common.white',
+            bgcolor: 'primary.main',
+            ...theme.applyStyles('dark', { bgcolor: THEME_COLOR }),
+          })}
+        >
+          <Box sx={{ position: 'relative', width: BRAND_GLYPH_SIZE, height: BRAND_GLYPH_SIZE, mb: 4 }}>
+            {/* The glow: a soft light centred on the logo's sun. Decorative,
+                behind the glyph, and wide enough to tint the panel. */}
+            <Box
+              aria-hidden
+              sx={(theme) => ({
+                position: 'absolute',
+                width: 520,
+                height: 520,
+                left: BRAND_GLYPH_SIZE * SUN_X - 260,
+                top: BRAND_GLYPH_SIZE * SUN_Y - 260,
+                borderRadius: '50%',
+                pointerEvents: 'none',
+                background: `radial-gradient(circle, ${alpha(theme.palette.common.white, 0.2)} 0%, ${alpha(theme.palette.common.white, 0.07)} 35%, transparent 70%)`,
+              })}
+            />
+            <BrandMark
+              size={BRAND_GLYPH_SIZE}
+              variant="glyph"
+              aria-hidden
+              style={{ position: 'relative', display: 'block' }}
+            />
+          </Box>
+          <Typography
+            component="p"
+            variant="h3"
+            sx={{ position: 'relative', fontWeight: 700, letterSpacing: '-0.01em' }}
+          >
+            {APP_NAME}
+          </Typography>
+          <Typography
+            sx={(theme) => ({
+              position: 'relative',
+              mt: 1.5,
+              maxWidth: 360,
+              fontSize: '1.125rem',
+              color: alpha(theme.palette.common.white, 0.85),
+            })}
+          >
+            {TAGLINE}
+          </Typography>
+        </Box>
+
+        {/* Sign-in panel. */}
+        <Box
+          sx={{
+            flex: '1 1 55%',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            bgcolor: 'background.paper',
+            p: { xs: 4, md: 6 },
+          }}
+        >
           <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <BrandMark size={56} variant="plate" aria-hidden />
-            </Box>
             <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
               Welcome
             </Typography>
@@ -104,7 +215,7 @@ export default function LoginPage() {
               By signing in, you agree to our Terms of Service and Privacy Policy
             </Typography>
           </Box>
-        </CardContent>
+        </Box>
       </Card>
     </Box>
   );

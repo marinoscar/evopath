@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { Button, IconButton, Snackbar } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
+import { PromptMessage } from './PromptMessage';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 /**
@@ -110,7 +111,9 @@ export function UpdatePrompt() {
         dismiss();
       }}
       message={
-        needRefresh ? 'A new version is available' : 'Ready to work offline'
+        <PromptMessage>
+          {needRefresh ? 'A new version is available' : 'Ready to work offline'}
+        </PromptMessage>
       }
       // Clears the fixed `BottomNav`, which exists only below `sm` — the same
       // breakpoint `<main>`'s `pb: { xs: 10, sm: 3 }` in `Layout.tsx` clears it

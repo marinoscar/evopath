@@ -1,67 +1,84 @@
 #!/usr/bin/env python3
 """
-Generate every brand raster under `apps/web/public/`.
+Generate every brand asset — rasters AND vectors — from one geometry.
 
 The brand COLOURS come from `packages/shared/identity.json` — the one manifest
 the application, the CLI and the web app manifest all read — so a rebrand
-cannot leave the icons behind. The mark GEOMETRY lives in the constants below.
+cannot leave the icons behind. The mark GEOMETRY lives in the constants below,
+and this script is the only place it lives: every file that draws the mark is
+written from it.
 
     python3 apps/web/scripts/generate-icons.py
 
-WHY A COMMITTED SCRIPT AND COMMITTED PNGs, RATHER THAN A BUILD STEP
+WHY A COMMITTED SCRIPT AND COMMITTED OUTPUTS, RATHER THAN A BUILD STEP
 =============================================================================
 This repository is a TEMPLATE. A fork that rebrands it must not be forced to
 install an image toolchain (sharp, ImageMagick, librsvg) in CI just to produce
 a favicon, so no image library appears in any `package.json` and nothing in
-`npm run build` calls this file. The PNGs it writes are committed; this script
-is the documented, reproducible way to REGENERATE them after a rebrand, run by
-hand, on a machine with Python 3 and Pillow:
+`npm run build` calls this file. Its outputs are committed; this script is the
+documented, reproducible way to REGENERATE them after a rebrand, run by hand,
+on a machine with Python 3 and Pillow:
 
     pip install --user 'Pillow>=10'
 
-The mark itself also exists as hand-editable vector art in
-`apps/web/public/icons/source.svg`. That SVG and the geometry constants in this
-file describe the same mark and must be kept in step — this script deliberately
-does NOT rasterise the SVG, because doing so would reintroduce exactly the
-rendering dependency (rsvg / cairosvg / a headless browser) the committed-PNG
-approach exists to avoid.
+The script never RASTERISES an SVG (that would need rsvg / cairosvg / a
+headless browser). It goes the other way: it computes the mark's outline as a
+polygon once, paints that polygon with Pillow for the PNGs, and serialises the
+SAME polygon as SVG path data for the vectors. The vectors therefore cannot
+drift from the rasters; do not hand-edit them, edit the constants here.
 
 WHAT IT WRITES
 =============================================================================
-    public/icons/icon-192.png              192  manifest, purpose: any
-    public/icons/icon-512.png              512  manifest, purpose: any
-    public/icons/icon-maskable-192.png     192  manifest, purpose: maskable
-    public/icons/icon-maskable-512.png     512  manifest, purpose: maskable
-    public/icons/badge-96.png               96  notification badge, monochrome
-    public/icons/apple-touch-icon-180.png  180  iOS Home Screen
-    public/favicon.ico                   16/32/48 frames
+    apps/web/public/icons/icon-192.png              192  manifest, purpose: any
+    apps/web/public/icons/icon-512.png              512  manifest, purpose: any
+    apps/web/public/icons/icon-maskable-192.png     192  manifest, purpose: maskable
+    apps/web/public/icons/icon-maskable-512.png     512  manifest, purpose: maskable
+    apps/web/public/icons/badge-96.png               96  notification badge, alpha mask
+    apps/web/public/icons/apple-touch-icon-180.png  180  iOS Home Screen
+    apps/web/public/favicon.ico                   16/32/48 frames (compact mark)
+    apps/web/public/icons/source.svg                512  vector master (standard mark)
+    apps/web/public/favicon.svg                      32  tab icon (compact mark)
+    apps/web/src/components/common/brandMarkPaths.generated.ts
+                                                    both geometries on the 32
+                                                    canvas, for `BrandMark.tsx`
+    apps/api/src/email/templates/brand-mark.generated.ts
+                                                    the standard icon as a 96px
+                                                    PNG (2x of 48), base64, for
+                                                    the email layout's cid: logo
 
-Every file carries the same mark — "the path" (see MARK GEOMETRY below) — in
-white, on the brand-coloured plate where the family has one.
-
-`public/favicon.svg` and `public/icons/source.svg` are hand-written vector and
-are NOT touched by this script.
-
-Running it is idempotent: same inputs, byte-comparable outputs, every file
+Running it is idempotent: same inputs, byte-identical outputs, every file
 rewritten from scratch.
 
-THE MARK: "THE PATH"
+THE MARK: "THE PATH TO THE SUN"
 =============================================================================
-The product is the user's path of health evolution, built on a longitudinal
-record. The mark is that path, reduced to a silhouette: ONE smooth stroke that
-enters low on the left, dips once, then climbs to the upper right and ends in
-a filled dot — the latest measurement, "you are here". One colour, no
-gradient, no outline, so it survives being an alpha mask (the badge) and
-being two pixels wide (the favicon).
+The product is the user's path of health evolution toward a goal. The mark is
+that path as a white road seen in perspective on the teal plate: wide at the
+bottom where the user stands, narrowing as it winds up through two bends (an
+S), and converging just below a warm yellow sun — the goal on the horizon.
 
-Pillow has no Bezier primitive, so each of the two cubic segments is sampled
-into a polyline (`CURVE_SAMPLES` points per segment) and drawn as straight
-`ImageDraw.line` segments with a disc of radius width/2 stamped on EVERY
-vertex. The discs are the round joins and the round start cap in one gesture
-(`ImageDraw.line`'s own `joint="curve"` leaves hairline slivers inside a wide
-stroke when the segments are short, which at 8x supersampling they are); the
-end is hidden under the terminal dot. The polyline's facets are far below one
-output pixel.
+  - The road is a FILLED RIBBON, not a stroke. Its centreline is a chain of
+    cubic Beziers (`STANDARD.segments`); each cubic is sampled densely, and the
+    outline is the centreline offset by +/- half the local width along its
+    normals. The width tapers with "depth" (the centreline's height) from
+    `width_base` at the bottom to `width_top` at the top — never a hairline.
+  - The base sits on a flat horizontal baseline (the centreline leaves the
+    baseline vertically and the outline is clamped to it), so the road starts
+    with a clean edge, not a spike.
+  - The sun is a true circle in `ACCENT_COLOR`, set slightly to the side of
+    the road's top end with a clear gap, so the composition reads as a road
+    reaching the horizon rather than as a lowercase "i" or a "$".
+  - The finished artwork (road + sun) is scaled to fit the mark box and its
+    bounding box centred on it, lifted by `OPTICAL_LIFT` because the heavy base
+    otherwise makes the mark look as if it sits low.
+
+A second, COMPACT geometry (`COMPACT`) is used where the mark is tiny: the
+favicon frames, `favicon.svg`, the notification badge, and `BrandMark` below
+32px. It keeps the same S and the sun but draws the road at a uniform width
+(0.16 of the box) with a larger gap, because perspective tapering turns into
+sub-pixel slivers at 16px.
+
+The accent colour is a LOGO-ONLY colour: the sun, nothing else. It is never a
+UI colour (see `ACCENT_COLOR` in `packages/shared/index.js`).
 
 THREE PLATFORM RULES THIS ENCODES (get one wrong and the icon looks broken
 only on the platform that cares)
@@ -73,7 +90,8 @@ only on the platform that cares)
    gets its own rounded corners shaved off.
 2. The Android notification BADGE is used as an ALPHA MASK. Every opaque pixel
    is repainted in the system's colour, so a teal square would render as a
-   solid blob. It is therefore a transparent canvas with the mark in white.
+   solid blob. It is therefore a transparent canvas with the road AND the sun
+   in white, kept legible as two shapes by the gap between them.
 3. The iOS touch icon must have NO alpha channel at all: iOS composites
    transparency against black, so transparent corners come out as black
    corners. It is written as RGB with the rounded-square corners filled with
@@ -82,7 +100,11 @@ only on the platform that cares)
 
 from __future__ import annotations
 
+import base64
+import io
 import json
+import math
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -101,6 +123,8 @@ REPO_ROOT = WEB_DIR.parent.parent               # <repo root>
 PUBLIC_DIR = WEB_DIR / "public"
 ICONS_DIR = PUBLIC_DIR / "icons"
 IDENTITY_MANIFEST = REPO_ROOT / "packages" / "shared" / "identity.json"
+BRAND_MARK_TS = WEB_DIR / "src" / "components" / "common" / "brandMarkPaths.generated.ts"
+EMAIL_MARK_TS = REPO_ROOT / "apps" / "api" / "src" / "email" / "templates" / "brand-mark.generated.ts"
 
 FAVICON_ICO_SIZES = (16, 32, 48)
 
@@ -109,18 +133,17 @@ FAVICON_ICO_SIZES = (16, 32, 48)
 # Brand constants
 # =============================================================================
 # SOURCE OF TRUTH: `packages/shared/identity.json` (`themeColor`,
-# `backgroundColor`). That manifest is what `packages/shared/index.js` exports as
-# `THEME_COLOR` / `BACKGROUND_COLOR`, and therefore what the application, the MUI
-# theme and the web app manifest all read at runtime.
+# `backgroundColor`, `accentColor`). That manifest is what
+# `packages/shared/index.js` exports as `THEME_COLOR` / `BACKGROUND_COLOR` /
+# `ACCENT_COLOR`, and therefore what the application, the MUI theme and the web
+# app manifest all read at runtime.
 #
-# These values are READ from it rather than copied into it, and that is the whole
-# point: this script paints them into committed PNGs, so a rebrand that edited
-# one place and forgot the other used to leave every generated icon on the old
-# colour with nothing to catch it. JSON is the one format both a CommonJS module
-# and a Python script can read — a Python script cannot import
-# `packages/shared/index.js` — so the manifest, not either consumer, holds the
-# fact. To rebrand: edit `identity.json` (or run `node scripts/rename.mjs`), then
-# re-run this script to regenerate the rasters.
+# These values are READ from it rather than copied into it, and that is the
+# whole point: this script paints them into committed files, so a rebrand that
+# edited one place and forgot the other used to leave every generated icon on
+# the old colour with nothing to catch it. JSON is the one format both a
+# CommonJS module and a Python script can read. To rebrand: edit
+# `identity.json` (or run `node scripts/rename.mjs`), then re-run this script.
 
 
 def load_identity() -> dict:
@@ -162,7 +185,7 @@ def identity_color(identity: dict, key: str) -> str:
             f'  Add it as a 6-digit hex literal, e.g. "{key}": "#1976d2", then '
             "re-run this script."
         )
-    return value
+    return value.strip().lower()
 
 
 _IDENTITY = load_identity()
@@ -170,43 +193,93 @@ _IDENTITY = load_identity()
 BRAND_COLOR = identity_color(_IDENTITY, "themeColor")
 # Opaque fill for the iOS icon, which must have no alpha channel (see rule 3).
 BACKGROUND_COLOR = identity_color(_IDENTITY, "backgroundColor")
+# The sun. LOGO-ONLY: never a UI colour.
+ACCENT_COLOR = identity_color(_IDENTITY, "accentColor")
 
-# The mark is drawn in this colour on the brand-coloured plate. Not a manifest
+# The road is drawn in this colour on the brand-coloured plate. Not a manifest
 # field: it is not an identity choice but a legibility one — the badge is an
-# alpha mask (rule 2) and the mark must contrast with the plate at 16px.
+# alpha mask (rule 2) and the road must contrast with the plate at 16px.
 FOREGROUND_COLOR = "#ffffff"
+
+if len({BRAND_COLOR, ACCENT_COLOR, FOREGROUND_COLOR}) != 3:
+    # The SVGs are rebranded by `scripts/rename.mjs` anchored on
+    # `fill="<colour>"`, and the identity guard counts the plate's fill; two
+    # roles sharing one hex would make both ambiguous.
+    raise SystemExit(
+        "generate-icons: themeColor, accentColor and the white road must be three "
+        f"different colours (got {BRAND_COLOR}, {ACCENT_COLOR}, {FOREGROUND_COLOR})."
+    )
 
 # =============================================================================
 # Mark geometry — all fractions, so the mark is resolution independent
 # =============================================================================
-# Everything below is expressed in MARK-BOX coordinates: a square box, `0..1`
-# on both axes, y DOWN (as in SVG and Pillow), that the mark is laid out in.
-# The box is centred on the canvas and its side is `MARK_RATIO_*` of the
-# canvas. `apps/web/public/icons/source.svg` carries the same numbers scaled
-# onto the 512 canvas, and `public/favicon.svg` onto the 32 canvas with the
-# favicon crop.
-#
-# The stroke's round caps and the end dot overhang the box slightly on purpose
-# (about 0.06 on the left, 0.11 on the right at the dot): the box frames the
-# path's CENTRELINE, which is what the SVG `d` attribute describes too, so the
-# two descriptions share one set of numbers instead of each carrying its own
-# fudge for the stroke width.
+# Everything below is in MARK-BOX coordinates: a square box, `0..1` on both
+# axes, y DOWN (as in SVG and Pillow). The box is centred on the canvas and its
+# side is `MARK_RATIO_*` of the canvas. The design coordinates in `STANDARD`
+# and `COMPACT` are normalised (fitted to the box, bounding box centred, then
+# lifted by `OPTICAL_LIFT`) before anything is drawn, so they need not be
+# exactly centred by hand.
 CORNER_RADIUS_RATIO = 0.22   # rounded-square plate radius, as a fraction of size
 
-# The path: start, then two cubic Bezier segments as (control 1, control 2, end).
-PATH_START = (0.02, 0.78)
-PATH_SEGMENTS = (
-    # The dip: a shallow trough just right of the start.
-    ((0.16, 0.78), (0.28, 0.92), (0.42, 0.90)),
-    # The climb: a long S-curve up to the top-right.
-    ((0.60, 0.88), (0.74, 0.22), (0.98, 0.18)),
+# The heavy base makes a geometrically centred mark look low; lift it by this
+# fraction of the box.
+OPTICAL_LIFT = 0.015
+
+# How finely each cubic is sampled before the outline is offset. Dense enough
+# that the polygon's facets are far below one pixel at 512px.
+CURVE_SAMPLES = 40
+
+
+@dataclass(frozen=True)
+class MarkSpec:
+    """One version of the mark, in design coordinates (box-sized, y down)."""
+
+    # Road centreline: start point, then cubic segments (control1, control2, end).
+    start: tuple[float, float]
+    segments: tuple[tuple[tuple[float, float], tuple[float, float], tuple[float, float]], ...]
+    # Road width at the base and at the top end, as fractions of the box.
+    width_base: float
+    width_top: float
+    # Taper curve: width follows depth**taper_power (1 = linear in height).
+    taper_power: float
+    # The sun: centre and radius.
+    sun: tuple[float, float, float]
+    # Whether the top end of the road gets a round cap (else a square cut).
+    round_top: bool
+
+
+# The standard mark: perspective road, two bends, sun up and to the right.
+STANDARD = MarkSpec(
+    start=(0.60, 1.00),
+    segments=(
+        # Leaves the baseline vertically and sweeps out to the left bend.
+        ((0.60, 0.84), (0.10, 0.92), (0.14, 0.73)),
+        # Crosses back to the right bend.
+        ((0.17, 0.60), (0.80, 0.70), (0.80, 0.54)),
+        # Turns once more and converges beneath the sun's left edge.
+        ((0.80, 0.45), (0.64, 0.44), (0.54, 0.40)),
+    ),
+    width_base=0.28,
+    width_top=0.075,
+    taper_power=1.1,
+    sun=(0.685, 0.185, 0.15),
+    round_top=True,
 )
-STROKE_WIDTH_RATIO = 0.16    # stroke width, as a fraction of the mark box side
-END_DOT_RADIUS_RATIO = 0.13  # terminal dot radius; > stroke/2 so it reads as a point
-# How finely each cubic is sampled before it is drawn as a polyline. 64 is far
-# more than the eye needs at 8x supersampling; it costs nothing and keeps the
-# tightest part of the climb free of visible facets at 512px.
-CURVE_SAMPLES = 64
+
+# The compact mark: the same S at a uniform width, with a larger gap.
+COMPACT = MarkSpec(
+    start=(0.54, 1.00),
+    segments=(
+        ((0.54, 0.86), (0.10, 0.92), (0.13, 0.75)),
+        ((0.16, 0.60), (0.84, 0.69), (0.82, 0.53)),
+        ((0.80, 0.45), (0.64, 0.47), (0.52, 0.46)),
+    ),
+    width_base=0.16,
+    width_top=0.16,
+    taper_power=1.0,
+    sun=(0.74, 0.15, 0.16),
+    round_top=True,
+)
 
 # How much of the canvas the mark box occupies, per icon family.
 MARK_RATIO_STANDARD = 0.68   # rounded plate, corners are ours to shape
@@ -216,80 +289,228 @@ MARK_RATIO_FAVICON = 0.80    # tab-sized: padding costs whole pixels, so spend f
 
 # Anti-aliasing. Pillow's drawing primitives are hard-edged, so everything is
 # drawn at this multiple and downsampled with LANCZOS; that resample IS the
-# anti-aliasing. 8x rather than 4x because the 16px favicon frame is where it
-# shows: at 4x the stroke's edges land on visibly coarser alpha steps.
+# anti-aliasing.
 SUPERSAMPLE = 8
 
+# The email logo: the standard icon at 2x of its CSS display size.
+EMAIL_DISPLAY_SIZE = 48
+EMAIL_PNG_SIZE = EMAIL_DISPLAY_SIZE * 2
 
-def _cubic_point(
-    p0: tuple[float, float],
-    p1: tuple[float, float],
-    p2: tuple[float, float],
-    p3: tuple[float, float],
-    t: float,
-) -> tuple[float, float]:
-    """Evaluate a cubic Bezier at `t` in [0, 1]."""
+
+# =============================================================================
+# Geometry: centreline -> ribbon outline polygon
+# =============================================================================
+
+Point = tuple[float, float]
+
+
+def _cubic(p0: Point, p1: Point, p2: Point, p3: Point, t: float) -> tuple[Point, Point]:
+    """Point and (unnormalised) tangent of a cubic Bezier at `t`."""
     u = 1.0 - t
-    a, b, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
-    return (
-        a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
-        a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
+    point = (
+        u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+        u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+    )
+    tangent = (
+        3 * u * u * (p1[0] - p0[0]) + 6 * u * t * (p2[0] - p1[0]) + 3 * t * t * (p3[0] - p2[0]),
+        3 * u * u * (p1[1] - p0[1]) + 6 * u * t * (p2[1] - p1[1]) + 3 * t * t * (p3[1] - p2[1]),
+    )
+    return point, tangent
+
+
+def _centreline(spec: MarkSpec) -> list[tuple[Point, Point]]:
+    """The centreline as (point, unit tangent) samples, start to top end."""
+    samples: list[tuple[Point, Point]] = []
+    current = spec.start
+    for index, (c1, c2, end) in enumerate(spec.segments):
+        first = 0 if index == 0 else 1  # shared joints are sampled once
+        for step in range(first, CURVE_SAMPLES + 1):
+            point, (tx, ty) = _cubic(current, c1, c2, end, step / CURVE_SAMPLES)
+            length = math.hypot(tx, ty) or 1.0
+            samples.append((point, (tx / length, ty / length)))
+        current = end
+    return samples
+
+
+def _ribbon(spec: MarkSpec) -> list[Point]:
+    """The road outline: the centreline offset by +/- half the local width."""
+    samples = _centreline(spec)
+    y_base = spec.start[1]
+    y_top = samples[-1][0][1]
+
+    def width_at(y: float) -> float:
+        depth = min(1.0, max(0.0, (y - y_top) / (y_base - y_top)))
+        return spec.width_top + (spec.width_base - spec.width_top) * depth ** spec.taper_power
+
+    left: list[Point] = []
+    right: list[Point] = []
+    halves = [width_at(y) / 2 for (_, y), _ in samples]
+    for ((x, y), (tx, ty)), half in zip(samples, halves):
+        nx, ny = -ty, tx  # left-hand normal (y down)
+        # Clamped to the baseline: the base is a flat, clean edge.
+        left.append((x + nx * half, min(y_base, y + ny * half)))
+        right.append((x - nx * half, min(y_base, y - ny * half)))
+
+    centres = [point for point, _ in samples]
+    left = _drop_buried(left, centres, halves)
+    right = _drop_buried(right, centres, halves)
+
+    cap: list[Point] = []
+    if spec.round_top:
+        (x, y), (tx, ty) = samples[-1]
+        half = spec.width_top / 2
+        nx, ny = -ty, tx
+        # Sweep from the left edge, over the end (along the tangent), to the
+        # right edge: a semicircle, so the narrow end is soft, never a point.
+        steps = 16
+        for step in range(1, steps):
+            theta = math.pi * step / steps
+            c, s = math.cos(theta), math.sin(theta)
+            cap.append((x + (c * nx + s * tx) * half, y + (c * ny + s * ty) * half))
+
+    return _remove_loops(left) + cap + _remove_loops(right)[::-1]
+
+
+def _drop_buried(edge: list[Point], centres: list[Point], halves: list[float]) -> list[Point]:
+    """Drop offset points that lie well INSIDE the road elsewhere.
+
+    At a bend whose radius is close to the road's half-width the inner offset
+    forms a cusp (or a swallowtail too small to cross itself between two
+    samples) that pokes a tooth out of the inside corner. Such a point is
+    deep inside the road around some other centreline sample, so it is
+    dropped. The 0.95 margin keeps the normal taper, where a neighbour's
+    width is a hair larger, from flagging honest edge points.
+    """
+    kept: list[Point] = []
+    for point in edge:
+        buried = any(
+            math.hypot(point[0] - cx, point[1] - cy) < half * 0.95
+            for (cx, cy), half in zip(centres, halves)
+        )
+        if not buried:
+            kept.append(point)
+    return kept
+
+
+def _segment_intersection(a: Point, b: Point, c: Point, d: Point) -> Point | None:
+    """Intersection of segments ab and cd, or None."""
+    rx, ry = b[0] - a[0], b[1] - a[1]
+    sx, sy = d[0] - c[0], d[1] - c[1]
+    denom = rx * sy - ry * sx
+    if abs(denom) < 1e-12:
+        return None
+    qx, qy = c[0] - a[0], c[1] - a[1]
+    t = (qx * sy - qy * sx) / denom
+    u = (qx * ry - qy * rx) / denom
+    if 0.0 < t < 1.0 and 0.0 < u < 1.0:
+        return (a[0] + t * rx, a[1] + t * ry)
+    return None
+
+
+def _remove_loops(edge: list[Point]) -> list[Point]:
+    """Cut the "swallowtail" loops out of one offset edge.
+
+    On the inside of a bend tighter than the road's half-width, the offset
+    edge doubles back over itself and forms a small loop. Filled, that loop is
+    a sliver of background inside the road. The fix is the standard one: where
+    the edge crosses itself, jump straight from the first crossing segment to
+    the second, through the crossing point, dropping the loop. The inside of a
+    tight bend then becomes a crisp corner, which is what a road drawn in
+    perspective looks like anyway.
+    """
+    result: list[Point] = []
+    index = 0
+    count = len(edge)
+    while index < count:
+        result.append(edge[index])
+        if index + 1 >= count:
+            break
+        jumped = False
+        a, b = edge[index], edge[index + 1]
+        # Search from the far end so the largest loop is removed in one go.
+        for later in range(count - 2, index + 1, -1):
+            hit = _segment_intersection(a, b, edge[later], edge[later + 1])
+            if hit is not None:
+                result.append(hit)
+                index = later + 1
+                jumped = True
+                break
+        if not jumped:
+            index += 1
+    return result
+
+
+@dataclass(frozen=True)
+class MarkGeometry:
+    """The finished mark in box coordinates: road polygon and sun circle."""
+
+    road: list[Point]
+    sun: tuple[float, float, float]
+
+
+def build_geometry(spec: MarkSpec) -> MarkGeometry:
+    """Ribbon + sun, fitted to the unit box and optically centred."""
+    road = _ribbon(spec)
+    sx, sy, sr = spec.sun
+
+    xs = [p[0] for p in road] + [sx - sr, sx + sr]
+    ys = [p[1] for p in road] + [sy - sr, sy + sr]
+    min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
+    scale = 1.0 / max(max_x - min_x, max_y - min_y)
+    off_x = 0.5 - (min_x + max_x) / 2 * scale
+    off_y = 0.5 - (min_y + max_y) / 2 * scale - OPTICAL_LIFT
+
+    def fit(p: Point) -> Point:
+        return (p[0] * scale + off_x, p[1] * scale + off_y)
+
+    return MarkGeometry(
+        road=[fit(p) for p in road],
+        sun=(sx * scale + off_x, sy * scale + off_y, sr * scale),
     )
 
 
-def path_points() -> list[tuple[float, float]]:
-    """The whole path as one polyline in mark-box coordinates.
-
-    Each cubic contributes `CURVE_SAMPLES` points, excluding its start (which
-    is the previous segment's end), so consecutive segments share no duplicate
-    vertex — a zero-length segment would otherwise give `joint="curve"` a
-    degenerate direction to round.
-    """
-    points = [PATH_START]
-    current = PATH_START
-    for control1, control2, end in PATH_SEGMENTS:
-        for step in range(1, CURVE_SAMPLES + 1):
-            points.append(_cubic_point(current, control1, control2, end, step / CURVE_SAMPLES))
-        current = end
-    return points
+GEOMETRY_STANDARD = build_geometry(STANDARD)
+GEOMETRY_COMPACT = build_geometry(COMPACT)
 
 
-def draw_mark(draw: ImageDraw.ImageDraw, size: int, mark_ratio: float, fill: str) -> None:
-    """Draw the path mark centred on a `size`x`size` canvas.
+def sun_gap(geometry: MarkGeometry) -> float:
+    """Closest distance between the sun's edge and the road outline (box units)."""
+    sx, sy, sr = geometry.sun
+    return min(math.hypot(x - sx, y - sy) for x, y in geometry.road) - sr
 
-    `mark_ratio` is the mark box's side as a fraction of the canvas; the box
-    is centred on both axes and the path is laid out inside it.
-    """
+
+# =============================================================================
+# Raster rendering
+# =============================================================================
+
+
+def _place(geometry: MarkGeometry, size: float, mark_ratio: float):
     box = size * mark_ratio
     origin = (size - box) / 2
-    stroke = box * STROKE_WIDTH_RATIO
-    dot_radius = box * END_DOT_RADIUS_RATIO
-
-    points = [(origin + x * box, origin + y * box) for x, y in path_points()]
-
-    # Pillow's `width` is an integer number of pixels; at SUPERSAMPLE x the
-    # rounding error is a fraction of one OUTPUT pixel. No `joint=` argument:
-    # the discs below are the joins (see the module docstring for why not
-    # `joint="curve"`).
-    draw.line(points, fill=fill, width=max(1, round(stroke)))
-
-    # A disc on every vertex: round joins between the facets, and a round cap
-    # at the start. Without the cap a square end on a two-pixel stroke reads
-    # as a notch at favicon size.
-    half = stroke / 2
-    for x, y in points:
-        draw.ellipse((x - half, y - half, x + half, y + half), fill=fill)
-
-    # The terminal dot: "you are here". Larger than the stroke's half-width so
-    # it reads as a point on the line rather than as the line's rounded end.
-    end_x, end_y = points[-1]
-    draw.ellipse(
-        (end_x - dot_radius, end_y - dot_radius, end_x + dot_radius, end_y + dot_radius),
-        fill=fill,
-    )
+    road = [(origin + x * box, origin + y * box) for x, y in geometry.road]
+    sx, sy, sr = geometry.sun
+    return road, (origin + sx * box, origin + sy * box, sr * box)
 
 
-def render_standard(size: int, mark_ratio: float = MARK_RATIO_STANDARD) -> Image.Image:
+def draw_mark(
+    draw: ImageDraw.ImageDraw,
+    size: int,
+    mark_ratio: float,
+    geometry: MarkGeometry,
+    road_fill: str,
+    sun_fill: str,
+) -> None:
+    """Draw the road and the sun centred on a `size`x`size` canvas."""
+    road, (sx, sy, sr) = _place(geometry, size, mark_ratio)
+    draw.polygon(road, fill=road_fill)
+    draw.ellipse((sx - sr, sy - sr, sx + sr, sy + sr), fill=sun_fill)
+
+
+def render_standard(
+    size: int,
+    mark_ratio: float = MARK_RATIO_STANDARD,
+    geometry: MarkGeometry = GEOMETRY_STANDARD,
+) -> Image.Image:
     """Rounded brand-coloured plate, transparent corners, mark on top. RGBA."""
     scale = size * SUPERSAMPLE
     image = Image.new("RGBA", (scale, scale), (0, 0, 0, 0))
@@ -299,7 +520,7 @@ def render_standard(size: int, mark_ratio: float = MARK_RATIO_STANDARD) -> Image
         radius=scale * CORNER_RADIUS_RATIO,
         fill=BRAND_COLOR,
     )
-    draw_mark(draw, scale, mark_ratio, FOREGROUND_COLOR)
+    draw_mark(draw, scale, mark_ratio, geometry, FOREGROUND_COLOR, ACCENT_COLOR)
     return image.resize((size, size), Image.LANCZOS)
 
 
@@ -312,16 +533,16 @@ def render_maskable(size: int) -> Image.Image:
     scale = size * SUPERSAMPLE
     image = Image.new("RGB", (scale, scale), BRAND_COLOR)
     draw = ImageDraw.Draw(image)
-    draw_mark(draw, scale, MARK_RATIO_MASKABLE, FOREGROUND_COLOR)
+    draw_mark(draw, scale, MARK_RATIO_MASKABLE, GEOMETRY_STANDARD, FOREGROUND_COLOR, ACCENT_COLOR)
     return image.resize((size, size), Image.LANCZOS)
 
 
 def render_badge(size: int) -> Image.Image:
-    """Transparent canvas, white mark. RGBA — Android reads ONLY the alpha."""
+    """Transparent canvas, white road AND sun. RGBA — Android reads ONLY the alpha."""
     scale = size * SUPERSAMPLE
     image = Image.new("RGBA", (scale, scale), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    draw_mark(draw, scale, MARK_RATIO_BADGE, FOREGROUND_COLOR)
+    draw_mark(draw, scale, MARK_RATIO_BADGE, GEOMETRY_COMPACT, FOREGROUND_COLOR, FOREGROUND_COLOR)
     return image.resize((size, size), Image.LANCZOS)
 
 
@@ -331,6 +552,184 @@ def render_apple_touch(size: int) -> Image.Image:
     canvas = Image.new("RGB", (size, size), BACKGROUND_COLOR)
     canvas.paste(standard, (0, 0), standard)
     return canvas
+
+
+def render_favicon_frame(size: int) -> Image.Image:
+    """The tab-size crop with the compact mark."""
+    return render_standard(size, MARK_RATIO_FAVICON, GEOMETRY_COMPACT)
+
+
+def png_bytes(image: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+# =============================================================================
+# Vector serialisation
+# =============================================================================
+
+
+def _num(value: float) -> str:
+    """2-decimal number with no trailing zeros (and no "-0")."""
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return "0" if text in ("-0", "") else text
+
+
+def path_data(geometry: MarkGeometry, size: float, mark_ratio: float) -> str:
+    """The road polygon as SVG path data on a `size` canvas."""
+    road, _ = _place(geometry, size, mark_ratio)
+    points = []
+    for x, y in road:
+        point = f"{_num(x)} {_num(y)}"
+        if not points or points[-1] != point:  # drop duplicates after rounding
+            points.append(point)
+    return "M" + " L".join(points) + "Z"
+
+
+def sun_circle(geometry: MarkGeometry, size: float, mark_ratio: float) -> tuple[str, str, str]:
+    _, (sx, sy, sr) = _place(geometry, size, mark_ratio)
+    return _num(sx), _num(sy), _num(sr)
+
+
+SVG_HEADER = """<!--
+  GENERATED by apps/web/scripts/generate-icons.py — do not edit by hand.
+  {what}
+  Regenerate (after changing the geometry in that script, or the colours in
+  packages/shared/identity.json):
+
+      python3 apps/web/scripts/generate-icons.py
+
+  Plate = themeColor, road = white, sun = accentColor (a logo-only colour).
+-->
+"""
+
+
+def write_svg(
+    path: Path,
+    size: int,
+    mark_ratio: float,
+    geometry: MarkGeometry,
+    what: str,
+    extra_attrs: str = "",
+) -> None:
+    radius = _num(size * CORNER_RADIUS_RATIO)
+    cx, cy, r = sun_circle(geometry, size, mark_ratio)
+    svg = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        + SVG_HEADER.format(what=what)
+        + f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+        f'viewBox="0 0 {size} {size}"{extra_attrs}>\n'
+        f'  <rect width="{size}" height="{size}" rx="{radius}" fill="{BRAND_COLOR}"/>\n'
+        f'  <path d="{path_data(geometry, size, mark_ratio)}" fill="{FOREGROUND_COLOR}"/>\n'
+        f'  <circle cx="{cx}" cy="{cy}" r="{r}" fill="{ACCENT_COLOR}"/>\n'
+        "</svg>\n"
+    )
+    path.write_text(svg, encoding="utf-8")
+
+
+# =============================================================================
+# TypeScript modules
+# =============================================================================
+
+# BrandMark.tsx draws on a 32-unit viewBox. The plate geometry is placed at
+# the standard ratio (large plates) or the favicon ratio (compact, small
+# plates); the glyph geometry fills the box edge to edge with a small margin.
+TS_CANVAS = 32
+GLYPH_RATIO = 0.94
+
+
+def write_brand_mark_ts(path: Path) -> None:
+    def entry(name: str, geometry: MarkGeometry, ratio: float, doc: str) -> str:
+        cx, cy, r = sun_circle(geometry, TS_CANVAS, ratio)
+        return (
+            f"/** {doc} */\n"
+            f"export const {name} = {{\n"
+            f"  road: '{path_data(geometry, TS_CANVAS, ratio)}',\n"
+            f"  sun: {{ cx: {cx}, cy: {cy}, r: {r} }},\n"
+            "} as const;\n"
+        )
+
+    body = (
+        "// GENERATED by apps/web/scripts/generate-icons.py — do not edit by hand.\n"
+        "//\n"
+        "// The brand mark's geometry for `BrandMark.tsx`, computed from the same\n"
+        "// polygon that paints the PNG icons and writes the SVGs, so the React mark\n"
+        "// cannot drift from them. Every value is on a 32-unit viewBox. Regenerate with:\n"
+        "//\n"
+        "//     python3 apps/web/scripts/generate-icons.py\n"
+        "\n"
+        f"/** The viewBox side every value below is expressed on. */\n"
+        f"export const BRAND_MARK_VIEWBOX = {TS_CANVAS};\n"
+        "\n"
+        f"/** Plate corner radius ({CORNER_RADIUS_RATIO} of the side). */\n"
+        f"export const BRAND_MARK_PLATE_RADIUS = {_num(TS_CANVAS * CORNER_RADIUS_RATIO)};\n"
+        "\n"
+        + entry(
+            "BRAND_MARK_PLATE_STANDARD",
+            GEOMETRY_STANDARD,
+            MARK_RATIO_STANDARD,
+            f"Standard road + sun on a plate (mark box {MARK_RATIO_STANDARD} of the side).",
+        )
+        + "\n"
+        + entry(
+            "BRAND_MARK_PLATE_COMPACT",
+            GEOMETRY_COMPACT,
+            MARK_RATIO_FAVICON,
+            f"Compact road + sun on a plate, for small sizes (mark box {MARK_RATIO_FAVICON}).",
+        )
+        + "\n"
+        + entry(
+            "BRAND_MARK_GLYPH_STANDARD",
+            GEOMETRY_STANDARD,
+            GLYPH_RATIO,
+            f"Standard road + sun with no plate (mark box {GLYPH_RATIO}).",
+        )
+        + "\n"
+        + entry(
+            "BRAND_MARK_GLYPH_COMPACT",
+            GEOMETRY_COMPACT,
+            GLYPH_RATIO,
+            f"Compact road + sun with no plate (mark box {GLYPH_RATIO}).",
+        )
+    )
+    path.write_text(body, encoding="utf-8")
+
+
+def write_email_ts(path: Path, png: bytes) -> None:
+    encoded = base64.b64encode(png).decode("ascii")
+    body = (
+        "// GENERATED by apps/web/scripts/generate-icons.py — do not edit by hand.\n"
+        "//\n"
+        "// The brand mark as an inline PNG for HTML email. Emails cannot load remote\n"
+        "// images by default, so the layout attaches these bytes to every message and\n"
+        "// references them as `cid:${BRAND_MARK_CID}`. Regenerate with:\n"
+        "//\n"
+        "//     python3 apps/web/scripts/generate-icons.py\n"
+        "\n"
+        "/** Content-ID the layout's <img src=\"cid:...\"> points at. */\n"
+        "export const BRAND_MARK_CID = 'brand-mark';\n"
+        "\n"
+        "/** Attachment filename (shown by clients that list inline parts). */\n"
+        "export const BRAND_MARK_FILENAME = 'brand-mark.png';\n"
+        "\n"
+        "/** Rendered size in CSS pixels; the PNG is 2x for high-density screens. */\n"
+        f"export const BRAND_MARK_DISPLAY_SIZE = {EMAIL_DISPLAY_SIZE};\n"
+        "\n"
+        "/** PNG bytes, base64-encoded. */\n"
+        "export const BRAND_MARK_PNG_BASE64 =\n"
+        f"  '{encoded}';\n"
+    )
+    path.write_text(body, encoding="utf-8")
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+
+def _rel(path: Path) -> str:
+    return str(path.relative_to(REPO_ROOT))
 
 
 def main() -> None:
@@ -347,15 +746,15 @@ def main() -> None:
 
     for path, image in outputs:
         image.save(path, format="PNG", optimize=True)
-        print(f"wrote {path.relative_to(WEB_DIR)}  {image.size[0]}x{image.size[1]}  {image.mode}")
+        print(f"wrote {_rel(path)}  {image.size[0]}x{image.size[1]}  {image.mode}")
 
     # The .ico carries three frames because the contexts that still read it
     # differ: 16px is the browser tab, 32px the bookmark bar and taskbar, 48px
     # a Windows desktop shortcut. Each frame is rendered and downsampled
-    # independently rather than letting the ICO encoder shrink one big frame —
-    # the 16px stroke and dot survive the difference visibly. They also use the
-    # tighter favicon crop, which `public/favicon.svg` matches.
-    frames = [render_standard(size, MARK_RATIO_FAVICON) for size in FAVICON_ICO_SIZES]
+    # independently rather than letting the ICO encoder shrink one big frame.
+    # They use the compact mark and the tighter favicon crop, which
+    # `public/favicon.svg` matches.
+    frames = [render_favicon_frame(size) for size in FAVICON_ICO_SIZES]
     ico_path = PUBLIC_DIR / "favicon.ico"
     frames[-1].save(
         ico_path,
@@ -363,12 +762,42 @@ def main() -> None:
         sizes=[(size, size) for size in FAVICON_ICO_SIZES],
         append_images=frames[:-1],
     )
-    print(
-        f"wrote {ico_path.relative_to(WEB_DIR)}  "
-        f"{'/'.join(str(size) for size in FAVICON_ICO_SIZES)}px frames"
-    )
+    print(f"wrote {_rel(ico_path)}  {'/'.join(str(s) for s in FAVICON_ICO_SIZES)}px frames")
 
-    print("\nfavicon.svg and icons/source.svg are hand-written vector — not regenerated.")
+    source_svg = ICONS_DIR / "source.svg"
+    write_svg(
+        source_svg,
+        512,
+        MARK_RATIO_STANDARD,
+        GEOMETRY_STANDARD,
+        "The vector master of the brand mark (standard geometry, 512 canvas). Nothing\n"
+        "  loads it at runtime; it exists for design tools and as a reference.",
+        ' role="img" aria-label="Application mark"',
+    )
+    print(f"wrote {_rel(source_svg)}")
+
+    favicon_svg = PUBLIC_DIR / "favicon.svg"
+    write_svg(
+        favicon_svg,
+        32,
+        MARK_RATIO_FAVICON,
+        GEOMETRY_COMPACT,
+        "The tab icon (compact geometry, favicon crop, 32 canvas); favicon.ico's\n"
+        "  frames use the identical geometry.",
+    )
+    print(f"wrote {_rel(favicon_svg)}")
+
+    write_brand_mark_ts(BRAND_MARK_TS)
+    print(f"wrote {_rel(BRAND_MARK_TS)}")
+
+    email_png = png_bytes(render_standard(EMAIL_PNG_SIZE))
+    write_email_ts(EMAIL_MARK_TS, email_png)
+    print(f"wrote {_rel(EMAIL_MARK_TS)}  {EMAIL_PNG_SIZE}x{EMAIL_PNG_SIZE} PNG, {len(email_png)} bytes")
+
+    print(
+        f"\nsun gap: standard {sun_gap(GEOMETRY_STANDARD):.3f}, "
+        f"compact {sun_gap(GEOMETRY_COMPACT):.3f} (box units)"
+    )
 
 
 if __name__ == "__main__":

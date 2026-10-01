@@ -3,5 +3,6 @@
   "tagline": "A production-grade full-stack application foundation built with React, NestJS, and PostgreSQL.",
   "repoSlug": "marinoscar/evopath",
   "themeColor": "#0f766e",
-  "backgroundColor": "#f2f7f6"
+  "backgroundColor": "#f2f7f6",
+  "accentColor": "#f6c445"
 }
