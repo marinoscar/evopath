@@ -2,7 +2,7 @@
 
 > **Status:** shipped · **Code:** `apps/api/src/health-sync/`, `apps/api/src/sleep/`, `apps/api/src/android-app/`, `apps/android/` · **API:** `/api/health-sync/*`, `/api/sleep`, `/api/admin/android-app`, `/api/well-known/assetlinks.json` (see `/api/docs`) · **UI:** `/settings/connected-devices`, `/admin/settings/android`, Health page "Sleep" section · **Runbook:** [android-app.md](../runbooks/android-app.md)
 
-An optional Android app imports steps, exercise sessions, heart rate, weight, body fat, blood pressure and sleep from Android Health Connect into EvoPath. The app is a Trusted Web Activity (TWA) around the web app plus a native Kotlin module that reads Health Connect and posts to `/api/health-sync`. A phone pairs once through the device flow, gets a personal access token (PAT), registers itself as a device, then uploads idempotent syncs. Imported rows carry the provider `health_connect:<deviceId>`, so a re-sent day replaces its earlier row and one phone never touches another's data.
+An optional Android app imports steps, exercise sessions, heart rate, weight, body fat, blood pressure and sleep from Android Health Connect into the app. The app is a Trusted Web Activity (TWA) around the web app plus a native Kotlin module that reads Health Connect and posts to `/api/health-sync`. A phone pairs once through the device flow, gets a personal access token (PAT), registers itself as a device, then uploads idempotent syncs. Imported rows carry the provider `health_connect:<deviceId>`, so a re-sent day replaces its earlier row and one phone never touches another's data.
 
 ## 1. Purpose
 
@@ -23,7 +23,7 @@ An optional Android app imports steps, exercise sessions, heart rate, weight, bo
 ```
  Phone                                                     Server (same origin)
 ┌─────────────────────────────────────────────┐
-│ com.evopath.android                         │
+│ com.<repo>.android                          │
 │  ┌───────────────────┐  ┌─────────────────┐ │
 │  │ TWA shell         │  │ Native Kotlin   │ │   Digital Asset Links
 │  │ opens <server>/   │  │ Health sync     │ │   GET /.well-known/assetlinks.json
@@ -31,7 +31,7 @@ An optional Android app imports steps, exercise sessions, heart rate, weight, bo
 │  │ (full screen PWA) │  │  WorkManager)   │ │                                 │
 │  └───────────────────┘  └───────┬─────────┘ │                                 │
 │            ▲ deep link          │ reads     │                                 │
-│            │ evopath-android:// ▼           │      Bearer pat_…               │
+│            │ <repo>-android://  ▼           │      Bearer pat_…               │
 │            │ health-sync   Health Connect   │ ──────────────────────────────► │
 └────────────┼────────────────────────────────┘  POST /api/health-sync/devices  │
              │                                    POST …/devices/:id/sync       │
@@ -45,9 +45,9 @@ An optional Android app imports steps, exercise sessions, heart rate, weight, bo
 ```
 
 - **TWA shell.** `TwaLauncherActivity` opens `<server>/?source=twa` full screen, but only when Chrome can verify the app against the server's Digital Asset Links (section 2.9). Without a verified link it opens with a URL bar.
-- **Native module.** `HealthSyncActivity` (deep link `evopath-android://health-sync`, plus a static shortcut "Health sync") holds pairing, per-type switches, the permission flow and diagnostics. A WorkManager worker syncs hourly under a network constraint; a manual sync or an app open runs an expedited one-shot.
+- **Native module.** `HealthSyncActivity` (deep link `<repo>-android://health-sync`, plus a static shortcut "Health sync") holds pairing, per-type switches, the permission flow and diagnostics. A WorkManager worker syncs hourly under a network constraint; a manual sync or an app open runs an expedited one-shot.
 - **Web app.** `/settings/connected-devices` lists the phones. Inside the TWA (the `?source=twa` launch flag remembered in `sessionStorage`, or an `android-app://` referrer) it offers "Open Health sync" with the deep link.
-- **Package and build.** The application id is `com.evopath.android`, minSdk 26, target and compile SDK 36. Build instructions: `apps/android/README.md`. CI: `.github/workflows/android.yml`.
+- **Package and build.** The application id is `com.<repo>.android`, minSdk 26, target and compile SDK 36. The id, the deep-link scheme `<repo>-android` and the app label (`productName`) derive from `packages/shared/identity.json` at build time, where `<repo>` is the repository name from `repoSlug`, lowercased; `@app/shared` exports the same values (`ANDROID_PACKAGE_NAME`, `ANDROID_DEEP_LINK_SCHEME`, `ANDROID_APK_STEM`) for the web app, the API and the CLI ([RENAMING.md](../RENAMING.md)). Build instructions: `apps/android/README.md`. CI: `.github/workflows/android.yml`.
 
 ### 2.2 Pairing
 
@@ -57,15 +57,15 @@ An optional Android app imports steps, exercise sessions, heart rate, weight, bo
 4. The server upserts on `(userId, installationId)` and links the PAT: the guard stamps `request.authCredential = { kind: 'pat', tokenId }` and the device row stores that id as `patId`. A JWT caller leaves the link untouched. `tokenExpiresAt` in the device view comes from the linked token.
 5. The app schedules the hourly worker and starts an initial sync.
 
-**Re-pairing.** A token that expires or is revoked answers `401`. The app then marks pairing expired, stops syncing and posts a notification "Re-pair EvoPath Health sync". Pairing again runs the same flow; because the `installationId` is unchanged, registering reuses the same device row (and reactivates it if it was revoked), so history and provider stay the same. When the new PAT differs from the one the device linked, registering revokes the previously linked PAT in the same transaction (as unpairing does), so an old pairing never stays valid until it expires; the token authenticating the request is never revoked.
+**Re-pairing.** A token that expires or is revoked answers `401`. The app then marks pairing expired, stops syncing and posts a notification "Re-pair `<product>` Health sync". Pairing again runs the same flow; because the `installationId` is unchanged, registering reuses the same device row (and reactivates it if it was revoked), so history and provider stay the same. When the new PAT differs from the one the device linked, registering revokes the previously linked PAT in the same transaction (as unpairing does), so an old pairing never stays valid until it expires; the token authenticating the request is never revoked.
 
 **Unpairing.** `DELETE /api/health-sync/devices/:id` sets the device `revoked` and revokes the linked PAT in one transaction. With `deleteEntries=true` it also deletes the device's activity entries and sleep sessions and soft-deletes its measurements. It is idempotent.
 
 ### 2.3 Data mapping
 
-The phone reads each Health Connect record type and maps it to one EvoPath store. The wire names below (`syncedTypes`) are the contract with the server: `SYNCED_TYPE_SCOPES` in `apps/api/src/health-sync/health-sync.constants.ts`.
+The phone reads each Health Connect record type and maps it to one store on the server. The wire names below (`syncedTypes`) are the contract with the server: `SYNCED_TYPE_SCOPES` in `apps/api/src/health-sync/health-sync.constants.ts`.
 
-| Health Connect record | `syncedTypes` name | EvoPath row | External id | Notes |
+| Health Connect record | `syncedTypes` name | Server row | External id | Notes |
 |---|---|---|---|---|
 | `StepsRecord`, daily total | `steps` | `activity_entries`, kind `steps` | `steps:YYYY-MM-DD` | One row per local day; zero days are skipped. |
 | `ExerciseSessionRecord` | `exercise` | `activity_entries`, kind `walk`, `run` or `cardio_any` | record id | Walking and hiking map to `walk`, running to `run`, other cardio types to `cardio_any`; other session types are skipped. `durationSeconds` is end minus start (capped at 86,400); `distanceMeters` sums the distance records inside the session (read permission `READ_DISTANCE`). |
@@ -202,7 +202,7 @@ The deployment hosts the Android app's APK itself, so users install and update f
 - **Version rules.** A `(packageName, versionCode)` that exists is `409 RELEASE_VERSION_EXISTS`. Uploading as current a `versionCode` not above the current release of the same package is `409 RELEASE_VERSION_NOT_NEWER` unless `force=true`, because Android refuses to install a lower `versionCode` over a higher one. `make-current` is the explicit rollback and has no such rule.
 - **Make current.** Clears the old flag and sets the new one in one transaction. A concurrent make-current that loses the race is a unique violation on the partial index, answered `409 RELEASE_CURRENT_CONFLICT`. Making a release current (on upload or later) adds its `(packageName, signingSha256)` to the trusted apps (section 2.9) when absent and the list has room, through the same audited save as the settings page.
 - **Delete.** Deletes the stored APK, then the row. The current release cannot be deleted (`409 RELEASE_IS_CURRENT`).
-- **Latest and download.** `GET /api/android-app/releases/latest` returns the current release's public fields or `404 NO_RELEASE`. `POST /api/android-app/releases/:id/download-link` returns `{ url, expiresAt }`: a same-origin path `/api/android-app/download/<token>` valid for 10 minutes. The page or the phone **navigates** to it, so Chrome, the TWA or the system installer downloads natively without an `Authorization` header. The token is a binary payload (release id, user id, expiry) with an HMAC-SHA256 tag truncated to 192 bits, 83 characters so it fits Fastify's 100-character path parameter limit. Its key is derived from `SECRETS_ENCRYPTION_KEY` for the purpose `android-app-download` (`deriveSigningKey`); there is no new environment variable. The download route checks the signature first (`404 DOWNLOAD_LINK_INVALID`), then the expiry (`410 DOWNLOAD_LINK_EXPIRED`), then that the release exists and the user is active (`404`), and streams the object with `Content-Type: application/vnd.android.package-archive`, `Content-Disposition: attachment; filename="evopath-android-<versionName>.apk"`, `Content-Length` and `Cache-Control: private, no-store`. It is not exempt from maintenance mode.
+- **Latest and download.** `GET /api/android-app/releases/latest` returns the current release's public fields or `404 NO_RELEASE`. `POST /api/android-app/releases/:id/download-link` returns `{ url, expiresAt }`: a same-origin path `/api/android-app/download/<token>` valid for 10 minutes. The page or the phone **navigates** to it, so Chrome, the TWA or the system installer downloads natively without an `Authorization` header. The token is a binary payload (release id, user id, expiry) with an HMAC-SHA256 tag truncated to 192 bits, 83 characters so it fits Fastify's 100-character path parameter limit. Its key is derived from `SECRETS_ENCRYPTION_KEY` for the purpose `android-app-download` (`deriveSigningKey`); there is no new environment variable. The download route checks the signature first (`404 DOWNLOAD_LINK_INVALID`), then the expiry (`410 DOWNLOAD_LINK_EXPIRED`), then that the release exists and the user is active (`404`), and streams the object with `Content-Type: application/vnd.android.package-archive`, `Content-Disposition: attachment; filename="<app slug>-android-<versionName>.apk"`, `Content-Length` and `Cache-Control: private, no-store`. It is not exempt from maintenance mode.
 - **Device updates.** Registration accepts `appVersionCode`, stored on `health_sync_devices.app_version_code`. Every device view adds `appVersionCode`, `latestVersionCode` (the current release's code when its package matches the device's, or the device reports none; else `null`) and `updateAvailable` (`appVersionCode` known and lower).
 - **nginx.** An exact-match block for the upload path raises the body limit to 160m and streams the request; the download path is proxied unbuffered. Both have ten-minute timeouts.
 - **Audit.** `android_app.release.uploaded`, `android_app.release.made_current`, `android_app.release.deleted` (target type `android_app_release`).
@@ -214,7 +214,7 @@ The deployment hosts the Android app's APK itself, so users install and update f
 ## 3. Configuration and permissions
 
 - **Env vars:** `DEVICE_PAT_EXPIRY_DAYS` (the pairing token lifetime; see `infra/compose/.env.example`). The APK download links are signed with a key derived from the existing `SECRETS_ENCRYPTION_KEY`. **System setting:** `android_app` (`trustedApps`), edited at `/admin/settings/android`. No other setting; APK releases live in `android_app_releases` and object storage.
-- **Android build inputs:** Gradle properties `evopath.versionName`, `evopath.versionCode`, `evopath.serverUrl`; CI secrets in the [runbook](../runbooks/android-app.md#3-add-the-github-secrets).
+- **Android build inputs:** `apps/android/version.properties` (`versionName`, `versionCode`; `evopathcli android version` edits it), the optional Gradle property `app.serverUrl` (a baked-in server address), and `packages/shared/identity.json` for the identity; CI secrets in the [runbook](../runbooks/android-app.md#3-add-the-github-secrets).
 - **Permissions:**
 
 | Route | Method | Permission |
