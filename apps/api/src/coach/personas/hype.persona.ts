@@ -44,6 +44,12 @@ export const HYPE_PERSONA: Persona = {
     weekly_target_hit: atEveryLevel(
       "That's {n} sessions and the weekly target is DONE! Take a bow, the crowd is going wild!",
     ),
+    goal_at_risk: atEveryLevel(
+      'Clock is ticking! {n} to go on your activity goal and the buzzer is coming! Get out there today!',
+    ),
+    goal_hit: atEveryLevel(
+      "Activity goal: CRUSHED! You called it and you delivered! The crowd is going wild!",
+    ),
     missed_session: atEveryLevel(
       "And Wednesday's session is a no-show, folks! But every great season has a rough night. The comeback starts tonight!",
     ),

@@ -43,6 +43,12 @@ export const STOIC_PERSONA: Persona = {
     weekly_target_hit: atEveryLevel(
       '{n} sessions, as you intended. A promise kept to yourself is the quietest kind of strength.',
     ),
+    goal_at_risk: atEveryLevel(
+      '{n} to go on the goal you set yourself. Time is the one thing you cannot buy back. Spend a little of it today.',
+    ),
+    goal_hit: atEveryLevel(
+      'The goal you set is met. You did what you said you would do. Let that be enough, and begin again tomorrow.',
+    ),
     missed_session: atEveryLevel('The session is gone. Regret changes nothing. The next hour is still yours.'),
     fresh_start: atEveryLevel('Each week begins without your permission. Begin with it.'),
     photo_prompt: atEveryLevel(

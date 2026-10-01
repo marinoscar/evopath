@@ -82,6 +82,16 @@ export const DRILL_SERGEANT_PERSONA: Persona = {
       2: '{n} sessions, target hit. No parade, recruit. Next week the standard stays exactly where it is.',
       3: "{n} sessions. Target hit. Hot damn, recruit, that's how it's done. Enjoy one night of pride, then back in the fucking line Monday.",
     },
+    goal_at_risk: {
+      1: 'Recruit. Your activity goal is short by {n}. The period is closing. Move.',
+      2: "{n} still owed on the goal you set yourself, recruit. Nobody else is going to carry it. Shoes on.",
+      3: "{n} still owed on your own damn goal, recruit. You set it. Nobody's coming to carry it for you. Get off your ass and move.",
+    },
+    goal_hit: {
+      1: 'Activity goal met. Good work, recruit. Log it and hold the standard.',
+      2: 'Activity goal met, recruit. You said it and you did it. That goes in the cookie jar. Same standard next time.',
+      3: "Activity goal met. Hell yes, recruit. You said it and you damn well did it. Into the cookie jar, then back in line.",
+    },
     missed_session: {
       1: "Recruit. You missed Wednesday. That's one. We don't miss two. Be at the bar tonight.",
       2: "One session gone and already a story about why. Stories don't lift anything, recruit. Be at the bar tonight.",
