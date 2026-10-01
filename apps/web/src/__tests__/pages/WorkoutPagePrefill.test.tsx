@@ -16,6 +16,17 @@ import { mockWorkout, statefulWorkoutsApi } from '../mocks/fixtures/workouts';
 const PREFILLER = { ...mockUser, permissions: [...mockUser.permissions, 'storage:write', 'intakes:read', 'intakes:write'] };
 const bench = mockExercise({ name: 'Dumbbell bench press', slug: 'dumbbell_bench_press' });
 
+/**
+ * The first wait in each case covers the whole page load: the workout, then
+ * `GET /api/ai/config`, then `GET /api/ai/features` and `GET /api/storage/status`
+ * before the button settles. Whichever case runs first in a worker also pays
+ * the cold render (MUI styles, module init), which alone overruns Testing
+ * Library's 1s default on a loaded machine, so the case that happened to run
+ * first failed with the button still on "Checking whether AI can read your
+ * photos…". Wait as long as the other heavy page suites do.
+ */
+const LOAD = { timeout: 5000 };
+
 function renderPage(id: string, options: { user?: typeof mockUser; aiEnabled?: boolean; state?: unknown } = {}) {
   return render(
     <Routes>
@@ -37,7 +48,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     const w = mockWorkout();
     statefulWorkoutsApi([w]);
     renderPage(w.id);
-    expect(await screen.findByRole('link', { name: 'Prefill from photo' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Prefill from photo' }, LOAD)).toHaveAttribute(
       'href',
       `/train/workouts/${w.id}/prefill`,
     );
@@ -47,7 +58,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     const w = mockWorkout({ status: 'completed', endedAt: '2026-09-29T13:00:00.000Z', durationSeconds: 3600 });
     statefulWorkoutsApi([w]);
     renderPage(w.id);
-    expect(await screen.findByRole('link', { name: 'Prefill from photo' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Prefill from photo' }, LOAD)).toBeInTheDocument();
   });
 
   it('with AI off is disabled with the reason, and manual logging still works', async () => {
@@ -57,7 +68,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     const user = userEvent.setup();
     renderPage(w.id, { aiEnabled: false });
 
-    const button = await screen.findByRole('button', { name: 'Prefill from photo' });
+    const button = await screen.findByRole('button', { name: 'Prefill from photo' }, LOAD);
     expect(button).toBeDisabled();
     expect(button).toHaveAccessibleDescription('AI is turned off for this app.');
 
@@ -73,7 +84,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     const w = mockWorkout();
     statefulWorkoutsApi([w]);
     renderPage(w.id, { user: { ...PREFILLER, permissions: PREFILLER.permissions.filter((p) => p !== 'ai:use') } });
-    const button = await screen.findByRole('button', { name: 'Prefill from photo' });
+    const button = await screen.findByRole('button', { name: 'Prefill from photo' }, LOAD);
     expect(button).toBeDisabled();
     expect(button).toHaveAccessibleDescription('Your account cannot use AI features.');
   });
@@ -82,7 +93,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     const w = mockWorkout();
     statefulWorkoutsApi([w]);
     renderPage(w.id, { user: { ...PREFILLER, permissions: PREFILLER.permissions.filter((p) => p !== 'workouts:write') } });
-    await screen.findByRole('heading', { level: 1 });
+    await screen.findByRole('heading', { level: 1 }, LOAD);
     expect(screen.queryByText('Prefill from photo')).toBeNull();
   });
 
@@ -98,7 +109,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     });
     statefulWorkoutsApi([w]);
     renderPage(w.id);
-    const list = await screen.findByRole('list', { name: 'Workout photos' });
+    const list = await screen.findByRole('list', { name: 'Workout photos' }, LOAD);
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
     expect(await within(list).findByRole('img', { name: 'Notebook' })).toBeInTheDocument();
   });
@@ -107,7 +118,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     const w = mockWorkout();
     statefulWorkoutsApi([w]);
     renderPage(w.id);
-    await screen.findByRole('link', { name: 'Prefill from photo' });
+    await screen.findByRole('link', { name: 'Prefill from photo' }, LOAD);
     expect(screen.queryByRole('list', { name: 'Workout photos' })).toBeNull();
   });
 
@@ -116,7 +127,7 @@ describe('WorkoutPage: Prefill from photo', () => {
     statefulWorkoutsApi([w]);
     renderPage(w.id, { state: { snack: '3 exercises added. Sets are not marked done; check them off as you train.' } });
     expect(
-      await screen.findByText('3 exercises added. Sets are not marked done; check them off as you train.'),
+      await screen.findByText('3 exercises added. Sets are not marked done; check them off as you train.', {}, LOAD),
     ).toBeInTheDocument();
   });
 });
