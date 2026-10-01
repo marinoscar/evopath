@@ -30,6 +30,10 @@ export const userDataSummarySchema = z.object({
   userCredentials: count,
   /** Health documents (lab reports, body-metric photos), kept files or not. */
   healthDocuments: count,
+  /** AI Coach progress photos. */
+  progressPhotos: count,
+  /** AI Coach conversation: nudges, chat turns, weekly reviews. */
+  coachMessages: count,
 });
 
 /** `POST /api/user-data/reset` body. Anything but the exact phrase is a 400. */
@@ -57,6 +61,10 @@ export const userDataResetResultSchema = z.object({
   photoIntakes: count,
   /** Added after the first release: a result written before it reads as 0, not as malformed. */
   healthDocuments: count.default(0),
+  /** AI Coach (E7): added after the first release, so an older result reads as 0. */
+  progressPhotos: count.default(0),
+  coachMessages: count.default(0),
+  coachStates: count.default(0),
   programs: count,
   programChangeLogs: count,
   trainingRuns: count,

@@ -23,6 +23,8 @@ function setup() {
     workoutAdaptation: { count: jest.fn().mockResolvedValue(0) },
     userCredential: { count: jest.fn().mockResolvedValue(1) },
     healthDocument: { count: jest.fn().mockResolvedValue(7) },
+    progressPhoto: { count: jest.fn().mockResolvedValue(8) },
+    coachMessage: { count: jest.fn().mockResolvedValue(10) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
     job: { findFirst: jest.fn().mockResolvedValue(null) },
   };
@@ -69,6 +71,8 @@ describe('UserDataService', () => {
         workoutAdaptations: 0,
         userCredentials: 1,
         healthDocuments: 7,
+        progressPhotos: 8,
+        coachMessages: 10,
       });
 
       expect(prisma.workout.count).toHaveBeenCalledWith({ where: { userId: USER } });
@@ -81,6 +85,8 @@ describe('UserDataService', () => {
         where: { userId: USER, revokedAt: null },
       });
       expect(prisma.healthDocument.count).toHaveBeenCalledWith({ where: { userId: USER } });
+      expect(prisma.progressPhoto.count).toHaveBeenCalledWith({ where: { userId: USER } });
+      expect(prisma.coachMessage.count).toHaveBeenCalledWith({ where: { userId: USER } });
     });
   });
 
@@ -150,6 +156,9 @@ describe('toResetStatus', () => {
     healthProfiles: 1,
     photoIntakes: 0,
     healthDocuments: 2,
+    progressPhotos: 3,
+    coachMessages: 4,
+    coachStates: 1,
     programs: 0,
     programChangeLogs: 0,
     trainingRuns: 0,
@@ -198,6 +207,17 @@ describe('toResetStatus', () => {
     expect(
       toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
     ).toEqual({ jobId: 'j', status: 'succeeded', result: { ...older, healthDocuments: 0 } });
+  });
+
+  it('reads a result written before the AI Coach existed as 0 coach rows, not as malformed', () => {
+    const { progressPhotos: _p, coachMessages: _m, coachStates: _s, ...older } = result;
+    expect(
+      toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
+    ).toEqual({
+      jobId: 'j',
+      status: 'succeeded',
+      result: { ...older, progressPhotos: 0, coachMessages: 0, coachStates: 0 },
+    });
   });
 
   it('omits a malformed result rather than returning it', () => {

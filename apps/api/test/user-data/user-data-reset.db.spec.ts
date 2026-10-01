@@ -193,6 +193,28 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       },
     });
 
+    // AI Coach (E7): a progress photo, a coach message with a voice note and
+    // one without, and the coach state. Both files are uploaded by B, so only
+    // the coach rows can collect them (the photo row CASCADES from its object
+    // and the audio link is SET NULL, so neither survives step 2 to name it).
+    const progressObject = await storageObject(b, 'progress');
+    await client.progressPhoto.create({
+      data: { userId: a, storageObjectId: progressObject.id, localDate: new Date('2026-09-01'), pose: 'side' },
+    });
+    const audioObject = await storageObject(b, 'coach-audio');
+    await client.coachMessage.create({
+      data: {
+        userId: a,
+        role: 'coach',
+        kind: 'nudge',
+        body: 'Time to train',
+        audioStatus: 'ready',
+        audioStorageObjectId: audioObject.id,
+      },
+    });
+    await client.coachMessage.create({ data: { userId: a, role: 'user', kind: 'chat', body: 'On my way' } });
+    await client.coachState.create({ data: { userId: a, weeklyStreak: 2, pausedUntil: new Date(Date.now() + 86_400_000) } });
+
     // --- B's data, which must be untouched ---------------------------------
     await client.gym.create({ data: { userId: b, name: 'B gym' } });
     const docObjectB = await storageObject(b, 'doc-b');
@@ -207,6 +229,21 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       },
     });
     await client.notification.create({ data: { userId: b, eventKey: 'x', title: 't', body: 'b' } });
+    const progressObjectB = await storageObject(b, 'progress-b');
+    await client.progressPhoto.create({
+      data: { userId: b, storageObjectId: progressObjectB.id, localDate: new Date('2026-09-01') },
+    });
+    await client.coachMessage.create({ data: { userId: b, role: 'coach', kind: 'chat', body: 'Hi B' } });
+    await client.coachState.create({ data: { userId: b } });
+
+    // Step 1 collects the coach files before anything is deleted.
+    const collected = await new UserDataResetHandler(
+      new JobHandlerRegistry(),
+      client as never,
+      {} as never,
+    ).collectObjectIds(a);
+    expect(collected).toEqual(expect.arrayContaining([progressObject.id, audioObject.id]));
+    expect(collected).not.toContain(progressObjectB.id);
 
     // --- Run the reset -------------------------------------------------------
     const job = await client.job.create({
@@ -254,6 +291,11 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       ['keptDocObject', await client.storageObject.count({ where: { id: keptDocObject.id } })],
       ['purgeDocObject', await client.storageObject.count({ where: { id: purgeDocObject.id } })],
       ['pendingPurge', await client.job.count({ where: { id: pendingPurge.id } })],
+      ['progressPhotos', await client.progressPhoto.count({ where: { userId: a } })],
+      ['progressObject', await client.storageObject.count({ where: { id: progressObject.id } })],
+      ['coachMessages', await client.coachMessage.count({ where: { userId: a } })],
+      ['audioObject', await client.storageObject.count({ where: { id: audioObject.id } })],
+      ['coachState', await client.coachState.count({ where: { userId: a } })],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -273,10 +315,18 @@ describeWithDb('user.data_reset (real Postgres)', () => {
     expect(await client.notification.count({ where: { userId: b } })).toBe(1);
     expect(await client.healthDocument.count({ where: { userId: b, storageObjectId: docObjectB.id } })).toBe(1);
     expect(await client.storageObject.count({ where: { id: docObjectB.id } })).toBe(1);
+    expect(await client.progressPhoto.count({ where: { userId: b } })).toBe(1);
+    expect(await client.storageObject.count({ where: { id: progressObjectB.id } })).toBe(1);
+    expect(await client.coachMessage.count({ where: { userId: b } })).toBe(1);
+    expect(await client.coachState.count({ where: { userId: b } })).toBe(1);
     // Both document files reached the provider, not just the database.
     expect(storage.delete).toHaveBeenCalledWith(keptDocObject.storageKey);
     expect(storage.delete).toHaveBeenCalledWith(purgeDocObject.storageKey);
     expect(storage.delete).not.toHaveBeenCalledWith(docObjectB.storageKey);
+    // The coach files reached the provider too.
+    expect(storage.delete).toHaveBeenCalledWith(progressObject.storageKey);
+    expect(storage.delete).toHaveBeenCalledWith(audioObject.storageKey);
+    expect(storage.delete).not.toHaveBeenCalledWith(progressObjectB.storageKey);
 
     // --- Result and audit ----------------------------------------------------
     const done = await client.job.findUniqueOrThrow({ where: { id: job.id } });
@@ -295,8 +345,11 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       userSettings: 1,
       healthDocuments: 3,
       photoIntakes: 1,
+      progressPhotos: 1,
+      coachMessages: 2,
+      coachStates: 1,
       cancelledJobs: 2,
-      storageObjectsDeleted: 3,
+      storageObjectsDeleted: 5,
       storageObjectsFailed: 1,
     });
     expect(
