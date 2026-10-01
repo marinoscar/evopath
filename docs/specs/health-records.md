@@ -307,6 +307,16 @@ The response is `{ id, scope, jobId, valuesDeleted }`. Values kept without `dele
 
 **Observability.** `app.health.documents.downloads` (attribute `disposition`) and `app.health.documents.deletes` (attributes `scope` and `values` of `kept` or `deleted`), see [telemetry.md](telemetry.md). Spans carry `health.document.id` and, on delete, `health.document.delete_scope` and `health.document.values_deleted`. Logs carry ids and counts only.
 
+**Web page.** `/settings/health-documents` (`apps/web/src/pages/UserHealthDocumentsPage.tsx`) is the Health Documents card in the Health group of `USER_SETTINGS_SECTIONS`, its own destination rather than a tab on Health Profile. Card and route are gated on `health_data:read`.
+
+- **List.** A `DataTable`: a grid at desktop width and cards below `sm`. Each row shows the name, kind, file type, size, document date, upload date, retention, value count and file status ("Available", "Deleting…" or "File deleted on …"). The kind filter, the document and upload date sort and the pagination are sent to the API; nothing is filtered in the browser. CSV export is off.
+- **View.** The dialog fetches an `inline` URL when it opens and shows a PDF in an `<iframe>` and an image in an `<img>`, with "Open in a new tab" always offered. The page's CSP has no `frame-src`, so a PDF served from another origin (an S3 bucket) does not render in the frame; the new-tab link is the fallback.
+- **Download.** Fetches an `attachment` URL and hands it to the browser.
+- **Rename or set date.** Sends only the changed fields with `If-Match`.
+- **Delete.** A confirmation dialog with the checkbox "Also delete the N values extracted from this document", hidden when `valueCount` is 0. A row whose file is already gone says it removes the record.
+- **Concurrency.** A `412` on rename or delete closes the dialog, refreshes the list and tells the user the document changed.
+- **Permissions in the page.** View and Download are disabled while the file is deleted or being deleted. Without `health_data:write`, Rename and Delete are disabled with the reason shown under the menu item, and an info alert explains why. Signed URLs live in component state only.
+
 ### 2.12 Planned: value history with source document
 
 Placeholder. The full history of a value links to its source document, including the file-deleted state. This section records the history API when it ships.
