@@ -383,6 +383,23 @@ describe('PatService', () => {
       expect(result).toMatchObject({ id: mockUserId, email: 'test@example.com' });
     });
 
+    it('resolveToken also returns the token id (for @AuthCredential())', async () => {
+      const rawToken = 'pat_' + 'c'.repeat(64);
+      const patWithUser = {
+        ...mockPatRecord,
+        expiresAt: new Date(Date.now() + 86400000),
+        revokedAt: null,
+        user: mockUserWithRelations,
+      };
+      mockPrisma.personalAccessToken.findUnique.mockResolvedValue(patWithUser as any);
+      mockPrisma.personalAccessToken.update.mockResolvedValue(patWithUser as any);
+
+      const result = await service.resolveToken(rawToken);
+
+      expect(result?.tokenId).toBe(mockPatRecord.id);
+      expect(result?.user).toMatchObject({ id: mockUserId });
+    });
+
     it('should compute SHA256 hash of token before lookup', async () => {
       const rawToken = 'pat_' + 'b'.repeat(64);
       const expectedHash = createHash('sha256').update(rawToken).digest('hex');
