@@ -48,9 +48,29 @@ describe('training intake contract', () => {
     ['fewer preferred weekdays than days', { daysPerWeek: 3, preferredWeekdays: [1, 3] }],
     ['weekday 8', { daysPerWeek: 1, preferredWeekdays: [8] }],
     ['an unknown field', { weightKg: 80 }],
+    ['cardio days per week 0', { cardio: { include: true, activity: 'walk', daysPerWeek: 0 } }],
+    ['cardio days per week 8', { cardio: { include: true, activity: 'walk', daysPerWeek: 8 } }],
+    ['9 cardio minutes', { cardio: { include: true, activity: 'walk', minutesPerSession: 9 } }],
+    ['121 cardio minutes', { cardio: { include: true, activity: 'run', minutesPerSession: 121 } }],
+    ['an unknown cardio activity', { cardio: { include: true, activity: 'swim' } }],
+    ['cardio without an activity', { cardio: { include: true } }],
+    ['an unknown cardio field', { cardio: { include: true, activity: 'walk', pace: 6 } }],
   ])('refuses %s', (_label, over) => {
     const base = { ...intakeFixture() } as Record<string, unknown>;
     expect(trainingIntakeSchema.safeParse({ ...base, ...over }).success).toBe(false);
+  });
+
+  it('accepts an optional cardio request (#265), and leaves it out when absent', () => {
+    const parsed = trainingIntakeSchema.parse({
+      ...intakeFixture(),
+      cardio: { include: true, activity: 'walk', daysPerWeek: 4, minutesPerSession: 30 },
+    });
+    expect(parsed.cardio).toEqual({ include: true, activity: 'walk', daysPerWeek: 4, minutesPerSession: 30 });
+    expect(trainingIntakeSchema.parse({ ...intakeFixture(), cardio: { include: false, activity: 'any' } }).cardio).toEqual({
+      include: false,
+      activity: 'any',
+    });
+    expect('cardio' in intakeFixture()).toBe(false);
   });
 
   it('accepts preferred weekdays covering the days per week', () => {

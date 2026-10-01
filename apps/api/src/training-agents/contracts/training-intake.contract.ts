@@ -20,10 +20,13 @@ export const TRAINING_GOAL_TYPES = RESEARCH_GOAL_TYPES;
 export const TRAINING_EXPERIENCE_LEVELS = RESEARCH_EXPERIENCE_LEVELS;
 export const TRAINING_LIMITATION_AREAS = RESEARCH_LIMITATION_AREAS;
 export const TRAINING_AUTONOMY = ['autonomous', 'ask_first'] as const;
+/** The cardio the user asks for: walks (outdoor walk, hike), runs (outdoor run), or either. */
+export const TRAINING_CARDIO_ACTIVITIES = ['walk', 'run', 'any'] as const;
 
 export type TrainingGoalType = (typeof TRAINING_GOAL_TYPES)[number];
 export type TrainingExperience = (typeof TRAINING_EXPERIENCE_LEVELS)[number];
 export type TrainingLimitationArea = (typeof TRAINING_LIMITATION_AREAS)[number];
+export type TrainingCardioActivity = (typeof TRAINING_CARDIO_ACTIVITIES)[number];
 
 export const TRAINING_INTAKE_LIMITS = {
   goalChars: 300,
@@ -36,11 +39,32 @@ export const TRAINING_INTAKE_LIMITS = {
   minutesPerSession: { min: 20, max: 180 },
   durationWeeks: { min: 4, max: 24, default: 8 },
   instructionChars: 500,
+  cardioDaysPerWeek: { min: 1, max: 7 },
+  cardioMinutesPerSession: { min: 10, max: 120 },
 } as const;
 
 const L = TRAINING_INTAKE_LIMITS;
 
 const isoWeekday = z.number().int().min(1).max(7);
+
+/**
+ * Walking or jogging sessions on top of the strength days (#265). `include`
+ * false (or no `cardio` at all) leaves cardio to the planner's judgement
+ * inside `daysPerWeek`; true asks for cardio sessions, which the guardrails
+ * then require. `daysPerWeek` and `minutesPerSession` are the cardio budget:
+ * when both are set, the plan's weekly cardio minutes are capped at their
+ * product times 1.25.
+ */
+export const trainingCardioSchema = z
+  .object({
+    include: z.boolean(),
+    activity: z.enum(TRAINING_CARDIO_ACTIVITIES),
+    daysPerWeek: z.number().int().min(L.cardioDaysPerWeek.min).max(L.cardioDaysPerWeek.max).optional(),
+    minutesPerSession: z.number().int().min(L.cardioMinutesPerSession.min).max(L.cardioMinutesPerSession.max).optional(),
+  })
+  .strict();
+
+export type TrainingCardio = z.output<typeof trainingCardioSchema>;
 
 export const trainingIntakeSchema = z
   .object({
@@ -86,6 +110,8 @@ export const trainingIntakeSchema = z
     tailorResearch: z.boolean().default(false),
     /** Stored on the program when it is created. */
     autonomy: z.enum(TRAINING_AUTONOMY).default('autonomous'),
+    /** Optional walking or jogging sessions (#265); absent on intakes stored before it. */
+    cardio: trainingCardioSchema.optional(),
   })
   .strict()
   .superRefine((intake, ctx) => {
