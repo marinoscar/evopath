@@ -173,6 +173,12 @@ describe('Workouts (integration)', () => {
     body?: unknown;
   }> = [
     { method: 'post', path: '/api/workouts', permission: 'workouts:write', body: {} },
+    {
+      method: 'post',
+      path: '/api/workouts/quick-cardio',
+      permission: 'workouts:write',
+      body: { exerciseKey: 'outdoor_walk', durationSeconds: 1800 },
+    },
     { method: 'get', path: '/api/workouts', permission: 'workouts:read' },
     { method: 'get', path: `/api/workouts/${WORKOUT}`, permission: 'workouts:read' },
     { method: 'patch', path: `/api/workouts/${WORKOUT}`, permission: 'workouts:write', body: { name: 'X' } },
