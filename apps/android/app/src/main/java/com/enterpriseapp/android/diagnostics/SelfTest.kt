@@ -11,6 +11,8 @@ import com.enterpriseapp.android.net.HealthSyncBackend
 import com.enterpriseapp.android.net.HealthSyncDevice
 import com.enterpriseapp.android.sync.SyncHistoryStore
 import com.enterpriseapp.android.sync.SyncStateStore
+import com.enterpriseapp.android.update.AppRelease
+import com.enterpriseapp.android.update.ReleaseBackend
 import com.enterpriseapp.android.util.AppInfo
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -84,6 +86,8 @@ data class SelfTestResult(
     val work: WorkSnapshot?,
     /** The server's view of this phone, when it could be read. */
     val serverDevice: HealthSyncDevice?,
+    /** The server's current release, when it could be read (`app.update`). */
+    val latestRelease: AppRelease? = null,
 ) {
     val failCount: Int get() = checks.count { it.verdict == CheckStatus.FAIL }
     val warnCount: Int get() = checks.count { it.verdict == CheckStatus.WARN }
@@ -118,6 +122,8 @@ class SelfTest(
     private val tokens: TokenStore,
     private val state: SyncStateStore,
     private val history: SyncHistoryStore,
+    /** Server releases for `app.update`; null skips the check (not wired). */
+    private val releases: ReleaseBackend? = null,
     private val clock: () -> Instant = Instant::now,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
     private val networkTimeoutMs: Long = DiagnosticsLimits.NETWORK_TIMEOUT_MS,
@@ -138,6 +144,9 @@ class SelfTest(
         val deviceJob = async { if (url != null && paired) probe(networkTimeoutMs) { backend.getDevice(deviceId!!) } else null }
         val linksJob = async { url?.let { probe(networkTimeoutMs) { server.text(ASSET_LINKS_PATH) } } }
         val workJob = async { probe(DiagnosticsLimits.LOCAL_TIMEOUT_MS) { platform.periodicWork() } }
+        val releaseJob = async {
+            if (url != null && paired && releases != null) probe(networkTimeoutMs) { releases.latest() } else null
+        }
 
         // Health Connect: availability, a live call, then the 30-day inventory.
         val availability = probe(DiagnosticsLimits.LOCAL_TIMEOUT_MS) { gateway.availability() }
@@ -170,6 +179,8 @@ class SelfTest(
         val deviceProbe = deviceJob.await()
         val links = linksJob.await()
         val work = workJob.await()
+        val releaseProbe = releaseJob.await()
+        val latestRelease = ((releaseProbe as? Probe.Ok)?.value as? ApiResult.Success)?.value
         val serverDevice = ((deviceProbe as? Probe.Ok)?.value as? ApiResult.Success)?.value
         val enabled = safe { state.enabledToggles } ?: emptyList()
         val runs = safe { history.runs() }.orEmpty()
@@ -179,6 +190,7 @@ class SelfTest(
         val auth = Checks.authValid(url, paired, deviceProbe)
         val checks = buildList {
             add(Checks.appVersion(app))
+            add(Checks.appUpdate(url != null && paired && !pairingExpired, app, releaseProbe))
             add(Checks.serverConfigured(url))
             add(reachable)
             add(Checks.pairingToken(hasToken, deviceId, safe { tokens.expiresAt }, pairingExpired, now, zoneId))
@@ -232,6 +244,7 @@ class SelfTest(
             ),
             work = work.valueOrNull(),
             serverDevice = serverDevice,
+            latestRelease = latestRelease,
         ).also { AppLog.i("Diagnostics", "Self-test: ${it.summary}") }
     }
 

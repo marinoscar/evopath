@@ -64,6 +64,7 @@ import com.enterpriseapp.android.healthconnect.HealthConnectIntents
 import com.enterpriseapp.android.healthconnect.HealthPermissions
 import com.enterpriseapp.android.healthconnect.SyncToggle
 import com.enterpriseapp.android.sync.LocalSyncRun
+import com.enterpriseapp.android.update.AppUpdates
 import com.enterpriseapp.android.util.Brand
 import java.time.Instant
 import java.time.ZoneId
@@ -113,6 +114,10 @@ internal fun DiagnosticsScreen(
             CheckAction.SYNC_NOW -> vm.syncNow()
             CheckAction.OPEN_CONNECTED_DEVICES -> server?.let { openInCustomTab(context, "$it$CONNECTED_DEVICES_PATH") }
             CheckAction.OPEN_ANDROID_APP_ADMIN -> server?.let { openInCustomTab(context, "$it$ANDROID_ADMIN_PATH") }
+            CheckAction.GET_UPDATE -> {
+                AppUpdates.checkNow(context)
+                onNavigate(HealthSyncScreen.Hub)
+            }
         }
     }
 

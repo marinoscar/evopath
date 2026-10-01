@@ -143,6 +143,7 @@ class MobileApplication : Application() {
         tokens = tokenStore,
         state = syncState,
         history = syncHistory,
+        releases = releaseApi,
     )
 
     fun newAutoDiagnostics(): AutoDiagnostics =

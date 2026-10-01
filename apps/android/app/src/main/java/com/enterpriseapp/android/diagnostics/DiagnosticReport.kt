@@ -4,6 +4,7 @@ import com.enterpriseapp.android.auth.TokenStore
 import com.enterpriseapp.android.net.ApiClient
 import com.enterpriseapp.android.sync.LocalSyncRun
 import com.enterpriseapp.android.sync.SyncStateStore
+import com.enterpriseapp.android.update.UpdatePolicy
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -29,7 +30,16 @@ data class DiagnosticReport(
     val log: List<String>,
 ) {
     @Serializable
-    data class AppSection(val versionName: String, val versionCode: Long, val packageName: String, val signingSha256: String? = null)
+    data class AppSection(
+        val versionName: String,
+        val versionCode: Long,
+        val packageName: String,
+        val signingSha256: String? = null,
+        /** The server's current release (`app.update`); absent when it could not be read. */
+        val latestVersionCode: Long? = null,
+        val latestVersionName: String? = null,
+        val updateAvailable: Boolean? = null,
+    )
 
     @Serializable
     data class ServerSection(val url: String? = null)
@@ -77,7 +87,17 @@ object DiagnosticReportBuilder {
         var report = DiagnosticReport(
             generatedAt = result.generatedAt.toString(),
             summary = result.summary,
-            app = DiagnosticReport.AppSection(result.app.versionName, result.app.versionCode, result.app.packageName, result.app.signingSha256),
+            app = DiagnosticReport.AppSection(
+                versionName = result.app.versionName,
+                versionCode = result.app.versionCode,
+                packageName = result.app.packageName,
+                signingSha256 = result.app.signingSha256,
+                latestVersionCode = result.latestRelease?.versionCode,
+                latestVersionName = result.latestRelease?.versionName,
+                updateAvailable = result.latestRelease?.let {
+                    UpdatePolicy.isUpdate(it, result.app.packageName, result.app.versionCode)
+                },
+            ),
             device = result.device,
             server = DiagnosticReport.ServerSection(result.serverUrl),
             pairing = DiagnosticReport.PairingSection(runCatching { tokens.deviceId }.getOrNull(), expiresAt?.toString(), expired),

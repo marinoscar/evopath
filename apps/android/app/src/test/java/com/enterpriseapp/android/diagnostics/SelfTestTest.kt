@@ -16,6 +16,8 @@ import com.enterpriseapp.android.sync.SyncResponse
 import com.enterpriseapp.android.testing.FakeBackend
 import com.enterpriseapp.android.testing.FakeHealthConnect
 import com.enterpriseapp.android.testing.FakeSharedPreferences
+import com.enterpriseapp.android.update.AppRelease
+import com.enterpriseapp.android.update.FakeReleaseBackend
 import com.enterpriseapp.android.util.AppInfo
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -104,6 +106,8 @@ class SelfTestTest {
         )
     }
 
+    private val releases = FakeReleaseBackend()
+
     private fun selfTest(hcTimeoutMs: Long = 10_000, networkTimeoutMs: Long = 15_000) = SelfTest(
         platform = platform,
         serverUrl = { serverUrl },
@@ -114,6 +118,7 @@ class SelfTestTest {
         tokens = tokens,
         state = state,
         history = history,
+        releases = releases,
         clock = { now },
         zone = { zone },
         networkTimeoutMs = networkTimeoutMs,
@@ -127,7 +132,7 @@ class SelfTestTest {
         val ids = result.checks.map { it.id }
         assertEquals(ids.toSet().size, ids.size)
         val expectedHead = listOf(
-            "app.version", "server.configured", "server.reachable", "pairing.token", "auth.valid", "api.connection",
+            "app.version", "app.update", "server.configured", "server.reachable", "pairing.token", "auth.valid", "api.connection",
             "hc.availability", "hc.connection", "hc.permissions", "hc.background", "hc.sources",
         )
         assertEquals(expectedHead, ids.take(expectedHead.size))
@@ -246,6 +251,35 @@ class SelfTestTest {
         assertEquals(0, server.liveCalls)
         assertTrue(result.summary, result.summary.startsWith("2 fail, "))
         assertTrue(result.summary, result.summary.endsWith(": Server address"))
+    }
+
+    @Test fun `app update warns when the server offers a newer build and the report carries it`() = runBlocking {
+        releases.latestResult = ApiResult.Success(
+            AppRelease("r-2", platform.app.packageName, "0.3.0", platform.app.versionCode + 2, sizeBytes = 10),
+            200,
+        )
+        val result = selfTest().run()
+        val check = result.check("app.update")
+        assertEquals(CheckStatus.WARN, check.verdict)
+        assertTrue(check.remedy!!.contains("Download v0.3.0"))
+        val app = DiagnosticReportBuilder.build(result, tokens, state, history.runs(), emptyList()).json["app"]!!.jsonObject
+        assertEquals((platform.app.versionCode + 2).toString(), app["latestVersionCode"].toString())
+        assertEquals("0.3.0", (app["latestVersionName"] as JsonPrimitive).content)
+        assertEquals("true", app["updateAvailable"].toString())
+    }
+
+    @Test fun `app update skips without a release and leaves the report fields out`() = runBlocking {
+        val result = selfTest().run()
+        assertEquals(CheckStatus.SKIP, result.check("app.update").verdict)
+        val app = DiagnosticReportBuilder.build(result, tokens, state, history.runs(), emptyList()).json["app"]!!.jsonObject
+        assertFalse("latestVersionCode" in app)
+    }
+
+    @Test fun `app update is not asked when not paired`() = runBlocking {
+        tokens.clear()
+        val result = selfTest().run()
+        assertEquals(CheckStatus.SKIP, result.check("app.update").verdict)
+        assertEquals(0, releases.calls)
     }
 
     @Test fun `report never contains the token and respects the caps`() = runBlocking {

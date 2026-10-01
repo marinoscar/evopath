@@ -13,6 +13,7 @@ import com.enterpriseapp.android.sync.PerTypeDetail
 import com.enterpriseapp.android.sync.SyncCounts
 import com.enterpriseapp.android.sync.SyncResponse
 import com.enterpriseapp.android.testing.FakeBackend
+import com.enterpriseapp.android.update.AppRelease
 import com.enterpriseapp.android.util.AppInfo
 import com.enterpriseapp.android.util.Brand
 import kotlinx.serialization.json.JsonNull
@@ -48,6 +49,35 @@ class ChecksTest {
         assertStatus(CheckStatus.PASS, check(now.plusSeconds(86400 * 14)))
         assertStatus(CheckStatus.PASS, check(now.plusSeconds(86400 * 90)))
         assertStatus(CheckStatus.PASS, check(null))
+    }
+
+    // --- app.update -----------------------------------------------------------------------
+
+    @Test fun `app update verdicts`() {
+        fun release(code: Long, pkg: String = app.packageName) = AppRelease("r", pkg, "0.$code.0", code)
+        fun ok(r: ApiResult<AppRelease>) = Probe.Ok(r, 50)
+        val noRelease = ApiResult.Failure(ApiError(ApiError.Kind.HTTP, 404, message = "none", reason = "NO_RELEASE"))
+
+        assertStatus(CheckStatus.SKIP, Checks.appUpdate(false, app, ok(ApiResult.Success(release(2), 200))))
+        assertStatus(CheckStatus.SKIP, Checks.appUpdate(true, app, null))
+        assertStatus(CheckStatus.SKIP, Checks.appUpdate(true, app, ok(noRelease)))
+        assertTrue(Checks.appUpdate(true, app, ok(noRelease)).detail.contains("no Android app release"))
+        assertStatus(CheckStatus.SKIP, Checks.appUpdate(true, app, Probe.TimedOut(15_000)))
+        assertStatus(CheckStatus.SKIP, Checks.appUpdate(true, app, Probe.Error(IllegalStateException("boom"), 3)))
+        assertStatus(
+            CheckStatus.SKIP,
+            Checks.appUpdate(true, app, ok(ApiResult.Failure(ApiError(ApiError.Kind.HTTP, 500, message = "down")))),
+        )
+        assertStatus(CheckStatus.SKIP, Checks.appUpdate(true, app, ok(ApiResult.Success(release(9, pkg = "com.other.android"), 200))))
+        assertStatus(CheckStatus.PASS, Checks.appUpdate(true, app, ok(ApiResult.Success(release(1), 200))))
+        assertStatus(CheckStatus.PASS, Checks.appUpdate(true, app.copy(versionCode = 3), ok(ApiResult.Success(release(2), 200))))
+
+        val warn = Checks.appUpdate(true, app, ok(ApiResult.Success(release(2), 200)))
+        assertStatus(CheckStatus.WARN, warn)
+        assertEquals("Download v0.2.0 from the Hub or Settings → Android app on the web.", warn.remedy)
+        assertEquals(CheckAction.GET_UPDATE, warn.action)
+        assertEquals("2", warn.data!!["latestVersionCode"].toString())
+        assertEquals("true", warn.data!!["updateAvailable"].toString())
     }
 
     // --- server and auth ------------------------------------------------------------------

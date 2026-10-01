@@ -23,6 +23,16 @@ object AppUpdates {
         }
     }
 
+    /** Asks the server now (Diagnostics → Get the update), so the hub shows the offer. */
+    fun checkNow(context: Context) {
+        val app = MobileApplication.from(context)
+        app.appScope.launch {
+            runCatching { app.updateChecker.check() }
+                .onFailure { AppLog.w(TAG, "Update check crashed", it) }
+            app.refreshAvailableUpdate()
+        }
+    }
+
     /**
      * Gets a signed download link and opens it in the browser, which downloads the APK and
      * hands it to the system installer. Returns an error message, or null when the browser opened.

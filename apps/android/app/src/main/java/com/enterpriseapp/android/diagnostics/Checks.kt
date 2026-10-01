@@ -10,6 +10,8 @@ import com.enterpriseapp.android.net.HealthSyncDevice
 import com.enterpriseapp.android.sync.HealthSyncEngine
 import com.enterpriseapp.android.sync.LocalSyncRun
 import com.enterpriseapp.android.sync.RunStatus
+import com.enterpriseapp.android.update.AppRelease
+import com.enterpriseapp.android.update.UpdatePolicy
 import com.enterpriseapp.android.util.AppInfo
 import com.enterpriseapp.android.util.Brand
 import kotlinx.serialization.json.JsonArray
@@ -31,6 +33,7 @@ import java.time.format.DateTimeFormatter
 /** Check ids (stable: the runbook's troubleshooting table and the web viewer key on them). */
 object CheckIds {
     const val APP_VERSION = "app.version"
+    const val APP_UPDATE = "app.update"
     const val SERVER_CONFIGURED = "server.configured"
     const val SERVER_REACHABLE = "server.reachable"
     const val PAIRING_TOKEN = "pairing.token"
@@ -56,6 +59,7 @@ object CheckIds {
 /** Labels shown on the phone and stored with each check. */
 object CheckLabels {
     const val APP_VERSION = "App version"
+    const val APP_UPDATE = "App update"
     const val SERVER_CONFIGURED = "Server address"
     const val SERVER_REACHABLE = "Server reachable"
     const val PAIRING_TOKEN = "Pairing token"
@@ -122,6 +126,57 @@ object Checks {
             )
         } else {
             CheckResult.of(CheckIds.APP_VERSION, CheckLabels.APP_VERSION, CheckStatus.PASS, "$base, signed with ${app.signingSha256}.")
+        }
+    }
+
+    /**
+     * `app.update`: the server's current release (`GET /api/android-app/releases/latest`) against
+     * this build. Pass when up to date, warn when a newer versionCode is offered, skip when not
+     * paired, no release is published, the release is for another package, or the call failed.
+     */
+    fun appUpdate(paired: Boolean, app: AppInfo, latest: Probe<ApiResult<AppRelease>>?): CheckResult {
+        val id = CheckIds.APP_UPDATE
+        val label = CheckLabels.APP_UPDATE
+        val installed = "${app.versionName} (code ${app.versionCode})"
+        fun skip(detail: String) = CheckResult.of(id, label, CheckStatus.SKIP, detail)
+        if (!paired) return skip("Not paired: checking for updates needs this phone's pairing.")
+        val result = when (latest) {
+            null -> return skip("Not checked.")
+            is Probe.TimedOut -> return skip("The server did not answer the update check within ${latest.timeoutMs / 1000} s.")
+            is Probe.Error -> return skip("The update check failed: ${latest.description}.")
+            is Probe.Ok -> latest.value
+        }
+        val release = when (result) {
+            is ApiResult.Failure -> return if (UpdatePolicy.isNoRelease(result.error)) {
+                skip("The server publishes no Android app release.")
+            } else {
+                skip("The update check failed: ${describe(result.error)}.")
+            }
+            is ApiResult.Success -> result.value
+        }
+        val data = buildJsonObject {
+            put("latestVersionCode", release.versionCode)
+            put("latestVersionName", release.versionName)
+            put("updateAvailable", UpdatePolicy.isUpdate(release, app.packageName, app.versionCode))
+        }
+        return when {
+            release.packageName != app.packageName -> CheckResult.of(
+                id, label, CheckStatus.SKIP,
+                "The server's release is for ${release.packageName}, not this app (${app.packageName}).",
+                data = data,
+            )
+            release.versionCode > app.versionCode -> CheckResult.of(
+                id, label, CheckStatus.WARN,
+                "Update available: v${release.versionName} (code ${release.versionCode}); installed $installed.",
+                remedy = "Download v${release.versionName} from the Hub or Settings → Android app on the web.",
+                action = CheckAction.GET_UPDATE,
+                data = data,
+            )
+            else -> CheckResult.of(
+                id, label, CheckStatus.PASS,
+                "Up to date: $installed; the server offers v${release.versionName} (code ${release.versionCode}).",
+                data = data,
+            )
         }
     }
 
