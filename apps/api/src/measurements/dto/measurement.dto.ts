@@ -599,6 +599,29 @@ export const measurementSeriesSchema = z.object({
       value: z.number(),
       method: z.string(),
       origin: z.string(),
+      // Lab metrics only (H5, #189): the range and flag the lab printed on
+      // THIS result, so a chart draws the reference band per point. Absent
+      // for body, vital and wellness metrics.
+      referenceLow: z
+        .number()
+        .nullable()
+        .optional()
+        .meta({ description: 'Lab metrics only: lower reference limit (canonical unit) of this result; null when none.' }),
+      referenceHigh: z
+        .number()
+        .nullable()
+        .optional()
+        .meta({ description: 'Lab metrics only: upper reference limit (canonical unit) of this result; null when none.' }),
+      referenceText: z
+        .string()
+        .nullable()
+        .optional()
+        .meta({ description: 'Lab metrics only: the range as printed; null when none.' }),
+      flag: z
+        .enum(MEASUREMENT_FLAGS)
+        .nullable()
+        .optional()
+        .meta({ description: "Lab metrics only: the lab's flag on this result; null when none." }),
     }),
   ),
   truncated: z

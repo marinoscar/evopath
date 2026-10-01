@@ -32,6 +32,7 @@ import {
   BP_SYSTOLIC,
   DEFAULT_METHOD,
   getMetric,
+  isLabMetric,
   MEASUREMENT_METRIC_KEYS,
   type MeasurementOrigin,
   METRICS,
@@ -407,11 +408,24 @@ export class MeasurementsService {
       },
       orderBy: NEWEST_FIRST,
       take: SERIES_MAX_POINTS + 1,
-      select: { id: true, measuredAt: true, value: true, method: true, origin: true },
+      select: {
+        id: true,
+        measuredAt: true,
+        value: true,
+        method: true,
+        origin: true,
+        referenceLow: true,
+        referenceHigh: true,
+        referenceText: true,
+        flag: true,
+      },
     });
 
     const truncated = rows.length > SERIES_MAX_POINTS;
     const kept = rows.slice(0, SERIES_MAX_POINTS).reverse();
+    // Lab points carry their own range and flag (H5, #189); other metrics'
+    // points keep exactly their original shape.
+    const lab = isLabMetric(query.metricKey);
 
     return {
       metricKey: query.metricKey,
@@ -422,6 +436,14 @@ export class MeasurementsService {
         value: row.value,
         method: row.method,
         origin: row.origin,
+        ...(lab
+          ? {
+              referenceLow: row.referenceLow,
+              referenceHigh: row.referenceHigh,
+              referenceText: row.referenceText,
+              flag: row.flag as MeasurementFlag | null,
+            }
+          : {}),
       })),
       truncated,
     };

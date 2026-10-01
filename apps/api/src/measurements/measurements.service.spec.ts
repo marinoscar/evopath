@@ -681,6 +681,33 @@ describe('MeasurementsService', () => {
       expect(result.truncated).toBe(false);
       expect(result.points.map((p) => p.value)).toEqual([1, 2]);
     });
+
+    it('series: lab points carry their own range and flag; body points keep their shape (H5)', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValueOnce([
+        row({ metricKey: 'ldl_cholesterol', value: 130, referenceLow: null, referenceHigh: 129, flag: 'high' }),
+        row({ metricKey: 'ldl_cholesterol', value: 95, referenceLow: 0, referenceHigh: 99, referenceText: '<100', flag: 'normal' }),
+      ]);
+
+      const lab = await service.series(USER_ID, { metricKey: 'ldl_cholesterol', from: new Date(0), to: new Date() });
+
+      expect(prisma.measurement.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({ referenceLow: true, referenceHigh: true, referenceText: true, flag: true }),
+        }),
+      );
+      expect(lab.unit).toBe('mg/dL');
+      expect(lab.points.map(({ value, referenceLow, referenceHigh, referenceText, flag }) => ({
+        value, referenceLow, referenceHigh, referenceText, flag,
+      }))).toEqual([
+        { value: 95, referenceLow: 0, referenceHigh: 99, referenceText: '<100', flag: 'normal' },
+        { value: 130, referenceLow: null, referenceHigh: 129, referenceText: null, flag: 'high' },
+      ]);
+
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValueOnce([row({ value: 80 })]);
+      const body = await service.series(USER_ID, { metricKey: 'weight', from: new Date(0), to: new Date() });
+
+      expect(Object.keys(body.points[0]).sort()).toEqual(['id', 'measuredAt', 'method', 'origin', 'value']);
+    });
   });
 
   describe('fileDeleted (H1, #185)', () => {
