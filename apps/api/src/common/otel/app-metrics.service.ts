@@ -148,6 +148,8 @@ export const APP_METRIC_NAMES = {
   coachNudgeOpened: 'app.coach.nudge.opened',
   coachNudgeConverted: 'app.coach.nudge.converted',
   coachFeedback: 'app.coach.feedback',
+  // AI Coach learning loop (E7.11, #251).
+  coachAnglePicked: 'app.coach.angle.picked',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -315,6 +317,16 @@ const COACH_MOMENT_LABELS = new Set<string>([
   'weekly_review',
 ]);
 const COACH_FEEDBACK_VALUES = new Set<string>(['up', 'down', 'cleared']);
+/** The learning-loop angles (E7.11, spec §2.8), mirrored as a label set so this file does not import the coach. */
+const COACH_ANGLE_LABELS = new Set<string>([
+  'loss_aversion',
+  'identity',
+  'humor',
+  'challenge',
+  'data',
+  'future_self',
+  'social_proof_self',
+]);
 const COACH_CONVERSION_TARGETS = new Set<string>(['workout', 'check_in', 'photo']);
 
 export interface AiUsageMetric {
@@ -416,6 +428,7 @@ export class AppMetricsService implements OnModuleInit {
   private readonly coachNudgeOpened: Counter;
   private readonly coachNudgeConverted: Counter;
   private readonly coachFeedback: Counter;
+  private readonly coachAnglePicks: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -586,6 +599,10 @@ export class AppMetricsService implements OnModuleInit {
     this.coachFeedback = m.createCounter(N.coachFeedback, {
       description: 'Thumbs feedback on coach messages, by value (`cleared` when removed).',
       unit: '{feedback}',
+    });
+    this.coachAnglePicks = m.createCounter(N.coachAnglePicked, {
+      description: 'Angles chosen by the coach learning loop for a nudge, by angle.',
+      unit: '{angle}',
     });
   }
 
@@ -826,14 +843,20 @@ export class AppMetricsService implements OnModuleInit {
     this.safely(() => this.coachNudgeOpened.add(1, { moment: enumLabel(moment, COACH_MOMENT_LABELS) }));
   }
 
-  /** A delivered coach message was converted by `target` within its window. */
-  coachNudgeConversion(moment: string | null, target: string): void {
+  /** A delivered coach message was converted by `target` within its window; `angle` is its bandit arm (E7.11). */
+  coachNudgeConversion(moment: string | null, target: string, angle: string | null = null): void {
     this.safely(() =>
       this.coachNudgeConverted.add(1, {
         moment: enumLabel(moment, COACH_MOMENT_LABELS),
         target: enumLabel(target, COACH_CONVERSION_TARGETS),
+        angle: angle === null ? 'none' : enumLabel(angle, COACH_ANGLE_LABELS),
       }),
     );
+  }
+
+  /** The learning loop picked `angle` for a nudge (E7.11). */
+  coachAnglePicked(angle: string): void {
+    this.safely(() => this.coachAnglePicks.add(1, { angle: enumLabel(angle, COACH_ANGLE_LABELS) }));
   }
 
   /** Feedback on a coach message: `up`, `down`, or `cleared` (null). */

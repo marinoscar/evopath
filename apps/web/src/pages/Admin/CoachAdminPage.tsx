@@ -12,8 +12,8 @@
  * every control stays visible and DISABLED; the API refuses the PUT anyway.
  *
  * The models the coach uses are chosen on AI Model Assignments (its Coach
- * section), not here. The Engagement panel is an empty state until E7.11
- * ships `GET /api/admin/coach/stats`: no invented numbers.
+ * section), not here. The Engagement panel (`CoachEngagementPanel`, E7.11)
+ * reads `GET /api/admin/coach/stats`; an empty state when nothing was sent.
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import {
@@ -33,10 +33,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
-import { EmptyState } from '../../components/common/EmptyState';
+import { CoachEngagementPanel } from '../../components/coach/CoachEngagementPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useSystemCoachSettings } from '../../hooks/useSystemCoachSettings';
 import { SYSTEM_COACH_NUMBER_BOUNDS, type SystemCoachSettings } from '../../services/coach';
@@ -308,22 +307,7 @@ export default function CoachAdminPage() {
           </Box>
         )}
 
-        <Paper
-          component="section"
-          aria-labelledby="coach-admin-engagement-title"
-          sx={{ p: { xs: 2, sm: 3 }, mt: 3 }}
-          data-testid="coach-engagement-panel"
-        >
-          <Typography id="coach-admin-engagement-title" variant="h6" component="h2">
-            Engagement
-          </Typography>
-          <EmptyState
-            Icon={InsightsOutlinedIcon}
-            headingLevel="h3"
-            title="No engagement data yet"
-            description="Send, open and follow-through rates by persona and message type will appear here once the coach starts sending messages."
-          />
-        </Paper>
+        <CoachEngagementPanel />
 
         <Snackbar open={saved} autoHideDuration={3000} onClose={() => setSaved(false)} message="Coach settings saved" />
       </Box>

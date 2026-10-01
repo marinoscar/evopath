@@ -7,6 +7,7 @@ import {
   COACH_MOMENTS,
   type CoachPersonaCard,
   type CoachSettingsView,
+  type CoachStats,
   type SystemCoachSettings,
 } from '../../../services/coach';
 
@@ -130,4 +131,53 @@ export const mockSystemCoachSettings: SystemCoachSettings = {
   audioRetentionDays: 30,
   autoSilenceAfterIgnored: 3,
   inactiveStopDays: 7,
+};
+
+/** `GET /api/admin/coach/stats` with nothing sent (E7.11): the panel's empty state. */
+export const mockEmptyCoachStats: CoachStats = {
+  range: { from: '2026-09-02', to: '2026-10-01', days: 30 },
+  totals: { sent: 0, opened: 0, convertible: 0, converted: 0, up: 0, down: 0, openRate: null, convertRate: null },
+  byAngle: [],
+  byPersona: [],
+  byMoment: [],
+  kpis: {
+    nudgeOpenRate: null,
+    conversionRate: null,
+    weeklyActiveUsers: 0,
+    chatSessionsPerWau: null,
+    photoCadenceAdherencePct: null,
+    weeklyAdherencePct: null,
+    optedOut: 0,
+    enabled: 0,
+    optOutRate: null,
+  },
+};
+
+/** `GET /api/admin/coach/stats` with traffic (E7.11). */
+export const mockCoachStats: CoachStats = {
+  range: { from: '2026-09-02', to: '2026-10-01', days: 30 },
+  totals: { sent: 40, opened: 24, convertible: 30, converted: 9, up: 5, down: 1, openRate: 0.6, convertRate: 0.3 },
+  byAngle: [
+    { key: 'identity', sent: 25, opened: 15, convertible: 20, converted: 7, up: 4, down: 0, openRate: 0.6, convertRate: 0.35 },
+    { key: 'challenge', sent: 15, opened: 9, convertible: 10, converted: 2, up: 1, down: 1, openRate: 0.6, convertRate: 0.2 },
+  ],
+  byPersona: [
+    { key: 'drill_sergeant', sent: 30, opened: 18, convertible: 22, converted: 7, up: 4, down: 1, openRate: 0.6, convertRate: 0.3182 },
+    { key: 'analyst', sent: 10, opened: 6, convertible: 8, converted: 2, up: 1, down: 0, openRate: 0.6, convertRate: 0.25 },
+  ],
+  byMoment: [
+    { key: 'missed_twice', sent: 30, opened: 18, convertible: 30, converted: 9, up: 4, down: 1, openRate: 0.6, convertRate: 0.3 },
+    { key: 'pr', sent: 10, opened: 6, convertible: 0, converted: 0, up: 1, down: 0, openRate: 0.6, convertRate: null },
+  ],
+  kpis: {
+    nudgeOpenRate: 0.6,
+    conversionRate: 0.3,
+    weeklyActiveUsers: 12,
+    chatSessionsPerWau: 1.5,
+    photoCadenceAdherencePct: 50,
+    weeklyAdherencePct: null,
+    optedOut: 2,
+    enabled: 18,
+    optOutRate: 0.1,
+  },
 };

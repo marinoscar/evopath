@@ -102,15 +102,15 @@ describe('conversion attribution', () => {
   });
 
   it('stamps convertedAt on the latest candidate and counts it', async () => {
-    const t = setup({ id: MESSAGE, moment: 'missed_twice' });
+    const t = setup({ id: MESSAGE, moment: 'missed_twice', angle: 'identity' });
     await expect(t.service.recordConversion(USER, 'workout', NOW)).resolves.toBe(MESSAGE);
     expect(t.prisma.coachMessage.findFirst).toHaveBeenCalledWith({
       where: conversionCandidateWhere(USER, 'workout', NOW),
       orderBy: { deliveredAt: 'desc' },
-      select: { id: true, moment: true },
+      select: { id: true, moment: true, angle: true },
     });
     expect(t.prisma.coachMessage.updateMany).toHaveBeenCalledWith({ where: { id: MESSAGE, convertedAt: null }, data: { convertedAt: NOW } });
-    expect(t.metrics.coachNudgeConversion).toHaveBeenCalledWith('missed_twice', 'workout');
+    expect(t.metrics.coachNudgeConversion).toHaveBeenCalledWith('missed_twice', 'workout', 'identity');
   });
 
   it('sets nothing when no message qualifies (outside the window, or a celebration)', async () => {

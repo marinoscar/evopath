@@ -68,7 +68,7 @@ export class CoachMessagesService {
     const candidate = await this.prisma.coachMessage.findFirst({
       where: conversionCandidateWhere(userId, target, at),
       orderBy: { deliveredAt: 'desc' },
-      select: { id: true, moment: true },
+      select: { id: true, moment: true, angle: true },
     });
     if (!candidate) return null;
 
@@ -78,7 +78,7 @@ export class CoachMessagesService {
     });
     if (converted.count === 0) return null;
 
-    this.metrics.coachNudgeConversion(candidate.moment, target);
+    this.metrics.coachNudgeConversion(candidate.moment, target, candidate.angle ?? null);
     this.logger.log(`Coach message ${candidate.id} converted by ${target}`);
     return candidate.id;
   }

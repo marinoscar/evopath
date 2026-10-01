@@ -7,6 +7,7 @@
  *   PUT  /api/coach/settings          ai:use   merge-patch; `null` resets; `confirmAdult: true`
  *   GET  /api/admin/coach/settings    ai_config:read    the deployment's coach policy
  *   PUT  /api/admin/coach/settings    ai_config:write   any subset of the policy
+ *   GET  /api/admin/coach/stats       ai_config:read    engagement aggregates (E7.11)
  *
  * THE API DECIDES. Whether profanity is allowed (`effective.register`), the
  * nudge cap actually applied and whether Sarge's level-3 lines are served
@@ -224,6 +225,73 @@ export function getSystemCoachSettings(): Promise<SystemCoachSettings> {
 
 export function updateSystemCoachSettings(patch: Partial<SystemCoachSettings>): Promise<SystemCoachSettings> {
   return api.put<SystemCoachSettings>('/admin/coach/settings', patch);
+}
+
+// -----------------------------------------------------------------------------
+// GET /api/admin/coach/stats (E7.11, #251)
+// -----------------------------------------------------------------------------
+
+/** Mirrors `COACH_ANGLES` (`apps/api/src/coach/nudges/angle-picker.ts`). */
+export const COACH_ANGLE_LABELS: Record<string, string> = {
+  loss_aversion: 'Keep the streak',
+  identity: 'Identity',
+  humor: 'Humour',
+  challenge: 'Small challenge',
+  data: 'One true number',
+  future_self: 'Your why',
+  social_proof_self: 'Beat your past self',
+};
+
+/** Persona display names, mirrored from the API registry for the stats table. */
+export const COACH_PERSONA_LABELS: Record<string, string> = {
+  coach: 'Coach',
+  drill_sergeant: 'Sarge',
+  stoic: 'The Stoic',
+  analyst: 'The Analyst',
+  butler: 'Reginald',
+  hype: 'The Announcer',
+  nana: 'Nana',
+};
+
+/** One funnel bucket; a rate is `null` when its denominator is 0. */
+export interface CoachFunnel {
+  sent: number;
+  opened: number;
+  convertible: number;
+  converted: number;
+  up: number;
+  down: number;
+  openRate: number | null;
+  convertRate: number | null;
+}
+
+export interface CoachFunnelRow extends CoachFunnel {
+  /** The angle, persona id or moment; `none` when the message had none. */
+  key: string;
+}
+
+export interface CoachStats {
+  range: { from: string; to: string; days: number };
+  totals: CoachFunnel;
+  byAngle: CoachFunnelRow[];
+  byPersona: CoachFunnelRow[];
+  byMoment: CoachFunnelRow[];
+  kpis: {
+    nudgeOpenRate: number | null;
+    conversionRate: number | null;
+    weeklyActiveUsers: number;
+    chatSessionsPerWau: number | null;
+    photoCadenceAdherencePct: number | null;
+    weeklyAdherencePct: number | null;
+    optedOut: number;
+    enabled: number;
+    optOutRate: number | null;
+  };
+}
+
+/** Aggregates only (no user ids, no text); `ai_config:read`, reachable while AI is off. */
+export function getCoachStats(days = 30): Promise<CoachStats> {
+  return api.get<CoachStats>(`/admin/coach/stats?days=${days}`);
 }
 
 // -----------------------------------------------------------------------------

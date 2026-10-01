@@ -4,6 +4,8 @@ import { AiConfigModule } from '../ai/config/ai-config.module';
 import { HealthProfileModule } from '../health-profile/health-profile.module';
 import { SettingsModule } from '../settings/settings.module';
 import { CoachAdminSettingsController } from './admin/coach-admin-settings.controller';
+import { CoachAdminStatsController } from './admin/coach-admin-stats.controller';
+import { CoachAdminStatsService } from './admin/coach-admin-stats.service';
 import { CoachChatModule } from './chat/coach-chat.module';
 import { CoachSettingsController } from './coach-settings.controller';
 import { CoachSettingsService } from './coach-settings.service';
@@ -27,14 +29,17 @@ import { assertCoachRegistryComplete } from './personas';
  * `GET /api/coach/messages`.
  * E7.5 (#245): `CoachNudgesModule` (`nudges/`): `ai.coach.nudge`,
  * `coach.message.deliver`, the opened/feedback routes and conversion.
+ * E7.11 (#251): the angle bandit (`learning/`, bound in `CoachNudgesModule`)
+ * and `GET /api/admin/coach/stats` (`ai_config:read`, not behind
+ * `AiEnabledGuard`).
  *
  * The registry is checked at init: a persona missing a moment or an intensity
  * fails the boot, not a request.
  */
 @Module({
   imports: [SettingsModule, HealthProfileModule, AiConfigModule, CoachChatModule, CoachNudgesModule],
-  controllers: [CoachSettingsController, CoachAdminSettingsController],
-  providers: [CoachSettingsService, CoachContentGuard],
+  controllers: [CoachSettingsController, CoachAdminSettingsController, CoachAdminStatsController],
+  providers: [CoachSettingsService, CoachContentGuard, CoachAdminStatsService],
   exports: [CoachSettingsService, CoachContentGuard],
 })
 export class CoachModule implements OnModuleInit {
