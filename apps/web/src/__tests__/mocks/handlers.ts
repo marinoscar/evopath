@@ -39,6 +39,7 @@ import { mockHealthProfileEmpty } from './fixtures/health';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
 import { mockTodayCheckInEmpty } from './fixtures/checkIns';
 import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
+import { mockHealthSummaryView } from './fixtures/healthSummary';
 import { mockAiFeaturesView } from './fixtures/aiFeatures';
 import type {
   AiAdminConfig,
@@ -758,6 +759,27 @@ export const handlers = [
 
   http.post(`${API_BASE}/ai/training/estimate`, () => {
     return HttpResponse.json({ data: mockTrainingRunEstimate });
+  }),
+
+  // The opt-in AI health summary (H8, #192): off by default, a runnable model,
+  // data present, no summary yet. Consent echoes the choice; refresh queues.
+  http.get(`${API_BASE}/ai/training/health-summary`, () => {
+    return HttpResponse.json({ data: mockHealthSummaryView() });
+  }),
+
+  http.put(`${API_BASE}/ai/training/health-summary/consent`, async ({ request }) => {
+    const body = (await request.json()) as { enabled: boolean };
+    return HttpResponse.json({
+      data: mockHealthSummaryView({
+        enabled: body.enabled,
+        consentedAt: body.enabled ? new Date().toISOString() : null,
+        pending: body.enabled,
+      }),
+    });
+  }),
+
+  http.post(`${API_BASE}/ai/training/health-summary/refresh`, () => {
+    return HttpResponse.json({ data: mockHealthSummaryView({ enabled: true, pending: true }) }, { status: 202 });
   }),
 
   // Agent usage (E6.3): one run's usage by step, and one month (no typical
