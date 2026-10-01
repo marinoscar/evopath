@@ -82,9 +82,10 @@ export function RowActionsCell<Row>({
   if (actions.length === 1 && !alwaysMenu) {
     const action = actions[0];
     const disabled = action.disabled?.(row) ?? false;
+    const reason = disabled ? action.disabledReason?.(row) : undefined;
     return (
       <Stack direction="row" sx={wrapperSx}>
-        <Tooltip title={action.label}>
+        <Tooltip title={reason ? `${action.label}: ${reason}` : action.label}>
           {/* span keeps the tooltip working while the button is disabled */}
           <span>
             <IconButton
@@ -124,28 +125,32 @@ export function RowActionsCell<Row>({
         <MoreVertIcon fontSize="small" />
       </IconButton>
       <Menu anchorEl={anchorEl} open={open} onClose={() => setAnchorEl(null)}>
-        {actions.map((action) => (
-          <MenuItem
-            key={action.id}
-            disabled={action.disabled?.(row) ?? false}
-            sx={{
-              ...menuItemSx,
-              ...(action.destructive ? { color: 'error.main' } : {}),
-            }}
-            onClick={(event: MouseEvent<HTMLElement>) => {
-              event.stopPropagation();
-              setAnchorEl(null);
-              onRun(action, row);
-            }}
-          >
-            {action.icon && (
-              <ListItemIcon sx={action.destructive ? { color: 'error.main' } : undefined}>
-                {action.icon}
-              </ListItemIcon>
-            )}
-            <ListItemText primary={action.label} />
-          </MenuItem>
-        ))}
+        {actions.map((action) => {
+          const disabled = action.disabled?.(row) ?? false;
+          const reason = disabled ? action.disabledReason?.(row) : undefined;
+          return (
+            <MenuItem
+              key={action.id}
+              disabled={disabled}
+              sx={{
+                ...menuItemSx,
+                ...(action.destructive ? { color: 'error.main' } : {}),
+              }}
+              onClick={(event: MouseEvent<HTMLElement>) => {
+                event.stopPropagation();
+                setAnchorEl(null);
+                onRun(action, row);
+              }}
+            >
+              {action.icon && (
+                <ListItemIcon sx={action.destructive ? { color: 'error.main' } : undefined}>
+                  {action.icon}
+                </ListItemIcon>
+              )}
+              <ListItemText primary={action.label} secondary={reason} />
+            </MenuItem>
+          );
+        })}
       </Menu>
     </Stack>
   );
