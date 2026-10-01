@@ -1053,10 +1053,11 @@ No test talks to Google.
 - **Integration**: `.env.test` provides a dummy `GOOGLE_CLIENT_ID`, so the
   real `GoogleStrategy` registers and `GET /api/auth/google` answers a 302 to
   Google without any network call. `test/auth/oauth.integration.spec.ts`
-  checks that redirect, the refresh cookie attributes, and that callback
-  errors are sanitized (newlines removed, length capped) before they go into
-  the redirect URL. The full callback round trip is skipped there, because it
-  needs a real authorization code.
+  checks that redirect, the refresh cookie attributes, and that guard-level
+  callback failures redirect with a code from the closed sign-in error set
+  ([SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract)).
+  The full callback round trip is skipped there, because it needs a real
+  authorization code.
 - **Test doubles**: `test/mocks/google-oauth.mock.ts` exports
   `MockGoogleStrategy` (a `passport-custom` strategy named `google` with
   `setMockProfile` / `resetMockProfile`) and `createMockGoogleProfile()`.
@@ -1073,7 +1074,7 @@ Several bugs in the Fastify + Passport integration are pinned by tests:
 | The exception filter replies with Fastify's `code()`/`send()`, not Express's `status()`/`json()` | `src/common/filters/http-exception.filter.spec.ts` |
 | `GoogleOAuthGuard` hands Passport the raw request/response and copies `user` back | the OAuth redirect cases in `test/auth/oauth.integration.spec.ts` |
 | New users (and the bootstrap admin role) are created in one transaction | `src/auth/auth.service.spec.ts` |
-| OAuth error messages are sanitized before redirect | `test/auth/oauth.integration.spec.ts` |
+| A sign-in failure redirects with a closed error code, never a message | `src/auth/auth.controller.spec.ts`, `src/auth/filters/google-oauth-exception.filter.spec.ts`, `test/auth/oauth.integration.spec.ts` |
 
 ## Writing a new test
 

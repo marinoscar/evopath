@@ -3,7 +3,6 @@ import {
   Logger,
   Optional,
   UnauthorizedException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -22,6 +21,7 @@ import {
   normalizeProfileSettings,
   resolveProfileImageUrl,
 } from '../common/profile-image/profile-image';
+import { AuthLoginDeniedException } from './auth-error-codes';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
@@ -69,7 +69,8 @@ export class AuthService {
     if (!isAllowed && !isInitialAdmin) {
       this.logger.warn(`Login denied - email not in allowlist: ${email}`);
       this.metrics.authLogin('allowlist_rejected');
-      throw new ForbiddenException(
+      throw new AuthLoginDeniedException(
+        'not_allowlisted',
         'Your email is not authorized to access this application. Please contact an administrator.',
       );
     }
@@ -170,7 +171,10 @@ export class AuthService {
     if (!user.isActive) {
       this.logger.warn(`Login attempt by disabled user: ${user.email}`);
       this.metrics.authLogin('disabled');
-      throw new ForbiddenException('User account is disabled');
+      throw new AuthLoginDeniedException(
+        'account_disabled',
+        'User account is disabled',
+      );
     }
 
     // Generate JWT tokens

@@ -225,7 +225,7 @@ With no arguments in a real terminal it opens an interactive menu. Reference: [a
 
 ## Security
 
-- Google OAuth sign-in with an email allowlist; `INITIAL_ADMIN_EMAIL` always bypasses it. No passwords are stored.
+- Google OAuth sign-in with an email allowlist; `INITIAL_ADMIN_EMAIL` always bypasses it. No passwords are stored. A refused sign-in ends on a fixed, on-brand "invite-only right now" screen (or the matching one for a paused account, a cancelled sign-in or unfinished setup), never on text taken from the URL: [sign-in failure contract](docs/SECURITY-ARCHITECTURE.md#sign-in-failure-contract).
 - The access JWT lives 15 minutes by default and is sent only as `Authorization: Bearer`. The one cookie is the HttpOnly, rotating `refresh_token`.
 - Every endpoint declares `@Auth()` with the exact permission it needs unless deliberately public. The UI never decides access on its own.
 - Runtime secrets are encrypted with AES-256-GCM. No API returns secret material.

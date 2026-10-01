@@ -3,6 +3,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { AuthLoginDeniedException } from './auth-error-codes';
 import { AuthService } from './auth.service';
 import { GoogleProfile } from './strategies/google.strategy';
 import { PrismaService } from '../prisma/prisma.service';
@@ -191,6 +192,14 @@ describe('AuthService', () => {
       await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
         ForbiddenException,
       );
+
+      const error = await service
+        .handleGoogleLogin(mockGoogleProfile)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(AuthLoginDeniedException);
+      expect((error as AuthLoginDeniedException).reason).toBe('account_disabled');
+      expect((error as Error).message).toBe('User account is disabled');
     });
 
     it('should grant admin role when shouldGrantAdminRole returns true', async () => {
@@ -280,6 +289,19 @@ describe('AuthService', () => {
       await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
         'Your email is not authorized to access this application',
       );
+    });
+
+    it('carries the not_allowlisted reason when the email is not in the allowlist', async () => {
+      mockAllowlistService.isEmailAllowed.mockResolvedValue(false);
+
+      const error = await service
+        .handleGoogleLogin(mockGoogleProfile)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(AuthLoginDeniedException);
+      expect(error).toBeInstanceOf(ForbiddenException);
+      expect((error as AuthLoginDeniedException).getStatus()).toBe(403);
+      expect((error as AuthLoginDeniedException).reason).toBe('not_allowlisted');
     });
 
     it('should create user identity linking on first login', async () => {

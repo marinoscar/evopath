@@ -4,6 +4,8 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PatService } from '../pat/pat.service';
 import { NodeCredentialService } from '../nodes/node-credential.service';
+import { AuthLoginDeniedException } from './auth-error-codes';
+import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -37,6 +39,88 @@ describe('AuthController', () => {
     }).compile();
 
     controller = module.get<AuthController>(AuthController);
+  });
+
+  describe('googleAuthCallback', () => {
+    const APP_URL = 'https://app.example.com';
+    const profile = {
+      id: 'g-1',
+      email: 'person@example.com',
+      displayName: 'Person',
+    };
+    let reply: { redirect: jest.Mock; status: jest.Mock; setCookie: jest.Mock };
+
+    beforeEach(() => {
+      reply = {
+        redirect: jest.fn().mockReturnThis(),
+        status: jest.fn().mockReturnThis(),
+        setCookie: jest.fn(),
+      };
+      mockConfigService.get.mockImplementation((key: string) =>
+        key === 'appUrl' ? APP_URL : undefined,
+      );
+    });
+
+    const callback = (user: unknown = profile) =>
+      controller.googleAuthCallback({ user } as any, reply as any);
+
+    const redirectedTo = () => new URL(reply.redirect.mock.calls[0][0]);
+
+    it('redirects with the token on success and no error', async () => {
+      mockAuthService.handleGoogleLogin.mockResolvedValue({
+        accessToken: 'access',
+        refreshToken: 'refresh',
+        expiresIn: 900,
+      });
+
+      await callback();
+
+      const url = redirectedTo();
+      expect(url.pathname).toBe('/auth/callback');
+      expect(url.searchParams.get('token')).toBe('access');
+      expect(url.searchParams.has('error')).toBe(false);
+    });
+
+    it.each([
+      [
+        'not_allowlisted',
+        new AuthLoginDeniedException('not_allowlisted', 'Your email is not authorized'),
+      ],
+      [
+        'account_disabled',
+        new AuthLoginDeniedException('account_disabled', 'User account is disabled'),
+      ],
+      ['server_misconfigured', new DatabaseSeedException('roles')],
+      ['authentication_failed', new Error('something unexpected')],
+    ])('redirects with error=%s', async (code, thrown) => {
+      mockAuthService.handleGoogleLogin.mockRejectedValue(thrown);
+
+      await callback();
+
+      const url = redirectedTo();
+      expect(url.origin + url.pathname).toBe(`${APP_URL}/auth/callback`);
+      expect(url.searchParams.get('error')).toBe(code);
+      expect(url.searchParams.has('token')).toBe(false);
+    });
+
+    it('never puts the exception message in the redirect', async () => {
+      mockAuthService.handleGoogleLogin.mockRejectedValue(
+        new Error('Call 555-0100 to restore access'),
+      );
+
+      await callback();
+
+      const target = reply.redirect.mock.calls[0][0] as string;
+      expect(target).not.toContain('555');
+      expect(target).not.toContain('restore');
+    });
+
+    it('redirects with authentication_failed when the guard attached no profile', async () => {
+      await callback(null);
+
+      expect(redirectedTo().searchParams.get('error')).toBe('authentication_failed');
+      expect(mockAuthService.handleGoogleLogin).not.toHaveBeenCalled();
+    });
   });
 
   describe('getProviders', () => {
