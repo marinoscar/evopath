@@ -109,7 +109,14 @@ export class AdaptationContextBuilder implements AdaptationContextPort {
       totalWeeks: session.totalWeeks,
       isDeload: session.isDeload,
       estimatedMinutes: session.estimatedMinutes,
-      exercises: session.exercises.map((e) => ({
+      // A quick adaptation works in sets and reps. Cardio prescriptions (a
+      // duration or distance target) are left out of what it sees and adapts;
+      // applying an adaptation as a plan change keeps them (`replaceWorkout`).
+      exercises: session.exercises.flatMap((e) =>
+        e.sets === null || e.repMin === null || e.repMax === null || e.targetDurationSeconds !== null || e.targetDistanceMeters !== null
+          ? []
+          : [{ ...e, sets: e.sets, repMin: e.repMin, repMax: e.repMax }],
+      ).map((e) => ({
         exerciseId: e.exercise.id,
         key: e.exercise.slug,
         name: e.exercise.name,

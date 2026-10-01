@@ -17,6 +17,7 @@ import { isUniqueViolation } from '../gyms/gym-views';
 import { JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { PlanExercise, PlanTree } from '../programs/contracts/plan-tree.contract';
+import { isCardioPrescription } from '../programs/contracts/prescription';
 import { PROGRAM_REASONS } from '../programs/programs.constants';
 import { ProgramsService } from '../programs/programs.service';
 import { plannedSnapshotOf, prefilledSets, type PlannedExerciseInput } from '../programs/today/planned-session';
@@ -341,6 +342,8 @@ export class AdaptationService {
         targetSets: e.sets,
         repMin: e.repMin,
         repMax: e.repMax,
+        targetDurationSeconds: null,
+        targetDistanceMeters: null,
         targetRpe: e.targetRpe,
         targetLoadKg: counterpart && !moreReps ? counterpart.targetLoadKg : null,
         loadGuidance: moreReps ? 'choose_start' : (counterpart?.loadGuidance ?? 'from_history'),
@@ -816,6 +819,8 @@ export function replaceWorkout(tree: PlanTree, programWorkoutId: string, proposa
           targetSets: e.sets,
           repMin: e.repMin,
           repMax: e.repMax,
+          targetDurationSeconds: null,
+          targetDistanceMeters: null,
           targetLoadKg: null,
           targetRpe: e.targetRpe,
           restSeconds: e.restSeconds,
@@ -826,6 +831,10 @@ export function replaceWorkout(tree: PlanTree, programWorkoutId: string, proposa
           equipmentTypeId: null,
         };
       });
+      // Cardio prescriptions are never sent to the adaptation (it works in sets and reps): they stay, after the adapted exercises.
+      for (const cardio of [...existing.values()].filter(isCardioPrescription)) {
+        workout.exercises.push({ ...cardio, position: workout.exercises.length });
+      }
       workout.estimatedMinutes = Math.max(1, proposal.estimatedMinutes);
       return tree;
     }
