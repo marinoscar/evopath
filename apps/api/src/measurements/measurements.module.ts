@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { IntakeModule } from '../intake/intake.module';
 import { JobsModule } from '../jobs/jobs.module';
+import { BiomarkersController } from './biomarkers/biomarkers.controller';
+import { BiomarkersService } from './biomarkers/biomarkers.service';
 import { LabReportDuplicatesService } from './lab-report/lab-report-duplicates.service';
 import { LabReportController } from './lab-report/lab-report.controller';
 import { LabReportHandler } from './lab-report/lab-report.handler';
@@ -27,10 +29,13 @@ import { BodyMetricReadingIntakeKind } from './photo/body-metric-reading.kind';
  * "Import a lab report" (H4, #188) lives in `./lab-report`: the `lab_report`
  * intake kind, its server-only `ai.health.lab_report` job, and the
  * duplicate-warning route under `/api/measurements/lab-reports`.
+ *
+ * Blood-work history (H5, #189) adds `./biomarkers`: the per-analyte summary
+ * under `/api/health/biomarkers`.
  */
 @Module({
   imports: [AiModule, JobsModule, IntakeModule],
-  controllers: [MeasurementsController, LabReportController],
+  controllers: [MeasurementsController, LabReportController, BiomarkersController],
   providers: [
     MeasurementsService,
     BodyMetricReadingIntakeKind,
@@ -38,6 +43,7 @@ import { BodyMetricReadingIntakeKind } from './photo/body-metric-reading.kind';
     LabReportIntakeKind,
     LabReportHandler,
     LabReportDuplicatesService,
+    BiomarkersService,
   ],
   exports: [MeasurementsService],
 })

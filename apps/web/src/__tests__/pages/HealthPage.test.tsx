@@ -158,6 +158,17 @@ describe('HealthPage', () => {
     expect(checkIns.puts).toHaveLength(1);
   });
 
+  it('links to the biomarkers from a Blood work section after the check-in (H5, #189)', async () => {
+    statefulApi();
+    statefulCheckInApi();
+    render(<HealthPage />);
+    await screen.findByRole('region', { name: 'Weight' });
+    const checkIn = screen.getByRole('region', { name: 'Daily check-in' });
+    const bloodWork = screen.getByRole('region', { name: 'Blood work' });
+    expect(checkIn.compareDocumentPosition(bloodWork) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(bloodWork).getByRole('link', { name: 'View biomarkers' })).toHaveAttribute('href', '/health/biomarkers');
+  });
+
   it('a viewer without health_data:write sees disabled Log buttons', async () => {
     statefulApi();
     render(<HealthPage />, {

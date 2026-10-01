@@ -97,6 +97,9 @@ const TodayPage = lazy(() => import('../src/pages/TodayPage'));
 // `/api/measurements/*` and `/api/health-profile` calls with `page.route()`
 // (`tests/visual/support/health.ts`), as the telemetry dashboard spec does.
 const HealthPage = lazy(() => import('../src/pages/HealthPage'));
+// H5 (#189): the biomarker pages, answered by `tests/visual/support/biomarkers.ts`.
+const BiomarkersPage = lazy(() => import('../src/pages/BiomarkersPage'));
+const BiomarkerDetailPage = lazy(() => import('../src/pages/BiomarkerDetailPage'));
 const UserSettingsHubPage = lazy(() => import('../src/pages/UserSettingsHubPage'));
 const UserProfilePage = lazy(() => import('../src/pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'));
@@ -273,6 +276,8 @@ function HarnessRoutes() {
         <Route element={<Layout />}>
           <Route path="/" element={<TodayPage />} />
           <Route path="/health" element={<HealthPage />} />
+          <Route path="/health/biomarkers" element={<BiomarkersPage />} />
+          <Route path="/health/biomarkers/:analyteKey" element={<BiomarkerDetailPage />} />
 
           <Route path="/settings" element={<UserSettingsHubPage />} />
           <Route path="/settings/profile" element={<UserProfilePage />} />

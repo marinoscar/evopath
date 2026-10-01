@@ -15,6 +15,9 @@
  *
  * H4 (#188): "Import lab report" sits beside it under the same gate and opens
  * `LabReportDialog` (a PDF or page photos become reviewed lab results).
+ *
+ * H5 (#189): the "Blood work" section links to the biomarker views
+ * (`/health/biomarkers`), between the check-in and Trend/History.
  */
 
 import { useState } from 'react';
@@ -37,6 +40,7 @@ import { PhotoReadButton } from '../components/health/PhotoReadButton';
 import { PhotoReadDialog } from '../components/health/PhotoReadDialog';
 import { LabReportButton } from '../components/health/LabReportButton';
 import { LabReportDialog } from '../components/health/LabReportDialog';
+import { BloodWorkSection } from '../components/health/biomarkers/BloodWorkSection';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -126,6 +130,9 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         )}
         {/* E2.4 (#56): today's check-in and the recent ones. */}
         {!forbidden && <CheckInSection canWrite={canLog} />}
+
+        {/* H5 (#189): the way into the blood-work history. */}
+        {!forbidden && <BloodWorkSection />}
 
         {!forbidden && catalog && !loading && (
           <HealthHistorySections

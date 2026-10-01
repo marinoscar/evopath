@@ -58,6 +58,10 @@ const PlanProgressPage = lazy(() => import('./pages/PlanProgressPage'));
 // E6.1: one quick workout adaptation (live run, then review), also under `/train`.
 const AdaptationReviewPage = lazy(() => import('./pages/AdaptationReviewPage'));
 const HealthPage = lazy(() => import('./pages/HealthPage'));
+// H5 (#189): blood-work history. Owned by the `health` destination through the
+// `/health` prefix; not settings pages.
+const BiomarkersPage = lazy(() => import('./pages/BiomarkersPage'));
+const BiomarkerDetailPage = lazy(() => import('./pages/BiomarkerDetailPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
 // E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
 // destination through the `/gyms` prefix.
@@ -312,6 +316,8 @@ function AppRoutes() {
                     }
                   />
                   <Route path="/health" element={<HealthPage />} />
+                  <Route path="/health/biomarkers" element={<BiomarkersPage />} />
+                  <Route path="/health/biomarkers/:analyteKey" element={<BiomarkerDetailPage />} />
                   <Route path="/gyms" element={<GymsPage />} />
                   <Route path="/gyms/new" element={<GymNewPage />} />
                   <Route path="/gyms/:gymId" element={<GymDetailPage />} />
