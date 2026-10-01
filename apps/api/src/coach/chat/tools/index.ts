@@ -1,6 +1,7 @@
 import type { AiDefinedTool } from '../../../ai/core/tools';
 import type { CoachChatToolDeps, CoachChatTurnActions } from './coach-chat-tool.types';
 import { createGetCheckInsTool } from './get-check-ins.tool';
+import { createGetGoalsTool } from './get-goals.tool';
 import { createGetLastWeeklyReviewTool } from './get-last-weekly-review.tool';
 import { createGetProgressPhotoSummaryTool } from './get-progress-photo-summary.tool';
 import { createGetRecentWorkoutsTool } from './get-recent-workouts.tool';
@@ -12,8 +13,8 @@ import { createSaveCommitmentTool } from './save-commitment.tool';
 export * from './coach-chat-tool.types';
 
 /**
- * The coach chat's tool list (spec §2.9; add one per spec §4.4). Six read
- * tools and two narrow write tools (`pause_coach`; `save_commitment`, E7.12,
+ * The coach chat's tool list (spec §2.9; add one per spec §4.4). Seven read
+ * tools (`get_goals`, F9, reads the activity goals) and two narrow write tools (`pause_coach`; `save_commitment`, E7.12,
  * which writes only `coach.why` and `coach.preferredTime`). No tool mutates a plan, program or
  * workout: plan changes are a link to the quick-adapt flow.
  */
@@ -24,6 +25,7 @@ export const COACH_CHAT_TOOL_NAMES = [
   'get_check_ins',
   'get_progress_photo_summary',
   'get_last_weekly_review',
+  'get_goals',
   'pause_coach',
   'save_commitment',
 ] as const;
@@ -39,6 +41,7 @@ export function createCoachChatTools(deps: CoachChatToolDeps, actions: CoachChat
     createGetCheckInsTool(deps),
     createGetProgressPhotoSummaryTool(deps),
     createGetLastWeeklyReviewTool(deps),
+    createGetGoalsTool(deps),
     createPauseCoachTool(deps, actions),
     createSaveCommitmentTool(deps, actions),
   ] as AiDefinedTool[];

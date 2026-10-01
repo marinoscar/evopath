@@ -1,3 +1,4 @@
+import type { GoalProgressService } from '../../../activity/goal-progress.service';
 import type { CheckInsService } from '../../../check-ins/check-ins.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { TrainingSignalsService } from '../../../programs/signals/signals.service';
@@ -34,6 +35,8 @@ export interface CoachChatToolDeps {
   now: () => Date;
   /** `save_commitment`'s writer; absent -> the tool answers `unavailable`. */
   commitments?: CoachCommitmentWriter;
+  /** `get_goals`' source (F9); absent -> the tool answers `unavailable`. */
+  goals?: Pick<GoalProgressService, 'progressForUser'>;
 }
 
 /** What one turn's write tool did, for the `done` frame and the reply's `data`. */
