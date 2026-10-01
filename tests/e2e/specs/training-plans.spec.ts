@@ -376,54 +376,54 @@ test.describe('Training plans with the fake Responses provider', () => {
   test('autonomous adaptation: finishing a workout triggers an evaluation, the plan adapts, the banner shows and Undo restores it', async ({ page, owner }) => {
     const runId = await startRunViaApi(owner, 'happy');
     const programId = await programOfRun(owner.api, runId);
-    await activateStartedLastWeek(owner.api, programId);
+    const base = await activateStartedLastWeek(owner.api, programId);
     await useScenario('evaluator-autonomous');
     const after = await lastRequestSeq();
 
     await finishTodaysPlannedWorkout(page);
 
-    // The evaluation ran without a question: version 2, one applied AI entry.
-    await waitForVersion(owner.api, programId, 2);
+    // The evaluation ran without a question: one version on, one applied AI entry.
+    await waitForVersion(owner.api, programId, base + 1);
     const [entry] = await adaptedEntries(owner.api, programId);
-    expect(entry).toMatchObject({ kind: 'adapted', actor: 'ai', status: 'applied', fromVersion: 1, toVersion: 2 });
+    expect(entry).toMatchObject({ kind: 'adapted', actor: 'ai', status: 'applied', fromVersion: base, toVersion: base + 1 });
     const requests = (await fakeResponsesRequests(after)).filter((r) => r.agent === 'evaluator');
     expect(requests).toHaveLength(1);
     expect(requests.every((r) => r.canaryHits === 0 && r.hasSchema)).toBe(true);
 
-    // The banner says so, and Undo (one tap) restores the plan as version 3.
+    // The banner says so, and Undo (one tap) restores the plan as one more version.
     await page.goto(`/train/plans/${programId}`);
     await expect(page.getByText(ADAPTATION_UI.banner).first()).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: ADAPTATION_UI.undo }).first().click();
-    await waitForVersion(owner.api, programId, 3);
+    await waitForVersion(owner.api, programId, base + 2);
     expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ id: entry.id, status: 'reverted' });
   });
 
   test('ask first: the proposal appears and Approve applies it', async ({ page, owner }) => {
     const runId = await startRunViaApi(owner, 'happy', 'ask_first');
     const programId = await programOfRun(owner.api, runId);
-    await activateStartedLastWeek(owner.api, programId);
+    const base = await activateStartedLastWeek(owner.api, programId);
     await useScenario('evaluator-autonomous');
 
     await finishTodaysPlannedWorkout(page);
 
     // Paused for the owner: a proposed entry, the plan untouched.
     await evaluateRun(owner.api, programId, 'awaiting_approval');
-    expect(await currentVersion(owner.api, programId)).toBe(1);
+    expect(await currentVersion(owner.api, programId)).toBe(base);
     expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'proposed', toVersion: null });
 
     await page.goto(`/train/plans/${programId}`);
     await expect(page.getByText(ADAPTATION_UI.proposal).first()).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: ADAPTATION_UI.approve }).first().click();
 
-    await waitForVersion(owner.api, programId, 2);
+    await waitForVersion(owner.api, programId, base + 1);
     await evaluateRun(owner.api, programId, 'succeeded');
-    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'applied', fromVersion: 1, toVersion: 2 });
+    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'applied', fromVersion: base, toVersion: base + 1 });
   });
 
   test('ask first: Reject leaves the plan as it was and records the decision', async ({ page, owner }) => {
     const runId = await startRunViaApi(owner, 'happy', 'ask_first');
     const programId = await programOfRun(owner.api, runId);
-    await activateStartedLastWeek(owner.api, programId);
+    const base = await activateStartedLastWeek(owner.api, programId);
     await useScenario('evaluator-autonomous');
 
     await finishTodaysPlannedWorkout(page);
@@ -434,7 +434,7 @@ test.describe('Training plans with the fake Responses provider', () => {
     await page.getByRole('button', { name: ADAPTATION_UI.reject }).first().click();
 
     await evaluateRun(owner.api, programId, 'succeeded');
-    expect(await currentVersion(owner.api, programId)).toBe(1);
+    expect(await currentVersion(owner.api, programId)).toBe(base);
     expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'rejected', toVersion: null });
   });
 
@@ -522,10 +522,13 @@ function localDate(days: number): string {
  * A plan with a workout on today's weekday, activated to have started a week
  * ago (the furthest back activation allows): week 1 is entirely past (three
  * sessions due, so the evaluator has data) and today's session is week 2's.
+ * Returns the plan's version at that point (the editing makes one).
  */
-async function activateStartedLastWeek(api: AuthedApi, programId: string): Promise<void> {
+async function activateStartedLastWeek(api: AuthedApi, programId: string): Promise<number> {
   await putTodayIntoPlan(api, programId);
   await api.post(`/api/programs/${programId}/activate`, { startDate: localDate(-7) });
+  // Putting today into the plan is itself a user edit (a version of its own): the adaptation starts from here.
+  return currentVersion(api, programId);
 }
 
 interface ProgramBody {
