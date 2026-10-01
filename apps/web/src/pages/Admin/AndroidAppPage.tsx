@@ -14,8 +14,11 @@
  * `config/adminSections.tsx` declares. Every write control is disabled here
  * without `system_settings:write`; the API enforces it either way. Each change
  * is saved at once with `PUT /api/admin/android-app`.
+ *
+ * Issue #287 adds the Releases section (`AndroidReleasesSection`): the APKs
+ * this server hosts, under the same route and the same write gate.
  */
-import { useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import {
   Alert,
   Box,
@@ -42,13 +45,14 @@ import {
   type TrustedApp,
 } from '../../services/healthSync';
 import { formatRelativeTime } from '../../utils/relativeTime';
+import { AndroidReleasesSection } from '../../components/admin/androidApp/AndroidReleasesSection';
 
 /** Mirrors the `Android app` card in `config/adminSections.tsx`, word for word. */
 export const ANDROID_APP_TITLE = 'Android app';
 export const ANDROID_APP_DESCRIPTION =
-  'Trust the Android app’s signing certificate so it opens full screen, and preview the Digital Asset Links file.';
+  'Publish the Android app’s APK, trust its signing certificate so it opens full screen, and preview the Digital Asset Links file.';
 export const READ_ONLY_MESSAGE =
-  'You can view these settings. Changing the trusted apps needs permission to change system settings.';
+  'You can view these settings. Changing the trusted apps or releases needs permission to change system settings.';
 export const PACKAGE_ERROR = 'Enter an Android package name, such as com.example.app.';
 export const SHA_ERROR = 'Enter a SHA-256 fingerprint: 32 pairs of hex digits separated by colons.';
 
@@ -66,7 +70,8 @@ export function normalizeSha256(value: string): string {
 export default function AndroidAppPage() {
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('system_settings:write');
-  const { config, isLoading, error, isSaving, saveError, save } = useAndroidAppConfig();
+  const { config, isLoading, error, isSaving, saveError, save, refresh } = useAndroidAppConfig();
+  const onTrustMayHaveChanged = useCallback(() => void refresh(), [refresh]);
 
   const [packageName, setPackageName] = useState('');
   const [sha256, setSha256] = useState('');
@@ -224,6 +229,10 @@ export default function AndroidAppPage() {
             </List>
           )}
         </Paper>
+
+        {/* #287: the APKs this server hosts. Upload and make-current can
+            trust the signer server-side, so they re-read the config. */}
+        <AndroidReleasesSection canWrite={canWrite} config={config} onTrustMayHaveChanged={onTrustMayHaveChanged} />
 
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-labelledby="assetlinks-title">
           <Typography variant="h6" component="h2" id="assetlinks-title" gutterBottom>

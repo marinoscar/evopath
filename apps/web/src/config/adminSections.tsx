@@ -231,7 +231,7 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         // needs `system_settings:write`, gated inside the page. No `feature`.
         title: 'Android app',
         description:
-          'Trust the Android app’s signing certificate so it opens full screen, and preview the Digital Asset Links file.',
+          'Publish the Android app’s APK, trust its signing certificate so it opens full screen, and preview the Digital Asset Links file.',
         Icon: PhoneAndroidOutlinedIcon,
         path: '/admin/settings/android',
         permission: 'system_settings:read',

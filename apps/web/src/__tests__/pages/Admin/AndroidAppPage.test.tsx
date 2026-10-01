@@ -57,8 +57,9 @@ describe('AndroidAppPage', () => {
     const user = userEvent.setup();
     render(<AndroidAppPage />, { wrapperOptions: { user: mockAdminUser } });
 
-    const pkg = await screen.findByLabelText('Package name');
-    const sha = screen.getByLabelText('Signing certificate SHA-256');
+    const trustForm = await screen.findByRole('form', { name: 'Add a trusted app' });
+    const pkg = within(trustForm).getByLabelText('Package name');
+    const sha = within(trustForm).getByLabelText('Signing certificate SHA-256');
     await user.type(pkg, 'notapackage');
     await user.type(sha, 'AB:CD');
     await user.click(screen.getByRole('button', { name: 'Add trusted app' }));
@@ -120,8 +121,9 @@ describe('AndroidAppPage', () => {
     expect(await screen.findByText(READ_ONLY_MESSAGE)).toBeInTheDocument();
     const reported = await screen.findByRole('list', { name: 'Reported apps' });
     expect(within(reported).getByRole('button', { name: 'Trust com.evopath.android' })).toBeDisabled();
-    expect(screen.getByLabelText('Package name')).toBeDisabled();
-    expect(screen.getByLabelText('Signing certificate SHA-256')).toBeDisabled();
+    const trustForm = screen.getByRole('form', { name: 'Add a trusted app' });
+    expect(within(trustForm).getByLabelText('Package name')).toBeDisabled();
+    expect(within(trustForm).getByLabelText('Signing certificate SHA-256')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Add trusted app' })).toBeDisabled();
     expect(puts).toHaveLength(0);
   });

@@ -126,6 +126,13 @@ export function useAndroidAppConfig() {
     [isMounted],
   );
 
+  const { refresh: reload } = loaded;
+  /** Re-read the config (#287: making a release current can trust its signer server-side). */
+  const refresh = useCallback(async () => {
+    await reload();
+    if (isMounted()) setOverride(null);
+  }, [reload, isMounted]);
+
   return {
     config: override ?? loaded.data,
     isLoading: loaded.isLoading,
@@ -133,6 +140,7 @@ export function useAndroidAppConfig() {
     isSaving,
     saveError,
     save,
+    refresh,
   };
 }
 
