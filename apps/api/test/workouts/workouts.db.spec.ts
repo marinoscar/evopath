@@ -328,6 +328,16 @@ describeWithDb('workout logging (real Postgres)', () => {
       const workout = await a.workouts.start(userId, start());
       expect(workout.gymId).toBe(mine.id);
     });
+
+    it('an explicit gymId: null starts a gym-free workout despite a default gym', async () => {
+      const userId = await makeUser('gym-none');
+      await client.gym.create({ data: { userId, name: 'Default', type: 'home', isDefault: true } });
+
+      const workout = await a.workouts.start(userId, start({ gymId: null }));
+
+      expect(workout.gymId).toBeNull();
+      expect((await client.workout.findUniqueOrThrow({ where: { id: workout.id } })).gymId).toBeNull();
+    });
   });
 
   // ---------------------------------------------------------------------------

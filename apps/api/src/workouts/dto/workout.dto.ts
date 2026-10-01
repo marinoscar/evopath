@@ -86,7 +86,15 @@ export const startWorkoutSchema = z
           'The user\'s local day. Default: today in the Health Profile time zone (UTC when unset). ' +
           'Must be within 2 days of that server date.',
       }),
-    gymId: z.uuid().optional().meta({ description: 'One of the caller\'s gyms. Default: the caller\'s default gym, if any.' }),
+    gymId: z
+      .uuid()
+      .nullable()
+      .optional()
+      .meta({
+        description:
+          'One of the caller\'s gyms. Omitted: the caller\'s default gym, if any. Explicit `null`: no gym ' +
+          '(a gym-free session); the default gym never overrides it.',
+      }),
     startedAt: instant.optional().meta({ description: 'Default: now. At most 5 minutes in the future.' }),
   })
   .strict();

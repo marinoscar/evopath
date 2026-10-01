@@ -283,6 +283,22 @@ describe('Workouts (integration)', () => {
       expect(prisma.workout.create.mock.calls[0][0].data.gymId).toBe(GYM);
     });
 
+    it('starts with no gym on an explicit gymId: null, even when a default gym exists', async () => {
+      const user = await createMockContributorUser(context);
+      prisma.gym.findFirst.mockResolvedValue({ id: GYM });
+      prisma.workout.create.mockImplementation(async ({ data }: any) => workoutRow(user.id, { gymId: data.gymId }));
+
+      const response = await request(server())
+        .post('/api/workouts')
+        .set(authHeader(user.accessToken))
+        .send({ gymId: null })
+        .expect(201);
+
+      expect(prisma.workout.create.mock.calls[0][0].data.gymId).toBeNull();
+      expect(prisma.gym.findFirst).not.toHaveBeenCalled();
+      expect(response.body.data.gymId).toBeNull();
+    });
+
     it('copies today\'s check-in into readinessSnapshot by value', async () => {
       const user = await createMockContributorUser(context);
       const today = new Date().toISOString().slice(0, 10);

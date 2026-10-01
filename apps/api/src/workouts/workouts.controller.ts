@@ -100,8 +100,9 @@ export class WorkoutsController {
     description:
       'Starts an ad-hoc workout (201). When the caller already has a workout in progress, nothing is ' +
       'created and that workout is returned with status 200 and `existing: true`. `date` defaults to ' +
-      'today in the Health Profile time zone (UTC when unset); `gymId` defaults to the caller\'s default ' +
-      'gym. `readinessSnapshot` copies today\'s readiness check-in, when there is one.',
+      'today in the Health Profile time zone (UTC when unset); an omitted `gymId` defaults to the caller\'s ' +
+      'default gym, while an explicit `gymId: null` starts a session with no gym. ' +
+      '`readinessSnapshot` copies today\'s readiness check-in, when there is one.',
   })
   @ApiBody({ type: StartWorkoutDto, required: false })
   @ApiDataResponse(StartWorkoutResultView, { status: 201, description: 'The new workout (`existing: false`)' })

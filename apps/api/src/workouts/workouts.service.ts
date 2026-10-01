@@ -115,9 +115,13 @@ export class WorkoutsService {
     const startedAt = input.startedAt ? new Date(input.startedAt) : now;
     assertNotInFuture(startedAt, now, 'startedAt');
 
-    const gymId = input.gymId
-      ? (await this.gyms.findOwned(userId, input.gymId)).id
-      : ((await this.prisma.gym.findFirst({ where: { userId, isDefault: true }, select: { id: true } }))?.id ?? null);
+    // Omitted -> the default gym; explicit null -> no gym, never overridden.
+    const gymId =
+      input.gymId === null
+        ? null
+        : input.gymId !== undefined
+          ? (await this.gyms.findOwned(userId, input.gymId)).id
+          : ((await this.prisma.gym.findFirst({ where: { userId, isDefault: true }, select: { id: true } }))?.id ?? null);
 
     const readinessSnapshot = await this.readinessSnapshot(userId);
 
