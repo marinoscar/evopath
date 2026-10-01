@@ -27,13 +27,13 @@
  *
  * The Tidal Teal palettes state `text.primary` and `text.secondary` as opaque
  * hex, so a foreground no longer needs compositing. The component-authored
- * tints DataTable paints over the paper (the selected-row wash, the detail
- * wash) are still `rgba()` literals, and a translucent BACKGROUND is the case
- * a naive two-colour check gets wrong: the rendered surface is the tint
- * alpha-composited over paper, not the tint read in isolation. So every
- * assertion that involves a tint passes the opaque backing surface
- * explicitly, and every text assertion keeps passing it too so the call shape
- * stays uniform.
+ * tints DataTable paints over the paper (the selected-row wash, derived from
+ * `primary.main` via `alpha()`; the detail wash, an `rgba()` literal) are
+ * translucent, and a translucent BACKGROUND is the case a naive two-colour
+ * check gets wrong: the rendered surface is the tint alpha-composited over
+ * paper, not the tint read in isolation. So every assertion that involves a
+ * tint passes the opaque backing surface explicitly, and every text assertion
+ * keeps passing it too so the call shape stays uniform.
  *
  * These tests read the palette OBJECTS, not rendered output: with a
  * CSS-variables theme, rendered colours are `var(--mui-palette-…)` references
@@ -41,6 +41,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { alpha } from '@mui/material/styles';
 import { theme } from '../../../theme';
 import { lightPalette } from '../../../theme/light';
 import { darkPalette } from '../../../theme/dark';
@@ -53,17 +54,16 @@ import {
 
 // Component-authored colors that are not part of the theme palette but ARE
 // painted by DataTable — the selected-row tint (`DesktopGridRenderer.tsx`'s
-// `.MuiDataGrid-row.Mui-selected` equivalent styling, `DataCard.tsx`'s
+// `.MuiDataGrid-row.Mui-selected` equivalent styling, `mobile/DataCard.tsx`'s
 // selected background) and the bulk-action-bar tint (`BulkActionBar.tsx`).
 //
-// These are literals in the components themselves (`BulkActionBar.tsx:63-64`,
-// `DataCard.tsx:160-161`), not palette lookups, so they are mirrored here
-// verbatim rather than derived — verified to match those two files.
-// (They are the pre-Tidal-Teal blue tints; the ratios below hold with wide
-// margin, but if the components move to palette-derived tints, mirror that
-// change here.)
-const SELECTED_ROW_TINT_LIGHT = 'rgba(25, 118, 210, 0.06)';
-const SELECTED_ROW_TINT_DARK = 'rgba(144, 202, 249, 0.10)';
+// Both components paint `alpha(theme.palette.primary.main, 0.06)` in the light
+// scheme and `alpha(theme.palette.primary.main, 0.10)` in the dark scheme, so
+// the tints are derived here the same way, from the same palette objects —
+// a palette change to `primary.main` flows into these ratios automatically.
+// The alpha values are mirrored from the components; keep them in step.
+const SELECTED_ROW_TINT_LIGHT = alpha(lightPalette.primary!.main!, 0.06);
+const SELECTED_ROW_TINT_DARK = alpha(darkPalette.primary!.main!, 0.1);
 
 // The collapsed "More details" region's own backing wash (`DataCard.tsx:279-280`),
 // painted over the card's `background.paper`.
@@ -108,13 +108,13 @@ describe('DataTable — WCAG contrast (computed against the real theme)', () => 
     // ACTUAL rendered background is the tint alpha-composited over paper, not
     // the tint's own (mostly-transparent) color read in isolation.
 
-    // Measured: 15.77:1.
+    // Measured: 15.69:1. `text.primary` over `alpha(#0F766E, 0.06)` over #FFFFFF.
     it('light theme: text.primary over the selected-row tint (composited over paper) meets AA', () => {
       const ratio = contrastRatio(lightPalette.text!.primary!, SELECTED_ROW_TINT_LIGHT, LIGHT_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
     });
 
-    // Measured: 11.43:1.
+    // Measured: 11.61:1. `text.primary` over `alpha(#4FCDBC, 0.10)` over #122020.
     it('dark theme: text.primary over the selected-row tint (composited over paper) meets AA', () => {
       const ratio = contrastRatio(darkPalette.text!.primary!, SELECTED_ROW_TINT_DARK, DARK_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
