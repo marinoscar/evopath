@@ -43,6 +43,8 @@ model User {
   exercises              Exercise[]
   workouts               Workout[]
   programs               Program[]
+  activityGoals          ActivityGoal[]
+  activityEntries        ActivityEntry[]
   programChanges         ProgramChangeLog[]
   programSessions        ProgramSession[]
   trainingPlanRuns       TrainingPlanRun[]
@@ -3044,12 +3046,13 @@ model Workout {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  gym            Gym?              @relation(fields: [gymId], references: [id], onDelete: SetNull)
-  programWorkout ProgramWorkout?   @relation(fields: [programWorkoutId], references: [id], onDelete: SetNull)
-  exercises      WorkoutExercise[]
-  photos         WorkoutPhoto[]
-  programSession ProgramSession?
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gym             Gym?              @relation(fields: [gymId], references: [id], onDelete: SetNull)
+  programWorkout  ProgramWorkout?   @relation(fields: [programWorkoutId], references: [id], onDelete: SetNull)
+  exercises       WorkoutExercise[]
+  photos          WorkoutPhoto[]
+  programSession  ProgramSession?
+  activityEntries ActivityEntry[]
 
   @@index([userId, date(sort: Desc)])
   @@index([userId, status])
@@ -3367,11 +3370,11 @@ model ProgramWorkout {
 }
 
 model ProgramExercise {
-  id               String   @id @default(uuid()) @db.Uuid
-  programWorkoutId String   @map("program_workout_id") @db.Uuid
-  exerciseId       String   @map("exercise_id") @db.Uuid
-  position         Int
-  isPriority       Boolean  @default(false) @map("is_priority")
+  id                    String   @id @default(uuid()) @db.Uuid
+  programWorkoutId      String   @map("program_workout_id") @db.Uuid
+  exerciseId            String   @map("exercise_id") @db.Uuid
+  position              Int
+  isPriority            Boolean  @default(false) @map("is_priority")
   // Two prescription shapes, enforced by `program_exercises_shape_chk` (migration SQL):
   //  - reps shape (weight_reps|bodyweight_reps): targetSets 1..20, repMin/repMax
   //    1 <= repMin <= repMax <= 100 all set; both cardio targets null.
@@ -3382,13 +3385,13 @@ model ProgramExercise {
   repMax                Int?     @map("rep_max")
   targetDurationSeconds Int?     @map("target_duration_seconds")
   targetDistanceMeters  Decimal? @map("target_distance_meters") @db.Decimal(9, 2) // canonical metres
-  targetLoadKg     Decimal? @map("target_load_kg") @db.Decimal(7, 3) // canonical kg; null = choose a starting load or from history
-  targetRpe        Decimal? @map("target_rpe") @db.Decimal(3, 1) // 1..10 (CHECK in migration SQL)
-  restSeconds      Int      @map("rest_seconds") // 0..900 (CHECK in migration SQL)
-  loadGuidance     String   @default("choose_start") @map("load_guidance") // choose_start|from_history|fixed
-  rationale        String? // <= 300 chars, validated in Zod
-  evidenceRefs     String[] @default([]) @map("evidence_refs")
-  notes            String?
+  targetLoadKg          Decimal? @map("target_load_kg") @db.Decimal(7, 3) // canonical kg; null = choose a starting load or from history
+  targetRpe             Decimal? @map("target_rpe") @db.Decimal(3, 1) // 1..10 (CHECK in migration SQL)
+  restSeconds           Int      @map("rest_seconds") // 0..900 (CHECK in migration SQL)
+  loadGuidance          String   @default("choose_start") @map("load_guidance") // choose_start|from_history|fixed
+  rationale             String? // <= 300 chars, validated in Zod
+  evidenceRefs          String[] @default([]) @map("evidence_refs")
+  notes                 String?
 
   programWorkout  ProgramWorkout @relation(fields: [programWorkoutId], references: [id], onDelete: Cascade)
   exercise        Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
@@ -3555,4 +3558,103 @@ model ProgressPhoto {
   @@index([userId, localDate])
   @@index([storageObjectId])
   @@map("progress_photos")
+}
+
+// Activity goals and entries (epic #260). Goals are a separate concept from the
+// single active training program: a user may hold many active goals (the cap
+// is a service rule). `steps` exists on ActivityKind for entries only; goals
+// reject it (CHECK + Zod).
+enum ActivityKind {
+  walk
+  run
+  cardio_any
+  workout_any
+  custom
+  steps
+}
+
+enum GoalMetric {
+  sessions
+  minutes
+  steps
+  distance_m
+}
+
+enum GoalPeriod {
+  week
+  day
+}
+
+enum GoalStatus {
+  active
+  paused
+  archived
+}
+
+enum ActivitySource {
+  manual
+  workout
+  integration
+}
+
+// Raw SQL in the migration (CHECKs): `activity_goals_target_chk` (target > 0),
+// `activity_goals_sessions_week_chk` (metric sessions implies period week),
+// `activity_goals_kind_chk` (activity_kind <> 'steps'). Optimistic concurrency
+// through `version` (If-Match).
+model ActivityGoal {
+  id           String       @id @default(uuid()) @db.Uuid
+  userId       String       @map("user_id") @db.Uuid
+  title        String // <= 80 chars, validated in Zod
+  activityKind ActivityKind @map("activity_kind")
+  customLabel  String?      @map("custom_label")
+  metric       GoalMetric
+  target       Int // > 0 (CHECK in migration SQL)
+  period       GoalPeriod
+  status       GoalStatus   @default(active)
+  startsOn     DateTime     @map("starts_on") @db.Date
+  version      Int          @default(1)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("activity_goals")
+}
+
+// Raw SQL in the migration (intentional drift, never `@@unique`; Prisma cannot
+// express a partial unique index):
+//  - `activity_entries_provider_external_uniq_idx` on (user_id, provider,
+//    external_id) WHERE provider IS NOT NULL: idempotent re-send of imported rows.
+//  - `activity_entries_workout_kind_uniq_idx` on (workout_id, activity_kind)
+//    WHERE workout_id IS NOT NULL: one derived entry per workout per kind, so
+//    auto-credit is idempotent.
+// CHECKs: `activity_entries_steps_chk` 0..200000, `activity_entries_duration_chk`
+// 0..86400, `activity_entries_distance_chk` 0..1000000.
+// Workout-derived rows (source 'workout', workoutId set) are materialised by the
+// API; deleting the workout cascades to them.
+model ActivityEntry {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @map("user_id") @db.Uuid
+  occurredOn      DateTime       @map("occurred_on") @db.Date // user-local day
+  occurredAt      DateTime?      @map("occurred_at") @db.Timestamptz
+  activityKind    ActivityKind   @map("activity_kind")
+  completed       Boolean        @default(true)
+  durationSeconds Int?           @map("duration_seconds")
+  steps           Int?
+  distanceMeters  Decimal?       @map("distance_meters") @db.Decimal(9, 2)
+  source          ActivitySource @default(manual)
+  workoutId       String?        @map("workout_id") @db.Uuid
+  provider        String?
+  externalId      String?        @map("external_id")
+  note            String? // <= 280 chars, validated in Zod
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workout Workout? @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredOn])
+  @@index([workoutId])
+  @@map("activity_entries")
 }
