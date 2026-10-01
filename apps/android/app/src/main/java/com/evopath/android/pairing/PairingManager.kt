@@ -1,6 +1,7 @@
 package com.evopath.android.pairing
 
 import com.evopath.android.auth.TokenStore
+import com.evopath.android.diagnostics.AppLog
 import com.evopath.android.net.ApiError
 import com.evopath.android.net.ApiResult
 import com.evopath.android.net.HealthSyncBackend
@@ -51,30 +52,39 @@ class PairingManager(
     private val clock: () -> Instant = Instant::now,
 ) {
     suspend fun pair(onEvent: (PairingEvent) -> Unit): PairingResult {
+        AppLog.i(TAG, "Pairing started")
         val grant = when (val code = transport.requestCode(clientInfo())) {
             is ApiResult.Success -> code.value
-            is ApiResult.Failure -> return PairingResult.Failed("Could not start pairing: ${code.error.message}")
+            is ApiResult.Failure -> return failed("Could not start pairing: ${code.error.message}")
         }
         onEvent(PairingEvent.CodeReady(grant))
 
         return when (val polled = poller.poll(grant) { onEvent(PairingEvent.Progress(it)) }) {
             is PollResult.Approved -> {
-                tokens.setToken(polled.credential.accessToken, polled.credential.expiryInstant(clock()))
+                val expiresAt = polled.credential.expiryInstant(clock())
+                tokens.setToken(polled.credential.accessToken, expiresAt)
                 tokens.setDeviceId(null)
+                AppLog.i(TAG, "Pairing approved; token stored (expires ${expiresAt ?: "unknown"})")
                 onEvent(PairingEvent.Registering)
                 register()
             }
-            PollResult.Denied -> PairingResult.Failed("Pairing was denied in the browser. Nothing was saved.")
-            PollResult.Expired -> PairingResult.Failed("The pairing code expired. Start again.")
-            is PollResult.Failed -> PairingResult.Failed(polled.message)
+            PollResult.Denied -> failed("Pairing was denied in the browser. Nothing was saved.")
+            PollResult.Expired -> failed("The pairing code expired. Start again.")
+            is PollResult.Failed -> failed(polled.message)
         }
+    }
+
+    private fun failed(message: String, canRetryRegistration: Boolean = false): PairingResult.Failed {
+        AppLog.w(TAG, "Pairing failed: $message")
+        return PairingResult.Failed(message, canRetryRegistration)
     }
 
     /** Registers this phone with the stored token (after pairing, or to retry a failed registration). */
     suspend fun register(): PairingResult {
-        if (!tokens.isPaired) return PairingResult.Failed("Not signed in: pair again.")
+        if (!tokens.isPaired) return failed("Not signed in: pair again.")
         return when (val result = backend.registerDevice(deviceRegistration(tokens.installationId))) {
             is ApiResult.Success -> {
+                AppLog.i(TAG, "Phone registered as device ${result.value.id}")
                 tokens.setDeviceId(result.value.id)
                 state.resetPairingState()
                 scheduler.ensurePeriodic()
@@ -85,9 +95,9 @@ class PairingManager(
                 val error = result.error
                 if (error.isUnauthorized) {
                     tokens.clear()
-                    PairingResult.Failed("The server refused the new token: pair again.")
+                    failed("The server refused the new token: pair again.")
                 } else {
-                    PairingResult.Failed("Could not register this phone: ${error.message}", canRetryRegistration = true)
+                    failed("Could not register this phone: ${error.message}", canRetryRegistration = true)
                 }
             }
         }
@@ -116,10 +126,15 @@ class PairingManager(
     }
 
     fun forgetLocally() {
+        AppLog.i(TAG, "Pairing removed from this phone")
         scheduler.cancelAll()
         tokens.clear()
         state.resetPairingState()
     }
 
     private fun describe(error: ApiError): String = error.message
+
+    private companion object {
+        const val TAG = "Pairing"
+    }
 }

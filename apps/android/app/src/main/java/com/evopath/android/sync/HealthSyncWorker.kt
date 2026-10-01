@@ -5,6 +5,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.evopath.android.EvoPathApplication
+import com.evopath.android.diagnostics.AppLog
 
 /**
  * Runs one [HealthSyncEngine] pass. Network failures and server errors retry with WorkManager's
@@ -15,7 +16,10 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
     override suspend fun doWork(): Result {
         val app = EvoPathApplication.from(applicationContext)
         val trigger = SyncTrigger.fromWire(inputData.getString(KEY_TRIGGER))
-        return when (val outcome = app.newSyncEngine().run(trigger)) {
+        AppLog.i(TAG, "Worker started (${trigger.wire}, attempt ${runAttemptCount + 1})")
+        val outcome = app.newSyncEngine().run(trigger)
+        AppLog.i(TAG, "Worker finished: ${describe(outcome)}")
+        return when (outcome) {
             is SyncOutcome.Completed, SyncOutcome.NotPaired, SyncOutcome.PairingExpired -> Result.success()
             SyncOutcome.Unpaired -> {
                 app.syncScheduler.cancelAll()
@@ -36,7 +40,17 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
     }
 
     companion object {
+        private const val TAG = "Worker"
         const val KEY_TRIGGER = "trigger"
         const val MAX_RETRIES = 4
+
+        fun describe(outcome: SyncOutcome): String = when (outcome) {
+            is SyncOutcome.Completed -> "completed (${outcome.status})"
+            SyncOutcome.NotPaired -> "not paired"
+            SyncOutcome.PairingExpired -> "pairing expired"
+            SyncOutcome.Unpaired -> "device unpaired on the server"
+            is SyncOutcome.RetryLater -> "will retry (${outcome.message})"
+            is SyncOutcome.Failed -> "failed (${outcome.message})"
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.evopath.android.sync
 
 import com.evopath.android.auth.TokenStore
+import com.evopath.android.diagnostics.AppLog
 import com.evopath.android.healthconnect.AppLabels
 import com.evopath.android.healthconnect.HcAvailability
 import com.evopath.android.healthconnect.HcDataType
@@ -67,6 +68,7 @@ class HealthSyncEngine(
         val startedAt = clock()
         val zoneId = zone()
         val window = SyncWindow.compute(startedAt, zoneId, initial = state.lastSuccessfulSyncAt == null)
+        AppLog.i(TAG, "Sync started (${trigger.wire}, ${window.from}..${window.to}, ${zoneId.id})")
 
         val availability = runCatching { gateway.availability() }.getOrDefault(HcAvailability.NOT_SUPPORTED)
         if (availability != HcAvailability.AVAILABLE) {
@@ -84,6 +86,7 @@ class HealthSyncEngine(
 
         val enabledTypes = state.enabledToggles.flatMap { it.dataTypes }.toSet()
         val outcomes = readAll(window, zoneId, enabledTypes, granted)
+        outcomes.filter { it.error != null }.forEach { AppLog.w(TAG, "Read ${it.type.key} failed: ${it.error}") }
         val built = builder.build(trigger, startedAt, clock(), window, timezoneId(zoneId), outcomes)
         return deliver(deviceId, trigger, built, outcomes, window, zoneId, startedAt)
     }
@@ -208,6 +211,13 @@ class HealthSyncEngine(
                     if (built.status == RunStatus.OK || built.status == RunStatus.PARTIAL) {
                         state.lastSuccessfulSyncAt = clock()
                     }
+                    val r = result.value
+                    AppLog.i(
+                        TAG,
+                        "Sync ${built.status}: read ${built.recordsRead}, sent ${built.rowsSent}; server created ${r.totalCreated}, " +
+                            "updated ${r.totalUpdated}, deleted ${r.totalDeleted}, skipped ${r.skipped + (r.measurements?.skipped ?: 0) + (r.sleep?.skipped ?: 0)}" +
+                            (built.request.run.errorCode?.let { " [$it]" } ?: ""),
+                    )
                     record(built, delivered = true, response = result.value)
                     return SyncOutcome.Completed(built.status, result.value)
                 }
@@ -241,6 +251,7 @@ class HealthSyncEngine(
         zoneId: ZoneId,
         startedAt: Instant,
     ): SyncOutcome {
+        AppLog.w(TAG, "Sync not accepted: ${error.kind} ${error.httpStatus ?: ""} ${error.reason ?: error.code ?: ""}".trim())
         when {
             error.isUnauthorized -> {
                 state.pairingExpired = true
@@ -293,6 +304,7 @@ class HealthSyncEngine(
         code: String,
         message: String,
     ): SyncOutcome {
+        AppLog.w(TAG, "Sync cannot read Health Connect: $code $message")
         val enabledTypes = state.enabledToggles.flatMap { it.dataTypes }.toSet()
         val outcomes = HcDataType.SYNCED.map { TypeOutcome(it, enabled = it in enabledTypes, granted = false) }
         val built = builder.build(trigger, startedAt, clock(), window, timezoneId(zoneId), outcomes)
@@ -327,6 +339,7 @@ class HealthSyncEngine(
     }
 
     companion object {
+        private const val TAG = "Sync"
         const val REASON_DEVICE_REVOKED = "DEVICE_REVOKED"
         const val REASON_HEALTH_DATA_SCOPE = "HEALTH_DATA_SCOPE_REQUIRED"
         private const val SLEEP_LOOKBACK_SECONDS = 24 * 3600L

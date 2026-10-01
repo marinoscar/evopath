@@ -1,5 +1,6 @@
 package com.evopath.android.net
 
+import com.evopath.android.diagnostics.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
@@ -80,12 +81,12 @@ class ApiClient(
             http.newCall(baseRequest(url, authenticated = false).get().build()).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (response.isSuccessful) ApiResult.Success(text, response.code)
-                else ApiResult.Failure(parseError(response.code, text, json))
+                else ApiResult.Failure(parseError(response.code, text, json).also { logFailure("GET", url, it) })
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
-            ApiResult.Failure(networkError(e))
+            ApiResult.Failure(networkError(e).also { logFailure("GET", url, it) })
         }
     }
 
@@ -107,7 +108,22 @@ class ApiClient(
             throw e
         } catch (e: IOException) {
             ApiResult.Failure(networkError(e))
+        }.also { result -> if (result is ApiResult.Failure) logFailure(method, url, result.error) }
+    }
+
+    /**
+     * One log line per failed call: method, path, status and API code only. Never the query,
+     * a body (they carry health data) or a header. Device-flow polling noise is left out.
+     */
+    private fun logFailure(method: String, url: HttpUrl, error: ApiError) {
+        if (error.oauthError == "authorization_pending" || error.oauthError == "slow_down") return
+        val what = when (error.kind) {
+            ApiError.Kind.HTTP -> "HTTP ${error.httpStatus} ${error.code.orEmpty()}${error.reason?.let { " ($it)" }.orEmpty()}${error.oauthError?.let { " ($it)" }.orEmpty()}"
+            ApiError.Kind.NETWORK -> "network error ${error.cause?.javaClass?.simpleName.orEmpty()}"
+            ApiError.Kind.PARSE -> "unreadable response (HTTP ${error.httpStatus})"
+            ApiError.Kind.NOT_CONFIGURED -> "no server configured"
         }
+        AppLog.w("Api", "$method ${url.encodedPath} failed: $what")
     }
 
     private fun <T> handle(response: Response, deserializer: KSerializer<T>, unwrapEnvelope: Boolean): ApiResult<T> {

@@ -4,9 +4,9 @@ package com.evopath.android.auth
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.evopath.android.diagnostics.AppLog
 import java.time.Instant
 import java.util.UUID
 
@@ -77,7 +77,7 @@ open class SharedPrefsTokenStore(private val prefs: SharedPreferences) : TokenSt
 /** Keystore-backed (AES-256 GCM) store. Excluded from backup and device transfer. */
 class EncryptedTokenStore private constructor(prefs: SharedPreferences) : SharedPrefsTokenStore(prefs) {
     companion object {
-        private const val TAG = "EvoPathTokenStore"
+        private const val TAG = "TokenStore"
         const val PREFS_NAME = "evopath_secure"
 
         fun create(context: Context): TokenStore {
@@ -86,7 +86,7 @@ class EncryptedTokenStore private constructor(prefs: SharedPreferences) : Shared
                 EncryptedTokenStore(open(app))
             } catch (e: Exception) {
                 // A restored or corrupted keyset cannot be decrypted; start over (the user re-pairs).
-                Log.w(TAG, "Encrypted prefs unreadable; resetting pairing state", e)
+                AppLog.w(TAG, "Encrypted prefs unreadable; resetting pairing state", e)
                 app.deleteSharedPreferences(PREFS_NAME)
                 EncryptedTokenStore(open(app))
             }

@@ -166,4 +166,19 @@ class ApiClientTest {
         assertEquals("ok", result.getOrNull())
         assertEquals("/.well-known/assetlinks.json", server.takeRequest().path)
     }
+
+    @Test fun `a failed call is logged with status and code only, never the body or the token`() = runBlocking {
+        val log = com.evopath.android.diagnostics.RollingLog(null)
+        com.evopath.android.diagnostics.AppLog.install(log)
+        server.enqueue(
+            MockResponse().setResponseCode(409)
+                .setBody("""{"statusCode":409,"code":"CONFLICT","message":"steps 4321 rejected","details":{"reason":"DEVICE_REVOKED"}}"""),
+        )
+        client().post("/api/things?secret=1", NewThing("weight 81.2"), NewThing.serializer(), Thing.serializer())
+        val line = log.tail(5).single()
+        assertTrue(line, line.contains("POST /api/things failed: HTTP 409 CONFLICT (DEVICE_REVOKED)"))
+        assertFalse(line.contains("4321"))
+        assertFalse(line.contains("81.2"))
+        assertFalse(line.contains("secret"))
+    }
 }
