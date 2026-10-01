@@ -38,6 +38,7 @@ import com.enterpriseapp.android.BuildConfig
 import com.enterpriseapp.android.MobileApplication
 import com.enterpriseapp.android.TwaLauncherActivity
 import com.enterpriseapp.android.sync.WorkManagerSyncScheduler
+import com.enterpriseapp.android.update.AppUpdates
 import com.enterpriseapp.android.ui.components.ServerUrlEditor
 import com.enterpriseapp.android.ui.theme.AppTheme
 import com.enterpriseapp.android.util.AppInfo
@@ -69,6 +70,7 @@ class HealthSyncActivity : ComponentActivity() {
         enableEdgeToEdge()
         if (savedInstanceState == null) {
             WorkManagerSyncScheduler.onAppOpen(this)
+            AppUpdates.onAppOpen(this)
             pendingOpen.value = intent?.getStringExtra(EXTRA_OPEN)
         }
         setContent {
@@ -90,6 +92,7 @@ class HealthSyncActivity : ComponentActivity() {
         pairingVm.refreshStatus()
         syncVm.refresh()
         diagnosticsVm.onResume()
+        MobileApplication.from(this).refreshAvailableUpdate()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -199,6 +202,9 @@ private fun HubScreen(
     var editingServer by rememberSaveable { mutableStateOf(false) }
     val pairing by pairingVm.state.collectAsState()
     val appInfo = AppInfo.read(context)
+
+    val update by app.availableUpdate.collectAsState()
+    update?.let { UpdateCard(it, installedVersion = "${appInfo.versionName} (${appInfo.versionCode})") }
 
     SectionCard(title = "Server") {
         Text(serverUrl ?: "Not configured", style = MaterialTheme.typography.bodyLarge)

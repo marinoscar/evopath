@@ -6,6 +6,7 @@ import android.os.Bundle
 import com.enterpriseapp.android.config.ServerUrls
 import com.enterpriseapp.android.setup.SetupActivity
 import com.enterpriseapp.android.sync.WorkManagerSyncScheduler
+import com.enterpriseapp.android.update.AppUpdates
 import com.google.androidbrowserhelper.trusted.LauncherActivity
 
 /**
@@ -29,8 +30,12 @@ class TwaLauncherActivity : LauncherActivity() {
             finish()
             return
         }
-        // Opening the app syncs Health Connect (debounced to every 15 min; no-op unless paired).
-        if (savedInstanceState == null) WorkManagerSyncScheduler.onAppOpen(this)
+        // Opening the app syncs Health Connect (debounced to every 15 min; no-op unless paired)
+        // and asks the server for a newer release (at most every 12 h; no-op unless paired).
+        if (savedInstanceState == null) {
+            WorkManagerSyncScheduler.onAppOpen(this)
+            AppUpdates.onAppOpen(this)
+        }
     }
 
     override fun getLaunchingUrl(): Uri {

@@ -29,7 +29,16 @@ import com.enterpriseapp.android.sync.SyncNotifications
 import com.enterpriseapp.android.sync.SyncScheduling
 import com.enterpriseapp.android.sync.SyncStateStore
 import com.enterpriseapp.android.sync.WorkManagerSyncScheduler
+import com.enterpriseapp.android.update.AndroidReleaseApi
+import com.enterpriseapp.android.update.AvailableUpdate
+import com.enterpriseapp.android.update.PrefsUpdateStore
+import com.enterpriseapp.android.update.ReleaseBackend
+import com.enterpriseapp.android.update.UpdateChecker
+import com.enterpriseapp.android.update.UpdateStore
 import com.enterpriseapp.android.util.AppInfo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,6 +67,30 @@ class MobileApplication : Application() {
     val syncHistory: SyncHistoryStore by lazy { PrefsSyncHistoryStore.from(this) }
     val syncScheduler: SyncScheduling by lazy { WorkManagerSyncScheduler(this) }
 
+    /** Process-wide scope for short fire-and-forget calls (update check on app open). */
+    val appScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+
+    val releaseApi: ReleaseBackend by lazy { AndroidReleaseApi(apiClient) }
+    val updateStore: UpdateStore by lazy { PrefsUpdateStore.from(this) }
+    val updateChecker: UpdateChecker by lazy {
+        UpdateChecker(
+            backend = releaseApi,
+            store = updateStore,
+            ownPackage = packageName,
+            ownVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            isPaired = { tokenStore.isPaired && !syncState.pairingExpired },
+        )
+    }
+
+    private val updateFlow = MutableStateFlow<AvailableUpdate?>(null)
+
+    /** The newer release the Health sync hub offers, or null. */
+    val availableUpdate: StateFlow<AvailableUpdate?> = updateFlow.asStateFlow()
+
+    fun refreshAvailableUpdate() {
+        updateFlow.value = runCatching { updateChecker.available }.getOrNull()
+    }
+
     private val syncTicks = MutableStateFlow(0L)
 
     /** Bumps after every sync run, so open screens reload status and history. */
@@ -71,6 +104,10 @@ class MobileApplication : Application() {
         super.onCreate()
         AppLog.init(this)
         SyncNotifications.ensureChannels(this)
+        runCatching {
+            updateChecker.onLaunch()
+            refreshAvailableUpdate()
+        }
         // Re-assert the hourly schedule (KEEP) in case it was lost, e.g. after an app data restore.
         if (isSyncConfigured) runCatching { syncScheduler.ensurePeriodic() }
     }
