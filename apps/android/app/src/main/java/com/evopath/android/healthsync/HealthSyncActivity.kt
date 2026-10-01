@@ -25,6 +25,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +40,7 @@ import com.evopath.android.ui.components.ServerUrlEditor
 import com.evopath.android.ui.theme.EvoPathTheme
 import com.evopath.android.sync.WorkManagerSyncScheduler
 import com.evopath.android.util.AppInfo
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Hub sections. Diagnostics is filled in by #282. */
 enum class HealthSyncScreen(val title: String) {
@@ -55,12 +58,25 @@ class HealthSyncActivity : ComponentActivity() {
     private val pairingVm: PairingViewModel by viewModels()
     private val syncVm: SyncViewModel by viewModels()
 
+    /** A destination requested by a notification (`EXTRA_OPEN`), consumed by the UI once. */
+    private val pendingOpen = MutableStateFlow<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null) WorkManagerSyncScheduler.onAppOpen(this)
+        if (savedInstanceState == null) {
+            WorkManagerSyncScheduler.onAppOpen(this)
+            pendingOpen.value = intent?.getStringExtra(EXTRA_OPEN)
+        }
         setContent {
-            EvoPathTheme { HealthSyncApp(pairingVm = pairingVm, syncVm = syncVm, onOpenWebApp = ::openWebApp) }
+            EvoPathTheme {
+                HealthSyncApp(
+                    pairingVm = pairingVm,
+                    syncVm = syncVm,
+                    pendingOpen = pendingOpen,
+                    onOpenWebApp = ::openWebApp,
+                )
+            }
         }
     }
 
@@ -74,6 +90,16 @@ class HealthSyncActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        intent.getStringExtra(EXTRA_OPEN)?.let { pendingOpen.value = it }
+    }
+
+    companion object {
+        /** Intent extra: which part of Health sync to open. */
+        const val EXTRA_OPEN = "com.evopath.android.extra.OPEN"
+
+        /** Opens Connect and asks for the background-read permission. */
+        const val OPEN_BACKGROUND_ACCESS = "background_access"
+        const val OPEN_DIAGNOSTICS = "diagnostics"
     }
 
     private fun openWebApp() {
@@ -83,8 +109,25 @@ class HealthSyncActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HealthSyncApp(pairingVm: PairingViewModel, syncVm: SyncViewModel, onOpenWebApp: () -> Unit) {
+private fun HealthSyncApp(
+    pairingVm: PairingViewModel,
+    syncVm: SyncViewModel,
+    pendingOpen: MutableStateFlow<String?>,
+    onOpenWebApp: () -> Unit,
+) {
     var screen by rememberSaveable { mutableStateOf(HealthSyncScreen.Hub) }
+    var requestBackground by remember { mutableStateOf(false) }
+    val open by pendingOpen.collectAsState()
+    LaunchedEffect(open) {
+        when (open) {
+            HealthSyncActivity.OPEN_BACKGROUND_ACCESS -> {
+                screen = HealthSyncScreen.Connect
+                requestBackground = true
+            }
+            HealthSyncActivity.OPEN_DIAGNOSTICS -> screen = HealthSyncScreen.Diagnostics
+        }
+        if (open != null) pendingOpen.value = null
+    }
     BackHandler(enabled = screen != HealthSyncScreen.Hub) { screen = HealthSyncScreen.Hub }
 
     Scaffold(
@@ -114,7 +157,12 @@ private fun HealthSyncApp(pairingVm: PairingViewModel, syncVm: SyncViewModel, on
         ) {
             when (screen) {
                 HealthSyncScreen.Hub -> HubScreen(pairingVm = pairingVm, onNavigate = { screen = it }, onOpenWebApp = onOpenWebApp)
-                HealthSyncScreen.Connect -> ConnectScreen(pairingVm = pairingVm, syncVm = syncVm)
+                HealthSyncScreen.Connect -> ConnectScreen(
+                    pairingVm = pairingVm,
+                    syncVm = syncVm,
+                    requestBackground = requestBackground,
+                    onBackgroundRequested = { requestBackground = false },
+                )
                 HealthSyncScreen.Sync -> SyncScreen(syncVm = syncVm, onOpenConnect = { screen = HealthSyncScreen.Connect })
                 HealthSyncScreen.Diagnostics -> PlaceholderScreen(screen)
             }

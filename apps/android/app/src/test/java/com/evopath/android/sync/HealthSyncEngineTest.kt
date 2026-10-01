@@ -37,6 +37,8 @@ class HealthSyncEngineTest {
     private lateinit var state: PrefsSyncStateStore
     private lateinit var history: PrefsSyncHistoryStore
     private var notified = 0
+    private val backgroundPrompts = mutableListOf<Boolean>()
+    private var clockNow = Instant.parse("2026-10-01T18:00:00Z")
 
     @Before fun setUp() {
         gateway = FakeHealthConnect().apply {
@@ -57,6 +59,8 @@ class HealthSyncEngineTest {
         state = PrefsSyncStateStore(FakeSharedPreferences())
         history = PrefsSyncHistoryStore(FakeSharedPreferences())
         notified = 0
+        backgroundPrompts.clear()
+        clockNow = now
     }
 
     private fun engine() = HealthSyncEngine(
@@ -67,11 +71,12 @@ class HealthSyncEngineTest {
         history = history,
         labels = { it },
         notifier = { notified++ },
-        clock = { now },
+        clock = { clockNow },
         zone = { zone },
+        backgroundNotifier = { backgroundPrompts += it },
     )
 
-    private fun run(trigger: SyncTrigger = SyncTrigger.PERIODIC) = runBlocking { engine().run(trigger) }
+    private fun run(trigger: SyncTrigger = SyncTrigger.MANUAL) = runBlocking { engine().run(trigger) }
 
     @Test fun `a full sync posts every enabled type, records the run and switches to 7-day windows`() {
         val outcome = run(SyncTrigger.INITIAL)
@@ -250,5 +255,72 @@ class HealthSyncEngineTest {
         assertTrue(HealthSyncEngine.isTransient(err(FakeBackend.httpError(500))))
         assertTrue(HealthSyncEngine.isTransient(err(FakeBackend.httpError(429))))
         assertFalse(HealthSyncEngine.isTransient(err(FakeBackend.httpError(400))))
+    }
+
+    // --- background access (#282) -----------------------------------------------------------
+
+    @Test fun `a periodic run without the background permission reads nothing and reports a skipped run`() {
+        gateway.granted = HealthPermissions.ALL_DATA.toSet()
+        val outcome = run(SyncTrigger.PERIODIC)
+        assertEquals(RunStatus.SKIPPED, (outcome as SyncOutcome.Completed).status)
+        assertTrue("no Health Connect reads", gateway.reads.isEmpty())
+        val request = backend.syncRequests.single()
+        assertEquals("periodic", request.run.trigger)
+        assertEquals(RunStatus.SKIPPED, request.run.status)
+        assertEquals("BACKGROUND_PERMISSION_MISSING", request.run.errorCode)
+        assertTrue(request.run.errorMessage!!.contains("background"))
+        assertNull("no window: nothing may be reconciled", request.window)
+        assertTrue(request.entries.isEmpty())
+        assertNull(request.measurements)
+        assertTrue(request.run.details!!.syncedTypes.isEmpty())
+        assertEquals("granted", request.run.details!!.perType.getValue("steps").permission)
+        assertNull(state.lastSuccessfulSyncAt)
+        assertEquals(listOf(true), backgroundPrompts)
+        val local = history.runs().single()
+        assertEquals(RunStatus.SKIPPED, local.status)
+        assertEquals("BACKGROUND_PERMISSION_MISSING", local.errorCode)
+    }
+
+    @Test fun `a periodic run is skipped when Health Connect cannot read in the background at all`() {
+        gateway.backgroundAvailable = false
+        val outcome = run(SyncTrigger.PERIODIC)
+        assertEquals(RunStatus.SKIPPED, (outcome as SyncOutcome.Completed).status)
+        assertTrue(gateway.reads.isEmpty())
+        assertEquals(listOf(false), backgroundPrompts)
+    }
+
+    @Test fun `the background notification is posted at most once per 24 hours`() {
+        gateway.granted = HealthPermissions.ALL_DATA.toSet()
+        run(SyncTrigger.PERIODIC)
+        clockNow = now.plusSeconds(23 * 3600)
+        run(SyncTrigger.PERIODIC)
+        assertEquals(1, backgroundPrompts.size)
+        clockNow = now.plusSeconds(24 * 3600)
+        run(SyncTrigger.PERIODIC)
+        assertEquals(2, backgroundPrompts.size)
+    }
+
+    @Test fun `foreground triggers still read without the background permission`() {
+        gateway.granted = HealthPermissions.ALL_DATA.toSet()
+        for (trigger in listOf(SyncTrigger.MANUAL, SyncTrigger.APP_OPEN, SyncTrigger.INITIAL)) {
+            gateway.reads.clear()
+            val outcome = run(trigger)
+            assertEquals(RunStatus.OK, (outcome as SyncOutcome.Completed).status)
+            assertTrue(trigger.wire, HcDataType.STEPS in gateway.reads)
+        }
+        assertTrue(backgroundPrompts.isEmpty())
+    }
+
+    @Test fun `a periodic run with background access reads normally`() {
+        val outcome = run(SyncTrigger.PERIODIC)
+        assertEquals(RunStatus.OK, (outcome as SyncOutcome.Completed).status)
+        assertTrue(HcDataType.STEPS in gateway.reads)
+    }
+
+    @Test fun `backgroundPromptDue throttles to one per day and tolerates clock changes`() {
+        assertTrue(HealthSyncEngine.backgroundPromptDue(null, now))
+        assertFalse(HealthSyncEngine.backgroundPromptDue(now.minusSeconds(3600), now))
+        assertTrue(HealthSyncEngine.backgroundPromptDue(now.minusSeconds(24 * 3600), now))
+        assertTrue("clock moved back", HealthSyncEngine.backgroundPromptDue(now.plusSeconds(3600), now))
     }
 }

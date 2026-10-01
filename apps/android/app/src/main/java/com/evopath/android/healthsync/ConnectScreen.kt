@@ -40,7 +40,12 @@ import com.evopath.android.healthconnect.PermissionsRationaleActivity
 
 /** Pairing with the EvoPath account, then Health Connect availability and permissions. */
 @Composable
-internal fun ConnectScreen(pairingVm: PairingViewModel, syncVm: SyncViewModel) {
+internal fun ConnectScreen(
+    pairingVm: PairingViewModel,
+    syncVm: SyncViewModel,
+    requestBackground: Boolean = false,
+    onBackgroundRequested: () -> Unit = {},
+) {
     val context = LocalContext.current
     val pairing by pairingVm.state.collectAsState()
     val sync by syncVm.state.collectAsState()
@@ -52,6 +57,15 @@ internal fun ConnectScreen(pairingVm: PairingViewModel, syncVm: SyncViewModel) {
     val permissionLauncher = rememberLauncherForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
     ) { granted -> syncVm.onPermissionsResult(granted) }
+    // Opened from the "Allow background access" notification: ask for it once Health Connect is known.
+    LaunchedEffect(requestBackground, sync.availability, sync.backgroundReadAvailable) {
+        if (requestBackground && sync.availability == HcAvailability.AVAILABLE) {
+            onBackgroundRequested()
+            if (sync.backgroundReadAvailable && !sync.backgroundGranted) {
+                permissionLauncher.launch(setOf(HealthPermissions.READ_HEALTH_DATA_IN_BACKGROUND))
+            }
+        }
+    }
     var notificationsGranted by remember { mutableStateOf(notificationsAllowed(context)) }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         notificationsGranted = it

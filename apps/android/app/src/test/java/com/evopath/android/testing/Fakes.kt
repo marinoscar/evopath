@@ -29,7 +29,9 @@ import java.time.LocalDate
 /** In-memory Health Connect with per-type data and per-type failures. */
 class FakeHealthConnect : HealthConnectGateway {
     var availability = HcAvailability.AVAILABLE
-    var granted: Set<String> = HealthPermissions.ALL_DATA.toSet()
+    var granted: Set<String> = HealthPermissions.ALL_DATA.toSet() + HealthPermissions.READ_HEALTH_DATA_IN_BACKGROUND
+    var backgroundAvailable = true
+    var version = "system"
     var grantedError: Exception? = null
     val failures = mutableMapOf<HcDataType, Exception>()
     val reads = mutableListOf<HcDataType>()
@@ -52,8 +54,8 @@ class FakeHealthConnect : HealthConnectGateway {
     }
 
     override fun availability() = availability
-    override fun providerVersion() = "system"
-    override fun isBackgroundReadAvailable() = true
+    override fun providerVersion() = version
+    override fun isBackgroundReadAvailable() = backgroundAvailable
     override suspend fun grantedPermissions(): Set<String> = grantedError?.let { throw it } ?: granted
     override suspend fun dailySteps(from: LocalDate, to: LocalDate) = read(HcDataType.STEPS, steps)
     override suspend fun dailyHeartRateAvg(from: LocalDate, to: LocalDate) = read(HcDataType.HEART_RATE, heartRate)

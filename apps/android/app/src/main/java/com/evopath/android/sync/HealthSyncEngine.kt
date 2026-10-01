@@ -6,6 +6,7 @@ import com.evopath.android.healthconnect.AppLabels
 import com.evopath.android.healthconnect.HcAvailability
 import com.evopath.android.healthconnect.HcDataType
 import com.evopath.android.healthconnect.HealthConnectGateway
+import com.evopath.android.healthconnect.HealthPermissions
 import com.evopath.android.net.ApiError
 import com.evopath.android.net.ApiResult
 import com.evopath.android.net.HealthSyncBackend
@@ -39,6 +40,12 @@ fun interface PairingExpiredNotifier {
     fun notifyPairingExpired()
 }
 
+/** Asks the user to allow background reads (the periodic worker cannot read without it). */
+fun interface BackgroundAccessNotifier {
+    /** [featureAvailable] is false when this Health Connect cannot grant background reads at all. */
+    fun notifyBackgroundAccessNeeded(featureAvailable: Boolean)
+}
+
 /**
  * One Health Connect → EvoPath sync.
  *
@@ -57,6 +64,7 @@ class HealthSyncEngine(
     private val notifier: PairingExpiredNotifier,
     private val clock: () -> Instant = Instant::now,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
+    private val backgroundNotifier: BackgroundAccessNotifier = BackgroundAccessNotifier { },
 ) {
     private val builder = SyncPayloadBuilder(labels)
 
@@ -82,6 +90,15 @@ class HealthSyncEngine(
             throw e
         } catch (e: Exception) {
             return reportFailure(deviceId, trigger, startedAt, window, zoneId, "HC_ERROR", "Could not read permissions: ${describe(e)}")
+        }
+
+        if (trigger == SyncTrigger.PERIODIC) {
+            // The periodic worker runs while the app is closed: without the background permission
+            // every read throws SecurityException. Do not try; report why, and ask the user.
+            val featureAvailable = runCatching { gateway.isBackgroundReadAvailable() }.getOrDefault(false)
+            if (!featureAvailable || HealthPermissions.READ_HEALTH_DATA_IN_BACKGROUND !in granted) {
+                return reportBackgroundSkip(deviceId, trigger, startedAt, window, zoneId, granted, featureAvailable)
+            }
         }
 
         val enabledTypes = state.enabledToggles.flatMap { it.dataTypes }.toSet()
@@ -316,6 +333,44 @@ class HealthSyncEngine(
         }
     }
 
+    /** A periodic run without background access: nothing is read; the run is reported as skipped. */
+    private suspend fun reportBackgroundSkip(
+        deviceId: String,
+        trigger: SyncTrigger,
+        startedAt: Instant,
+        window: SyncWindow,
+        zoneId: ZoneId,
+        granted: Set<String>,
+        featureAvailable: Boolean,
+    ): SyncOutcome {
+        val message = backgroundSkipMessage(featureAvailable)
+        AppLog.w(TAG, "Periodic sync skipped: $ERROR_BACKGROUND_PERMISSION_MISSING (feature available: $featureAvailable)")
+        val enabledTypes = state.enabledToggles.flatMap { it.dataTypes }.toSet()
+        val outcomes = HcDataType.SYNCED.map { type ->
+            val outcome = TypeOutcome(type, enabled = type in enabledTypes, granted = type.permission in granted)
+            if (outcome.attempted) outcome.copy(error = "not read: background access not allowed") else outcome
+        }
+        val first = builder.build(trigger, startedAt, clock(), window, timezoneId(zoneId), outcomes)
+        val run = first.request.run.copy(
+            status = RunStatus.SKIPPED,
+            errorCode = ERROR_BACKGROUND_PERMISSION_MISSING,
+            errorMessage = message,
+            details = first.request.run.details?.copy(syncedTypes = emptyList()),
+        )
+        val built = first.copy(
+            request = first.request.copy(run = run, window = null, entries = emptyList(), measurements = null, sleepSessions = null),
+            status = RunStatus.SKIPPED,
+            syncedTypes = emptyList(),
+            rowsSent = 0,
+        )
+        val now = clock()
+        if (backgroundPromptDue(state.lastBackgroundPromptAt, now)) {
+            state.lastBackgroundPromptAt = now
+            runCatching { backgroundNotifier.notifyBackgroundAccessNeeded(featureAvailable) }
+        }
+        return deliver(deviceId, trigger, built, outcomes, window, zoneId, startedAt)
+    }
+
     private fun record(built: BuiltSync, delivered: Boolean, response: SyncResponse? = null, errorCode: String? = null, errorMessage: String? = null) {
         val run = built.request.run
         history.add(
@@ -340,6 +395,22 @@ class HealthSyncEngine(
 
     companion object {
         private const val TAG = "Sync"
+        const val ERROR_BACKGROUND_PERMISSION_MISSING = "BACKGROUND_PERMISSION_MISSING"
+
+        /** At most one "Allow background access" notification per this interval. */
+        val BACKGROUND_PROMPT_INTERVAL: java.time.Duration = java.time.Duration.ofHours(24)
+
+        fun backgroundPromptDue(last: Instant?, now: Instant): Boolean =
+            last == null || now.isBefore(last) || !now.isBefore(last.plus(BACKGROUND_PROMPT_INTERVAL))
+
+        fun backgroundSkipMessage(featureAvailable: Boolean): String =
+            if (featureAvailable) {
+                "Background access to Health Connect is not allowed, so the hourly sync cannot read while EvoPath is " +
+                    "closed. Allow \"Access data in the background\" for EvoPath in Health Connect, or open Health sync to sync."
+            } else {
+                "This phone's Health Connect cannot read in the background, so the hourly sync cannot read while " +
+                    "EvoPath is closed. Update Health Connect, or open Health sync to sync."
+            }
         const val REASON_DEVICE_REVOKED = "DEVICE_REVOKED"
         const val REASON_HEALTH_DATA_SCOPE = "HEALTH_DATA_SCOPE_REQUIRED"
         private const val SLEEP_LOOKBACK_SECONDS = 24 * 3600L

@@ -22,6 +22,12 @@ interface SyncStateStore {
     /** Last time an app-open sync was enqueued (debounce). */
     var lastAppOpenSyncAt: Instant?
 
+    /** Last "Allow background access" notification (at most one per 24 h). */
+    var lastBackgroundPromptAt: Instant?
+
+    /** Last automatic diagnostics upload after a failed or partial run (at most one per 6 h). */
+    var lastAutoDiagnosticsAt: Instant?
+
     /** Forgets everything tied to a pairing (toggles stay). */
     fun resetPairingState()
 
@@ -49,6 +55,14 @@ class PrefsSyncStateStore(private val prefs: SharedPreferences) : SyncStateStore
         get() = instant(KEY_LAST_APP_OPEN)
         set(value) = putInstant(KEY_LAST_APP_OPEN, value)
 
+    override var lastBackgroundPromptAt: Instant?
+        get() = instant(KEY_LAST_BACKGROUND_PROMPT)
+        set(value) = putInstant(KEY_LAST_BACKGROUND_PROMPT, value)
+
+    override var lastAutoDiagnosticsAt: Instant?
+        get() = instant(KEY_LAST_AUTO_DIAGNOSTICS)
+        set(value) = putInstant(KEY_LAST_AUTO_DIAGNOSTICS, value)
+
     override fun resetPairingState() {
         prefs.edit().remove(KEY_LAST_SUCCESS).remove(KEY_PAIRING_EXPIRED).remove(KEY_LAST_APP_OPEN).commit()
     }
@@ -65,6 +79,8 @@ class PrefsSyncStateStore(private val prefs: SharedPreferences) : SyncStateStore
         private const val KEY_LAST_SUCCESS = "last_successful_sync_at"
         private const val KEY_PAIRING_EXPIRED = "pairing_expired"
         private const val KEY_LAST_APP_OPEN = "last_app_open_sync_at"
+        private const val KEY_LAST_BACKGROUND_PROMPT = "last_background_prompt_at"
+        private const val KEY_LAST_AUTO_DIAGNOSTICS = "last_auto_diagnostics_at"
         private fun toggleKey(toggle: SyncToggle) = "type_enabled_${toggle.key}"
 
         fun from(context: Context): PrefsSyncStateStore =

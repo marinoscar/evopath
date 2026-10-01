@@ -78,6 +78,7 @@ class EvoPathApplication : Application() {
         history = syncHistory,
         labels = appLabels,
         notifier = { SyncNotifications.notifyPairingExpired(this) },
+        backgroundNotifier = { available -> SyncNotifications.notifyBackgroundAccess(this, available) },
     )
 
     fun newPairingManager(): PairingManager = PairingManager(

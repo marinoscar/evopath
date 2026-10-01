@@ -74,6 +74,9 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             val granted = runCatching { gateway.grantedPermissions() }
+            if (granted.getOrNull()?.contains(HealthPermissions.READ_HEALTH_DATA_IN_BACKGROUND) == true) {
+                com.evopath.android.sync.SyncNotifications.cancelBackgroundAccess(app)
+            }
             _state.update {
                 it.copy(
                     availability = availability,

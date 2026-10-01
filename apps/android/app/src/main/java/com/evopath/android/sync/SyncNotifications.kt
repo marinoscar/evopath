@@ -22,6 +22,7 @@ object SyncNotifications {
     const val CHANNEL_PROGRESS = "health_sync_progress"
     const val PAIRING_EXPIRED_ID = 2810
     const val PROGRESS_ID = 2811
+    const val BACKGROUND_ACCESS_ID = 2812
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -69,6 +70,35 @@ object SyncNotifications {
         }
     }
 
+    /** "Allow background access so EvoPath can sync while closed" (throttled by the engine). */
+    fun notifyBackgroundAccess(context: Context, featureAvailable: Boolean) {
+        ensureChannels(context)
+        if (!canNotify(context)) return
+        val text = if (featureAvailable) {
+            "The hourly sync cannot read Health Connect while EvoPath is closed. Tap to allow background access."
+        } else {
+            "This phone's Health Connect cannot read in the background. Tap to open Health sync; updating Health Connect may help."
+        }
+        val notification = NotificationCompat.Builder(context, CHANNEL_STATUS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Allow background access so EvoPath can sync while closed")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openHealthSync(context, HealthSyncActivity.OPEN_BACKGROUND_ACCESS, requestCode = 1))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(BACKGROUND_ACCESS_ID, notification)
+        } catch (_: SecurityException) {
+            // Notification permission revoked between the check and the call.
+        }
+    }
+
+    fun cancelBackgroundAccess(context: Context) {
+        NotificationManagerCompat.from(context).cancel(BACKGROUND_ACCESS_ID)
+    }
+
     fun cancelPairingExpired(context: Context) {
         NotificationManagerCompat.from(context).cancel(PAIRING_EXPIRED_ID)
     }
@@ -82,9 +112,10 @@ object SyncNotifications {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-    private fun openHealthSync(context: Context): PendingIntent {
+    private fun openHealthSync(context: Context, open: String? = null, requestCode: Int = 0): PendingIntent {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("evopath-android://health-sync"), context, HealthSyncActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        open?.let { intent.putExtra(HealthSyncActivity.EXTRA_OPEN, it) }
+        return PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 }
