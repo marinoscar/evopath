@@ -489,6 +489,41 @@ export interface OnboardingState {
   admin: OnboardingAdminState | null;
 }
 
+/** The user steps the activation funnel counts (#212). */
+export type OnboardingMetricsStepId = 'health_profile' | 'gym' | 'first_workout' | 'ai_plan';
+
+/** One funnel step: cohort users with the step done now. */
+export interface OnboardingMetricsStep {
+  id: OnboardingMetricsStepId;
+  completed: number;
+  /** `completed / cohortSize`; `null` when the cohort is empty. */
+  rate: number | null;
+}
+
+/** `GET /api/admin/onboarding/metrics?days=` — aggregates only, never per-user rows (#212). */
+export interface OnboardingMetrics {
+  /** Echo of `days`. */
+  windowDays: number;
+  /** Days after sign-up within which a completed workout counts as activation (7). */
+  activationWindowDays: number;
+  /** Users created in the last `windowDays` days. */
+  cohortSize: number;
+  /** Cohort users whose activation window has closed. */
+  eligible: number;
+  /** Eligible users with a completed workout within the activation window. */
+  activated: number;
+  /** `activated / eligible`; `null` when nobody is eligible yet. */
+  activationRate: number | null;
+  /** Over cohort users with at least one completed workout; `null` when none. */
+  medianHoursToFirstWorkout: number | null;
+  steps: OnboardingMetricsStep[];
+}
+
+/** `GET /api/storage/status` (#204): whether object storage is configured. Never provider details. */
+export interface StorageStatus {
+  configured: boolean;
+}
+
 /** The training-plan agent roles. */
 export type TrainingAgentRole = 'researcher' | 'planner' | 'critic' | 'evaluator';
 

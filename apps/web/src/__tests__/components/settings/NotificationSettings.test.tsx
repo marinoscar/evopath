@@ -821,7 +821,7 @@ describe('NotificationSettings component', () => {
       );
 
       expect(
-        screen.getByText('Push notifications are not available yet'),
+        screen.getByText("Web Push isn't enabled yet"),
       ).toBeInTheDocument();
     });
 
@@ -896,7 +896,7 @@ describe('NotificationSettings component', () => {
         screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
       ).not.toBeDisabled();
       expect(
-        screen.queryByText('Push notifications are not available yet'),
+        screen.queryByText("Web Push isn't enabled yet"),
       ).not.toBeInTheDocument();
     });
 
@@ -953,7 +953,7 @@ describe('NotificationSettings component', () => {
       );
 
       expect(
-        screen.queryByText('Push notifications are not available yet'),
+        screen.queryByText("Web Push isn't enabled yet"),
       ).not.toBeInTheDocument();
       expect(screen.queryByText('Not available yet')).not.toBeInTheDocument();
     });

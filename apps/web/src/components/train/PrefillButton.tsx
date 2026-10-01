@@ -8,12 +8,19 @@
  * permission). The AI availability is only asked for when the caller holds
  * every permission the prefill needs, so a viewer causes no AI request at
  * all. Manual logging never depends on this button.
+ *
+ * #204: when object storage is known not to be configured (and the AI is
+ * otherwise ready), "Storage isn't enabled yet" replaces the button: the
+ * photo upload it leads to would fail. An unknown storage answer changes
+ * nothing.
  */
 import { Box, Button, Typography } from '@mui/material';
 import { AddAPhotoOutlined as PhotoIcon } from '@mui/icons-material';
 import { Link as RouterLink } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useVisionAvailability } from '../../hooks/useVisionAvailability';
+import { useStorageStatus } from '../../hooks/useStorageStatus';
+import { FeatureUnavailableNotice } from '../common/FeatureUnavailableNotice';
 import { prefillAvailabilityReason, prefillPermissionReason } from './prefillAvailability';
 
 const REASON_ID = 'prefill-from-photo-reason';
@@ -52,7 +59,16 @@ function PrefillButtonView({ workoutId, reason }: { workoutId: string; reason: s
 
 function PrefillButtonWithAvailability({ workoutId }: { workoutId: string }) {
   const availability = useVisionAvailability('workout_prefill');
-  return <PrefillButtonView workoutId={workoutId} reason={prefillAvailabilityReason(availability)} />;
+  const storage = useStorageStatus();
+  const reason = prefillAvailabilityReason(availability);
+  if (reason === null && storage.configured === false) {
+    return (
+      <Box data-testid="prefill-from-photo">
+        <FeatureUnavailableNotice feature="storage" />
+      </Box>
+    );
+  }
+  return <PrefillButtonView workoutId={workoutId} reason={reason} />;
 }
 
 export function PrefillButton({ workoutId }: { workoutId: string }) {

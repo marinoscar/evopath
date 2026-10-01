@@ -52,6 +52,7 @@ import { EquipmentList } from '../components/gyms/EquipmentList';
 import { EquipmentEditDialog } from '../components/gyms/EquipmentEditDialog';
 import { EquipmentPickerDialog } from '../components/gyms/EquipmentPickerDialog';
 import { GymPhotos } from '../components/gyms/GymPhotos';
+import { useStorageStatus } from '../hooks/useStorageStatus';
 import { GymPhotoLightbox } from '../components/gyms/GymPhotoLightbox';
 import { useCompactDialog } from '../components/gyms/useCompactDialog';
 import { deleteGymMessage } from '../components/gyms/gymCopy';
@@ -73,6 +74,8 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
   const location = useLocation();
   const fullScreen = useCompactDialog();
   const g = useGym(gymId);
+  // #204: only asked when the upload control would be offered.
+  const storage = useStorageStatus({ skip: !(canWrite && canUpload) });
   const incoming = (location.state ?? null) as GymDetailLocationState | null;
   const [editOpen, setEditOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -270,6 +273,7 @@ function GymDetail({ gymId, canWrite, canUpload }: { gymId: string; canWrite: bo
             photos={gym.photos}
             canWrite={canWrite}
             canUpload={canUpload}
+            storageConfigured={storage.configured !== false}
             onAdd={g.addPhoto}
             onOpen={(photo) => setOpenPhotoId(photo.id)}
             onRemove={(photo) => setPending({ kind: 'photo', photo })}

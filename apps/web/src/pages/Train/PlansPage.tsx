@@ -4,7 +4,8 @@
  * on, `ai:use` and every required agent ready, else disabled with the reason
  * and where to fix it) and **Build manually** (a blank plan, opened in the
  * editor; needs no AI). `programs:read` reaches the page; `programs:write`
- * offers the create actions. The API enforces both.
+ * offers the create actions. The API enforces both. With AI switched off,
+ * a "AI isn't enabled yet" notice stands where Create with AI would be (#204).
  */
 import { useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
@@ -22,6 +23,8 @@ import { AutoAwesome as AiIcon, Add as AddIcon, ArrowBack as BackIcon } from '@m
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePlans } from '../../hooks/usePlans';
 import { useTrainingAvailability } from '../../hooks/useTrainingAvailability';
+import { useAiConfig } from '../../hooks/useAiConfig';
+import { FeatureUnavailableNotice } from '../../components/common/FeatureUnavailableNotice';
 import { PlanCard } from '../../components/training/PlanCard';
 
 export const PLANS_AI_OFF_NOTICE = 'Creating a plan with AI is not available right now. You can still build one yourself.';
@@ -34,11 +37,20 @@ export default function PlansPage() {
   const notice = (location.state as { notice?: string } | null)?.notice ?? null;
   const { plans, active, isLoading, error, refresh, createBlank } = usePlans();
   const availability = useTrainingAvailability();
+  const aiConfig = useAiConfig();
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const aiBlocker = availability.blocker('create');
   const aiReady = availability.canRun('create');
+  // #204: AI is known to be off (not merely unknown while loading), and this
+  // user would otherwise be offered Create with AI (or can switch AI on).
+  // The notice replaces the hidden button; the wizard route stays gated.
+  const showAiOffNotice =
+    canWrite &&
+    !aiConfig.isLoading &&
+    !aiConfig.config.enabled &&
+    (hasPermission('ai:use') || hasPermission('ai_config:read'));
 
   const buildManually = async () => {
     setCreating(true);
@@ -151,6 +163,11 @@ export default function PlansPage() {
         )}
 
         {actions}
+        {showAiOffNotice && (
+          <Box sx={{ mb: 2 }}>
+            <FeatureUnavailableNotice feature="ai" detail="You can still build a plan yourself." />
+          </Box>
+        )}
         {canWrite && availability.aiVisible && aiBlocker && (
           <Alert severity="warning" id="create-ai-blocker" sx={{ mb: 2 }}>
             {aiBlocker.message}{' '}

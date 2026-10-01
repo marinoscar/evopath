@@ -80,7 +80,7 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         </Box>
         {!forbidden && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            <PhotoReadButton onClick={() => setPhotoOpen(true)} />
+            <PhotoReadButton onClick={() => setPhotoOpen(true)} showUnavailable />
             <LogMeasurementButton variant="contained" startIcon={<AddIcon />} canLog={canLog} onClick={() => openDialog()}>
               Log measurement
             </LogMeasurementButton>

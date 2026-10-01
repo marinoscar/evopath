@@ -875,6 +875,32 @@ export const handlers = [
     HttpResponse.json({ data: { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 } }),
   ),
 
+  // Storage status (#204): configured by default, so no upload control is
+  // swapped for a "not enabled" notice in existing suites.
+  http.get(`${API_BASE}/storage/status`, () => HttpResponse.json({ data: { configured: true } })),
+
+  // Activation metrics (#212): an empty cohort by default.
+  http.get(`${API_BASE}/admin/onboarding/metrics`, ({ request }) => {
+    const days = Number(new URL(request.url).searchParams.get('days') ?? 30);
+    return HttpResponse.json({
+      data: {
+        windowDays: Number.isFinite(days) ? days : 30,
+        activationWindowDays: 7,
+        cohortSize: 0,
+        eligible: 0,
+        activated: 0,
+        activationRate: null,
+        medianHoursToFirstWorkout: null,
+        steps: [
+          { id: 'health_profile', completed: 0, rate: null },
+          { id: 'gym', completed: 0, rate: null },
+          { id: 'first_workout', completed: 0, rate: null },
+          { id: 'ai_plan', completed: 0, rate: null },
+        ],
+      },
+    });
+  }),
+
   // Storage objects (#445 playground inputs/outputs): an upload answers
   // `processing`, a read answers `ready`, and a download is a signed URL.
   http.post(`${API_BASE}/storage/objects`, () => {

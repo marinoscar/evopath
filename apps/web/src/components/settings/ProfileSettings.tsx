@@ -35,6 +35,8 @@ import type {
   UserSettingsUpdate,
 } from '../../types';
 import { ImageUpload } from './ImageUpload';
+import { FeatureUnavailableNotice } from '../common/FeatureUnavailableNotice';
+import { useStorageStatus } from '../../hooks/useStorageStatus';
 
 type ProfilePatch = NonNullable<UserSettingsUpdate['profile']>;
 
@@ -79,6 +81,10 @@ export function ProfileSettings({
   const [isRemoving, setIsRemoving] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  // #204: an uploaded picture is a storage object. When storage is known not
+  // to be configured, a notice replaces the upload control that would fail;
+  // an unknown answer changes nothing.
+  const storage = useStorageStatus();
   // Object URL for the uploaded picture's preview. The public avatar route only
   // serves a picture while it is the SELECTED source, so the preview is loaded
   // through the authenticated `GET /user-settings/profile-image` instead and
@@ -368,7 +374,10 @@ export function ProfileSettings({
 
           {(imageSource === 'upload' || hasUpload) && (
             <Stack spacing={1.5} sx={{ pl: { xs: 0, sm: 5 } }}>
-              {imageSource === 'upload' && (
+              {imageSource === 'upload' && storage.configured === false && (
+                <FeatureUnavailableNotice feature="storage" detail="You can still use the picture from your sign-in provider, or none." />
+              )}
+              {imageSource === 'upload' && storage.configured !== false && (
                 <ImageUpload
                   onUploaded={handleUploaded}
                   onUploadingChange={setIsUploading}
