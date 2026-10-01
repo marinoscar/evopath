@@ -571,7 +571,7 @@ describe('summary', () => {
     });
 
     it('counts bearer and anonymous requests in the tile and the block', async () => {
-      const { service } = setup({ schema: UNKNOWN_SCHEMA });
+      const { service, sqlOf } = setup({ schema: UNKNOWN_SCHEMA });
       const summary = await service.summary('u1', {});
 
       expect(summary.tiles.find((t) => t.key === 'unknownRoutes')).toMatchObject({ value: 9, previous: 4 });
@@ -586,7 +586,13 @@ describe('summary', () => {
           { method: 'GET', route: '/wp-login.php', count: 6, bearer: 0, anonymous: 6 },
         ],
         truncated: false,
+        // The exact statements run, per-route list first; no rebuilding.
+        sql: [sqlOf('unknownTop')[0], sqlOf('unknownTotals')[0]],
       });
+      const [top, totals] = summary.unknownRoutes!.sql;
+      expect(top).toMatch(/AS bearer .*LIMIT 6$/);
+      expect(totals).toMatch(/AS period.*LIMIT 2$/);
+      expect(summary.sql).toEqual(expect.arrayContaining([top, totals]));
     });
 
     it('degrades the verdict on bearer requests, naming the top bearer route', async () => {

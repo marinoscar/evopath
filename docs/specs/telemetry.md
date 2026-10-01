@@ -2223,7 +2223,9 @@ bearer first, literal `LIMIT 6`). They feed:
   previous window, no sparkline), placed before `lastDataAt`;
 - the optional block `unknownRoutes`: `requests`, `bearer`, `anonymous`,
   `previousRequests`, `previousBearer`, `topRoutes` (at most five
-  `{ method, route, count, bearer, anonymous }`) and `truncated`;
+  `{ method, route, count, bearer, anonymous }`), `truncated`, and `sql` (the
+  two statements exactly as run, per-route list first, then the totals — for
+  "Open in Explorer" without parsing the summary's mixed `sql` list);
 - the verdict rule (§11.7): bearer requests, distinct bearer routes counted
   from the bounded top list (enough for the threshold of 3), and the top
   bearer route, e.g. `3 requests to unknown API routes (GET

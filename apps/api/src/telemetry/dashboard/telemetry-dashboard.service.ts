@@ -707,7 +707,11 @@ export class TelemetryDashboardService {
     const routeLabel = (r: Record<string, unknown> | null | undefined) =>
       r ? [str(r.method), str(r.route)].filter(Boolean).join(' ') || null : null;
 
-    const unknownRoutes = unknownSql.totals ? unknownRoutesOf(unknownTotals, unknownTop) : null;
+    // `sql`: the two statements exactly as run above (per-route list first),
+    // for the panel's "Open in Explorer" without parsing the summary's `sql`.
+    const unknownRoutes = unknownSql.totals
+      ? unknownRoutesOf(unknownTotals, unknownTop, [unknownSql.top, unknownSql.totals].filter((q): q is string => !!q))
+      : null;
 
     const verdict = computeVerdict({
       now,
@@ -1019,6 +1023,7 @@ export const UNKNOWN_ROUTES_TOP_N = 5;
 export function unknownRoutesOf(
   totals: TelemetryQueryResult | null,
   top: TelemetryQueryResult | null,
+  sql: string[],
 ): NonNullable<TelemetryDashboardSummary['unknownRoutes']> {
   const p = periods(totals);
   const requests = num(p.current.requests);
@@ -1044,6 +1049,7 @@ export function unknownRoutesOf(
       };
     }),
     truncated: rows.length > UNKNOWN_ROUTES_TOP_N,
+    sql,
   };
 }
 

@@ -212,6 +212,12 @@ export const telemetryDashboardUnknownRoutesSchema = z
       .array(unknownRouteSchema)
       .describe('Most-hit unknown routes by `METHOD /normalized-path`, bearer requests first (at most 5).'),
     truncated: z.boolean().describe('More unknown routes exist than `topRoutes` lists.'),
+    sql: z
+      .array(z.string())
+      .describe(
+        'The exact statements run for this block, per-route list first, then the window totals ' +
+          '(the same text that also appears in the summary\'s `sql`), for "Open in Explorer".',
+      ),
   })
   .describe(
     'Requests to API routes that do not exist (issue #258). Absent when the store has no ' +
