@@ -23,10 +23,10 @@ import { removePushSubscription } from '../../services/pushSubscription';
 const mockRemovePushSubscription = vi.mocked(removePushSubscription);
 
 // Wrapper for hooks that need AuthProvider
-function createAuthWrapper() {
+function createAuthWrapper(initialEntries?: string[]) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <AuthProvider>{children}</AuthProvider>
       </MemoryRouter>
     );
@@ -275,6 +275,88 @@ describe('AuthContext', () => {
 
       const returnUrl = sessionStorage.getItem('auth_return_url');
       expect(returnUrl).toBe('/');
+    });
+  });
+
+  describe('Login options (#273)', () => {
+    async function renderLoginHook(initialEntries?: string[]) {
+      server.use(
+        http.post('*/api/auth/refresh', () => {
+          return new HttpResponse(null, { status: 401 });
+        }),
+      );
+      const hook = renderHook(() => useAuth(), {
+        wrapper: createAuthWrapper(initialEntries),
+      });
+      await waitFor(() => {
+        expect(hook.result.current.isLoading).toBe(false);
+      });
+
+      const captured = { href: '' };
+      Object.defineProperty(window.location, 'href', {
+        set: (value: string) => {
+          captured.href = value;
+        },
+        get: () => captured.href || 'http://localhost:3000',
+        configurable: true,
+      });
+      return { ...hook, captured };
+    }
+
+    it('does not add a query string when selectAccount is not requested', async () => {
+      const { result, captured } = await renderLoginHook();
+
+      act(() => {
+        result.current.login('google');
+      });
+      expect(captured.href).toBe('/api/auth/google');
+
+      act(() => {
+        result.current.login('google', { selectAccount: false });
+      });
+      expect(captured.href).toBe('/api/auth/google');
+    });
+
+    it('appends select_account=1 when selectAccount is requested', async () => {
+      const { result, captured } = await renderLoginHook();
+
+      act(() => {
+        result.current.login('google', { selectAccount: true });
+      });
+
+      expect(captured.href).toBe('/api/auth/google?select_account=1');
+    });
+
+    it('keeps the stored return URL when retrying from /auth/callback', async () => {
+      sessionStorage.setItem('auth_return_url', '/settings?tab=2');
+      const { result } = await renderLoginHook(['/auth/callback?error=not_allowlisted']);
+
+      act(() => {
+        result.current.login('google', { selectAccount: true });
+      });
+
+      expect(sessionStorage.getItem('auth_return_url')).toBe('/settings?tab=2');
+    });
+
+    it('falls back to / when retrying from /auth/callback with nothing stored', async () => {
+      const { result } = await renderLoginHook(['/auth/callback?error=access_denied']);
+
+      act(() => {
+        result.current.login('google');
+      });
+
+      expect(sessionStorage.getItem('auth_return_url')).toBe('/');
+    });
+
+    it('still overwrites a stale return URL when signing in from another route', async () => {
+      sessionStorage.setItem('auth_return_url', '/stale');
+      const { result } = await renderLoginHook(['/login']);
+
+      act(() => {
+        result.current.login('google');
+      });
+
+      expect(sessionStorage.getItem('auth_return_url')).toBe('/');
     });
   });
 
