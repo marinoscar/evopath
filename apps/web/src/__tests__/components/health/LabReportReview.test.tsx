@@ -73,7 +73,7 @@ describe('LabReportReview: lab units', () => {
     renderReview('si');
     expect(screen.getByTestId('lab-units-note')).toHaveTextContent('Values in SI units');
     const row = rowFor('Glucose');
-    expect(within(row).getByTestId('lab-result-number')).toHaveTextContent('5.40 mmol/L');
+    expect(within(row).getByTestId('lab-result-number')).toHaveTextContent('5.4 mmol/L');
     expect(row).toHaveTextContent('Range 3.9–5.5');
     expect(within(row).getByTestId('lab-result-original')).toHaveTextContent('Printed 5.4 mmol/L');
     // An affine conversion: (6.5 − 2.15) × 10.929 = 47.54, shown with 0 decimals.

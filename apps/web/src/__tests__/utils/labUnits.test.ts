@@ -42,8 +42,9 @@ describe('labDisplayUnit', () => {
 describe('toDisplay (pinned SI conversions)', () => {
   const si = (key: string) => labDisplayUnit(metric(key), 'si');
 
-  it('glucose 100 mg/dL is 5.55 mmol/L', () => {
-    expect(toDisplay(100, si('fasting_glucose'))).toBe(5.55);
+  it('glucose 100 mg/dL is 5.6 mmol/L at the unit\'s 1 decimal (5.55 as a raw conversion)', () => {
+    expect(toDisplay(100, si('fasting_glucose'))).toBe(5.6);
+    expect(toDisplay(100, { ...si('fasting_glucose'), decimals: 2 })).toBe(5.55);
   });
 
   it('LDL 124 mg/dL is 3.21 mmol/L', () => {
@@ -119,8 +120,9 @@ describe('labDisplay', () => {
     const display = labDisplay(metric('fasting_glucose'), 'si');
     const point = convertLabPoint(labSeriesPoint('2026-01-01T00:00:00.000Z', 100, { referenceLow: 70, referenceHigh: 99 }), display);
     expect(point.value).toBeCloseTo(5.55, 4);
-    expect([point.referenceLow, point.referenceHigh]).toEqual([3.89, 5.49]);
-    expect(convertLabRange({ referenceLow: null, referenceHigh: 126 }, display)).toEqual({ referenceLow: null, referenceHigh: 6.99 });
+    // Limits are rounded to the unit's 1 decimal.
+    expect([point.referenceLow, point.referenceHigh]).toEqual([3.9, 5.5]);
+    expect(convertLabRange({ referenceLow: null, referenceHigh: 126 }, display)).toEqual({ referenceLow: null, referenceHigh: 7 });
   });
 
   it('converts a summary item: latest, previous, delta and unit', () => {

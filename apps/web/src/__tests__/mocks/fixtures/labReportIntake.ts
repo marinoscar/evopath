@@ -40,16 +40,21 @@ function lab(
   aliases: string[],
   options: { min?: number; max?: number; decimals?: number; siUnit?: string } = {},
 ): MetricDef {
+  const decimals = options.decimals ?? 1;
   return {
     key,
     label,
     category: 'lab',
     canonicalUnit,
-    units: [{ unit: canonicalUnit, factor: 1, label: canonicalUnit }, ...alt.map((u) => ({ ...u, label: u.unit }))],
+    // Every unit entry carries `decimals`: its own, else the metric's (as the API publishes them).
+    units: [
+      { unit: canonicalUnit, factor: 1, label: canonicalUnit, decimals },
+      ...alt.map((u) => ({ ...u, label: u.unit, decimals: u.decimals ?? decimals })),
+    ],
     displayUnit: { metric: canonicalUnit, imperial: canonicalUnit },
     min: options.min ?? 0,
     max: options.max ?? 10000,
-    decimals: options.decimals ?? 1,
+    decimals,
     methods: ['lab'],
     scale: null,
     daily: false,
@@ -72,7 +77,7 @@ export const LAB_METRICS: MetricDef[] = [
   lab('hdl_cholesterol', 'HDL cholesterol', 'lipids', 'mg/dL', [CHOLESTEROL_MMOL], ['HDL', 'HDL-C'], SI),
   lab('triglycerides', 'Triglycerides', 'lipids', 'mg/dL', [{ unit: 'mmol/L', factor: per(0.01129), decimals: 2 }], ['TG', 'TRIG'], SI),
   lab('apob', 'Apolipoprotein B', 'lipids', 'mg/dL', [{ unit: 'g/L', factor: 100, decimals: 2 }], ['ApoB', 'Apo B'], { siUnit: 'g/L' }),
-  lab('fasting_glucose', 'Fasting glucose', 'glycemic', 'mg/dL', [{ unit: 'mmol/L', factor: per(0.0555), decimals: 2 }], ['Glucose', 'FPG', 'GLU'], SI),
+  lab('fasting_glucose', 'Fasting glucose', 'glycemic', 'mg/dL', [{ unit: 'mmol/L', factor: per(0.0555), decimals: 1 }], ['Glucose', 'FPG', 'GLU'], SI),
   lab('hba1c', 'HbA1c', 'glycemic', '%', [{ unit: 'mmol/mol', factor: per(10.929), offset: 2.15, decimals: 0 }], ['A1c', 'Hemoglobin A1c'], {
     siUnit: 'mmol/mol',
   }),
