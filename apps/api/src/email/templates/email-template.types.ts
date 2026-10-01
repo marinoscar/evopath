@@ -1,4 +1,4 @@
-import type { EmailMessage } from '../email.types';
+import type { EmailAttachment, EmailMessage } from '../email.types';
 
 // =============================================================================
 // Email template contract (issue #123, epic #109)
@@ -51,6 +51,20 @@ export interface RenderedEmail {
    * verbatim. Most templates want {@link TRANSACTIONAL_EMAIL_HEADERS}.
    */
   headers?: Record<string, string>;
+
+  /**
+   * The MIME parts the HTML references (issue #237) — today, the brand mark
+   * behind `<img src="cid:brand-mark">`.
+   *
+   * REQUIRED, NOT OPTIONAL, for the same reason `text` is: the layout emits a
+   * `cid:` reference in every message, so a template that forgot to return the
+   * part it points at would ship a broken-image box in the header of every
+   * email it renders. Templates return `layoutAttachments()` from layout.ts;
+   * callers turn the whole value into an `EmailMessage` with
+   * {@link composeEmailMessage}, which copies this field across, rather than
+   * picking fields by hand and dropping it.
+   */
+  attachments: EmailAttachment[];
 }
 
 /**
@@ -99,10 +113,16 @@ export type EmailTemplate<TData> = (data: TData) => RenderedEmail;
 // MessageRenderedPart` would still hold, and the mandatory-text-part rule
 // would have quietly become advisory with nothing going red.
 
+//
+// `attachments` is optional on `EmailMessage` (a hand-built message may have
+// none) and required on `RenderedEmail` (every rendered layout references the
+// brand mark), so it is compared in its REQUIRED form: the element types must
+// still agree in both directions.
 type MessageRenderedPart = Pick<
   EmailMessage,
   'subject' | 'html' | 'text' | 'headers'
->;
+> &
+  Required<Pick<EmailMessage, 'attachments'>>;
 
 export type RenderedEmailFitsMessage =
   RenderedEmail extends MessageRenderedPart ? true : never;
@@ -112,3 +132,34 @@ export type MessageRenderedPartFitsRendered =
 
 export const RENDERED_EMAIL_MATCHES_MESSAGE: RenderedEmailFitsMessage &
   MessageRenderedPartFitsRendered = true;
+
+/**
+ * Turn a rendered template into a sendable message.
+ *
+ * THE ONE PLACE `RenderedEmail` BECOMES `EmailMessage` (issue #237). Before
+ * attachments existed, each caller copied `subject`/`html`/`text`/`headers`
+ * by hand; a hand-copy is exactly how a new field — the inline brand mark —
+ * gets silently dropped at one call site and not another. Spreading the
+ * rendered value whole means a field added to `RenderedEmail` later reaches
+ * the transport without anybody editing a caller.
+ *
+ * `headers` and `attachments` are COPIED, not shared, so a caller that
+ * decorates one message's headers (a per-recipient `List-Unsubscribe`, say)
+ * cannot leak them into the next message rendered from the same value.
+ */
+export function composeEmailMessage(
+  rendered: RenderedEmail,
+  envelope: Pick<EmailMessage, 'to' | 'from'>,
+): EmailMessage {
+  const { headers, attachments, ...parts } = rendered;
+
+  return {
+    ...parts,
+    to: envelope.to,
+    from: envelope.from,
+    ...(headers ? { headers: { ...headers } } : {}),
+    ...(attachments.length > 0
+      ? { attachments: attachments.map((part) => ({ ...part })) }
+      : {}),
+  };
+}

@@ -1,4 +1,16 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  SafeHtml,
+  callout,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -89,65 +101,63 @@ export function allowlistInvitationEmail(
 
   const subject = `You have been invited to ${APP_NAME}`;
 
+  const title = `You can now sign in to ${APP_NAME}`;
+  const eyebrow = 'Account';
+  const ctaLabel = data.signInUrl ? 'Sign in' : undefined;
+  // The reason is the whole credibility of this message to somebody who has
+  // never heard of the application, so it says how the address got here and
+  // what happens if they do nothing.
+  const footerReason =
+    `You received this because an administrator added this address to the list of people allowed to use ${APP_NAME}. ` +
+    'If you do not recognise it, you can ignore this message: no account exists until you sign in.';
+
+  const intro = `An administrator has authorised this address to sign in to ${APP_NAME}.`;
+  const facts: { label: string; value: string }[] = [
+    { label: 'Address', value: data.recipientEmail },
+  ];
+  if (invitedBy) {
+    facts.push({ label: 'Invited by', value: invitedBy });
+  }
   const attribution = invitedBy
-    ? html`<p style="margin:0 0 16px 0;">
-        <strong>${invitedBy}</strong> added your address, so they are the
-        person to ask if you were not expecting this.
-      </p>`
-    : SafeHtml.EMPTY;
+    ? `${invitedBy} added your address, so they are the person to ask if you were not expecting this.`
+    : null;
+
+  const calloutTitle = 'No password, nothing to accept';
+  const calloutBody =
+    'Sign in with the Google account for this same address and your account is created on the spot. Any other address will be refused.';
 
   const bodyHtml = html`
-    <p style="margin:0 0 16px 0;">
-      An administrator has authorised <strong>${data.recipientEmail}</strong>
-      to sign in to ${APP_NAME}. You are receiving this message because that
-      address was added to the list of people allowed to use the application.
-    </p>
-    ${attribution}
-    <p style="margin:0 0 16px 0;">
-      There is no password to set and nothing to accept. Sign in with the Google
-      account for that same address and your account is created on the spot. Any
-      other address will be refused.
-    </p>
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      If you do not recognise ${APP_NAME}, no account has been created and you
-      can ignore this message — nothing happens until you sign in.
-    </p>
+    ${paragraph(intro)}
+    ${detailRows(facts)}
+    ${callout({ tone: 'info', title: calloutTitle, body: calloutBody })}
+    ${attribution ? paragraph(attribution, { tone: 'muted' }) : SafeHtml.EMPTY}
   `;
 
   const htmlDocument = renderLayout({
-    title: `You can now sign in to ${APP_NAME}`,
+    title,
+    eyebrow,
     // The preheader names the address, because the recipient's first question
     // in a crowded inbox is "is this actually about me?".
     previewText: `${data.recipientEmail} has been authorised to sign in.`,
     bodyHtml,
-    ctaLabel: data.signInUrl ? 'Sign in' : undefined,
+    ctaLabel,
     ctaUrl: data.signInUrl,
+    footerReason,
   });
 
-  const lines: string[] = [
-    `An administrator has authorised ${data.recipientEmail} to sign in to ${APP_NAME}.`,
-    'You are receiving this message because that address was added to the list of people allowed to use the application.',
-  ];
-  if (invitedBy) {
-    lines.push(
-      '',
-      `${invitedBy} added your address, so they are the person to ask if you were not expecting this.`,
-    );
+  const lines: string[] = [intro, '', ...textDetailLines(facts), ''];
+  lines.push(...textCallout({ tone: 'info', title: calloutTitle, body: calloutBody }));
+  if (attribution) {
+    lines.push('', attribution);
   }
-  lines.push(
-    '',
-    'There is no password to set and nothing to accept. Sign in with the Google account for that',
-    'same address and your account is created on the spot. Any other address will be refused.',
-    '',
-    `If you do not recognise ${APP_NAME}, no account has been created and you can ignore this`,
-    'message — nothing happens until you sign in.',
-  );
 
   const text = plainText({
-    title: `You can now sign in to ${APP_NAME}`,
+    eyebrow,
+    title,
     lines: [lines[0]!, ...lines.slice(1)],
-    ctaLabel: data.signInUrl ? 'Sign in' : undefined,
+    ctaLabel,
     ctaUrl: data.signInUrl,
+    footerReason,
   });
 
   return {
@@ -155,5 +165,6 @@ export function allowlistInvitationEmail(
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

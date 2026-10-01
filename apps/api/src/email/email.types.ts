@@ -52,6 +52,53 @@ export interface EmailMessage {
    * `List-Unsubscribe` pair whose token embeds the user id, a correlation id.
    */
   headers?: Record<string, string>;
+
+  /**
+   * MIME parts sent alongside the body (issue #237).
+   *
+   * Today this carries the brand mark the layout references as
+   * `<img src="cid:brand-mark">`: an INLINE part, shipped inside the message,
+   * so the logo renders without a network fetch and without the recipient
+   * clicking "display images". A template's `RenderedEmail.attachments` lands
+   * here through `composeEmailMessage` (templates/email-template.types.ts);
+   * dropping it would leave a broken-image box where the logo should be.
+   *
+   * Optional here, unlike on `RenderedEmail`, because a provider must still
+   * accept a message built by hand (a test, a future raw send) that has none.
+   */
+  attachments?: EmailAttachment[];
+}
+
+/**
+ * One MIME part attached to an {@link EmailMessage}.
+ *
+ * PROVIDER-NEUTRAL ON PURPOSE: base64 text rather than a `Buffer`, so a
+ * template (a pure function with no Node I/O) can produce it from a generated
+ * constant and a test can compare it with `toEqual`. Each provider converts it
+ * to its own SDK's shape — nodemailer `attachments`, SESv2
+ * `Content.Simple.Attachments`.
+ */
+export interface EmailAttachment {
+  /** File name shown by clients that list attachments. */
+  filename: string;
+
+  /** MIME type, e.g. `image/png`. */
+  contentType: string;
+
+  /** The bytes, base64-encoded (no `data:` prefix, no line breaks). */
+  contentBase64: string;
+
+  /**
+   * Content-ID WITHOUT angle brackets. An inline part referenced from the
+   * HTML as `cid:<contentId>` must carry one; a plain attachment need not.
+   */
+  contentId?: string;
+
+  /**
+   * `inline` for a part the HTML references by `cid:`; `attachment` for a
+   * file the recipient is meant to download.
+   */
+  disposition: 'inline' | 'attachment';
 }
 
 /**

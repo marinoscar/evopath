@@ -7,8 +7,10 @@ import { broadcastEmail, type BroadcastEmailData } from './broadcast.email';
 // THIS IS THE ONE TEMPLATE WHOSE INPUT IS UNTRUSTED CONTENT, so its suite is
 // weighted differently from the registry-wide contract loop in index.spec.ts.
 // That loop already proves the generic properties every template shares — a
-// non-empty subject/html/text, a table-based document, no `<link>`, no
-// `<style>`, no external `src` — and it feeds this template hostile data as
+// non-empty subject/html/text and escaping (the layout invariants — a
+// table-based document, no `<link>`, at most one progressive-enhancement
+// `<style>` block, `cid:` as the only `src` scheme — live in layout.spec.ts) —
+// and it feeds this template hostile data as
 // part of that sweep. What it cannot check is the behaviour that is specific
 // to rendering an administrator's typing:
 //

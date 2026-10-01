@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
+import { APP_NAME } from '@app/shared';
 import { server } from '../mocks/server';
 import { render } from '../utils/test-utils';
 import LoginPage from '../../pages/LoginPage';
@@ -49,6 +50,69 @@ describe('LoginPage', () => {
       });
 
       expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    });
+  });
+
+  describe('Brand panel', () => {
+    // jsdom does not evaluate media queries, so the md+ brand panel and the
+    // compact header may both be in the document; assertions use `getAllBy`
+    // and `hidden: true` where the CSS-hidden copy matters.
+    it('shows the product name from APP_NAME', async () => {
+      render(<LoginPage />, { wrapperOptions: { authenticated: false } });
+
+      await waitFor(() => {
+        expect(screen.getAllByText(APP_NAME, { exact: true }).length).toBeGreaterThan(0);
+      });
+    });
+
+    it('shows the tagline', async () => {
+      render(<LoginPage />, { wrapperOptions: { authenticated: false } });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Your path to better health, measured.', { ignore: '' }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('has exactly one h1, the Welcome heading (the brand name is not a heading)', async () => {
+      render(<LoginPage />, { wrapperOptions: { authenticated: false } });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('heading', { level: 1, hidden: true })).toHaveLength(1);
+      });
+      expect(screen.getByRole('heading', { level: 1, hidden: true })).toHaveTextContent(/welcome/i);
+    });
+
+    it('renders only decorative brand marks: every svg mark is aria-hidden', async () => {
+      const { container } = render(<LoginPage />, { wrapperOptions: { authenticated: false } });
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /welcome/i })).toBeInTheDocument();
+      });
+      const marks = Array.from(container.querySelectorAll('svg')).filter((svg) =>
+        svg.querySelector('circle'),
+      );
+      expect(marks.length).toBeGreaterThan(0);
+      for (const mark of marks) {
+        expect(mark).toHaveAttribute('aria-hidden', 'true');
+      }
+      expect(screen.queryByRole('img', { hidden: true })).toBeNull();
+    });
+
+    it('still renders a button for each provider alongside the brand panel', async () => {
+      render(<LoginPage />, {
+        wrapperOptions: {
+          authenticated: false,
+          providers: [
+            { name: 'google', authUrl: '/api/auth/google' },
+            { name: 'github', authUrl: '/api/auth/github' },
+          ],
+        },
+      });
+
+      expect(await screen.findByRole('button', { name: /google/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /github/i })).toBeInTheDocument();
     });
   });
 

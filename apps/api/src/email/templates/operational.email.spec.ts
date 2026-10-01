@@ -16,8 +16,9 @@ import {
 // =============================================================================
 //
 // `index.spec.ts` already loops every registered template through the shared
-// contract (non-empty subject/html/text, escaping, no `<link>`/`<style>`/`src=`,
-// table-based). What is asserted HERE is what is specific to these four, and
+// contract (non-empty subject/html/text, escaping; the layout invariants — no
+// `<link>`, at most one progressive-enhancement `<style>` block, `cid:` as the
+// only `src` scheme, table-based — are asserted in layout.spec.ts). What is asserted HERE is what is specific to these four, and
 // each one is a claim `index.spec.ts` structurally cannot make:
 //
 //   1. THE OPERATOR'S FACTS ARE ACTUALLY IN THE MESSAGE. The reason these exist
@@ -90,7 +91,7 @@ describe('job-failed', () => {
       expect(part).toContain('the provider refused the request');
       expect(part).toContain('3');
       expect(part).toContain('node-7');
-      expect(part).toContain('2026-01-01T00:00:00.000Z');
+      expect(part).toContain('1 Jan 2026, 00:00 UTC');
     }
   });
 
@@ -114,7 +115,8 @@ describe('node-offline', () => {
     for (const part of [rendered.html, rendered.text]) {
       expect(part).toContain('worker-eu-1');
       expect(part).toContain('node-abc');
-      expect(part).toContain('2026-01-01T00:00:00.000Z');
+      expect(part).toContain('1 Jan 2026, 00:00 UTC');
+      expect(part).toContain('1 Jan 2026, 00:06 UTC');
       expect(part).toContain('6 minute(s)');
     }
   });
@@ -153,7 +155,8 @@ describe('backup-failed', () => {
       expect(part).toContain('run-abc');
       expect(part).toContain('failed');
       expect(part).toContain('scheduled');
-      expect(part).toContain('2026-01-01T00:10:00.000Z');
+      expect(part).toContain('1 Jan 2026, 00:00 UTC');
+      expect(part).toContain('1 Jan 2026, 00:10 UTC');
       expect(part).toContain('pg_dump exited with code 1');
     }
   });
@@ -187,7 +190,7 @@ describe('restore-completed', () => {
   it('leads with the CUT-OFF, which is the fact that decides whether to act now', () => {
     for (const part of [rendered.html, rendered.text]) {
       // The archive's own timestamp, not the restore's.
-      expect(part).toContain('2026-01-01T00:00:00.000Z');
+      expect(part).toContain('1 Jan 2026, 00:00 UTC');
       expect(part).toMatch(/not present/i);
     }
   });
@@ -195,7 +198,7 @@ describe('restore-completed', () => {
   it('carries the source run, the completion time and the actor into BOTH parts', () => {
     for (const part of [rendered.html, rendered.text]) {
       expect(part).toContain('run-abc');
-      expect(part).toContain('2026-01-02T03:04:05.000Z');
+      expect(part).toContain('2 Jan 2026, 03:04 UTC');
       expect(part).toContain('ops@example.com');
     }
   });
@@ -233,6 +236,49 @@ describe('restore-completed', () => {
 
     expect(bare.text).toContain('Not recorded');
     expect(bare.html).toContain('Not recorded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timestamps and durations
+// ---------------------------------------------------------------------------
+
+describe('timestamps read as dates, and the exact instant stays machine-readable', () => {
+  it('backup-failed adds a Duration row derived from started/settled, in both parts', () => {
+    const rendered = backupFailedEmail(BACKUP_FAILED);
+
+    expect(rendered.text).toMatch(/Duration:\s+10 min/);
+    expect(rendered.html).toContain('10 min');
+  });
+
+  it('backup-failed omits the Duration row when the start was never recorded, rather than guessing', () => {
+    const rendered = backupFailedEmail({ ...BACKUP_FAILED, startedAt: null });
+
+    expect(rendered.text).not.toContain('Duration');
+    expect(rendered.html).not.toContain('Duration');
+    expect(rendered.text).toMatch(/Started at:\s+Not recorded/);
+  });
+
+  it('every operational template keeps the ISO instant in a <time datetime> attribute in the html', () => {
+    expect(jobFailedEmail(JOB_FAILED).html).toContain(
+      '<time datetime="2026-01-01T00:00:00.000Z"',
+    );
+    expect(nodeOfflineEmail(NODE_OFFLINE).html).toContain(
+      '<time datetime="2026-01-01T00:06:00.000Z"',
+    );
+    expect(backupFailedEmail(BACKUP_FAILED).html).toContain(
+      '<time datetime="2026-01-01T00:10:00.000Z"',
+    );
+    expect(restoreCompletedEmail(RESTORE_COMPLETED).html).toContain(
+      '<time datetime="2026-01-02T03:04:05.000Z"',
+    );
+  });
+
+  it('node-offline says "never checked in" in the preheader instead of an awkward "at Never"', () => {
+    const never = nodeOfflineEmail({ ...NODE_OFFLINE, lastHeartbeatAt: null });
+
+    expect(never.html).toContain('never checked in');
+    expect(never.html).not.toMatch(/checked in at Never/);
   });
 });
 

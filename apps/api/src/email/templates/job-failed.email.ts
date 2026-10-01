@@ -1,4 +1,17 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  callout,
+  codeBlock,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+  timestampRow,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -66,7 +79,7 @@ export interface JobFailedEmailData {
    */
   executor: string | null;
 
-  /** When the job was settled `failed`. Rendered as UTC; see `formatTimestamp`. */
+  /** When the job was settled `failed`. Rendered via `formatEmailTimestamp` (UTC). */
   failedAt: Date;
 
   /**
@@ -80,106 +93,88 @@ export interface JobFailedEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const JOBS_ADMIN_PATH = '/admin/settings/jobs';
 
-/**
- * ISO 8601, in UTC, with the `Z` left on — the same choice, for the same
- * reason, as every other template here: the server does not know the reader's
- * time zone, and this timestamp's job is to be matched against a log line.
- */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
 /** `null` is a fact about the row, not a blank. Give it words. */
 function orNone(value: string | null): string {
   return value === null || value.trim().length === 0 ? 'Not recorded' : value;
 }
 
-/** One row of the detail table. `value` is escaped by the `html` tag. */
-function detailRow(label: string, value: string): SafeHtml {
-  return html`<tr>
-    <td
-      style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#4b5563;white-space:nowrap;vertical-align:top;"
-    >
-      ${label}
-    </td>
-    <td style="padding:6px 0;font-size:14px;line-height:20px;color:#1f2937;vertical-align:top;">
-      <strong>${value}</strong>
-    </td>
-  </tr>`;
-}
+/** The recipient's own notification settings page, appended to `appUrl`. */
+const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
 
 /**
  * Render the job-failure message.
  */
 export function jobFailedEmail(data: JobFailedEmailData): RenderedEmail {
-  const timestamp = formatTimestamp(data.failedAt);
   const error = orNone(data.error);
   const executor = orNone(data.executor);
 
   const subject = `${APP_NAME}: background job "${data.jobType}" failed`;
 
+  const title = 'Background job failed';
+  const eyebrow = 'Operations';
   const ctaUrl = data.appUrl ? `${data.appUrl}${JOBS_ADMIN_PATH}` : undefined;
+  const ctaLabel = ctaUrl ? 'Open jobs' : undefined;
+  const preferencesUrl = data.appUrl
+    ? `${data.appUrl}${NOTIFICATION_SETTINGS_PATH}`
+    : undefined;
+  const footerReason = `You received this because you can view background jobs in ${APP_NAME}.`;
 
-  const rows: SafeHtml[] = [
-    detailRow('Job type', data.jobType),
-    detailRow('Job id', data.jobId),
-    detailRow('Attempts', String(data.attempts)),
-    detailRow('Ran on', executor),
-    detailRow('Failed at', timestamp),
+  const intro = `A background job in ${APP_NAME} used up its retry budget and was given up on.`;
+  const calloutTitle = 'It will not be retried automatically';
+  const calloutBody =
+    'The work it was doing has not been done. Fix the cause shown below, then run the work again if it is still needed.';
+  const facts = [
+    { label: 'Job type', value: data.jobType, mono: true },
+    { label: 'Job id', value: data.jobId, mono: true },
+    { label: 'Attempts', value: String(data.attempts) },
+    { label: 'Ran on', value: executor },
+    timestampRow('Failed at', data.failedAt),
   ];
+  const errorLabel = 'Last error reported by the handler';
 
+  // `error` is a message from a handler this repository does not own: it goes
+  // through `codeBlock`, which escapes it like every other value here.
   const bodyHtml = html`
-    <p style="margin:0 0 16px 0;">
-      A background job in ${APP_NAME} used up its retry budget and was given
-      up on. It will <strong>not</strong> be retried automatically — the work
-      it was doing has not been done.
-    </p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
-      ${rows}
-    </table>
-    <p style="margin:0 0 8px 0;font-size:13px;line-height:20px;color:#4b5563;">
-      Last error reported by the handler:
-    </p>
-    <p
-      style="margin:0 0 20px 0;padding:12px;background:#f3f4f6;border-radius:4px;font-family:monospace;font-size:13px;line-height:20px;color:#1f2937;word-break:break-word;"
-    >
-      ${error}
-    </p>
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      You are receiving this because you can view background jobs in
-      ${APP_NAME}.
-    </p>
+    ${paragraph(intro)}
+    ${callout({ tone: 'critical', title: calloutTitle, body: calloutBody })}
+    ${detailRows(facts)}
+    ${codeBlock(error, { label: errorLabel })}
   `;
 
   const htmlDocument = renderLayout({
-    title: 'Background job failed',
+    title,
+    eyebrow,
     // The preheader carries the type and the error, so the inbox list alone
     // often answers "do I need to open this?".
     previewText: `${data.jobType} gave up after ${data.attempts} attempt(s): ${error}`,
     bodyHtml,
-    ctaLabel: ctaUrl ? 'Open jobs' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   const text = plainText({
-    title: 'Background job failed',
+    eyebrow,
+    title,
     lines: [
-      `A background job in ${APP_NAME} used up its retry budget and was given up on.`,
-      'It will NOT be retried automatically - the work it was doing has not been done.',
+      intro,
       '',
-      `  Job type:   ${data.jobType}`,
-      `  Job id:     ${data.jobId}`,
-      `  Attempts:   ${data.attempts}`,
-      `  Ran on:     ${executor}`,
-      `  Failed at:  ${timestamp}`,
+      ...textCallout({
+        tone: 'critical',
+        title: 'It will NOT be retried automatically',
+        body: calloutBody,
+      }),
       '',
-      'Last error reported by the handler:',
+      ...textDetailLines(facts),
+      '',
+      `${errorLabel}:`,
       `  ${error}`,
-      '',
-      `You are receiving this because you can view background jobs in ${APP_NAME}.`,
     ],
-    ctaLabel: ctaUrl ? 'Open jobs' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   return {
@@ -187,5 +182,6 @@ export function jobFailedEmail(data: JobFailedEmailData): RenderedEmail {
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

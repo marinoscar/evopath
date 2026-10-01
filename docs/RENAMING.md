@@ -30,7 +30,7 @@ Pick one of two equivalent routes:
 **Directly:**
 
 ```bash
-node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub --theme '#7c3aed'
+node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub --theme '#7c3aed' --accent '#f59e0b'
 ```
 
 Either way, four things follow the codemod, and none of them are optional
@@ -52,7 +52,7 @@ the diff before you run anything.
 Change `packages/shared/identity.json` (or let the script do it) and these
 surfaces are correct the next time the app builds — no codemod involved,
 because they all read `APP_NAME` / `THEME_COLOR` / `BACKGROUND_COLOR` /
-`REPO_SLUG` from `@app/shared` rather than holding their own copy. The
+`ACCENT_COLOR` / `REPO_SLUG` from `@app/shared` rather than holding their own copy. The
 ~12-row consumer table — the web wordmark, the OpenAPI document title, the
 email layout, the CLI banner, the MUI theme, the web app manifest, and so on
 — lives in [`packages/shared/README.md`](../packages/shared/README.md#consumers)
@@ -88,7 +88,7 @@ edits:
 | `infra/compose/.env.example` and `base.compose.yml` (`OTEL_SERVICE_NAME` default) | These are Compose-file string defaults, not JavaScript — nothing executes `@app/shared` to produce them. The codemod changes the *value* only; it never adds a new key, because `apps/cli/src/deploy/env-spec.test.ts` counts every commented `# KEY=value` line in `.env.example` as a declared variable, and a new key would fail that test. |
 | `infra/compose/test.compose.yml`, `apps/api/.env.test`, `scripts/dev.ps1` (test database name and container name) | Same reasoning as the OTEL default — Compose/env-file values, not code. |
 | `package.json`'s `"name"` field | npm reads this before any of the repository's own code runs, so it is necessarily a second copy of the slug. |
-| `apps/web/public/favicon.svg` and `apps/web/public/icons/source.svg` (the `fill` attribute on the background rect) | These are the two hand-editable *vector* masters. `generate-icons.py` reads the manifest for the *rasters* but deliberately does not rasterise these two SVGs — see [The binary-name decision](#the-binary-name-decision)'s sibling note in `packages/shared/README.md` on why an SVG toolchain is refused. |
+| `apps/web/public/favicon.svg` and `apps/web/public/icons/source.svg` (the plate `fill` for `--theme`, the sun `fill` for `--accent`) | `generate-icons.py` writes both SVGs from the same geometry as the PNGs, so they are generated files, not hand-edited masters. The codemod still anchors one edit per fill in each, so the SVGs stay correct on a machine without Python or Pillow; the generator then rewrites them. Neither SVG is rasterised by any tool: see [Brand icons](../packages/shared/README.md#brand-icons). |
 | `apps/cli/src/branding.ts` and `apps/cli/package.json`'s `bin` key | Only touched when `--cli-name` is passed — see the next section. |
 
 The root `README.md` is deliberately not a codemod target. It is hand-written
@@ -109,16 +109,17 @@ node scripts/rename.mjs --name "Acme Hub" [options]
   --repo <owner/name>    GitHub repository slug. Published in the OpenAPI document.
   --theme <#rrggbb>      Brand primary colour. 6-digit hex only.
   --background <#rrggbb> PWA splash / first-paint colour. 6-digit hex only.
+  --accent <#rrggbb>     The sun in the brand mark. Logo-only, never a UI colour. 6-digit hex only.
   --tagline <string>     One-line description, stored in identity.json.
   --cli-name <name>      ALSO rename the CLI binary. Read the warning it prints first.
   --dry-run              Show every edit and its hit count; change nothing.
   --force                Proceed even with a dirty working tree.
   -h, --help             This message.
 
-At least one of --name/--repo/--theme/--background/--tagline/--cli-name is required.
+At least one of --name/--repo/--theme/--background/--accent/--tagline/--cli-name is required.
 ```
 
-`--theme` and `--background` must be 6-digit `#rrggbb` hex — a PWA manifest's
+`--theme`, `--background` and `--accent` must be 6-digit `#rrggbb` hex — a PWA manifest's
 `theme_color` is parsed by the platform, not by a CSS engine, and the
 3-digit shorthand and `rgb()` forms aren't reliably accepted there. `--repo`
 must match `owner/name`. `--cli-name` must be lowercase letters, digits and
@@ -150,6 +151,8 @@ Planned edits (Prior Name -> Acme Hub):
   ~ package.json  1x  "\"name\": \"prior-name\","
   ~ apps/web/public/favicon.svg  1x  "fill=\"#0044cc\""
   ~ apps/web/public/icons/source.svg  1x  "fill=\"#0044cc\""
+  ~ apps/web/public/favicon.svg  1x  "fill=\"#f6c445\""
+  ~ apps/web/public/icons/source.svg  1x  "fill=\"#f6c445\""
 
   ~ packages/shared/identity.json  (structured write)
       productName: "Acme Hub"
@@ -157,6 +160,7 @@ Planned edits (Prior Name -> Acme Hub):
       repoSlug: "oscar/acme-hub"
       themeColor: "#7c3aed"
       backgroundColor: "#ffffff"
+      accentColor: "#f59e0b"
 
 (--dry-run: nothing was written.)
 ```
@@ -168,6 +172,11 @@ holds, not the fictional values above.)
 The template's own `backgroundColor` is `#f2f7f6`, the light `background.default`
 of the web theme. `--background` is usually left alone; if you change it, keep it
 equal to the light `background.default` in `apps/web/src/theme/tokens.ts`.
+
+`--accent` sets `accentColor`, the sun in the brand mark (the template's is
+`#f6c445`). It is a logo-only colour: it is painted into the icons, the two
+SVGs and the email logo, and the web `BrandMark` reads it as `ACCENT_COLOR`, but
+no UI element takes it. Omitting `--accent` preserves the current value.
 See [`packages/shared/README.md`](../packages/shared/README.md#brand-icons).
 
 ## The binary-name decision
@@ -312,7 +321,8 @@ pip install --user 'Pillow>=10'
 python3 apps/web/scripts/generate-icons.py
 ```
 
-The icon PNGs are committed pixels precisely so that a fork is never forced
+The generated brand files (the PNGs, `favicon.ico`, both SVGs and the two
+`*.generated.ts` files) are committed precisely so that a fork is never forced
 to have an image toolchain in order to run the rename — the icon
 regeneration step is the one part of the whole process that's genuinely
 optional infrastructure, deferred until you actually change a brand colour.
@@ -321,7 +331,7 @@ optional infrastructure, deferred until you actually change a brand colour.
 script refuses to run against a dirty working tree without `--force` in the
 first place: a clean tree going in is what makes a full revert a single
 command coming out. If you've already run `npm install` or the icon
-regenerator, those produced files (`package-lock.json`, the icon PNGs) are
+regenerator, those produced files (`package-lock.json`, the generated brand files) are
 tracked too, so `git checkout .` reverts them along with everything else.
 
 ## Starting a whole new project

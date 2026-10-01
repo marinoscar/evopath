@@ -9,7 +9,7 @@ import type { EmailMessage } from './email.types';
 import type { EmailProvider } from './providers/email-provider.interface';
 import { SesEmailProvider } from './providers/ses-email.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
-import { renderEmailTemplate } from './templates';
+import { composeEmailMessage, renderEmailTemplate } from './templates';
 import type { TestEmailResult } from './dto/test-email-result.dto';
 
 // =============================================================================
@@ -233,14 +233,12 @@ export class EmailTestSendService {
       settingsUrl: this.settingsUrl(),
     });
 
-    const message: EmailMessage = {
+    // `composeEmailMessage` carries the inline brand-mark part along with the
+    // body; a hand-copy of fields here is how it would get dropped.
+    const message: EmailMessage = composeEmailMessage(rendered, {
       to: actor.email,
       from: formatFromHeader(settings.fromAddress, settings.fromName),
-      subject: rendered.subject,
-      html: rendered.html,
-      text: rendered.text,
-      ...(rendered.headers ? { headers: rendered.headers } : {}),
-    };
+    });
 
     // `send` NEVER throws — that contract is implemented once, in
     // `BaseEmailProvider`, so there is deliberately no try/catch here. Adding

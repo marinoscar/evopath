@@ -151,6 +151,24 @@ exports.THEME_COLOR = identity.themeColor;
 exports.BACKGROUND_COLOR = identity.backgroundColor;
 
 /**
+ * The brand mark's accent: the sun in the logo, as a CSS hex string.
+ *
+ * ▲ THIS IS A REBRAND POINT: `accentColor` in `identity.json` (or
+ * `node scripts/rename.mjs --accent '#rrggbb'`).
+ *
+ * A LOGO-ONLY COLOUR, NEVER A UI COLOUR. It paints the sun in the brand mark
+ * (the generated icons and SVGs, `BrandMark.tsx`, the login page's brand
+ * panel) and nothing else: no button, chip, chart series or status uses it.
+ * UI colour roles come from the MUI palette (`apps/web/src/theme/`); an accent
+ * that leaked into the UI would become a second, unmanaged palette.
+ *
+ * Like `THEME_COLOR`, it is painted into committed PNGs and SVGs by
+ * `python3 apps/web/scripts/generate-icons.py`, so changing it means re-running
+ * that script (`rename.mjs` does it for you). Keep it a 6-digit `#rrggbb`.
+ */
+exports.ACCENT_COLOR = identity.accentColor;
+
+/**
  * What `APP_SLUG` degrades to when `APP_NAME` slugifies to nothing (all
  * punctuation, all non-Latin script, empty).
  *

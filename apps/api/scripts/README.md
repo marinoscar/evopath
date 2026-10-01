@@ -2,6 +2,16 @@
 
 This folder contains utility scripts for database and development operations.
 
+## render-email-previews.ts
+
+Renders every registered email template to local HTML and text files for visual review. Pure rendering: no database, no network, no running API.
+
+```bash
+npx tsx apps/api/scripts/render-email-previews.ts <outDir>
+```
+
+It writes `<template>.html`, `<template>.txt` and an `index.html` linking them. Each `cid:` reference in the HTML becomes a `data:` URI so a browser shows the logo. The sample data is fixed, so two runs produce identical output. Details: [the email templates README](../src/email/templates/README.md#previewing).
+
 ## prisma-env.js
 
 A helper script that constructs `DATABASE_URL` from individual PostgreSQL environment variables before executing Prisma CLI commands.

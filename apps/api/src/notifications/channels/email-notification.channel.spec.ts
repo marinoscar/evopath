@@ -212,6 +212,44 @@ describe('EmailNotificationChannel', () => {
     });
   });
 
+  describe('attachments (issue #237)', () => {
+    const welcomeEvent = NOTIFICATION_EVENTS.find((event) => event.key === 'user.welcome')!;
+    const welcomeContext: NotificationDispatchContext = {
+      event: welcomeEvent,
+      recipient,
+      data: { recipientEmail: recipient.email, roles: ['viewer'] },
+      channels: welcomeEvent.channels,
+    };
+
+    it.each(['ses', 'smtp'] as const)(
+      'passes the inline brand mark and the html that references it to the %s provider',
+      async (provider) => {
+        mockEmailSettings.get.mockResolvedValue({
+          provider,
+          enabled: true,
+          fromAddress: 'sender@example.com',
+        });
+        const transport = provider === 'ses' ? mockSes : mockSmtp;
+        transport.send.mockResolvedValue({ success: true, messageId: 'm-1' });
+
+        await channel.deliver(welcomeContext, recipient.email as string);
+
+        expect(transport.send).toHaveBeenCalledTimes(1);
+        const [message] = transport.send.mock.calls[0];
+        expect(message.html).toContain('src="cid:brand-mark"');
+        expect(message.attachments).toEqual([
+          expect.objectContaining({
+            contentId: 'brand-mark',
+            disposition: 'inline',
+            contentType: 'image/png',
+            contentBase64: expect.any(String),
+          }),
+        ]);
+        expect(message.attachments[0].contentBase64.length).toBeGreaterThan(0);
+      },
+    );
+  });
+
   describe('resolveTo', () => {
     it('returns the recipient email address', () => {
       expect(channel.resolveTo(recipient)).toBe('user@example.com');

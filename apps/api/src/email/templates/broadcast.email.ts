@@ -1,4 +1,12 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  SafeHtml,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -47,8 +55,8 @@ import {
 // -----------------------------------------------------------------------------
 //
 // Not `[${APP_NAME}] ${title}`, and not `${title} — ${APP_NAME}`. The layout
-// already puts the wordmark above the card and the "automated message from
-// ${APP_NAME}" line beneath it, so a prefix adds no information the recipient
+// already puts the brand mark and name above the card and the "Sent
+// automatically by ${APP_NAME}" line beneath it, so a prefix adds no information the recipient
 // does not already have the moment they open the message — and it costs the
 // only thing that decides whether they open it. Inbox lists truncate the
 // subject at something like 35–50 characters on a phone, so a prefix eats the
@@ -63,7 +71,8 @@ import {
 // `admin.broadcast` and `admin.broadcast_critical` both map here
 // (`EVENT_EMAIL_TEMPLATES`). They differ in whether a user may MUTE them, not
 // in how the message READS — `mandatory` is a property of the recipient's
-// preferences gate, not of the copy. `critical` adds one footer line saying so;
+// preferences gate, not of the copy. `critical` changes the eyebrow and adds
+// one sentence to the footer reason saying so;
 // a second template would be a copy of this one that drifts from it.
 //
 // Like every other template here it is PURE: no clock, no config, no I/O. The
@@ -217,31 +226,27 @@ export function broadcastEmail(data: BroadcastEmailData): RenderedEmail {
     ? (data.ctaLabel?.trim() ?? '') || `Open ${APP_NAME}`
     : undefined;
 
-  // THE ESCAPING BOUNDARY, and the only one. Each paragraph is interpolated as
-  // a VALUE, so the `html` tag escapes it (safe-html.ts). The result is an
-  // array of `SafeHtml`, which `renderValue` flattens and concatenates when the
+  // THE ESCAPING BOUNDARY, and the only one. Each paragraph is passed as a
+  // plain STRING to `paragraph`, which interpolates it as a VALUE through the
+  // `html` tag and therefore escapes it (safe-html.ts). The result is an array
+  // of `SafeHtml`, which `renderValue` flattens and concatenates when the
   // array itself is interpolated below — so the body is composed of fragments
   // the type system knows are safe, never of strings.
-  //
-  // The last paragraph loses its bottom margin unless the critical footer
-  // follows it, so the card's own padding is not doubled at the end.
-  const bodyParagraphs: SafeHtml[] = paragraphs.map((paragraph, index) => {
-    const isLast = index === paragraphs.length - 1;
-    const margin = isLast && !critical ? '0' : '0 0 16px 0';
+  const bodyParagraphs: SafeHtml[] = paragraphs.map((text) => paragraph(text));
 
-    return html`<p style="margin:${margin};">${paragraph}</p>`;
-  });
+  const bodyHtml = html`${bodyParagraphs}`;
 
-  const criticalNotice = critical
-    ? html`<p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-        ${CRITICAL_NOTICE}
-      </p>`
-    : SafeHtml.EMPTY;
-
-  const bodyHtml = html`${bodyParagraphs}${criticalNotice}`;
+  // The critical notice lives in the FOOTER REASON, which is where every other
+  // template explains why a message arrived and whether it can be muted —
+  // keeping it out of the admin's own content, which it is not part of.
+  const footerReason = critical
+    ? `You received this announcement because you have an account on ${APP_NAME}. ${CRITICAL_NOTICE}`
+    : `You received this announcement because you have an account on ${APP_NAME}.`;
+  const eyebrow = critical ? 'Important announcement' : 'Announcement';
 
   const htmlDocument = renderLayout({
     title: data.title,
+    eyebrow,
     // The first paragraph, which is where an author puts the point. There is
     // no better generic choice: unlike every other template here, nothing in
     // this file knows what the message is about, so anything else would be a
@@ -252,6 +257,7 @@ export function broadcastEmail(data: BroadcastEmailData): RenderedEmail {
     bodyHtml,
     ctaLabel,
     ctaUrl: data.ctaUrl,
+    footerReason,
   });
 
   // The text part is HAND-WRITTEN from the same paragraphs, never derived from
@@ -260,12 +266,9 @@ export function broadcastEmail(data: BroadcastEmailData): RenderedEmail {
   // almost nothing, because the source really is plain text; the HTML half is
   // the derived one.
   const textLines: string[] = [];
-  for (const paragraph of paragraphs) {
+  for (const text of paragraphs) {
     if (textLines.length > 0) textLines.push('');
-    textLines.push(paragraph);
-  }
-  if (critical) {
-    textLines.push('', CRITICAL_NOTICE);
+    textLines.push(text);
   }
 
   // `PlainTextOptions.lines` is a NON-EMPTY TUPLE, so it is built after an
@@ -287,10 +290,12 @@ export function broadcastEmail(data: BroadcastEmailData): RenderedEmail {
     first === undefined ? [''] : [first, ...textLines.slice(1)];
 
   const text = plainText({
+    eyebrow,
     title: data.title,
     lines,
     ctaLabel,
     ctaUrl: data.ctaUrl,
+    footerReason,
   });
 
   return {
@@ -298,5 +303,6 @@ export function broadcastEmail(data: BroadcastEmailData): RenderedEmail {
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

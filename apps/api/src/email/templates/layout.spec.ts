@@ -1,5 +1,17 @@
 import { html, SafeHtml } from './safe-html';
-import { plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  detailRows,
+  formatEmailDuration,
+  formatEmailTimestamp,
+  plainText,
+  renderLayout,
+  textDetailLines,
+  timeHtml,
+  timestampRow,
+} from './layout';
+import { roleChangedEmail } from './role-changed.email';
+import { testEmail } from './test-email.email';
 
 // =============================================================================
 // layout.ts — tests (issue #123, epic #109)
@@ -15,9 +27,10 @@ import { plainText, renderLayout } from './layout';
 //      causes the button to be DROPPED rather than rendered pointing
 //      somewhere useless, checked on the rendered output of BOTH the HTML
 //      and the text part.
-//   3. Structural invariants (no <link>, no external src, no <style>, table
+//   3. Structural invariants (no <link>, only cid: sources, at most one
+//      progressive-enhancement <style> block, inline baseline styling, table
 //      based, hidden preheader present) that guard email-client
-//      compatibility as future templates (#128) reuse this layout.
+//      compatibility as future templates reuse this layout (#123, #237).
 // =============================================================================
 
 const basicBody: SafeHtml = html`<p>Hello, world.</p>`;
@@ -174,14 +187,70 @@ describe('renderLayout — structural invariants', () => {
     expect(out).not.toMatch(/<link\b/i);
   });
 
-  it('contains no external src= (no remote image/asset)', () => {
-    // Matches `src=` only inside an actual (unescaped) tag, not the literal
-    // substring "src=" as escaped text content.
-    expect(out).not.toMatch(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=/i);
+  it('references assets only as cid: (inline MIME parts), never by a remote or data: URL', () => {
+    // Every `src=` inside an actual (unescaped) tag. The brand mark travels
+    // inside the message as an inline part and is referenced as
+    // `cid:brand-mark`; anything else — http(s), protocol-relative, data: —
+    // is either a remote fetch that clients block by default or a payload
+    // several clients refuse to render.
+    const sources = [
+      ...out.matchAll(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]*)/gi),
+    ].map((match) => match[1]);
+
+    expect(sources.length).toBeGreaterThan(0);
+    for (const source of sources) {
+      expect(source).toMatch(/^cid:/);
+    }
+    expect(sources).toContain('cid:brand-mark');
   });
 
-  it('contains no <style> block', () => {
-    expect(out).not.toMatch(/<style\b/i);
+  it('shows the brand mark with an empty alt and the product name as live text beside it', () => {
+    expect(out).toMatch(/<img\b[^>]*src="cid:brand-mark"[^>]*alt=""/);
+    expect(out).toContain(APP_NAME);
+  });
+
+  it('has at most one <style> block, holding only progressive enhancements (@media / [data-og*] rules)', () => {
+    const blocks = [...out.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map(
+      (match) => match[1] ?? '',
+    );
+    expect(blocks.length).toBeLessThanOrEqual(1);
+
+    for (const css of blocks) {
+      // Walk the TOP-LEVEL rules by brace depth and record each one's prelude.
+      const preludes: string[] = [];
+      let depth = 0;
+      let prelude = '';
+      for (const char of css.replace(/\/\*[\s\S]*?\*\//g, '')) {
+        if (char === '{') {
+          if (depth === 0) preludes.push(prelude.trim());
+          depth += 1;
+          prelude = '';
+        } else if (char === '}') {
+          depth -= 1;
+        } else if (depth === 0) {
+          prelude += char;
+        }
+      }
+      expect(depth).toBe(0);
+      expect(preludes.length).toBeGreaterThan(0);
+      for (const rule of preludes) {
+        expect(rule).toMatch(/^(@media\b|\[data-og(sc|sb)\])/);
+      }
+    }
+  });
+
+  it('keeps baseline styling inline on the main elements, so a stripped <style> block changes nothing essential', () => {
+    // Each element a dark-mode/mobile rule targets also carries its light
+    // appearance inline. Stripping the block must leave a styled message.
+    const withoutStyle = out.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+
+    expect(withoutStyle).toMatch(/<body\b[^>]*style="[^"]*background-color:#F2F7F6/i);
+    expect(withoutStyle).toMatch(/class="em-card"[^>]*bgcolor="#FFFFFF"[^>]*style="[^"]*border:1px solid/i);
+    expect(withoutStyle).toMatch(/<h1\b[^>]*style="[^"]*font-size:\d+px[^"]*color:#0E1F1D/i);
+    expect(withoutStyle).toMatch(/class="em-pad"[^>]*style="padding:32px;"/);
+    // The button: a bgcolor cell around a padded anchor, plus the VML version.
+    expect(withoutStyle).toMatch(/<td\b[^>]*bgcolor="#0F766E"[^>]*>\s*<a\b[^>]*style="[^"]*padding:14px 28px/i);
+    expect(withoutStyle).toContain('<v:roundrect');
   });
 
   it('is table-based (a future flexbox "cleanup" would break Outlook silently)', () => {
@@ -328,5 +397,137 @@ describe('renderLayout + plainText — rejected CTA drops the button in BOTH par
     expect(htmlOut).not.toContain('javascript:');
     expect(textOut).not.toContain('Dangerous button');
     expect(textOut).not.toContain('javascript:');
+  });
+});
+
+// =============================================================================
+// Timestamps — formatEmailTimestamp and friends
+// =============================================================================
+
+describe('formatEmailTimestamp', () => {
+  it('renders a UTC instant as day, English month, year, 24-hour time and an explicit zone', () => {
+    expect(formatEmailTimestamp(new Date('2026-10-01T02:00:03.000Z'))).toBe(
+      '1 Oct 2026, 02:00 UTC',
+    );
+    expect(formatEmailTimestamp(new Date('2026-10-01T21:59:59.999Z'))).toBe(
+      '1 Oct 2026, 21:59 UTC',
+    );
+  });
+
+  it('converts an input carrying a non-UTC offset to UTC (never the host zone)', () => {
+    // 01:30 at +05:30 is 20:00 UTC on the PREVIOUS day.
+    expect(formatEmailTimestamp('2026-03-01T01:30:00+05:30')).toBe(
+      '28 Feb 2026, 20:00 UTC',
+    );
+    // A negative offset that pushes the instant into the next day.
+    expect(formatEmailTimestamp('2026-06-15T22:15:00-04:00')).toBe(
+      '16 Jun 2026, 02:15 UTC',
+    );
+  });
+
+  it('crosses month and year boundaries correctly', () => {
+    expect(formatEmailTimestamp('2026-01-31T23:59:00Z')).toBe('31 Jan 2026, 23:59 UTC');
+    expect(formatEmailTimestamp('2026-02-01T00:00:00Z')).toBe('1 Feb 2026, 00:00 UTC');
+    expect(formatEmailTimestamp('2026-12-31T23:30:00-01:00')).toBe(
+      '1 Jan 2027, 00:30 UTC',
+    );
+  });
+
+  it('accepts a Date and an ISO string for the same instant and renders them identically', () => {
+    const iso = '2026-10-01T09:42:17.000Z';
+    expect(formatEmailTimestamp(iso)).toBe(formatEmailTimestamp(new Date(iso)));
+  });
+
+  it('includes seconds only when asked', () => {
+    expect(
+      formatEmailTimestamp('2026-10-01T09:42:07.000Z', { seconds: true }),
+    ).toBe('1 Oct 2026, 09:42:07 UTC');
+  });
+
+  it('returns invalid input unchanged rather than throwing', () => {
+    expect(formatEmailTimestamp('not a date')).toBe('not a date');
+    expect(formatEmailTimestamp('')).toBe('');
+    expect(formatEmailTimestamp(new Date('garbage'))).toBe('Invalid Date');
+  });
+});
+
+describe('timeHtml and timestampRow', () => {
+  it('timeHtml wraps the human string in <time> with the exact ISO instant', () => {
+    expect(timeHtml('2026-10-01T04:00:03+02:00').toString()).toBe(
+      '<time datetime="2026-10-01T02:00:03.000Z" style="white-space:nowrap;">1 Oct 2026, 02:00 UTC</time>',
+    );
+  });
+
+  it('timeHtml renders invalid input as escaped text with no <time> element', () => {
+    const out = timeHtml('<b>soon</b>').toString();
+    expect(out).toBe('&lt;b&gt;soon&lt;/b&gt;');
+  });
+
+  it('timestampRow gives the text part the human string and the html part a <time> wrapper', () => {
+    const row = timestampRow('Changed at', new Date('2026-10-01T09:42:17.000Z'));
+
+    expect(textDetailLines([row])).toEqual(['  Changed at:  1 Oct 2026, 09:42 UTC']);
+    expect(detailRows([row]).toString()).toContain(
+      '<time datetime="2026-10-01T09:42:17.000Z" style="white-space:nowrap;">1 Oct 2026, 09:42 UTC</time>',
+    );
+  });
+
+  it('timestampRow renders null as words, with no <time> element', () => {
+    const row = timestampRow('Started at', null);
+    expect(row.value).toBe('Not recorded');
+    expect(detailRows([row]).toString()).not.toContain('<time');
+    expect(timestampRow('Last heartbeat', null, 'Never').value).toBe('Never');
+  });
+});
+
+describe('formatEmailDuration', () => {
+  it.each([
+    ['2026-10-01T02:00:03Z', '2026-10-01T02:00:34Z', '31 s'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T02:00:00Z', '0 s'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T02:02:04Z', '2 min 4 s'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T02:10:00Z', '10 min'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T03:05:59Z', '1 h 5 min'],
+    ['2026-10-01T02:00:00Z', '2026-10-01T04:00:00Z', '2 h'],
+    ['2026-09-29T02:00:00Z', '2026-10-01T05:00:00Z', '2 d 3 h'],
+  ])('%s -> %s is %s', (start, end, expected) => {
+    expect(formatEmailDuration(start, end)).toBe(expected);
+  });
+
+  it('returns undefined for a negative span or an invalid input, so the caller omits the row', () => {
+    expect(formatEmailDuration('2026-10-01T02:00:10Z', '2026-10-01T02:00:00Z')).toBeUndefined();
+    expect(formatEmailDuration('nope', '2026-10-01T02:00:00Z')).toBeUndefined();
+  });
+});
+
+describe('templates outside the operational set use the shared formatter', () => {
+  it('role-changed shows the human timestamp in both parts and the preheader', () => {
+    const out = roleChangedEmail({
+      recipientEmail: 'a@example.com',
+      previousRoles: ['viewer'],
+      currentRoles: ['admin'],
+      changedAt: new Date('2026-10-01T09:42:17.000Z'),
+    });
+
+    expect(out.text).toMatch(/Changed at:\s+1 Oct 2026, 09:42 UTC/);
+    expect(out.html).toContain('changed at 1 Oct 2026, 09:42 UTC.');
+    expect(out.html).toContain('<time datetime="2026-10-01T09:42:17.000Z"');
+    expect(out.text).not.toContain('2026-10-01T');
+  });
+
+  it('test-email keeps seconds in the subject so two sends a few seconds apart do not thread together', () => {
+    const first = testEmail({
+      recipientEmail: 'a@example.com',
+      providerKind: 'smtp',
+      sentAt: new Date('2026-10-01T14:05:09.000Z'),
+    });
+    const second = testEmail({
+      recipientEmail: 'a@example.com',
+      providerKind: 'smtp',
+      sentAt: new Date('2026-10-01T14:05:41.000Z'),
+    });
+
+    expect(first.subject).toContain('(1 Oct 2026, 14:05:09 UTC)');
+    expect(first.subject).not.toBe(second.subject);
+    expect(first.text).toMatch(/Sent at:\s+1 Oct 2026, 14:05 UTC/);
   });
 });
