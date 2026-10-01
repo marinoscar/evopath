@@ -138,6 +138,10 @@ export interface ReviewSetupOptions {
   /** `updateMany` count inside the transaction (0 = another run recorded the week). */
   advancedCount?: number;
   program?: { autonomyPausedAt: Date | null; autonomyPausedReason: string | null } | null;
+  /** `GoalProgressService.progressForUser` as of the week's Sunday (F9); [] by default. */
+  goals?: unknown[];
+  /** `GoalProgressService.historyForGoal` per goal id (day goals). */
+  goalHistory?: Record<string, unknown[]>;
 }
 
 export function setupReview(options: ReviewSetupOptions = {}) {
@@ -201,6 +205,10 @@ export function setupReview(options: ReviewSetupOptions = {}) {
   const reviewMetrics = { sent: jest.fn(), skipped: jest.fn(), fallback: jest.fn(), streak: jest.fn() };
   const appMetrics = { coachGuardRejection: jest.fn() };
 
+  const goals = {
+    progressForUser: jest.fn(async (_userId: string, _date?: string, _now?: Date) => options.goals ?? []),
+    historyForGoal: jest.fn(async (_userId: string, goalId: string) => options.goalHistory?.[goalId] ?? []),
+  };
   const handler = new CoachWeeklyReviewHandler(
     registry as never,
     prisma as never,
@@ -215,8 +223,9 @@ export function setupReview(options: ReviewSetupOptions = {}) {
     jobs as never,
     reviewMetrics as never,
     appMetrics as never,
+    goals as never,
   );
-  return { handler, prisma, respondStructured, forUser, jobs, registry, features, signals, photos, reviewMetrics, appMetrics };
+  return { handler, prisma, respondStructured, forUser, jobs, registry, features, signals, photos, reviewMetrics, appMetrics, goals };
 }
 
 /** The `data` (and the whole row) of the n-th persisted message. */

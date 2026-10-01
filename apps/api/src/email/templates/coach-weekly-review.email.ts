@@ -27,7 +27,9 @@ import { TRANSACTIONAL_EMAIL_HEADERS, type RenderedEmail } from './email-templat
 //
 // WHAT IS RENDERED FROM WHERE
 //   - every number comes from `stats` (built by code from the training
-//     signals); the template formats it, the model never supplies one;
+//     signals and, F9, the activity goals); the template formats it, the
+//     model never supplies one. One "Goal: <title>" row per activity goal
+//     (the title is the user's own label, escaped like everything else);
 //   - the words come from the review's `emailProse`, which is ALWAYS the
 //     clean register (spec §2.10: profanity never appears in email, even for
 //     an unlocked Sarge L3) and has passed the content guard with
@@ -58,6 +60,20 @@ export interface CoachWeeklyReviewEmailStats {
   photosAdded: number;
   nextWeekSessions: number;
   noPlan: boolean;
+  /** Active activity goals (F9, #269); absent on reviews written before goals. */
+  goals?: ReadonlyArray<CoachWeeklyReviewEmailGoal>;
+}
+
+export interface CoachWeeklyReviewEmailGoal {
+  title: string;
+  /** What `done` and `target` count. */
+  unit: 'sessions' | 'minutes' | 'steps' | 'meters' | 'days';
+  done: number;
+  target: number;
+  hit: boolean;
+  streakPeriods: number;
+  /** `week` or `day`: names the streak's periods. */
+  period?: 'week' | 'day';
 }
 
 export interface CoachWeeklyReviewEmailProse {
@@ -116,6 +132,29 @@ function formatPr(pr: CoachWeeklyReviewEmailStats['prs'][number]): string {
   return pr.reps !== null ? `${pr.exercise}: ${pr.value} kg x ${pr.reps}` : `${pr.exercise}: ${pr.value} kg`;
 }
 
+/** At most this many characters of a goal title in the row label. */
+const GOAL_TITLE_MAX = 60;
+
+const GOAL_UNIT_LABELS: Readonly<Record<CoachWeeklyReviewEmailGoal['unit'], [string, string]>> = {
+  sessions: ['session', 'sessions'],
+  minutes: ['minute', 'minutes'],
+  steps: ['step', 'steps'],
+  meters: ['meter', 'meters'],
+  days: ['day', 'days'],
+};
+
+/** `3 of 4 sessions, goal reached, 2-week streak` (one line, numbers from stats only). */
+export function formatGoal(goal: CoachWeeklyReviewEmailGoal): string {
+  const [, many] = GOAL_UNIT_LABELS[goal.unit] ?? ['', ''];
+  const amount =
+    goal.unit === 'meters' && goal.target >= 1000
+      ? `${(goal.done / 1000).toFixed(1)} of ${(goal.target / 1000).toFixed(1)} km`
+      : `${goal.done} of ${goal.target}${many ? ` ${many}` : ''}`;
+  const parts = [amount, goal.hit ? 'goal reached' : 'not reached'];
+  if (goal.streakPeriods > 1) parts.push(`${goal.streakPeriods}-${goal.period === 'day' ? 'day' : 'week'} streak`);
+  return parts.join(', ');
+}
+
 /** The stats table rows, as label/value pairs (shared by the HTML and the text part). */
 export function weeklyReviewStatRows(stats: CoachWeeklyReviewEmailStats): Array<[string, string]> {
   const rows: Array<[string, string]> = [];
@@ -136,6 +175,10 @@ export function weeklyReviewStatRows(stats: CoachWeeklyReviewEmailStats): Array<
     'Next week',
     stats.nextWeekSessions > 0 ? `${plural(stats.nextWeekSessions, 'session', 'sessions')} planned` : 'Nothing planned yet',
   ]);
+  for (const goal of stats.goals ?? []) {
+    if (!goal || typeof goal.title !== 'string') continue;
+    rows.push([`Goal: ${truncate(goal.title.replace(/\s+/g, ' ').trim(), GOAL_TITLE_MAX)}`, formatGoal(goal)]);
+  }
   return rows;
 }
 

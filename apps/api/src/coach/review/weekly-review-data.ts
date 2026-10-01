@@ -22,7 +22,9 @@ import type { WeeklyReviewStats } from './weekly-review-stats';
 //   {
 //     version: 1,
 //     isoWeek: '2026-W40',              // the dedup key, also in stats
-//     stats: WeeklyReviewStats,         // deterministic, from signals
+//     stats: WeeklyReviewStats,         // deterministic, from signals (and,
+//                                       // F9, `goals[]`: title, done, target,
+//                                       // hit, streakPeriods, unit, ...)
 //     prose: { headline, intro, wins[], focus, nextWeekPlanPrompt },
 //                                       // in-app text (may be the unlocked
 //                                       // profane register for Sarge L3)
@@ -82,6 +84,22 @@ export const weeklyReviewMessageDataSchema = z
         nextWeek: z.array(z.object({ date: z.string(), weekday: z.string(), name: z.string() }).passthrough()),
         noPlan: z.boolean(),
         firstWeek: z.boolean(),
+        // F9: absent on reviews written before activity goals.
+        goals: z
+          .array(
+            z
+              .object({
+                title: z.string(),
+                unit: z.enum(['sessions', 'minutes', 'steps', 'meters', 'days']),
+                period: z.enum(['week', 'day']).optional(),
+                done: z.number(),
+                target: z.number(),
+                hit: z.boolean(),
+                streakPeriods: z.number(),
+              })
+              .passthrough(),
+          )
+          .optional(),
       })
       .passthrough(),
     prose: proseSchema.passthrough(),

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ActivityModule } from '../../activity/activity.module';
 import { AiAssignmentsModule } from '../../ai/assignments/ai-assignments.module';
 import { AiConfigModule } from '../../ai/config/ai-config.module';
 import { AiRuntimeModule } from '../../ai/runtime/ai-runtime.module';
@@ -28,6 +29,7 @@ import { CoachWeeklyReviewHandler } from './handlers/coach-weekly-review.handler
 
 @Module({
   imports: [
+    ActivityModule,
     AiAssignmentsModule,
     AiConfigModule,
     AiRuntimeModule,

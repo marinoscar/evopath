@@ -23,6 +23,14 @@ import type { WeeklyStreakChange } from './weekly-streak';
 //                        `ProgressPhotoSummaryService`; never an id or a URL).
 //   weeklyStreak,        `CoachState` after `updateWeeklyStreak` for this week.
 //   streakPassesLeft
+//   goals                every ACTIVE activity goal (F9, #269), from
+//                        `GoalProgressService` as of the week's Sunday:
+//                        a week goal's `done`/`target` in its unit and
+//                        `hit`; a DAY goal's `done` = days hit in the week,
+//                        `target` = 7 (`unit: 'days'`). `streakPeriods`
+//                        counts the reviewed period when it is hit (a week
+//                        goal missed this week shows 0; a day goal's Sunday
+//                        not yet hit leaves the run before it).
 //
 // `adherencePct` is null when nothing was planned ("no plan", never 0 %).
 // `firstWeek` is true when the user has never completed a workout up to the
@@ -66,6 +74,65 @@ export interface WeeklyReviewNextSession {
   name: string;
 }
 
+/** One activity goal in the weekly review (F9). The title is the user's own label. */
+export interface WeeklyReviewGoal {
+  title: string;
+  metric: 'sessions' | 'minutes' | 'steps' | 'distance_m';
+  period: 'week' | 'day';
+  /** What `done` and `target` count: the metric's unit, or days hit for a day goal. */
+  unit: 'sessions' | 'minutes' | 'steps' | 'meters' | 'days';
+  done: number;
+  target: number;
+  hit: boolean;
+  streakPeriods: number;
+}
+
+/** At most this many goals are listed (the API caps active goals at 10). */
+export const WEEKLY_REVIEW_MAX_GOALS = 10;
+
+/** What `buildWeeklyReviewGoals` reads per goal (a subset of `GoalProgressData`). */
+export interface WeeklyReviewGoalInput {
+  goalId: string;
+  goal: { title: string; metric: WeeklyReviewGoal['metric']; period: WeeklyReviewGoal['period'] };
+  done: number;
+  target: number;
+  hit: boolean;
+  streakPeriods: number;
+}
+
+const GOAL_UNITS: Readonly<Record<WeeklyReviewGoal['metric'], WeeklyReviewGoal['unit']>> = {
+  sessions: 'sessions',
+  minutes: 'minutes',
+  steps: 'steps',
+  distance_m: 'meters',
+};
+
+/**
+ * The review's goals: `progress` as of the week's Sunday, and for each day
+ * goal the number of days of the reviewed week it was hit (`dayGoalHits`,
+ * by goal id).
+ */
+export function buildWeeklyReviewGoals(
+  progress: readonly WeeklyReviewGoalInput[],
+  dayGoalHits: ReadonlyMap<string, number>,
+): WeeklyReviewGoal[] {
+  return progress.slice(0, WEEKLY_REVIEW_MAX_GOALS).map((p) => {
+    const base = { title: p.goal.title, metric: p.goal.metric, period: p.goal.period };
+    if (p.goal.period === 'day') {
+      const days = dayGoalHits.get(p.goalId) ?? (p.hit ? 1 : 0);
+      return { ...base, unit: 'days' as const, done: days, target: 7, hit: days >= 7, streakPeriods: p.streakPeriods + (p.hit ? 1 : 0) };
+    }
+    return {
+      ...base,
+      unit: GOAL_UNITS[p.goal.metric],
+      done: p.done,
+      target: p.target,
+      hit: p.hit,
+      streakPeriods: p.hit ? p.streakPeriods + 1 : 0,
+    };
+  });
+}
+
 /** `CoachMessage.data.stats` of a `weekly_review` message (version 1). */
 export interface WeeklyReviewStats {
   isoWeek: string;
@@ -88,8 +155,10 @@ export interface WeeklyReviewStats {
   nextWeek: WeeklyReviewNextSession[];
   /** Nothing was planned this week (rest week or no program). */
   noPlan: boolean;
-  /** The user has never completed a workout up to this week's end. */
+  /** The user has never completed a workout (nor made progress on a goal) up to this week's end. */
   firstWeek: boolean;
+  /** Active activity goals (F9); absent on reviews written before goals existed. */
+  goals: WeeklyReviewGoal[];
 }
 
 export interface WeeklyReviewStatsInput {
@@ -104,6 +173,8 @@ export interface WeeklyReviewStatsInput {
   photosAdded: number;
   streak: { weeklyStreak: number; streakPassesLeft: number; change: WeeklyStreakChange };
   hasCompletedWorkout: boolean;
+  /** The review's activity goals (`buildWeeklyReviewGoals`); absent: none. */
+  goals?: WeeklyReviewGoal[];
 }
 
 export function buildWeeklyReviewStats(input: WeeklyReviewStatsInput): WeeklyReviewStats {
@@ -129,6 +200,9 @@ export function buildWeeklyReviewStats(input: WeeklyReviewStatsInput): WeeklyRev
     .sort((a, b) => (a.plannedFor < b.plannedFor ? -1 : a.plannedFor > b.plannedFor ? 1 : a.name.localeCompare(b.name)));
 
   const checkIns = new Set(input.checkInDates.filter((d) => d >= weekStart && d <= weekEnd)).size;
+  const goals = input.goals ?? [];
+  // A user who only tracks activity goals is not on a "first week" once a goal has moved.
+  const goalActivity = goals.some((g) => g.done > 0 || g.streakPeriods > 0);
 
   return {
     isoWeek: input.isoWeek,
@@ -151,7 +225,8 @@ export function buildWeeklyReviewStats(input: WeeklyReviewStatsInput): WeeklyRev
       name: s.name,
     })),
     noPlan: totals.planned === 0,
-    firstWeek: !input.hasCompletedWorkout,
+    firstWeek: !input.hasCompletedWorkout && !goalActivity,
+    goals,
   };
 }
 
@@ -172,5 +247,8 @@ export function weeklyReviewAllowedNumbers(stats: WeeklyReviewStats): number[] {
     numbers.push(pr.value);
     if (pr.reps !== null) numbers.push(pr.reps);
   }
+  const goals = stats.goals ?? [];
+  if (goals.length > 0) numbers.push(goals.length, goals.filter((g) => g.hit).length);
+  for (const goal of goals) numbers.push(goal.done, goal.target, goal.streakPeriods);
   return numbers;
 }

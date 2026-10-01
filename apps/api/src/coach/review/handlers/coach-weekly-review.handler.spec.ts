@@ -79,6 +79,7 @@ describe('CoachWeeklyReviewHandler', () => {
         ],
         noPlan: false,
         firstWeek: false,
+        goals: [],
       });
     });
 

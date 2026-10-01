@@ -23,8 +23,10 @@
 //   3. Deterministic stats (`weekly-review-stats.ts`) from
 //      `TrainingSignalsService.forUser` over exactly the ISO week (the numbers
 //      `GET /api/training/signals?from=<Mon>&to=<Sun>` answers), the next
-//      week's sessions, check-in days and the photo count (counts only, from
-//      `ProgressPhotoSummaryService`).
+//      week's sessions, check-in days, the photo count (counts only, from
+//      `ProgressPhotoSummaryService`) and the active activity goals as of the
+//      week's Sunday (F9, `GoalProgressService`; a failed read is logged and
+//      the review goes out without goals).
 //   4. The weekly streak (`updateWeeklyStreak`): target = planned sessions
 //      due in the week; a protected week (safety stop, pain pattern, a pause
 //      reaching into the week) or a week with no plan never breaks it.
@@ -49,6 +51,7 @@ import { SpanStatusCode, trace, type Span } from '@opentelemetry/api';
 import { Prisma, type Job } from '@prisma/client';
 import { z } from 'zod';
 
+import { GoalProgressService } from '../../../activity/goal-progress.service';
 import { AiFeatureModelResolver } from '../../../ai/assignments/ai-feature-model-resolver.service';
 import { RUNNABLE_FEATURE_STATES } from '../../../ai/assignments/dto/ai-feature-resolution.dto';
 import { AiConfigService } from '../../../ai/config/ai-config.service';
@@ -106,9 +109,11 @@ import {
   type CoachWeeklyReviewProse,
 } from '../weekly-review-schema';
 import {
+  buildWeeklyReviewGoals,
   buildWeeklyReviewStats,
   isoWeekMonday,
   weeklyReviewAllowedNumbers,
+  type WeeklyReviewGoal,
   type WeeklyReviewStats,
 } from '../weekly-review-stats';
 import { updateWeeklyStreak } from '../weekly-streak';
@@ -177,6 +182,8 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
     private readonly jobs: JobsService,
     private readonly metrics: CoachReviewMetrics,
     @Optional() private readonly appMetrics: AppMetricsService = fallbackAppMetrics(),
+    // Optional so a fork without activity goals (or a test) reviews without them.
+    @Optional() private readonly goals?: GoalProgressService,
   ) {}
 
   onModuleInit(): void {
@@ -275,7 +282,7 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
     if (state?.lastWeeklyReviewWeek === isoWeek) return this.skip('already_sent', payload, jobId);
 
     // ---- 3. deterministic stats -------------------------------------------------
-    const [week, nextWeek, checkIns, photosAdded, everCompleted, program, lastRun] = await Promise.all([
+    const [week, nextWeek, checkIns, photosAdded, everCompleted, program, lastRun, goals] = await Promise.all([
       this.signals.forUser(userId, { from: weekStart, to: weekEnd }, now),
       this.signals.forUser(userId, { from: addDays(weekStart, 7), to: addDays(weekStart, 13) }, now),
       this.checkIns.list(userId, CHECK_IN_LOOKBACK_DAYS),
@@ -293,6 +300,7 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
         orderBy: { completedAt: 'desc' },
         select: { status: true, completedAt: true },
       }),
+      this.reviewGoals(userId, weekStart, weekEnd, now),
     ]);
 
     const safetyStop = isSafetyStop(program, lastRun, now);
@@ -320,6 +328,7 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
       photosAdded,
       streak: { weeklyStreak: streak.weeklyStreak, streakPassesLeft: streak.streakPassesLeft, change: streak.change },
       hasCompletedWorkout: everCompleted !== null,
+      goals,
     });
 
     // ---- 5. prose --------------------------------------------------------------
@@ -544,6 +553,23 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
     if (guardWeeklyReviewProse(prose, ctx).ok) return prose;
     this.logger.warn('Coach weekly review: the static persona review failed the guard; the default coach line is used');
     return staticWeeklyReview(renderPersonaStyle('coach', 2, CLEAN_REGISTER), stats, supportive);
+  }
+
+  /** The week's activity goals (F9); [] without goals or when the read fails (never blocks the review). */
+  private async reviewGoals(userId: string, weekStart: string, weekEnd: string, now: Date): Promise<WeeklyReviewGoal[]> {
+    if (!this.goals) return [];
+    try {
+      const progress = await this.goals.progressForUser(userId, weekEnd, now);
+      const dayHits = new Map<string, number>();
+      for (const p of progress.filter((g) => g.goal.period === 'day')) {
+        const history = await this.goals.historyForGoal(userId, p.goalId, 7, weekEnd, now);
+        dayHits.set(p.goalId, history.filter((h) => h.periodStart >= weekStart && h.hit).length);
+      }
+      return buildWeeklyReviewGoals(progress, dayHits);
+    } catch (error) {
+      this.logger.warn(`Coach weekly review: goal progress unavailable for user ${userId} (${error instanceof Error ? error.name : 'error'})`);
+      return [];
+    }
   }
 
   private async enqueueDelivery(messageId: string): Promise<void> {
