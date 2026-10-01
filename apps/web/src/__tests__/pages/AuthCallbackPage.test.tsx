@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { render } from '../utils/test-utils';
 import AuthCallbackPage from '../../pages/AuthCallbackPage';
 import { api } from '../../services/api';
@@ -8,6 +9,7 @@ import { api } from '../../services/api';
 const mockNavigate = vi.fn();
 const mockSearchParams = new URLSearchParams();
 const mockRefreshUser = vi.fn();
+const mockLogin = vi.fn();
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -28,7 +30,7 @@ vi.mock('../../contexts/AuthContext', async () => {
       isLoading: false,
       isAuthenticated: false,
       providers: [],
-      login: vi.fn(),
+      login: mockLogin,
       logout: vi.fn(),
       refreshUser: mockRefreshUser,
     }),
@@ -146,34 +148,132 @@ describe('AuthCallbackPage', () => {
     });
   });
 
-  describe('Error Handling', () => {
-    it('should display error message when error param is present', async () => {
-      const errorMessage = 'Authentication failed';
-      mockSearchParams.set('error', errorMessage);
+  describe('Sign-in error codes (#273)', () => {
+    const headlines: Array<[string, RegExp]> = [
+      ['not_allowlisted', /invite-only right now/i],
+      ['account_disabled', /access for this account is paused/i],
+      ['access_denied', /sign-in was cancelled/i],
+      ['authentication_failed', /we couldn't finish signing you in/i],
+      ['server_misconfigured', /isn't ready for sign-in yet/i],
+    ];
 
-      render(<AuthCallbackPage />, {
+    it.each(headlines)('renders the purpose-built headline for %s', async (code, headline) => {
+      mockSearchParams.set('error', code);
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      expect(
+        await screen.findByRole('heading', { level: 1, name: headline }),
+      ).toBeInTheDocument();
+    });
+
+    it('explains the allowlist case and offers both next steps', async () => {
+      mockSearchParams.set('error', 'not_allowlisted');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      expect(await screen.findByText(/hasn't been invited yet/i)).toBeInTheDocument();
+      expect(screen.getByText(/nothing was created or shared/i)).toBeInTheDocument();
+      expect(screen.getByText(/to add your email address/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /sign in with a different account/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /back to sign in/i })).toHaveAttribute('href', '/login');
+    });
+
+    it('does not use an error alert for the allowlist case', async () => {
+      mockSearchParams.set('error', 'not_allowlisted');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      await screen.findByRole('heading', { level: 1 });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toBeInTheDocument();
+    });
+
+    it('announces real faults as an alert', async () => {
+      mockSearchParams.set('error', 'authentication_failed');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/we couldn't finish signing you in/i);
+    });
+
+    it('focuses the heading on mount', async () => {
+      mockSearchParams.set('error', 'not_allowlisted');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      const heading = await screen.findByRole('heading', { level: 1 });
+      await waitFor(() => expect(heading).toHaveFocus());
+    });
+
+    it('"different account" restarts Google sign-in with the account chooser', async () => {
+      const user = userEvent.setup();
+      mockSearchParams.set('error', 'not_allowlisted');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      await user.click(
+        await screen.findByRole('button', { name: /sign in with a different account/i }),
+      );
+
+      expect(mockLogin).toHaveBeenCalledWith('google', { selectAccount: true });
+    });
+
+    it('"Try again" restarts Google sign-in without the chooser', async () => {
+      const user = userEvent.setup();
+      mockSearchParams.set('error', 'access_denied');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      await user.click(await screen.findByRole('button', { name: /try again/i }));
+
+      expect(mockLogin).toHaveBeenCalledWith('google');
+    });
+
+    it('offers no retry for a misconfigured server, only the way back', async () => {
+      mockSearchParams.set('error', 'server_misconfigured');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      await screen.findByRole('heading', { level: 1 });
+      expect(screen.queryByRole('button', { name: /try again|different account/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /back to sign in/i })).toBeInTheDocument();
+    });
+
+    it.each([
+      '<script>call 555-0100</script>',
+      'User not authorized to access this application',
+      'Invalid OAuth state',
+      'NOT_ALLOWLISTED',
+    ])('never renders an unknown error value (%s); shows the generic copy', async (value) => {
+      mockSearchParams.set('error', value);
+
+      const { container } = render(<AuthCallbackPage />, {
         wrapperOptions: { authenticated: false },
       });
 
-      await waitFor(() => {
-        expect(screen.getByText(errorMessage)).toBeInTheDocument();
-      });
+      expect(
+        await screen.findByRole('heading', { level: 1, name: /we couldn't finish signing you in/i }),
+      ).toBeInTheDocument();
+      expect(container.textContent).not.toContain(value);
+      expect(container.innerHTML).not.toContain('555-0100');
     });
+  });
 
-    it('should show error when no token is received', async () => {
+  describe('Error Handling', () => {
+    it('shows the generic failure when no token is received', async () => {
       // No token or error in URL params
       render(<AuthCallbackPage />, {
         wrapperOptions: { authenticated: false },
       });
 
-      await waitFor(() => {
-        expect(screen.getByText(/no authentication token received/i)).toBeInTheDocument();
-      });
+      expect(
+        await screen.findByRole('heading', { name: /we couldn't finish signing you in/i }),
+      ).toBeInTheDocument();
     });
 
-    it('should show error when refreshUser fails', async () => {
-      const mockToken = 'test-access-token-123';
-      mockSearchParams.set('token', mockToken);
+    it('shows the generic failure when refreshUser fails', async () => {
+      mockSearchParams.set('token', 'test-access-token-123');
       mockRefreshUser.mockRejectedValue(new Error('Network error'));
 
       render(<AuthCallbackPage />, {
@@ -182,9 +282,9 @@ describe('AuthCallbackPage', () => {
         },
       });
 
-      await waitFor(() => {
-        expect(screen.getByText(/failed to complete authentication/i)).toBeInTheDocument();
-      });
+      expect(
+        await screen.findByRole('heading', { name: /we couldn't finish signing you in/i }),
+      ).toBeInTheDocument();
     });
 
     it('should clear access token on refreshUser failure', async () => {
@@ -205,97 +305,21 @@ describe('AuthCallbackPage', () => {
       });
     });
 
-    it('should display return to login link on error', async () => {
-      const errorMessage = 'Authentication failed';
-      mockSearchParams.set('error', errorMessage);
+    it('should not store a token when an error code is present', async () => {
+      mockSearchParams.set('error', 'access_denied');
+      mockSearchParams.set('token', 'some-token');
+      const setAccessTokenSpy = vi.spyOn(api, 'setAccessToken');
 
       render(<AuthCallbackPage />, {
         wrapperOptions: { authenticated: false },
       });
 
-      await waitFor(() => {
-        const loginLink = screen.getByRole('link', { name: /return to login/i });
-        expect(loginLink).toBeInTheDocument();
-        expect(loginLink).toHaveAttribute('href', '/login');
-      });
-    });
-  });
-
-  describe('Authorization Errors', () => {
-    it('should display additional message for "not authorized" error', async () => {
-      const errorMessage = 'User not authorized to access this application';
-      mockSearchParams.set('error', errorMessage);
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/user not authorized to access this application/i)).toBeInTheDocument();
-        expect(screen.getByText(/if you believe this is an error/i)).toBeInTheDocument();
-        expect(screen.getByText(/contact your system administrator/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should handle "Not Authorized" error (case insensitive)', async () => {
-      const errorMessage = 'Not Authorized';
-      mockSearchParams.set('error', errorMessage);
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/not authorized/i)).toBeInTheDocument();
-        expect(screen.getByText(/contact your system administrator/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should handle "NOT AUTHORIZED" error (all caps)', async () => {
-      const errorMessage = 'NOT AUTHORIZED';
-      mockSearchParams.set('error', errorMessage);
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/not authorized/i)).toBeInTheDocument();
-        expect(screen.getByText(/contact your system administrator/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should not show admin contact message for other errors', async () => {
-      const errorMessage = 'Invalid OAuth state';
-      mockSearchParams.set('error', errorMessage);
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(/invalid oauth state/i)).toBeInTheDocument();
-        expect(screen.queryByText(/contact your system administrator/i)).not.toBeInTheDocument();
-      });
+      await screen.findByRole('heading', { name: /sign-in was cancelled/i });
+      expect(setAccessTokenSpy).not.toHaveBeenCalled();
     });
   });
 
   describe('UI Elements', () => {
-    it('should display error in Alert component with error severity', async () => {
-      const errorMessage = 'Authentication failed';
-      mockSearchParams.set('error', errorMessage);
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        const alert = screen.getByRole('alert');
-        expect(alert).toBeInTheDocument();
-        expect(alert).toHaveTextContent(errorMessage);
-      });
-    });
-
     it('should center loading spinner vertically', () => {
       // Mock refreshUser to delay so we can catch loading state
       mockRefreshUser.mockImplementation(() => new Promise(() => {})); // Never resolves
@@ -308,37 +332,9 @@ describe('AuthCallbackPage', () => {
       const spinner = screen.getByRole('progressbar');
       expect(spinner).toBeInTheDocument();
     });
-
-    it('should center error message vertically', async () => {
-      const errorMessage = 'Authentication failed';
-      mockSearchParams.set('error', errorMessage);
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        const alert = screen.getByRole('alert');
-        expect(alert).toBeInTheDocument();
-      });
-    });
   });
 
   describe('Edge Cases', () => {
-    it('should handle empty error param', async () => {
-      mockSearchParams.set('error', '');
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        // Empty error still shows error state (error param exists)
-        const alert = screen.getByRole('alert');
-        expect(alert).toBeInTheDocument();
-      });
-    });
-
     it('should handle empty token param', async () => {
       mockSearchParams.set('token', '');
 
@@ -346,28 +342,10 @@ describe('AuthCallbackPage', () => {
         wrapperOptions: { authenticated: false },
       });
 
-      await waitFor(() => {
-        // Empty token treated as missing token
-        expect(screen.getByText(/no authentication token received/i)).toBeInTheDocument();
-      });
-    });
-
-    it('should prioritize error param over token param', async () => {
-      const errorMessage = 'OAuth error';
-      mockSearchParams.set('error', errorMessage);
-      mockSearchParams.set('token', 'some-token');
-
-      const setAccessTokenSpy = vi.spyOn(api, 'setAccessToken');
-
-      render(<AuthCallbackPage />, {
-        wrapperOptions: { authenticated: false },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText(errorMessage)).toBeInTheDocument();
-        // Token should not be stored when error is present
-        expect(setAccessTokenSpy).not.toHaveBeenCalled();
-      });
+      // Empty token treated as missing token: generic failure
+      expect(
+        await screen.findByRole('heading', { name: /we couldn't finish signing you in/i }),
+      ).toBeInTheDocument();
     });
 
     it('should handle returnUrl with special characters', async () => {
@@ -403,61 +381,6 @@ describe('AuthCallbackPage', () => {
           expect.objectContaining({ replace: true })
         );
       });
-    });
-  });
-
-  describe('Multiple Scenarios', () => {
-    it('should handle various authorization error messages', async () => {
-      const authErrorMessages = [
-        'Email not authorized',
-        'User not authorized',
-        'not authorized to access',
-      ];
-
-      for (const errorMessage of authErrorMessages) {
-        vi.clearAllMocks();
-        sessionStorage.clear();
-        mockSearchParams.delete('error');
-        mockSearchParams.delete('token');
-        mockSearchParams.set('error', errorMessage);
-
-        const { unmount } = render(<AuthCallbackPage />, {
-          wrapperOptions: { authenticated: false },
-        });
-
-        await waitFor(() => {
-          expect(screen.getByText(new RegExp(errorMessage, 'i'))).toBeInTheDocument();
-          expect(screen.getByText(/contact your system administrator/i)).toBeInTheDocument();
-        });
-
-        unmount();
-      }
-    });
-
-    it('should handle various non-authorization error messages', async () => {
-      const nonAuthErrorMessages = [
-        'Invalid state parameter',
-        'OAuth provider error',
-        'Connection timeout',
-        'Server error',
-      ];
-
-      for (const errorMessage of nonAuthErrorMessages) {
-        vi.clearAllMocks();
-        mockSearchParams.delete('error');
-        mockSearchParams.set('error', errorMessage);
-
-        const { unmount } = render(<AuthCallbackPage />, {
-          wrapperOptions: { authenticated: false },
-        });
-
-        await waitFor(() => {
-          expect(screen.getByText(new RegExp(errorMessage, 'i'))).toBeInTheDocument();
-          expect(screen.queryByText(/contact your system administrator/i)).not.toBeInTheDocument();
-        });
-
-        unmount();
-      }
     });
   });
 });

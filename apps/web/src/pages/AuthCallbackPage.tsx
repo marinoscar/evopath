@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, Typography, CircularProgress, Alert } from '@mui/material';
+import { Box, Typography, CircularProgress } from '@mui/material';
 import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { SignInErrorView } from '../components/auth/SignInErrorView';
+import {
+  DEFAULT_SIGN_IN_ERROR_CODE,
+  resolveSignInErrorCode,
+  type SignInErrorCode,
+} from '../components/auth/signInErrorContent';
 
 export default function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+  const { refreshUser, login } = useAuth();
+  // Only ever a known code: the `?error=` value is never rendered (#273).
+  const [errorCode, setErrorCode] = useState<SignInErrorCode | null>(null);
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -16,12 +23,12 @@ export default function AuthCallbackPage() {
       const errorParam = searchParams.get('error');
 
       if (errorParam) {
-        setError(errorParam);
+        setErrorCode(resolveSignInErrorCode(errorParam));
         return;
       }
 
       if (!token) {
-        setError('No authentication token received');
+        setErrorCode(DEFAULT_SIGN_IN_ERROR_CODE);
         return;
       }
 
@@ -39,7 +46,7 @@ export default function AuthCallbackPage() {
         // Navigate to return URL
         navigate(returnUrl, { replace: true });
       } catch (err) {
-        setError('Failed to complete authentication');
+        setErrorCode(DEFAULT_SIGN_IN_ERROR_CODE);
         api.setAccessToken(null);
       }
     };
@@ -47,38 +54,13 @@ export default function AuthCallbackPage() {
     handleCallback();
   }, [searchParams, navigate, refreshUser]);
 
-  if (error) {
-    const isNotAuthorized = error.toLowerCase().includes('not authorized');
-
+  if (errorCode) {
     return (
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          gap: 2,
-          px: 2,
-        }}
-      >
-        <Alert severity="error" sx={{ maxWidth: 500 }}>
-          <Typography variant="body1" gutterBottom>
-            {error}
-          </Typography>
-          {isNotAuthorized && (
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              If you believe this is an error, please contact your system
-              administrator.
-            </Typography>
-          )}
-        </Alert>
-        <Typography variant="body2" color="text.secondary">
-          <a href="/login" style={{ textDecoration: 'none', color: 'inherit' }}>
-            Return to login
-          </a>
-        </Typography>
-      </Box>
+      <SignInErrorView
+        code={errorCode}
+        onSignInWithDifferentAccount={() => login('google', { selectAccount: true })}
+        onTryAgain={() => login('google')}
+      />
     );
   }
 
