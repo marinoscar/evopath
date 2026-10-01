@@ -3268,7 +3268,8 @@ model TrainingRunEvent {
 // `programs_one_active_per_user_uniq_idx` (one active program per user; Prisma
 // cannot express a partial unique index) and the CHECK constraints
 // `programs_status_chk`, `programs_goal_chk`, `programs_autonomy_chk`,
-// `program_workouts_weekday_chk`, `program_exercises_ranges_chk`. Blocks,
+// `program_workouts_weekday_chk`, `program_exercises_shape_chk` (replaced
+// `program_exercises_ranges_chk`: reps shape or cardio shape). Blocks,
 // weeks and workouts are archived (`archivedAt`), not deleted, so history and
 // logged workouts keep resolving.
 model Program {
@@ -3371,9 +3372,16 @@ model ProgramExercise {
   exerciseId       String   @map("exercise_id") @db.Uuid
   position         Int
   isPriority       Boolean  @default(false) @map("is_priority")
-  targetSets       Int      @map("target_sets") // 1..20 (CHECK in migration SQL)
-  repMin           Int      @map("rep_min")
-  repMax           Int      @map("rep_max") // 1 <= repMin <= repMax <= 100 (CHECK in migration SQL)
+  // Two prescription shapes, enforced by `program_exercises_shape_chk` (migration SQL):
+  //  - reps shape (weight_reps|bodyweight_reps): targetSets 1..20, repMin/repMax
+  //    1 <= repMin <= repMax <= 100 all set; both cardio targets null.
+  //  - cardio shape (time|distance_time): repMin/repMax null; targetDurationSeconds
+  //    60..36000 and/or targetDistanceMeters 100..100000 set; targetSets null or 1..20.
+  targetSets            Int?     @map("target_sets")
+  repMin                Int?     @map("rep_min")
+  repMax                Int?     @map("rep_max")
+  targetDurationSeconds Int?     @map("target_duration_seconds")
+  targetDistanceMeters  Decimal? @map("target_distance_meters") @db.Decimal(9, 2) // canonical metres
   targetLoadKg     Decimal? @map("target_load_kg") @db.Decimal(7, 3) // canonical kg; null = choose a starting load or from history
   targetRpe        Decimal? @map("target_rpe") @db.Decimal(3, 1) // 1..10 (CHECK in migration SQL)
   restSeconds      Int      @map("rest_seconds") // 0..900 (CHECK in migration SQL)
