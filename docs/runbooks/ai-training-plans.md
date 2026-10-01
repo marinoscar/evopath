@@ -65,6 +65,7 @@ Scenarios:
 | `critic-reject-once` | The critic rejects with one blocker, the planner revises, the critic approves |
 | `critic-exhausted` | The critic rejects every round while guardrails stay clean; the plan ships with open notes |
 | `planner-hostile` | An unsafe draft (unknown and unsupported exercises, 500 kg loads, a fabricated citation and link, injected instructions): guardrails repair or block it; the injected sentences are dropped from the plan name and rationale |
+| `cardio-walks` | Three strength days plus four 30-minute walks were asked for: the planner puts the walks on the four non-strength days and the critic approves |
 | `research-fabricated-url` | The brief cites a URL the search never returned; the source and its claim are dropped |
 | `research-insufficient` | Fewer than two verified sources remain; the run stops with an insufficient-evidence error |
 | `research-page-injection` | A retrieved page told the model to ignore its rules; the injected text never reaches the plan |
@@ -134,6 +135,7 @@ A run ends `succeeded`, `failed`, `cancelled`, `blocked_safety`, or pauses as `a
 | A role runs on a different model than you assigned | The assignment is not usable for that user's key, so resolution fell through to the default or the auto pick (`assignmentUnavailable` in `GET /api/ai/features`) | Assign a model every key reaches, or accept it |
 | Banner says no model is available, but the user has a key | `no_models` or `missing_capability` with `fix: admin`: nothing enabled fits the role | Enable a capable model (section 4) and assign it; this is not an "Add your own AI key" case |
 | Run fails `TRAINING_RESEARCH_INSUFFICIENT` | After one retry, fewer than 3 verified claims or 2 verified sources survived citation checks (the model cited URLs the search did not return, or only low-quality domains) | Retry; widen the goal text; try a stronger researcher model; check web search is on. Nothing is created |
+| Run is blocked with `cardio_missing` | The user switched on walking or cardio days in the wizard, but the planner's draft has no cardio session even after the revision rounds | Retry, or try a stronger planner; the server never adds sessions itself. Cardio sessions need a duration or distance on days without a strength workout (G4, [spec](../specs/ai-training-plans.md#26-guardrails)) |
 | Run fails `TRAINING_PLAN_REJECTED` | The plan still violated a hard guardrail after repairs and the critic rounds ran out | Retry with fewer limitations or a simpler goal; try a stronger planner. Nothing is written |
 | Plan created with open notes | The critic still asked for changes after the allowed rounds (`critic_open_notes`), or the critic was skipped or unavailable | Expected; the owner reviews the draft. Raise `maxCriticRounds` if desired |
 | Run is `interrupted` | Deadline, deploy or a lost job | It resumes automatically up to twice; otherwise the user presses Resume (up to 3 times), or starts a new run. `TRAINING_RUN_LOST` means the automatic resumes were used up |
@@ -149,6 +151,8 @@ A run ends `succeeded`, `failed`, `cancelled`, `blocked_safety`, or pauses as `a
 | A run is `blocked_safety` and the user typed nothing alarming | The user opted in to the health summary and its text names an urgent symptom | Expected; the user sees the fixed guidance. They can turn the opt-in off or refresh the summary after reviewing their data |
 | The health summary never appears, or the user sees "stale" | The opt-in is off; no model can serve `health_summary` (`sharing.modelState` in `GET /api/ai/training/health-summary`); AI is off; or the last attempt failed (`lastAttempt.errorCode`, for example `HEALTH_SUMMARY_POST_CHECK_REJECTED` after the model gave medical advice twice) | Assign a capable model (section 4); the user presses Refresh summary. A post-check rejection is expected now and then; a repeated one suggests a weaker model. The `app.health.summary.*` metrics show outcomes and rejections |
 | A user's plan was not adjusted after a workout | Thin data (fewer than 3 due sessions, nothing completed yet), or the evaluator found the plan on track | Expected; a `reviewed` entry appears in the plan history |
+
+Follow-up: the planner prompt has no cardio section yet. Walking and jogging behave through the planner context and the G4 guardrails alone. When a provider key is available, add a cardio section to the planner prompt and run the live evals before relying on it.
 
 ## 9. Purge and retention
 
