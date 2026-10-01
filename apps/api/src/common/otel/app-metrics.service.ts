@@ -124,6 +124,8 @@ export const APP_METRIC_NAMES = {
   aiDuration: 'app.ai.request.duration',
   notificationDeliveries: 'app.notifications.deliveries',
   healthDocumentPurges: 'app.health.documents.purges',
+  healthDocumentDownloads: 'app.health.documents.downloads',
+  healthDocumentDeletes: 'app.health.documents.deletes',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -211,6 +213,17 @@ export type NotificationDeliveryOutcome = 'sent' | 'failed' | 'rate_limited' | '
 /** How one `health.document.purge` attempt ended (H1, #185). */
 export type HealthDocumentPurgeOutcome = 'purged' | 'failed';
 const HEALTH_DOCUMENT_PURGE_OUTCOMES = new Set<string>(['purged', 'failed']);
+
+/** How a health document download link was asked for (H6, #190). */
+export type HealthDocumentDownloadDisposition = 'inline' | 'attachment';
+const HEALTH_DOCUMENT_DOWNLOAD_DISPOSITIONS = new Set<string>(['inline', 'attachment']);
+
+/**
+ * What one `DELETE /api/health/documents/:id` did (H6, #190): `file` queued
+ * the file's purge, `record` removed the metadata of a file already gone.
+ */
+export type HealthDocumentDeleteScope = 'file' | 'record';
+const HEALTH_DOCUMENT_DELETE_SCOPES = new Set<string>(['file', 'record']);
 const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
 
 export interface AiUsageMetric {
@@ -292,6 +305,8 @@ export class AppMetricsService implements OnModuleInit {
   private readonly aiDuration: Histogram;
   private readonly notificationDeliveries: Counter;
   private readonly healthDocumentPurges: Counter;
+  private readonly healthDocumentDownloads: Counter;
+  private readonly healthDocumentDeletes: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -378,6 +393,14 @@ export class AppMetricsService implements OnModuleInit {
     });
     this.healthDocumentPurges = m.createCounter(N.healthDocumentPurges, {
       description: 'Health document file purges (delete after processing), by outcome.',
+      unit: '{document}',
+    });
+    this.healthDocumentDownloads = m.createCounter(N.healthDocumentDownloads, {
+      description: 'Signed download links issued for health documents, by disposition.',
+      unit: '{download}',
+    });
+    this.healthDocumentDeletes = m.createCounter(N.healthDocumentDeletes, {
+      description: 'Health documents deleted by their owner, by scope and whether the values went too.',
       unit: '{document}',
     });
   }
@@ -536,6 +559,25 @@ export class AppMetricsService implements OnModuleInit {
   healthDocumentPurge(outcome: HealthDocumentPurgeOutcome): void {
     this.safely(() =>
       this.healthDocumentPurges.add(1, { outcome: enumLabel(outcome, HEALTH_DOCUMENT_PURGE_OUTCOMES) }),
+    );
+  }
+
+  /** A signed download link for a health document was issued (H6, #190). */
+  healthDocumentDownload(disposition: HealthDocumentDownloadDisposition): void {
+    this.safely(() =>
+      this.healthDocumentDownloads.add(1, {
+        disposition: enumLabel(disposition, HEALTH_DOCUMENT_DOWNLOAD_DISPOSITIONS),
+      }),
+    );
+  }
+
+  /** The owner deleted a health document (H6, #190); `withValues` when its values were soft-deleted too. */
+  healthDocumentDelete(scope: HealthDocumentDeleteScope, withValues: boolean): void {
+    this.safely(() =>
+      this.healthDocumentDeletes.add(1, {
+        scope: enumLabel(scope, HEALTH_DOCUMENT_DELETE_SCOPES),
+        values: withValues ? 'deleted' : 'kept',
+      }),
     );
   }
 
