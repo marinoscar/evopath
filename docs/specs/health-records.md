@@ -1,6 +1,6 @@
 # Health Records
 
-> **Status:** in progress (the document store, the keep-or-delete choice and PDFs for body metrics are shipped; the rest of the epic is planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*` (see `/api/docs`; the documents API is planned) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
+> **Status:** in progress (the document store, the keep-or-delete choice, PDFs for body metrics, the lab catalog and the export API are shipped; the rest of the epic is planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/api/src/health-export/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*`, `/api/health/exports` (see `/api/docs`; the documents API is planned) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
 
 Health Records turns the per-user [health data](health-data.md) into a complete, user-owned health record. Every health file a user hands the system becomes a `HealthDocument` with the user's keep-or-delete choice. Values read from those files keep a link to their source document, and the record can grow (lab results, exports, a health summary for the training planner) without the user ever losing control of the files.
 
@@ -196,9 +196,72 @@ Placeholder. A registry-driven settings card ([settings-ui.md](settings-ui.md)) 
 
 Placeholder. The full history of a value links to its source document, including the file-deleted state. This section records the history API when it ships.
 
-### 2.12 Planned: export
+### 2.12 Export
 
-Placeholder. JSON, CSV, XLSX and PDF export of the health record, as a queue job. This section records the formats, the job and the download flow when it ships.
+A user can take their health record out as JSON, CSV, Excel or a PDF report for a doctor. Code: `apps/api/src/health-export/`.
+
+**Request.** `POST /api/health/exports` (`health_data:read`; exporting reads the record and changes nothing) with a strict body:
+
+| Field | Rule |
+|---|---|
+| `format` | `json`, `csv` (a zip of one CSV per dataset), `xlsx` or `pdf` |
+| `from`, `to` | `YYYY-MM-DD`, real dates, inclusive, `from` not after `to`, at most 3660 days, `to` not after tomorrow (UTC) |
+| `datasets` | 1 to 6 distinct of `profile`, `body` (weight, body fat, waist), `vitals` (blood pressure, resting heart rate), `labs`, `wellness` (the four check-in scores, titled "Wellness / mood"), `documents` (an index of kept documents) |
+| `includeHistory` | Default `false`: also export superseded revisions |
+
+It answers `202` with the export (`status: pending`). At most 3 exports per user may be pending or running (`429` otherwise). The job is enqueued with `skipDedup`: two exports of different formats are different work.
+
+**No export table.** The export id is the `health.export` job id. The job has `subjectType: 'user'`, `subjectId` the owner and the request on its payload; when the file is committed the job writes `payload.result` (`storageObjectId`, `fileName`, `mimeType`, `sizeBytes`, `rowCounts`, `completedAt`, `expiresAt`). The file itself is an ordinary `storage_objects` row owned by the user (`uploadedById`), `ready`, with `metadata.source: health_export`, under the key `exports/<userId>/<exportId>.<ext>` (`EXPORTS_KEY_PREFIX`, on `STORAGE_KEY_PREFIXES`).
+
+**Status and download.**
+
+| Route | Answers |
+|---|---|
+| `GET /api/health/exports/:id` | The export: `id`, `status`, `format`, `from`, `to`, `datasets`, `includeHistory`, `createdAt`, `completedAt`, `expiresAt`, `fileName`, `sizeBytes`, `rowCounts`, `error`, `download`. `404` for an id that is not the caller's export |
+| `GET /api/health/exports` | `{ items }`: the caller's 20 most recent exports, newest first; `download` is always null |
+
+`status` is derived: `pending` or `running` from the job; `ready` when `payload.result` is present, its storage object still exists and `expiresAt` is in the future; `expired` when the result is present but the file is gone or past its expiry; `failed` otherwise. A failed export reports a fixed message, never the job's `lastError`.
+
+While `ready`, `GET /api/health/exports/:id` mints `download: { url, expiresAt }`: a signed GET valid for 5 minutes (`HEALTH_EXPORT_DOWNLOAD_URL_TTL_SECONDS`), with `Content-Disposition: attachment; filename="<fileName>"`. Every call mints a fresh URL; the URL is never logged or stored. `fileName` is `<app>-health-<from>-<to>.<ext>`, where `<app>` is `APP_NAME` from `packages/shared` as a lowercase slug (`evopath-health-2026-01-01-2026-09-30.pdf`) and `<ext>` is `json`, `zip`, `xlsx` or `pdf`. The service checks the name against `^[a-z0-9-]+\.(json|zip|xlsx|pdf)$` before it goes into the header.
+
+**What is exported.** `collectHealthExport` (`health-export-data.ts`) reads the owner's rows once, read-only:
+
+- **Range.** A wellness score is matched on its `localDate` (the user's day); every other reading on `measuredAt` in `[from 00:00Z, to+1 00:00Z)`; a document on `documentDate`, else its upload time. The profile is not ranged.
+- **Soft-deleted rows are never exported.** Superseded rows only with `includeHistory`, and never the earlier revisions of a reading that was later deleted (the deletion covers its history).
+- **Documents:** kept files only (`retention = keep`, file not erased), metadata only: id, kind, file name, type, size, document date, upload time.
+- **Units.** Values are in the metric's canonical unit, named in the column (`weight_kg`, `Weight (kg)`), whatever the display preference. Lab results carry their own `unit` column.
+- **Shape.** Body, vitals and wellness are one row per entry (the readings saved together, side by side) with `revision`, `status` (`current` or `superseded`) and `entry_id`; with history, each superseded revision is its own row. Labs are one row per result with panel, analyte, value, unit, reference low and high, the range as printed, flag, method and origin. Profile is one row: name, date of birth, age, sex at birth, height (cm), unit system, time zone.
+
+**Formats** (`writers/`, each a stream; nothing is buffered whole):
+
+| Format | File |
+|---|---|
+| JSON | `{ schemaVersion: 1, exportedAt, range: { from, to }, includeHistory, profile, datasets: { <dataset>: [rows] } }`. `profile` is null unless selected; `datasets` holds the other selected datasets, rows keyed by column key. `healthExportJsonFileSchema` (`writers/json.writer.ts`) is the contract |
+| CSV | A zip with `<dataset>.csv` per selected dataset: RFC 4180, CRLF, a header of column keys, a UTF-8 BOM. A text cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`; numeric columns are left alone. The helpers are shared with the telemetry export (`common/export/csv.ts`); the zip is written by `archiver` |
+| XLSX | exceljs streaming writer: one sheet per dataset (titles; "Wellness / mood" becomes `Wellness - mood`), a bold header frozen at row 1 with the unit in each column header, numbers as numbers. exceljs never writes a string as a formula |
+| PDF | pdfkit, A4: a header (name; age and sex at birth only with the profile dataset; period; generation date); **Latest biomarkers**, the latest result per analyte grouped by panel with value, unit, reference range and flag; **Trends**, a sparkline and the last 8 readings of weight, body fat, waist, blood pressure, resting heart rate and repeated LDL, HDL, triglycerides, HbA1c and fasting glucose; **Vitals and body summary**, latest, 30-day average, min, max and count; **Wellness / mood**, 7- and 30-day averages of the check-in scores, the windows ending on `to`; **Documents**, the kept-document index. Active readings only. Every page carries "Generated by <APP_NAME> from user-entered and AI-extracted data. Not a medical record." and a page number. Helvetica covers Latin-1; another character in user text prints as `?` |
+
+**The job** (`handlers/health-export.handler.ts`, payload `{ userId, format, from, to, datasets, includeHistory }`):
+
+1. Parses the payload; the subject must equal `userId`. An attempt that finds `payload.result` already set does nothing.
+2. Reads the datasets, renders the format and streams it to the storage provider, counting bytes on the way.
+3. In one transaction, upserts the storage object (by key) and writes `payload.result`.
+4. After commit: audits, records the metrics and notifies `health.export_ready`.
+
+A failure deletes whatever was written (best effort), records a failed attempt and rethrows; on the last attempt the user is notified `health.export_failed`. The key is derived from the job id, so a retry overwrites the same object. Profile `{ maxRuntimeMs: 15 min, maxAttempts: 2 }`. **Server-only**: it reads several tables mid-computation, and its input is a health record a worker node must not receive.
+
+**Expiry.** `HealthExportPurgeTask` (`tasks/health-export-purge.task.ts`) is a daily 03:00 `@Cron` that only enqueues `health.export.purge` through `enqueueHousekeepingJob`. The job deletes every storage object under `exports/` created more than 7 days ago: bytes, then row. A provider failure keeps that row, the run finishes the rest and then fails, so the queue retries. Profile `{ maxRuntimeMs: 30 min, maxAttempts: 3 }`, server-only. The export then reads `expired`.
+
+**Deletion with the user.** The file is a storage object the user owns, so the user data reset (`collectUserObjectIds`) and the factory reset delete it with the user's other files. The user data reset also deletes the user's pending `health.export` jobs ([user-data-reset.md](user-data-reset.md)).
+
+**Notifications.** `health.export_ready` and `health.export_failed`, `browser` and `push`, on by default, not mandatory. The payload is `{ exportId, format }`; the link opens `/health`.
+
+**Observability, audit and security.**
+
+- **Audit.** A committed export writes `health:export:create`, `targetType` `health_export`, `targetId` the export id, `meta` with `format`, `datasets`, `includeHistory`, `rowCounts` and `sizeBytes`. Never a value, a file name or a URL. Best effort: an audit failure is logged and does not fail the export.
+- **Metrics.** `app.health.exports` (counter, `format`, `outcome` `completed` or `failed`), `app.health.export.duration` (seconds) and `app.health.export.size` (bytes, completed only); see [telemetry.md](telemetry.md).
+- **Span attributes.** `health.export.format`, `health.export.datasets`, `health.export.size_bytes` on the job's span.
+- **Logs.** Ids, formats and counts only.
 
 ### 2.13 Planned: AI health summary for the training planner
 
@@ -210,9 +273,12 @@ Placeholder. An opt-in summary the training planner reads in place of raw values
 - The PDF page cap is a constant (`INTAKE_PDF_MAX_PAGES`, 20) that a kind may override with `maxPdfPages`. It bounds the cost of one AI request, like the 16-inputs-per-request cap.
 - Retention is chosen per intake and per file by the user.
 - **Permissions.** No permission of its own. The routes are the generic intake routes, gated by `intakes:*` plus the kind's `health_data:read` and `health_data:write`.
-- **Job type.** `health.document.purge`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
-- **Audit action.** `health:document:delete`.
-- **Metric.** `app.health.documents.purges`.
+- **Job types.** `health.document.purge`, `health.export` and `health.export.purge`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
+- **Audit actions.** `health:document:delete`, `health:export:create`.
+- **Metrics.** `app.health.documents.purges`, `app.health.exports`, `app.health.export.duration`, `app.health.export.size`.
+- **Export permissions.** `health_data:read` on all three export routes. Export constants (retention 7 days, URL lifetime 5 minutes, range 3660 days, 3 in flight) are code constants in `health-export.constants.ts`; no environment variable and no system setting.
+- **Storage prefix.** `exports/` (`EXPORTS_KEY_PREFIX`).
+- **Dependencies.** `pdfkit` (the PDF report) and `archiver` (the CSV zip) in `apps/api`.
 
 Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 
@@ -226,6 +292,9 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 | `POST /api/intakes/:id/apply` | Enqueues the purges in the apply transaction |
 | `DELETE /api/intakes/:id` | Enqueues the purges in the discard transaction |
 | `GET /api/measurements` | Each reading carries `fileDeleted` |
+| `POST /api/health/exports` | Queues an export (`202`); `health_data:read` |
+| `GET /api/health/exports` | The caller's recent exports |
+| `GET /api/health/exports/:id` | Status; a 5-minute signed download URL while ready |
 
 ## 4. Extending it in a fork
 
@@ -255,6 +324,11 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 - `apps/web/src/__tests__/components/intake/RetainFilesControl.test.tsx`: checked by default, helper text, health kinds only.
 - `apps/web/src/__tests__/components/health/PhotoReadDialog.test.tsx` and `apps/web/src/__tests__/components/health/MeasurementHistoryProvenance.test.tsx`: the choice reaches the requests, and **File deleted** replaces **View photo**.
 - `tests/visual/specs/health-photo-read.spec.ts`: the photo-step baseline includes the keep-or-delete control.
+- `apps/api/src/health-export/writers/writers.spec.ts`: JSON valid against the version 1 schema; the CSV zip read back with a strict RFC 4180 reader, the BOM and the formula guard (`=`, `+`, `-`, `@`, tab, CR) with numbers untouched; the workbook re-opened with exceljs (sheets, bold frozen header with units); the PDF read as text from an uncompressed build (sections, values, the footer on every page).
+- `apps/api/src/health-export/handlers/health-export.handler.spec.ts` and `health-export-purge.handler.spec.ts`: permanent types, server-only, profiles, the key, one commit for object and result, audit without values, notification on the last failed attempt only, the purge keeping a row the provider refused.
+- `apps/api/test/health-data/health-export.integration.spec.ts`: `health_data:read` on every route, 401 and 403, validation with nothing queued, the in-flight `429`, owner scoping, both types server-only.
+- `apps/api/test/health-data/health-export.db.spec.ts`: on real Postgres and real files, the range, dataset and owner filters, deleted rows never exported, history only on request, kept documents only, the owner-only attachment URL, collection by a data reset, and the 7-day purge.
+- `apps/api/test/jobs/cron-enqueue-only.spec.ts`: names `health-export/tasks/health-export-purge.task.ts` and keeps it enqueue-only.
 
 ## 6. Design decisions
 
@@ -284,6 +358,14 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 
 **A constant page cap.** The cap bounds request cost, as the 16-input cap does, and a kind can override it in code. Rejected: an environment variable (runtime-configured features never get one) and a system setting (no intake settings block exists to hold it).
 
+**The export id is the job id; no export table.** The request, the outcome (`payload.result`) and the status already live on the job, and the file is a storage object the user owns, so resets and the bucket purge find it with no new code. The user data reset follows the same pattern (`payload.result`). Rejected: a `health_exports` table, a second record of what the job row says. Cost: an export disappears from the list when the job history purge removes its job row (by default long after its file expired).
+
+**The export reads the health tables directly.** One read-only pass over the profile, measurements and documents gives every format the same snapshot, with the columns the export needs (including superseded rows, which no service returns). Rejected: going through `MeasurementsService`, whose reads are paginated, active-only and capped at 1000 points per series.
+
+**Expiry by a purge over rows, not a bucket listing.** The storage interface has no list operation, and the row is what the status route reads. Rejected: a bucket lifecycle rule, which an operator would have to configure for every provider.
+
+**A short-lived URL minted on each read.** A 5-minute URL handed out only to the owner, never stored or logged. Rejected: proxying the bytes through the API (holds a request for the whole download) and long-lived URLs (a leaked link outlives the session).
+
 **The capability error reuses `AI_CAPABILITY_UNSUPPORTED`.** Clients already handle the AI platform's reasons; `details.capability` and `details.inputKind` say what to do. Rejected: a new intake-only code for the same condition.
 
 ## 7. Verification
@@ -293,6 +375,8 @@ npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/health-doc
 export POSTGRES_HOST=localhost POSTGRES_PORT=5432 POSTGRES_USER=postgres POSTGRES_PASSWORD=postgres POSTGRES_DB=evopath_test
 cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/(health-documents|measurements-photo)\.db\.spec\.ts$' --runInBand
 npm run test:run --workspace=web -- RetainFilesControl
+npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/health-export test/health-data/health-export.integration
+cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/health-export\.db\.spec\.ts$' --runInBand
 ```
 
 In a running app, with AI on:
@@ -303,6 +387,7 @@ In a running app, with AI on:
 4. The audit log holds `health:document:delete` with no file name.
 5. With a model that has file input, read a smart-scale PDF report: the readings appear for review, and the saved entry links a document whose type is `application/pdf`.
 6. Attach a PDF of more than 20 pages, or a text file renamed to `.pdf`: the attach is refused before any scan.
+7. `POST /api/health/exports` with `{"format":"pdf","from":"2026-01-01","to":"2026-09-30","datasets":["profile","labs","wellness"]}`: a `health.export` job runs, a "Your health export is ready" notification arrives, and `GET /api/health/exports/{id}` returns `ready` with a download URL whose file ends with the "Not a medical record." footer. The audit log holds `health:export:create` with row counts only.
 
 ## History
 
@@ -310,3 +395,4 @@ In a running app, with AI on:
 - #185: `health_documents` table and `photo_intakes.retention`, `retainFiles` on the intake API, `IntakeKind.healthDocumentKind`, the `health.document.purge` job, the `health_documents` reference checker, `sourceRef.healthDocumentId` and `fileDeleted`, the `health:document:delete` audit action and the purge counter, the keep-or-delete control, and this spec.
 - #186: PDFs for body metrics. Adds `IntakeKind.acceptedInputs` and `maxPdfPages`, magic-byte and page-count checks at attach and analyze, the `file_input` refusal, PDFs as `file` parts, the `intake.input_kind` span attribute and body-metric prompt version 2 (API).
 - #187: the lab analyte catalog (39 analytes, seven panels, affine unit conversion, `resolveLabAnalyte`), the `referenceLow`, `referenceHigh`, `referenceText` and `flag` columns on `measurements`, lab entries and the `category` list filter on `/api/measurements` (API).
+- #191: the health data export API (H7): `/api/health/exports`, the `health.export` and `health.export.purge` jobs, the `exports/` prefix, the JSON, CSV, XLSX and PDF writers, the `health:export:create` audit action, the export metrics and notifications.
