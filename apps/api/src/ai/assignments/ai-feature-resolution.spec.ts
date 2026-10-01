@@ -65,7 +65,7 @@ describe('AI feature registry', () => {
   });
 
   it('photo features need vision_input + structured_output and image input, with no effort', () => {
-    for (const id of ['gym_scan', 'workout_prefill', 'body_metric_reading'] as const) {
+    for (const id of ['gym_scan', 'workout_prefill', 'body_metric_reading', 'lab_report'] as const) {
       expect(AI_FEATURES[id]).toMatchObject({
         group: 'photo',
         needs: ['vision_input', 'structured_output'],

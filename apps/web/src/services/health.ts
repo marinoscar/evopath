@@ -123,7 +123,8 @@ export interface MetricUnitDef {
 export interface MetricDef {
   key: string;
   label: string;
-  category: 'body' | 'vital' | 'wellness';
+  /** `lab` analytes arrived with H3 (#187); the quick-entry form and tiles show body and vital only. */
+  category: 'body' | 'vital' | 'wellness' | 'lab';
   canonicalUnit: string;
   units: MetricUnitDef[];
   displayUnit: { metric: string; imperial: string };
@@ -135,6 +136,10 @@ export interface MetricDef {
   methods: string[];
   scale: { min: number; max: number; lowLabel: string; highLabel: string } | null;
   daily: boolean;
+  /** Lab analytes only: the panel it is shown under (`lipids`, `glycemic`, …); `null` otherwise. */
+  panel?: string | null;
+  /** Lab analytes only: other names labs print for it (matched by the server). */
+  aliases?: string[];
 }
 
 export interface MeasurementMethodDef {

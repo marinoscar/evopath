@@ -1,0 +1,254 @@
+/**
+ * Lab report extraction, H4 (#188): the `lab_report` kind of the photo-intake
+ * kit (`services/intake.ts`) and its one helper route, as the web app sees
+ * them. Design: docs/specs/health-records.md §2.10.
+ *
+ * A lab report (a PDF from a patient portal, or photos of the pages) is read
+ * by the server into one draft item per printed result. The SERVER matches
+ * each result to the lab catalog and converts it to the analyte's canonical
+ * unit; the browser only shows what it decided, collects the user's edits and
+ * sends them back. Nothing here decides whether a value is valid, which
+ * analyte a printed name is, or whether apply may run: the API does.
+ */
+import { api, ApiError } from './api';
+import type { MeasurementDto, MetricCatalog, MetricDef } from './health';
+import type { DraftItemView } from './intake';
+
+/** The intake kind (`POST /api/intakes { kind }`). Permanent on the server. */
+export const LAB_REPORT_KIND = 'lab_report';
+
+/** The one draft item kind inside it (`POST /api/intakes/:id/items { kind }`). */
+export const LAB_REPORT_ITEM_KIND = 'result';
+
+/** Files one lab report intake takes (multi-page photos; a PDF counts as one, up to 20 pages). */
+export const LAB_REPORT_MAX_PHOTOS = 10;
+
+/** The kind reads PDFs as well as photos (server `acceptedInputs: ['image', 'pdf']`). */
+export const LAB_REPORT_ACCEPTS_PDF = true;
+
+/** Mirrors the API's `MEASUREMENT_FLAGS`. */
+export const LAB_FLAGS = ['low', 'normal', 'high', 'critical', 'unknown'] as const;
+export type LabFlag = (typeof LAB_FLAGS)[number];
+
+/** Mirrors the API's `LAB_PANELS`, in display order. */
+export const LAB_PANELS = ['lipids', 'glycemic', 'cbc', 'cmp', 'thyroid', 'iron', 'other'] as const;
+export type LabPanel = (typeof LAB_PANELS)[number];
+
+export const LAB_PANEL_LABELS: Record<LabPanel, string> = {
+  lipids: 'Lipids',
+  glycemic: 'Glycemic',
+  cbc: 'Complete blood count',
+  cmp: 'Metabolic panel',
+  thyroid: 'Thyroid',
+  iron: 'Iron',
+  other: 'Other',
+};
+
+export const LAB_FLAG_LABELS: Record<LabFlag, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  critical: 'Critical',
+  unknown: 'Unknown',
+};
+
+/** How the server found the result's analyte. */
+export type LabMatchStatus = 'matched' | 'suggested' | 'user_mapped' | 'unmatched';
+
+/** One draft item value: one printed result (`labReportValueSchema`). */
+export interface LabReportValue {
+  /** A lab catalog key, or `null` while the result is unmatched. */
+  analyteKey: string | null;
+  nameAsPrinted: string | null;
+  /** In `unit` (canonical once matched and convertible). */
+  value: number | null;
+  unit: string | null;
+  /** A non-numeric result as printed (`negative`, `<0.5`); shown, never saved. */
+  valueText: string | null;
+  /** What the report printed, kept when the server converted the value. */
+  originalValue: number | null;
+  originalUnit: string | null;
+  referenceLow: number | null;
+  referenceHigh: number | null;
+  referenceText: string | null;
+  flag: LabFlag | null;
+  panel: LabPanel | null;
+  /** Server-owned: recomputed on every write. */
+  match: LabMatchStatus;
+}
+
+/** The intake's context: what the report says about itself. The user may correct both. */
+export interface LabReportContext {
+  /** `YYYY-MM-DD`. */
+  collectionDate?: string | null;
+  labName?: string | null;
+}
+
+export const LAB_NAME_MAX = 120;
+
+/** `POST /api/intakes/:id/apply` for this kind. */
+export interface LabReportApplyResult {
+  /** `null` when every item was rejected. */
+  entryId: string | null;
+  items: MeasurementDto[];
+  /** `apply_time` when the report had no collection date. */
+  measuredAtSource: 'collection_date' | 'apply_time' | null;
+  documentDate: string | null;
+}
+
+export interface LabReportDuplicateMatch {
+  measurementId: string;
+  entryId: string;
+  measuredAt: string;
+  origin: string;
+  healthDocumentId: string | null;
+  intakeId: string | null;
+}
+
+export interface LabReportDuplicate {
+  itemId: string;
+  analyteKey: string;
+  /** Canonical. */
+  value: number;
+  unit: string;
+  matches: LabReportDuplicateMatch[];
+}
+
+/** `GET /api/measurements/lab-reports/:intakeId/duplicates`. */
+export interface LabReportDuplicates {
+  intakeId: string;
+  checkedDate: string;
+  collectionDate: string | null;
+  duplicates: LabReportDuplicate[];
+}
+
+/** The duplicate warning (`health_data:read` + `intakes:read`). Apply never de-duplicates. */
+export function getLabReportDuplicates(intakeId: string): Promise<LabReportDuplicates> {
+  return api.get<LabReportDuplicates>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/duplicates`);
+}
+
+// -----------------------------------------------------------------------------
+// Presentation helpers (no decisions: the server re-checks everything)
+// -----------------------------------------------------------------------------
+
+/** The lab analytes of the catalog, in catalog (panel, then analyte) order. */
+export function labMetrics(catalog: MetricCatalog | null): MetricDef[] {
+  return (catalog?.metrics ?? []).filter((metric) => metric.category === 'lab');
+}
+
+export function panelOf(value: Pick<LabReportValue, 'panel'>): LabPanel {
+  return value.panel && (LAB_PANELS as readonly string[]).includes(value.panel) ? value.panel : 'other';
+}
+
+/** Items grouped by panel, in `LAB_PANELS` order; empty panels are left out. */
+export function groupByPanel<T extends { value: Pick<LabReportValue, 'panel'> }>(
+  items: readonly T[],
+): { panel: LabPanel; items: T[] }[] {
+  return LAB_PANELS.map((panel) => ({ panel, items: items.filter((item) => panelOf(item.value) === panel) })).filter(
+    (group) => group.items.length > 0,
+  );
+}
+
+/** A result still blocking apply: not rejected and not mapped to an analyte. */
+export function isUnresolved(item: Pick<DraftItemView<LabReportValue>, 'status' | 'value'>): boolean {
+  return item.status !== 'rejected' && !item.value.analyteKey;
+}
+
+/** A row the user should look at closely: unsure, low confidence, or not plainly matched. */
+export function needsAttention(item: DraftItemView<LabReportValue>): boolean {
+  return (
+    item.uncertain ||
+    item.confidence === 'low' ||
+    item.value.match === 'suggested' ||
+    item.value.match === 'unmatched' ||
+    !item.value.analyteKey
+  );
+}
+
+/** An empty result for "Add missing value". */
+export function emptyLabResult(): LabReportValue {
+  return {
+    analyteKey: null,
+    nameAsPrinted: null,
+    value: null,
+    unit: null,
+    valueText: null,
+    originalValue: null,
+    originalUnit: null,
+    referenceLow: null,
+    referenceHigh: null,
+    referenceText: null,
+    flag: null,
+    panel: null,
+    match: 'unmatched',
+  };
+}
+
+/**
+ * The fields sent on an edit or add. `match`, `panel` and the original
+ * value/unit are the server's (`normalizeValue` recomputes them), so they are
+ * left for it to fill.
+ */
+export function labResultPayload(value: LabReportValue): Partial<LabReportValue> {
+  return {
+    analyteKey: value.analyteKey,
+    nameAsPrinted: value.nameAsPrinted,
+    value: value.value,
+    unit: value.unit,
+    valueText: value.valueText,
+    originalValue: value.originalValue,
+    originalUnit: value.originalUnit,
+    referenceLow: value.referenceLow,
+    referenceHigh: value.referenceHigh,
+    referenceText: value.referenceText,
+    flag: value.flag,
+  };
+}
+
+/** True when `query` matches the analyte's key, label or one of its aliases (case-insensitive). */
+export function analyteMatches(metric: MetricDef, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [metric.key, metric.label, ...(metric.aliases ?? [])].some((name) => name.toLowerCase().includes(needle));
+}
+
+/** A number as the review shows it: at most four decimals, no trailing zeros. */
+export function formatLabNumber(value: number): string {
+  return String(Number(value.toFixed(4)));
+}
+
+/** `3.9–5.5`, `< 200`, `> 39`, the printed text, or `null`. */
+export function referenceRangeText(value: Pick<LabReportValue, 'referenceLow' | 'referenceHigh' | 'referenceText'>): string | null {
+  const { referenceLow: low, referenceHigh: high } = value;
+  if (low !== null && high !== null) return `${formatLabNumber(low)}–${formatLabNumber(high)}`;
+  if (high !== null) return `≤ ${formatLabNumber(high)}`;
+  if (low !== null) return `≥ ${formatLabNumber(low)}`;
+  return value.referenceText || null;
+}
+
+/** What a refused apply means, in a form the review can act on. */
+export type LabApplyRefusal =
+  | { kind: 'unresolved'; itemIds: string[] }
+  | { kind: 'issues'; messages: string[] }
+  | { kind: 'pending' }
+  | { kind: 'other'; error: unknown };
+
+/** Reads `409 UNRESOLVED_ANALYTES`, `400 PENDING_ITEMS` and `400 details.issues`. */
+export function labApplyRefusal(err: unknown): LabApplyRefusal {
+  if (err instanceof ApiError) {
+    const details = (err.details && typeof err.details === 'object' ? err.details : {}) as Record<string, unknown>;
+    const reason = typeof details.reason === 'string' ? details.reason : err.code;
+    if (err.status === 409 && reason === 'UNRESOLVED_ANALYTES') {
+      const ids = Array.isArray(details.itemIds) ? details.itemIds.filter((id): id is string => typeof id === 'string') : [];
+      return { kind: 'unresolved', itemIds: ids };
+    }
+    if (err.status === 400 && reason === 'PENDING_ITEMS') return { kind: 'pending' };
+    if (err.status === 400 && Array.isArray(details.issues)) {
+      const messages = details.issues
+        .map((issue) => (issue && typeof issue === 'object' ? (issue as { message?: unknown }).message : undefined))
+        .filter((message): message is string => typeof message === 'string');
+      if (messages.length > 0) return { kind: 'issues', messages: [...new Set(messages)] };
+    }
+  }
+  return { kind: 'other', error: err };
+}

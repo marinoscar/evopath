@@ -200,7 +200,7 @@ export class IntakesController {
     description:
       'Links one of your `ready` storage objects to the intake, while it is `draft`, `ready` or `failed`: ' +
       'a PNG, JPEG, GIF or WebP image of at most 20 MiB, or, for a kind that accepts PDFs ' +
-      '(`body_metric_reading`), a PDF of at most 50 MiB and 20 pages. The stored bytes are read back: ' +
+      '(`body_metric_reading`, `lab_report`), a PDF of at most 50 MiB and 20 pages. The stored bytes are read back: ' +
       'their magic bytes must match the declared type. At most the kind\'s photo cap (default 48); ' +
       'a PDF counts as one.',
   })
@@ -375,7 +375,13 @@ export class IntakesController {
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(NO_WRITE)
   @ApiResponse(NOT_FOUND)
-  @ApiResponse(STATE_CONFLICT)
+  @ApiResponse({
+    ...STATE_CONFLICT,
+    description:
+      STATE_CONFLICT.description +
+      '; or, for a `lab_report` intake, `UNRESOLVED_ANALYTES` with `details.itemIds`: accepted results not matched ' +
+      'to a catalog analyte, each to be mapped (an edit setting `value.analyteKey`) or rejected first',
+  })
   apply(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.intakes.apply(user.id, id, user.permissions);
   }

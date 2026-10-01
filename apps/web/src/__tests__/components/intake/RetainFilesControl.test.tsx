@@ -54,6 +54,7 @@ describe('RetainFilesControl', () => {
 
   it('knows the health kinds', () => {
     expect(isHealthIntakeKind('body_metric_reading')).toBe(true);
+    expect(isHealthIntakeKind('lab_report')).toBe(true);
     expect(isHealthIntakeKind('gym_equipment')).toBe(false);
     expect(isHealthIntakeKind('workout_prefill')).toBe(false);
   });
