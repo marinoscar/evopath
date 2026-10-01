@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "evopath-android"
+rootProject.name = "android-app"
 include(":app")

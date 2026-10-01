@@ -1,19 +1,19 @@
-# EvoPath Android release (R8) rules.
+# Release (R8) rules.
 
 # --- kotlinx.serialization ---------------------------------------------------
 # The library ships consumer rules for the runtime; keep generated serializers of
 # our own @Serializable classes (named companions / $serializer) explicitly.
 -keepattributes *Annotation*, InnerClasses, Signature, EnclosingMethod
 -dontnote kotlinx.serialization.**
--keepclassmembers @kotlinx.serialization.Serializable class com.evopath.android.** {
+-keepclassmembers @kotlinx.serialization.Serializable class com.enterpriseapp.android.** {
     *** Companion;
     *** INSTANCE;
     kotlinx.serialization.KSerializer serializer(...);
 }
--keepclasseswithmembers class com.evopath.android.** {
+-keepclasseswithmembers class com.enterpriseapp.android.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keep,includedescriptorclasses class com.evopath.android.**$$serializer { *; }
+-keep,includedescriptorclasses class com.enterpriseapp.android.**$$serializer { *; }
 
 # --- OkHttp ------------------------------------------------------------------
 -dontwarn okhttp3.internal.platform.**
@@ -34,7 +34,7 @@
 # WorkManager stores the worker's class name in its database and instantiates it by
 # reflection; the library's consumer rules keep names/constructors of reachable workers.
 # Pin ours explicitly so a rename by R8 can never orphan scheduled work across updates.
--keep class com.evopath.android.sync.HealthSyncWorker {
+-keep class com.enterpriseapp.android.sync.HealthSyncWorker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
 
