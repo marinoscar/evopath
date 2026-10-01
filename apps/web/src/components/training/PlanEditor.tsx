@@ -27,6 +27,7 @@ import { Add as AddIcon } from '@mui/icons-material';
 import { ApiError } from '../../services/api';
 import { PLAN_LIMITS, PROGRAM_REFUSALS, programRefusalOf, type PlanTree, type Program } from '../../services/programs';
 import type { WeightUnit } from '../../utils/units';
+import { distanceUnitFor } from '../../utils/workoutFormat';
 import { ExercisePickerDialog } from '../train/ExercisePickerDialog';
 import { StickyActionBar } from './StickyActionBar';
 import { WeekEditor } from './WeekEditor';
@@ -47,6 +48,7 @@ import {
   removeWorkout,
   setDeload,
   toEditTree,
+  type TrackingModes,
   toSaveTree,
   updateExercise,
   updateWorkout,
@@ -76,6 +78,16 @@ function namesOf(program: Program): Record<string, string> {
   return names;
 }
 
+/** Exercise id -> `trackingMode`, from the loaded plan (#263: it shapes each row's prescription). */
+function modesOf(program: Program): TrackingModes {
+  const modes: TrackingModes = {};
+  for (const block of program.tree.blocks)
+    for (const week of block.weeks)
+      for (const workout of week.workouts)
+        for (const exercise of workout.exercises) if (exercise.exercise) modes[exercise.exerciseId] = exercise.exercise.trackingMode;
+  return modes;
+}
+
 function issuesOf(error: ApiError): string[] {
   const issues = (error.details as { issues?: Array<{ path?: string; message?: string }> } | undefined)?.issues;
   return Array.isArray(issues) ? issues.map((i) => i.message ?? '').filter(Boolean) : [];
@@ -96,6 +108,7 @@ export function PlanEditor({
   const [tree, setTree] = useState<PlanTree>(initial);
   const [name, setName] = useState(program.name);
   const [names, setNames] = useState<Record<string, string>>(() => namesOf(program));
+  const [modes, setModes] = useState<TrackingModes>(() => modesOf(program));
   const [weekNumber, setWeekNumber] = useState(() => allWeeks(initial)[0]?.week.weekNumber ?? 1);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [copyTo, setCopyTo] = useState<number | ''>('');
@@ -110,7 +123,7 @@ export function PlanEditor({
   );
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 
-  const errors = useMemo(() => planErrors(tree), [tree]);
+  const errors = useMemo(() => planErrors(tree, { modes, distanceUnit: distanceUnitFor(unit) }), [tree, modes, unit]);
   const errorList = Object.values(errors);
   const nameError = !name.trim() ? 'Name the plan.' : name.length > PLAN_LIMITS.nameMax ? `At most ${PLAN_LIMITS.nameMax} characters.` : null;
   const weeks = weekOptions(tree);
@@ -224,6 +237,7 @@ export function PlanEditor({
           <WeekEditor
             week={week}
             names={names}
+            modes={modes}
             unit={unit}
             errors={errors}
             onExerciseChange={(wid, eid, patch) => setTree((t) => updateExercise(t, week.weekNumber, wid, eid, patch))}
@@ -287,10 +301,11 @@ export function PlanEditor({
         onClose={() => setPickerFor(null)}
         gym={program.gym}
         canCreate={canCreateExercise}
-        onAdd={async (ids, picked) => {
+        onAdd={async (ids, picked, pickedModes) => {
           if (pickerFor && week) {
             setNames((n) => ({ ...n, ...picked }));
-            setTree((t) => addExercises(t, week.weekNumber, pickerFor, ids));
+            setModes((m) => ({ ...m, ...pickedModes }));
+            setTree((t) => addExercises(t, week.weekNumber, pickerFor, ids, pickedModes));
           }
         }}
       />
@@ -330,6 +345,7 @@ export function PlanEditor({
                 setTree(toEditTree(fresh.tree));
                 setName(fresh.name);
                 setNames(namesOf(fresh));
+                setModes(modesOf(fresh));
                 setSaveError(null);
               }
             }}

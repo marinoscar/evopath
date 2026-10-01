@@ -1,8 +1,13 @@
 /**
  * Edit one week: its workouts (name, weekday, add, remove) and their
- * exercises (sets, reps, RPE, rest, priority, load; move up and down with
+ * exercises (move up and down with
  * buttons, keyboard and touch friendly; remove; add through the exercise
  * picker). Weekday chips disable a day another workout of the week uses.
+ *
+ * Each exercise's prescription fields follow its `trackingMode` (#263):
+ * `weight_reps` / `bodyweight_reps` edit sets, reps, RPE, rest and load;
+ * `time` edits minutes; `distance_time` edits minutes and/or a distance (km
+ * or mi from the Health Profile). Cardio rows keep RPE and priority.
  * Presentation only: the page owns the tree and saves it.
  */
 import { useEffect, useState } from 'react';
@@ -28,8 +33,17 @@ import {
   ArrowUpward as UpIcon,
   Delete as DeleteIcon,
 } from '@mui/icons-material';
-import { PLAN_LIMITS, type LoadGuidance, type PlanExercise, type PlanWeek, type PlanWorkout } from '../../services/programs';
+import {
+  PLAN_LIMITS,
+  type LoadGuidance,
+  type PlanExercise,
+  type PlanWeek,
+  type PlanWorkout,
+  type PrescriptionShape,
+} from '../../services/programs';
 import { displayToKg, kgToDisplay, type WeightUnit } from '../../utils/units';
+import { distanceInputText, distanceUnitFor, parseDistance, type DistanceUnit } from '../../utils/workoutFormat';
+import { rowShape, type TrackingModes } from './planEdits';
 import { WeekdayPicker } from './WeekdayPicker';
 import { byWeekday } from './PlanViewer';
 
@@ -38,6 +52,8 @@ export interface WeekEditorProps {
   names: Record<string, string>;
   unit: WeightUnit;
   errors: Record<string, string>;
+  /** Exercise id -> `trackingMode`; picks each row's prescription fields. */
+  modes?: TrackingModes;
   onExerciseChange: (workoutId: string, exerciseId: string, patch: Partial<PlanExercise>) => void;
   onMoveExercise: (workoutId: string, exerciseId: string, delta: -1 | 1) => void;
   onRemoveExercise: (workoutId: string, exerciseId: string) => void;
@@ -55,6 +71,87 @@ const LOAD_GUIDANCE: Array<{ value: LoadGuidance; label: string }> = [
 
 const num = (value: string) => (value.trim() === '' ? NaN : Number(value));
 
+/** Minutes as typed -> whole seconds; blank -> null; not a number -> NaN (the row then says why). */
+export function minutesToSeconds(text: string): number | null {
+  if (text.trim() === '') return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? Math.round(value * 60) : NaN;
+}
+
+const secondsToMinutesText = (seconds: number | null | undefined) =>
+  seconds === null || seconds === undefined || !Number.isFinite(seconds) ? '' : String(Math.round((seconds / 60) * 100) / 100);
+
+/**
+ * The cardio prescription (#263): minutes, and for `distance_time` a
+ * distance in the user's unit. Either may be blank for `distance_time`, not
+ * both; the row's errors say so.
+ */
+function CardioFields({
+  exercise,
+  name,
+  shape,
+  distanceUnit,
+  err,
+  onChange,
+}: {
+  exercise: PlanExercise;
+  name: string;
+  shape: Exclude<PrescriptionShape, 'reps'>;
+  distanceUnit: DistanceUnit;
+  err: (field: string) => string | undefined;
+  onChange: (patch: Partial<PlanExercise>) => void;
+}) {
+  const [minutesText, setMinutesText] = useState(secondsToMinutesText(exercise.targetDurationSeconds));
+  const [distanceText, setDistanceText] = useState(distanceInputText(exercise.targetDistanceMeters ?? null, distanceUnit));
+  const width = { xs: 'calc(50% - 4px)', sm: 130 };
+  return (
+    <>
+      {shape === 'distance_duration' && (
+        <TextField
+          label="Distance"
+          size="small"
+          value={distanceText}
+          onChange={(e) => {
+            setDistanceText(e.target.value);
+            const parsed = parseDistance(e.target.value, distanceUnit);
+            onChange({ targetDistanceMeters: parsed.ok ? parsed.value : NaN });
+          }}
+          error={!!err('targetDistanceMeters')}
+          helperText={err('targetDistanceMeters') ?? 'Optional'}
+          sx={{ width }}
+          slotProps={{
+            input: { endAdornment: <InputAdornment position="end">{distanceUnit}</InputAdornment> },
+            htmlInput: { inputMode: 'decimal', 'aria-label': `Distance in ${distanceUnit}, ${name}` },
+          }}
+        />
+      )}
+      <TextField
+        label="Minutes"
+        type="number"
+        size="small"
+        value={minutesText}
+        onChange={(e) => {
+          setMinutesText(e.target.value);
+          onChange({ targetDurationSeconds: minutesToSeconds(e.target.value) });
+        }}
+        error={!!err('targetDurationSeconds')}
+        helperText={err('targetDurationSeconds') ?? (shape === 'distance_duration' ? 'Optional' : undefined)}
+        sx={{ width }}
+        slotProps={{
+          input: { endAdornment: <InputAdornment position="end">min</InputAdornment> },
+          htmlInput: {
+            min: PLAN_LIMITS.targetDurationSeconds.min / 60,
+            max: PLAN_LIMITS.targetDurationSeconds.max / 60,
+            step: 1,
+            inputMode: 'numeric',
+            'aria-label': `Minutes, ${name}`,
+          },
+        }}
+      />
+    </>
+  );
+}
+
 function ExerciseEditRow({
   exercise,
   name,
@@ -62,6 +159,7 @@ function ExerciseEditRow({
   count,
   unit,
   errors,
+  shape,
   onChange,
   onMove,
   onRemove,
@@ -72,6 +170,7 @@ function ExerciseEditRow({
   count: number;
   unit: WeightUnit;
   errors: Record<string, string>;
+  shape: PrescriptionShape;
   onChange: (patch: Partial<PlanExercise>) => void;
   onMove: (delta: -1 | 1) => void;
   onRemove: () => void;
@@ -109,9 +208,22 @@ function ExerciseEditRow({
         </IconButton>
       </Stack>
       <Stack direction="row" useFlexGap spacing={1} sx={{ flexWrap: 'wrap', mt: 1 }}>
-        {field('Sets', 'targetSets', { min: PLAN_LIMITS.targetSets.min, max: PLAN_LIMITS.targetSets.max })}
-        {field('Min reps', 'repMin', { min: PLAN_LIMITS.reps.min, max: PLAN_LIMITS.reps.max })}
-        {field('Max reps', 'repMax', { min: PLAN_LIMITS.reps.min, max: PLAN_LIMITS.reps.max })}
+        {shape === 'reps' ? (
+          <>
+            {field('Sets', 'targetSets', { min: PLAN_LIMITS.targetSets.min, max: PLAN_LIMITS.targetSets.max })}
+            {field('Min reps', 'repMin', { min: PLAN_LIMITS.reps.min, max: PLAN_LIMITS.reps.max })}
+            {field('Max reps', 'repMax', { min: PLAN_LIMITS.reps.min, max: PLAN_LIMITS.reps.max })}
+          </>
+        ) : (
+          <CardioFields
+            exercise={exercise}
+            name={name}
+            shape={shape}
+            distanceUnit={distanceUnitFor(unit)}
+            err={err}
+            onChange={onChange}
+          />
+        )}
         <TextField
           label="RPE"
           type="number"
@@ -123,23 +235,25 @@ function ExerciseEditRow({
           sx={{ width: { xs: 'calc(50% - 4px)', sm: 110 } }}
           slotProps={{ htmlInput: { min: 1, max: 10, step: 0.5, 'aria-label': `RPE, ${name}` } }}
         />
-        {field('Rest (s)', 'restSeconds', { min: 0, max: PLAN_LIMITS.restSeconds.max, step: 15 })}
-        <TextField
-          select
-          label="Load"
-          size="small"
-          value={exercise.loadGuidance ?? 'choose_start'}
-          onChange={(e) => onChange({ loadGuidance: e.target.value as LoadGuidance })}
-          sx={{ width: { xs: '100%', sm: 220 } }}
-          slotProps={{ htmlInput: { 'aria-label': `Load guidance, ${name}` } }}
-        >
-          {LOAD_GUIDANCE.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {option.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        {exercise.loadGuidance === 'fixed' && (
+        {shape === 'reps' && field('Rest (s)', 'restSeconds', { min: 0, max: PLAN_LIMITS.restSeconds.max, step: 15 })}
+        {shape === 'reps' && (
+          <TextField
+            select
+            label="Load"
+            size="small"
+            value={exercise.loadGuidance ?? 'choose_start'}
+            onChange={(e) => onChange({ loadGuidance: e.target.value as LoadGuidance })}
+            sx={{ width: { xs: '100%', sm: 220 } }}
+            slotProps={{ htmlInput: { 'aria-label': `Load guidance, ${name}` } }}
+          >
+            {LOAD_GUIDANCE.map((option) => (
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
+        {shape === 'reps' && exercise.loadGuidance === 'fixed' && (
           <TextField
             label="Weight"
             type="number"
@@ -175,6 +289,7 @@ export function WeekEditor({
   names,
   unit,
   errors,
+  modes,
   onExerciseChange,
   onMoveExercise,
   onRemoveExercise,
@@ -245,6 +360,7 @@ export function WeekEditor({
                     count={workout.exercises.length}
                     unit={unit}
                     errors={errors}
+                    shape={rowShape(exercise, modes)}
                     onChange={(patch) => onExerciseChange(wid, exercise.id ?? '', patch)}
                     onMove={(delta) => {
                       onMoveExercise(wid, exercise.id ?? '', delta);
