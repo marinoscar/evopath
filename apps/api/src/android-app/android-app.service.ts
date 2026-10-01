@@ -7,6 +7,7 @@ import {
   ANDROID_APP_TRUSTED_APPS_UPDATED_ACTION,
   androidAppSettingsValueSchema,
   buildAssetLinks,
+  MAX_TRUSTED_ANDROID_APPS,
   type AssetLinkStatement,
   type TrustedAndroidApp,
   trustedAppKey,
@@ -120,6 +121,33 @@ export class AndroidAppService {
       reportedApps,
       assetLinks: buildAssetLinks(trustedApps),
     };
+  }
+
+  /**
+   * Adds (packageName, sha256) to the trusted apps when absent (issue #285:
+   * making an uploaded release current trusts its signing key, so the app it
+   * installs opens without a URL bar). Audited like a save. Returns whether it
+   * was added; false when already trusted, or when the list is full (logged,
+   * the administrator must make room by hand).
+   */
+  async ensureTrusted(app: TrustedAndroidApp, userId: string): Promise<boolean> {
+    const before = await this.getTrustedApps();
+    const key = trustedAppKey(app.packageName, app.sha256);
+    if (before.some((existing) => trustedAppKey(existing.packageName, existing.sha256) === key)) return false;
+
+    if (before.length >= MAX_TRUSTED_ANDROID_APPS) {
+      this.logger.warn(
+        `Not trusting ${app.packageName}: the trusted apps list is full (${MAX_TRUSTED_ANDROID_APPS}). ` +
+          'Remove an entry in Admin → Settings → Android app.',
+      );
+      return false;
+    }
+
+    await this.replace(
+      { trustedApps: [...before, { packageName: app.packageName, sha256: app.sha256.toUpperCase() }] },
+      userId,
+    );
+    return true;
   }
 
   /** `PUT /api/admin/android-app` — replace the list, audit the change, return the new state. */

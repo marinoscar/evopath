@@ -7,8 +7,10 @@ import { avatarKeyPrefix } from '../common/profile-image/profile-image';
 import { aiOutputKeyPrefix } from '../ai/storage/ai-output-writer';
 import { healthExportKey } from '../health-export/health-export.constants';
 import { STORAGE_PROBE_KEY_PREFIX } from './config/storage-connection-test.service';
+import { androidReleaseKey } from '../android-app/releases/android-release.constants';
 import {
   AI_OUTPUTS_KEY_PREFIX,
+  ANDROID_RELEASES_KEY_PREFIX,
   AVATARS_KEY_PREFIX,
   DATABASE_BACKUPS_KEY_PREFIX,
   EXPORTS_KEY_PREFIX,
@@ -36,9 +38,10 @@ describe('STORAGE_KEY_PREFIXES', () => {
     }
   });
 
-  it('holds exactly the seven prefixes this application writes', () => {
+  it('holds exactly the eight prefixes this application writes', () => {
     expect([...STORAGE_KEY_PREFIXES].sort()).toEqual([
       'ai-outputs/',
+      'android-releases/',
       'avatars/',
       'database-backups/',
       'exports/',
@@ -77,6 +80,11 @@ describe('STORAGE_KEY_PREFIXES', () => {
     it('exports: the per-user health export key sits under the root prefix', () => {
       expect(healthExportKey('user-123', 'job-9', 'pdf')).toBe(`${EXPORTS_KEY_PREFIX}user-123/job-9.pdf`);
       expect(EXPORTS_KEY_PREFIX).toBe('exports/');
+    });
+
+    it('android releases: the APK key sits under the root prefix', () => {
+      expect(androidReleaseKey('rel-1')).toBe(`${ANDROID_RELEASES_KEY_PREFIX}rel-1.apk`);
+      expect(ANDROID_RELEASES_KEY_PREFIX).toBe('android-releases/');
     });
 
     it('storage probes: the connection test writes under this list', () => {

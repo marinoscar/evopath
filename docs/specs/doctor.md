@@ -151,7 +151,7 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-six checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Twenty-seven checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
@@ -252,6 +252,7 @@ The `android` category is not in `DOCTOR_CATEGORIES`, so it sorts after the ship
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
 | `android.assetlinks` | Android app Digital Asset Links | `db.connection` | Every Android app (package and signing SHA-256) that an active paired device reports is listed in the trusted apps that `/.well-known/assetlinks.json` serves, so Chrome opens it full screen. Reads the `android_app` setting and the active devices only. Settings page `/admin/settings/android`. | skip: no device has reported a fingerprint (the app is optional). pass: every reported pair is trusted. warn: a reported pair is not trusted (detail names up to three), remedy "Trust it in Admin → Settings → Android app". fail: the settings or devices cannot be read. See [health-connect-sync.md](health-connect-sync.md#29-digital-asset-links-and-trust). |
+| `android.releases` | Android app releases | `db.connection` | When phones are paired, this server hosts an APK release they can download and update from. Reads the active devices and the current `android_app_releases` row only. Settings page `/admin/settings/android`. | skip: no active paired device. warn: devices are paired but no release is current, remedy "Publish one with `evopathcli android publish` or upload it in Admin → Settings → Android app". pass: a release is current (data: how many devices run an older build). fail: the releases or devices cannot be read. See [health-connect-sync.md](health-connect-sync.md#212-apk-releases). |
 
 ### 2.8 The web page
 
@@ -435,3 +436,4 @@ By hand, with the app running and signed in as an Admin:
 - #634 added the admin Doctor: the check contract, registry, service and `GET /api/admin/doctor`, the checks in each owning module, and the `/admin/settings/doctor` page and card.
 - #214 removed the `telemetry.stack` check, because the stack agent is not part of telemetry capture, and surfaced the agent's error on the Telemetry settings page instead.
 - #279 (epic #276) added the `android` category and the `android.assetlinks` check.
+- #285 (epic #276) added the `android.releases` check.

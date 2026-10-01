@@ -443,3 +443,30 @@ describe('secret-cipher', () => {
     });
   });
 });
+
+describe('deriveSigningKey (#285)', () => {
+  const original = process.env[ENV_VAR];
+
+  afterEach(() => {
+    if (original === undefined) delete process.env[ENV_VAR];
+    else process.env[ENV_VAR] = original;
+    jest.resetModules();
+  });
+
+  it('is a stable 32-byte key per purpose, distinct across purposes and keys', () => {
+    const first = loadCipher(VALID_KEY);
+    const a = first.deriveSigningKey('android-app-download');
+
+    expect(a).toHaveLength(32);
+    expect(first.deriveSigningKey('android-app-download').equals(a)).toBe(true);
+    expect(first.deriveSigningKey('other-purpose').equals(a)).toBe(false);
+
+    const second = loadCipher(randomBytes(32).toString('base64'));
+    expect(second.deriveSigningKey('android-app-download').equals(a)).toBe(false);
+  });
+
+  it('refuses an empty purpose and a missing master key', () => {
+    expect(() => loadCipher(VALID_KEY).deriveSigningKey('')).toThrow();
+    expect(() => loadCipher(undefined).deriveSigningKey('android-app-download')).toThrow(/SECRETS_ENCRYPTION_KEY/);
+  });
+});

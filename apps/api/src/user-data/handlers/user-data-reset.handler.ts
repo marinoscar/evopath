@@ -133,7 +133,9 @@
 //   WorkerNode, NodeCredential        deployment infrastructure the user runs
 //   SystemSettings, Credential,       deployment-level; the user is provenance
 //   AiModel, NotificationBroadcast,
-//   DatabaseBackupRun
+//   DatabaseBackupRun,
+//   AndroidAppRelease                 (#285; uploadedById is SET NULL only
+//                                     when the User row itself is deleted)
 //   Job (running and settled)         history; a RUNNING job of the user's
 //                                     (a training run, a scan) finds its rows
 //                                     gone and fails on its own, as handlers

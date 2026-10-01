@@ -149,6 +149,10 @@ const MIGRATIONS_AT_288 = [
   // #277 (epic #276): `sleep_sessions` and device external ids on
   // `measurements`. About health data, not notifications.
   '20261003110000_add_sleep_and_measurement_external_ids',
+  // #285 (epic #276): `android_app_releases` (hosted APKs) and
+  // `health_sync_devices.app_version_code`. About Android releases, not
+  // notifications.
+  '20261003120000_add_android_app_releases',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
