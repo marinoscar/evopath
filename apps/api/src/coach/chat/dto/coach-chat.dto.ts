@@ -18,6 +18,12 @@ export const coachChatRequestSchema = z
       .max(COACH_CHAT_TEXT_MAX)
       .refine((value) => value.trim().length > 0, { message: 'text must not be empty' })
       .meta({ description: `The user's message, 1 to ${COACH_CHAT_TEXT_MAX} characters.` }),
+    retryOf: z.uuid().optional().meta({
+      description:
+        'Retry a turn that ended in an `error` frame: that frame\'s `userMessageId`. The stored message is reused ' +
+        '(no second row); `text` must equal it, it must be your latest chat message and have no reply yet, ' +
+        'else 400 `COACH_RETRY_INVALID`.',
+    }),
   })
   .strict();
 

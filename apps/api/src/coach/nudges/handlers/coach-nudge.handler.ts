@@ -398,10 +398,11 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
       fallbackCause = 'model_declined';
       this.logger.log(`Coach nudge job ${jobId}: the model declined the kickoff; static line used`);
     } else if (generated.declined) {
-      // The decision and its reason are recorded (spec §2.6); the reason is the
-      // model's short learning note, one line, never shown to the user.
-      span.setAttribute('coach.decline_reason_length', generated.declineReason?.length ?? 0);
-      this.logger.log(`Coach nudge job ${jobId}: the model declined (reason: ${oneLine(generated.declineReason)})`);
+      // The decision is recorded (spec §2.6); the reason is the model's free
+      // text, so only its LENGTH is logged and traced (ids-only logs policy).
+      const reasonLength = generated.declineReason?.length ?? 0;
+      span.setAttribute('coach.decline_reason_length', reasonLength);
+      this.logger.log(`Coach nudge job ${jobId}: the model declined (reason length ${reasonLength})`);
       return this.suppress('model_declined', payload, jobId);
     }
 
@@ -632,10 +633,6 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
       payload: { messageId },
     });
   }
-}
-
-function oneLine(text: string | null): string {
-  return JSON.stringify((text ?? '').replace(/\s+/g, ' ').slice(0, 200));
 }
 
 function clampIntensity(value: number): Intensity {

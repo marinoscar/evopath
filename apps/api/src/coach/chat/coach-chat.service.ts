@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { SpanStatusCode, trace, type Span } from '@opentelemetry/api';
 
 import { AiFeatureModelResolver } from '../../ai/assignments/ai-feature-model-resolver.service';
@@ -27,10 +27,14 @@ import { COACH_PAUSE_MAX_DAYS, COACH_PAUSE_MIN_DAYS } from './coach-chat-errors'
 import {
   COACH_ADJUST_LABEL,
   COACH_ADJUST_PATH,
+  COACH_CHAT_BLOCKED_SAFETY_TAGS,
   COACH_CHAT_HISTORY_LIMIT,
   COACH_CHAT_REPLY_MAX_CHARS,
+  COACH_CHAT_SAFETY_LOOKBACK_MS,
   buildCoachChatInput,
   buildCoachChatInstructions,
+  excludeBlockedSafetyTurns,
+  type CoachChatSupportiveReason,
 } from './coach-chat-prompt';
 import { blockedReplyFor, screenCoachChat, type CoachChatSafety, type CoachChatSafetyScreen } from './coach-chat-safety';
 import { CoachChatMetrics, type CoachChatTurnOutcome } from './coach-chat.metrics';
@@ -71,8 +75,20 @@ import { createCoachChatTools, type CoachChatToolDeps, type CoachChatTurnActions
 //
 // DISCONNECT. The controller's signal aborts the provider call; the partial
 // reply is DISCARDED (no coach row; the user's message, once persisted,
-// stays). An error after streaming began is an `error` frame; the reply is
-// not persisted.
+// stays). An error after streaming began, or after the user's message was
+// stored, is an `error` frame carrying `userMessageId` (null when nothing was
+// stored); the reply is not persisted.
+//
+// RETRY (`retryOf`). A client whose turn ended in an `error` frame retries
+// with `retryOf: <userMessageId>` and the same `text`: the stored user row is
+// reused (no second row) when it is the caller's latest user chat message, no
+// coach chat reply follows it and its body equals `text`; otherwise 400
+// `COACH_RETRY_INVALID` before anything else happens.
+//
+// SAFETY HISTORY. A blocked turn tags BOTH its rows `data.safety` (`distress`
+// or `symptom`); those rows are never sent to the model again
+// (`excludeBlockedSafetyTurns`), and for `COACH_CHAT_SAFETY_LOOKBACK_MS`
+// after one every model turn runs in the supportive register.
 //
 // ⚠ NEVER LOG TEXT. No log line, span attribute or counter carries the
 // user's message, the model's reply or a tool argument (the `reason` of
@@ -92,7 +108,13 @@ export type CoachChatEvent =
       pausedUntil: string | null;
       fallback: boolean;
     }
-  | { type: 'error'; code: string; message: string };
+  | {
+      type: 'error';
+      code: string;
+      message: string;
+      /** The stored user message of this turn (pass it as `retryOf` to retry), or null when none was stored. */
+      userMessageId: string | null;
+    };
 
 export interface CoachChatLink {
   label: string;
@@ -119,6 +141,20 @@ interface TurnContext {
   startedAt: Date;
   signal?: AbortSignal;
   span: Span;
+  /** A retry: the already stored user row, reused instead of a new one. */
+  retry: { id: string; createdAt: Date } | null;
+}
+
+/** 400 for a `retryOf` that cannot be retried. */
+export const COACH_RETRY_INVALID = 'COACH_RETRY_INVALID';
+
+/** A history row as read for the prompt (`data` only for the safety filter). */
+interface HistoryRow {
+  role: string;
+  kind: string;
+  title: string;
+  body: string;
+  data: unknown;
 }
 
 @Injectable()
@@ -148,9 +184,13 @@ export class CoachChatService {
    * first model round-trip, so awaiting it surfaces a refusal of that call
    * before the response is committed to a stream.
    */
-  async startTurn(userId: string, text: string, opts: { signal?: AbortSignal } = {}): Promise<AsyncIterable<CoachChatEvent>> {
+  async startTurn(
+    userId: string,
+    text: string,
+    opts: { signal?: AbortSignal; retryOf?: string } = {},
+  ): Promise<AsyncIterable<CoachChatEvent>> {
     const span = trace.getTracer(resolveServiceName()).startSpan('coach.chat.turn');
-    const ctx: TurnContext = { userId, text, startedAt: new Date(), signal: opts.signal, span };
+    const ctx: TurnContext = { userId, text, startedAt: new Date(), signal: opts.signal, span, retry: null };
 
     try {
       const [settings, policy, profile] = await Promise.all([
@@ -160,6 +200,11 @@ export class CoachChatService {
       ]);
       if (!policy.enabled) throw coachDisabledError();
 
+      if (opts.retryOf) {
+        ctx.retry = await this.retryTarget(userId, opts.retryOf, text);
+        span.setAttribute('coach.chat.retry', true);
+      }
+
       const safety = screenCoachChat(text);
       span.setAttribute('coach.safety', safety.level);
       if (safety.screen) this.metrics.safetyHit(safety.screen);
@@ -168,7 +213,11 @@ export class CoachChatService {
 
       const user = resolveCoachUserSettings(settings.coach);
       const register = resolveRegister(user, policy, { dateOfBirth: profile.dateOfBirth }, ctx.startedAt);
-      const supportive = safety.level === 'conservative';
+      // A blocked turn in the lookback keeps the register supportive, whatever this message says.
+      const recentBlocked = safety.level !== 'conservative' && (await this.hasRecentBlockedTurn(userId, ctx.startedAt));
+      if (recentBlocked) span.setAttribute('coach.chat.recent_safety', true);
+      const supportive = safety.level === 'conservative' || recentBlocked;
+      const supportiveReason: CoachChatSupportiveReason = recentBlocked ? 'recent_safety' : 'pain';
       // A supportive register is never profane: render as if locked (Sarge L3 -> L2).
       const style = renderPersonaStyle(
         user.personaId,
@@ -186,23 +235,29 @@ export class CoachChatService {
       }
       span.setAttribute('ai.model', resolution.model.modelId);
 
-      const [history, today] = await Promise.all([
+      const [rows, today] = await Promise.all([
+        // Twice the window, so dropping blocked safety turns still leaves a full one.
         this.prisma.coachMessage.findMany({
-          where: { userId },
+          where: { userId, ...(ctx.retry ? { id: { not: ctx.retry.id } } : {}) },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: COACH_CHAT_HISTORY_LIMIT,
-          select: { role: true, kind: true, title: true, body: true },
-        }),
+          take: COACH_CHAT_HISTORY_LIMIT * 2,
+          select: { role: true, kind: true, title: true, body: true, data: true },
+        }) as Promise<HistoryRow[]>,
         this.checkIns.today(userId, ctx.startedAt),
       ]);
-      history.reverse();
+      rows.reverse();
+      const history = excludeBlockedSafetyTurns(rows)
+        .slice(-COACH_CHAT_HISTORY_LIMIT)
+        .map(({ role, kind, title, body }) => ({ role, kind, title, body }));
 
       return this.modelTurn(ctx, {
         safety,
         style,
         supportive,
         model: { provider: resolution.model.provider, modelId: resolution.model.modelId },
-        instructions: buildCoachChatInstructions({ style, supportive, today, why: user.why ?? null }),
+        instructions: buildCoachChatInstructions({ style, supportive, supportiveReason, today }),
+        // `why` is user text: a delimited user-role part, never the system prompt; not under the supportive register.
+        why: supportive ? null : (user.why ?? null),
         history,
       });
     } catch (err) {
@@ -219,22 +274,33 @@ export class CoachChatService {
   private async *safetyTurn(ctx: TurnContext, safety: CoachChatSafety): AsyncGenerator<CoachChatEvent> {
     try {
       const body = blockedReplyFor(safety);
-      const userMessage = await this.persistUserMessage(ctx);
-      const reply = await this.prisma.coachMessage.create({
-        data: {
-          userId: ctx.userId,
-          role: 'coach',
-          kind: 'chat',
-          personaId: null,
-          intensity: null,
-          title: '',
-          body,
-          provider: COACH_STATIC_PROVIDER,
-          data: { safety: safety.screen },
-          createdAt: later(userMessage.createdAt),
-        },
-        select: { id: true },
-      });
+      // Both rows carry `data.safety`, so neither is ever sent to a model (`excludeBlockedSafetyTurns`).
+      const userMessage = await this.persistUserMessage(ctx, safety.screen);
+      let reply: { id: string };
+      try {
+        reply = await this.prisma.coachMessage.create({
+          data: {
+            userId: ctx.userId,
+            role: 'coach',
+            kind: 'chat',
+            personaId: null,
+            intensity: null,
+            title: '',
+            body,
+            provider: COACH_STATIC_PROVIDER,
+            data: { safety: safety.screen },
+            createdAt: later(userMessage.createdAt),
+          },
+          select: { id: true },
+        });
+      } catch {
+        // The user's row is stored: an `error` frame names it so a retry does not store it twice.
+        this.metrics.error('internal');
+        ctx.span.setStatus({ code: SpanStatusCode.ERROR });
+        this.logger.warn(`Coach chat safety reply failed for user ${ctx.userId}`);
+        yield internalErrorFrame(userMessage.id);
+        return;
+      }
       this.finish(ctx, 'safety', 0);
 
       yield { type: 'safety', level: 'blocked', screen: safety.screen as CoachChatSafetyScreen };
@@ -257,6 +323,7 @@ export class CoachChatService {
       supportive: boolean;
       model: { provider: string; modelId: string };
       instructions: string;
+      why: string | null;
       history: Array<{ role: string; kind: string; title: string; body: string }>;
     },
   ): AsyncGenerator<CoachChatEvent> {
@@ -264,7 +331,14 @@ export class CoachChatService {
     const tools = createCoachChatTools(this.toolDeps(), actions);
     const steps = new StepChannel();
     let yielded = false;
-    let userMessage: { id: string; createdAt: Date } | null = null;
+    // A retry starts with its stored row; `stored` is true once THIS call wrote one.
+    let userMessage: { id: string; createdAt: Date } | null = ctx.retry;
+    let stored = false;
+    const persistOnce = async (): Promise<{ id: string; createdAt: Date }> => {
+      const row = await this.persistUserMessage(ctx);
+      stored = true;
+      return row;
+    };
     let toolCount = 0;
 
     void this.ai
@@ -274,7 +348,7 @@ export class CoachChatService {
           provider: turn.model.provider,
           model: turn.model.modelId,
           instructions: turn.instructions,
-          input: buildCoachChatInput(turn.history, ctx.text),
+          input: buildCoachChatInput(turn.history, ctx.text, { why: turn.why }),
           tools,
           maxSteps: COACH_CHAT_MAX_STEPS,
           toolTimeoutMs: COACH_CHAT_TOOL_TIMEOUT_MS,
@@ -290,7 +364,7 @@ export class CoachChatService {
 
     try {
       for await (const step of steps) {
-        userMessage ??= await this.persistUserMessage(ctx);
+        userMessage ??= await persistOnce();
         // The `safety` frame waits for the first round-trip, so a refused first call still answers JSON.
         if (turn.safety.level === 'conservative' && !yielded) {
           yielded = true;
@@ -305,7 +379,7 @@ export class CoachChatService {
       }
 
       const result = steps.result as AiToolLoopResult;
-      userMessage ??= await this.persistUserMessage(ctx);
+      userMessage ??= await persistOnce();
 
       const raw = result.stopReason === 'completed' ? result.final.outputText.trim() : '';
       const verdict = this.check(raw, turn, ctx, result);
@@ -327,7 +401,7 @@ export class CoachChatService {
           data: {
             ...(links.length > 0 ? { links } : {}),
             ...(pausedUntil ? { pausedUntil } : {}),
-            ...(turn.supportive ? { safety: 'pain' } : {}),
+            ...(turn.safety.level === 'conservative' ? { safety: 'pain' } : {}),
             ...(verdict.ok ? {} : { fallback: true, guard: verdict.reasons }),
           },
           createdAt: later(userMessage.createdAt),
@@ -360,12 +434,12 @@ export class CoachChatService {
       ctx.span.setStatus({ code: SpanStatusCode.ERROR });
       this.logger.warn(`Coach chat turn failed for user ${ctx.userId}: ${code}`);
 
-      // Nothing sent yet: let the controller answer it as an ordinary JSON error.
-      if (!yielded) throw err;
+      // Nothing sent and nothing stored by this call: an ordinary JSON error.
+      if (!yielded && !stored) throw err;
 
-      yield err instanceof AiError
-        ? toErrorEvent(err)
-        : { type: 'error', code: 'INTERNAL_ERROR', message: 'The coach could not answer just now. Please try again.' };
+      // Once the user's row exists the client must learn its id (`retryOf`), so it is a frame.
+      const userMessageId = userMessage?.id ?? null;
+      yield err instanceof AiError ? { ...toErrorEvent(err), userMessageId } : internalErrorFrame(userMessageId);
     } finally {
       ctx.span.setAttribute('coach.chat.tool_count', toolCount);
       ctx.span.end();
@@ -422,10 +496,35 @@ export class CoachChatService {
     };
   }
 
-  /** The user's turn as a timeline row. A chat message also resets the ignored-nudge streak (spec §2.2). */
-  private async persistUserMessage(ctx: TurnContext): Promise<{ id: string; createdAt: Date }> {
+  /**
+   * The user's turn as a timeline row. A chat message also resets the
+   * ignored-nudge streak (spec §2.2). `safetyScreen` (a blocked turn) tags
+   * the row `data.safety`, so it is never sent to a model. A retry reuses its
+   * stored row (tagged too when the turn is blocked).
+   */
+  private async persistUserMessage(
+    ctx: TurnContext,
+    safetyScreen: CoachChatSafetyScreen | null = null,
+  ): Promise<{ id: string; createdAt: Date }> {
+    if (ctx.retry) {
+      if (safetyScreen) {
+        await this.prisma.coachMessage.updateMany({
+          where: { id: ctx.retry.id, userId: ctx.userId },
+          data: { data: { safety: safetyScreen } },
+        });
+      }
+      return ctx.retry;
+    }
     const row = await this.prisma.coachMessage.create({
-      data: { userId: ctx.userId, role: 'user', kind: 'chat', title: '', body: ctx.text, createdAt: ctx.startedAt },
+      data: {
+        userId: ctx.userId,
+        role: 'user',
+        kind: 'chat',
+        title: '',
+        body: ctx.text,
+        ...(safetyScreen ? { data: { safety: safetyScreen } } : {}),
+        createdAt: ctx.startedAt,
+      },
       select: { id: true, createdAt: true },
     });
     await this.prisma.coachState.updateMany({
@@ -433,6 +532,46 @@ export class CoachChatService {
       data: { consecutiveIgnored: 0 },
     });
     return row;
+  }
+
+  /**
+   * The stored user row a `retryOf` names, or 400 `COACH_RETRY_INVALID`: it
+   * must be the caller's LATEST user chat message, no coach chat reply may
+   * follow it, and its body must equal `text`.
+   */
+  private async retryTarget(userId: string, retryOf: string, text: string): Promise<{ id: string; createdAt: Date }> {
+    const latest = await this.prisma.coachMessage.findFirst({
+      where: { userId, role: 'user', kind: 'chat' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, body: true, createdAt: true },
+    });
+    const invalid = (why: string) =>
+      new BadRequestException({
+        message: `This message cannot be retried (${why}).`,
+        details: { code: COACH_RETRY_INVALID, reason: COACH_RETRY_INVALID },
+      });
+    if (!latest || latest.id !== retryOf) throw invalid('not your latest message');
+    if (latest.body !== text) throw invalid('the text differs from the stored message');
+    const answered = await this.prisma.coachMessage.findFirst({
+      where: { userId, role: 'coach', kind: 'chat', createdAt: { gt: latest.createdAt } },
+      select: { id: true },
+    });
+    if (answered) throw invalid('it already has a reply');
+    return { id: latest.id, createdAt: latest.createdAt };
+  }
+
+  /** Whether a blocked safety turn (distress or symptom) of this user lies within the lookback. */
+  private async hasRecentBlockedTurn(userId: string, now: Date): Promise<boolean> {
+    const row = await this.prisma.coachMessage.findFirst({
+      where: {
+        userId,
+        kind: 'chat',
+        createdAt: { gte: new Date(now.getTime() - COACH_CHAT_SAFETY_LOOKBACK_MS) },
+        OR: COACH_CHAT_BLOCKED_SAFETY_TAGS.map((tag) => ({ data: { path: ['safety'], equals: tag } })),
+      },
+      select: { id: true },
+    });
+    return Boolean(row);
   }
 
   private finish(ctx: TurnContext, outcome: CoachChatTurnOutcome, toolCount: number): void {
@@ -445,6 +584,15 @@ export class CoachChatService {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+function internalErrorFrame(userMessageId: string | null): CoachChatEvent {
+  return {
+    type: 'error',
+    code: 'INTERNAL_ERROR',
+    message: 'The coach could not answer just now. Please try again.',
+    userMessageId,
+  };
+}
 
 function clampIntensity(value: number): Intensity {
   return Math.min(3, Math.max(1, Math.round(value))) as Intensity;

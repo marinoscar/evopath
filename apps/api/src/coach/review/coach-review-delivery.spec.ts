@@ -36,6 +36,8 @@ function deliverer(row: Record<string, any>, appUrl: string | null = 'https://ap
       })),
       updateMany: jest.fn(async () => ({ count: 1 })),
     },
+    userSettings: { findUnique: jest.fn(async () => ({ value: { coach: { enabled: true } }, user: { isActive: true } })) },
+    coachState: { findUnique: jest.fn(async () => ({ pausedUntil: null })) },
   };
   const notifications = {
     notifyNow: jest.fn(async (_event: string, _user: string, _data: Record<string, any>) => ({
@@ -52,6 +54,8 @@ function deliverer(row: Record<string, any>, appUrl: string | null = 'https://ap
     notifications as never,
     coachState as never,
     { cancelPending: jest.fn() } as never,
+    { isEnabled: jest.fn(async () => true) } as never,
+    { getCoachPolicy: jest.fn(async () => ({ enabled: true })) } as never,
     { coachNudgeDelivered: jest.fn() } as never,
     config as never,
   );

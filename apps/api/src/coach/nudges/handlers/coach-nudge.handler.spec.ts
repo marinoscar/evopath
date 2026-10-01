@@ -1,3 +1,5 @@
+import { Logger } from '@nestjs/common';
+
 import { AiError } from '../../../ai/core/ai-error';
 import { RateLimitError } from '../../../jobs/rate-limit.error';
 import {
@@ -81,6 +83,26 @@ describe('CoachNudgeHandler', () => {
     expect(t.prisma.coachMessage.create).not.toHaveBeenCalled();
     expect(t.jobs.enqueue).not.toHaveBeenCalled();
     expect(t.metrics.coachNudgeSuppression).toHaveBeenCalledWith('model_declined', 'missed_twice');
+  });
+
+  it('send:false never logs the model\'s decline reason text, only its length (review finding)', async () => {
+    const reason = 'CANARY-DECLINE-REASON: user said they feel awful about their body';
+    const spies = (['log', 'warn', 'error', 'debug', 'verbose'] as const).map((level) =>
+      jest.spyOn(Logger.prototype, level).mockImplementation(() => undefined),
+    );
+    try {
+      const t = setupNudge({ answers: [{ ...GOOD, send: false, title: '', body: '', reason }] });
+      await expect(t.handler.run('job-1', PAYLOAD, NOW)).resolves.toEqual({ status: 'suppressed', reason: 'model_declined' });
+
+      const logged = spies.flatMap((spy) => spy.mock.calls.map((args) => JSON.stringify(args)));
+      expect(logged.some((line) => line.includes(`reason length ${reason.length}`))).toBe(true);
+      for (const line of logged) {
+        expect(line).not.toContain('CANARY-DECLINE-REASON');
+        expect(line).not.toContain('awful');
+      }
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
   });
 
   it('regenerates once with the failed rule names when the first answer fails the guard', async () => {
