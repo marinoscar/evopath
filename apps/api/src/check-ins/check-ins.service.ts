@@ -6,10 +6,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, type Measurement as MeasurementRow } from '@prisma/client';
 
 import { HealthProfileService } from '../health-profile/health-profile.service';
+import { emitHealthDataChanged } from '../measurements/health-data-events';
 import { ACTIVE } from '../measurements/measurement-active';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -65,6 +68,8 @@ export class CheckInsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly healthProfile: HealthProfileService,
+    // Optional so a hand-built service (tests) needs none; Nest always injects it.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -151,7 +156,7 @@ export class CheckInsService {
     const localDate = toDbDate(date);
 
     try {
-      return await this.prisma.$transaction(
+      const saved = await this.prisma.$transaction(
         async (tx) => {
           const existing = await tx.measurement.findMany({
             where: { userId, ...ACTIVE, localDate, metricKey: { in: [...CHECK_IN_METRIC_KEYS] } },
@@ -216,6 +221,8 @@ export class CheckInsService {
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
+      this.changed(userId);
+      return saved;
     } catch (error) {
       if (isWriteConflict(error)) {
         throw checkInConflict();
@@ -237,6 +244,12 @@ export class CheckInsService {
     }
 
     await this.audit(userId, date, count);
+    this.changed(userId);
+  }
+
+  /** `health.data.changed` after a committed write (H8: the health summary's trigger). */
+  private changed(userId: string): void {
+    emitHealthDataChanged(this.events, this.logger, { userId, source: 'check_in' });
   }
 
   // ---------------------------------------------------------------------------

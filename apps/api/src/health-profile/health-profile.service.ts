@@ -1,6 +1,8 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, type HealthProfile as HealthProfileRow } from '@prisma/client';
 
+import { emitHealthDataChanged } from '../measurements/health-data-events';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   HEALTH_PROFILE_FIELDS,
@@ -40,11 +42,18 @@ const EMPTY_PROFILE: HealthProfile = {
   updatedAt: null,
 };
 
+/** The profile fields the AI health summary's digest reads (H8, #192). */
+const SUMMARY_PROFILE_FIELDS = ['dateOfBirth', 'sexAtBirth'] as const;
+
 @Injectable()
 export class HealthProfileService {
   private readonly logger = new Logger(HealthProfileService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so a hand-built service (tests) needs none; Nest always injects it.
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   /** The caller's profile, or the empty profile (`version: 0`) when none is stored. */
   async get(userId: string): Promise<HealthProfile> {
@@ -133,6 +142,11 @@ export class HealthProfileService {
 
     if (changed.length > 0) {
       await this.audit(userId, changed);
+    }
+
+    // Only the fields the AI health summary's digest reads (age, sex) matter to it.
+    if (changed.some((field) => (SUMMARY_PROFILE_FIELDS as readonly string[]).includes(field))) {
+      emitHealthDataChanged(this.events, this.logger, { userId, source: 'health_profile' });
     }
 
     return profile;

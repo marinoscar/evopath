@@ -7,6 +7,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { trace } from '@opentelemetry/api';
 import { DraftItem, PhotoIntake, Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -24,6 +25,7 @@ import {
 } from '../health-documents/health-document.constants';
 import { UsableModelsService } from '../ai/keys/usable-models.service';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
+import { emitHealthDataChanged } from '../measurements/health-data-events';
 import { PrismaService } from '../prisma/prisma.service';
 import { ObjectsService } from '../storage/objects/objects.service';
 import {
@@ -307,6 +309,8 @@ export class IntakeService {
     private readonly inputs: IntakeInputInspector,
     // Optional so a hand-built service (tests) needs none; Nest always injects it.
     @Optional() private readonly references: StorageObjectReferences = new StorageObjectReferences(),
+    // Optional for the same reason: `health.data.changed` after a health intake is applied (H8).
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -1113,6 +1117,7 @@ export class IntakeService {
    * worker cannot claim the job before they have.
    */
   async apply(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<unknown> {
+    let healthKind = false;
     const result = await this.prisma.$transaction(async (tx) => {
       const intake = await tx.photoIntake.findFirst({ where: { id: intakeId, userId } });
 
@@ -1166,10 +1171,14 @@ export class IntakeService {
 
       if (kind.healthDocumentKind) {
         await this.enqueuePurges(tx, await this.documentsToPurge(tx, userId, intakeId));
+        healthKind = true;
       }
 
       return applied;
     });
+
+    // A health intake wrote measurements: after commit, the health summary's trigger.
+    if (healthKind) emitHealthDataChanged(this.events, this.logger, { userId, source: 'intake' });
 
     return result ?? null;
   }

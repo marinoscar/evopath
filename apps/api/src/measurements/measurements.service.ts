@@ -6,7 +6,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, type Measurement as MeasurementRow } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,6 +27,7 @@ import {
   SERIES_MAX_POINTS,
   type UpdateMeasurementEntryInput,
 } from './dto/measurement.dto';
+import { emitHealthDataChanged } from './health-data-events';
 import { ACTIVE } from './measurement-active';
 import { healthDocumentIdOf, withRecomputedUserEdited } from './photo/photo-source-ref';
 import {
@@ -92,7 +95,11 @@ const MANUAL: EntryProvenance = { origin: 'manual' };
 export class MeasurementsService {
   private readonly logger = new Logger(MeasurementsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so a hand-built service (tests) needs none; Nest always injects it.
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Writes
@@ -103,9 +110,11 @@ export class MeasurementsService {
     userId: string,
     input: CreateMeasurementEntryInput,
   ): Promise<MeasurementEntry> {
-    return this.prisma.$transaction((tx) =>
+    const entry = await this.prisma.$transaction((tx) =>
       this.createEntryInTransaction(tx, userId, input, MANUAL),
     );
+    this.changed(userId);
+    return entry;
   }
 
   /**
@@ -172,7 +181,7 @@ export class MeasurementsService {
     const now = new Date();
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const entry = await this.prisma.$transaction(async (tx) => {
         const old = sortByRegistry(
           await tx.measurement.findMany({ where: { userId, entryId, ...ACTIVE } }),
         );
@@ -298,6 +307,8 @@ export class MeasurementsService {
         const files = await fileStatesOf(tx, userId, rows);
         return { entryId, items: rows.map((row) => toMeasurement(row, files)) };
       });
+      this.changed(userId);
+      return entry;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         // Another edit inserted a row superseding the same old row first.
@@ -320,6 +331,12 @@ export class MeasurementsService {
     }
 
     await this.audit(userId, entryId, count);
+    this.changed(userId);
+  }
+
+  /** `health.data.changed` after a committed write (H8: the health summary's trigger). */
+  private changed(userId: string): void {
+    emitHealthDataChanged(this.events, this.logger, { userId, source: 'measurements' });
   }
 
   // ---------------------------------------------------------------------------
