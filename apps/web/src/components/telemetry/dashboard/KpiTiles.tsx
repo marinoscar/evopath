@@ -8,13 +8,20 @@
  * good or bad for the measure — never by colour alone), and a sparkline in
  * which a `null` bucket is a GAP, not a zero.
  *
+ * Unknown API routes (#258): the `unknownRoutes` tile is drawn like the
+ * others (a null value is "—", unknown — never 0). When the summary carries
+ * its `unknownRoutes` block, a caption splits the count into requests from the
+ * application (with a bearer) and anonymous ones, and the tile is highlighted
+ * in the warning colour while any came from the application — the caption's
+ * words, not the colour, carry that meaning.
+ *
  * Grid: 6 per row from `lg`, 3 from `sm`, 2 on phones.
  */
 import { Box, Grid, Paper, Stack, Typography, useMediaQuery, useTheme } from '@mui/material';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
-import type { DashboardTile } from '../../../services/telemetryDashboard';
+import type { DashboardTile, DashboardUnknownRoutes } from '../../../services/telemetryDashboard';
 import { formatTimestamp, formatTileValue, tileChange, tileDirection, type TileChange } from './format';
 
 const TONE_COLOR: Record<TileChange['tone'], string> = {
@@ -70,7 +77,31 @@ function Sparkline({ data, height }: { data: (number | null)[]; height: number }
   );
 }
 
-function Tile({ tile, compact, now }: { tile: DashboardTile; compact: boolean; now: number }) {
+interface TileExtra {
+  /** A line under the change, e.g. the unknown-routes split. */
+  caption?: string;
+  /** Draw the tile in the warning colour. */
+  highlight?: boolean;
+}
+
+/** The `unknownRoutes` tile's caption and highlight (#258), from the summary's block. */
+function unknownRoutesTileExtra(block: DashboardUnknownRoutes | undefined, compact: boolean): TileExtra {
+  if (!block || block.requests <= 0) return {};
+  const app = block.bearer.toLocaleString();
+  const anonymous = block.anonymous.toLocaleString();
+  return {
+    caption: compact ? `${app} app · ${anonymous} anon.` : `${app} from the app · ${anonymous} anonymous`,
+    highlight: block.bearer > 0,
+  };
+}
+
+function Tile({
+  tile,
+  compact,
+  now,
+  caption,
+  highlight = false,
+}: { tile: DashboardTile; compact: boolean; now: number } & TileExtra) {
   const formatted = formatTileValue(tile.value, tile.unit, now);
   const isTimestamp = tile.unit === 'timestamp';
   const change = tileChange(tile.value, tile.previous, tileDirection(tile.key));
@@ -78,7 +109,15 @@ function Tile({ tile, compact, now }: { tile: DashboardTile; compact: boolean; n
     <Paper
       variant="outlined"
       data-testid={`tile-${tile.key}`}
-      sx={{ p: { xs: 1.25, sm: 1.5 }, height: '100%', minWidth: 0, display: 'flex', flexDirection: 'column' }}
+      data-highlight={highlight ? 'warning' : undefined}
+      sx={{
+        p: { xs: 1.25, sm: 1.5 },
+        height: '100%',
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        ...(highlight ? { borderColor: 'warning.main' } : {}),
+      }}
     >
       <Typography variant="caption" color="text.secondary" noWrap title={tile.label} component="h3">
         {tile.label}
@@ -89,7 +128,7 @@ function Tile({ tile, compact, now }: { tile: DashboardTile; compact: boolean; n
           component="p"
           noWrap
           title={isTimestamp && typeof tile.value === 'string' ? formatTimestamp(tile.value) : undefined}
-          sx={{ fontWeight: 600, minWidth: 0 }}
+          sx={{ fontWeight: 600, minWidth: 0, ...(highlight ? { color: 'warning.main' } : {}) }}
         >
           {formatted.value}
         </Typography>
@@ -100,6 +139,18 @@ function Tile({ tile, compact, now }: { tile: DashboardTile; compact: boolean; n
         )}
       </Stack>
       {!isTimestamp && <ChangeLine change={change} compact={compact} />}
+      {caption && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          noWrap
+          title={caption}
+          data-testid={`tile-${tile.key}-caption`}
+          sx={{ minWidth: 0 }}
+        >
+          {caption}
+        </Typography>
+      )}
       <Box sx={{ mt: 'auto' }}>
         {!isTimestamp && <Sparkline data={tile.sparkline} height={compact ? 24 : 40} />}
       </Box>
@@ -110,20 +161,33 @@ function Tile({ tile, compact, now }: { tile: DashboardTile; compact: boolean; n
 export interface KpiTilesProps {
   tiles: DashboardTile[];
   runtime?: DashboardTile[];
+  /** The summary's unknown-routes block (#258): caption and highlight of the `unknownRoutes` tile. */
+  unknownRoutes?: DashboardUnknownRoutes;
   /** For relative timestamps; the page passes its clock. */
   now?: number;
   /** `data-testid` of the grid (the infrastructure sections, #127, reuse this component). */
   testId?: string;
 }
 
-export function KpiTiles({ tiles, runtime = [], now = Date.now(), testId = 'kpi-tiles' }: KpiTilesProps) {
+export function KpiTiles({
+  tiles,
+  runtime = [],
+  unknownRoutes,
+  now = Date.now(),
+  testId = 'kpi-tiles',
+}: KpiTilesProps) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'));
   return (
     <Grid container spacing={{ xs: 1, sm: 1.5 }} data-testid={testId}>
       {[...tiles, ...runtime].map((tile) => (
         <Grid key={tile.key} size={{ xs: 6, sm: 4, lg: 2 }} sx={{ minWidth: 0 }}>
-          <Tile tile={tile} compact={compact} now={now} />
+          <Tile
+            tile={tile}
+            compact={compact}
+            now={now}
+            {...(tile.key === 'unknownRoutes' ? unknownRoutesTileExtra(unknownRoutes, compact) : {})}
+          />
         </Grid>
       ))}
     </Grid>

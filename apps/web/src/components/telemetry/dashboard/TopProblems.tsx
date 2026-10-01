@@ -1,9 +1,14 @@
 /**
  * Top problems — issue #578, epic #576.
  *
- * The ten request paths with the most 5xx responses (then highest p95), and
+ * The ten request paths with the most 5xx responses (then 4xx except 401,
+ * then highest p95), and
  * the ten most frequent error log messages — ranked by the API. Two panels,
  * each fetched on its own so one failing leaves the other working.
+ *
+ * A route no route of the running API matches (#258, `unknown`: a 404 from
+ * the not-found handler — e.g. a web build calling a route its API lacks)
+ * carries an "unknown route" chip beside its path.
  *
  * Desktop: two tables side by side. Tablet: stacked. Phone: ONE panel with a
  * Routes / Errors toggle and a card list instead of a table.
@@ -11,6 +16,7 @@
 import { useState } from 'react';
 import {
   Box,
+  Chip,
   Grid,
   List,
   ListItem,
@@ -37,6 +43,23 @@ import { formatDuration, formatRelative, formatTimestamp } from './format';
 
 const pct = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
 const ms = (value: number | null) => (value === null ? '—' : formatDuration(value));
+/** `clientErrors` is always sent by a current API; `—` if an older one omits it. */
+const clientErrorsText = (item: DashboardTopRoute) =>
+  item.clientErrors === undefined ? '—' : item.clientErrors.toLocaleString();
+
+function UnknownRouteChip() {
+  return (
+    <Chip
+      label="unknown route"
+      size="small"
+      color="warning"
+      variant="outlined"
+      data-testid="unknown-route-chip"
+      title="No route of the running API matches this method and path (404 from the not-found handler)"
+      sx={{ ml: 0.75, height: 20, fontSize: '0.7rem', fontFamily: (theme) => theme.typography.fontFamily, verticalAlign: 'middle' }}
+    />
+  );
+}
 
 const clamp = (lines: number) => ({
   display: '-webkit-box',
@@ -56,6 +79,9 @@ function RoutesTable({ items }: { items: DashboardTopRoute[] }) {
             <TableCell>Route</TableCell>
             <TableCell align="right">Requests</TableCell>
             <TableCell align="right">5xx</TableCell>
+            <TableCell align="right" title="4xx responses except 401">
+              4xx
+            </TableCell>
             <TableCell align="right">p95</TableCell>
           </TableRow>
         </TableHead>
@@ -65,10 +91,17 @@ function RoutesTable({ items }: { items: DashboardTopRoute[] }) {
               <TableCell sx={{ fontFamily: 'monospace' }}>{item.method ?? '—'}</TableCell>
               <TableCell sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere', minWidth: 200 }}>
                 {item.route ?? '—'}
+                {item.unknown && <UnknownRouteChip />}
               </TableCell>
               <TableCell align="right">{item.count.toLocaleString()}</TableCell>
               <TableCell align="right" sx={{ color: item.errors > 0 ? 'error.main' : undefined, whiteSpace: 'nowrap' }}>
                 {pct(item.errorRatePct)}
+              </TableCell>
+              <TableCell
+                align="right"
+                sx={{ color: (item.clientErrors ?? 0) > 0 ? 'warning.main' : undefined, whiteSpace: 'nowrap' }}
+              >
+                {clientErrorsText(item)}
               </TableCell>
               <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                 {ms(item.p95Ms)}
@@ -125,11 +158,16 @@ function RoutesCards({ items }: { items: DashboardTopRoute[] }) {
         <ListItem key={`${item.method}-${item.route}-${index}`} divider sx={{ px: 0, display: 'block' }}>
           <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
             <strong>{item.method ?? '—'}</strong> {item.route ?? '—'}
+            {item.unknown && <UnknownRouteChip />}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             {item.count.toLocaleString()} req ·{' '}
             <Box component="span" sx={{ color: item.errors > 0 ? 'error.main' : undefined }}>
               {pct(item.errorRatePct)} 5xx
+            </Box>{' '}
+            ·{' '}
+            <Box component="span" sx={{ color: (item.clientErrors ?? 0) > 0 ? 'warning.main' : undefined }}>
+              {clientErrorsText(item)} 4xx
             </Box>{' '}
             · p95 {ms(item.p95Ms)}
           </Typography>
