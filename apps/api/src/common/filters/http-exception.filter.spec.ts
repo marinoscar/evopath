@@ -18,6 +18,7 @@ const PUBLISHED_ERROR_CODES = [
   'FORBIDDEN',
   'NOT_FOUND',
   'CONFLICT',
+  'PRECONDITION_FAILED',
   'UNPROCESSABLE_ENTITY',
   'TOO_MANY_REQUESTS',
   'INTERNAL_ERROR',
@@ -163,11 +164,10 @@ describe('HttpExceptionFilter', () => {
       filter.catch(exception, mockHost);
 
       expect(mockResponse.code).toHaveBeenCalledWith(412);
-      // Note: 412 maps to 'ERROR' since it's not in the codeMap
       expect(mockResponse.send).toHaveBeenCalledWith(
         expect.objectContaining({
           statusCode: 412,
-          code: 'ERROR',
+          code: 'PRECONDITION_FAILED',
           message: 'Version mismatch',
         }),
       );

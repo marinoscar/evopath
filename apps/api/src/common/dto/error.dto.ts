@@ -38,14 +38,15 @@ export class ErrorDto {
       'overwrites any `code` a thrown exception supplied — so it is always one of the values ' +
       'below. Prefer branching on this over matching `message`, which is prose and may change.',
     example: 'CONFLICT',
-    // Mirrors `HttpExceptionFilter.getCodeFromStatus` exactly: the eight mapped
-    // statuses, plus the `ERROR` fallback an unmapped status produces.
+    // Mirrors `HttpExceptionFilter.getCodeFromStatus`: the mapped statuses,
+    // plus the `ERROR` fallback an unmapped status produces.
     enum: [
       'BAD_REQUEST',
       'UNAUTHORIZED',
       'FORBIDDEN',
       'NOT_FOUND',
       'CONFLICT',
+      'PRECONDITION_FAILED',
       'UNPROCESSABLE_ENTITY',
       'TOO_MANY_REQUESTS',
       'INTERNAL_ERROR',
