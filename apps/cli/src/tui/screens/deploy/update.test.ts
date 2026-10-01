@@ -22,6 +22,12 @@ vi.mock('../../../deploy/update.js', async (importOriginal) => {
   return { ...actual, runUpdate: vi.fn() };
 });
 
+vi.mock('../../../deploy/android-step.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../deploy/android-step.js')>();
+  return { ...actual, runDeployAndroidStep: vi.fn() };
+});
+
+import { runDeployAndroidStep } from '../../../deploy/android-step.js';
 import { runUpdate } from '../../../deploy/update.js';
 import { performUpdate, updateFields } from './update.js';
 
@@ -165,5 +171,49 @@ describe('performUpdate: the __app_version passthrough', () => {
 
     const call = runUpdateMock.mock.calls.at(-1);
     expect(call?.[0].ref).toBe('v2.0.0');
+  });
+});
+
+// =============================================================================
+// The "Publish the Android APK if newer" toggle (issue #292): not a pipeline
+// option, it runs AFTER `runUpdate` and adds its line to the done frame.
+// =============================================================================
+describe('performUpdate: --with-android', () => {
+  const target = {
+    name: { resolved: 'demo', display: 'demo' },
+    settings: {
+      deployRoot: '/tmp/evopathcli-update-screen-android',
+      proxyRoot: '/tmp/evopathcli-update-screen-proxy',
+      bindPort: 3535,
+      proxyContainer: 'proxy-nginx',
+      proxyMode: 'auto' as const,
+    },
+    state: { domain: 'app.example.test' } as unknown as DeployState,
+  };
+  const androidMock = vi.mocked(runDeployAndroidStep);
+
+  beforeEach(() => {
+    androidMock.mockReset();
+    androidMock.mockResolvedValue({
+      status: 'published',
+      version: { versionName: '1.0.6', versionCode: 6 },
+      releaseId: 'r',
+      serverUrl: 'https://app.example.test',
+      detail: 'published 1.0.6 (code 6) to https://app.example.test as the current release',
+    });
+  });
+
+  it('is not forwarded to runUpdate, runs after it, and reports in the summary', async () => {
+    const summary = await performUpdate(target, new Map([['__ref', '']]), new Set(['--with-android']), new AbortController().signal, {});
+
+    expect(runUpdateMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('withAndroid');
+    expect(androidMock).toHaveBeenCalledTimes(1);
+    expect(androidMock.mock.calls[0]?.[0]).toMatchObject({ domain: 'app.example.test', deployRoot: target.settings.deployRoot });
+    expect(summary).toContain('Android APK  published 1.0.6 (code 6) to https://app.example.test as the current release');
+  });
+
+  it('does not run without the toggle', async () => {
+    await performUpdate(target, new Map([['__ref', '']]), new Set(), new AbortController().signal, {});
+    expect(androidMock).not.toHaveBeenCalled();
   });
 });
