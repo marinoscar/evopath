@@ -63,6 +63,10 @@ jobs:
             apps/android/gradle/wrapper/gradle-wrapper.properties
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default list includes `tools`, which the SDK repository no
+          # longer publishes, so the step fails. Install exactly what the build needs.
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Read identity and version
         id: meta
@@ -135,6 +139,10 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         if: steps.signing.outputs.enabled == 'true'
+        with:
+          # The action's default list includes `tools`, which the SDK repository no
+          # longer publishes, so the step fails. Install exactly what the build needs.
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Read identity and version
         if: steps.signing.outputs.enabled == 'true'
