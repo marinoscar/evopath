@@ -9,13 +9,22 @@
  */
 import {
   PLAN_LIMITS,
+  prescriptionShapeFor,
   type PlanBlock,
   type PlanExercise,
   type PlanTree,
   type PlanTreeView,
   type PlanWeek,
   type PlanWorkout,
+  type PrescriptionShape,
 } from '../../services/programs';
+import { METERS_PER_MILE, type DistanceUnit } from '../../utils/workoutFormat';
+
+/** Exercise id -> its library `trackingMode`, which picks the prescription shape (#262). */
+export type TrackingModes = Record<string, string | null | undefined>;
+
+/** The default cardio target for a new row: 30 minutes. */
+export const DEFAULT_CARDIO_SECONDS = 30 * 60;
 
 let counter = 0;
 export const tmpId = () => `tmp-${Date.now().toString(36)}-${(counter++).toString(36)}`;
@@ -51,6 +60,8 @@ export function toEditTree(view: PlanTreeView): PlanTree {
               targetSets: e.targetSets,
               repMin: e.repMin,
               repMax: e.repMax,
+              targetDurationSeconds: e.targetDurationSeconds,
+              targetDistanceMeters: e.targetDistanceMeters,
               targetLoadKg: e.targetLoadKg,
               targetRpe: e.targetRpe,
               restSeconds: e.restSeconds,
@@ -153,8 +164,13 @@ export function removeExercise(tree: PlanTree, weekNumber: number, workoutId: st
   }));
 }
 
-export function newExercise(exerciseId: string, position: number): PlanExercise {
-  return {
+/**
+ * A new row, shaped by the exercise's `trackingMode` (#262): sets and reps
+ * (3 x 8-12, 90 s rest) for lifts; 30 minutes and no rest for `time` and
+ * `distance_time` work.
+ */
+export function newExercise(exerciseId: string, position: number, trackingMode?: string | null): PlanExercise {
+  const base: PlanExercise = {
     id: tmpId(),
     exerciseId,
     position,
@@ -162,6 +178,8 @@ export function newExercise(exerciseId: string, position: number): PlanExercise 
     targetSets: 3,
     repMin: 8,
     repMax: 12,
+    targetDurationSeconds: null,
+    targetDistanceMeters: null,
     targetLoadKg: null,
     targetRpe: null,
     restSeconds: 90,
@@ -171,14 +189,22 @@ export function newExercise(exerciseId: string, position: number): PlanExercise 
     notes: null,
     equipmentTypeId: null,
   };
+  if (prescriptionShapeFor(trackingMode) === 'reps') return base;
+  return { ...base, targetSets: null, repMin: null, repMax: null, targetDurationSeconds: DEFAULT_CARDIO_SECONDS, restSeconds: 0 };
 }
 
-export function addExercises(tree: PlanTree, weekNumber: number, workoutId: string, exerciseIds: string[]): PlanTree {
+export function addExercises(
+  tree: PlanTree,
+  weekNumber: number,
+  workoutId: string,
+  exerciseIds: string[],
+  modes: TrackingModes = {},
+): PlanTree {
   return mapWorkout(tree, weekNumber, workoutId, (workout) => ({
     ...workout,
     exercises: renumberExercises([
       ...workout.exercises,
-      ...exerciseIds.map((id, i) => newExercise(id, workout.exercises.length + i)),
+      ...exerciseIds.map((id, i) => newExercise(id, workout.exercises.length + i, modes[id])),
     ]).slice(0, PLAN_LIMITS.exercisesPerWorkoutMax),
   }));
 }
@@ -288,7 +314,8 @@ export function makeDeload(tree: PlanTree, weekNumber: number): PlanTree {
       ...workout,
       exercises: workout.exercises.map((exercise) => ({
         ...exercise,
-        targetSets: Math.max(1, Math.round(exercise.targetSets * 0.6)),
+        targetSets:
+          exercise.targetSets === null ? null : Math.max(1, Math.round(exercise.targetSets * 0.6)),
         targetRpe:
           exercise.targetRpe === null || exercise.targetRpe === undefined ? exercise.targetRpe : Math.max(1, exercise.targetRpe - 1),
       })),
@@ -300,11 +327,65 @@ export function setDeload(tree: PlanTree, weekNumber: number, isDeload: boolean)
   return mapWeek(tree, weekNumber, (week) => ({ ...week, isDeload }));
 }
 
+/**
+ * The shape a row is validated against: its exercise's `trackingMode` when
+ * known, else what the row already carries (a cardio target -> cardio).
+ */
+export function rowShape(e: PlanExercise, modes: TrackingModes = {}): PrescriptionShape {
+  const mode = modes[e.exerciseId];
+  if (mode) return prescriptionShapeFor(mode);
+  const cardio =
+    (e.targetDurationSeconds !== null && e.targetDurationSeconds !== undefined) ||
+    (e.targetDistanceMeters !== null && e.targetDistanceMeters !== undefined);
+  return cardio ? 'distance_duration' : 'reps';
+}
+
+/** The distance bounds as the user reads them: `0.1 to 100 km`, `0.06 to 62.14 mi`. */
+export function distanceBoundsText(unit: DistanceUnit): string {
+  const { min, max } = PLAN_LIMITS.targetDistanceMeters;
+  const per = unit === 'mi' ? METERS_PER_MILE : 1000;
+  const round = (v: number) => String(Math.round((v / per) * 100) / 100);
+  return `${round(min)} to ${round(max)} ${unit}`;
+}
+
+export interface PlanErrorOptions {
+  /** Exercise id -> `trackingMode`; picks each row's prescription shape. */
+  modes?: TrackingModes;
+  /** How distance bounds are worded. Default `km`. */
+  distanceUnit?: DistanceUnit;
+}
+
+/** Problems with a cardio row (#262), keyed like `planErrors`. */
+function cardioErrors(e: PlanExercise, shape: PrescriptionShape, distanceUnit: DistanceUnit, errors: Record<string, string>) {
+  const L = PLAN_LIMITS;
+  const id = e.id ?? '';
+  const duration = e.targetDurationSeconds ?? null;
+  const distance = shape === 'duration' ? null : (e.targetDistanceMeters ?? null);
+  if (duration === null && distance === null) {
+    errors[`${id}.targetDurationSeconds`] = shape === 'duration' ? 'Set the minutes.' : 'Set the minutes or a distance.';
+  }
+  if (duration !== null) {
+    if (!Number.isInteger(duration) || duration < L.targetDurationSeconds.min || duration > L.targetDurationSeconds.max) {
+      errors[`${id}.targetDurationSeconds`] = `Minutes: ${L.targetDurationSeconds.min / 60} to ${L.targetDurationSeconds.max / 60}.`;
+    }
+  }
+  if (distance !== null) {
+    if (!Number.isFinite(distance) || distance < L.targetDistanceMeters.min || distance > L.targetDistanceMeters.max) {
+      errors[`${id}.targetDistanceMeters`] = `Distance: ${distanceBoundsText(distanceUnit)}.`;
+    }
+  }
+  if (e.targetSets !== null && e.targetSets !== undefined) {
+    if (!Number.isInteger(e.targetSets) || e.targetSets < L.targetSets.min || e.targetSets > L.targetSets.max) {
+      errors[`${id}.targetSets`] = `Sets: ${L.targetSets.min} to ${L.targetSets.max}.`;
+    }
+  }
+}
+
 /** Row-level problems, keyed `exerciseRowId.field` or `workoutId.field`. */
-export function planErrors(tree: PlanTree): Record<string, string> {
+export function planErrors(tree: PlanTree, options: PlanErrorOptions = {}): Record<string, string> {
   const errors: Record<string, string> = {};
   const L = PLAN_LIMITS;
-  const int = (v: unknown) => typeof v === 'number' && Number.isInteger(v);
+  const int = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
   for (const { week } of allWeeks(tree)) {
     const days = new Map<number, string>();
     for (const workout of week.workouts) {
@@ -316,12 +397,18 @@ export function planErrors(tree: PlanTree): Record<string, string> {
       }
       for (const e of workout.exercises) {
         const id = e.id ?? '';
-        if (!int(e.targetSets) || e.targetSets < L.targetSets.min || e.targetSets > L.targetSets.max) {
-          errors[`${id}.targetSets`] = `Sets: ${L.targetSets.min} to ${L.targetSets.max}.`;
+        const shape = rowShape(e, options.modes);
+        if (shape !== 'reps') {
+          cardioErrors(e, shape, options.distanceUnit ?? 'km', errors);
+        } else {
+          const { targetSets, repMin, repMax } = e;
+          if (!int(targetSets) || targetSets < L.targetSets.min || targetSets > L.targetSets.max) {
+            errors[`${id}.targetSets`] = `Sets: ${L.targetSets.min} to ${L.targetSets.max}.`;
+          }
+          if (!int(repMin) || repMin < L.reps.min || repMin > L.reps.max) errors[`${id}.repMin`] = `Reps: ${L.reps.min} to ${L.reps.max}.`;
+          if (!int(repMax) || repMax < L.reps.min || repMax > L.reps.max) errors[`${id}.repMax`] = `Reps: ${L.reps.min} to ${L.reps.max}.`;
+          else if (int(repMin) && repMax < repMin) errors[`${id}.repMax`] = 'Max reps must be at least min reps.';
         }
-        if (!int(e.repMin) || e.repMin < L.reps.min || e.repMin > L.reps.max) errors[`${id}.repMin`] = `Reps: ${L.reps.min} to ${L.reps.max}.`;
-        if (!int(e.repMax) || e.repMax < L.reps.min || e.repMax > L.reps.max) errors[`${id}.repMax`] = `Reps: ${L.reps.min} to ${L.reps.max}.`;
-        else if (int(e.repMin) && e.repMax < e.repMin) errors[`${id}.repMax`] = 'Max reps must be at least min reps.';
         if (e.targetRpe !== null && e.targetRpe !== undefined) {
           if (e.targetRpe < L.targetRpe.min || e.targetRpe > L.targetRpe.max || !Number.isInteger(e.targetRpe / L.targetRpe.step)) {
             errors[`${id}.targetRpe`] = 'RPE: 1 to 10 in steps of 0.5.';

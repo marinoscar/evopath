@@ -62,7 +62,24 @@ export const PLAN_LIMITS = {
   targetLoadKg: { min: 0, max: 1000, decimals: 3 },
   targetRpe: { min: 1, max: 10, step: 0.5 },
   restSeconds: { min: 0, max: 900 },
+  /** Cardio prescriptions (#262): a duration and/or a distance instead of reps. */
+  targetDurationSeconds: { min: 60, max: 36_000 },
+  targetDistanceMeters: { min: 100, max: 100_000 },
 } as const;
+
+/**
+ * Which prescription shape an exercise's `trackingMode` takes (#262):
+ * `weight_reps` / `bodyweight_reps` -> sets and reps; `time` -> a duration;
+ * `distance_time` -> a duration and/or a distance. The API rejects a
+ * mismatch with `400 VALIDATION_ERROR`.
+ */
+export type PrescriptionShape = 'reps' | 'duration' | 'distance_duration';
+
+export function prescriptionShapeFor(trackingMode: string | null | undefined): PrescriptionShape {
+  if (trackingMode === 'time') return 'duration';
+  if (trackingMode === 'distance_time') return 'distance_duration';
+  return 'reps';
+}
 
 /** `details.reason` values the programs API answers with. */
 export const PROGRAM_REFUSALS = {
@@ -93,9 +110,15 @@ export interface PlanExercise {
   exerciseId: string;
   position: number;
   isPriority?: boolean;
-  targetSets: number;
-  repMin: number;
-  repMax: number;
+  /** Reps shape: required. Cardio shape: null, or 1..20 intervals. */
+  targetSets: number | null;
+  /** Reps shape only; null for a duration or distance prescription. */
+  repMin: number | null;
+  repMax: number | null;
+  /** Cardio shape (#262): seconds, 60..36000; null for reps. */
+  targetDurationSeconds?: number | null;
+  /** Cardio shape (#262): metres, 100..100000; null for reps. */
+  targetDistanceMeters?: number | null;
   /** Kilograms; null lets the lifter choose or use history. */
   targetLoadKg?: number | null;
   /** 1..10 in steps of 0.5. */
@@ -331,9 +354,14 @@ export interface TodaySessionExercise {
     primaryMuscles: string[];
   };
   isPriority: boolean;
-  sets: number;
-  repMin: number;
-  repMax: number;
+  /** Null for a duration or distance prescription without intervals (#262). */
+  sets: number | null;
+  repMin: number | null;
+  repMax: number | null;
+  /** Seconds; set for a duration prescription (#262). */
+  targetDurationSeconds: number | null;
+  /** Metres; set for a distance prescription (#262). */
+  targetDistanceMeters: number | null;
   targetRpe: number | null;
   restSeconds: number;
   loadGuidance: LoadGuidance;

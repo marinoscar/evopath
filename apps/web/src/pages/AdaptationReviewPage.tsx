@@ -87,6 +87,8 @@ export default function AdaptationReviewPage({ runOptions, previewDelayMs }: Ada
           sets: e.sets,
           repMin: e.repMin,
           repMax: e.repMax,
+          targetDurationSeconds: e.targetDurationSeconds,
+          targetDistanceMeters: e.targetDistanceMeters,
           targetRpe: e.targetRpe,
         }))
       : null;

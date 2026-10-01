@@ -44,6 +44,8 @@ function exercise(overrides: Partial<TodaySessionExercise> = {}): TodaySessionEx
     sets: 3,
     repMin: 8,
     repMax: 10,
+    targetDurationSeconds: null,
+    targetDistanceMeters: null,
     targetRpe: 8,
     restSeconds: 120,
     loadGuidance: 'fixed',

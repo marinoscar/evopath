@@ -8,6 +8,8 @@ import type { LoadGuidance, PlanExercise } from '../../services/programs';
 import { formatTargetLoad } from '../../services/programs';
 import type { WeightUnit } from '../../utils/units';
 import { prescription } from '../../utils/planDiff';
+import { isCardioPrescription } from '../../utils/prescription';
+import { distanceUnitFor } from '../../utils/workoutFormat';
 import { EvidenceChip } from './EvidenceChip';
 import { resolvableRefs, type PlanEvidence } from './planEvidence';
 
@@ -34,6 +36,18 @@ export interface ExerciseRowProps {
   gymName?: string | null;
 }
 
+/**
+ * The row's one line: `3 x 8-12 · 90s rest · load` for lifts; a cardio row
+ * (#263) reads `5 km · 30 min`, with rest only when it has some and no load.
+ */
+export function prescriptionLine(exercise: PlanExercise, unit: WeightUnit): string {
+  const text = prescription(exercise, distanceUnitFor(unit));
+  if (isCardioPrescription(exercise)) {
+    return exercise.restSeconds > 0 ? `${text} · ${formatRest(exercise.restSeconds)}` : text;
+  }
+  return `${text} · ${formatRest(exercise.restSeconds)} · ${loadLine(exercise.loadGuidance, exercise.targetLoadKg, unit)}`;
+}
+
 export function ExerciseRow({ exercise, name, unit, evidence, available, gymName }: ExerciseRowProps) {
   const refs = resolvableRefs(exercise.evidenceRefs, evidence);
   return (
@@ -44,9 +58,7 @@ export function ExerciseRow({ exercise, name, unit, evidence, available, gymName
         {exercise.exerciseUnavailable && <Chip size="small" color="warning" label="No longer in the library" />}
         {available === false && <Chip size="small" color="warning" label={`Not available at ${gymName ?? 'this gym'}`} />}
       </Stack>
-      <Typography variant="body2">
-        {prescription(exercise)} · {formatRest(exercise.restSeconds)} · {loadLine(exercise.loadGuidance, exercise.targetLoadKg, unit)}
-      </Typography>
+      <Typography variant="body2">{prescriptionLine(exercise, unit)}</Typography>
       {(exercise.rationale || refs.length > 0) && (
         <Stack direction="row" spacing={0.5} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', mt: 0.25 }}>
           {exercise.rationale && (
