@@ -52,6 +52,7 @@ import { DoctorModule } from './doctor/doctor.module';
 import { UserDataModule } from './user-data/user-data.module';
 import { AdminFactoryResetModule } from './admin-factory-reset/admin-factory-reset.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { CoachPlanningModule } from './coach/planning/coach-planning.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -310,6 +311,10 @@ import configuration from './config/configuration';
     // `system:factory_reset`, and the server-only `admin.factory_reset` job
     // that deletes every other user and all application data.
     AdminFactoryResetModule,
+
+    // AI Coach decision engine (E7.4): the hourly `coach.sweep`, the
+    // `coach.workout_finished` job and `GET /api/coach/state`.
+    CoachPlanningModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
