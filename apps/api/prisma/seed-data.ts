@@ -180,6 +180,11 @@ export const PERMISSIONS = [
     description: 'Run SQL, export and use the AI assistant against telemetry',
   },
 
+  // Factory reset (#211): ADMIN ONLY. Irreversible, deployment-wide wipe of
+  // application data, so it is its own permission rather than a part of
+  // `system_settings:write`.
+  { name: 'system:factory_reset', description: 'Reset the deployment to a fresh install' },
+
   // Health data (E2.1, #47) — separate from `user_settings:*` so a deployment
   // can withhold health data from a role without blocking theme changes.
   { name: 'health_data:read', description: 'Read own health data' },
@@ -268,6 +273,8 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'telemetry:read',
     'telemetry:write',
     'telemetry:query',
+    // #211 — ADMIN ONLY: irreversible deployment-wide factory reset.
+    'system:factory_reset',
     // E2.1, #47 — `health_data:*` is separate from `user_settings:*` (health
     // data is a different class of data than UI preferences, so a deployment
     // can withhold it from a role). All three roles hold both: it is the

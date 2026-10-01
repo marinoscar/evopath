@@ -77,6 +77,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: object storage providers | [docs/specs/storage-providers.md](docs/specs/storage-providers.md) |
 | Spec: per-user credentials (add a user key type: §4) | [docs/specs/user-credentials.md](docs/specs/user-credentials.md#4-extending-it-in-a-fork) |
 | Spec: user data reset (Danger Zone; add a keep/delete decision when a model gains a user relation: §4) | [docs/specs/user-data-reset.md](docs/specs/user-data-reset.md#4-extending-it-in-a-fork) |
+| Spec: admin factory reset (deployment-wide Danger Zone; shares `user-data/user-data-purge.ts`) | [docs/specs/factory-reset.md](docs/specs/factory-reset.md) |
 | Spec: telemetry (GreptimeDB, explorer) | [docs/specs/telemetry.md](docs/specs/telemetry.md) |
 | Spec: VPS deploy | [docs/specs/vps-deploy.md](docs/specs/vps-deploy.md) |
 | Spec: worker nodes | [docs/specs/worker-nodes.md](docs/specs/worker-nodes.md) |
@@ -85,6 +86,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
 | Runbook: AI training plans (web search, agent models, fake provider, troubleshooting) | [docs/runbooks/ai-training-plans.md](docs/runbooks/ai-training-plans.md) |
 | Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
+| Runbook: factory reset a deployment (backup first, verify, recover) | [docs/runbooks/factory-reset.md](docs/runbooks/factory-reset.md) |
 | `evopathcli` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: add a photo-intake kind | [apps/api/src/intake/README.md](apps/api/src/intake/README.md) |

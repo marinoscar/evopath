@@ -49,6 +49,7 @@ In this order:
 | [specs/training-signals.md](specs/training-signals.md) | Plan signals: adherence, frequency, hard sets per muscle, lift trends, effort, pain, readiness and body weight, computed deterministically for the user and for agents | you add or change a signal, read a user's adherence, or build an agent prompt from training facts |
 | [specs/ai-training-plans.md](specs/ai-training-plans.md) | AI training plans: the researcher, planner, critic and evaluator agents, the LangGraph graphs, run state machine, guardrails and adaptation envelope, quick workout adaptation and travel workouts (rules, minimised context, apply), events, limits, and the fake-provider scenarios | you change or extend the training agents, their guardrails, the adjust-workout flow or their tests |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
+| [specs/factory-reset.md](specs/factory-reset.md) | The admin Danger Zone factory reset (`admin.factory_reset`): step design, what is deleted and kept, confirmation, extending it | you change the reset or add a model with a user relation |
 | [specs/user-data-reset.md](specs/user-data-reset.md) | The per-user Danger Zone factory reset (`user.data_reset`): what is deleted and kept, confirmation, retry safety | you add a model with a user relation or change the reset |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 
@@ -70,6 +71,7 @@ In this order:
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
 | [runbooks/telemetry.md](runbooks/telemetry.md) | Enabling the GreptimeDB telemetry overlay, setting retention, configuring the AI assistant, connecting a BI tool |
 | [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor |
+| [runbooks/factory-reset.md](runbooks/factory-reset.md) | Wiping a deployment to a fresh install: backup first, run the reset, verify, recover, troubleshoot |
 
 ## Developer recipes in the code
 

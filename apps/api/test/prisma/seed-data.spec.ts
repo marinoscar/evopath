@@ -287,6 +287,12 @@ describe('seed data', () => {
       expect(leaked).toEqual([]);
     });
 
+    it('grants system:factory_reset to Admin only (#211)', () => {
+      expect(ROLE_PERMISSIONS.admin).toContain('system:factory_reset');
+      expect(ROLE_PERMISSIONS.contributor).not.toContain('system:factory_reset');
+      expect(ROLE_PERMISSIONS.viewer).not.toContain('system:factory_reset');
+    });
+
     it('grants health_data:read and health_data:write to every seeded role (E2.1, #47)', () => {
       // A person's OWN health data: every role holds both halves, like
       // `user_settings:*`, yet as separate strings so a deployment can

@@ -8,7 +8,7 @@ A user can delete everything they own and keep their account. The reset is a fac
 
 - **Is:** a self-service "delete all my data" for one user, acting on the caller alone. It removes workouts, programs, gyms, health data, photos, AI keys and history, stored credentials, access tokens and notifications.
 - **Is not:** account deletion. The `User` row, identities, roles and the browser session survive. It is not an admin action on another user and has no undo or backup.
-- **Why:** an app built from this template accumulates personal data across many models. Without one place that decides what a user owns, a forker either leaves data behind or fails on a foreign key. The handler holds that decision for every model with a path to a user.
+- **Why:** an app built from this template accumulates personal data across many models. Without one place that decides what a user owns, a forker either leaves data behind or fails on a foreign key. `user-data/user-data-purge.ts` holds that decision for every model with a path to a user, and the admin [factory reset](factory-reset.md) runs the same code for every user.
 
 ## 2. How it works
 
@@ -24,7 +24,7 @@ The queue's active dedup (`jobs_active_dedup_uniq_idx` over `user.data_reset:use
 
 ### 2.2 The job
 
-`UserDataResetHandler` (`apps/api/src/user-data/handlers/user-data-reset.handler.ts`) runs three steps.
+`UserDataResetHandler` (`apps/api/src/user-data/handlers/user-data-reset.handler.ts`) runs three steps. The deletion itself (`collectUserObjectIds`, `deleteUserOwnedRows`, `deleteStorageObjects`) lives in `apps/api/src/user-data/user-data-purge.ts`, shared with the admin [factory reset](factory-reset.md); the handler owns the payload, the audit event and the step order.
 
 | Step | What it does |
 |---|---|
@@ -36,7 +36,7 @@ The result is written to `payload.result` (the queue has no result column) and t
 
 ### 2.3 Keep and delete
 
-The table below summarises the decisions. The header comment of the handler is the authoritative per-model list.
+The table below summarises the decisions. The header comment of the handler is the authoritative per-model list; `user-data-purge.ts` executes it.
 
 | Decision | What |
 |---|---|
@@ -88,15 +88,16 @@ Details: `/api/docs`.
 
 ## 4. Extending it in a fork
 
-**When you add a model with a relation to a user, add a keep/delete decision to the handler.** No test discovers a new model, so the decision is manual.
+**When you add a model with a relation to a user, add a keep/delete decision in `apps/api/src/user-data/user-data-purge.ts`.** The file is shared: the admin [factory reset](factory-reset.md) runs the same per-user deletion for every user, so one decision covers both. No test discovers a new model, so the decision is manual.
 
 1. Decide: is it the user's own data (delete), or account, access, audit or deployment state (keep)?
-2. If it is deleted, add a `deleteMany` by owner to `deleteRows` in `user-data-reset.handler.ts`. Place it after anything that `Restrict`s it and before the parents it `Restrict`s. Add its count to `DeletedRowCounts` and `ZERO_ROW_COUNTS`, and to the result schema in `dto/user-data.dto.ts`.
-3. If the model holds a storage object link with no cascade, add its ids to `collectObjectIds` so the bytes are deleted.
+2. If it is deleted, add a `deleteMany` by owner to `deleteUserOwnedRows` in `user-data-purge.ts`. Place it after anything that `Restrict`s it and before the parents it `Restrict`s. Add its count to `ZERO_ROW_COUNTS` (which `DeletedRowCounts` follows), and to the result schema in `dto/user-data.dto.ts`.
+3. If the model holds a storage object link with no cascade, add its ids to `collectUserObjectIds` in `user-data-purge.ts` so the bytes are deleted.
 4. If rows exist without a foreign key to the user (like training checkpoints), delete them explicitly.
 5. If it is kept, say so in the keep list in the handler's header comment.
 6. Add the model to the keep/delete survey in the handler's header, to `getSummary` when the user should see its count, and to `DELETED_CATEGORIES` in `UserDangerZonePage.tsx` when it needs its own line.
 7. Extend `apps/api/test/user-data/user-data-reset.db.spec.ts` with a row of the new model and assert it is gone (or kept).
+8. Check [factory-reset.md §4](factory-reset.md#4-extending-it-in-a-fork) when the model also holds deployment-level or user-less rows.
 
 The job stays server-only: never add `nodeResultSchema` or `persistNodeResult`.
 
