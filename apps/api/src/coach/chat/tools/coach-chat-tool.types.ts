@@ -11,8 +11,17 @@ import type { ProgressPhotoSummaryService } from '../../../progress-photos/progr
 // Every tool is bound to the AUTHENTICATED user through the tool loop's
 // `ctx.userId`: no tool takes a user id argument. Read tools return minimised
 // data (no ids, no free text, no storage keys, no photo content); the one
-// write tool (`pause_coach`) is narrow and bounded.
+// write tools (`pause_coach`, `save_commitment`) are narrow and bounded.
 // =============================================================================
+
+/**
+ * Where `save_commitment` writes (E7.12): `CoachSettingsService.update`, the
+ * same validated path `PUT /api/coach/settings` takes. Only `why` and
+ * `preferredTime`; a field left out is unchanged.
+ */
+export interface CoachCommitmentWriter {
+  update(userId: string, patch: { why?: string; preferredTime?: string }): Promise<unknown>;
+}
 
 export interface CoachChatToolDeps {
   prisma: PrismaService;
@@ -23,12 +32,16 @@ export interface CoachChatToolDeps {
   photos: ProgressPhotoSummaryService;
   /** Now, for the pause (tests pin it). */
   now: () => Date;
+  /** `save_commitment`'s writer; absent -> the tool answers `unavailable`. */
+  commitments?: CoachCommitmentWriter;
 }
 
 /** What one turn's write tool did, for the `done` frame and the reply's `data`. */
 export interface CoachChatTurnActions {
   /** Set when `pause_coach` succeeded this turn. */
   pausedUntil: Date | null;
+  /** Set when `save_commitment` saved something this turn (field names only, never values). */
+  commitmentSaved?: Array<'why' | 'preferredTime'>;
 }
 
 /** The answer a tool gives instead of throwing: no raw exception text ever reaches the model or the user. */

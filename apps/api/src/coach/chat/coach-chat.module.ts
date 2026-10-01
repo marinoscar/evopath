@@ -8,6 +8,7 @@ import { HealthProfileModule } from '../../health-profile/health-profile.module'
 import { ProgramsModule } from '../../programs/programs.module';
 import { ProgressPhotosModule } from '../../progress-photos/progress-photos.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { CoachSettingsService } from '../coach-settings.service';
 import { CoachChatController } from './coach-chat.controller';
 import { CoachChatMetrics } from './coach-chat.metrics';
 import { CoachChatService } from './coach-chat.service';
@@ -34,6 +35,7 @@ import { CoachTimelineService } from './coach-timeline.service';
     SettingsModule,
   ],
   controllers: [CoachChatController],
-  providers: [CoachChatService, CoachChatMetrics, CoachTimelineService],
+  // `CoachSettingsService` (stateless) backs the `save_commitment` tool (E7.12).
+  providers: [CoachChatService, CoachChatMetrics, CoachTimelineService, CoachSettingsService],
 })
 export class CoachChatModule {}
