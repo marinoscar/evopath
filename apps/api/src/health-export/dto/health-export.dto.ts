@@ -123,7 +123,8 @@ export const healthExportJobPayloadSchema = z.object({
   to: dateSchema,
   datasets: z.array(datasetSchema).min(1),
   includeHistory: z.boolean(),
-  result: healthExportResultSchema.optional(),
+  /** Validated on read by {@link readHealthExportResult}; opaque here so a bad one never wedges the job. */
+  result: z.unknown().optional(),
 });
 export type HealthExportJobPayload = z.infer<typeof healthExportJobPayloadSchema>;
 
