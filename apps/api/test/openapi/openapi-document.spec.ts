@@ -270,6 +270,23 @@ describe('OpenAPI document', () => {
       }
     });
 
+    it('gates every /api/health/documents operation on a health_data permission (H6, #190)', () => {
+      const documentOps = operations.filter(({ path }) => path.startsWith('/api/health/documents'));
+      expect(documentOps.map(({ method, path }) => `${method} ${path}`).sort()).toEqual([
+        'delete /api/health/documents/{id}',
+        'get /api/health/documents',
+        'get /api/health/documents/{id}',
+        'get /api/health/documents/{id}/download',
+        'patch /api/health/documents/{id}',
+      ]);
+
+      for (const { method, operation } of documentOps) {
+        const rbac = operation[RBAC_EXTENSION_KEY] as { permissions: string[] } | undefined;
+        expect(rbac?.permissions).toEqual([method === 'get' ? 'health_data:read' : 'health_data:write']);
+        expect(operation.tags).toEqual(['Health Documents']);
+      }
+    });
+
     it('leaves public operations alone', () => {
       const live = operations.find(
         ({ path, method }) => path === '/api/health/live' && method === 'get',
