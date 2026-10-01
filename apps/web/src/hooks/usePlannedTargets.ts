@@ -17,9 +17,9 @@ import type { Workout } from '../services/workouts';
 import { useIsMounted } from './useIsMounted';
 
 export interface PlannedTarget {
-  /** Seconds per set; null when the plan sets none. */
+  /** Seconds, the exercise's total for the session; null when the plan sets none. */
   durationSeconds: number | null;
-  /** Metres per set; null when the plan sets none. */
+  /** Metres, the exercise's total for the session; null when the plan sets none. */
   distanceMeters: number | null;
   /** Planned sets (intervals); null or 1 for one continuous effort. */
   sets: number | null;

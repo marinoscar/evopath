@@ -119,8 +119,9 @@ describe('PlannedTargetProgress', () => {
     });
     const fast = [mockSet({ completed: true, distanceMeters: 5000, durationSeconds: 1500 })];
     expect(cardioProgress({ ...RUN_TARGET, sets: null }, fast).percent).toBe(100);
-    // Intervals: the per-set target times the planned sets.
-    expect(cardioProgress({ durationSeconds: null, distanceMeters: 400, sets: 4 }, [mockSet({ completed: true, distanceMeters: 400 })]).percent).toBe(25);
+    // Intervals: the target is the session total (the API's rule), not multiplied by the sets.
+    expect(cardioProgress({ durationSeconds: null, distanceMeters: 1600, sets: 4 }, [mockSet({ completed: true, distanceMeters: 400 })]).percent).toBe(25);
+    expect(cardioProgress({ durationSeconds: null, distanceMeters: 400, sets: 4 }, [mockSet({ completed: true, distanceMeters: 400 })]).percent).toBe(100);
   });
 
   it('shows the target, what was logged and the bar', () => {

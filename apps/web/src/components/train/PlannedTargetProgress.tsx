@@ -16,7 +16,7 @@ export interface CardioProgress {
   /** Sum over completed working sets. */
   loggedSeconds: number;
   loggedMeters: number;
-  /** Per-set target times the planned sets (intervals). */
+  /** The plan's target: the exercise's TOTAL for the session (the API's contract), never multiplied by sets. */
   targetSeconds: number | null;
   targetMeters: number | null;
   /** 0..100, whole percent; the better metric when both are set. */
@@ -27,9 +27,10 @@ export function cardioProgress(target: PlannedTarget, sets: ReadonlyArray<Pick<S
   const working = sets.filter((s) => s.completed && !s.isWarmup);
   const loggedSeconds = working.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
   const loggedMeters = working.reduce((sum, s) => sum + (s.distanceMeters ?? 0), 0);
-  const times = target.sets && target.sets > 1 ? target.sets : 1;
-  const targetSeconds = target.durationSeconds === null ? null : target.durationSeconds * times;
-  const targetMeters = target.distanceMeters === null ? null : target.distanceMeters * times;
+  // The API's targets are totals for the session (`cardioCompletionRatio`):
+  // logged over all working sets / target, whatever the planned set count.
+  const targetSeconds = target.durationSeconds;
+  const targetMeters = target.distanceMeters;
   const ratios = [
     targetSeconds ? loggedSeconds / targetSeconds : null,
     targetMeters ? loggedMeters / targetMeters : null,
