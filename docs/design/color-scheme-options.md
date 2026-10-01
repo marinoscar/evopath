@@ -128,16 +128,33 @@ Applies to A. The tracking issue and branch exist, as [CLAUDE.md](../../CLAUDE.m
 | Material 3 flavoured component overrides (pill buttons, outlined cards, paper app bar, container pill in the rail and bottom nav) | `apps/web/src/theme/components.ts` |
 | The one theme object | `apps/web/src/theme/index.ts` |
 | Mode (light, dark, system), `<meta name="theme-color">` | `apps/web/src/contexts/ThemeContext.tsx` |
-| Brand mark | `apps/web/public/icons/source.svg`, `apps/web/public/favicon.svg`, `apps/web/scripts/generate-icons.py`, `apps/web/src/components/common/BrandMark.tsx` |
+| Brand mark geometry and generator (the only place the geometry lives) | `apps/web/scripts/generate-icons.py` |
+| Brand mark outputs, all written by the generator: PNGs (`public/icons/icon-192.png`, `icon-512.png`, `icon-maskable-192.png`, `icon-maskable-512.png`, `apple-touch-icon-180.png`, `badge-96.png`), `public/favicon.ico`, the vector masters `public/icons/source.svg` and `public/favicon.svg`, React path data and the email logo | `apps/web/public/icons/`, `apps/web/public/favicon.ico`, `apps/web/public/favicon.svg`, `apps/web/src/components/common/brandMarkPaths.generated.ts`, `apps/api/src/email/templates/brand-mark.generated.ts` |
+| Brand mark component (plate and glyph variants, compact below 32 px) | `apps/web/src/components/common/BrandMark.tsx` |
+| Email palette (Tidal Teal values, light and dark) | `apps/api/src/email/templates/layout.ts`; see [the email templates README](../../apps/api/src/email/templates/README.md) |
 | Manifest splash and apple-touch corner colour | `packages/shared/identity.json` (`backgroundColor`); see [the shared package README](../../packages/shared/README.md) |
 
 - The mock-up in [color-studio/studio.jsx](color-studio/studio.jsx) is the design source. Change a colour there first, then in `tokens.ts`.
 - `ThemeContext.tsx` stores the mode under `theme_mode`, mounts the theme with `forceThemeRerender` and keeps `<meta name="theme-color">` on the active scheme's `background.paper`.
-- The four brand-mark files carry the same geometry and move together.
+- Never edit a generated brand file by hand. Change the geometry in `generate-icons.py` (or a colour in `packages/shared/identity.json`) and re-run `python3 apps/web/scripts/generate-icons.py`; every output is rewritten from the same polygon.
+- Emails use the Tidal Teal palette too: brand teal for the eyebrow, links and button, with explicit dark-mode values, documented in [the email templates README](../../apps/api/src/email/templates/README.md).
+
+### Brand mark
+
+The mark is "the path to the sun": the user's path of health evolution toward a goal. A white road is seen in perspective on a rounded brand-teal plate. It is wide at the bottom, where the user stands, and narrows as it winds up through two bends in an S shape. It converges just below a warm yellow sun, the goal on the horizon.
+
+| Geometry | Used for | Shape |
+|---|---|---|
+| Standard | Large icons: manifest icons, maskable icons, apple-touch icon, `source.svg`, the email logo, `BrandMark` at 32 px and above | The full road, wide at the base, tapering with perspective |
+| Compact | `favicon.ico`, `favicon.svg`, the monochrome notification badge, `BrandMark` below 32 px | A uniform-width road with a larger gap before the sun, so the mark stays legible when tiny |
+
+- The plate is always the brand teal (`THEME_COLOR`), including in dark mode, where `BrandMark` does not take the dark scheme's lighter primary.
+- The sun is `ACCENT_COLOR` (`accentColor` in `packages/shared/identity.json`).
 
 ## 9. Rules for new UI
 
 - Use palette roles (`primary.main`, `tertiary.container`, `surface.container1`), never a hex literal.
+- `ACCENT_COLOR` (the sun's yellow) is a logo-only colour. Use it only to draw the brand mark. Never use it for a button, link, chip, chart series, status or any other UI element.
 - Use `tertiary` only for AI-proposed content.
 - Use `secondary` only for effort and training content.
 - Show a status colour (`success`, `warning`, `error`, `info`) only with an icon and a word, and never as a chart series.

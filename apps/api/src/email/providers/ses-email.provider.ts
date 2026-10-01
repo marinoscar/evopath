@@ -110,6 +110,26 @@ export class SesEmailProvider extends BaseEmailProvider {
                   })),
                 }
               : {}),
+            // Inline parts (the brand mark the HTML references as
+            // `cid:brand-mark`) and plain attachments. SES builds the MIME
+            // tree; the SDK base64-encodes `RawContent` on the wire, so the
+            // bytes are passed decoded and the part's own transfer encoding
+            // is declared BASE64 (binary PNG bytes are not 7-bit safe).
+            ...(msg.attachments && msg.attachments.length > 0
+              ? {
+                  Attachments: msg.attachments.map((part) => ({
+                    RawContent: Buffer.from(part.contentBase64, 'base64'),
+                    FileName: part.filename,
+                    ContentType: part.contentType,
+                    ContentDisposition:
+                      part.disposition === 'inline'
+                        ? ('INLINE' as const)
+                        : ('ATTACHMENT' as const),
+                    ContentTransferEncoding: 'BASE64' as const,
+                    ...(part.contentId ? { ContentId: part.contentId } : {}),
+                  })),
+                }
+              : {}),
           },
         },
       }),

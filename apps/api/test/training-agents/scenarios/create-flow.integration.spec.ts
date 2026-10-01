@@ -124,7 +124,8 @@ describe('create-flow scenarios', () => {
             expect(exercise.targetSets).toBeLessThanOrEqual(6);
           }
         }
-    const stored = JSON.stringify({ tree, changeLog: program.changeLog, meta: program.versions[0].meta });
+    // The plan header (name and plan-level rationale) is part of what a user stores and reads.
+    const stored = JSON.stringify({ name: program.name, rationale: program.rationale, tree, changeLog: program.changeLog, meta: program.versions[0].meta });
     for (const bad of [/made-up/i, /ignore your previous/i, /system prompt/i, /quantum_deadlift/i, /"targetLoadKg":500/]) { const m = stored.match(new RegExp('.{0,60}' + bad.source + '.{0,60}', 'i')); expect(m && m[0]).toBeNull(); }
     // The only links in a stored plan are the verified sources the change log cites.
     for (const url of stored.match(/https?:\/\/[^"\\\s]+/g) ?? []) expect(url).toMatch(/acsm\.org|pubmed\.ncbi|nsca\.com/);

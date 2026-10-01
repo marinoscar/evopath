@@ -68,6 +68,7 @@ interface Identity {
   repoSlug: string;
   themeColor: string;
   backgroundColor: string;
+  accentColor: string;
 }
 
 function readManifest(): Identity {
@@ -102,6 +103,10 @@ describe('the manifest shape (packages/shared/identity.json)', () => {
 
   it('has a lowercase 6-digit hex backgroundColor', () => {
     expect(identity.backgroundColor).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it('has a lowercase 6-digit hex accentColor', () => {
+    expect(identity.accentColor).toMatch(/^#[0-9a-f]{6}$/);
   });
 
   it('exposes a non-empty APP_SLUG from @app/shared', () => {
@@ -394,6 +399,7 @@ describe('exampleDocExemptions (issue #514)', () => {
     tagline: 'A worked example.',
     repoSlug: EXAMPLE_IDENTITY.repo,
     themeColor: '#7c3aed',
+    accentColor: '#f6c445',
     backgroundColor: '#ffffff',
   };
 
@@ -414,6 +420,7 @@ describe('exampleDocExemptions (issue #514)', () => {
       tagline: 'A real product.',
       repoSlug: 'someone/nimbus-works',
       themeColor: '#7c3aed',
+      accentColor: '#f6c445',
       backgroundColor: '#ffffff',
     };
 
@@ -520,6 +527,16 @@ describe('the hand-written brand SVGs carry the current THEME_COLOR', () => {
     (relPath) => {
       const content = readFileSync(join(REPO_ROOT, relPath), 'utf8');
       expect(content).toContain(`fill="${identity.themeColor}"`);
+    },
+  );
+
+  // `rename.mjs --accent` rewrites the sun's fill with a count of exactly 1,
+  // so each SVG must carry the accent colour exactly once.
+  it.each(['apps/web/public/favicon.svg', 'apps/web/public/icons/source.svg'])(
+    '%s has fill="<accentColor>" exactly once (the sun)',
+    (relPath) => {
+      const content = readFileSync(join(REPO_ROOT, relPath), 'utf8');
+      expect(content.split(`fill="${identity.accentColor}"`)).toHaveLength(2);
     },
   );
 });

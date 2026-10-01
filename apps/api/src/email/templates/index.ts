@@ -221,6 +221,18 @@ export {
   APP_NAME,
   plainText,
   renderLayout,
+  // The layout's components and the inline brand-mark part (#237).
+  BRAND_MARK_ATTACHMENT,
+  callout,
+  calloutLabel,
+  codeBlock,
+  detailRows,
+  divider,
+  layoutAttachments,
+  paragraph,
+  secondaryLink,
+  textCallout,
+  textDetailLines,
   // The escaping mechanism. See safe-html.ts for why it is a tagged template
   // literal and not a function everyone has to remember to call.
   SafeHtml,
@@ -232,6 +244,7 @@ export {
 export {
   TRANSACTIONAL_EMAIL_HEADERS,
   RENDERED_EMAIL_MATCHES_MESSAGE,
+  composeEmailMessage,
 } from './email-template.types';
 
 export { testEmail } from './test-email.email';
@@ -260,7 +273,15 @@ export { restoreCompletedEmail } from './restore-completed.email';
 // The AI Coach weekly review (E7.10).
 export { coachWeeklyReviewEmail } from './coach-weekly-review.email';
 
-export type { PlainTextOptions, RenderLayoutOptions } from './layout';
+export type {
+  CalloutOptions,
+  CalloutTone,
+  CodeBlockOptions,
+  DetailRow,
+  ParagraphOptions,
+  PlainTextOptions,
+  RenderLayoutOptions,
+} from './layout';
 export type { EmailTemplate, RenderedEmail } from './email-template.types';
 export type { TestEmailData } from './test-email.email';
 

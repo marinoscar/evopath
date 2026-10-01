@@ -11,8 +11,9 @@ import type { GuardrailContext, Violation } from './types';
 // - Every `evidenceRefs` id must be a claim id of the run's verified brief
 //   (`E1`, `E2`, ...); anything else is removed. No brief: every ref goes.
 // - Rationale text passes through `sanitizeModelText` with the brief's
-//   verified URLs: HTML, control characters and any URL the brief does not
-//   hold are stripped (repair).
+//   verified URLs: HTML, control characters, any URL the brief does not hold
+//   and any sentence that addresses the model ("ignore your previous
+//   instructions") are stripped (repair).
 // - A numeric statistic in a rationale (`20%`, `12 studies`) whose number
 //   appears nowhere in the brief is FLAGGED (warn): kept, but the critic and
 //   the user see it.
@@ -59,7 +60,7 @@ export function checkText(
   if (text === null) return null;
   const clean = sanitizeModelText(text, max, verified);
   if (clean !== text) {
-    f.add('repair', 'text_sanitized', path, 'Removed a link, markup or unverified URL from the rationale.');
+    f.add('repair', 'text_sanitized', path, 'Removed a link, markup, unverified URL or instruction-like sentence from the rationale.');
   }
   for (const stat of unverifiedStatistics(clean, ctx.brief)) {
     f.add('warn', 'unverified_statistic', path, `The rationale states "${stat}", which the evidence brief does not contain.`);

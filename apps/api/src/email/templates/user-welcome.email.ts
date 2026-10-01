@@ -1,4 +1,14 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  SafeHtml,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textDetailLines,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -83,6 +93,9 @@ function formatRoles(roles: string[]): string {
     .join(', ');
 }
 
+/** The recipient's own notification settings page, appended to `appUrl`. */
+const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
+
 /**
  * Render the welcome message.
  */
@@ -95,41 +108,45 @@ export function userWelcomeEmail(data: UserWelcomeEmailData): RenderedEmail {
   // exactly once per account, so there is nothing for it to collapse into.
   const subject = `Welcome to ${APP_NAME}`;
 
-  const greeting = greetingName
-    ? html`<p style="margin:0 0 16px 0;">Hello ${greetingName},</p>`
-    : SafeHtml.EMPTY;
+  const title = `Welcome to ${APP_NAME}`;
+  const eyebrow = 'Account';
+  const ctaLabel = data.appUrl ? `Open ${APP_NAME}` : undefined;
+  const preferencesUrl = data.appUrl
+    ? `${data.appUrl}${NOTIFICATION_SETTINGS_PATH}`
+    : undefined;
+  const footerReason =
+    `You received this because an account was just created for this address on ${APP_NAME}. ` +
+    'It is sent once, and you can turn it off with the rest of your notifications.';
 
-  const rolesParagraph = roleList
-    ? html`<p style="margin:0 0 16px 0;">
-        Your account has been given the <strong>${roleList}</strong> role. If
-        that is not the access you expected, ask an administrator to change it
-        — you will get an email when they do.
-      </p>`
-    : SafeHtml.EMPTY;
+  const facts: { label: string; value: string }[] = [
+    { label: 'Sign in with', value: data.recipientEmail },
+  ];
+  if (roleList) {
+    facts.push({ label: data.roles.length > 1 ? 'Roles' : 'Role', value: roleList });
+  }
+
+  const intro = `Your account on ${APP_NAME} has been created and is ready to use. Use the address below every time you sign in.`;
+  const rolesNote =
+    'Your role decides what you can see and do. If it is not the access you expected, ask an administrator to change it — you will get an email when they do.';
 
   const bodyHtml = html`
-    ${greeting}
-    <p style="margin:0 0 16px 0;">
-      Your account on ${APP_NAME} has been created and is ready to use. You are
-      signed in with <strong>${data.recipientEmail}</strong>, and that is the
-      address to use every time you sign in.
-    </p>
-    ${rolesParagraph}
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      This message is sent once, when an account is first created. You can turn
-      it off — along with the other notifications this application sends — in
-      your notification settings.
-    </p>
+    ${greetingName ? paragraph(html`Hello ${greetingName},`) : SafeHtml.EMPTY}
+    ${paragraph(intro)}
+    ${detailRows(facts)}
+    ${roleList ? paragraph(rolesNote, { tone: 'muted' }) : SafeHtml.EMPTY}
   `;
 
   const htmlDocument = renderLayout({
-    title: `Welcome to ${APP_NAME}`,
+    title,
+    eyebrow,
     // The preheader names the account rather than repeating the subject, which
     // the inbox list already shows immediately to its left.
     previewText: `Your account for ${data.recipientEmail} is ready.`,
     bodyHtml,
-    ctaLabel: data.appUrl ? `Open ${APP_NAME}` : undefined,
+    ctaLabel,
     ctaUrl: data.appUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   // Hand-written, same facts in the same order. Not stripped from the markup
@@ -139,31 +156,22 @@ export function userWelcomeEmail(data: UserWelcomeEmailData): RenderedEmail {
   if (greetingName) {
     lines.push(`Hello ${greetingName},`, '');
   }
-  lines.push(
-    `Your account on ${APP_NAME} has been created and is ready to use.`,
-    `You are signed in with ${data.recipientEmail}, and that is the address to use every time you sign in.`,
-  );
+  lines.push(intro, '', ...textDetailLines(facts));
   if (roleList) {
-    lines.push(
-      '',
-      `Your account has been given the ${roleList} role. If that is not the access you expected,`,
-      'ask an administrator to change it — you will get an email when they do.',
-    );
+    lines.push('', rolesNote);
   }
-  lines.push(
-    '',
-    'This message is sent once, when an account is first created. You can turn it off,',
-    'along with the other notifications this application sends, in your notification settings.',
-  );
 
   const text = plainText({
-    title: `Welcome to ${APP_NAME}`,
+    eyebrow,
+    title,
     // Split so the leading element is a literal: `PlainTextOptions.lines` is a
     // non-empty tuple, and an array whose length TypeScript cannot see widens
     // to `string[]` and stops satisfying it.
     lines: [lines[0]!, ...lines.slice(1)],
-    ctaLabel: data.appUrl ? `Open ${APP_NAME}` : undefined,
+    ctaLabel,
     ctaUrl: data.appUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   return {
@@ -171,5 +179,6 @@ export function userWelcomeEmail(data: UserWelcomeEmailData): RenderedEmail {
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

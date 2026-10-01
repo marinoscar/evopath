@@ -107,6 +107,29 @@ describe('EmailTestSendService', () => {
   });
 
   // ==========================================================================
+  // The inline brand mark travels with the message (issue #237)
+  // ==========================================================================
+
+  describe('attachments', () => {
+    it('passes the inline brand mark and the html that references it to the provider', async () => {
+      mockSmtp.send.mockResolvedValue({ success: true, messageId: 'abc-123' });
+
+      await service.sendTest(actor);
+
+      const [message] = mockSmtp.send.mock.calls[0];
+      expect(message.html).toContain('src="cid:brand-mark"');
+      expect(message.attachments).toEqual([
+        expect.objectContaining({
+          contentId: 'brand-mark',
+          disposition: 'inline',
+          contentType: 'image/png',
+        }),
+      ]);
+      expect(message.attachments[0].contentBase64.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
   // A refused send is a result, never a throw — and the error is verbatim
   // ==========================================================================
 

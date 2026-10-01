@@ -1,4 +1,16 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout, safeUrl } from './layout';
+import {
+  APP_NAME,
+  SafeHtml,
+  callout,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+} from './layout';
 import { TRANSACTIONAL_EMAIL_HEADERS, type RenderedEmail } from './email-template.types';
 
 // =============================================================================
@@ -6,9 +18,12 @@ import { TRANSACTIONAL_EMAIL_HEADERS, type RenderedEmail } from './email-templat
 // =============================================================================
 //
 // The weekly review as an email: the persona's intro, the deterministic stats
-// table, the wins and the one focus, a "Plan my week" call to action to
-// `/coach` and a preferences link to `/settings/notifications`. Transactional
-// headers: this is the user's own review, never a marketing send.
+// table (`detailRows`), the wins and the one focus (an `info` callout), a
+// "Plan my week" call to action to `/coach` and the layout's "Manage email
+// preferences" footer link to `/settings/notifications`. Built from the shared
+// layout components (#257) and returns the layout's inline brand mark as
+// `attachments`. Transactional headers: this is the user's own review, never a
+// marketing send.
 //
 // WHAT IS RENDERED FROM WHERE
 //   - every number comes from `stats` (built by code from the training
@@ -17,8 +32,9 @@ import { TRANSACTIONAL_EMAIL_HEADERS, type RenderedEmail } from './email-templat
 //     clean register (spec §2.10: profanity never appears in email, even for
 //     an unlocked Sarge L3) and has passed the content guard with
 //     `surface: 'email'`;
-//   - every interpolation goes through the `html` tag (escaped); there is no
-//     raw model HTML anywhere, and the subject is collapsed to one line.
+//   - every interpolation goes through the `html` tag or a layout component
+//     (escaped); there is no raw model HTML anywhere, and the subject is
+//     collapsed to one line.
 //
 // The payload is the `coach.message.deliver` notification data: it also
 // carries the push fields (`pushTitle`, ...), which this template ignores.
@@ -71,6 +87,12 @@ export const NOTIFICATION_PREFERENCES_PATH = '/settings/notifications';
 export const PLAN_MY_WEEK_LABEL = 'Plan my week';
 
 const SUBJECT_MAX = 120;
+/** Hidden preheader budget; clients cut the inbox snippet around here. */
+const PREVIEW_TEXT_MAX = 140;
+
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+}
 
 /** One line, no control characters or angle brackets, bounded: a subject is a header value. */
 function subjectLine(headline: string): string {
@@ -82,7 +104,7 @@ function subjectLine(headline: string): string {
     .replace(/\s+/g, ' ')
     .trim();
   const text = clean.length > 0 ? `Your weekly review: ${clean}` : 'Your weekly review';
-  return text.length <= SUBJECT_MAX ? text : `${text.slice(0, SUBJECT_MAX - 1)}…`;
+  return truncate(text, SUBJECT_MAX);
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -117,16 +139,24 @@ export function weeklyReviewStatRows(stats: CoachWeeklyReviewEmailStats): Array<
   return rows;
 }
 
-function statRow(label: string, value: string): SafeHtml {
-  return html`<tr>
-    <td style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#4b5563;white-space:nowrap;vertical-align:top;">
-      ${label}
-    </td>
-    <td style="padding:6px 0;font-size:14px;line-height:20px;color:#1f2937;vertical-align:top;">
-      <strong>${value}</strong>
-    </td>
-  </tr>`;
+/** Split model prose into display paragraphs: blank lines separate, single newlines are soft wraps. */
+function splitParagraphs(text: string): string[] {
+  return text
+    .split(/\r?\n\s*\r?\n/)
+    .map((p) =>
+      p
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .join(' '),
+    )
+    .filter((p) => p.length > 0);
 }
+
+/** The title of the focus callout, in both parts. */
+const FOCUS_TITLE = 'Focus for next week';
+/** The heading above the wins list, in both parts. */
+const WINS_TITLE = 'Wins';
 
 export function coachWeeklyReviewEmail(data: CoachWeeklyReviewEmailData): RenderedEmail {
   const { stats, prose } = data;
@@ -136,78 +166,77 @@ export function coachWeeklyReviewEmail(data: CoachWeeklyReviewEmailData): Render
 
   const appUrl = data.appUrl ? data.appUrl.replace(/\/+$/, '') : undefined;
   const ctaUrl = appUrl ? `${appUrl}${COACH_PATH}` : undefined;
-  const preferencesUrl = appUrl ? safeUrl(`${appUrl}${NOTIFICATION_PREFERENCES_PATH}`) : null;
+  const ctaLabel = ctaUrl ? PLAN_MY_WEEK_LABEL : undefined;
+  const preferencesUrl = appUrl ? `${appUrl}${NOTIFICATION_PREFERENCES_PATH}` : undefined;
   const headline = prose.headline.trim() || 'Your week in review';
   const wins = (prose.wins ?? []).filter((w) => typeof w === 'string' && w.trim().length > 0);
-  const rows = weeklyReviewStatRows(stats);
-  const weekLabel = `Week ${stats.isoWeek} (${stats.weekStart} to ${stats.weekEnd})`;
+  const focus = typeof prose.focus === 'string' ? prose.focus.trim() : '';
+  const introParagraphs = splitParagraphs(prose.intro);
+  const facts = weeklyReviewStatRows(stats).map(([label, value]) => ({ label, value }));
 
+  const eyebrow = 'Weekly review';
+  const weekLabel = `Week ${stats.isoWeek} (${stats.weekStart} to ${stats.weekEnd})`;
+  const personaLine = `${data.personaName} says:`;
+  // Without an app URL the footer has no "Manage email preferences" link, so
+  // the reason says where the setting lives instead.
+  const footerReason =
+    `This is your weekly review from your ${APP_NAME} coach.` +
+    (preferencesUrl ? '' : ' You can choose which coach messages reach your inbox under Settings, Notifications.');
+
+  // Every value below is interpolated through the `html` tag or passed as a
+  // plain string to a layout component, which escapes it: no model text is
+  // ever emitted as markup.
   const winsHtml =
     wins.length > 0
-      ? html`<p style="margin:0 0 8px 0;font-size:14px;line-height:22px;color:#1f2937;"><strong>Wins</strong></p>
-          <ul style="margin:0 0 16px 0;padding:0 0 0 20px;font-size:14px;line-height:22px;color:#1f2937;">
-            ${wins.map((win) => html`<li>${win}</li>`)}
-          </ul>`
-      : html``;
-
-  const focusHtml = prose.focus?.trim()
-    ? html`<p style="margin:0 0 8px 0;font-size:14px;line-height:22px;color:#1f2937;"><strong>Focus for next week</strong></p>
-        <p style="margin:0 0 16px 0;font-size:14px;line-height:22px;color:#1f2937;">${prose.focus}</p>`
-    : html``;
-
-  const preferencesHtml = preferencesUrl
-    ? html`You can choose which coach messages reach your inbox in
-        <a href="${preferencesUrl}" style="color:#4b5563;">notification preferences</a>.`
-    : html`You can choose which coach messages reach your inbox under Settings, Notifications.`;
+      ? html`${paragraph(html`<strong>${WINS_TITLE}</strong>`)}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:0 0 20px 0;">
+            <ul style="margin:0;padding:0 0 0 20px;font-size:15px;line-height:24px;">${wins.map((win) => html`<li>${win}</li>`)}</ul>
+          </td></tr></table>`
+      : SafeHtml.EMPTY;
 
   const bodyHtml = html`
-    <p style="margin:0 0 4px 0;font-size:16px;line-height:24px;color:#1f2937;"><strong>${headline}</strong></p>
-    <p style="margin:0 0 16px 0;font-size:13px;line-height:20px;color:#6b7280;">${weekLabel}</p>
-    <p style="margin:0 0 4px 0;font-size:13px;line-height:20px;color:#6b7280;">${data.personaName} says:</p>
-    <p style="margin:0 0 20px 0;font-size:14px;line-height:22px;color:#1f2937;white-space:pre-line;">${prose.intro}</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
-      ${rows.map(([label, value]) => statRow(label, value))}
-    </table>
+    ${paragraph(weekLabel, { tone: 'muted' })}
+    ${paragraph(html`<strong>${personaLine}</strong>`)}
+    ${introParagraphs.map((text) => paragraph(text))}
+    ${detailRows(facts)}
     ${winsHtml}
-    ${focusHtml}
-    <p style="margin:16px 0 0 0;font-size:12px;line-height:18px;color:#6b7280;">
-      This is your weekly review from your ${APP_NAME} coach. ${preferencesHtml}
-    </p>
+    ${focus ? callout({ tone: 'info', title: FOCUS_TITLE, body: focus }) : SafeHtml.EMPTY}
   `;
 
-  const textLines: [string, ...string[]] = [
-    headline,
-    weekLabel,
-    '',
-    `${data.personaName} says:`,
-    prose.intro,
-    '',
-    ...rows.map(([label, value]) => `  ${label}: ${value}`),
-  ];
-  if (wins.length > 0) textLines.push('', 'Wins:', ...wins.map((w) => `  - ${w}`));
-  if (prose.focus?.trim()) textLines.push('', 'Focus for next week:', `  ${prose.focus}`);
-  textLines.push(
-    '',
-    preferencesUrl
-      ? `Choose which coach messages reach your inbox: ${preferencesUrl}`
-      : 'You can choose which coach messages reach your inbox under Settings, Notifications.',
-  );
+  const htmlDocument = renderLayout({
+    title: headline,
+    eyebrow,
+    // The subject already shows the headline beside the preheader; the
+    // preheader carries the persona's opening line instead.
+    previewText: introParagraphs[0] ? truncate(introParagraphs[0], PREVIEW_TEXT_MAX) : weekLabel,
+    bodyHtml,
+    ctaLabel,
+    ctaUrl,
+    footerReason,
+    preferencesUrl,
+  });
+
+  // Hand-written, same content in the same order (see `plainText` in layout.ts).
+  const lines: [string, ...string[]] = [weekLabel, '', personaLine];
+  lines.push(introParagraphs.join('\r\n\r\n') || prose.intro, '', ...textDetailLines(facts));
+  if (wins.length > 0) lines.push('', `${WINS_TITLE}:`, ...wins.map((w) => `  - ${w}`));
+  if (focus) lines.push('', ...textCallout({ tone: 'info', title: FOCUS_TITLE, body: focus }));
+
+  const text = plainText({
+    eyebrow,
+    title: headline,
+    lines,
+    ctaLabel,
+    ctaUrl,
+    footerReason,
+    preferencesUrl,
+  });
 
   return {
     subject: subjectLine(headline),
-    html: renderLayout({
-      title: 'Your weekly review',
-      previewText: headline,
-      bodyHtml,
-      ctaLabel: ctaUrl ? PLAN_MY_WEEK_LABEL : undefined,
-      ctaUrl,
-    }),
-    text: plainText({
-      title: 'Your weekly review',
-      lines: textLines,
-      ctaLabel: ctaUrl ? PLAN_MY_WEEK_LABEL : undefined,
-      ctaUrl,
-    }),
+    html: htmlDocument,
+    text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

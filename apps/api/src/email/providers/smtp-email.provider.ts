@@ -128,6 +128,21 @@ export class SmtpEmailProvider extends BaseEmailProvider {
       // Always both parts -- see the same note in the SES provider.
       text: msg.text,
       ...(msg.headers ? { headers: msg.headers } : {}),
+      // Inline parts (the brand mark, `cid:brand-mark`) and any plain
+      // attachments. nodemailer builds `multipart/related` around the HTML
+      // when a part carries a `cid`, which is what makes the `cid:` reference
+      // resolve in the recipient's client.
+      ...(msg.attachments && msg.attachments.length > 0
+        ? {
+            attachments: msg.attachments.map((part) => ({
+              filename: part.filename,
+              content: Buffer.from(part.contentBase64, 'base64'),
+              contentType: part.contentType,
+              contentDisposition: part.disposition,
+              ...(part.contentId ? { cid: part.contentId } : {}),
+            })),
+          }
+        : {}),
     });
 
     // nodemailer synthesises a Message-ID when the server does not return one,

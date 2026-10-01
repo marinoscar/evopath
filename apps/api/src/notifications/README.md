@@ -21,7 +21,9 @@ in-app inbox, Web Push subscriptions and configuration, and admin broadcasts.
 | `ops/` | `JobFailureNotifier`, a `job.settled` listener that raises `jobs.job_failed` to everyone holding the permission that can act on it. |
 
 Email templates live outside this folder, in
-[`../email/templates/`](../email/templates/index.ts).
+[`../email/templates/`](../email/templates/index.ts). How to build one (layout
+contract, components, timestamps, previewing) is in
+[the email templates README](../email/templates/README.md).
 
 ## Delivery model
 
@@ -83,6 +85,10 @@ payload interface and a pure function returning `{ subject, html, text }`.
 - Pass it to `renderLayout`. Put any call-to-action URL through the layout,
   which applies `safeUrl`.
 - Hand-write the text part. There is no HTML-to-text helper.
+- Follow the
+  [email templates README](../email/templates/README.md#adding-a-template)
+  checklist (eyebrow, preview text, footer reason, preferences URL, attachments,
+  preview sample).
 - Register the template in
   [`../email/templates/index.ts`](../email/templates/index.ts), in both
   `EmailTemplateDataMap` and `EMAIL_TEMPLATES`. The compiler rejects half a

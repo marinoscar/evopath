@@ -52,6 +52,19 @@ describe('coachWeeklyReviewEmail', () => {
     expect(email.headers).toEqual(TRANSACTIONAL_EMAIL_HEADERS);
   });
 
+  it('returns the layout\'s inline brand mark as an attachment', () => {
+    expect(email.html).toContain('src="cid:brand-mark"');
+    expect(email.attachments).toHaveLength(1);
+    expect(email.attachments[0]).toMatchObject({ contentId: 'brand-mark', disposition: 'inline', contentType: 'image/png' });
+  });
+
+  it('renders the stats with the shared detail rows and the focus as an info callout', () => {
+    expect(email.html).toContain('em-detail-label');
+    expect(email.html).toContain('em-callout-info');
+    expect(email.html).toContain('Manage email preferences');
+    expect(email.text).toContain('Manage email preferences: https://app.example.com/settings/notifications');
+  });
+
   it('renders the persona intro, the stats table, wins and focus', () => {
     expect(email.html).toContain('Coach says:');
     expect(email.html).toContain('You showed up for most of your plan.');
@@ -81,7 +94,7 @@ describe('coachWeeklyReviewEmail', () => {
   it('the text part says what the HTML says, with CRLF endings', () => {
     expect(email.text).toContain('Coach says:\r\nYou showed up for most of your plan.');
     expect(email.text).toContain('  - Three sessions done');
-    expect(email.text).toContain('Focus for next week:');
+    expect(email.text).toContain('[INFO] Focus for next week\r\nProtect your Wednesday session.');
   });
 
   it('escapes every piece of model text and every name (no raw model HTML)', () => {
@@ -96,7 +109,9 @@ describe('coachWeeklyReviewEmail', () => {
         focus: '<a href="javascript:alert(1)">x</a>',
       },
     });
-    expect(hostile.html).not.toMatch(/<script|<img|<iframe|<b>Sarge|href="javascript/i);
+    // The layout's own brand mark is the one legitimate <img> (an inline cid: part).
+    const body = hostile.html.replace(/<img\b[^>]*\bsrc="cid:brand-mark"[^>]*>/g, '');
+    expect(body).not.toMatch(/<script|<img|<iframe|<b>Sarge|href="javascript/i);
     expect(hostile.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(hostile.subject).not.toMatch(/[<>]/);
   });

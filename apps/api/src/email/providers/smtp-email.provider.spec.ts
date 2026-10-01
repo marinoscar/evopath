@@ -339,6 +339,46 @@ describe('SmtpEmailProvider', () => {
         expect.objectContaining({ headers: { 'X-Test': '1' } }),
       );
     });
+
+    it('maps an inline attachment to a nodemailer attachment with a cid and decoded bytes', async () => {
+      const provider = new SmtpEmailProvider(makeEmailSettings(baseSmtpSettings), makeCredentials('pw'));
+      smtpSendMailMock.mockResolvedValueOnce({ messageId: 'm' });
+
+      await provider.send({
+        ...baseMessage,
+        attachments: [
+          {
+            filename: 'brand-mark.png',
+            contentType: 'image/png',
+            contentBase64: Buffer.from('png-bytes').toString('base64'),
+            contentId: 'brand-mark',
+            disposition: 'inline',
+          },
+        ],
+      });
+
+      const mail = smtpSendMailMock.mock.calls[0][0] as {
+        attachments: Array<{ content: Buffer } & Record<string, unknown>>;
+      };
+      expect(mail.attachments).toHaveLength(1);
+      expect(mail.attachments[0]).toMatchObject({
+        filename: 'brand-mark.png',
+        contentType: 'image/png',
+        cid: 'brand-mark',
+        contentDisposition: 'inline',
+      });
+      expect(mail.attachments[0]!.content.toString()).toBe('png-bytes');
+    });
+
+    it('sends no attachments key when the message carries none', async () => {
+      const provider = new SmtpEmailProvider(makeEmailSettings(baseSmtpSettings), makeCredentials('pw'));
+      smtpSendMailMock.mockResolvedValueOnce({ messageId: 'm' });
+
+      await provider.send(baseMessage);
+
+      const mail = smtpSendMailMock.mock.calls[0][0] as Record<string, unknown>;
+      expect(mail).not.toHaveProperty('attachments');
+    });
   });
 
   // ==========================================================================

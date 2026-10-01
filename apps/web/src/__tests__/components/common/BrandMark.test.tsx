@@ -2,16 +2,24 @@ import type { ReactElement } from 'react';
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
 import { ThemeProvider } from '@mui/material/styles';
+import { ACCENT_COLOR, THEME_COLOR } from '@app/shared';
 import { BrandMark } from '../../../components/common/BrandMark';
+import {
+  BRAND_MARK_GLYPH_COMPACT,
+  BRAND_MARK_GLYPH_STANDARD,
+  BRAND_MARK_PLATE_COMPACT,
+  BRAND_MARK_PLATE_STANDARD,
+} from '../../../components/common/brandMarkPaths.generated';
 import { theme } from '../../../theme';
 
 /**
  * `BrandMark` — the path-and-dot logo as inline SVG.
  *
- * Geometry is the favicon's (`public/favicon.svg`); these tests hold the
- * STRUCTURE (which elements each variant draws), the colour sourcing (theme
- * values for the plate, `currentColor` for the glyph) and the prop plumbing
- * (`size`, pass-through attributes) rather than the path data itself.
+ * The geometry is generated (`brandMarkPaths.generated.ts`); these tests hold
+ * the STRUCTURE (which elements each variant draws), the colour sourcing
+ * (brand-fixed plate, white or `currentColor` road, `ACCENT_COLOR` sun), which
+ * generated geometry `compact` selects, and the prop plumbing (`size`,
+ * pass-through attributes). The road is a FILLED path, not a stroke.
  */
 
 function renderMark(ui: ReactElement, mode: 'light' | 'dark' = 'light') {
@@ -41,21 +49,27 @@ describe('BrandMark', () => {
       expect(svg.innerHTML).toBe(explicit.innerHTML);
     });
 
-    it('paints the plate in primary.main and the mark in primary.contrastText', () => {
+    it('paints the plate in primary.main (the brand teal), a white (#fff) filled road and the accent sun', () => {
       const { svg } = renderMark(<BrandMark />);
-      const { main, contrastText } = theme.colorSchemes.light!.palette.primary;
+      const { main } = theme.colorSchemes.light!.palette.primary;
+      const road = svg.querySelector('path')!;
 
       expect(svg.querySelector('rect')).toHaveAttribute('fill', main);
-      expect(svg.querySelector('path')).toHaveAttribute('stroke', contrastText);
-      expect(svg.querySelector('circle')).toHaveAttribute('fill', contrastText);
+      expect(road).toHaveAttribute('fill', '#fff');
+      expect(road).not.toHaveAttribute('stroke');
+      expect(svg.querySelector('circle')).toHaveAttribute('fill', ACCENT_COLOR);
     });
 
-    it('takes its colours from the active scheme', () => {
+    it('keeps the plate on THEME_COLOR in dark mode, not the dark scheme primary', () => {
       const { svg } = renderMark(<BrandMark />, 'dark');
-      const { main, contrastText } = theme.colorSchemes.dark!.palette.primary;
+      const darkPrimary = theme.colorSchemes.dark!.palette.primary.main;
 
-      expect(svg.querySelector('rect')).toHaveAttribute('fill', main);
-      expect(svg.querySelector('path')).toHaveAttribute('stroke', contrastText);
+      expect(svg.querySelector('rect')).toHaveAttribute('fill', THEME_COLOR);
+      expect(darkPrimary.toLowerCase()).not.toBe(THEME_COLOR.toLowerCase());
+      expect(svg.querySelector('rect')).not.toHaveAttribute('fill', darkPrimary);
+      // The rest of the mark does not re-tone with the scheme either.
+      expect(svg.querySelector('path')).toHaveAttribute('fill', '#fff');
+      expect(svg.querySelector('circle')).toHaveAttribute('fill', ACCENT_COLOR);
     });
   });
 
@@ -68,17 +82,79 @@ describe('BrandMark', () => {
       expect(svg.querySelectorAll('circle')).toHaveLength(1);
     });
 
-    it('is painted in currentColor so it inherits the surrounding text colour', () => {
+    it('paints the road in currentColor so it inherits the surrounding text colour', () => {
       const { svg } = renderMark(<BrandMark variant="glyph" />);
 
-      expect(svg.querySelector('path')).toHaveAttribute('stroke', 'currentColor');
-      expect(svg.querySelector('circle')).toHaveAttribute('fill', 'currentColor');
+      expect(svg.querySelector('path')).toHaveAttribute('fill', 'currentColor');
     });
 
-    it('does not paint the path with a filled interior', () => {
+    it('keeps the sun in ACCENT_COLOR whatever the text colour', () => {
       const { svg } = renderMark(<BrandMark variant="glyph" />);
 
-      expect(svg.querySelector('path')).toHaveAttribute('fill', 'none');
+      expect(svg.querySelector('circle')).toHaveAttribute('fill', ACCENT_COLOR);
+    });
+
+    it('draws the road as a filled ribbon, not a stroked line', () => {
+      const { svg } = renderMark(<BrandMark variant="glyph" />);
+      const road = svg.querySelector('path')!;
+
+      expect(road).not.toHaveAttribute('stroke');
+      expect(road.getAttribute('fill')).not.toBe('none');
+      // A closed outline: the generated ribbon ends with `Z`.
+      expect(road.getAttribute('d')).toMatch(/Z$/);
+    });
+  });
+
+  describe('compact geometry', () => {
+    const cases = [
+      { variant: 'plate', compact: BRAND_MARK_PLATE_COMPACT, standard: BRAND_MARK_PLATE_STANDARD },
+      { variant: 'glyph', compact: BRAND_MARK_GLYPH_COMPACT, standard: BRAND_MARK_GLYPH_STANDARD },
+    ] as const;
+
+    it('the generated compact and standard roads actually differ', () => {
+      for (const c of cases) {
+        expect(c.compact.road).not.toBe(c.standard.road);
+        expect(c.compact.road.length).toBeGreaterThan(0);
+        expect(c.standard.road.length).toBeGreaterThan(0);
+      }
+    });
+
+    describe.each(cases)('$variant', ({ variant, compact, standard }) => {
+      it.each([16, 24, 31])('defaults to the compact geometry at %ipx', (size) => {
+        const { svg } = renderMark(<BrandMark variant={variant} size={size} />);
+
+        expect(svg.querySelector('path')).toHaveAttribute('d', compact.road);
+        expect(svg.querySelector('circle')).toHaveAttribute('r', String(compact.sun.r));
+      });
+
+      it.each([32, 40, 120])('defaults to the standard geometry at %ipx', (size) => {
+        const { svg } = renderMark(<BrandMark variant={variant} size={size} />);
+
+        expect(svg.querySelector('path')).toHaveAttribute('d', standard.road);
+        expect(svg.querySelector('circle')).toHaveAttribute('cx', String(standard.sun.cx));
+        expect(svg.querySelector('circle')).toHaveAttribute('cy', String(standard.sun.cy));
+        expect(svg.querySelector('circle')).toHaveAttribute('r', String(standard.sun.r));
+      });
+
+      it('uses the compact geometry at the default 28px size', () => {
+        const { svg } = renderMark(<BrandMark variant={variant} />);
+
+        expect(svg.querySelector('path')).toHaveAttribute('d', compact.road);
+      });
+
+      it('an explicit compact={true} wins over a large size', () => {
+        const { svg } = renderMark(<BrandMark variant={variant} size={96} compact />);
+
+        expect(svg.querySelector('path')).toHaveAttribute('d', compact.road);
+        expect(svg.querySelector('circle')).toHaveAttribute('cx', String(compact.sun.cx));
+      });
+
+      it('an explicit compact={false} wins over a small size', () => {
+        const { svg } = renderMark(<BrandMark variant={variant} size={16} compact={false} />);
+
+        expect(svg.querySelector('path')).toHaveAttribute('d', standard.road);
+        expect(svg.querySelector('circle')).toHaveAttribute('cx', String(standard.sun.cx));
+      });
     });
   });
 

@@ -55,6 +55,7 @@ export {
   EMAIL_TEMPLATE_NAMES,
   SafeHtml,
   TRANSACTIONAL_EMAIL_HEADERS,
+  composeEmailMessage,
   escapeHtml,
   findEmailTemplate,
   html,
@@ -82,7 +83,11 @@ export {
   SMTP_CREDENTIAL_PURPOSE,
 } from './providers/smtp-email.provider';
 
-export type { EmailMessage, EmailSendResult } from './email.types';
+export type {
+  EmailAttachment,
+  EmailMessage,
+  EmailSendResult,
+} from './email.types';
 export type {
   EmailTemplate,
   EmailTemplateDataMap,

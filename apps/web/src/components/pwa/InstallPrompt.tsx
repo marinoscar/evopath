@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, IconButton, Snackbar } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
+import { PromptMessage } from './PromptMessage';
 import { APP_NAME } from '@app/shared';
 
 /**
@@ -187,7 +188,7 @@ export function InstallPrompt() {
         if (reason === 'clickaway') return;
         dismiss();
       }}
-      message={`Install ${APP_NAME} for faster access and notifications`}
+      message={<PromptMessage>{`Install ${APP_NAME} for faster access and notifications`}</PromptMessage>}
       // Matches `UpdatePrompt`'s offset for the same reason — it clears the
       // fixed `BottomNav`, which exists only below `sm`. A static responsive
       // style, not a `useMediaQuery` mount gate.

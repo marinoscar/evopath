@@ -14,7 +14,7 @@ import {
   lastRequestSeq,
   resetFakeResponses,
   setAiEnabled,
-  assignFakeTrainingModels,
+  setFakeModelHostedTools,
   setupFakeAi,
   setupFakeAiForUser,
   teardownFakeAi,
@@ -318,9 +318,9 @@ test.describe('Training plans with the fake Responses provider', () => {
     const seq = await lastRequestSeq();
     await fillWizardToReview(page);
     // Go back to the goal step and describe the symptom, then return to Review.
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    // Scoped to the wizard's action bar: the "Back" limitation chip (body area) has the same name.
+    const back = page.getByRole('region', { name: 'Wizard actions' }).getByRole('button', { name: 'Back', exact: true });
+    for (let i = 0; i < 3; i += 1) await back.click();
     await page.getByLabel('In your words').fill('I get crushing chest pain and feel faint when I exercise');
     for (let i = 0; i < 3; i += 1) await page.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(page.getByTestId('sent-data-panel')).toBeVisible();
@@ -347,18 +347,17 @@ test.describe('Training plans with the fake Responses provider', () => {
     expect(requests.every((r) => r.hasAuthorization && r.status === 200)).toBe(true);
   });
 
-  test('a blocked role: the researcher on a model without hosted tools shows the blocker and Start is disabled', async ({ page, owner: _owner, browser, baseURL }) => {
-    // The administrator assigns a model without hosted tools to the researcher.
-    await withAdmin(browser, baseURL, (admin) =>
-      assignFakeTrainingModels(admin, { researcher: { modelId: FAKE_FAST, reasoningEffort: 'medium' } }),
-    );
+  test('a blocked role: no model can search, so the researcher shows the blocker and Start is disabled', async ({ page, owner: _owner, browser, baseURL }) => {
+    // Models are the administrator's choice (#173), and a model without hosted tools cannot be assigned to
+    // the researcher. The state is reached by the catalog: the only searching model loses `hosted_tools`.
+    await withAdmin(browser, baseURL, (admin) => setFakeModelHostedTools(admin, FAKE_FRONTIER, false));
     try {
       await fillWizardToReview(page);
 
-      await expect(page.getByText(/needs web search/)).toBeVisible();
+      await expect(page.getByText(/The researcher agent needs a model with web search/)).toBeVisible();
       await expect(page.getByTestId('wizard-start')).toBeDisabled();
     } finally {
-      await withAdmin(browser, baseURL, (admin) => assignFakeTrainingModels(admin));
+      await withAdmin(browser, baseURL, (admin) => setFakeModelHostedTools(admin, FAKE_FRONTIER, true));
     }
   });
 
@@ -377,54 +376,54 @@ test.describe('Training plans with the fake Responses provider', () => {
   test('autonomous adaptation: finishing a workout triggers an evaluation, the plan adapts, the banner shows and Undo restores it', async ({ page, owner }) => {
     const runId = await startRunViaApi(owner, 'happy');
     const programId = await programOfRun(owner.api, runId);
-    await activateStartedLastWeek(owner.api, programId);
+    const base = await activateStartedLastWeek(owner.api, programId);
     await useScenario('evaluator-autonomous');
     const after = await lastRequestSeq();
 
     await finishTodaysPlannedWorkout(page);
 
-    // The evaluation ran without a question: version 2, one applied AI entry.
-    await waitForVersion(owner.api, programId, 2);
+    // The evaluation ran without a question: one version on, one applied AI entry.
+    await waitForVersion(owner.api, programId, base + 1);
     const [entry] = await adaptedEntries(owner.api, programId);
-    expect(entry).toMatchObject({ kind: 'adapted', actor: 'ai', status: 'applied', fromVersion: 1, toVersion: 2 });
+    expect(entry).toMatchObject({ kind: 'adapted', actor: 'ai', status: 'applied', fromVersion: base, toVersion: base + 1 });
     const requests = (await fakeResponsesRequests(after)).filter((r) => r.agent === 'evaluator');
     expect(requests).toHaveLength(1);
     expect(requests.every((r) => r.canaryHits === 0 && r.hasSchema)).toBe(true);
 
-    // The banner says so, and Undo (one tap) restores the plan as version 3.
+    // The banner says so, and Undo (one tap) restores the plan as one more version.
     await page.goto(`/train/plans/${programId}`);
     await expect(page.getByText(ADAPTATION_UI.banner).first()).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: ADAPTATION_UI.undo }).first().click();
-    await waitForVersion(owner.api, programId, 3);
+    await waitForVersion(owner.api, programId, base + 2);
     expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ id: entry.id, status: 'reverted' });
   });
 
   test('ask first: the proposal appears and Approve applies it', async ({ page, owner }) => {
     const runId = await startRunViaApi(owner, 'happy', 'ask_first');
     const programId = await programOfRun(owner.api, runId);
-    await activateStartedLastWeek(owner.api, programId);
+    const base = await activateStartedLastWeek(owner.api, programId);
     await useScenario('evaluator-autonomous');
 
     await finishTodaysPlannedWorkout(page);
 
     // Paused for the owner: a proposed entry, the plan untouched.
     await evaluateRun(owner.api, programId, 'awaiting_approval');
-    expect(await currentVersion(owner.api, programId)).toBe(1);
+    expect(await currentVersion(owner.api, programId)).toBe(base);
     expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'proposed', toVersion: null });
 
     await page.goto(`/train/plans/${programId}`);
     await expect(page.getByText(ADAPTATION_UI.proposal).first()).toBeVisible({ timeout: 30_000 });
     await page.getByRole('button', { name: ADAPTATION_UI.approve }).first().click();
 
-    await waitForVersion(owner.api, programId, 2);
+    await waitForVersion(owner.api, programId, base + 1);
     await evaluateRun(owner.api, programId, 'succeeded');
-    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'applied', fromVersion: 1, toVersion: 2 });
+    expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'applied', fromVersion: base, toVersion: base + 1 });
   });
 
   test('ask first: Reject leaves the plan as it was and records the decision', async ({ page, owner }) => {
     const runId = await startRunViaApi(owner, 'happy', 'ask_first');
     const programId = await programOfRun(owner.api, runId);
-    await activateStartedLastWeek(owner.api, programId);
+    const base = await activateStartedLastWeek(owner.api, programId);
     await useScenario('evaluator-autonomous');
 
     await finishTodaysPlannedWorkout(page);
@@ -435,7 +434,7 @@ test.describe('Training plans with the fake Responses provider', () => {
     await page.getByRole('button', { name: ADAPTATION_UI.reject }).first().click();
 
     await evaluateRun(owner.api, programId, 'succeeded');
-    expect(await currentVersion(owner.api, programId)).toBe(1);
+    expect(await currentVersion(owner.api, programId)).toBe(base);
     expect((await adaptedEntries(owner.api, programId))[0]).toMatchObject({ status: 'rejected', toVersion: null });
   });
 
@@ -492,17 +491,22 @@ async function finishTodaysPlannedWorkout(page: Page): Promise<void> {
   await card.getByRole('button', { name: 'Start planned workout' }).click();
   await expect(page).toHaveURL(/\/train\/workouts\/[0-9a-f-]{36}$/);
 
-  // Log the first set: fill whatever the planned set leaves empty, then complete it.
-  const weight = page.getByLabel('Set 1 weight in lb', { exact: true });
+  // Log the first set of the first exercise (a planned workout has several, each with a "Set 1"): fill
+  // whatever the planned set leaves empty, then complete it.
+  const weight = page.getByLabel('Set 1 weight in lb', { exact: true }).first();
   if ((await weight.count()) > 0 && (await weight.inputValue()) === '') await weight.fill('20');
-  const reps = page.getByLabel('Set 1 reps', { exact: true });
+  const reps = page.getByLabel('Set 1 reps', { exact: true }).first();
   if ((await reps.inputValue()) === '') await reps.fill('10');
-  const complete = page.getByRole('button', { name: 'Complete set 1' });
+  const complete = page.getByRole('button', { name: 'Complete set 1' }).first();
   if ((await complete.getAttribute('aria-pressed')) !== 'true') await complete.click();
   await expect(complete).toHaveAttribute('aria-pressed', 'true');
 
   await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  // The other planned sets were prefilled and not touched: "Leave them" (the confirm appears only when some are).
+  const confirmFinish = page.getByRole('dialog', { name: 'Finish workout?' });
   const summary = page.getByRole('dialog', { name: 'Workout finished' });
+  await expect(confirmFinish.or(summary)).toBeVisible();
+  if (await confirmFinish.isVisible()) await confirmFinish.getByRole('button', { name: 'Leave them' }).click();
   await expect(summary).toBeVisible();
   await summary.getByRole('button', { name: 'Done' }).click();
 }
@@ -518,10 +522,13 @@ function localDate(days: number): string {
  * A plan with a workout on today's weekday, activated to have started a week
  * ago (the furthest back activation allows): week 1 is entirely past (three
  * sessions due, so the evaluator has data) and today's session is week 2's.
+ * Returns the plan's version at that point (the editing makes one).
  */
-async function activateStartedLastWeek(api: AuthedApi, programId: string): Promise<void> {
+async function activateStartedLastWeek(api: AuthedApi, programId: string): Promise<number> {
   await putTodayIntoPlan(api, programId);
   await api.post(`/api/programs/${programId}/activate`, { startDate: localDate(-7) });
+  // Putting today into the plan is itself a user edit (a version of its own): the adaptation starts from here.
+  return currentVersion(api, programId);
 }
 
 interface ProgramBody {

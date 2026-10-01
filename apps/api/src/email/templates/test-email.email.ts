@@ -1,5 +1,19 @@
 import type { EmailProviderKind } from '../email-settings.schema';
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  callout,
+  detailRows,
+  formatEmailTimestamp,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+  timestampRow,
+  type DetailRow,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -43,7 +57,7 @@ export interface TestEmailData {
   /** Transport that actually carried this message. The key diagnostic fact. */
   providerKind: EmailProviderKind;
 
-  /** When the send was initiated. Rendered as UTC — see `formatTimestamp`. */
+  /** When the send was initiated. Rendered via `formatEmailTimestamp` (UTC). */
   sentAt: Date;
 
   /**
@@ -81,45 +95,15 @@ const PROVIDER_LABELS: Record<EmailProviderKind, string> = {
 };
 
 /**
- * ISO 8601, in UTC, with the `Z` left on.
- *
- * NOT LOCALISED, deliberately. The server does not know the reader's time
- * zone, and a locale-formatted timestamp with no offset ("31/08/2026, 14:05")
- * is ambiguous in exactly the situation this email exists for — correlating a
- * message against a log line or a delivery record, both of which are UTC.
- * An unfamiliar format the reader can match against a log beats a familiar one
- * they cannot.
- */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
-/**
- * One row of the diagnostic fact table.
- *
- * `value` is interpolated through the `html` tag, so it is escaped — which
- * matters here because `triggeredBy` is a display name that came from an OAuth
- * profile and `recipientEmail` came straight off an admin form.
- */
-function factRow(label: string, value: string): SafeHtml {
-  return html`<tr>
-    <td
-      style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#4b5563;white-space:nowrap;vertical-align:top;"
-    >
-      ${label}
-    </td>
-    <td style="padding:6px 0;font-size:14px;line-height:20px;color:#1f2937;vertical-align:top;">
-      <strong>${value}</strong>
-    </td>
-  </tr>`;
-}
-
-/**
  * Render the test message.
  */
 export function testEmail(data: TestEmailData): RenderedEmail {
   const providerLabel = PROVIDER_LABELS[data.providerKind];
-  const timestamp = formatTimestamp(data.sentAt);
+  // Shared formatter: UTC, said explicitly, never the host's zone or locale.
+  // The SUBJECT keeps seconds (see below); the body reads at minute precision.
+  const sentAtRow = timestampRow('Sent at', data.sentAt);
+  const timestamp = sentAtRow.value;
+  const subjectTimestamp = formatEmailTimestamp(data.sentAt, { seconds: true });
 
   // The timestamp is IN THE SUBJECT, which looks like clutter and is not.
   // Gmail and Outlook both thread on identical subject lines, so a second test
@@ -127,77 +111,67 @@ export function testEmail(data: TestEmailData): RenderedEmail {
   // entirely — turning "I fixed the config and retried, nothing arrived" into
   // a false negative at the exact moment the admin is trying to tell whether
   // their change worked. Distinct subjects keep each attempt a separate row.
-  const subject = `Test email from ${APP_NAME} (${timestamp})`;
+  // Seconds are kept here (and only here) so two sends within the same minute
+  // still get distinct subjects.
+  const subject = `Test email from ${APP_NAME} (${subjectTimestamp})`;
 
-  const facts: SafeHtml[] = [
-    factRow('Provider', providerLabel),
-    factRow('Sent at', timestamp),
-    factRow('Delivered to', data.recipientEmail),
+  const title = 'Your email configuration works';
+  const eyebrow = 'Test';
+  const ctaLabel = data.settingsUrl ? 'Open email settings' : undefined;
+  const footerReason =
+    `You received this because an administrator pressed "Send test email" in the ${APP_NAME} email settings. ` +
+    'Nobody else received it, and nothing else is sent as a result of it.';
+
+  // The facts, in one list both parts render from. `triggeredBy` is a display
+  // name from an OAuth profile and `recipientEmail` came straight off an admin
+  // form: the html half escapes them through `detailRows`.
+  const facts: Array<DetailRow & { value: string }> = [
+    { label: 'Provider', value: providerLabel },
+    sentAtRow,
+    { label: 'Delivered to', value: data.recipientEmail },
   ];
   if (data.triggeredBy) {
-    facts.push(factRow('Requested by', data.triggeredBy));
+    facts.push({ label: 'Requested by', value: data.triggeredBy });
   }
 
+  const calloutTitle = `Delivered via ${providerLabel}`;
+  const calloutBody =
+    'Its arrival confirms the whole path: settings, credentials, transport and delivery.';
+
   const bodyHtml = html`
-    <p style="margin:0 0 16px 0;">
-      Your email configuration works. This message was sent by the
-      <strong>Send test email</strong> button on the admin email settings page,
-      and its arrival confirms the whole path — settings, credentials,
-      transport and delivery.
-    </p>
-    <p style="margin:0 0 8px 0;">Details of this send:</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
-      ${facts}
-    </table>
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      Nobody else received this message, and no further email is sent as a
-      result of it.
-    </p>
+    ${paragraph(html`This message was sent by the <strong>Send test email</strong> button on the admin email settings page.`)}
+    ${callout({ tone: 'success', title: calloutTitle, body: calloutBody })}
+    ${detailRows(facts)}
   `;
 
   const htmlDocument = renderLayout({
-    title: 'Your email configuration works',
+    title,
+    eyebrow,
     // The preheader repeats the transport rather than the good news, because
     // the inbox list is where an admin comparing two test sends is looking.
     previewText: `Test message delivered via ${providerLabel} at ${timestamp}.`,
     bodyHtml,
-    ctaLabel: data.settingsUrl ? 'Open email settings' : undefined,
+    ctaLabel,
     ctaUrl: data.settingsUrl,
+    footerReason,
   });
 
   // Hand-written, not stripped from the markup above. Same facts, same order,
   // shaped for a reader with no HTML — see the note above `plainText` in
   // layout.ts.
-  const factLines: string[] = [
-    `  Provider:      ${providerLabel}`,
-    `  Sent at:       ${timestamp}`,
-    `  Delivered to:  ${data.recipientEmail}`,
-  ];
-  if (data.triggeredBy) {
-    factLines.push(`  Requested by:  ${data.triggeredBy}`);
-  }
-
-  // Split so the leading element is a literal: `PlainTextOptions.lines` is a
-  // non-empty tuple, and an array literal whose length TypeScript cannot see
-  // (because of the spread) widens to `string[]` and stops satisfying it. That
-  // is the type doing its job — it is refusing an argument that might be empty.
-  const restLines: string[] = [
-    'Its arrival confirms the whole path: settings, credentials, transport and delivery.',
-    '',
-    'Details of this send:',
-    ...factLines,
-    '',
-    'Nobody else received this message, and no further email is sent as a result of it.',
-  ];
-
   const text = plainText({
-    title: 'Your email configuration works',
+    eyebrow,
+    title,
     lines: [
       'This message was sent by the "Send test email" button on the admin email settings page.',
-      ...restLines,
+      '',
+      ...textCallout({ tone: 'success', title: calloutTitle, body: calloutBody }),
+      '',
+      ...textDetailLines(facts),
     ],
-    ctaLabel: data.settingsUrl ? 'Open email settings' : undefined,
+    ctaLabel,
     ctaUrl: data.settingsUrl,
+    footerReason,
   });
 
   return {
@@ -205,5 +179,6 @@ export function testEmail(data: TestEmailData): RenderedEmail {
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

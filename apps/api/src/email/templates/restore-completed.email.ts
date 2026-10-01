@@ -1,4 +1,17 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  callout,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+  timeHtml,
+  timestampRow,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -81,28 +94,9 @@ export interface RestoreCompletedEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const DB_BACKUP_ADMIN_PATH = '/admin/settings/db-backup';
 
-/** ISO 8601 in UTC — matched against log lines, never against a wall clock. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
-}
-
 /** `null` is a fact about the row, not a blank. Give it words. */
 function orNone(value: string | null): string {
   return value === null || value.trim().length === 0 ? 'Not recorded' : value;
-}
-
-/** One row of the detail table. `value` is escaped by the `html` tag. */
-function detailRow(label: string, value: string): SafeHtml {
-  return html`<tr>
-    <td
-      style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#4b5563;white-space:nowrap;vertical-align:top;"
-    >
-      ${label}
-    </td>
-    <td style="padding:6px 0;font-size:14px;line-height:20px;color:#1f2937;vertical-align:top;">
-      <strong>${value}</strong>
-    </td>
-  </tr>`;
 }
 
 /**
@@ -111,11 +105,12 @@ function detailRow(label: string, value: string): SafeHtml {
 export function restoreCompletedEmail(
   data: RestoreCompletedEmailData,
 ): RenderedEmail {
-  const completedAt = formatTimestamp(data.completedAt);
-  const takenAt =
-    data.backupTakenAt === null
-      ? 'Not recorded'
-      : formatTimestamp(data.backupTakenAt);
+  const takenAtRow = timestampRow('Backup taken at', data.backupTakenAt);
+  const takenAt = takenAtRow.value;
+  // Inline in the opening sentence: `<time datetime>` for a valid instant,
+  // escaped words ("Not recorded") otherwise.
+  const takenAtHtml =
+    data.backupTakenAt === null ? html`${takenAt}` : timeHtml(data.backupTakenAt);
   const triggeredBy = orNone(data.triggeredBy);
   const rollback =
     data.preRestoreBackupId === null
@@ -124,73 +119,62 @@ export function restoreCompletedEmail(
 
   const subject = `${APP_NAME}: the database was restored from a backup`;
 
+  const title = 'Database restored from a backup';
+  const eyebrow = 'Operations';
   const ctaUrl = data.appUrl ? `${data.appUrl}${DB_BACKUP_ADMIN_PATH}` : undefined;
+  const ctaLabel = ctaUrl ? 'Open database backup' : undefined;
+  // NO preferences link: this event is mandatory, and the footer says why.
+  const footerReason =
+    `You received this because you can view database backups in ${APP_NAME}. ` +
+    'This notification cannot be turned off, because a database being replaced should never be silent.';
 
-  const rows: SafeHtml[] = [
-    detailRow('Restored from run', data.runId),
-    detailRow('Backup taken at', takenAt),
-    detailRow('Restore completed', completedAt),
-    detailRow('Triggered by', triggeredBy),
+  const calloutTitle = 'The restored copy is live';
+  const restart =
+    'The process that performed the restore exited immediately afterwards so a supervisor could start one with a connection pool built against the restored database. A restart at the time above is expected, not a separate incident.';
+  const facts = [
+    { label: 'Restored from run', value: data.runId, mono: true },
+    takenAtRow,
+    timestampRow('Restore completed', data.completedAt),
+    { label: 'Triggered by', value: triggeredBy },
   ];
 
+  // IT LEADS WITH DATA LOSS (see the header block): the opening paragraph
+  // names the cut-off before the success callout says the swap worked.
   const bodyHtml = html`
-    <p style="margin:0 0 16px 0;">
-      The database behind ${APP_NAME} has been <strong>replaced</strong> with
-      the contents of a backup archive. The application is now serving the
-      state it was in at <strong>${takenAt}</strong>; anything written after
-      that point is <strong>not present</strong>.
-    </p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
-      ${rows}
-    </table>
-    <p style="margin:0 0 16px 0;">${rollback}</p>
-    <p style="margin:0 0 16px 0;">
-      The process that performed the restore exited immediately afterwards so a
-      supervisor could start one with a connection pool built against the
-      restored database. A restart at the time above is expected, not a
-      separate incident.
-    </p>
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      You are receiving this because you can view database backups in
-      ${APP_NAME}. This notification cannot be turned off, because a database
-      being replaced should never be silent.
-    </p>
+    ${paragraph(html`The database behind ${APP_NAME} has been <strong>replaced</strong> with the contents of a backup archive. The application is now serving the state it was in at <strong style="white-space:nowrap;">${takenAtHtml}</strong>; anything written after that point is <strong>not present</strong>.`)}
+    ${callout({ tone: 'success', title: calloutTitle, body: rollback })}
+    ${detailRows(facts)}
+    ${paragraph(restart, { tone: 'muted' })}
   `;
 
   const htmlDocument = renderLayout({
-    title: 'Database restored from a backup',
+    title,
+    eyebrow,
     // The preheader carries the cut-off, which is the one value that decides
     // whether the reader needs to act right now.
     previewText: `Now serving the state from ${takenAt}. Later data is not present.`,
     bodyHtml,
-    ctaLabel: ctaUrl ? 'Open database backup' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
   });
 
   const text = plainText({
-    title: 'Database restored from a backup',
+    eyebrow,
+    title,
     lines: [
-      `The database behind ${APP_NAME} has been REPLACED with the contents of a backup`,
-      `archive. The application is now serving the state it was in at ${takenAt};`,
-      'anything written after that point is NOT PRESENT.',
+      `The database behind ${APP_NAME} has been REPLACED with the contents of a backup archive. ` +
+        `The application is now serving the state it was in at ${takenAt}; anything written after that point is NOT PRESENT.`,
       '',
-      `  Restored from run:  ${data.runId}`,
-      `  Backup taken at:    ${takenAt}`,
-      `  Restore completed:  ${completedAt}`,
-      `  Triggered by:       ${triggeredBy}`,
+      ...textCallout({ tone: 'success', title: calloutTitle, body: rollback }),
       '',
-      rollback,
+      ...textDetailLines(facts),
       '',
-      'The process that performed the restore exited immediately afterwards so a',
-      'supervisor could start one with a connection pool built against the restored',
-      'database. A restart at the time above is expected, not a separate incident.',
-      '',
-      `You are receiving this because you can view database backups in ${APP_NAME}.`,
-      'This notification cannot be turned off, because a database being replaced',
-      'should never be silent.',
+      restart,
     ],
-    ctaLabel: ctaUrl ? 'Open database backup' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
   });
 
   return {
@@ -198,5 +182,6 @@ export function restoreCompletedEmail(
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

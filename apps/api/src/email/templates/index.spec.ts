@@ -251,14 +251,41 @@ describe.each(EMAIL_TEMPLATE_NAMES)('template contract: "%s"', (name) => {
     expect(rendered.text).not.toContain('&lt;script&gt;');
   });
 
-  it('html has no <link>, no <style> block, and no external src=', () => {
+  it('html has no <link>, at most one <style> block, and no src= other than cid:', () => {
     expect(rendered.html).not.toMatch(/<link\b/i);
-    expect(rendered.html).not.toMatch(/<style\b/i);
-    // Matches `src=` only inside an actual (unescaped) tag — e.g. `<img
-    // src=...>` — not the literal substring "src=" that can legitimately
-    // appear as ESCAPED text content (see the hostile sample payload above,
-    // which contains "src=x" as inert, HTML-escaped text).
-    expect(rendered.html).not.toMatch(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=/i);
+    // One progressive-enhancement block at most; layout.spec.ts checks what
+    // it may contain.
+    expect((rendered.html.match(/<style\b/gi) ?? []).length).toBeLessThanOrEqual(1);
+    // Matches `src=` only inside an actual (unescaped) tag — not the literal
+    // substring "src=" that legitimately appears as ESCAPED text content (the
+    // hostile sample payload above contains "src=x" as inert text). The only
+    // permitted source is an inline MIME part, referenced as `cid:`.
+    const sources = [
+      ...rendered.html.matchAll(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]*)/gi),
+    ].map((match) => match[1]);
+    for (const source of sources) {
+      expect(source).toMatch(/^cid:/);
+    }
+  });
+
+  it('returns an inline attachment for every cid: the html references', () => {
+    const cids = [...rendered.html.matchAll(/\bsrc="cid:([^"]+)"/g)].map((match) => match[1]);
+    expect(cids.length).toBeGreaterThan(0);
+    for (const cid of cids) {
+      const part = rendered.attachments.find((attachment) => attachment.contentId === cid);
+      expect(part).toBeDefined();
+      expect(part?.disposition).toBe('inline');
+      expect(part?.contentBase64.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('references the brand mark as cid:brand-mark and attaches it inline', () => {
+    expect(rendered.html).toContain('src="cid:brand-mark"');
+    const mark = rendered.attachments.filter((attachment) => attachment.contentId === 'brand-mark');
+    expect(mark).toHaveLength(1);
+    expect(mark[0].disposition).toBe('inline');
+    expect(mark[0].contentType).toBe('image/png');
+    expect(mark[0].contentBase64.length).toBeGreaterThan(0);
   });
 
   it('html is table-based', () => {
@@ -268,5 +295,26 @@ describe.each(EMAIL_TEMPLATE_NAMES)('template contract: "%s"', (name) => {
   it('escapes the hostile sample data — no raw <script> or unescaped onerror= handler in the rendered html', () => {
     expect(rendered.html).not.toContain('<script>alert(document.cookie)</script>');
     expect(rendered.html).not.toContain('<img src=x onerror=alert(1)>');
+  });
+
+  it('shows no raw ISO 8601 timestamp to a reader — every instant goes through formatEmailTimestamp', () => {
+    // An ISO string ("2026-01-01T00:00:00.000Z") reads like a database dump.
+    // The precise instant may stay in the html for machines, but ONLY inside a
+    // `datetime="..."` attribute, never as visible text.
+    const iso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+    const visibleHtml = rendered.html.replace(/datetime="[^"]*"/g, '');
+
+    expect(rendered.subject).not.toMatch(iso);
+    expect(rendered.text).not.toMatch(iso);
+    expect(visibleHtml).not.toMatch(iso);
+  });
+
+  it('wraps every rendered timestamp in a <time> element whose datetime is the exact ISO instant', () => {
+    const times = [...rendered.html.matchAll(/<time datetime="([^"]+)"[^>]*>([^<]*)<\/time>/g)];
+
+    for (const [, datetime, label] of times) {
+      expect(datetime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(label).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC$/);
+    }
   });
 });

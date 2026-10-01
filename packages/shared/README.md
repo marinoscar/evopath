@@ -1,13 +1,14 @@
 # `@app/shared`
 
 The application's identity, shared by the API, the web app and the CLI: the
-display name, the repository slug and the two brand colours.
+display name, the repository slug and the brand colours.
 
 | Export | Source | Notes |
 |---|---|---|
 | `APP_NAME` | `identity.json` → `productName` | |
 | `THEME_COLOR` | `identity.json` → `themeColor` | MUI primary colour, manifest `theme_color`, brand icons |
 | `BACKGROUND_COLOR` | `identity.json` → `backgroundColor` | The light `background.default`: manifest `background_color` (the splash), opaque corners of the apple-touch icon |
+| `ACCENT_COLOR` | `identity.json` → `accentColor` | The sun in the brand mark. **Logo-only, never a UI colour** |
 | `REPO_SLUG` | `identity.json` → `repoSlug` | `owner/name`; published in the OpenAPI document |
 | `REPO_URL` | derived from `REPO_SLUG` | `https://github.com/<slug>` |
 | `APP_SLUG` | derived from `APP_NAME` | Lowercase, hyphenated |
@@ -20,7 +21,7 @@ display name, the repository slug and the two brand colours.
 Do not edit these files by hand. Run the codemod:
 
 ```bash
-node scripts/rename.mjs --name "Acme Hub" --repo acme/acme-hub --theme '#7c3aed'
+node scripts/rename.mjs --name "Acme Hub" --repo acme/acme-hub --theme '#7c3aed' --accent '#f59e0b'
 ```
 
 `scripts/rename.mjs` reads the current values from `identity.json`, rewrites
@@ -49,7 +50,10 @@ Keep this list current when you add one.
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `APP_NAME` |
 | Web theme (`palette.primary.main`, light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |
 | Web app manifest | `apps/web/pwa/manifest.ts` | `APP_NAME`, `THEME_COLOR`, `BACKGROUND_COLOR` |
-| Brand icons and favicon (generated pixels) | `apps/web/public/icons/*.png`, `apps/web/public/favicon.ico` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR` (plate), `BACKGROUND_COLOR` (apple-touch corners) |
+| Brand icons, favicons and vector masters (generated) | `apps/web/public/icons/*.png`, `icons/source.svg`, `favicon.ico`, `favicon.svg` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR` (plate), `ACCENT_COLOR` (sun), `BACKGROUND_COLOR` (apple-touch corners) |
+| Web brand mark (inline SVG) | `apps/web/src/components/common/BrandMark.tsx` | `THEME_COLOR` (dark-mode plate), `ACCENT_COLOR` (sun) |
+| Login page brand panel | `apps/web/src/pages/LoginPage.tsx` | `APP_NAME`, `THEME_COLOR` (dark-mode panel) |
+| Email logo (generated PNG) | `apps/api/src/email/templates/brand-mark.generated.ts` via `generate-icons.py` | `THEME_COLOR`, `ACCENT_COLOR` (painted pixels) |
 
 ## Brand icons
 
@@ -67,24 +71,31 @@ badge on every OS-level notification (`apps/web/src/sw.ts`,
 `apps/web/src/services/browserNotifications.ts`), so a skipped regeneration
 shows the old brand on every push notification.
 
-The mark is "the path": one white stroke that enters low on the left, dips
-once, climbs to the upper right and ends in a filled dot, on a rounded square
-in `THEME_COLOR`. Four files carry the same geometry and must move together:
+The mark is "the path to the sun": a white road in perspective, wide at the
+bottom and narrowing as it winds up through two bends (an S), converging just
+below a sun in `ACCENT_COLOR`, on a rounded square in `THEME_COLOR`. A compact
+variant (uniform-width road, larger gap) is used at favicon and badge sizes.
+
+`generate-icons.py` is the ONLY place the geometry lives. It computes the road's
+outline polygon once and writes every file that draws the mark from it:
 
 | File | Role |
 |---|---|
-| `apps/web/public/icons/source.svg` | Vector master (512 canvas) with the geometry notes; nothing loads it at runtime |
-| `apps/web/public/favicon.svg` | Tab-size crop (32 canvas), served on every page |
-| `apps/web/scripts/generate-icons.py` | Draws the PNGs and `favicon.ico`; Pillow samples the cubics, so no SVG toolchain is needed |
-| `apps/web/src/components/common/BrandMark.tsx` | Inline SVG in the app bar and the login page, coloured from the live theme |
+| `apps/web/scripts/generate-icons.py` | The geometry and the generator. Edit here, then re-run it |
+| `apps/web/public/icons/*.png`, `public/favicon.ico` | Generated rasters (Pillow) |
+| `apps/web/public/icons/source.svg` | Generated vector master (512 canvas); nothing loads it at runtime |
+| `apps/web/public/favicon.svg` | Generated tab icon (32 canvas, compact geometry) |
+| `apps/web/src/components/common/brandMarkPaths.generated.ts` | Generated path data for `BrandMark.tsx` |
+| `apps/api/src/email/templates/brand-mark.generated.ts` | Generated 96px PNG (base64) for the email logo |
 
 `backgroundColor` is the light `background.default` (`#f2f7f6`, a hand-kept copy of
 `light` `background.default` in `apps/web/src/theme/tokens.ts`): the manifest's
 `background_color` (the splash before first paint) and the opaque corners of
 `apple-touch-icon-180.png`, which has no alpha. It is not the icon plate.
 
-The generator does not rasterise `icons/source.svg`. A fork may keep the mark
-or replace it by editing those four files and re-running the script. A fork
+The generator never rasterises an SVG; it writes the SVGs from the same polygon
+it paints. A fork may keep the mark or replace it by editing the geometry
+constants in the script and re-running it; do not hand-edit the generated files. A fork
 that prefers a design tool can export the PNGs at the same sizes instead,
 keeping each file's alpha rules (maskable icons full-bleed, `badge-96.png`
 white on transparent, the iOS icon with no alpha).
