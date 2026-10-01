@@ -58,6 +58,14 @@ export const NODE_OUTPUTS_KEY_PREFIX = 'node-outputs/';
 export const AI_OUTPUTS_KEY_PREFIX = 'ai-outputs/';
 
 /**
+ * Files a user asked the application to export (health data export, #191).
+ * Individual objects live under `exports/<userId>/<exportId>.<ext>`, built by
+ * `healthExportKey` in `health-export/health-export.constants.ts`, and are
+ * purged after seven days by `health.export.purge`.
+ */
+export const EXPORTS_KEY_PREFIX = 'exports/';
+
+/**
  * Probe objects written by the storage connection test.
  *
  * ⚠ Easy to leave off this list and wrong to: the test deletes its probe on a
@@ -80,5 +88,6 @@ export const STORAGE_KEY_PREFIXES: readonly string[] = Object.freeze([
   DATABASE_BACKUPS_KEY_PREFIX,
   NODE_OUTPUTS_KEY_PREFIX,
   AI_OUTPUTS_KEY_PREFIX,
+  EXPORTS_KEY_PREFIX,
   STORAGE_TEST_KEY_PREFIX,
 ]);

@@ -1444,7 +1444,7 @@ describe('IntakeService', () => {
         expect(data).toEqual({ retention: 'delete_after_processing' });
         expect(prisma.healthDocument.updateMany).toHaveBeenCalledWith({
           where: { intakeId: INTAKE, userId: USER, fileDeletedAt: null },
-          data: { retention: 'delete_after_processing' },
+          data: { retention: 'delete_after_processing', version: { increment: 1 } },
         });
       });
 

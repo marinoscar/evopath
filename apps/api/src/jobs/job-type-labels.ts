@@ -147,6 +147,11 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Erases one "delete after processing" health document's file once its
   // intake was applied or discarded (H1, #185).
   'health.document.purge': 'Health document file purge',
+  // Writes one user's health data export file (JSON, CSV zip, XLSX or PDF)
+  // to `exports/<userId>/<exportId>.<ext>` (H7, #191).
+  'health.export': 'Health data export',
+  // Daily deletion of health export files older than 7 days (H7, #191).
+  'health.export.purge': 'Health export purge',
   // Hourly: expires unanswered plan proposals and starts the weekly,
   // missed-sessions and deferred plan evaluations that are due.
   'training.evaluation.sweep': 'Training evaluation sweep',

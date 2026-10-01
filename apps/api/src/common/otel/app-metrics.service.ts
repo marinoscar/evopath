@@ -130,6 +130,11 @@ export const APP_METRIC_NAMES = {
   healthSummaryRegenerations: 'app.health.summary.regenerations',
   healthSummaryPostCheckRejections: 'app.health.summary.post_check_rejections',
   healthSummaryTokens: 'app.health.summary.tokens',
+  healthExports: 'app.health.exports',
+  healthExportDuration: 'app.health.export.duration',
+  healthExportSize: 'app.health.export.size',
+  healthDocumentDownloads: 'app.health.documents.downloads',
+  healthDocumentDeletes: 'app.health.documents.deletes',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -235,6 +240,23 @@ export interface HealthSummaryCounts {
   inputTokens: number;
   outputTokens: number;
 }
+
+/** How one `health.export` attempt ended, and the formats it can write (H7, #191). */
+export type HealthExportOutcome = 'completed' | 'failed';
+const HEALTH_EXPORT_OUTCOMES = new Set<string>(['completed', 'failed']);
+const HEALTH_EXPORT_FORMATS = new Set<string>(['json', 'csv', 'xlsx', 'pdf']);
+const HEALTH_EXPORT_DURATION_BUCKETS_S = [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600];
+const HEALTH_EXPORT_SIZE_BUCKETS_BY = [1e3, 1e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8];
+/** How a health document download link was asked for (H6, #190). */
+export type HealthDocumentDownloadDisposition = 'inline' | 'attachment';
+const HEALTH_DOCUMENT_DOWNLOAD_DISPOSITIONS = new Set<string>(['inline', 'attachment']);
+
+/**
+ * What one `DELETE /api/health/documents/:id` did (H6, #190): `file` queued
+ * the file's purge, `record` removed the metadata of a file already gone.
+ */
+export type HealthDocumentDeleteScope = 'file' | 'record';
+const HEALTH_DOCUMENT_DELETE_SCOPES = new Set<string>(['file', 'record']);
 const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
 
 export interface AiUsageMetric {
@@ -321,6 +343,11 @@ export class AppMetricsService implements OnModuleInit {
   private readonly healthSummaryRegenerations: Counter;
   private readonly healthSummaryPostCheckRejections: Counter;
   private readonly healthSummaryTokens: Counter;
+  private readonly healthExports: Counter;
+  private readonly healthExportDuration: Histogram;
+  private readonly healthExportSize: Histogram;
+  private readonly healthDocumentDownloads: Counter;
+  private readonly healthDocumentDeletes: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -429,6 +456,28 @@ export class AppMetricsService implements OnModuleInit {
     this.healthSummaryTokens = m.createCounter(N.healthSummaryTokens, {
       description: 'Tokens the AI health summary used, by token_type (input|output).',
       unit: '{token}',
+    });
+    this.healthExports = m.createCounter(N.healthExports, {
+      description: 'Health data export attempts settled, by format and outcome.',
+      unit: '{export}',
+    });
+    this.healthExportDuration = m.createHistogram(N.healthExportDuration, {
+      description: 'Wall time of one health data export attempt, by format and outcome.',
+      unit: 's',
+      advice: { explicitBucketBoundaries: HEALTH_EXPORT_DURATION_BUCKETS_S },
+    });
+    this.healthExportSize = m.createHistogram(N.healthExportSize, {
+      description: 'Size of a completed health data export file, by format.',
+      unit: 'By',
+      advice: { explicitBucketBoundaries: HEALTH_EXPORT_SIZE_BUCKETS_BY },
+    });
+    this.healthDocumentDownloads = m.createCounter(N.healthDocumentDownloads, {
+      description: 'Signed download links issued for health documents, by disposition.',
+      unit: '{download}',
+    });
+    this.healthDocumentDeletes = m.createCounter(N.healthDocumentDeletes, {
+      description: 'Health documents deleted by their owner, by scope and whether the values went too.',
+      unit: '{document}',
     });
   }
 
@@ -586,6 +635,42 @@ export class AppMetricsService implements OnModuleInit {
   healthDocumentPurge(outcome: HealthDocumentPurgeOutcome): void {
     this.safely(() =>
       this.healthDocumentPurges.add(1, { outcome: enumLabel(outcome, HEALTH_DOCUMENT_PURGE_OUTCOMES) }),
+    );
+  }
+  /** One `health.export` attempt settled. Size only for a completed file. */
+  healthExportSettled(format: string, outcome: HealthExportOutcome, durationMs: number | null, sizeBytes?: number | null): void {
+    this.safely(() => {
+      const attrs: Attributes = {
+        format: enumLabel(format, HEALTH_EXPORT_FORMATS),
+        outcome: enumLabel(outcome, HEALTH_EXPORT_OUTCOMES),
+      };
+      this.healthExports.add(1, attrs);
+      const ms = nonNegative(durationMs);
+      if (ms !== null) this.healthExportDuration.record(ms / 1000, attrs);
+      if (outcome === 'completed') {
+        const size = nonNegative(sizeBytes);
+        if (size !== null) this.healthExportSize.record(size, { format: attrs.format });
+      }
+    });
+  }
+
+
+  /** A signed download link for a health document was issued (H6, #190). */
+  healthDocumentDownload(disposition: HealthDocumentDownloadDisposition): void {
+    this.safely(() =>
+      this.healthDocumentDownloads.add(1, {
+        disposition: enumLabel(disposition, HEALTH_DOCUMENT_DOWNLOAD_DISPOSITIONS),
+      }),
+    );
+  }
+
+  /** The owner deleted a health document (H6, #190); `withValues` when its values were soft-deleted too. */
+  healthDocumentDelete(scope: HealthDocumentDeleteScope, withValues: boolean): void {
+    this.safely(() =>
+      this.healthDocumentDeletes.add(1, {
+        scope: enumLabel(scope, HEALTH_DOCUMENT_DELETE_SCOPES),
+        values: withValues ? 'deleted' : 'kept',
+      }),
     );
   }
 

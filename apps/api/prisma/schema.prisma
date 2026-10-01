@@ -2706,6 +2706,9 @@ model HealthDocument {
   intakeId        String?   @map("intake_id") @db.Uuid
   documentDate    DateTime? @map("document_date") @db.Date
   fileDeletedAt   DateTime? @map("file_deleted_at") @db.Timestamptz
+  // Optimistic concurrency for the documents API (H6, #190): every write
+  // increments it; `ETag` / `If-Match` carry it.
+  version         Int       @default(1)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

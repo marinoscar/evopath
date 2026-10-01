@@ -13,6 +13,9 @@ import { harnessUrl, USERS_READ_ONLY_PERMS, waitForInter } from '../support/harn
  * (`config/destinations.ts`) still holds on `users:read` alone, so the route
  * itself and the pinned rail row both stay reachable — this is a content
  * gate, not a reachability one.
+ *
+ * The registry is the harness's frozen fixture
+ * (`apps/web/visual/fixtures/adminSections.tsx`, #222), not the live one.
  */
 
 test('Hub with users:read only: General group hidden entirely', async ({ page }) => {

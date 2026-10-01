@@ -43,6 +43,16 @@
  *                              the spec answers it with `page.route()`.
  *                              Omitted, AI is off and nothing is fetched.
  *
+ * REGISTRIES ARE FIXTURES (issue #222)
+ * -------------------------------------------------------------------------
+ * `visual/vite.config.ts` swaps `config/adminSections.tsx`,
+ * `config/userSettingsSections.tsx` and `config/todayCards.tsx` for frozen
+ * copies under `visual/fixtures/`, so every hub, rail and Today screenshot
+ * draws a fixed set of cards. Appending a card to a live registry moves no
+ * baseline; the specs assert layout, theme and breakpoints, not registry
+ * content. Wherever this file or a spec says `ADMIN_SECTIONS`,
+ * `USER_SETTINGS_SECTIONS` or `TODAY_CARDS`, the harness means the fixture.
+ *
  * WHY THE `/api` FETCHES BELOW ARE SAFE TO IGNORE
  * -------------------------------------------------------------------------
  * `NavigationRail` → `useNavigationPrefs` → `useUserSettings({ syncTheme: false })`
@@ -87,6 +97,9 @@ const TodayPage = lazy(() => import('../src/pages/TodayPage'));
 // `/api/measurements/*` and `/api/health-profile` calls with `page.route()`
 // (`tests/visual/support/health.ts`), as the telemetry dashboard spec does.
 const HealthPage = lazy(() => import('../src/pages/HealthPage'));
+// H5 (#189): the biomarker pages, answered by `tests/visual/support/biomarkers.ts`.
+const BiomarkersPage = lazy(() => import('../src/pages/BiomarkersPage'));
+const BiomarkerDetailPage = lazy(() => import('../src/pages/BiomarkerDetailPage'));
 const UserSettingsHubPage = lazy(() => import('../src/pages/UserSettingsHubPage'));
 const UserProfilePage = lazy(() => import('../src/pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'));
@@ -103,8 +116,10 @@ const TelemetryDashboardPage = lazy(() => import('../src/pages/Admin/TelemetryDa
 const THEME_STORAGE_KEY = 'theme_mode';
 
 /**
- * A broad admin permission set — enough to see every card in
- * `ADMIN_SECTIONS` and `USER_SETTINGS_SECTIONS`, and every rail/menu
+ * A broad admin permission set — enough to see every card in the FIXTURE
+ * `ADMIN_SECTIONS` and `USER_SETTINGS_SECTIONS` (`visual/fixtures/`, #222;
+ * `Web Push` and `Broadcasts` are the deliberate exceptions, frozen into the
+ * baselines as cards the harness user cannot see), and every rail/menu
  * destination in `DESTINATIONS`, without a spec having to spell out the list.
  * A spec that wants a narrower view (e.g. the `users:read`-only hub) passes
  * `?perms=` explicitly.
@@ -261,6 +276,8 @@ function HarnessRoutes() {
         <Route element={<Layout />}>
           <Route path="/" element={<TodayPage />} />
           <Route path="/health" element={<HealthPage />} />
+          <Route path="/health/biomarkers" element={<BiomarkersPage />} />
+          <Route path="/health/biomarkers/:analyteKey" element={<BiomarkerDetailPage />} />
 
           <Route path="/settings" element={<UserSettingsHubPage />} />
           <Route path="/settings/profile" element={<UserProfilePage />} />

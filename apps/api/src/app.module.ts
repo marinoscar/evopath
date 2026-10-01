@@ -39,6 +39,7 @@ import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
 import { HealthDocumentsModule } from './health-documents/health-documents.module';
+import { HealthExportModule } from './health-export/health-export.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
@@ -254,6 +255,11 @@ import configuration from './config/configuration';
     // keep-or-delete choice; the `health.document.purge` job (server-only) and
     // the `health_documents` storage reference checker. No routes yet.
     HealthDocumentsModule,
+
+    // Health data export (H7, #191): `/api/health/exports` under
+    // `health_data:read`; the server-only `health.export` job and the daily
+    // `health.export.purge` (queued by a cron) that removes files after 7 days.
+    HealthExportModule,
 
     // Gyms (E3.3): `/api/gyms` (with equipment and photos), `/api/equipment-types`
     // and `/api/capabilities` under `gyms:*` (photo attach/remove also

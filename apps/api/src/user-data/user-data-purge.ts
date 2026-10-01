@@ -18,6 +18,7 @@ import type { Logger } from '@nestjs/common';
 import type { Job, Prisma, PrismaClient } from '@prisma/client';
 
 import { normalizeProfileSettings } from '../common/profile-image/profile-image';
+import { HEALTH_EXPORT_JOB_TYPE, HEALTH_EXPORT_SUBJECT_TYPE } from '../health-export/health-export.constants';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import type { UserDataResetResult } from './dto/user-data.dto';
 
@@ -172,6 +173,21 @@ export async function deleteUserOwnedRows(
     });
     counts.cancelledJobs += count;
   }
+
+  // The user's own queued health exports (subject = the user) would read the
+  // data this reset deletes. A finished export's FILE is a storage object the
+  // user owns, deleted with the rest in step 3.
+  counts.cancelledJobs += (
+    await tx.job.deleteMany({
+      where: {
+        status: 'pending',
+        type: HEALTH_EXPORT_JOB_TYPE,
+        subjectType: HEALTH_EXPORT_SUBJECT_TYPE,
+        subjectId: userId,
+        id: { not: jobId },
+      },
+    })
+  ).count;
 
   // Training: checkpoints carry no FK, so they are deleted explicitly.
   for (const ids of chunk(threadIds)) {

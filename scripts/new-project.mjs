@@ -223,8 +223,9 @@ function writeLicense(opts) {
 
   const changed = [`LICENSE  written (${id})`];
 
-  // The README ships a "[Your License Here]" placeholder; leaving it in place
-  // beside a real LICENSE file is worse than having neither.
+  // A README may carry a "[Your License Here]" placeholder; leaving it in place
+  // beside a real LICENSE file is worse than having neither. The product
+  // README does not ship one, so this is a no-op there.
   const readmePath = join(REPO_ROOT, 'README.md');
   if (existsSync(readmePath)) {
     const before = readFileSync(readmePath, 'utf8');
@@ -291,8 +292,9 @@ function audit() {
     items.push({
       title: 'No LICENSE file',
       recommendation: 'decide, then --license',
-      detail: ['The README carries a "[Your License Here]" placeholder.',
-               'Run with --license mit --holder "..." (or proprietary), or add your own.'],
+      detail: ['The repository has no LICENSE file.',
+               'Run with --license mit --holder "..." (or proprietary), or add your own,',
+               'then link it from README.md.'],
     });
   }
 

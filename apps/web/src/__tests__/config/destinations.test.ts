@@ -14,6 +14,7 @@ import {
 } from '../../config/destinations';
 import type { Destination, DestinationKey } from '../../config/destinations';
 import { ADMIN_SECTIONS } from '../../config/adminSections';
+import { USER_HUB_PATH, USER_SETTINGS_SECTIONS } from '../../config/userSettingsSections';
 
 /**
  * The route-ownership table is the one piece of this navigation that manual
@@ -401,6 +402,53 @@ describe('admin sections — registry against the live routes', () => {
     for (const card of ADMIN_SECTIONS.flatMap((section) => section.cards)) {
       if (!card.path) continue;
       expect(resolveActiveDestination(card.path), `${card.path} activates`).toBe('console');
+    }
+  });
+});
+
+/**
+ * Issue #190 (H6). The per-user twin of the suite above, run in BOTH
+ * directions: a card whose `path` has no route lands on the catch-all, and a
+ * `/settings/*` route with no card is a page the hub, the Console rail and the
+ * AppBar title resolver cannot know exists (CLAUDE.md Settings UI Pattern
+ * rule 1). Deleting a card from `USER_SETTINGS_SECTIONS` while its route stays
+ * fails the second test.
+ */
+describe('user settings sections — registry against the live routes', () => {
+  function declaredRouteGates(): Map<string, string | null> {
+    const source = readFileSync(APP_TSX, 'utf8');
+    const gates = new Map<string, string | null>();
+    for (const chunk of source.split('<Route').slice(1)) {
+      const path = /^\s*path="([^"]+)"/.exec(chunk)?.[1];
+      if (!path) continue;
+      gates.set(path, /permission="([^"]+)"/.exec(chunk)?.[1] ?? null);
+    }
+    return gates;
+  }
+
+  const userCards = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards);
+
+  it('routes every user card path, under the exact permission the card declares', () => {
+    const gates = declaredRouteGates();
+    expect(userCards.length).toBeGreaterThan(0);
+    for (const card of userCards) {
+      if (!card.path) continue;
+      expect(gates.has(card.path), `${card.title} → ${card.path} has no route`).toBe(true);
+      expect(gates.get(card.path) ?? undefined, `${card.title} route gate`).toBe(card.permission);
+    }
+  });
+
+  it('declares a registry card for every /settings/* route', () => {
+    const cardPaths = new Set(userCards.map((card) => card.path));
+    const settingsRoutes = [...declaredRouteGates().keys()].filter(
+      (path) => path.startsWith(`${USER_HUB_PATH}/`),
+    );
+    // Guards the parser: the list must not be vacuously empty.
+    expect(settingsRoutes).toContain('/settings/health-documents');
+    for (const path of settingsRoutes) {
+      expect(cardPaths.has(path), `${path} is routed but has no USER_SETTINGS_SECTIONS card`).toBe(
+        true,
+      );
     }
   });
 });

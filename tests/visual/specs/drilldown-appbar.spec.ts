@@ -7,7 +7,8 @@ import { harnessUrl, waitForInter } from '../support/harness';
  * a back arrow plus the resolved page title, and the theme toggle is dropped.
  *
  * Route: `/admin/settings/users`, resolving to "Users & Allowlist" via
- * `settingsPageTitle` over `ADMIN_SECTIONS` (`config/adminSections.tsx`) — the
+ * `settingsPageTitle` over the harness's frozen `ADMIN_SECTIONS`
+ * (`apps/web/visual/fixtures/adminSections.tsx`, #222) — the
  * only admin child route the visual harness (`apps/web/visual/main.tsx`)
  * mounts besides the hub itself; #366 removed the General-group pages this
  * spec used to target.

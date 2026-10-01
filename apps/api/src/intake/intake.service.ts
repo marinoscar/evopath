@@ -403,7 +403,7 @@ export class IntakeService {
       if (updated.count > 0 && retention && kind.healthDocumentKind) {
         await tx.healthDocument.updateMany({
           where: { intakeId, userId, fileDeletedAt: null },
-          data: { retention },
+          data: { retention, version: { increment: 1 } },
         });
       }
 

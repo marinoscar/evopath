@@ -83,14 +83,17 @@ edits:
 
 | Target | Why it can't derive |
 |---|---|
-| `install.sh` (the `curl \| bash` header comment, the `APPCTL_REPO` default) | **This is the sharpest example.** It is fetched and executed via `curl \| bash` *before the repository exists on disk* — there is nothing to read a manifest out of, because the clone that manifest lives in hasn't happened yet. This is a permanent codemod target; it can never move to the "derived" group. |
-| `apps/cli/README.md` (the same install/uninstall one-liners and `APPCTL_REPO` default, restated in docs) | Prose describing the installer above — same reasoning, once removed. |
-| `README.md` (title, tagline, CI badge URL, clone/`cd` instructions, directory-tree root) | The one place in the codebase where the product name and repo slug appear as hand-written prose rather than as a rendered value. |
+| `install.sh` (the `curl \| bash` header comment, the `EVOPATHCLI_REPO` default) | **This is the sharpest example.** It is fetched and executed via `curl \| bash` *before the repository exists on disk* — there is nothing to read a manifest out of, because the clone that manifest lives in hasn't happened yet. This is a permanent codemod target; it can never move to the "derived" group. |
+| `apps/cli/README.md` (the same install/uninstall one-liners and `EVOPATHCLI_REPO` default, restated in docs) | Prose describing the installer above — same reasoning, once removed. |
 | `infra/compose/.env.example` and `base.compose.yml` (`OTEL_SERVICE_NAME` default) | These are Compose-file string defaults, not JavaScript — nothing executes `@app/shared` to produce them. The codemod changes the *value* only; it never adds a new key, because `apps/cli/src/deploy/env-spec.test.ts` counts every commented `# KEY=value` line in `.env.example` as a declared variable, and a new key would fail that test. |
 | `infra/compose/test.compose.yml`, `apps/api/.env.test`, `scripts/dev.ps1` (test database name and container name) | Same reasoning as the OTEL default — Compose/env-file values, not code. |
 | `package.json`'s `"name"` field | npm reads this before any of the repository's own code runs, so it is necessarily a second copy of the slug. |
 | `apps/web/public/favicon.svg` and `apps/web/public/icons/source.svg` (the `fill` attribute on the background rect) | These are the two hand-editable *vector* masters. `generate-icons.py` reads the manifest for the *rasters* but deliberately does not rasterise these two SVGs — see [The binary-name decision](#the-binary-name-decision)'s sibling note in `packages/shared/README.md` on why an SVG toolchain is refused. |
 | `apps/cli/src/branding.ts` and `apps/cli/package.json`'s `bin` key | Only touched when `--cli-name` is passed — see the next section. |
+
+The root `README.md` is deliberately not a codemod target. It is hand-written
+product prose, and `apps/cli/src/template-identity.test.ts` exempts it from the
+identity scan as a whole file. Edit it by hand after a rename.
 
 ### Never renamed
 
@@ -106,7 +109,7 @@ node scripts/rename.mjs --name "Acme Hub" [options]
   --repo <owner/name>    GitHub repository slug. Published in the OpenAPI document.
   --theme <#rrggbb>      Brand primary colour. 6-digit hex only.
   --background <#rrggbb> PWA splash / first-paint colour. 6-digit hex only.
-  --tagline <string>     One-line description, used as the README subtitle.
+  --tagline <string>     One-line description, stored in identity.json.
   --cli-name <name>      ALSO rename the CLI binary. Read the warning it prints first.
   --dry-run              Show every edit and its hit count; change nothing.
   --force                Proceed even with a dirty working tree.
@@ -134,15 +137,10 @@ node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub --theme '#7c3aed
 ```
 Planned edits (Prior Name -> Acme Hub):
 
-  ~ README.md  1x  "# Prior Name\n"
-  ~ README.md  1x  "A production-grade full-stack application foundation..."
   ~ install.sh  1x  "https://raw.githubusercontent.com/prior/prior-repo/..."
   ~ install.sh  2x  "https://github.com/prior/prior-repo.git"
   ~ apps/cli/README.md  2x  "https://raw.githubusercontent.com/prior/prior-repo/..."
   ~ apps/cli/README.md  1x  "https://github.com/prior/prior-repo.git"
-  ~ README.md  2x  "https://github.com/prior/prior-repo/actions"
-  ~ README.md  1x  "cd prior-repo\n"
-  ~ README.md  1x  "prior-repo/\n"
   ~ infra/compose/.env.example  1x  "OTEL_SERVICE_NAME=prior-name-api"
   ~ infra/compose/base.compose.yml  1x  "OTEL_SERVICE_NAME:-prior-name-api"
   ~ infra/compose/test.compose.yml  1x  "container_name: prior-name-db-test"
@@ -171,26 +169,26 @@ holds, not the fictional values above.)
 
 `--cli-name` is deliberately a separate flag from `--name`, not a value
 derived from it. A product called "Acme Hub" may well still ship a binary
-called `appctl` — `git` isn't called `github-cli`, `kubectl` isn't called
+called `evopathcli` — `git` isn't called `github-cli`, `kubectl` isn't called
 `kubernetes-cli`, and there's no reason a fork's control client should be
 forced to match the product name syllable-for-syllable. `apps/cli/src/branding.ts`
 carries the full rationale; the summary is that `CLI_NAME` seeds three
 things the product name has no business touching: the executable shown in
-`--help`, the config directory (`~/.appctl/`), and the environment-variable
-prefix (`APPCTL_`).
+`--help`, the config directory (`~/.evopathcli/`), and the environment-variable
+prefix (`EVOPATHCLI_`).
 
 Renaming the binary is a bigger, and honestly a more expensive, change than
 renaming the product, and the script says so out loud when you pass
 `--cli-name`. State the cost plainly, because it is real:
 
-- **~6 CLI test files assert literal `APPCTL_` environment-variable names on
+- **~6 CLI test files assert literal `EVOPATHCLI_` environment-variable names on
   purpose** — they are *meant* to break on a rename, as a forcing function
   to catch every place that reads the old prefix. Fix them by hand.
-- **`apps/cli/Dockerfile` declares 14 `ENV APPCTL_*` lines.** All 14 need the
+- **`apps/cli/Dockerfile` declares 14 `ENV EVOPATHCLI_*` lines.** All 14 need the
   new prefix.
 - **`infra/compose/worker.compose.yml` carries the same prefix.**
 - **Machines already running the CLI are not migrated for you.** They have a
-  config directory (`~/.appctl/`) and, if deployed via `appctl deploy`, a
+  config directory (`~/.evopathcli/`) and, if deployed via `evopathcli deploy`, a
   systemd unit under the old name. The rename only affects what a fresh
   install produces; existing installations keep working under the old name
   until someone manually migrates or reinstalls them.
@@ -344,7 +342,7 @@ against a checkout that still looks like the template.
 npm run setup
 ```
 
-This builds the CLI and runs `appctl init` — the deploy wizard pointed at
+This builds the CLI and runs `evopathcli init` — the deploy wizard pointed at
 your own machine. It exists because `cp .env.example .env` produces a file
 whose three secrets are the literal placeholder string
 `your-super-secret-key-min-32-characters-long` and whose Google credentials
@@ -453,8 +451,10 @@ node scripts/new-project.mjs --reset-release --license mit --holder "Your Name o
 
 - `--reset-release` resets `CHANGELOG.md` to `[Unreleased]` + `[0.1.0]` and
   sets all four workspace `package.json` versions to `0.1.0`.
-- `--license <id>` writes a `LICENSE` file and replaces the README's
-  `[Your License Here]` placeholder. Only `mit` and `proprietary` are built
+- `--license <id>` writes a `LICENSE` file. If the README still carries a
+  `[Your License Here]` placeholder, it also replaces that; otherwise the
+  README replace is a no-op. The root README carries no such placeholder, so
+  add a link to `LICENSE` to it by hand. Only `mit` and `proprietary` are built
   in — not because those are the only licences that exist, but because
   embedding the full text of every licence choice would make this script
   mostly licence text. For anything else (Apache-2.0, BSD, GPL, ...), copy

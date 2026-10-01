@@ -31,7 +31,6 @@ import { TelemetryConnectionDoctorCheck } from './doctor/telemetry-connection.do
 import { TelemetryExportDoctorCheck } from './doctor/telemetry-export.doctor-check';
 import { TelemetryFreshnessDoctorCheck } from './doctor/telemetry-freshness.doctor-check';
 import { TelemetryReachableDoctorCheck } from './doctor/telemetry-reachable.doctor-check';
-import { TelemetryStackDoctorCheck } from './doctor/telemetry-stack.doctor-check';
 import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-check';
 
 // =============================================================================
@@ -114,7 +113,6 @@ import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-che
     TelemetryReachableDoctorCheck,
     TelemetryTablesDoctorCheck,
     TelemetryFreshnessDoctorCheck,
-    TelemetryStackDoctorCheck,
   ],
   exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })
