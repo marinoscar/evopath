@@ -317,9 +317,29 @@ The response is `{ id, scope, jobId, valuesDeleted }`. Values kept without `dele
 - **Concurrency.** A `412` on rename or delete closes the dialog, refreshes the list and tells the user the document changed.
 - **Permissions in the page.** View and Download are disabled while the file is deleted or being deleted. Without `health_data:write`, Rename and Delete are disabled with the reason shown under the menu item, and an info alert explains why. Signed URLs live in component state only.
 
-### 2.12 Planned: value history with source document
+### 2.12 Blood-work history: biomarker summary, series and revisions
 
-Placeholder. The full history of a value links to its source document, including the file-deleted state. This section records the history API when it ships.
+The biomarker views read lab results through three routes, all owner-scoped behind `health_data:read` (a foreign id is a `404`). Values and limits are canonical; the web app converts for display.
+
+**Summary.** `GET /api/health/biomarkers/summary` (`apps/api/src/measurements/biomarkers/`, tag `Measurements`) returns one item per lab analyte with at least one active result, in catalog order (panel, then analyte):
+
+```
+{ items: [{ analyteKey, label, panel, unit,
+            latest:   { measurementId, value, measuredAt, flag, referenceLow, referenceHigh, referenceText },
+            previous: { ...same } | null,
+            delta: number | null,        // latest.value - previous.value, 4 decimals
+            count: number }] }           // active results of the analyte
+```
+
+- `panel` keeps one panel; `outOfRange=true` keeps analytes whose **latest** flag is `low`, `high` or `critical`. Unknown parameters are a `400`.
+- One query, whatever the catalog size: `row_number()` and `count(*)` over `PARTITION BY metric_key`, ordered `measured_at DESC, created_at DESC, id DESC` (the list order), keeping ranks 1 and 2. The `WHERE` carries `user_id` and the active-row predicate as columns, so superseded revisions and soft-deleted entries are never ranked or counted.
+- Latency is covered by the existing HTTP metrics; no value reaches a log.
+
+**Series.** `GET /api/measurements/series` with a lab `metricKey` adds `referenceLow`, `referenceHigh`, `referenceText` and `flag` to each point: ranges differ between events, so a chart draws the band per point. Body, vital and wellness points keep their shape (the fields are absent).
+
+**Detail table.** `GET /api/measurements?metricKey=<lab key>` (or `category=lab`) already returns every active result with `origin`, `method`, range, flag, `sourceRef.healthDocumentId` and `fileDeleted` ([2.6](#26-provenance)). A kept document is opened through the documents API ([2.11](#211-planned-health-documents-settings-page-and-documents-api)); `fileDeleted: true` shows **File deleted**.
+
+**Revisions.** `GET /api/measurements/:id/revisions` returns every revision of one reading, newest (current) first: the `GET /api/measurements` item shape plus `supersededAt` (null for the current one) and `createdAt`. `id` may name any revision. A reading's revisions share its `entryId` and `metricKey` (an edit supersedes in place, one row per metric per entry), so the chain is one owner-scoped query rather than a walk of `supersedesId`. A deleted reading is a `404`. The route works for body and vital readings too.
 
 ### 2.13 Planned: export
 
@@ -457,6 +477,8 @@ npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/measuremen
 cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/lab-report\.db\.spec\.ts$' --runInBand
 npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/health-documents test/health-data/health-documents-api.integration
 cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/health-documents-api\.db\.spec\.ts$' --runInBand
+npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/measurements/biomarkers test/health-data/measurements.integration
+cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/biomarkers-summary\.db\.spec\.ts$' --runInBand
 ```
 
 In a running app, with AI on:
@@ -476,5 +498,6 @@ In a running app, with AI on:
 - #185: `health_documents` table and `photo_intakes.retention`, `retainFiles` on the intake API, `IntakeKind.healthDocumentKind`, the `health.document.purge` job, the `health_documents` reference checker, `sourceRef.healthDocumentId` and `fileDeleted`, the `health:document:delete` audit action and the purge counter, the keep-or-delete control, and this spec.
 - #186: PDFs for body metrics. Adds `IntakeKind.acceptedInputs` and `maxPdfPages`, magic-byte and page-count checks at attach and analyze, the `file_input` refusal, PDFs as `file` parts, the `intake.input_kind` span attribute and body-metric prompt version 2 (API).
 - #188: lab report extraction (API): the `lab_report` intake kind and AI feature, the `ai.health.lab_report` job and prompt, server-side analyte matching and unit conversion, the `UNRESOLVED_ANALYTES` refusal, lab-report provenance and `documentDate`, the duplicate-warning route, analyzer context in `replaceAiDrafts`, `intake.page_count`, and the fake provider's lab report fixture.
+- #189: blood-work history (API): `GET /api/health/biomarkers/summary`, per-point range and flag on lab series, `GET /api/measurements/:id/revisions`.
 - #187: the lab analyte catalog (39 analytes, seven panels, affine unit conversion, `resolveLabAnalyte`), the `referenceLow`, `referenceHigh`, `referenceText` and `flag` columns on `measurements`, lab entries and the `category` list filter on `/api/measurements` (API).
 - #190: the documents API (`/api/health/documents`), `health_documents.version`, the `user_delete` purge reason, the download and delete counters, and `412 PRECONDITION_FAILED`.

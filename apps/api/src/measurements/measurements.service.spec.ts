@@ -681,6 +681,80 @@ describe('MeasurementsService', () => {
       expect(result.truncated).toBe(false);
       expect(result.points.map((p) => p.value)).toEqual([1, 2]);
     });
+
+    it('series: lab points carry their own range and flag; body points keep their shape (H5)', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValueOnce([
+        row({ metricKey: 'ldl_cholesterol', value: 130, referenceLow: null, referenceHigh: 129, flag: 'high' }),
+        row({ metricKey: 'ldl_cholesterol', value: 95, referenceLow: 0, referenceHigh: 99, referenceText: '<100', flag: 'normal' }),
+      ]);
+
+      const lab = await service.series(USER_ID, { metricKey: 'ldl_cholesterol', from: new Date(0), to: new Date() });
+
+      expect(prisma.measurement.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: expect.objectContaining({ referenceLow: true, referenceHigh: true, referenceText: true, flag: true }),
+        }),
+      );
+      expect(lab.unit).toBe('mg/dL');
+      expect(lab.points.map(({ value, referenceLow, referenceHigh, referenceText, flag }) => ({
+        value, referenceLow, referenceHigh, referenceText, flag,
+      }))).toEqual([
+        { value: 95, referenceLow: 0, referenceHigh: 99, referenceText: '<100', flag: 'normal' },
+        { value: 130, referenceLow: null, referenceHigh: 129, referenceText: null, flag: 'high' },
+      ]);
+
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValueOnce([row({ value: 80 })]);
+      const body = await service.series(USER_ID, { metricKey: 'weight', from: new Date(0), to: new Date() });
+
+      expect(Object.keys(body.points[0]).sort()).toEqual(['id', 'measuredAt', 'method', 'origin', 'value']);
+    });
+  });
+
+  describe('revisions (H5, #189)', () => {
+    const MEASUREMENT_ID = '44444444-4444-4444-8444-444444444444';
+
+    it('finds the reading owner-scoped, then lists its whole chain newest first', async () => {
+      const superseded = new Date('2026-09-29T09:00:00.000Z');
+      (prisma.measurement.findFirst as jest.Mock).mockResolvedValue({ entryId: ENTRY_ID, metricKey: 'ldl_cholesterol' });
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([
+        row({ metricKey: 'ldl_cholesterol', value: 128, revision: 2, flag: 'normal' }),
+        row({ metricKey: 'ldl_cholesterol', value: 130, revision: 1, flag: 'high', supersededAt: superseded }),
+      ]);
+
+      const result = await service.revisions(USER_ID, MEASUREMENT_ID);
+
+      expect(prisma.measurement.findFirst).toHaveBeenCalledWith({
+        where: { id: MEASUREMENT_ID, userId: USER_ID },
+        select: { entryId: true, metricKey: true },
+      });
+      expect(prisma.measurement.findMany).toHaveBeenCalledWith({
+        where: { userId: USER_ID, entryId: ENTRY_ID, metricKey: 'ldl_cholesterol' },
+        orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
+      });
+      expect(result.items.map(({ value, revision, edited, flag, supersededAt, createdAt }) => ({
+        value, revision, edited, flag, supersededAt, createdAt,
+      }))).toEqual([
+        { value: 128, revision: 2, edited: true, flag: 'normal', supersededAt: null, createdAt: CREATED_AT.toISOString() },
+        { value: 130, revision: 1, edited: false, flag: 'high', supersededAt: superseded.toISOString(), createdAt: CREATED_AT.toISOString() },
+      ]);
+    });
+
+    it('404s for a foreign or unknown id', async () => {
+      (prisma.measurement.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.revisions(USER_ID, MEASUREMENT_ID)).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.measurement.findMany).not.toHaveBeenCalled();
+    });
+
+    it('404s when the reading was deleted', async () => {
+      (prisma.measurement.findFirst as jest.Mock).mockResolvedValue({ entryId: ENTRY_ID, metricKey: 'weight' });
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([
+        row({ revision: 2, deletedAt: new Date() }),
+        row({ revision: 1, supersededAt: new Date() }),
+      ]);
+
+      await expect(service.revisions(USER_ID, MEASUREMENT_ID)).rejects.toBeInstanceOf(NotFoundException);
+    });
   });
 
   describe('fileDeleted (H1, #185)', () => {

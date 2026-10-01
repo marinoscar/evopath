@@ -38,6 +38,7 @@ import {
 import { mockHealthProfileEmpty } from './fixtures/health';
 import { mockHealthDocumentList } from './fixtures/healthDocuments';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
+import { mockDocumentDownload } from './fixtures/biomarkers';
 import { mockTodayCheckInEmpty } from './fixtures/checkIns';
 import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
 import { mockAiFeaturesView } from './fixtures/aiFeatures';
@@ -158,6 +159,21 @@ export const handlers = [
     const page = Number(url.searchParams.get('page') ?? '1');
     const pageSize = Number(url.searchParams.get('pageSize') ?? '20');
     return HttpResponse.json({ data: { items: [], total: 0, page, pageSize, totalPages: 0 } });
+  }),
+
+  // Blood-work history (H5, #189): no lab results yet, no revisions, and the
+  // documents API's (H6, #190) short-lived download link. Tests that need
+  // data override these with `server.use`.
+  http.get(`${API_BASE}/health/biomarkers/summary`, () => {
+    return HttpResponse.json({ data: { items: [] } });
+  }),
+
+  http.get(`${API_BASE}/measurements/:id/revisions`, () => {
+    return HttpResponse.json({ data: { items: [] } });
+  }),
+
+  http.get(`${API_BASE}/health/documents/:id/download`, () => {
+    return HttpResponse.json({ data: mockDocumentDownload });
   }),
 
   http.patch(`${API_BASE}/measurements/entries/:entryId`, async ({ request, params }) => {
