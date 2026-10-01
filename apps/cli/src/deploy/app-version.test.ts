@@ -283,11 +283,21 @@ describe('writeVersion', () => {
     });
 
     it('reports zero changes when the real lockfile already carries the target version', () => {
-      const dir = makeCheckout('1.0.0');
+      // Derive the version from the real lockfile so a release bump never
+      // breaks this test. The premise: every workspace entry carries the
+      // same version (a release bumps them together).
+      const lock = JSON.parse(REAL_LOCKFILE) as {
+        packages: Record<string, { version?: string } | undefined>;
+      };
+      const current = lock.packages['apps/api']?.version;
+      if (current === undefined) throw new Error('real lockfile has no apps/api version');
+      expect(lock.packages['apps/web']?.version).toBe(current);
+      expect(lock.packages['packages/shared']?.version).toBe(current);
+
+      const dir = makeCheckout(current);
       writeFileSync(join(dir, 'package-lock.json'), REAL_LOCKFILE);
 
-      // The real lockfile's workspace entries are all "1.0.0" today.
-      const result = writeVersion(dir, '1.0.0');
+      const result = writeVersion(dir, current);
 
       expect(result.changed).toEqual([]);
     });
