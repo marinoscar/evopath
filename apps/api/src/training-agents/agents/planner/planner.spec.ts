@@ -6,8 +6,17 @@ import { runGuardrails, type GuardrailNodeOutput } from '../../nodes/guardrails.
 import { runPlan } from '../../nodes/plan.node';
 import { runPrepareContext } from '../../nodes/prepare-context.node';
 import { AgentOutputTruncated } from '../../runtime/agent-caller';
-import { CANARY, CANARY_GYM, CANARY_TOKENS, createCanaryPrisma } from '../../testing/canary-prisma';
-import { FIXTURE_NOW, runContextFixture } from '../../testing/context-fixtures';
+import { HealthSummaryReader } from '../../../health-summary/health-summary.reader';
+import {
+  CANARY,
+  CANARY_GYM,
+  CANARY_HEALTH_SUMMARY,
+  CANARY_RAW_VALUES,
+  CANARY_TOKENS,
+  createCanaryPrisma,
+} from '../../testing/canary-prisma';
+import { ContextBudget, estimateTokens } from '../../runtime/context-budget';
+import { FIXTURE_NOW, HEALTH_SUMMARY_FIXTURE, runContextFixture } from '../../testing/context-fixtures';
 import { draftExercise, draftFixture } from '../../testing/draft-fixtures';
 import { intakeFixture } from '../../testing/intake-fixtures';
 import { createNodeContextHarness, type AgentScript } from '../../testing/node-context-harness';
@@ -15,6 +24,7 @@ import { STUB_VERIFIED_BRIEF } from '../../testing/stub-agent-nodes';
 import { SAFETY_BLOCK, UNTRUSTED_DATA_BLOCK } from '../shared/prompt-blocks';
 import { draftCounts, planDraftSchema, type PlanDraftState } from './plan-draft.contract';
 import { PLANNER_INSTRUCTIONS, PLANNER_INVALID_NUDGE, PLANNER_TRUNCATION_NUDGE } from './planner.prompt';
+import { plannerSections } from './planner.agent';
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -166,10 +176,20 @@ describe('guardrails node', () => {
 });
 
 describe('data minimisation canary, end to end to the planner request', () => {
-  async function plannerRequest(includeBio: boolean): Promise<string> {
+  /**
+   * `health`: `undefined` builds the loader without the health summary
+   * reader (what every run sent before H8); `false`/`true` builds it with the
+   * reader and the user's consent off/on (H8, #192).
+   */
+  async function plannerRequest(includeBio: boolean, health?: boolean): Promise<string> {
+    const prisma = createCanaryPrisma({ userId: HARNESS_USER, healthSummaryConsent: health });
+    const loader =
+      health === undefined
+        ? new PlannerContextLoader(prisma as never)
+        : new PlannerContextLoader(prisma as never, new HealthSummaryReader(prisma as never));
     const h = createNodeContextHarness({
       scripts: { planner: () => answer() },
-      ports: { plannerContext: new PlannerContextLoader(createCanaryPrisma({ userId: HARNESS_USER }) as never) },
+      ports: { plannerContext: loader },
       now: () => FIXTURE_NOW,
     });
     const input = { kind: 'create', intake: intakeFixture({ gymId: CANARY_GYM, includeBio, limitations: [{ area: 'knee', description: 'Old ache' }] }) };
@@ -189,5 +209,80 @@ describe('data minimisation canary, end to end to the planner request', () => {
 
   it('the bio appears only with includeBio', async () => {
     expect(await plannerRequest(true)).toContain(CANARY.bio);
+  });
+
+  describe('the opt-in health summary (H8, #192)', () => {
+    it('opt-in off (the default), with a ready summary stored: the request is byte-identical to one built without any health summary support', async () => {
+      const before = await plannerRequest(false);
+
+      expect(await plannerRequest(false, false)).toBe(before);
+      expect(before).not.toContain('healthSummary');
+      expect(before).not.toContain('CANARY-SUMMARY');
+    });
+
+    it('opt-in on: the request carries healthSummary (narrative and considerations), no raw lab or blood-pressure value and no document field', async () => {
+      const sent = await plannerRequest(false, true);
+
+      expect(sent).toContain('healthSummary');
+      expect(sent).toContain('CANARY-SUMMARY-NARRATIVE');
+      expect(sent).toContain('CANARY-SUMMARY-CONSIDERATION');
+      for (const value of CANARY_RAW_VALUES) expect(sent).not.toContain(value);
+      for (const token of [...CANARY_TOKENS, CANARY.bio, CANARY_HEALTH_SUMMARY.inputsHash, CANARY_HEALTH_SUMMARY.documentName]) {
+        expect(sent).not.toContain(token);
+      }
+      expect(sent).not.toMatch(/ferritin|hemoglobin|bp_systolic|referenceLow|originalName|"flag"/);
+      expect(sent).not.toMatch(UUID);
+    });
+
+    it('opt-in on: the summary sits inside the delimited <context> block (untrusted data)', async () => {
+      const sent = JSON.parse(await plannerRequest(false, true)) as { input: unknown };
+      const input = JSON.stringify(sent.input);
+      const open = input.indexOf('<context>');
+      const close = input.indexOf('</context>');
+
+      expect(open).toBeGreaterThanOrEqual(0);
+      expect(input.indexOf('CANARY-SUMMARY-NARRATIVE')).toBeGreaterThan(open);
+      expect(input.indexOf('CANARY-SUMMARY-NARRATIVE')).toBeLessThan(close);
+    });
+  });
+});
+
+describe('planner context budget with the opt-in health summary (H8, #192)', () => {
+  const full = () =>
+    runContextFixture({
+      profile: { dateOfBirth: '1990-01-01', sexAtBirth: 'female', heightMm: 1700, unitSystem: 'metric', bio: 'I like rowing' },
+      intake: { includeBio: true },
+      weights: [{ measuredAt: FIXTURE_NOW, valueKg: 70 }],
+      checkIns: [{ date: '2026-09-29', energy: 4, sleepQuality: 4, soreness: 2, stress: 2 }],
+      healthSummary: HEALTH_SUMMARY_FIXTURE,
+    }).planner;
+
+  it('is an optional section of its own, placed so it is dropped after bio, body metrics and profile (last first)', () => {
+    const sections = plannerSections(full(), null);
+
+    expect(sections.map((s) => s.id)).toEqual([
+      'core',
+      'candidateExercises',
+      'evidence',
+      'readiness',
+      'healthSummary',
+      'profile',
+      'bodyMetrics',
+      'bio',
+    ]);
+    expect(sections.find((s) => s.id === 'healthSummary')).toMatchObject({ required: false, content: { healthSummary: HEALTH_SUMMARY_FIXTURE } });
+    expect(sections.find((s) => s.id === 'core')!.content).not.toHaveProperty('healthSummary');
+  });
+
+  it('a tight window drops it whole, after the later optional sections, never cut', () => {
+    const sections = plannerSections(full(), null);
+    const required = sections.filter((s) => s.required).reduce((sum, s) => sum + estimateTokens(s.content), 0);
+    const readiness = estimateTokens(sections.find((s) => s.id === 'readiness')!.content);
+    // Room for the required sections and readiness only.
+    const window = Math.ceil((required + readiness + 2) / 0.7);
+
+    const fit = new ContextBudget().fit(sections, { contextWindow: window, reserveOutput: 0 });
+
+    expect(fit.dropped).toEqual(['bio', 'bodyMetrics', 'profile', 'healthSummary']);
   });
 });

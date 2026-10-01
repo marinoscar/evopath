@@ -11,6 +11,12 @@ import { DUMBBELL_GYM, FIXTURE_NOW, FULL_GYM, LIBRARY, fixtureId } from './conte
 // copy it. `where` is honoured for the owner, the ids and the metric keys, so
 // "another gym" and "lab values" are only reachable by a query that asks for
 // them.
+//
+// H8 (#192): the user also has DISTINCTIVE raw lab and blood-pressure values
+// (`CANARY_RAW_VALUES`), a health document with a canary file name, and a
+// stored AI health summary. `opts.healthSummaryConsent` turns the opt-in on;
+// the summary's narrative (`CANARY_HEALTH_SUMMARY`) is the ONLY health text
+// a request may then carry, and no raw value ever.
 // =============================================================================
 
 export const CANARY = {
@@ -29,6 +35,19 @@ export const CANARY = {
   otherGymCapability: 'canary_other_gym_capability',
   storageKey: 'canary/storage/key-a1b2.jpg',
   bio: 'CANARY-BIO-TEXT-6e6e',
+} as const;
+
+/** Raw lab and vital values seeded for the canary: never in any agent request, opt-in or not. */
+export const CANARY_RAW_VALUES = ['487.123', '13.579', '163.33', '97.531'] as const;
+
+/** The canary user's stored, ready AI health summary (no raw value in it, by construction of the job). */
+export const CANARY_HEALTH_SUMMARY = {
+  narrative:
+    'CANARY-SUMMARY-NARRATIVE: blood pressure trends above the usual range; one iron marker is below its reference range, ' +
+    'and a clinician follow-up is recommended. Prefer moderate intensity.',
+  consideration: 'CANARY-SUMMARY-CONSIDERATION: avoid maximal efforts until blood pressure is reviewed.',
+  inputsHash: 'CANARY-SUMMARY-INPUTS-HASH-77aa',
+  documentName: 'CANARY-DOCUMENT-NAME-lab-results.pdf',
 } as const;
 
 /** Every token that must never reach a model (the bio only when `includeBio` is off). */
@@ -65,7 +84,7 @@ function metricMatches(where: Where, metricKey: string): boolean {
 }
 
 /** A Prisma stand-in holding the canary user's rows. */
-export function createCanaryPrisma(opts: { userId?: string } = {}) {
+export function createCanaryPrisma(opts: { userId?: string; healthSummaryConsent?: boolean } = {}) {
   const userId = opts.userId ?? CANARY_USER;
   const at = (days: number) => new Date(FIXTURE_NOW.getTime() - days * DAY);
   const measurement = (metricKey: string, value: number, days: number, notes: string, localDate?: string) => ({
@@ -94,6 +113,11 @@ export function createCanaryPrisma(opts: { userId?: string } = {}) {
       flag: 'high',
     })),
     measurement('medication', 1, 2, CANARY.medication),
+    // H8 (#192): distinctive raw values the opt-in health summary must never let through.
+    { ...measurement('ferritin', Number(CANARY_RAW_VALUES[0]), 4, CANARY.lab), referenceText: CANARY.lab, flag: 'low', referenceLow: 487.5, referenceHigh: 900 },
+    { ...measurement('hemoglobin', Number(CANARY_RAW_VALUES[1]), 4, CANARY.lab), flag: 'low' },
+    measurement('bp_systolic', Number(CANARY_RAW_VALUES[2]), 1, CANARY.lab),
+    measurement('bp_diastolic', Number(CANARY_RAW_VALUES[3]), 1, CANARY.lab),
     ...CHECK_IN_METRIC_KEYS.map((key, i) => measurement(key, 3 + (i % 2), 1, CANARY.checkInNote, '2026-09-29')),
   ];
 
@@ -194,6 +218,35 @@ export function createCanaryPrisma(opts: { userId?: string } = {}) {
       ),
     },
     program: { findFirst: jest.fn(async () => null) },
+    healthDocument: {
+      findMany: jest.fn(async () => [{ id: 'doc-1', userId, kind: 'lab_report', originalName: CANARY_HEALTH_SUMMARY.documentName }]),
+    },
+    healthSummarySetting: {
+      findUnique: jest.fn(async (args: { where: { userId: string } }) =>
+        args.where.userId === userId && opts.healthSummaryConsent !== undefined
+          ? { userId, enabled: opts.healthSummaryConsent, consentedAt: at(10) }
+          : null,
+      ),
+    },
+    healthSummary: {
+      findFirst: jest.fn(async (args: { where: { userId: string; status?: string } }) =>
+        args.where.userId === userId
+          ? {
+              id: 'summary-1',
+              userId,
+              version: 2,
+              status: 'ready',
+              narrative: CANARY_HEALTH_SUMMARY.narrative,
+              trainingConsiderations: [{ text: CANARY_HEALTH_SUMMARY.consideration, severity: 'caution', conservative: true }],
+              dataAsOf: new Date('2026-09-29T00:00:00.000Z'),
+              inputsHash: CANARY_HEALTH_SUMMARY.inputsHash,
+              provider: 'openai',
+              model: CANARY.storageKey,
+              createdAt: at(1),
+            }
+          : null,
+      ),
+    },
   };
 
   return prisma;
