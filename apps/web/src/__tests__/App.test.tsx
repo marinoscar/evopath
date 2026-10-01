@@ -110,6 +110,9 @@ vi.mock('../pages/GymDetailPage', () => ({ default: () => <h1>Gym Detail Page</h
 vi.mock('../pages/GymScanPage', () => ({ default: () => <h1>Gym Scan Page</h1> }));
 // E7.8 (#248). Stood in like the product pages above; `CoachPage.test.tsx` covers the page.
 vi.mock('../pages/CoachPage', () => ({ default: () => <h1>Coach Page</h1> }));
+// #283 (epic #276). Stood in like the settings pages above; their own suites cover the pages.
+vi.mock('../pages/ConnectedDevicesPage', () => ({ default: () => <h1>Connected Devices Page</h1> }));
+vi.mock('../pages/Admin/AndroidAppPage', () => ({ default: () => <h1>Admin Android App Page</h1> }));
 
 const API_BASE = '*/api';
 
@@ -441,6 +444,43 @@ describe('App', () => {
       expect(
         screen.queryByRole('heading', { name: 'User Health Profile Page' })
       ).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * #283 (epic #276). `/settings/connected-devices` is gated on `goals:read`
+   * and `/admin/settings/android` on `system_settings:read` — the strings the
+   * health-sync and android-app controllers enforce and the cards declare.
+   */
+  describe('Health sync routes (#283)', () => {
+    async function expectHeading(path: string, permissions: string[], heading: string) {
+      signInAs(permissions);
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      );
+      await waitFor(() => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+    }
+
+    it('renders Connected devices for a goals:read holder', async () => {
+      await expectHeading('/settings/connected-devices', ['user_settings:read', 'goals:read'], 'Connected Devices Page');
+    });
+
+    it('redirects Connected devices without goals:read, even holding goals:write', async () => {
+      await expectHeading('/settings/connected-devices', ['user_settings:read', 'goals:write'], 'Today Page');
+      expect(screen.queryByRole('heading', { name: 'Connected Devices Page' })).not.toBeInTheDocument();
+    });
+
+    it('renders the Android app page for a system_settings:read holder', async () => {
+      await expectHeading('/admin/settings/android', ['system_settings:read'], 'Admin Android App Page');
+    });
+
+    it('redirects the Android app page without system_settings:read', async () => {
+      await expectHeading('/admin/settings/android', ['user_settings:read', 'system_settings:write'], 'Today Page');
+      expect(screen.queryByRole('heading', { name: 'Admin Android App Page' })).not.toBeInTheDocument();
     });
   });
 
