@@ -185,7 +185,10 @@ export interface MeasurementDto {
   unit: string;
   measuredAt: string;
   method: string;
+  /** `manual`, `ai` (read off a photo) or `device` (synced from a phone, #283). */
   origin: string;
+  /** `health_connect:<deviceId>` for a reading the Android app synced (#283); absent or null otherwise. */
+  externalProvider?: string | null;
   notes: string | null;
   sourceRef: Record<string, unknown> | null;
   /**
@@ -196,6 +199,11 @@ export interface MeasurementDto {
   fileDeleted: boolean | null;
   revision: number;
   edited: boolean;
+}
+
+/** True for a reading the Android app synced from Health Connect (#283). */
+export function isHealthConnectReading(reading: Pick<MeasurementDto, 'externalProvider'>): boolean {
+  return (reading.externalProvider ?? '').startsWith('health_connect:');
 }
 
 /** One item of `GET /api/measurements/latest`. */
