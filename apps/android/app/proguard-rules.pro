@@ -29,3 +29,16 @@
 # --- security-crypto (Tink) --------------------------------------------------
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
+
+# --- WorkManager -------------------------------------------------------------
+# WorkManager stores the worker's class name in its database and instantiates it by
+# reflection; the library's consumer rules keep names/constructors of reachable workers.
+# Pin ours explicitly so a rename by R8 can never orphan scheduled work across updates.
+-keep class com.evopath.android.sync.HealthSyncWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+
+# --- Health Connect ----------------------------------------------------------
+# connect-client ships consumer rules for its protobuf messages and parcelables.
+# Record classes are referenced as Kotlin class literals (ReadRecordsRequest(recordType = …)),
+# which R8 keeps; nothing is looked up by name.
