@@ -1,11 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { APP_SLUG } from '@app/shared';
+
 // =============================================================================
 // Gradle invocation for apps/android  (issue #286, epic #276)
 // =============================================================================
 
-export const DEFAULT_PACKAGE_NAME = 'com.evopath.android';
+/** The app's applicationId when build.gradle.kts cannot be read (`com.<slug>.android`). */
+export const DEFAULT_PACKAGE_NAME = `com.${APP_SLUG.replace(/[^a-z0-9]/gi, '').toLowerCase()}.android`;
 
 export function gradlewPath(projectDir: string, platform: NodeJS.Platform = process.platform): string {
   return join(projectDir, platform === 'win32' ? 'gradlew.bat' : 'gradlew');
