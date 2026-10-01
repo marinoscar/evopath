@@ -82,6 +82,10 @@ const DELETED_CATEGORIES: Array<{
   { key: 'coachMessages', singular: 'coach message', plural: 'coach messages', detail: 'Your AI Coach conversation, nudges and weekly reviews.' },
   { key: 'activityGoals', singular: 'activity goal', plural: 'activity goals', detail: 'Your goals, archived ones included.' },
   { key: 'activityEntries', singular: 'activity entry', plural: 'activity entries', detail: 'Check-ins and the activity counted toward your goals.' },
+  { key: 'healthSyncDevices', singular: 'connected phone', plural: 'connected phones', detail: 'Phones paired to sync Health Connect activity; their tokens are revoked.' },
+  { key: 'healthSyncRuns', singular: 'phone sync run', plural: 'phone sync runs', detail: 'The sync history of your connected phones.' },
+  { key: 'healthSyncDiagnosticReports', singular: 'phone diagnostic report', plural: 'phone diagnostic reports', detail: 'Diagnostic reports your phones uploaded.' },
+  { key: 'sleepSessions', singular: 'sleep session', plural: 'sleep sessions', detail: 'Nights of sleep, including those synced from Health Connect.' },
 ];
 
 const STORAGE_RESULT_KEYS = new Set(['storageObjectsDeleted', 'storageObjectsFailed']);

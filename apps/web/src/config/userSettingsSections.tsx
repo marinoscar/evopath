@@ -29,6 +29,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import SportsOutlinedIcon from '@mui/icons-material/SportsOutlined';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -143,6 +144,21 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         Icon: DescriptionIcon,
         path: '/settings/health-documents',
         permission: 'health_data:read',
+      },
+      {
+        // Issue #283, epic #276. APPENDED after Health Documents. The phones
+        // that sync Health Connect activity into activity goals. `goals:read`
+        // is the exact string every read route of the health-sync controller
+        // enforces (`GET /api/health-sync/devices*`); Unpair needs
+        // `goals:write`, gated inside the page, not by a second card. Under
+        // `Health` rather than `Security`: the page is about where health
+        // activity comes from, even though unpairing revokes a token.
+        title: 'Connected devices',
+        description:
+          'Phones that sync your steps, walks and runs from Health Connect: sync history, diagnostics and unpairing.',
+        Icon: PhoneAndroidIcon,
+        path: '/settings/connected-devices',
+        permission: 'goals:read',
       },
     ],
   },

@@ -25,6 +25,9 @@
  *
  * E7.9 (#249): the "Progress photos" section, right after Blood work, links
  * to the private gallery (`/health/progress-photos`).
+ *
+ * #283 (epic #276): the "Sleep" section, right after Progress photos, shows
+ * the last 14 nights (asleep time and a stage bar) from `GET /api/sleep`.
  */
 
 import { useState } from 'react';
@@ -52,6 +55,7 @@ import { LabReportDialog } from '../components/health/LabReportDialog';
 import { BloodWorkSection } from '../components/health/biomarkers/BloodWorkSection';
 import { labUnitsOf } from '../utils/labUnits';
 import { ProgressPhotosSection } from '../components/health/ProgressPhotosSection';
+import { SleepSection } from '../components/health/SleepSection';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -152,6 +156,9 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
 
         {/* E7.9 (#249): the way into the private progress-photo gallery. */}
         {!forbidden && <ProgressPhotosSection />}
+
+        {/* #283 (epic #276): the last 14 nights, synced from Health Connect. */}
+        {!forbidden && !profileLoading && <SleepSection timeZone={profile?.timeZone} />}
 
         {!forbidden && catalog && !loading && (
           <HealthHistorySections

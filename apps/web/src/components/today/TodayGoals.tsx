@@ -7,6 +7,9 @@
  * "Log a workout" as the second action). Saving refreshes progress in
  * place. No active goal: "Set a goal", linking to `/train/goals`.
  *
+ * Progress that includes activity synced from the Android app (#283) carries
+ * a "Health Connect" chip.
+ *
  * `GoalsGate` shows the card only with `goals:read`; Check in needs
  * `goals:write`. The API enforces both and computes every number shown.
  *
@@ -31,6 +34,7 @@ import {
 } from '../../utils/goalFormat';
 import { GoalProgressRing } from '../goals/GoalProgressRing';
 import { CheckInSheet } from '../goals/CheckInSheet';
+import { HealthConnectChip, countsHealthConnect } from '../goals/HealthConnectChip';
 
 export function GoalsGate({ children }: { children: ReactNode }) {
   const { hasPermission } = usePermissions();
@@ -72,6 +76,7 @@ function GoalRow({
         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
           <Chip size="small" variant="outlined" color={STANDING_COLOR[standing]} label={STANDING_LABELS[standing]} />
           {streak && <Chip size="small" variant="outlined" label={streak} />}
+          {countsHealthConnect(item.entries ?? []) && <HealthConnectChip />}
         </Box>
       </Box>
       {canWrite && (
