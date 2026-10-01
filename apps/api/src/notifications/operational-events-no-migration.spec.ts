@@ -131,6 +131,9 @@ const MIGRATIONS_AT_288 = [
   // #192 (H8): `health_summary_settings` and `health_summaries`. About the AI
   // health summary, not notifications.
   '20261001100000_add_health_summaries',
+  // #241 (epic #240): the AI Coach tables (coach_messages, coach_states,
+  // progress_photos). About coaching, not notifications.
+  '20261001110000_ai_coach_foundations',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

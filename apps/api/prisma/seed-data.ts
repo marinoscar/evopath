@@ -562,6 +562,15 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       maxSteps: 15,
     },
   },
+  coach: {
+    enabled: true,
+    allowProfanePersonas: false,
+    allowAudio: true,
+    maxNudgesPerDayCeiling: 4,
+    audioRetentionDays: 30,
+    autoSilenceAfterIgnored: 3,
+    inactiveStopDays: 7,
+  },
 };
 
 // =============================================================================

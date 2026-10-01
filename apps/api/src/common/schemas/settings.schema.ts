@@ -9,6 +9,8 @@ import {
   notificationEventKeySchema,
   onboardingSettingsSchema,
   onboardingPatchSchema,
+  coachSettingsSchema,
+  coachSettingsPatchSchema,
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
 } from './user-settings-namespaces.schema';
 
@@ -158,6 +160,9 @@ export const userSettingsSchema = z.object({
   // namespaces above: absent means "welcome not seen, checklist not
   // dismissed, no goal".
   onboarding: onboardingSettingsSchema.optional(),
+  // AI Coach preferences (E7.1, #241). Optional and sparse: absent means the
+  // built-in defaults (`COACH_USER_DEFAULTS`), applied at read time.
+  coach: coachSettingsSchema.optional(),
 });
 
 export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
@@ -181,6 +186,9 @@ export const userSettingsPatchSchema = z.object({
   // `onboarding: null` clears the namespace; a field sent as `null` clears
   // just that field (#203).
   onboarding: onboardingPatchSchema.nullable().optional(),
+  // `coach: null` clears the namespace; a field (or nested `audio`/
+  // `quietHours` field) sent as `null` clears just that field (E7.1, #241).
+  coach: coachSettingsPatchSchema.nullable().optional(),
 });
 
 // =============================================================================
@@ -1100,6 +1108,10 @@ export const AI_FEATURE_IDS = [
   'training.evaluator',
   // H8 (#192): the opt-in health summary the training planner reads (`ai.health.summary`).
   'health_summary',
+  // E7.1 (#241): the AI Coach (docs/specs/ai-coach.md §3.3).
+  'coach.decision',
+  'coach.chat',
+  'coach.voice',
 ] as const;
 
 export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];
@@ -1412,6 +1424,52 @@ export type TelemetrySettingsCarriesNoSecret =
 export const TELEMETRY_SETTINGS_CARRIES_NO_SECRET: TelemetrySettingsCarriesNoSecret =
   true;
 
+// =============================================================================
+// AI Coach policy (`coach`) — E7.1, #241; docs/specs/ai-coach.md §3.2
+// =============================================================================
+//
+// Deployment-wide switches and bounds for the AI Coach. `enabled` is the
+// coach's own switch; AI must also be on (`ai.enabled`) for the coach to run.
+// `allowProfanePersonas` is condition 1 of the profanity unlock and
+// `allowAudio` gates spoken nudges; a user's `coach.maxNudgesPerDay` is clamped
+// to `maxNudgesPerDayCeiling` at read time. `audioRetentionDays` drives the
+// `coach.audio.purge` job; `autoSilenceAfterIgnored` and `inactiveStopDays`
+// drive the back-off and win-back rules.
+//
+// No credential is part of this namespace: the coach's model calls resolve a
+// key through `AiKeyResolver` like every other AI call.
+
+/** Upper bound of a user's `coach.maxNudgesPerDay`, and so of the ceiling. */
+export const COACH_MAX_NUDGES_PER_DAY_CEILING_MAX = 4;
+
+export const systemCoachSchema = z.object({
+  enabled: z.boolean(),
+  allowProfanePersonas: z.boolean(),
+  allowAudio: z.boolean(),
+  maxNudgesPerDayCeiling: z.number().int().min(1).max(COACH_MAX_NUDGES_PER_DAY_CEILING_MAX),
+  audioRetentionDays: z.number().int().min(1).max(3650),
+  autoSilenceAfterIgnored: z.number().int().min(1).max(20),
+  inactiveStopDays: z.number().int().min(1).max(90),
+});
+
+export type SystemCoachValue = z.infer<typeof systemCoachSchema>;
+
+/** `coach`, PATCH form: optional field by field. */
+export const systemCoachPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  allowProfanePersonas: z.boolean().optional(),
+  allowAudio: z.boolean().optional(),
+  maxNudgesPerDayCeiling: z
+    .number()
+    .int()
+    .min(1)
+    .max(COACH_MAX_NUDGES_PER_DAY_CEILING_MAX)
+    .optional(),
+  audioRetentionDays: z.number().int().min(1).max(3650).optional(),
+  autoSilenceAfterIgnored: z.number().int().min(1).max(20).optional(),
+  inactiveStopDays: z.number().int().min(1).max(90).optional(),
+});
+
 export const systemSettingsSchema = z.object({
   notifications: systemNotificationsSchema,
   // Operations namespaces (#256, epic #254). REQUIRED, because this schema
@@ -1440,6 +1498,9 @@ export const systemSettingsSchema = z.object({
   // Optional on the wire, in `updateSystemSettingsSchema` — no client sends
   // this block yet.
   telemetry: systemTelemetrySchema,
+  // AI Coach policy (E7.1, #241). REQUIRED for the identical reason as every
+  // namespace above; optional on the wire.
+  coach: systemCoachSchema,
 });
 
 export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
@@ -1479,6 +1540,8 @@ export const systemSettingsPatchSchema = z.object({
   // inside, so `{ "telemetry": { "enabled": true } }` is a legal body — an
   // admin page must not have to send the whole namespace to flip one switch.
   telemetry: systemTelemetryPatchSchema.optional(),
+  // E7.1, #241. Optional at the namespace level and field by field inside.
+  coach: systemCoachPatchSchema.optional(),
 });
 
 // -----------------------------------------------------------------------------

@@ -154,6 +154,16 @@ export const systemSettingsResponseSchema = z.object({
         .optional(),
     }),
   }),
+  // E7.1, #241 — the AI Coach policy. No credential.
+  coach: z.object({
+    enabled: z.boolean(),
+    allowProfanePersonas: z.boolean(),
+    allowAudio: z.boolean(),
+    maxNudgesPerDayCeiling: z.number().int(),
+    audioRetentionDays: z.number().int(),
+    autoSilenceAfterIgnored: z.number().int(),
+    inactiveStopDays: z.number().int(),
+  }),
   updatedAt: z.iso.datetime(),
   updatedBy: z
     .object({

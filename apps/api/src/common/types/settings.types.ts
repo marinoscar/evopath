@@ -3,6 +3,7 @@ import type {
   NavigationValue,
   NotificationsValue,
   OnboardingValue,
+  CoachSettingsValue,
 } from '../schemas/user-settings-namespaces.schema';
 import {
   DEFAULT_MAINTENANCE_MESSAGE,
@@ -15,6 +16,7 @@ import {
   type SystemStorageValue,
   type SystemAiValue,
   type SystemTelemetryValue,
+  type SystemCoachValue,
   type UserAiSettingsValue,
 } from '../schemas/settings.schema';
 
@@ -81,6 +83,12 @@ export interface UserSettingsValue {
    * by `GET /api/onboarding`, never stored here.
    */
   onboarding?: OnboardingValue;
+  /**
+   * AI Coach preferences (E7.1, #241; docs/specs/ai-coach.md §3.1). Sparse:
+   * absent (namespace or field) means the built-in default from
+   * `COACH_USER_DEFAULTS`, applied by `resolveCoachUserSettings`.
+   */
+  coach?: CoachSettingsValue;
 }
 
 /**
@@ -188,6 +196,12 @@ export interface SystemSettingsValue {
    * here is.
    */
   telemetry: SystemTelemetryValue;
+  /**
+   * AI Coach policy (E7.1, #241; docs/specs/ai-coach.md §3.2). REQUIRED, like
+   * every namespace above it: `readKnownSettings` completes it from
+   * `DEFAULT_SYSTEM_SETTINGS` on every read. No credential.
+   */
+  coach: SystemCoachValue;
 }
 
 /**
@@ -437,5 +451,21 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       maxResultRowsToModel: 100,
       maxSteps: 15,
     },
+  },
+  // ---------------------------------------------------------------------------
+  // AI Coach policy (E7.1, #241; docs/specs/ai-coach.md §3.2)
+  // ---------------------------------------------------------------------------
+  //
+  // ON, unlike the namespaces above: the coach is still inert until AI is on
+  // (`ai.enabled` defaults off) and each user opts in by picking a persona
+  // (`coach.enabled` in user settings defaults off). Profanity is off.
+  coach: {
+    enabled: true,
+    allowProfanePersonas: false,
+    allowAudio: true,
+    maxNudgesPerDayCeiling: 4,
+    audioRetentionDays: 30,
+    autoSilenceAfterIgnored: 3,
+    inactiveStopDays: 7,
   },
 };

@@ -4,7 +4,8 @@ import type { NotificationPreferences } from '../../notifications/notification-p
 import type { ProgramGoal } from '../../programs/programs.constants';
 
 // =============================================================================
-// User Settings Namespaces: `dataTables`, `navigation`, `notifications`
+// User Settings Namespaces: `dataTables`, `navigation`, `notifications`,
+// `onboarding`, `coach`
 // =============================================================================
 //
 // WHY THIS FILE EXISTS
@@ -421,3 +422,226 @@ export const onboardingPatchSchema = onboardingSettingsSchema;
 export type OnboardingGoal = z.infer<typeof onboardingGoalSchema>;
 export type OnboardingValue = z.infer<typeof onboardingSettingsSchema>;
 export type OnboardingPatchValue = z.infer<typeof onboardingPatchSchema>;
+
+// =============================================================================
+// `coach` (E7.1, #241): the AI Coach's per-user preferences
+// =============================================================================
+//
+// docs/specs/ai-coach.md §3.1. Sparse like every namespace in this file: no
+// `.default()`. Absent (namespace, field, or nested `audio`/`quietHours`
+// field) means "use `COACH_USER_DEFAULTS`", applied at read time by
+// `resolveCoachUserSettings`, so a default changed in a later release reaches
+// every user who never chose otherwise.
+//
+// THE SCHEMA BOUNDS SHAPE, NOT POLICY. The unlock rules (`profanity` needs the
+// system `allowProfanePersonas` switch and an 18+ confirmation; `audio.enabled`
+// needs the system `allowAudio`; `maxNudgesPerDay` is clamped to the system
+// ceiling; `personaId` must name a registry persona) are applied by the coach
+// settings route, which can read the system settings and the persona registry.
+// This schema only refuses values that are never valid.
+//
+// `why` is free text the user writes and the model later reads: bounded to
+// 200 characters here, like every other user-written field in this blob.
+
+/** `HH:mm`, 24-hour, zero-padded. Same grammar as `BACKUP_TIME_OF_DAY_PATTERN`. */
+export const COACH_TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** A registry id: lowercase slug. Whether it names a persona is the route's check. */
+export const COACH_PERSONA_ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
+
+export const COACH_PERSONA_ID_MAX_LENGTH = 64;
+export const COACH_VOICE_MAX_LENGTH = 64;
+export const COACH_WHY_MAX_LENGTH = 200;
+export const COACH_INTENSITY_MIN = 1;
+export const COACH_INTENSITY_MAX = 3;
+export const COACH_AUDIO_SPEED_MIN = 0.75;
+export const COACH_AUDIO_SPEED_MAX = 1.5;
+export const COACH_MAX_NUDGES_PER_DAY_MIN = 1;
+export const COACH_MAX_NUDGES_PER_DAY_MAX = 4;
+
+export const COACH_PHOTO_CADENCES = ['off', 'weekly', 'biweekly', 'monthly'] as const;
+
+export const coachPhotoCadenceSchema = z.enum(COACH_PHOTO_CADENCES);
+
+const coachTimeOfDaySchema = z
+  .string()
+  .regex(COACH_TIME_OF_DAY_PATTERN, 'must be HH:mm (24-hour)');
+
+const coachPersonaIdSchema = z
+  .string()
+  .min(1)
+  .max(COACH_PERSONA_ID_MAX_LENGTH)
+  .regex(COACH_PERSONA_ID_PATTERN);
+
+const coachIntensitySchema = z
+  .number()
+  .int()
+  .min(COACH_INTENSITY_MIN)
+  .max(COACH_INTENSITY_MAX);
+
+const coachAudioSpeedSchema = z
+  .number()
+  .min(COACH_AUDIO_SPEED_MIN)
+  .max(COACH_AUDIO_SPEED_MAX);
+
+const coachMaxNudgesPerDaySchema = z
+  .number()
+  .int()
+  .min(COACH_MAX_NUDGES_PER_DAY_MIN)
+  .max(COACH_MAX_NUDGES_PER_DAY_MAX);
+
+const coachVoiceSchema = z.string().min(1).max(COACH_VOICE_MAX_LENGTH);
+
+const coachWhySchema = z.string().max(COACH_WHY_MAX_LENGTH);
+
+/** `coach.audio`, stored and PUT form. Absent `voice` = the persona's default voice. */
+export const coachAudioSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    voice: coachVoiceSchema.optional(),
+    speed: coachAudioSpeedSchema.optional(),
+  })
+  .strict();
+
+/** `coach.quietHours`, stored and PUT form. The window may wrap midnight. */
+export const coachQuietHoursSchema = z
+  .object({
+    start: coachTimeOfDaySchema.optional(),
+    end: coachTimeOfDaySchema.optional(),
+  })
+  .strict();
+
+/**
+ * Stored and PUT form of the `coach` namespace. STRICT: an unknown key is a
+ * 400. `adultConfirmedAt`, `why` and `preferredTime` are nullable because
+ * `null` is a value in the contract ("not confirmed", "no reason given", "no
+ * anchor").
+ */
+export const coachSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    personaId: coachPersonaIdSchema.optional(),
+    intensity: coachIntensitySchema.optional(),
+    profanity: z.boolean().optional(),
+    adultConfirmedAt: z.iso.datetime().nullable().optional(),
+    audio: coachAudioSettingsSchema.optional(),
+    quietHours: coachQuietHoursSchema.optional(),
+    maxNudgesPerDay: coachMaxNudgesPerDaySchema.optional(),
+    lockScreenSafe: z.boolean().optional(),
+    photoCadence: coachPhotoCadenceSchema.optional(),
+    why: coachWhySchema.nullable().optional(),
+    preferredTime: coachTimeOfDaySchema.nullable().optional(),
+  })
+  .strict();
+
+/**
+ * PATCH form, merged by `UserSettingsService.mergeCoach`: an omitted field
+ * keeps the stored value, a value replaces it, `null` deletes it (back to the
+ * built-in default). `audio` and `quietHours` merge one level deeper the same
+ * way, so `{ coach: { audio: { speed: 1.25 } } }` keeps the stored voice.
+ */
+export const coachSettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().nullable().optional(),
+    personaId: coachPersonaIdSchema.nullable().optional(),
+    intensity: coachIntensitySchema.nullable().optional(),
+    profanity: z.boolean().nullable().optional(),
+    adultConfirmedAt: z.iso.datetime().nullable().optional(),
+    audio: z
+      .object({
+        enabled: z.boolean().nullable().optional(),
+        voice: coachVoiceSchema.nullable().optional(),
+        speed: coachAudioSpeedSchema.nullable().optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    quietHours: z
+      .object({
+        start: coachTimeOfDaySchema.nullable().optional(),
+        end: coachTimeOfDaySchema.nullable().optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    maxNudgesPerDay: coachMaxNudgesPerDaySchema.nullable().optional(),
+    lockScreenSafe: z.boolean().nullable().optional(),
+    photoCadence: coachPhotoCadenceSchema.nullable().optional(),
+    why: coachWhySchema.nullable().optional(),
+    preferredTime: coachTimeOfDaySchema.nullable().optional(),
+  })
+  .strict();
+
+export type CoachPhotoCadence = z.infer<typeof coachPhotoCadenceSchema>;
+export type CoachAudioSettingsValue = z.infer<typeof coachAudioSettingsSchema>;
+export type CoachQuietHoursValue = z.infer<typeof coachQuietHoursSchema>;
+export type CoachSettingsValue = z.infer<typeof coachSettingsSchema>;
+export type CoachSettingsPatchValue = z.infer<typeof coachSettingsPatchSchema>;
+
+/** Every `coach` field resolved: what a consumer reads after applying defaults. */
+export interface ResolvedCoachUserSettings {
+  enabled: boolean;
+  personaId: string;
+  intensity: number;
+  profanity: boolean;
+  adultConfirmedAt: string | null;
+  audio: {
+    enabled: boolean;
+    /** `null` = the persona's default voice. */
+    voice: string | null;
+    speed: number;
+  };
+  quietHours: { start: string; end: string };
+  maxNudgesPerDay: number;
+  lockScreenSafe: boolean;
+  photoCadence: CoachPhotoCadence;
+  why: string | null;
+  preferredTime: string | null;
+}
+
+/**
+ * The built-in defaults (spec §3.1). The ONE place they live; never written
+ * into a user's row. Off until the user picks a persona.
+ */
+export const COACH_USER_DEFAULTS: Readonly<ResolvedCoachUserSettings> = Object.freeze({
+  enabled: false,
+  personaId: 'coach',
+  intensity: 2,
+  profanity: false,
+  adultConfirmedAt: null,
+  audio: Object.freeze({ enabled: false, voice: null, speed: 1.0 }),
+  quietHours: Object.freeze({ start: '21:30', end: '07:30' }),
+  maxNudgesPerDay: 2,
+  lockScreenSafe: true,
+  photoCadence: 'biweekly',
+  why: null,
+  preferredTime: null,
+});
+
+/** A stored (sparse, possibly absent) `coach` namespace with every default applied. */
+export function resolveCoachUserSettings(
+  stored: CoachSettingsValue | undefined,
+): ResolvedCoachUserSettings {
+  const d = COACH_USER_DEFAULTS;
+  return {
+    enabled: stored?.enabled ?? d.enabled,
+    personaId: stored?.personaId ?? d.personaId,
+    intensity: stored?.intensity ?? d.intensity,
+    profanity: stored?.profanity ?? d.profanity,
+    adultConfirmedAt: stored?.adultConfirmedAt ?? d.adultConfirmedAt,
+    audio: {
+      enabled: stored?.audio?.enabled ?? d.audio.enabled,
+      voice: stored?.audio?.voice ?? d.audio.voice,
+      speed: stored?.audio?.speed ?? d.audio.speed,
+    },
+    quietHours: {
+      start: stored?.quietHours?.start ?? d.quietHours.start,
+      end: stored?.quietHours?.end ?? d.quietHours.end,
+    },
+    maxNudgesPerDay: stored?.maxNudgesPerDay ?? d.maxNudgesPerDay,
+    lockScreenSafe: stored?.lockScreenSafe ?? d.lockScreenSafe,
+    photoCadence: stored?.photoCadence ?? d.photoCadence,
+    why: stored?.why ?? d.why,
+    preferredTime: stored?.preferredTime ?? d.preferredTime,
+  };
+}
