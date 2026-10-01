@@ -434,3 +434,4 @@ By hand, with the app running and signed in as an Admin:
 - #182 ported the admin Doctor into this repository and added `ai.feature-assignments` and `ai.web-search`.
 - #634 added the admin Doctor: the check contract, registry, service and `GET /api/admin/doctor`, the checks in each owning module, and the `/admin/settings/doctor` page and card.
 - #214 removed the `telemetry.stack` check, because the stack agent is not part of telemetry capture, and surfaced the agent's error on the Telemetry settings page instead.
+- #279 (epic #276) added the `android` category and the `android.assetlinks` check.
