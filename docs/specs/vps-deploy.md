@@ -196,6 +196,13 @@ TLS checks run when `--domain` is given.
   `# Managed by appctl deploy` sentinel; uninstall never removes one without it.
   The sentinel is a fixed literal, not derived from `CLI_NAME`, so vhosts written
   under an earlier binary name stay recognised after a rename.
+  The vhost's server-wide `client_max_body_size` is matched to `MAX_FILE_SIZE`
+  (100m by default); the Android APK upload (`location =
+  /api/admin/android-app/releases`) gets its own limit of 160m or the
+  server-wide cap, whichever is larger, with streamed request bodies and
+  ten-minute timeouts, and the APK download (`/api/android-app/download/`) is
+  proxied unbuffered with a ten-minute read timeout, mirroring
+  `infra/nginx/nginx.conf` one hop out (issue #285).
 - **Renewal ownership** (`renewal.ts`, `detectRenewalOwner`): a central script,
   then a systemd `certbot.timer`, then another direct cron line, then this
   CLI's own `/etc/cron.d/<cli>-certbot-renew`, then none. Only `none` makes the
