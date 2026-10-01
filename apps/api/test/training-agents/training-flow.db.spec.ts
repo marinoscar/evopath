@@ -186,6 +186,11 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
    * Eight weeks, three sessions a week, weeks 4 and 8 deloads. The first session
    * falls on today's weekday so today's planned session exists; the refs the
    * evaluator fixtures name (`W5-1-2` the push, `W5-1-3` the row) exist and are open.
+   *
+   * Workout positions follow the weekday order, which wraps past Sunday for a
+   * start late in the week (a Thursday start puts `Full C`, on Monday, first).
+   * So every workout lists squat/lunge, push, row in the same slots: `W5-1-3` is
+   * the row whichever workout sorts first, on any weekday the suite runs.
    */
   function draftFor(keys: Keys): PlanDraft {
     const isoToday = new Date(`${todayStr}T00:00:00Z`).getUTCDay() || 7;
@@ -198,7 +203,7 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
         workouts: [
           draftWorkout('Full A', day(0), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
           draftWorkout('Full B', day(2), [draftExercise(keys.lunge, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
-          draftWorkout('Full C', day(4), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.row, { sets }), draftExercise(keys.push, { sets })]),
+          draftWorkout('Full C', day(4), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
         ],
       };
     };
