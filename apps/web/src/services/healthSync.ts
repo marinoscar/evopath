@@ -12,7 +12,7 @@
  * envelope); this module holds the calls next to their types. Nothing here
  * decides anything: statuses, expiry and retention are the API's.
  */
-import { api } from './api';
+import { api, ApiError } from './api';
 
 // -----------------------------------------------------------------------------
 // Vocabulary
@@ -60,6 +60,12 @@ export interface Device {
   lastError: string | null;
   /** Expiry of the personal access token the phone paired with. */
   tokenExpiresAt: string | null;
+  /** The app build the phone registered with (#287); `null` for an older build. */
+  appVersionCode?: number | null;
+  /** The current server release's versionCode for this package, or `null` without one. */
+  latestVersionCode?: number | null;
+  /** The API's answer: the phone runs an older build than the current release. */
+  updateAvailable?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -189,6 +195,55 @@ export interface AndroidAppConfig {
   assetLinks: unknown;
 }
 
+/**
+ * A published Android APK (#287), as `GET /api/android-app/releases/latest`
+ * answers any signed-in user. The admin list adds the fields in
+ * `AdminRelease`.
+ */
+export interface Release {
+  id: string;
+  packageName: string;
+  versionName: string;
+  versionCode: number;
+  /** Lower-case hex SHA-256 of the APK file. */
+  fileSha256: string;
+  sizeBytes: number;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface AdminRelease extends Release {
+  signingSha256: string;
+  isCurrent: boolean;
+  uploadedById: string | null;
+}
+
+/** `POST /api/android-app/releases/:id/download-link` */
+export interface DownloadLink {
+  /** A navigable, short-lived `/api/android-app/download/<token>` URL. */
+  url: string;
+  expiresAt: string;
+}
+
+export interface UploadReleaseInput {
+  apk: File;
+  versionName: string;
+  versionCode: number;
+  packageName: string;
+  signingSha256: string;
+  notes?: string;
+  makeCurrent: boolean;
+  force?: boolean;
+}
+
+/** API error codes the release endpoints answer with. */
+export const RELEASE_ERROR = {
+  NO_RELEASE: 'NO_RELEASE',
+  VERSION_EXISTS: 'RELEASE_VERSION_EXISTS',
+  VERSION_NOT_NEWER: 'RELEASE_VERSION_NOT_NEWER',
+  IS_CURRENT: 'RELEASE_IS_CURRENT',
+} as const;
+
 // -----------------------------------------------------------------------------
 // Calls
 // -----------------------------------------------------------------------------
@@ -238,9 +293,77 @@ export function putAndroidAppConfig(trustedApps: TrustedApp[]) {
   return api.put<AndroidAppConfig>('/admin/android-app', { trustedApps });
 }
 
+const releasePath = (id: string) => `/admin/android-app/releases/${encodeURIComponent(id)}`;
+
+/** `GET /api/android-app/releases/latest` — the current release, or `null` (404 `NO_RELEASE`). */
+export async function getLatestRelease(options: { signal?: AbortSignal } = {}): Promise<Release | null> {
+  try {
+    return await api.get<Release>('/android-app/releases/latest', { signal: options.signal });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** `POST /api/android-app/releases/:id/download-link` — a 10-minute navigable URL. */
+export function createDownloadLink(id: string) {
+  return api.post<DownloadLink>(`/android-app/releases/${encodeURIComponent(id)}/download-link`);
+}
+
+/** `GET /api/admin/android-app/releases` — newest first. */
+export function listReleases() {
+  return api.get<AdminRelease[]>('/admin/android-app/releases');
+}
+
+/** The multipart body `POST /api/admin/android-app/releases` reads. */
+export function buildReleaseFormData(input: UploadReleaseInput): FormData {
+  const form = new FormData();
+  form.append('versionName', input.versionName);
+  form.append('versionCode', String(input.versionCode));
+  form.append('packageName', input.packageName);
+  form.append('signingSha256', input.signingSha256);
+  if (input.notes && input.notes.trim()) form.append('notes', input.notes.trim());
+  form.append('makeCurrent', input.makeCurrent ? 'true' : 'false');
+  if (input.force) form.append('force', 'true');
+  // The file last: a streaming multipart parser has every field by the time it reaches the bytes.
+  form.append('apk', input.apk, input.apk.name);
+  return form;
+}
+
+/** `POST /api/admin/android-app/releases` (multipart). */
+export function uploadRelease(input: UploadReleaseInput) {
+  return api.postFormData<AdminRelease>('/admin/android-app/releases', buildReleaseFormData(input));
+}
+
+/** `POST /api/admin/android-app/releases/:id/make-current` — rollback allowed. */
+export function makeReleaseCurrent(id: string) {
+  return api.post<AdminRelease>(`${releasePath(id)}/make-current`);
+}
+
+/** `DELETE /api/admin/android-app/releases/:id` — 409 `RELEASE_IS_CURRENT` for the current one. */
+export function deleteRelease(id: string) {
+  return api.delete<void>(releasePath(id));
+}
+
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+/** `12.3 MB` (one decimal, decimal megabytes, as Android's file manager shows them). */
+export function formatMegabytes(bytes: number): string {
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
+/**
+ * Hand the browser a navigable download URL. A plain navigation (not a blob)
+ * is what lets Chrome and the TWA on Android download the APK natively and
+ * offer the system installer. Wrapped so tests can replace it.
+ */
+export const downloadNavigator = {
+  assign(url: string): void {
+    window.location.assign(url);
+  },
+};
 
 /** `https://github.com/<repoSlug>/releases/tag/android-latest` */
 export function androidReleaseUrl(repoSlug: string): string {

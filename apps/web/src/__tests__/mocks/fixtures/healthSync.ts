@@ -4,6 +4,7 @@
  * `{ data }` envelope.
  */
 import type {
+  AdminRelease,
   AndroidAppConfig,
   Device,
   Report,
@@ -152,3 +153,43 @@ export const mockAndroidAppConfig: AndroidAppConfig = {
   ],
   assetLinks: [],
 };
+
+// -----------------------------------------------------------------------------
+// APK releases (#287)
+// -----------------------------------------------------------------------------
+
+export const RELEASE_ID = 'rel11111-0000-4000-8000-000000000002';
+export const OLD_RELEASE_ID = 'rel11111-0000-4000-8000-000000000001';
+export const FILE_SHA = 'a'.repeat(32) + 'b'.repeat(32);
+
+export function mockAdminRelease(overrides: Partial<AdminRelease> = {}): AdminRelease {
+  return {
+    id: RELEASE_ID,
+    packageName: 'com.evopath.android',
+    versionName: '0.2.0',
+    versionCode: 2,
+    fileSha256: FILE_SHA,
+    sizeBytes: 12_345_678,
+    notes: 'Update checks and server downloads.',
+    createdAt: '2026-09-30T12:00:00.000Z',
+    signingSha256: PIXEL_SHA,
+    isCurrent: true,
+    uploadedById: 'user-1',
+    ...overrides,
+  };
+}
+
+/** The public view `GET /api/android-app/releases/latest` answers. */
+export function mockRelease(overrides: Partial<AdminRelease> = {}) {
+  const { signingSha256: _s, isCurrent: _c, uploadedById: _u, ...pub } = mockAdminRelease(overrides);
+  return pub;
+}
+
+export const mockOldRelease = mockAdminRelease({
+  id: OLD_RELEASE_ID,
+  versionName: '0.1.0',
+  versionCode: 1,
+  isCurrent: false,
+  notes: null,
+  createdAt: '2026-09-01T12:00:00.000Z',
+});

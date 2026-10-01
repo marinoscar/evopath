@@ -158,6 +158,15 @@ export const handlers = [
     return HttpResponse.json({ data: mockAndroidAppConfig });
   }),
 
+  // APK releases (#287): none published yet.
+  http.get(`${API_BASE}/android-app/releases/latest`, () => {
+    return HttpResponse.json({ message: 'No Android app release is published', code: 'NO_RELEASE' }, { status: 404 });
+  }),
+
+  http.get(`${API_BASE}/admin/android-app/releases`, () => {
+    return HttpResponse.json({ data: [] });
+  }),
+
   // Sleep (#283 scope update): no nights recorded.
   http.get(`${API_BASE}/sleep`, () => {
     return HttpResponse.json({ data: [] });
