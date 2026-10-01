@@ -10,12 +10,12 @@ A goal is a target a user sets for everyday movement: "walk 4 times a week", "15
   - A small set of per-user targets (`activity_goals`) with a status lifecycle and a cap of 10 active goals.
   - A log of activity (`activity_entries`) that goals count from. A row is a manual check-in, a workout-derived credit or, in the future, an imported reading.
   - Pure counting rules (matching, source precedence, on track, streak) behind `GET /api/goals/progress` and `GET /api/goals/:id/history`.
-  - A shape ready for device sync: provenance columns, an idempotent keyed batch and a precedence rule that lets a measured value win over a typed one (section 2.8).
+  - A shape ready for device sync: provenance columns, an idempotent keyed batch and a precedence rule that lets a measured value win over a typed one (section 2.9).
 - **What it is not.**
   - Not a training plan. A goal prescribes nothing and adapts nothing; the plan and its evaluator ([ai-training-plans.md](ai-training-plans.md)) never read goals.
   - Not a second active plan. See [section 6](#6-design-decisions).
   - Not a device integration. No importer, OAuth flow or provider setting exists; no client can write a row with source `integration`.
-  - Not a notification or coaching feature. Progress is exposed to other server code through `GoalProgressService` (section 4).
+  - Not a coaching feature itself. The AI Coach reads progress through `GoalProgressService` and reacts to check-ins (section 2.8); goals work with the coach off.
 - **Problem it solves.** A person who wants to "walk more" has nothing to log against: workouts are structured sessions and the plan is one prescription. Goals give a lightweight, forgiving target (backdate a week, say "I did it" without numbers) and credit the work already logged.
 
 ## 2. How it works
@@ -157,7 +157,13 @@ All of it is pure code in `goal-progress.ts` (no Nest, no Prisma, no clock); `Go
 - **Today "Goals" card** (`TodayGoals.tsx`, registered as card `goals` in `apps/web/src/config/todayCards.tsx`) shows a progress ring and one line per active goal, on track, behind or hit, and a Check in button that opens the check-in sheet (`CheckInSheet.tsx`: I did it, Minutes, Steps; today back to seven days). With no active goal it links to `/train/goals`.
 - `goals:write` enables every write; the API enforces both permissions and decides every number shown. Layout follows the `sm` breakpoint gates of the [settings UI spec](settings-ui.md#breakpoint-gates).
 
-### 2.8 Sync-ready by design (future device import)
+### 2.8 Consumers and the check-in event
+
+- **`GoalProgressService`** (exported by `ActivityModule`) is the programmatic read API: `progressForUser`, `evaluateGoal` and `historyForGoal`. Its results carry `elapsedFraction` on top of the HTTP shape. The AI Coach is its consumer: the sweep and the finish and check-in jobs read every active goal's period, the chat tool `get_goals` reads a compact summary, and the weekly review lists the goals. See [ai-coach.md](ai-coach.md).
+- **`activity.entry.recorded`** (`apps/api/src/activity/activity-events.ts`, EventEmitter2) is emitted by `ActivityEntriesService` **after** a manual check-in committed: `create` once its row exists, and `batch` once its transaction committed and wrote at least one row. An edit or a delete emits nothing. The payload is ids and an instant only (`userId`, `recordedSince`); the coach's listener turns it into the server-only job `coach.activity_recorded`, which plans a `goal_hit` message. The event key is permanent: listeners subscribe by string, and a listener must return quickly and never throw.
+- Workout credit has its own trigger, the `workout.finished` event (section 2.4).
+
+### 2.9 Sync-ready by design (future device import)
 
 External integrations (Oura, Health Connect, Samsung Health, Apple Health) are future work and are **not** built: there is no importer, OAuth code or provider setting, and no HTTP route can write `source: integration`. The model is shaped so one can be added without a migration of meaning:
 
@@ -221,7 +227,7 @@ Refusal reasons (`details.reason`, `ACTIVITY_REASONS` in `activity.constants.ts`
 | Credit another exercise to a kind | Add its slug to `WALK_EXERCISE_SLUGS` or `RUN_EXERCISE_SLUGS`, or extend `derivedEntriesFor` for a new rule. Reconcile re-derives the last 14 days on the next read; older workouts need a one-off sync via `WorkoutActivitySyncService.syncWorkout` |
 | Add a metric | Extend `GoalMetric`, `entryMetricValue` and `toGoalUnits` in `goal-progress.ts`, and the web formatters. Decide its per-day rule in `evaluateDay` first |
 | Read goal progress from another feature | Import `ActivityModule` and inject `GoalProgressService` (`progressForUser`, `evaluateGoal`, `historyForGoal`); never query the goal tables of another user. Call it after a write commits |
-| Import readings from a device | Section 2.8: insert `integration` rows server-side through `activity_entries_provider_external_uniq_idx` from a queue job, never from a client route |
+| Import readings from a device | Section 2.9: insert `integration` rows server-side through `activity_entries_provider_external_uniq_idx` from a queue job, never from a client route |
 | Keep goals through a data reset | Already decided: `activity_entries` and `activity_goals` are deleted by `user-data/user-data-purge.ts`. See [user-data-reset.md §4](user-data-reset.md#4-extending-it-in-a-fork) |
 
 ## 5. Guardrails
