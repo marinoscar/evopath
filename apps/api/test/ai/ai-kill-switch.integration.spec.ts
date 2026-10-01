@@ -200,6 +200,8 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.usage.purge': {},
       // E2.6 (#64): reads a scale/cuff display off a photo intake; filled in per-test.
       'ai.health.body_metric_reading': null,
+      // H4 (#188): transcribes a lab report off a lab_report intake; filled in per-test.
+      'ai.health.lab_report': null,
       'ai.equipment.scan': null, // filled in per-test: needs a scanning gym_equipment intake (E3.4)
       'ai.workout.prefill': null, // filled in per-test: needs a scanning workout_prefill intake (E4.5)
       'ai.training.plan.run': null, // filled in per-test: needs a queued training_plan_runs row (E5.3)
@@ -374,6 +376,44 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
         modelId: 'fake-model',
         jobId: 'job-kill-switch',
         photos: [{ storageObjectId: photo.id }],
+      });
+      prisma.photoIntake.updateMany.mockResolvedValueOnce({ count: 1 });
+
+      await expect(
+        handler!.process({ id: 'job-kill-switch', payload: { intakeId } } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.harness.storage.provider.download).not.toHaveBeenCalled();
+      expect(prisma.draftItem.createMany).not.toHaveBeenCalled();
+      expect(prisma.photoIntake.updateMany).toHaveBeenCalledWith({
+        where: { id: intakeId, status: 'scanning' },
+        data: expect.objectContaining({ status: 'failed', errorCode: 'AI_DISABLED' }),
+      });
+    });
+
+    it('ai.health.lab_report: disabled makes zero provider calls, intake fails with AI_DISABLED, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.health.lab_report');
+      expect(handler).toBeDefined();
+
+      const report = app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'application/pdf' });
+      (app.harness.storage.provider.download as jest.Mock).mockClear();
+      const intakeId = '99999999-9999-4999-8999-999999999999';
+      const prisma = app.context.prismaMock as any;
+
+      // A `scanning` intake the way `POST /api/intakes/:id/analyze` leaves it.
+      prisma.photoIntake.findUnique.mockResolvedValueOnce({
+        id: intakeId,
+        userId: HARNESS_USER,
+        kind: 'lab_report',
+        status: 'scanning',
+        provider: 'openai',
+        modelId: 'fake-model',
+        jobId: 'job-kill-switch',
+        context: null,
+        photos: [{ storageObjectId: report.id, storageObject: { mimeType: 'application/pdf' } }],
       });
       prisma.photoIntake.updateMany.mockResolvedValueOnce({ count: 1 });
 
