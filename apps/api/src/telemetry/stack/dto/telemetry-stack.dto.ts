@@ -41,6 +41,19 @@ export const telemetryStackStatusSchema = z.object({
    * the API's token; `not_configured` — this deployment has no stack-agent.
    */
   agent: z.enum(TELEMETRY_STACK_AGENT_STATES),
+  /**
+   * Why the stack-agent is `unavailable` or `unauthorized`: the client's
+   * message (the agent's origin and the failure, never the token). Null when
+   * `agent` is `available` or `not_configured`.
+   */
+  agentError: z
+    .string()
+    .nullable()
+    .describe(
+      'Why the stack agent is `unavailable` or `unauthorized`: the agent origin and the failure ' +
+        '(for example a timeout, a connection error or the HTTP status). Never carries the token. ' +
+        'Null when `agent` is `available` or `not_configured`.',
+    ),
   /** Each telemetry service's container. Empty unless `agent` is `available`. */
   services: z.array(telemetryStackServiceSchema),
   /** The most recent `telemetry.stack.deploy` job, or null when there has never been one. */

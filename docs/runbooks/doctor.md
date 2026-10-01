@@ -58,7 +58,7 @@ The **verdict** is the worst status present, ordered `pass`, `skip`, `warn`, `fa
 A `skip` means one of:
 
 - **A check it depends on did not pass.** The detail reads `Skipped: <check> did not pass`. Fix that one first; the skipped check runs again on the next report. Example: `storage.bucket` is skipped while `storage.config` fails.
-- **The capability is off on purpose.** AI switched off, web search off, telemetry collection off, or no stack agent because this is not a VPS deploy. Nothing needs fixing unless you meant it to be on.
+- **The capability is off on purpose.** AI switched off, web search off, or telemetry collection off. Nothing needs fixing unless you meant it to be on.
 
 Fix problems top to bottom within a category, and start with `core`: a failing `db.connection` makes most other checks skip or fail.
 
@@ -103,7 +103,7 @@ Each entry is the meaning of a `warn` or `fail` and where to go. The remedy in t
 
 ### Telemetry
 
-The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `telemetry.tables`, `telemetry.freshness` runs in that order; work through it from the top, because each skips when the one before fails. `telemetry.stack` stands alone. Procedures are in the [telemetry runbook](telemetry.md).
+The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `telemetry.tables`, `telemetry.freshness` runs in that order; work through it from the top, because each skips when the one before fails. Procedures are in the [telemetry runbook](telemetry.md).
 
 | Check | Red or amber means | Go to |
 |---|---|---|
@@ -112,7 +112,6 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 | `telemetry.reachable` | GreptimeDB did not answer as the reader. | Check the GreptimeDB container and the reader login; use **Test connection** on the settings page. |
 | `telemetry.tables` | The store is unreadable, a table is missing (nothing exported yet), or no retention is set. | Check the collector exports to this database; apply retention at `/admin/settings/telemetry` (needs the admin login). |
 | `telemetry.freshness` | No trace or log arrived within 5 minutes (warn), or none in 7 days (fail). | Check the OpenTelemetry collector container and `OTEL_EXPORTER_OTLP_ENDPOINT`; the Telemetry Dashboard shows the gap. |
-| `telemetry.stack` | A telemetry container is not running, none is deployed, the agent is unavailable (warn), or it refused the token (fail). | On the VPS, `docker ps`; make `STACK_AGENT_TOKEN` match for the `api` and `stack-agent` containers. |
 
 ## 5. Troubleshooting
 

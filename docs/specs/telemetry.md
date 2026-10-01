@@ -1101,6 +1101,9 @@ deployment settings, not a telemetry-policy edit.
   seconds) and reads the most recent `telemetry.stack.deploy` job. It always
   answers 200: `agent` is `available`, `unavailable`, `unauthorized` or
   `not_configured` — a missing or unreachable agent is a state, not an error.
+  `agentError` is `string | null`: the agent's secret-free error message when
+  `agent` is `unavailable` or `unauthorized`, otherwise `null`. The Doctor has
+  no check for the agent, because telemetry capture never uses it.
 - `POST /deploy` enqueues `telemetry.stack.deploy`
   (`apps/api/src/telemetry/stack/telemetry-stack-deploy.handler.ts`) and
   answers `202` at once — an image pull can take up to ten minutes, far
@@ -1136,6 +1139,12 @@ never compose, a compose file or the CLI. This is the same posture the
 connection error messages already took (§8's unresolvable-host handling): an
 administrator should never need to know this template runs on Docker Compose
 to operate telemetry from the admin UI.
+
+The section words the agent states differently. For `unavailable` it shows
+"The deployment agent isn't responding, so these services can't be redeployed
+from here. Telemetry collection is unaffected." plus the `agentError` reason.
+`not_configured` keeps its own text, since there is no agent to be
+unresponsive.
 
 ### `STACK_AGENT_TOKEN`
 

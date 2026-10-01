@@ -6,9 +6,6 @@ import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
 import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
 import { TelemetryStatus } from '../dto/telemetry-status.dto';
 import { GreptimeClient } from '../greptime/greptime.client';
-import { TelemetryStackStatus } from '../stack/dto/telemetry-stack.dto';
-import { StackAgentClient } from '../stack/stack-agent.client';
-import { TelemetryStackService } from '../stack/telemetry-stack.service';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import { TelemetryStatusService } from '../telemetry-status.service';
 import { TelemetryConnectionDoctorCheck } from './telemetry-connection.doctor-check';
@@ -19,7 +16,6 @@ import {
 } from './telemetry-export.doctor-check';
 import { TelemetryFreshnessDoctorCheck, decideTelemetryFreshness } from './telemetry-freshness.doctor-check';
 import { TelemetryReachableDoctorCheck } from './telemetry-reachable.doctor-check';
-import { TelemetryStackDoctorCheck, decideTelemetryStack } from './telemetry-stack.doctor-check';
 import { TelemetryTablesDoctorCheck, decideTelemetryTables } from './telemetry-tables.doctor-check';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
@@ -220,65 +216,6 @@ describe('telemetry doctor checks', () => {
       expect(sql).toContain('traces_last');
       expect(sql).toContain('opentelemetry_logs');
       expect(check.dependsOn).toEqual(['telemetry.tables']);
-    });
-  });
-
-  describe('telemetry.stack', () => {
-    const status = (overrides: Partial<TelemetryStackStatus> = {}): TelemetryStackStatus => ({
-      agent: 'available',
-      services: [
-        { name: 'greptimedb', state: 'running', health: 'healthy' },
-        { name: 'otel-collector', state: 'running', health: null },
-      ],
-      deploy: null,
-      ...overrides,
-    });
-
-    it('is skip when there is no stack agent', async () => {
-      const getStatus = jest.fn();
-      const check = new TelemetryStackDoctorCheck(
-        registry(),
-        { isConfigured: () => false } as unknown as StackAgentClient,
-        { getStatus } as unknown as TelemetryStackService,
-      );
-
-      await expect(check.run()).resolves.toMatchObject({ status: 'skip', detail: 'No stack agent (not a VPS deploy)' });
-      expect(getStatus).not.toHaveBeenCalled();
-    });
-
-    it('passes when every container runs', () => {
-      expect(decideTelemetryStack(status())).toMatchObject({ status: 'pass', data: { services: 2 } });
-    });
-
-    it('warns on a stopped or unhealthy container', () => {
-      const outcome = decideTelemetryStack(
-        status({
-          services: [
-            { name: 'greptimedb', state: 'exited', health: null },
-            { name: 'otel-collector', state: 'running', health: 'unhealthy' },
-          ],
-        }),
-      );
-      expect(outcome.detail).toContain('greptimedb (exited)');
-      expect(outcome.detail).toContain('otel-collector (unhealthy)');
-      expectRemedy(outcome);
-    });
-
-    it('fails when the agent refuses the token, warns when it is unavailable', () => {
-      expect(decideTelemetryStack(status({ agent: 'unauthorized', services: [] })).status).toBe('fail');
-      expectRemedy(decideTelemetryStack(status({ agent: 'unauthorized', services: [] })));
-      expectRemedy(decideTelemetryStack(status({ agent: 'unavailable', services: [] })));
-    });
-
-    it('reads the stack status when an agent is configured', async () => {
-      const getStatus = jest.fn().mockResolvedValue(status());
-      const check = new TelemetryStackDoctorCheck(
-        registry(),
-        { isConfigured: () => true } as unknown as StackAgentClient,
-        { getStatus } as unknown as TelemetryStackService,
-      );
-
-      await expect(check.run()).resolves.toMatchObject({ status: 'pass' });
     });
   });
 });
