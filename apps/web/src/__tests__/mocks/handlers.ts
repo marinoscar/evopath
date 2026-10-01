@@ -38,6 +38,7 @@ import {
 import { mockHealthProfileEmpty } from './fixtures/health';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
 import { mockTodayCheckInEmpty } from './fixtures/checkIns';
+import { mockHealthExport, mockHealthExportDownloadUrl, mockReadyHealthExport } from './fixtures/healthExports';
 import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
 import { mockAiFeaturesView } from './fixtures/aiFeatures';
 import type {
@@ -396,6 +397,27 @@ export const handlers = [
       });
     }
     return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+  }),
+
+  // Health exports (#191, H7): nothing exported yet, a POST that queues one,
+  // and a status read that answers ready with a fresh signed URL.
+  http.get(`${API_BASE}/health/exports`, () => {
+    return HttpResponse.json({ data: { items: [] } });
+  }),
+
+  http.post(`${API_BASE}/health/exports`, async ({ request }) => {
+    const body = (await request.json()) as Partial<ReturnType<typeof mockHealthExport>>;
+    return HttpResponse.json({ data: mockHealthExport({ ...body, status: 'pending' }) }, { status: 202 });
+  }),
+
+  http.get(`${API_BASE}/health/exports/:id`, ({ params }) => {
+    const id = String(params.id);
+    return HttpResponse.json({
+      data: mockReadyHealthExport({
+        id,
+        download: { url: mockHealthExportDownloadUrl(id), expiresAt: new Date(Date.now() + 300_000).toISOString() },
+      }),
+    });
   }),
 
   // Health endpoints
