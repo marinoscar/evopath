@@ -1,4 +1,3 @@
-import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
@@ -6,7 +5,7 @@ import { NotificationProvider } from './contexts/NotificationContext';
 import { AiConfigProvider } from './contexts/AiConfigContext';
 import { TelemetryConfigProvider } from './contexts/TelemetryConfigContext';
 import { OnboardingProvider } from './contexts/OnboardingContext';
-import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
+import { ThemeContextProvider } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
@@ -150,10 +149,10 @@ const TestLoginPage = import.meta.env.PROD
   : lazy(() => import('./pages/TestLoginPage'));
 
 function AppRoutes() {
-  const { theme } = useThemeContext();
-
+  // The MUI `ThemeProvider` is mounted by `ThemeContextProvider` (in `App`,
+  // below), which owns the colour scheme; this tree only adds the baseline.
   return (
-    <ThemeProvider theme={theme}>
+    <>
       <CssBaseline />
       <ErrorBoundary>
         {/* THE CLIENT GATE (#258, epic #254), around the whole route tree and
@@ -948,9 +947,10 @@ function AppRoutes() {
           </Suspense>
         </MaintenanceGate>
       </ErrorBoundary>
-      {/* The PWA prompts (#219, epic #215) sit here — inside `ThemeProvider`
-          so they are themed, OUTSIDE both `ErrorBoundary` and `Routes`, and
-          outside `Layout`.
+      {/* The PWA prompts (#219, epic #215) sit here — inside the theme
+          (`ThemeContextProvider` mounts MUI's `ThemeProvider` around this
+          whole tree) so they are themed, OUTSIDE both `ErrorBoundary` and
+          `Routes`, and outside `Layout`.
 
           Outside `Routes` because they belong to the DOCUMENT, not to any
           page: `UpdatePrompt` owns the service-worker registration, which must
@@ -970,7 +970,7 @@ function AppRoutes() {
           one before this change. */}
       <UpdatePrompt />
       <InstallPrompt />
-    </ThemeProvider>
+    </>
   );
 }
 

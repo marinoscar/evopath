@@ -2,7 +2,7 @@ import { renderHook, RenderHookOptions, RenderHookResult } from '@testing-librar
 import { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
-import { lightTheme } from '../../theme';
+import { theme } from '../../theme';
 
 interface HookWrapperOptions {
   route?: string;
@@ -14,7 +14,7 @@ export function createHookWrapper(options: HookWrapperOptions = {}) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <MemoryRouter initialEntries={[route]}>
-        <ThemeProvider theme={lightTheme}>
+        <ThemeProvider theme={theme}>
           {children}
         </ThemeProvider>
       </MemoryRouter>

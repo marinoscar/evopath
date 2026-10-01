@@ -34,7 +34,7 @@ export function LogSeverityChart({
     { id: 'error', label: 'Error', color: theme.palette.error.main, shown: severities.includes('error') },
     { id: 'warn', label: 'Warn', color: theme.palette.warning.main, shown: severities.includes('warn') },
     { id: 'info', label: 'Info', color: theme.palette.info.main, shown: severities.includes('info') },
-    { id: 'other', label: 'Other', color: theme.palette.grey[500], shown: severities.includes('info') },
+    { id: 'other', label: 'Other', color: theme.palette.outline, shown: severities.includes('info') },
   ];
   const shown = bands.filter((band) => band.shown);
 

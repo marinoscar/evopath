@@ -12,9 +12,10 @@
  * Built on the high-level `LineChart` of `@mui/x-charts`: one plot, one
  * y-axis and a time x-axis are exactly what it packages, so the composition
  * primitives `ApiTimelineChart` needs (bars + line on two axes) buy nothing
- * here. Colours come from the charts' own categorical palette for the current
- * theme mode (no literal colours), picked by the method's catalog position so
- * a method keeps its colour across ranges. The wrapper is `role="img"` with a
+ * here. Colours come from the theme's categorical chart series
+ * (`theme/chartPalette.ts`) for the current colour scheme (no literal colours,
+ * never a status colour), picked by the method's catalog position so a method
+ * keeps its colour across ranges. The wrapper is `role="img"` with a
  * summary as its name; the History list below is the full text equivalent.
  */
 
@@ -34,7 +35,7 @@ import {
 } from '@mui/material';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import { LineChart } from '@mui/x-charts/LineChart';
-import { rainbowSurgePalette } from '@mui/x-charts/colorPalettes';
+import { useChartSeries } from '../../theme/chartPalette';
 import { HEALTH_DATA_UNAVAILABLE, type MetricDef, type UnitSystem } from '../../services/health';
 import { useMeasurementSeries } from '../../hooks/useMeasurementSeries';
 import { EmptyState } from '../common/EmptyState';
@@ -121,6 +122,7 @@ export function MeasurementTrendChart({
   initialRange = DEFAULT_TREND_RANGE,
 }: MeasurementTrendChartProps) {
   const theme = useTheme();
+  const palette = useChartSeries();
   const ids = useId();
   // A local layout choice for the chart height and value axis, NOT one of the
   // five coupled `sm` shell gates (docs/specs/settings-ui.md#breakpoint-gates).
@@ -205,7 +207,6 @@ export function MeasurementTrendChart({
     return { built, methods, count, latest, range, domain };
   }, [choice, primary, data.series, metricsByKey, methodLabels, unitSystem]);
 
-  const palette = rainbowSurgePalette(theme.palette.mode);
   const colorFor = (groupIndex: number, groupCount: number, method: string) => {
     const methodIndex = Math.max(0, primary?.methods.indexOf(method) ?? 0);
     return palette[(methodIndex * groupCount + groupIndex) % palette.length];

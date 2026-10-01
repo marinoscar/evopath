@@ -4,7 +4,7 @@
  */
 import { Box, Typography, useTheme } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
-import { rainbowSurgePalette } from '@mui/x-charts/colorPalettes';
+import { useChartSeries } from '../../theme/chartPalette';
 import type { MuscleVolume } from '../../services/programs';
 import { formatWeight, type WeightUnit } from '../../utils/units';
 import { ChartFrame, weekLabel } from './ChartFrame';
@@ -24,8 +24,10 @@ export function muscleLabel(muscle: string): string {
 
 export function VolumeByMuscle({ volume, weightUnit, width }: VolumeByMuscleProps) {
   const theme = useTheme();
-  const palette = rainbowSurgePalette(theme.palette.mode);
-  const plannedColor = theme.palette.grey[theme.palette.mode === 'dark' ? 600 : 400];
+  const palette = useChartSeries();
+  // "Planned" is the muted reference bar: the theme's outline ink, legible on
+  // paper in both schemes without being a series colour or a status.
+  const plannedColor = theme.palette.outline;
 
   if (volume.length === 0) {
     return (

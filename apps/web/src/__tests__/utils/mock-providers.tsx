@@ -1,12 +1,12 @@
 import { ReactNode } from 'react';
 import { vi } from 'vitest';
 import { ThemeProvider } from '@mui/material/styles';
-import { lightTheme, darkTheme } from '../../theme';
+import { theme } from '../../theme';
 
 // Theme Context Mock
 export const mockThemeContext = {
   mode: 'light' as const,
-  theme: lightTheme,
+  theme,
   setMode: vi.fn(),
   toggleTheme: vi.fn(),
 };
@@ -18,8 +18,13 @@ export function MockThemeProvider({
   children: ReactNode;
   mode?: 'light' | 'dark';
 }) {
-  const theme = mode === 'light' ? lightTheme : darkTheme;
-  return <ThemeProvider theme={theme}>{children}</ThemeProvider>;
+  // One CSS-variables theme carries both schemes; `defaultMode` picks the one
+  // under test and `forceThemeRerender` makes `theme.palette` follow it.
+  return (
+    <ThemeProvider theme={theme} defaultMode={mode} forceThemeRerender noSsr>
+      {children}
+    </ThemeProvider>
+  );
 }
 
 // Auth Context Mock
