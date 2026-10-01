@@ -312,6 +312,40 @@ describe('TodayPlanCard', () => {
     await waitFor(() => expect(within(items[0]).getByText(/@ RPE 8 · 176\.4 lb/)).toBeInTheDocument());
   });
 
+  it('workout: a time or distance prescription reads "5 km · 30 min" with no load line (#263)', async () => {
+    const cardio = (name: string, slug: string, targets: Partial<TodaySessionExercise>) =>
+      exercise({
+        exercise: { id: `ex-${slug}`, slug, name, trackingMode: 'distance_time', isBodyweight: false, primaryMuscles: [] },
+        sets: null,
+        repMin: null,
+        repMax: null,
+        targetRpe: null,
+        restSeconds: 0,
+        loadGuidance: 'choose_start',
+        targetLoadKg: null,
+        suggestedLoadKg: null,
+        rationale: null,
+        lastTime: null,
+        ...targets,
+      });
+    serveToday(
+      workoutDay({
+        session: session({
+          exercises: [
+            cardio('Outdoor walk', 'outdoor_walk', { targetDurationSeconds: 1800 }),
+            cardio('Outdoor run', 'outdoor_run', { targetDistanceMeters: 5000, targetDurationSeconds: 1800 }),
+          ],
+        }),
+      }),
+    );
+    renderCard();
+    const items = within(await screen.findByRole('list', { name: 'Planned exercises' })).getAllByRole('listitem');
+    expect(within(items[0]).getByText('Outdoor walk')).toBeInTheDocument();
+    expect(within(items[0]).getByText('30 min')).toBeInTheDocument();
+    expect(within(items[1]).getByText('5 km · 30 min')).toBeInTheDocument();
+    expect(screen.queryByText(/Choose a starting load/)).toBeNull();
+  });
+
   it('workout: shows the Deload chip, and the Plan adjusted chip links to the plan history', async () => {
     serveToday(workoutDay({ isDeload: true, session: session({ unseenChangeCount: 2 }) }));
     renderCard();
