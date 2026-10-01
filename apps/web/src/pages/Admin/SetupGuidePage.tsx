@@ -9,6 +9,10 @@
  * "Re-check" re-reads with `refresh=true`, which the API forwards to the
  * Doctor so every probe runs again. The Doctor itself is one link away for
  * the full picture.
+ *
+ * Below the checklist, the Activation section (#212) shows how recent
+ * sign-ups reach their first workout (`GET /api/admin/onboarding/metrics`,
+ * the same `system_settings:read`).
  */
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import {
@@ -29,6 +33,7 @@ import { APP_NAME } from '@app/shared';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useOnboarding } from '../../hooks/useOnboarding';
 import { OnboardingChecklist } from '../../components/onboarding/OnboardingChecklist';
+import { ActivationMetrics } from '../../components/onboarding/ActivationMetrics';
 
 export const PAGE_TITLE = 'Setup guide';
 export const DOCTOR_PATH = '/admin/settings/doctor';
@@ -118,6 +123,9 @@ export default function SetupGuidePage() {
             )}
           </CardContent>
         </Card>
+
+        {/* #212: a section of this page, not a card or tab of its own. */}
+        <ActivationMetrics />
       </Box>
     </Container>
   );
