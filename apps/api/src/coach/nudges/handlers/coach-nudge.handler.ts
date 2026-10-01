@@ -33,6 +33,16 @@
 //      static persona line (`provider = 'static'`).
 //   6. Persist the `CoachMessage`, then enqueue `coach.message.deliver`.
 //
+// KICKOFF (E7.12). Enqueued by `CoachKickoffListener` on program activation,
+// subject (`program`, programId), `momentKey` `kickoff:<programId>`. It skips
+// the plain `paused` suppression and runs `kickoffGate` after the momentKey
+// check instead: coach off -> nothing; pause, quiet hours, cap and spacing
+// re-queue the job for the next allowed instant (`scheduledFor`, at most
+// `KICKOFF_MAX_DEFERRALS` times) rather than dropping it. The prompt asks the
+// three implementation-intention questions (when, where, fallback). A
+// kickoff is never lost to the model: no runnable model, a model error, a
+// decline or two guard rejections all deliver the static persona kickoff line.
+//
 // ⚠ PRIVACY: no prompt, `why`, title, body or reason text in any log line,
 // span or metric; ids, enums and rule names only.
 // =============================================================================
@@ -66,11 +76,15 @@ import {
   AI_COACH_NUDGE_JOB_TYPE,
   COACH_MESSAGE_DELIVER_JOB_TYPE,
   COACH_MESSAGE_SUBJECT_TYPE,
+  COACH_PROGRAM_SUBJECT_TYPE,
+  COACH_USER_SUBJECT_TYPE,
 } from '../../coach-job-types';
+import { recordCoachKickoff } from '../../coach-kickoff.metrics';
 import { CoachContentGuard } from '../../guard/coach-content-guard.service';
 import type { CoachGuardContext, CoachGuardReason } from '../../guard/coach-content-guard';
 import { coachUserSettingsOf, isSafetyStop } from '../../planning/coach-planner.service';
 import { coachNow } from '../../planning/coach-time';
+import { kickoffGate } from '../../planning/plan-coach-moments';
 import { COACH_INTENSITIES, COACH_MOMENTS, type Intensity } from '../../personas';
 import { renderPersonaStyle, resolveRegister, type RenderedPersonaStyle } from '../../personas/resolve-register';
 import { COACH_ANGLE_PICKER, type AnglePicker, type CoachAngle } from '../angle-picker';
@@ -92,6 +106,10 @@ const SAFETY_STOP_WINDOW_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** `provider` of a message written from the registry, not a model. */
 export const STATIC_PROVIDER = 'static';
+/** A kickoff is re-queued at most this many times before it is given up (`deferral_limit`). */
+export const KICKOFF_MAX_DEFERRALS = 8;
+/** The implementation-intention questions a kickoff asks (stored on the message's `data`). */
+export const KICKOFF_QUESTIONS = ['when', 'where', 'fallback'] as const;
 
 export const coachNudgePayloadSchema = z
   .object({
@@ -102,6 +120,10 @@ export const coachNudgePayloadSchema = z
       .array(z.object({ moment: z.string(), priority: z.number(), reason: z.string() }).passthrough())
       .optional(),
     trigger: z.string().max(40).optional(),
+    /** Kickoff only: the activated program. */
+    programId: z.uuid().optional(),
+    /** Kickoff only: how many times this kickoff was already deferred. */
+    deferrals: z.number().int().min(0).optional(),
   })
   .passthrough();
 
@@ -111,6 +133,7 @@ export type CoachNudgePayload = z.infer<typeof coachNudgePayloadSchema>;
 export type CoachNudgeOutcome =
   | { status: 'persisted'; messageId: string; source: 'model' | 'static' }
   | { status: 'redelivered'; messageId: string }
+  | { status: 'deferred'; until: Date; reason: string }
   | { status: 'suppressed'; reason: CoachNudgeSuppressionReason };
 
 interface Generated {
@@ -200,33 +223,65 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     const settings = coachUserSettingsOf(row?.value ?? null);
     if (!row || !row.user.isActive || !settings.enabled) return this.suppress('coach_off', payload, jobId);
 
+    const isKickoff = moment === 'kickoff';
     const state = await this.prisma.coachState.findUnique({
       where: { userId },
-      select: { pausedUntil: true, weeklyStreak: true, streakPassesLeft: true, usualWorkoutMinuteLocal: true },
+      select: {
+        pausedUntil: true,
+        weeklyStreak: true,
+        streakPassesLeft: true,
+        usualWorkoutMinuteLocal: true,
+        lastNudgeAt: true,
+        nudgesToday: true,
+        nudgeDayLocal: true,
+      },
     });
-    if (state?.pausedUntil && state.pausedUntil.getTime() > now.getTime()) return this.suppress('paused', payload, jobId);
+    // A kickoff is deferred past a pause, not dropped (`kickoffGate` below).
+    if (!isKickoff && state?.pausedUntil && state.pausedUntil.getTime() > now.getTime()) {
+      return this.suppress('paused', payload, jobId);
+    }
 
-    const existing = await this.prisma.coachMessage.findFirst({
-      where: { userId, role: 'coach', data: { path: ['momentKey'], equals: payload.momentKey } },
-      select: { id: true, deliveredAt: true },
-    });
+    const existing = await this.findByMomentKey(userId, payload.momentKey);
     if (existing) {
       if (existing.deliveredAt) return this.suppress('already_sent', payload, jobId);
       await this.enqueueDelivery(existing.id);
       return { status: 'redelivered', messageId: existing.id };
     }
 
-    // ---- 2. the model --------------------------------------------------------
-    const resolution = await this.features.resolve(userId, COACH_DECISION_FEATURE_ID);
-    if (!RUNNABLE_FEATURE_STATES.includes(resolution.state) || !resolution.model) {
-      this.logger.log(`Coach nudge job ${jobId}: coach.decision is not runnable (${resolution.state})`);
-      return this.suppress('no_model', payload, jobId);
+    const timeZone = row.user.healthProfile?.timeZone ?? null;
+
+    if (isKickoff) {
+      const decision = kickoffGate(
+        {
+          aiEnabled,
+          system,
+          user: settings,
+          state: {
+            pausedUntil: state?.pausedUntil ?? null,
+            lastNudgeAt: state?.lastNudgeAt ?? null,
+            nudgesToday: state?.nudgesToday ?? 0,
+            nudgeDayLocal: state?.nudgeDayLocal ? fromDbDate(state.nudgeDayLocal) : null,
+          },
+        },
+        coachNow(now, timeZone),
+      );
+      if (decision.action === 'suppress') return this.suppress(decision.reason, payload, jobId);
+      if (decision.action === 'defer') return this.deferKickoff(jobId, payload, decision.until, decision.reason);
     }
-    const model = { provider: resolution.model.provider, modelId: resolution.model.modelId };
-    span.setAttribute('ai.model', model.modelId);
+
+    // ---- 2. the model --------------------------------------------------------
+    // A kickoff without a runnable model still goes out, as the static line.
+    const resolution = await this.features.resolve(userId, COACH_DECISION_FEATURE_ID);
+    const runnable = RUNNABLE_FEATURE_STATES.includes(resolution.state) && Boolean(resolution.model);
+    if (!runnable) {
+      this.logger.log(`Coach nudge job ${jobId}: coach.decision is not runnable (${resolution.state})`);
+      if (!isKickoff) return this.suppress('no_model', payload, jobId);
+    }
+    const model =
+      runnable && resolution.model ? { provider: resolution.model.provider, modelId: resolution.model.modelId } : null;
+    if (model) span.setAttribute('ai.model', model.modelId);
 
     // ---- 3. context -----------------------------------------------------------
-    const timeZone = row.user.healthProfile?.timeZone ?? null;
     const today = coachNow(now, timeZone).date;
     const dob = row.user.healthProfile?.dateOfBirth ?? null;
     const register = resolveRegister(settings, system, { dateOfBirth: dob ? fromDbDate(dob) : null }, now);
@@ -253,7 +308,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
 
     const context = buildNudgeContext({
       moment,
-      reason: payload.candidates?.find((c) => c.moment === moment)?.reason ?? 'planned',
+      reason: payload.candidates?.find((c) => c.moment === moment)?.reason ?? (isKickoff ? 'program_activated' : 'planned'),
       trigger: payload.trigger ?? 'sweep',
       today,
       now,
@@ -294,21 +349,34 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     };
 
     // ---- 4 and 5. generate and guard -------------------------------------------
-    let generated: Generated;
-    try {
-      generated = await this.generate(userId, jobId, model, style, context, angle, settings.why, guardContext);
-    } catch (err) {
-      const aiError = err instanceof AiError ? err : null;
-      const rateLimit = aiError?.toRateLimitError();
-      if (rateLimit) throw rateLimit;
-      if (aiError && AI_RUN_TERMINAL_CODES.has(aiError.code)) {
-        this.logger.log(`Coach nudge job ${jobId} ended with ${aiError.code}`);
-        return this.suppress('ai_error', payload, jobId);
+    let generated: Generated = { output: null, declined: false, declineReason: null, regenerations: 0, lastReasons: [] };
+    let fallbackCause = 'no_model';
+    if (model) {
+      try {
+        generated = await this.generate(userId, jobId, model, style, context, angle, settings.why, guardContext);
+        fallbackCause = 'guard_rejected';
+      } catch (err) {
+        const aiError = err instanceof AiError ? err : null;
+        const rateLimit = aiError?.toRateLimitError();
+        if (rateLimit) throw rateLimit;
+        if (isKickoff) {
+          // A kickoff is not lost to a model failure: the static line goes out.
+          fallbackCause = aiError ? aiError.code : 'model_error';
+          this.logger.warn(`Coach nudge job ${jobId}: kickoff generation failed (${fallbackCause}); static line used`);
+        } else if (aiError && AI_RUN_TERMINAL_CODES.has(aiError.code)) {
+          this.logger.log(`Coach nudge job ${jobId} ended with ${aiError.code}`);
+          return this.suppress('ai_error', payload, jobId);
+        } else {
+          throw err;
+        }
       }
-      throw err;
     }
 
-    if (generated.declined) {
+    if (generated.declined && isKickoff) {
+      // The kickoff is the one moment the model may not skip: the plan starts now.
+      fallbackCause = 'model_declined';
+      this.logger.log(`Coach nudge job ${jobId}: the model declined the kickoff; static line used`);
+    } else if (generated.declined) {
       // The decision and its reason are recorded (spec §2.6); the reason is the
       // model's short learning note, one line, never shown to the user.
       span.setAttribute('coach.decline_reason_length', generated.declineReason?.length ?? 0);
@@ -334,12 +402,20 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
       source = 'static';
       this.metrics.coachNudgeFallbackUsed(moment);
       this.logger.warn(
-        `Coach nudge job ${jobId}: two answers rejected by the guard (${generated.lastReasons.join(', ')}); static line used`,
+        fallbackCause === 'guard_rejected'
+          ? `Coach nudge job ${jobId}: two answers rejected by the guard (${generated.lastReasons.join(', ')}); static line used`
+          : `Coach nudge job ${jobId}: static line used (${fallbackCause})`,
       );
       text = { send: true, moment, reason: 'static_fallback', ...fallback };
     }
 
     // ---- 6. persist, then deliver ------------------------------------------------
+    if (isKickoff) {
+      // Narrows the race between two kickoff jobs of one program (a deferred
+      // one and a fresh activation's) to the instant between this read and the write.
+      const raced = await this.findByMomentKey(userId, payload.momentKey);
+      if (raced) return this.suppress('already_sent', payload, jobId);
+    }
     const message = await this.prisma.coachMessage.create({
       data: {
         userId,
@@ -358,8 +434,8 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
         // delivery then waits for the speech job. Text only for now.
         audioStatus: 'none',
         aiRunId: null,
-        provider: source === 'static' ? STATIC_PROVIDER : model.provider,
-        model: source === 'static' ? null : model.modelId,
+        provider: source === 'static' || !model ? STATIC_PROVIDER : model.provider,
+        model: source === 'static' || !model ? null : model.modelId,
         data: {
           momentKey: payload.momentKey,
           trigger: payload.trigger ?? 'sweep',
@@ -370,12 +446,14 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
           fallback: source === 'static',
           audioInstructions: text.audioInstructions,
           audioScript: text.audioScript,
+          ...(isKickoff ? { programId: payload.programId ?? null, questions: [...KICKOFF_QUESTIONS] } : {}),
         } satisfies Prisma.InputJsonObject,
       },
       select: { id: true },
     });
 
     await this.enqueueDelivery(message.id);
+    if (isKickoff) recordCoachKickoff(source === 'static' ? 'fallback' : 'sent');
     this.logger.log(
       `Coach nudge job ${jobId}: message ${message.id} (${moment}, ${source}, ${generated.regenerations} regeneration(s)) queued for delivery`,
     );
@@ -396,6 +474,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     const result: Generated = { output: null, declined: false, declineReason: null, regenerations: 0, lastReasons: [] };
     const instructions = nudgeInstructions({
       style,
+      moment: context.promptData.moment,
       angle,
       supportive: context.supportive,
       lockScreenSafe: guardContext.lockScreenSafe,
@@ -455,6 +534,36 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     }
 
     return result;
+  }
+
+  private findByMomentKey(userId: string, momentKey: string) {
+    return this.prisma.coachMessage.findFirst({
+      where: { userId, role: 'coach', data: { path: ['momentKey'], equals: momentKey } },
+      select: { id: true, deliveredAt: true },
+    });
+  }
+
+  /**
+   * Re-queues a kickoff for `until` (E7.12): a gate that means "not now"
+   * defers it. A fresh row (`skipDedup`), because this job still holds the
+   * active-dedup key; the run that picks it up re-checks every gate and the
+   * momentKey. Bounded by `KICKOFF_MAX_DEFERRALS`.
+   */
+  private async deferKickoff(jobId: string, payload: CoachNudgePayload, until: Date, reason: string): Promise<CoachNudgeOutcome> {
+    const deferrals = payload.deferrals ?? 0;
+    if (deferrals >= KICKOFF_MAX_DEFERRALS) return this.suppress('deferral_limit', payload, jobId);
+    await this.jobs.enqueue({
+      type: AI_COACH_NUDGE_JOB_TYPE,
+      reason: 'backfill',
+      subjectType: payload.programId ? COACH_PROGRAM_SUBJECT_TYPE : COACH_USER_SUBJECT_TYPE,
+      subjectId: payload.programId ?? payload.userId,
+      payload: { ...payload, deferrals: deferrals + 1 } as Prisma.InputJsonObject,
+      scheduledFor: until,
+      skipDedup: true,
+    });
+    recordCoachKickoff('deferred');
+    this.logger.log(`Coach nudge job ${jobId}: kickoff for user ${payload.userId} deferred (${reason}) until ${until.toISOString()}`);
+    return { status: 'deferred', until, reason };
   }
 
   private async enqueueDelivery(messageId: string): Promise<void> {

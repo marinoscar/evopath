@@ -1,4 +1,5 @@
 import type { CoachGuardReason } from '../guard/coach-content-guard';
+import type { CoachMoment } from '../personas';
 import type { RenderedPersonaStyle } from '../personas/resolve-register';
 import type { CoachAngle } from './angle-picker';
 import type { NudgePromptData } from './nudge-context';
@@ -40,8 +41,20 @@ const ANGLE_GUIDANCE: Readonly<Record<CoachAngle, string>> = {
   social_proof_self: 'Beating their own past self, using only figures in the context.',
 };
 
+/**
+ * The kickoff's job (E7.12, spec §2.13): an implementation intention ("when,
+ * where, fallback") raises follow-through. Tests pin the three asks.
+ */
+export const KICKOFF_GUIDANCE =
+  'KICKOFF: the user has just activated a new training plan. Welcome them to it in one short line, name the first ' +
+  'planned session from `nextSession` (its name and when) if there is one, then ask three short questions so the plan ' +
+  'sticks: WHEN they will train (a time of day), WHERE they will train, and their FALLBACK plan if the day goes ' +
+  'sideways. Ask; never answer the questions for them. Do not send send=false for a kickoff.';
+
 export interface NudgePromptOptions {
   style: RenderedPersonaStyle;
+  /** The moment being written (adds moment-specific guidance, e.g. the kickoff's questions). */
+  moment?: CoachMoment;
   angle: CoachAngle | null;
   supportive: boolean;
   lockScreenSafe: boolean;
@@ -75,6 +88,7 @@ export function nudgeInstructions(opts: NudgePromptOptions): string {
     );
   }
   lines.push(profane ? PROFANITY_LICENSE : NO_PROFANITY_RULE);
+  if (opts.moment === 'kickoff') lines.push(KICKOFF_GUIDANCE);
   if (angle) lines.push(`ANGLE: ${angle}. ${ANGLE_GUIDANCE[angle]}`);
 
   lines.push(

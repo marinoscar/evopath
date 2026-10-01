@@ -297,6 +297,7 @@ export const COACH_NUDGE_SUPPRESSION_REASONS = [
   'ai_error',
   'guard_rejected',
   'already_sent',
+  'deferral_limit',
 ] as const;
 export type CoachNudgeSuppressionReason = (typeof COACH_NUDGE_SUPPRESSION_REASONS)[number];
 const COACH_NUDGE_SUPPRESSION_SET = new Set<string>(COACH_NUDGE_SUPPRESSION_REASONS);

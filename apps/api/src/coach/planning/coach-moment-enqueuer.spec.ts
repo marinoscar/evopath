@@ -60,4 +60,27 @@ describe('CoachMomentEnqueuer', () => {
     const missing = setup([]);
     expect(await missing.enqueuer.enqueueWeeklyReview(USER, '2026-W40')).toEqual({ status: 'handler_missing' });
   });
+  describe('enqueueKickoff (E7.12)', () => {
+    const PROGRAM = '00000000-0000-4000-8000-0000000000f1';
+
+    it('queues the kickoff with the program as subject and a per-program momentKey', async () => {
+      const t = setup(['ai.coach.nudge']);
+      expect(await t.enqueuer.enqueueKickoff(USER, PROGRAM)).toEqual({ status: 'enqueued', jobId: 'job-1' });
+      expect(t.jobs.enqueue).toHaveBeenCalledWith({
+        type: 'ai.coach.nudge',
+        reason: 'upload',
+        subjectType: 'program',
+        subjectId: PROGRAM,
+        payload: { userId: USER, moment: 'kickoff', momentKey: `kickoff:${PROGRAM}`, trigger: 'program_activated', programId: PROGRAM },
+      });
+      expect(t.metrics.momentPlanned).toHaveBeenCalledWith('kickoff');
+    });
+
+    it('queues nothing and counts handler_missing while the nudge handler is not registered', async () => {
+      const t = setup([]);
+      expect(await t.enqueuer.enqueueKickoff(USER, PROGRAM)).toEqual({ status: 'handler_missing' });
+      expect(t.jobs.enqueue).not.toHaveBeenCalled();
+      expect(t.metrics.suppressed).toHaveBeenCalledWith('handler_missing', 'kickoff');
+    });
+  });
 });

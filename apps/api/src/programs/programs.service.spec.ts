@@ -326,6 +326,37 @@ describe('ProgramsService lifecycle', () => {
     expect(db.tables.program.find((p) => p.id === b.programId)!.status).toBe('active');
   });
 
+  // E7.12: the coach's kickoff listens for this; ids only, after the commit.
+  it('emits program.activated once per successful activation, and never for a refused one', async () => {
+    const db = createInMemoryProgramsPrisma();
+    db.tables.exercise.push({ id: EX, name: 'Bench press', slug: 'bench', status: 'active', ownerUserId: null, trackingMode: 'weight_reps' });
+    const events = { emit: jest.fn() };
+    const service = new ProgramsService(db.prisma as never, events as never);
+    const a = await manualProgram(service);
+    const today = new Date('2026-09-30T12:00:00Z');
+
+    await rejection(service.activate(USER, a.programId, '2026-09-30', today));
+    expect(events.emit).not.toHaveBeenCalled();
+
+    await service.applyChange(change(a.programId, 1, addWorkout(1)));
+    await service.activate(USER, a.programId, '2026-09-30', today);
+    expect(events.emit).toHaveBeenCalledTimes(1);
+    expect(events.emit).toHaveBeenCalledWith('program.activated', { userId: USER, programId: a.programId });
+  });
+
+  it('a throwing listener does not fail the activation (it already committed)', async () => {
+    const db = createInMemoryProgramsPrisma();
+    db.tables.exercise.push({ id: EX, name: 'Bench press', slug: 'bench', status: 'active', ownerUserId: null, trackingMode: 'weight_reps' });
+    const events = { emit: jest.fn(() => { throw new Error('listener boom'); }) };
+    const service = new ProgramsService(db.prisma as never, events as never);
+    const a = await manualProgram(service);
+    await service.applyChange(change(a.programId, 1, addWorkout(1)));
+
+    await expect(service.activate(USER, a.programId, '2026-09-30', new Date('2026-09-30T12:00:00Z'))).resolves.toMatchObject({
+      status: 'active',
+    });
+  });
+
   it('refuses a start date outside the window and an illegal transition', async () => {
     const { service } = setup();
     const { programId } = await manualProgram(service);

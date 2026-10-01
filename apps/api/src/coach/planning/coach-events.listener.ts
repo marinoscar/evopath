@@ -14,7 +14,7 @@
 //
 // `health.data.changed` needs no listener: the safety gate reads readiness
 // from the signals service, which computes it on read in every pass.
-// Program activation (`kickoff`) belongs to E7.12.
+// Program activation (`kickoff`) is `coach/coach-kickoff.listener.ts` (E7.12).
 // =============================================================================
 
 import { Injectable, Logger } from '@nestjs/common';
