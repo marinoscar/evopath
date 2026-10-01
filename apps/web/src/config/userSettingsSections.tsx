@@ -25,6 +25,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
+import DescriptionIcon from '@mui/icons-material/Description';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import type { SettingsSectionDef } from './adminSections';
@@ -126,6 +127,20 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
           'Date of birth, sex at birth, height, units and time zone, used to interpret your measurements.',
         Icon: MonitorHeartIcon,
         path: '/settings/health-profile',
+        permission: 'health_data:read',
+      },
+      {
+        // Issue #190 (H6). Appended after Health Profile, and its own
+        // destination rather than a tab on it: the profile is one row the user
+        // edits, this is a list of files the user owns. `health_data:read` is
+        // the exact string every read route of `health-documents.controller.ts`
+        // enforces; rename and delete need `health_data:write`, gated inside
+        // the page, not by a second card.
+        title: 'Health Documents',
+        description:
+          'View, download, rename and delete the photos and reports you uploaded for your health record.',
+        Icon: DescriptionIcon,
+        path: '/settings/health-documents',
         permission: 'health_data:read',
       },
     ],
