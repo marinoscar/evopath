@@ -169,6 +169,13 @@ returns). A missing or unparseable value is a `400` with
 `GET /api/programs/:id/change-log` is keyset-paginated: pass `nextCursor`
 back as `cursor` instead of `page`.
 
+Goals use the standard precondition codes instead: `PATCH /api/goals/:id`
+**requires** `If-Match` with the goal's `version` (bare `4`, `"4"` or `W/"4"`,
+also returned as the `ETag` of `GET /api/goals/:id`). A missing value is a `428`
+with `details.reason: IF_MATCH_REQUIRED`; a stale one is a `412` with
+`details.reason: GOAL_VERSION_MISMATCH` and the `currentVersion`. See
+[activity-goals](specs/activity-goals.md#22-goal-lifecycle).
+
 ## Server-Sent Events
 
 Four routes stream `text/event-stream` (the training run stream, `GET /api/ai/training/stream/:runId`, is covered in [ai-training-plans](specs/ai-training-plans.md)):
