@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // =============================================================================
 // Fake OpenAI-compatible vision server for "Scan gym" (E3.4), "Prefill
-// from photo" (E4.5) and "Read from photo" body metrics, PDFs included
-// (E2.6, H2 #186). TEST-ONLY.
+// from photo" (E4.5), "Read from photo" body metrics, PDFs included
+// (E2.6, H2 #186) and lab report reading (H4 #188). TEST-ONLY.
 // =============================================================================
 //
 // A dependency-free `node:http` server the API reaches as its
@@ -17,7 +17,8 @@
 //                                the chosen fixture's `*.model-output.json`
 //   POST /__control/next         { "fixture": "cardio-row-wide" | "leg-curl-placard" | "both"
 //                                  | "workout-placard" | "workout-notebook" | "workout-empty"
-//                                  | "body-metric-scale" | "body-metric-smart-scale-report" }
+//                                  | "body-metric-scale" | "body-metric-smart-scale-report"
+//                                  | "lab-report-panel" }
 //                                answers the NEXT completion with it (one-shot)
 //   GET  /__control/requests     [{ model, imageCount, fileCount, hasResponseFormat }] per
 //                                completion received — never bytes, file names or URLs
@@ -41,13 +42,15 @@
 //
 // Without a queued fixture: a `body_metric_reading` request (by schema name) is
 // answered `body-metric-smart-scale-report` when it carries a file (PDF) part,
-// else `body-metric-scale`; anything else `cardio-row-wide` for one image,
-// `both` for two or more (and for none).
+// else `body-metric-scale`; a `lab_report` request `lab-report-panel` (PDF or
+// page photos alike); anything else `cardio-row-wide` for one image, `both`
+// for two or more (and for none).
 //
 // Fixtures are read from FIXTURE_DIR (default: apps/api/test/fixtures next to
 // this repository): the gym scan answers from its `gym-scan/` folder, the
 // workout prefill answers from `workout-prefill/`, the body-metric answers
-// from `body-metric/`. PORT defaults to 4010. The
+// from `body-metric/`, the lab report answer from `lab-report/`. PORT
+// defaults to 4010. The
 // compose overlay `infra/compose/fake-ai.compose.yml` runs it as service
 // `fake-ai`.
 // =============================================================================
@@ -91,9 +94,12 @@ const FIXTURE_FILES = {
   'workout-empty': 'workout-prefill/workout-empty',
   'body-metric-scale': 'body-metric/scale-display',
   'body-metric-smart-scale-report': 'body-metric/smart-scale-report',
+  'lab-report-panel': 'lab-report/lipid-glucose-panel',
 };
 /** The body-metric reading's structured-output name (`ai.health.body_metric_reading`). */
 const SCHEMA_BODY_METRIC = 'body_metric_reading';
+/** The lab report reading's structured-output name (`ai.health.lab_report`, H4 #188). */
+const SCHEMA_LAB_REPORT = 'lab_report';
 const FIXTURES = Object.keys(FIXTURE_FILES);
 /** A request body this big is refused (inline images are base64). */
 const MAX_BODY_BYTES = 200 * 1024 * 1024;
@@ -192,6 +198,7 @@ export function messageText(body, role = null) {
 export function chooseFixture(queued, imageCount, schemaName = null, fileCount = 0) {
   if (queued) return queued;
   if (schemaName === SCHEMA_BODY_METRIC) return fileCount > 0 ? 'body-metric-smart-scale-report' : 'body-metric-scale';
+  if (schemaName === SCHEMA_LAB_REPORT) return 'lab-report-panel';
   return imageCount === 1 ? 'cardio-row-wide' : 'both';
 }
 

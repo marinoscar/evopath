@@ -8,6 +8,7 @@ const LABELS: Record<AiFeatureId, string> = {
   gym_scan: 'Gym equipment scan',
   workout_prefill: 'Workout prefill from a photo',
   body_metric_reading: 'Body metric photo reading',
+  lab_report: 'Lab report reading',
   'training.researcher': 'Training plan researcher',
   'training.planner': 'Training plan planner',
   'training.critic': 'Training plan critic',

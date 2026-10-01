@@ -759,7 +759,8 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
       await call('get', '/api/intakes', noHealth).expect(200);
       expect(prisma.photoIntake.findMany.mock.calls.at(-1)[0].where).toMatchObject({
         userId: NO_HEALTH,
-        kind: { notIn: ['body_metric_reading'] },
+        // Every health intake kind: body metrics and lab reports (H4, #188).
+        kind: { notIn: ['body_metric_reading', 'lab_report'] },
       });
 
       expectKindDenied(await call('get', '/api/intakes?kind=body_metric_reading', noHealth), 'health_data:read');

@@ -25,6 +25,9 @@ import { buildWorkoutPrefillOutputSchema } from '../../src/workouts/prefill/work
 import { numberedInputParts } from '../../src/intake/intake-analyzer';
 import { BODY_METRIC_INSTRUCTIONS, bodyMetricOutputSchema } from '../../src/measurements/photo/body-metric-reading.prompt';
 import { bodyMetricFixture } from '../fixtures/body-metric/load';
+import { LAB_REPORT_INSTRUCTIONS, labReportOutputSchema } from '../../src/measurements/lab-report/lab-report.prompt';
+import { mapLabReportOutput } from '../../src/measurements/lab-report/lab-report.mapper';
+import { labReportFixture } from '../fixtures/lab-report/load';
 import { loadModelOutput, seedVocabulary } from '../fixtures/gym-scan.fixtures';
 import { loadPrefillModelOutput, seedExerciseVocabulary } from '../fixtures/workout-prefill.fixtures';
 
@@ -209,6 +212,49 @@ describe('fake vision server', () => {
       ]);
       // The request log never carries bytes or file names.
       expect(JSON.stringify(requests)).not.toMatch(/PDF-|d0\.pdf/);
+    });
+  });
+
+  describe('lab reports (H4, #188)', () => {
+    it('answers a lab_report request with the panel fixture, parsed by the real adapter and schema', async () => {
+      const PDF = Buffer.from('%PDF-1.7\n1 0 obj\n<< /Type /Page >>\nendobj\n%%EOF\n', 'latin1');
+      const response = await adapter.responses.create(
+        {
+          model: 'fake-vision',
+          instructions: LAB_REPORT_INSTRUCTIONS,
+          input: [
+            {
+              type: 'message',
+              role: 'user',
+              content: numberedInputParts([{ storageObjectId: 'r0', mimeType: 'application/pdf' }], 1),
+            },
+          ],
+          structuredOutput: { name: 'lab_report', schema: labReportOutputSchema, strict: true },
+        },
+        {
+          ...ctx([]),
+          storageInputs: new Map([
+            [
+              'r0',
+              {
+                storageObjectId: 'r0',
+                modality: 'file' as const,
+                mimeType: 'application/pdf',
+                filename: 'r0.pdf',
+                strategy: 'inline' as const,
+                read: async () => ({ data: new Uint8Array(PDF), mimeType: 'application/pdf' }),
+              },
+            ],
+          ]),
+        },
+      );
+
+      expect(response.parsed).toEqual(labReportFixture('lipid-glucose-panel'));
+      const mapped = mapLabReportOutput(labReportOutputSchema.parse(response.parsed), ['r0']);
+      expect(mapped.resultMeta).toMatchObject({ unmatched: 1, converted: 1 });
+
+      const requests = await (await fetch(`${base}/__control/requests`)).json();
+      expect(requests).toEqual([{ model: 'fake-vision', imageCount: 0, fileCount: 1, hasResponseFormat: true }]);
     });
   });
 

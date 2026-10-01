@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { trace } from '@opentelemetry/api';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { z } from 'zod';
@@ -570,6 +571,22 @@ describe('IntakeService', () => {
         expect(jobs.enqueueWithin).toHaveBeenCalledTimes(1);
       });
 
+      it('records intake.page_count on the span: an image is one page, a PDF its counted pages (H4, #188)', async () => {
+        const span = { setAttribute: jest.fn() };
+        const active = jest.spyOn(trace, 'getActiveSpan').mockReturnValue(span as never);
+        (inputs.inspect as jest.Mock).mockResolvedValueOnce({ detected: 'pdf', pages: 3, oversize: false });
+        prisma.photoIntakePhoto.findMany.mockResolvedValue([
+          pdfPhoto,
+          { storageObjectId: OBJECT, storageObject: { mimeType: 'image/png', size: BigInt(10), storageKey: 'k/img' } },
+        ] as never);
+
+        await service.analyze(USER, INTAKE, {});
+
+        expect(span.setAttribute).toHaveBeenCalledWith('intake.page_count', 4);
+        expect(span.setAttribute).toHaveBeenCalledWith('intake.input_kind', 'mixed');
+        active.mockRestore();
+      });
+
       it('a model without file_input gets the typed, user-readable error, and nothing is queued', async () => {
         usableModels.assertUsable.mockRejectedValue(
           new AiError('AI_CAPABILITY_UNSUPPORTED', 'Model "vision-1" does not support file_input.', {
@@ -986,6 +1003,29 @@ describe('IntakeService', () => {
         }),
       ]);
       expect(result).toEqual({ inserted: 2, removed: 2, invalid: [] });
+    });
+
+    it('writes an analyzer context validated by the kind, in the same update (H4, #188)', async () => {
+      await service.replaceAiDrafts(INTAKE, [], { context: { label: 'from the report' } });
+
+      expect(prisma.photoIntake.updateMany.mock.calls[0][0]).toMatchObject({
+        where: { id: INTAKE, status: 'scanning' },
+        data: { status: 'ready', context: { label: 'from the report' } },
+      });
+    });
+
+    it('records an invalid analyzer context in resultMeta and leaves the stored context alone', async () => {
+      await service.replaceAiDrafts(INTAKE, [], { context: { label: 'x'.repeat(21), extra: 1 } });
+
+      const data = (prisma.photoIntake.updateMany.mock.calls[0][0] as any).data;
+      expect('context' in data).toBe(false);
+      expect(data.resultMeta.invalidContext.map((i: { path: string }) => i.path)).toEqual(expect.arrayContaining(['label']));
+      expect(JSON.stringify(data.resultMeta)).not.toContain('xxxxx');
+    });
+
+    it('without a context option, never touches the context', async () => {
+      await service.replaceAiDrafts(INTAKE, []);
+      expect('context' in (prisma.photoIntake.updateMany.mock.calls[0][0] as any).data).toBe(false);
     });
 
     it("tells the kind's normalizeValue the write came from the analyzer", async () => {

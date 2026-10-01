@@ -50,6 +50,9 @@ export const INTAKE_PDF_MAX_PAGES = 20;
 /** Span attribute on attach and analyze: `image`, `pdf` or `mixed`. */
 export const INTAKE_INPUT_KIND_SPAN_ATTRIBUTE = 'intake.input_kind';
 
+/** Span attribute on analyze: pages sent (an image is one, a PDF its counted pages) (H4, #188). */
+export const INTAKE_PAGE_COUNT_SPAN_ATTRIBUTE = 'intake.page_count';
+
 /** The user-readable refusal when the resolved model cannot read a PDF. */
 export const PDF_INPUT_UNSUPPORTED_MESSAGE =
   "Your AI model can't read PDFs; choose a model with file input or upload an image.";

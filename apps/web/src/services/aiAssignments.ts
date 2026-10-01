@@ -19,6 +19,7 @@ export const AI_FEATURE_IDS = [
   'gym_scan',
   'workout_prefill',
   'body_metric_reading',
+  'lab_report',
   'training.researcher',
   'training.planner',
   'training.critic',
@@ -28,7 +29,7 @@ export const AI_FEATURE_IDS = [
 export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];
 
 /** The photo features, the ones `useVisionAvailability` resolves. */
-export type AiPhotoFeatureId = Extract<AiFeatureId, 'gym_scan' | 'workout_prefill' | 'body_metric_reading'>;
+export type AiPhotoFeatureId = Extract<AiFeatureId, 'gym_scan' | 'workout_prefill' | 'body_metric_reading' | 'lab_report'>;
 
 export type AiFeatureGroup = 'photo' | 'training';
 
