@@ -56,6 +56,8 @@ export class TelemetryStackService {
 
     return {
       agent,
+      // The client's message: origin and failure, never the token.
+      agentError: !status.ok && (agent === 'unavailable' || agent === 'unauthorized') ? status.message : null,
       services: status.ok ? status.services : [],
       deploy: latest ? toDeploy(latest) : null,
     };
