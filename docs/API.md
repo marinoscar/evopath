@@ -256,6 +256,7 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `user-settings` | Current user's settings | `user_settings:*` | [settings-ui](specs/settings-ui.md) |
 | `user-settings/profile-image` | Upload, preview, remove profile picture | `user_settings:*` | [storage-providers](specs/storage-providers.md) |
 | `user-data` | Per-user data summary and factory reset (queues `user.data_reset`) | `user_settings:write` | [user-data-reset](specs/user-data-reset.md) |
+| `admin/factory-reset` | Deployment-wide summary and factory reset (queues `admin.factory_reset`) | `system:factory_reset` | [factory-reset](specs/factory-reset.md) |
 | `system-settings` | Global settings (JSONB namespaces) | `system_settings:*` | [settings-ui](specs/settings-ui.md) |
 | `email-settings` | Outbound email transport configuration | `system_settings:*` | [browser-notifications](specs/browser-notifications.md) |
 | `pat` | Personal access tokens | authenticated (own) | [personal-access-tokens](personal-access-tokens.md) |

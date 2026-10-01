@@ -140,6 +140,8 @@ const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorer
 // (`@mui/x-charts`) travel in its own chunk.
 const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
 const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
+// Issue #211 — the admin factory reset.
+const FactoryResetPage = lazy(() => import('./pages/Admin/FactoryResetPage'));
 const SetupGuidePage = lazy(() => import('./pages/Admin/SetupGuidePage'));
 
 // Test login page (development only)
@@ -903,6 +905,22 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <DoctorPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #211. `system:factory_reset`, the string the `Factory
+                      reset` card declares and the factory-reset controller
+                      enforces on every route; seeded to the Admin role only.
+                      The route gate only hides the page — the API refuses the
+                      reset itself to anyone without the permission. */}
+                  <Route
+                    path="/admin/settings/factory-reset"
+                    element={
+                      <RequirePermission
+                        permission="system:factory_reset"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <FactoryResetPage />
                       </RequirePermission>
                     }
                   />

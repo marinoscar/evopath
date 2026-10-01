@@ -187,6 +187,11 @@ export const PERMISSIONS = {
   TELEMETRY_WRITE: 'telemetry:write',
   TELEMETRY_QUERY: 'telemetry:query',
 
+  // Factory reset (#211): wipe the deployment's application data back to a
+  // fresh install. Its own permission, Admin-only, never folded into
+  // `system_settings:write`: it is irreversible and deployment-wide.
+  SYSTEM_FACTORY_RESET: 'system:factory_reset',
+
   // Health data (E2.1, #47). Deliberately separate from `user_settings:*`:
   // health data is a different class of data than UI preferences, so a
   // deployment must be able to withhold it from a role without also blocking

@@ -62,6 +62,8 @@ import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 // Doctor (#634).
 import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
+// Factory reset (#211) — the one destructive card, alone in its own group.
+import DeleteForeverOutlinedIcon from '@mui/icons-material/DeleteForeverOutlined';
 import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
 
 /**
@@ -704,6 +706,34 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         Icon: HealthAndSafetyOutlinedIcon,
         path: '/admin/settings/doctor',
         permission: 'system_settings:read',
+      },
+    ],
+  },
+  {
+    // Issue #211. A SIXTH group, APPENDED after Observability — the same
+    // append-only rule every earlier group followed, so every existing card
+    // stays where it was. (It still adds a row below Observability, so the
+    // `tests/visual` hub baselines move once.)
+    //
+    // Its OWN group, last, and never folded into Operations: a factory reset
+    // erases every user and all application data, and the admin should find
+    // it at the bottom of the Console under a label that says so — the admin
+    // twin of the per-user `Danger Zone` group (#202).
+    //
+    // `system:factory_reset` is the literal string the factory-reset
+    // controller enforces on its summary, start and status routes
+    // (`PERMISSIONS.SYSTEM_FACTORY_RESET` in `roles.constants.ts`), seeded to
+    // the Admin role ONLY. NO `feature`, NO `alwaysShow`: the card is
+    // unreachable for anyone else, including a `system_settings:write` holder.
+    label: 'Danger Zone',
+    cards: [
+      {
+        title: 'Factory reset',
+        description:
+          'Erase every user and all application data, returning this deployment to a fresh install.',
+        Icon: DeleteForeverOutlinedIcon,
+        path: '/admin/settings/factory-reset',
+        permission: 'system:factory_reset',
       },
     ],
   },
