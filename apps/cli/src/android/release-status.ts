@@ -1,7 +1,7 @@
 import { ApiClient, resolveApiBaseUrl } from '../api-client.js';
 import { isExpired, resolveConfig, type ConfigContext, type ConfigSource } from '../config.js';
 import type { CurrentUser } from '../device-login.js';
-import { ApiError, formatError } from '../errors.js';
+import { ApiError } from '../errors.js';
 import { readSigningConfig } from './keystore.js';
 import { versionPropertiesPath } from './paths.js';
 import type { AndroidRelease } from './publish.js';
@@ -128,7 +128,7 @@ function readKeystore(ctx: ConfigContext): ReleaseStatus['keystore'] {
     if (signing === undefined) return { configured: false };
     return { configured: true, ...(signing.certSha256 === undefined ? {} : { sha256: signing.certSha256 }) };
   } catch (error) {
-    return { configured: false, error: formatError(error) };
+    return { configured: false, error: errorMessage(error) };
   }
 }
 
@@ -151,7 +151,7 @@ export async function getReleaseStatus(input: ReleaseStatusInput, deps: ReleaseS
   try {
     resolved = resolveConfig(ctx);
   } catch (error) {
-    const login: ReleaseLoginStatus = { state: 'logged_out', canPublish: false, error: formatError(error) };
+    const login: ReleaseLoginStatus = { state: 'logged_out', canPublish: false, error: errorMessage(error) };
     return finish(input, local, keystore, login, notReached('Not logged in.'));
   }
 
@@ -197,7 +197,7 @@ export async function getReleaseStatus(input: ReleaseStatusInput, deps: ReleaseS
         notReached('The server rejected the stored token.'),
       );
     }
-    const message = formatError(error);
+    const message = errorMessage(error);
     return finish(input, local, keystore, { state: 'logged_in', canPublish: false, ...base, error: message }, notReached(message));
   }
 
@@ -213,7 +213,7 @@ export async function getReleaseStatus(input: ReleaseStatusInput, deps: ReleaseS
     const current = await client.get<AndroidRelease>(LATEST_RELEASE_PATH, requestOptions);
     server = { current, reachable: true };
   } catch (error) {
-    server = isNoRelease(error) ? { current: null, reachable: true } : notReached(formatError(error));
+    server = isNoRelease(error) ? { current: null, reachable: true } : notReached(errorMessage(error));
   }
   return finish(input, local, keystore, login, server);
 }
@@ -234,4 +234,9 @@ function finish(
     server,
     newerLocally: isNewerLocally(local, server),
   };
+}
+
+/** The message alone, without the CLI-name prefix `formatError` adds: it is embedded in a sentence. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
