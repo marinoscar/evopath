@@ -68,11 +68,11 @@ beforeEach(async () => {
 });
 
 describe('fake responses server', () => {
-  it('lists fake-frontier and fake-fast', async () => {
+  it('lists fake-frontier, fake-fast and fake-tts', async () => {
     const res = await fetch(`${base}/v1/models`, { headers: auth });
     const body = (await res.json()) as { object: string; data: Array<{ id: string }> };
     expect(body.object).toBe('list');
-    expect(body.data.map((m) => m.id)).toEqual(['fake-frontier', 'fake-fast']);
+    expect(body.data.map((m) => m.id)).toEqual(['fake-frontier', 'fake-fast', 'fake-tts']);
   });
 
   it('lists every scenario fixture with its description and the current one', async () => {
@@ -188,9 +188,18 @@ describe('fake responses server', () => {
       expect(result.usage).toMatchObject({ inputTokens: 9000, outputTokens: 4200, reasoningTokens: 1500 });
     });
 
+    it('speaks: the real adapter gets a playable audio payload over the coach floor of 1 KiB', async () => {
+      const result = await adapter.audio!.speech!(
+        { provider: 'openai', model: 'fake-tts', input: 'Hello there', voice: 'alloy' } as never,
+        ctx(),
+      );
+      expect(result.audio.data.length).toBeGreaterThan(1_024);
+      expect(result.audio.mimeType).toBe('audio/mpeg');
+    });
+
     it('lists its models through listModels', async () => {
       const models = await adapter.listModels(ctx());
-      expect(models.map((m) => m.id).sort()).toEqual(['fake-fast', 'fake-frontier']);
+      expect(models.map((m) => m.id).sort()).toEqual(['fake-fast', 'fake-frontier', 'fake-tts']);
     });
   });
 });

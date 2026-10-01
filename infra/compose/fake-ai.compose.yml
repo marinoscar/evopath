@@ -64,6 +64,16 @@
 #   curl -X POST localhost:4010/__control/next -d '{"fixture":"workout-notebook"}'
 #   curl localhost:4010/__control/requests     # image counts only, never bytes
 #   curl -X POST localhost:4010/__control/reset
+#
+# AI Coach (E7.13): the same two servers answer the coach with no key. Port 4010
+# serves model `fake-coach` (classify it responses, structured_output, tools and
+# streaming; assign coach.decision and coach.chat): the structured nudge and
+# weekly review by schema name, and the chat tool loop. Port 4011 serves model
+# `fake-tts` and POST /v1/audio/speech (a silent MP3 over 1 KiB; assign
+# coach.voice). Behaviour switches, reset by /__control/reset:
+#   curl -X POST localhost:4010/__control/coach -d '{"nudge":"decline"}'      # or "send"
+#   curl -X POST localhost:4011/__control/speech -d '{"mode":"refuse"}'       # or "ok", "fail"
+# `npm test -- coach-settings coach-page` in tests/e2e does the setup itself.
 # =============================================================================
 
 services:

@@ -538,8 +538,9 @@ tests/e2e/
 ├── playwright.config.ts      # baseURL http://localhost:3535, Chromium
 ├── helpers/auth.helper.ts    # loginAsTestUser, loginAsAdmin/Contributor/Viewer, isLoggedIn, logout
 ├── helpers/ai.helper.ts      # configureFakeVisionProvider, setFakeFixture (fake vision provider); setupFakeAi, useScenario (fake Responses server)
+├── helpers/coach.helper.ts   # setupFakeCoachAi, setupFakeCoachVoice, setFakeCoachMode, coach policy, settings and timeline helpers
 ├── fixtures/auth.fixture.ts  # adminPage / viewerPage fixtures
-└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation, telemetry-dashboard, workouts, workout-prefill and training-plans specs
+└── specs/                    # auth, example, health-check-in, health-history, health-log-weight, gym-scan, gyms, health-photo-read, shell-navigation, telemetry-dashboard, workouts, workout-prefill, training-plans, coach-settings, coach-page and progress-photos specs
 ```
 
 It is not run in CI. Run it against a local stack:
@@ -711,6 +712,25 @@ It covers the happy path, a critic rejecting once, a hostile planner, a
 fabricated source, insufficient research, reload mid-run and cancel, the safety
 stop (no request reaches the fake), canary-free requests, a blocked role, Today,
 autonomous adaptation with Undo, ask-first approve and reject, and AI off.
+
+**AI Coach.** The fakes answer the coach with no key
+(`tests/e2e/support/fake-coach-scenarios.mjs`, wired into `fake-vision-server.mjs`
+on 4010 for the structured nudge, the weekly review and the chat tool loop on
+model `fake-coach`, and into both servers for `POST /v1/audio/speech`, model
+`fake-tts` on 4011). `setupFakeCoachAi` and `setupFakeCoachVoice` in
+`tests/e2e/helpers/coach.helper.ts` configure them as admin;
+`setFakeCoachMode` switches nudges to decline and speech to fail or refuse. Specs
+(serial, `--workers=1`, restart `fake-ai` and `fake-ai-responses` if they predate
+the coach): `coach-settings` (persona, sample lines, the Sarge level 3 unlock and
+re-lock), `coach-page` (kickoff nudge after a plan activation, chat round trips
+with figures equal to `/api/training/signals`, the safety reply never reaching a
+model, spoken nudges and text-only fallback), `progress-photos` (needs object
+storage; no AI settings), the AI-on block of `shell-navigation` and "Meet your
+coach" in `onboarding`. The hourly sweep, quiet hours, caps and the Sunday 18:00
+weekly review need a controlled clock and are proven by the real-Postgres suites
+(`coach-sweep.db.spec.ts`, `coach-weekly-review.db.spec.ts`), not here. The fakes
+are tested by `apps/api/test/coach/fake-coach-server.spec.ts` (every canned line
+through the real content guard) and the existing fake-server specs.
 
 | Variable | Effect |
 |---|---|
