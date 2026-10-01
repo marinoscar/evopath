@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AiAssignmentsModule } from '../ai/assignments/ai-assignments.module';
+import { AiConfigModule } from '../ai/config/ai-config.module';
 import { AiRuntimeModule } from '../ai/runtime/ai-runtime.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { HealthSummaryController } from './health-summary.controller';
@@ -24,7 +25,7 @@ import { HealthSummaryService } from './health-summary.service';
  * imports the training agents' module (they import this one).
  */
 @Module({
-  imports: [AiAssignmentsModule, AiRuntimeModule, JobsModule],
+  imports: [AiAssignmentsModule, AiConfigModule, AiRuntimeModule, JobsModule],
   controllers: [HealthSummaryController],
   providers: [HealthSummaryReader, HealthSummaryService, HealthSummaryHandler, HealthSummaryListener],
   exports: [HealthSummaryReader],
