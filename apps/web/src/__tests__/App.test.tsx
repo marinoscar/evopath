@@ -112,6 +112,7 @@ vi.mock('../pages/GymScanPage', () => ({ default: () => <h1>Gym Scan Page</h1> }
 vi.mock('../pages/CoachPage', () => ({ default: () => <h1>Coach Page</h1> }));
 // #283 (epic #276). Stood in like the settings pages above; their own suites cover the pages.
 vi.mock('../pages/ConnectedDevicesPage', () => ({ default: () => <h1>Connected Devices Page</h1> }));
+vi.mock('../pages/AndroidAppDownloadPage', () => ({ default: () => <h1>Android App Download Page</h1> }));
 vi.mock('../pages/Admin/AndroidAppPage', () => ({ default: () => <h1>Admin Android App Page</h1> }));
 
 const API_BASE = '*/api';
@@ -472,6 +473,10 @@ describe('App', () => {
     it('redirects Connected devices without goals:read, even holding goals:write', async () => {
       await expectHeading('/settings/connected-devices', ['user_settings:read', 'goals:write'], 'Today Page');
       expect(screen.queryByRole('heading', { name: 'Connected Devices Page' })).not.toBeInTheDocument();
+    });
+
+    it('renders the Android app download page (#287) for any signed-in user', async () => {
+      await expectHeading('/settings/android-app', ['user_settings:read'], 'Android App Download Page');
     });
 
     it('renders the Android app page for a system_settings:read holder', async () => {

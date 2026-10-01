@@ -14,12 +14,18 @@
  * enforces both either way.
  */
 import { useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import { Alert, Box, Button, Container, Link, Skeleton, Snackbar, Stack, Typography } from '@mui/material';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { REPO_SLUG } from '@app/shared';
 import { usePermissions } from '../hooks/usePermissions';
-import { useHealthSyncDevices } from '../hooks/useHealthSync';
-import { ANDROID_HEALTH_SYNC_DEEP_LINK, androidReleaseUrl, type Device } from '../services/healthSync';
+import { useHealthSyncDevices, useLatestRelease } from '../hooks/useHealthSync';
+import {
+  ANDROID_APP_SETTINGS_PATH,
+  ANDROID_HEALTH_SYNC_DEEP_LINK,
+  androidReleaseUrl,
+  type Device,
+} from '../services/healthSync';
 import { isRunningInTwa } from '../utils/twa';
 import { DeviceCard } from '../components/settings/connectedDevices/DeviceCard';
 import { GetAndroidApp } from '../components/settings/connectedDevices/GetAndroidApp';
@@ -35,6 +41,9 @@ export default function ConnectedDevicesPage() {
   const canWrite = hasPermission('goals:write');
   const [inTwa] = useState(() => isRunningInTwa());
   const { devices, isLoading, error, refresh } = useHealthSyncDevices();
+  // #287: with an APK hosted on this server, "get the app" goes to the
+  // Android app page instead of GitHub. A failed lookup just keeps GitHub.
+  const { release } = useLatestRelease();
   const [unpairing, setUnpairing] = useState<Device | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -59,18 +68,32 @@ export default function ConnectedDevicesPage() {
       </Alert>
     );
   } else if (devices.length === 0) {
-    body = <GetAndroidApp />;
+    body = <GetAndroidApp release={release} />;
   } else {
     body = (
       <Stack spacing={2}>
         {devices.map((device) => (
-          <DeviceCard key={device.id} device={device} canWrite={canWrite} onUnpair={setUnpairing} />
+          <DeviceCard
+            key={device.id}
+            device={device}
+            canWrite={canWrite}
+            onUnpair={setUnpairing}
+            latestVersionName={
+              release && release.versionCode === device.latestVersionCode ? release.versionName : null
+            }
+          />
         ))}
         <Typography variant="body2" color="text.secondary">
           Adding another phone?{' '}
-          <Link href={androidReleaseUrl(REPO_SLUG)} target="_blank" rel="noopener noreferrer">
-            Get the Android app
-          </Link>
+          {release ? (
+            <Link component={RouterLink} to={ANDROID_APP_SETTINGS_PATH}>
+              Get the Android app
+            </Link>
+          ) : (
+            <Link href={androidReleaseUrl(REPO_SLUG)} target="_blank" rel="noopener noreferrer">
+              Get the Android app
+            </Link>
+          )}
         </Typography>
       </Stack>
     );

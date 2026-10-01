@@ -1,12 +1,16 @@
 /**
  * "Get the Android app" (#283): the release link and the four setup steps.
- * The page's empty state; the release URL is built from the repository slug
- * in `packages/shared/identity.json`, so a renamed fork links to its own APK.
+ * The page's empty state. With a release published on this server (#287) the
+ * button goes to the Android app page, which serves it; without one it falls
+ * back to the GitHub release, built from the repository slug in
+ * `packages/shared/identity.json` so a renamed fork links to its own APK.
  */
+import { Link as RouterLink } from 'react-router-dom';
 import { Box, Button, Card, CardContent, Typography } from '@mui/material';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import { REPO_SLUG } from '@app/shared';
-import { androidReleaseUrl } from '../../../services/healthSync';
+import { ANDROID_APP_SETTINGS_PATH, androidReleaseUrl, type Release } from '../../../services/healthSync';
 
 export const ANDROID_SETUP_STEPS = [
   'Install the APK: download evopath-android.apk from the release on your phone and allow installing it.',
@@ -15,7 +19,16 @@ export const ANDROID_SETUP_STEPS = [
   'Tap Connect, then approve the phone on the activation page that opens.',
 ] as const;
 
-export function GetAndroidApp() {
+/** Step one when this server hosts the APK (#287). */
+export const SERVER_INSTALL_STEP =
+  'Install the APK: download it from the Android app page on your phone and allow installing it.';
+
+interface GetAndroidAppProps {
+  /** The release this server hosts, or `null`/absent to fall back to GitHub. */
+  release?: Pick<Release, 'versionName'> | null;
+}
+
+export function GetAndroidApp({ release = null }: GetAndroidAppProps) {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return (
     <Card variant="outlined" data-testid="get-android-app">
@@ -27,18 +40,30 @@ export function GetAndroidApp() {
           The Android app syncs your steps, walks and runs from Health Connect, so your activity goals fill in on
           their own.
         </Typography>
-        <Button
-          variant="contained"
-          href={androidReleaseUrl(REPO_SLUG)}
-          target="_blank"
-          rel="noopener noreferrer"
-          endIcon={<OpenInNewIcon />}
-          sx={{ mb: 2 }}
-        >
-          Get the Android app
-        </Button>
+        {release ? (
+          <Button
+            variant="contained"
+            component={RouterLink}
+            to={ANDROID_APP_SETTINGS_PATH}
+            startIcon={<PhoneAndroidIcon />}
+            sx={{ mb: 2 }}
+          >
+            Get the Android app
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            href={androidReleaseUrl(REPO_SLUG)}
+            target="_blank"
+            rel="noopener noreferrer"
+            endIcon={<OpenInNewIcon />}
+            sx={{ mb: 2 }}
+          >
+            Get the Android app
+          </Button>
+        )}
         <Box component="ol" sx={{ m: 0, pl: 3 }} aria-label="Setup steps">
-          {ANDROID_SETUP_STEPS.map((step, index) => (
+          {(release ? [SERVER_INSTALL_STEP, ...ANDROID_SETUP_STEPS.slice(1)] : ANDROID_SETUP_STEPS).map((step, index) => (
             <Typography component="li" variant="body2" key={step} sx={{ mb: 0.5 }}>
               {step}
               {index === 1 && origin && (

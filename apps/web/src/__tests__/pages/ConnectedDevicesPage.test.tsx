@@ -23,6 +23,7 @@ import {
   mockReportSummary,
   mockRun,
   mockRunWithTypes,
+  mockRelease,
 } from '../mocks/fixtures/healthSync';
 import type { Device } from '../../services/healthSync';
 
@@ -258,5 +259,45 @@ describe('ConnectedDevicesPage', () => {
     renderPage();
     const button = await screen.findByRole('link', { name: OPEN_HEALTH_SYNC_LABEL });
     expect(button).toHaveAttribute('href', 'evopath-android://health-sync');
+  });
+
+  describe('APK releases (#287)', () => {
+    function serveRelease() {
+      server.use(http.get('*/api/android-app/releases/latest', () => HttpResponse.json({ data: mockRelease() })));
+    }
+
+    it('links the empty state to the Android app page when this server hosts a release', async () => {
+      serveRelease();
+      renderPage();
+      const link = await screen.findByRole('link', { name: /get the android app/i });
+      await waitFor(() => expect(link).toHaveAttribute('href', '/settings/android-app'));
+      expect(screen.getByText(/download it from the Android app page/i)).toBeInTheDocument();
+    });
+
+    it('shows an Update available chip linking to the Android app page', async () => {
+      serveRelease();
+      serveDevices([mockDevice({ appVersionCode: 1, latestVersionCode: 2, updateAvailable: true })]);
+      renderPage();
+      const chip = await screen.findByTestId('device-update-available');
+      await waitFor(() => expect(chip).toHaveTextContent('Update available (v0.2.0)'));
+      expect(chip).toHaveAttribute('href', '/settings/android-app');
+      expect(screen.getByRole('link', { name: /get the android app/i })).toHaveAttribute(
+        'href',
+        '/settings/android-app',
+      );
+    });
+
+    it('names the build when the latest release is not loaded', async () => {
+      serveDevices([mockDevice({ appVersionCode: 1, latestVersionCode: 3, updateAvailable: true })]);
+      renderPage();
+      expect(await screen.findByTestId('device-update-available')).toHaveTextContent('Update available (build 3)');
+    });
+
+    it('shows no chip when the device is current', async () => {
+      serveDevices([mockDevice({ appVersionCode: 2, latestVersionCode: 2, updateAvailable: false })]);
+      renderPage();
+      expect(await screen.findByRole('heading', { name: 'Pixel 9' })).toBeInTheDocument();
+      expect(screen.queryByTestId('device-update-available')).not.toBeInTheDocument();
+    });
   });
 });
