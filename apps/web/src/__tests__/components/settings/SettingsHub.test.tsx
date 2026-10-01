@@ -677,7 +677,7 @@ describe('UserSettingsHubPage — Health Profile (#47)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings/health-profile');
   });
 
-  it('hides the card, and with it the whole Health group, without health_data:read', () => {
+  it('hides the card without health_data:read, leaving only the ungated Android app card in Health', () => {
     setViewportWidth(DESKTOP);
     setPermissions(['user_settings:read', 'health_data:write']);
     render(<UserSettingsHubPage />);
@@ -685,7 +685,10 @@ describe('UserSettingsHubPage — Health Profile (#47)', () => {
     expect(
       screen.queryByRole('heading', { level: 6, name: 'Health Profile' }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText('Health')).not.toBeInTheDocument();
+    // #287: `Android app` declares no permission, so the Health group stays,
+    // holding that one card.
+    expect(screen.getByText('Health')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 6, name: 'Android app' })).toBeInTheDocument();
   });
 });
 
