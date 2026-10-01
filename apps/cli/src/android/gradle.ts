@@ -1,14 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { APP_SLUG } from '@app/shared';
+import { ANDROID_PACKAGE_NAME } from '@app/shared';
 
 // =============================================================================
 // Gradle invocation for apps/android  (issue #286, epic #276)
 // =============================================================================
 
-/** The app's applicationId when build.gradle.kts cannot be read (`com.<slug>.android`). */
-export const DEFAULT_PACKAGE_NAME = `com.${APP_SLUG.replace(/[^a-z0-9]/gi, '').toLowerCase()}.android`;
+/**
+ * The app's applicationId when build.gradle.kts cannot be read: `com.<repo>.android`,
+ * the rule `@app/shared` and the Android build both derive from identity.json.
+ */
+export const DEFAULT_PACKAGE_NAME = ANDROID_PACKAGE_NAME;
 
 export function gradlewPath(projectDir: string, platform: NodeJS.Platform = process.platform): string {
   return join(projectDir, platform === 'win32' ? 'gradlew.bat' : 'gradlew');

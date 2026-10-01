@@ -2,13 +2,13 @@ import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
-import { APP_SLUG } from '@app/shared';
+import { ANDROID_APK_STEM } from '@app/shared';
 
 import { PreconditionError } from '../errors.js';
 import type { ExecFn } from './exec.js';
 
 // =============================================================================
-// Build metadata: dist/android/<slug>-android-<versionName>.json  (issue #286)
+// Build metadata: dist/android/<repo>-android-<versionName>.json  (issue #286)
 // =============================================================================
 //
 // Written next to every APK `android build` produces, and read back by
@@ -30,7 +30,7 @@ export interface ApkMetadata {
 }
 
 export function apkFileName(versionName: string): string {
-  return `${APP_SLUG}-android-${versionName}.apk`;
+  return `${ANDROID_APK_STEM}-${versionName}.apk`;
 }
 
 /** `foo.apk` → `foo.json`. */

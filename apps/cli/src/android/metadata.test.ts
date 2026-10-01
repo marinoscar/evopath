@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { APP_SLUG } from '@app/shared';
+import { ANDROID_APK_STEM } from '@app/shared';
 
 import type { ExecFn } from './exec.js';
 import { apkFileName, buildMetadata, fileSha256, metadataPathFor, readGitSha, readMetadata, writeMetadata } from './metadata.js';
@@ -17,8 +17,8 @@ describe('metadata', () => {
   writeFileSync(apk, bytes);
 
   it('names files after the app slug and version', () => {
-    expect(apkFileName('1.2.3')).toBe(`${APP_SLUG}-android-1.2.3.apk`);
-    expect(metadataPathFor(apk)).toBe(join(dir, `${APP_SLUG}-android-1.2.3.json`));
+    expect(apkFileName('1.2.3')).toBe(`${ANDROID_APK_STEM}-1.2.3.apk`);
+    expect(metadataPathFor(apk)).toBe(join(dir, `${ANDROID_APK_STEM}-1.2.3.json`));
   });
 
   it('hashes by streaming', async () => {
