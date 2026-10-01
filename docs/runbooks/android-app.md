@@ -1,8 +1,8 @@
 # Runbook: Set up and operate the Android Health Connect app
 
-> **Audience:** operators and the people who use the app · **Spec:** [health-connect-sync.md](../specs/health-connect-sync.md) · **Admin UI:** `/admin/settings/android` · **User UI:** `/settings/android-app`, `/settings/connected-devices` · **Permission:** `system_settings:write` (trust a build, publish a release); `goals:write` (pair a phone)
+> **Audience:** operators and the people who use the app · **Spec:** [health-connect-sync.md](../specs/health-connect-sync.md) · **Admin UI:** `/admin/settings/android` · **User UI:** `/settings/android-app`, `/settings/connected-devices` · **Permission:** `system_settings:write` (trust a build); `goals:write` (pair a phone)
 
-Use this to build and publish the signed Android APK, install it, trust it on the server so it opens full screen, pair a phone and get Health Connect data flowing. It also covers re-pairing and diagnosing a phone that does not sync. The app is optional; nothing on the server changes until a phone pairs. For the design, see the [spec](../specs/health-connect-sync.md).
+Use this to install the Android app, trust it on the server so it opens full screen, pair a phone and get Health Connect data flowing. It also covers re-pairing and diagnosing a phone that does not sync. Building, signing and publishing the APK, and rolling a release back, are in the [Android release runbook](android-release.md). The app is optional; nothing on the server changes until a phone pairs. For the design, see the [spec](../specs/health-connect-sync.md).
 
 **Names in this runbook.** The app's identity derives from `packages/shared/identity.json` ([RENAMING.md](../RENAMING.md)), so this runbook uses placeholders:
 
@@ -16,84 +16,29 @@ Use this to build and publish the signed Android APK, install it, trust it on th
 
 ## 1. Before you start
 
-- Either the CLI (`evopathcli android`, [section 4.1](#41-publish-to-your-server-with-the-cli)) on a machine with a JDK 17+, or a GitHub repository with Actions enabled (`.github/workflows/android.yml`, [section 4.2](#42-publish-to-the-github-prerelease-ci)). Both can be used together.
-- A JDK (for `keytool`). The keystore is created once and reused for every build.
+- A published release: the server hosts the APK, or the GitHub prerelease `android-latest` exists. Publish one with the [Android release runbook](android-release.md) (CLI, terminal menu, deploy, admin page or CI).
 - An Android phone with Android 8 or later (minSdk 26) and Health Connect (built in from Android 14; a Google Play app before that).
-- An Admin account to trust the build and publish releases, and a user account to pair. Both need the deployment reachable over HTTPS from the phone.
-- **Back up the keystore.** Every update must be signed with the same key. A lost keystore means a new signing key, a new trust entry and uninstalling the old app on every phone.
-- **Never commit the keystore or its passwords.** `*.jks` and `*.keystore` are git-ignored.
+- An Admin account to trust the build, and a user account to pair. Both need the deployment reachable over HTTPS from the phone.
 
 ## 2. Create the signing keystore
 
-**With the CLI (recommended).** `evopathcli android keystore init` creates `~/.evopathcli/android/release.jks` and stores its passwords beside it, outside every checkout. To reuse a keystore you already have, run `evopathcli android keystore import <file>`; the passwords are verified before anything is saved. `evopathcli android keystore show` prints the alias and the certificate SHA-256. Details: [CLI reference](../../apps/cli/README.md#building-and-publishing-the-android-app).
-
-**By hand.**
-
-1. Generate the key (once). Pick any alias; the CLI's default is `<app slug>`:
-
-   ```bash
-   keytool -genkeypair -v -keystore release.jks -alias <alias> \
-     -keyalg RSA -keysize 2048 -validity 10000
-   ```
-
-   You choose a keystore password and a key password, and answer the name prompts. You should see `[Storing release.jks]`.
-
-2. Read the certificate fingerprint, to compare later:
-
-   ```bash
-   keytool -list -v -keystore release.jks -alias <alias> | grep 'SHA256:'
-   ```
-
-   You should see 32 colon-separated hex bytes. You do not type this anywhere: the app reports its own fingerprint when it pairs, and you trust it from the list ([section 6.3](#63-trust-the-build-on-the-server)).
-
-3. Store the keystore and both passwords in a password manager, outside the repository.
+The keystore signs every build, and every update must use the same key. Create or import it with `evopathcli android keystore init` or `import <file>`, and back it up outside the repository. Steps, the commands and the consequences of losing it: [release runbook, section 4](android-release.md#4-signing-keystore). To compare a fingerprint later, `evopathcli android keystore show` prints it; you do not type it anywhere, because the app reports its own fingerprint when it pairs and you trust it from the list ([section 6.3](#63-trust-the-build-on-the-server)).
 
 ## 3. Add the GitHub secrets
 
-Only needed for the CI build ([section 4.2](#42-publish-to-the-github-prerelease-ci)). With the CLI keystore, `evopathcli android keystore secrets` prints all four values (including the passwords, so run it on a trusted terminal).
-
-1. Encode the keystore on one line:
-
-   ```bash
-   base64 -w0 release.jks
-   ```
-
-   On macOS use `base64 -i release.jks`.
-
-2. In the repository, open Settings, then Secrets and variables, then Actions, and add four repository secrets:
-
-   | Secret | Value |
-   |---|---|
-   | `ANDROID_KEYSTORE_BASE64` | The base64 text from step 1 |
-   | `ANDROID_KEYSTORE_PASSWORD` | The keystore password |
-   | `ANDROID_KEY_ALIAS` | The alias from section 2 |
-   | `ANDROID_KEY_PASSWORD` | The key password |
-
-3. You should see all four listed under Repository secrets. Values cannot be read back.
+Only the CI build needs them. The four secrets and how to print them: [release runbook, section 10](android-release.md#10-ci-release-path).
 
 ## 4. Publish a build
 
-The version lives in `apps/android/version.properties` (`versionName`, `versionCode`). Every published APK needs a higher `versionCode`: Android refuses to install a lower one over a higher one. `evopathcli android version --bump patch` bumps both.
+Every published APK needs a higher `versionCode` than the last. The routes, the version rules and the errors are in the [Android release runbook](android-release.md).
 
 ### 4.1 Publish to your server with the CLI
 
-The deployment hosts the APK itself, so users install and update from **Settings, then Android app** ([section 5](#5-install-the-apk)).
-
-1. `evopathcli android doctor --fix` checks the JDK, the Android SDK, the keystore and `version.properties`, and installs the missing SDK parts. You should see no ✗ rows (the JDK is never installed for you; doctor prints the command).
-2. `evopathcli login` against the deployment, as an Admin (`system_settings:write`).
-3. `evopathcli android release --bump patch --notes "What changed"` bumps the version, builds and signs the APK (`dist/android/<app slug>-android-<versionName>.apk` plus its `.json` metadata), uploads it as the current release, and commits `apps/android/version.properties`. To do the steps separately: `android version --bump patch`, `android build`, `android publish`.
-4. You should see the release under Admin, then Settings, then **Android app**, section **Releases**, marked current. Making a release current also trusts its signing certificate ([section 6.3](#63-trust-the-build-on-the-server)) when the list has room.
-
-**Without the CLI.** The **Releases** section of `/admin/settings/android` uploads an APK directly: drop the APK (with the `.json` the CLI writes next to it to fill in the fields), or type the package name, version name and code and the signing SHA-256. The same section makes another release current (a rollback asks first) and deletes a release that is not current. Rules and limits: [spec §2.12](../specs/health-connect-sync.md#212-apk-releases).
+`evopathcli android release --bump patch` publishes to your server, where users install and update from **Settings, then Android app** ([section 5](#5-install-the-apk)). The CLI, terminal menu, deploy and admin-page routes: [release runbook, sections 6 to 9](android-release.md#6-release-from-the-command-line). Making a release current also trusts its signing certificate ([section 6.3](#63-trust-the-build-on-the-server)) when the list has room.
 
 ### 4.2 Publish to the GitHub prerelease (CI)
 
-1. Push to `main` with a change under `apps/android/**` or `.github/workflows/android.yml`, or run the **Android** workflow from the Actions tab (`workflow_dispatch`, on `main`).
-2. The `test` job runs the unit tests and builds the debug APK. The `release` job then builds the signed release APK at the version in `version.properties`, moves the tag `android-latest` to the commit and replaces the asset `<app slug>-android.apk` on the prerelease **<product> Android (latest)**.
-3. You should see the release at `https://github.com/<owner>/<repo>/releases/tag/android-latest`. The web app links to it when this server hosts no release.
-4. Without the four secrets the `release` job prints a warning "Android release skipped" and publishes nothing. The debug APK stays available as the `<app slug>-android-debug` artifact of the `test` job.
-
-The CI build leaves the server address empty, so the app asks for it on first run. A local build can bake one in with `evopathcli android build --server-url <address>` (or the Gradle property `-Papp.serverUrl=<address>`).
+The **Android** workflow publishes the rolling prerelease `android-latest`. The web app links to it when this server hosts no release. Setup and behaviour: [release runbook, section 10](android-release.md#10-ci-release-path).
 
 ## 5. Install the APK
 
@@ -214,14 +159,13 @@ Server-side symptoms:
 | A deleted row came back | Synced rows return while the phone still holds the record in its window | Delete the record in the source app. |
 | The app opens with an address bar | The build is not trusted | [Section 6.3](#63-trust-the-build-on-the-server). |
 | Pairing fails and syncs answer 503 | A maintenance window is open: the device-flow code and token routes are not exempt, and sync routes are blocked | Close the window ([maintenance runbook](maintenance-mode.md)), then pair or sync again. `assetlinks.json` stays reachable. |
-| Upload answers 409 `RELEASE_VERSION_EXISTS` or `RELEASE_VERSION_NOT_NEWER` | The `versionCode` was already published, or is not above the current release | `evopathcli android version --bump patch`, rebuild and publish again. |
-| Upload answers 503 `storage_not_configured` | Object storage is not configured | Configure it at Admin, then Settings, then Storage. |
-| The Doctor warns `android.releases` | Phones are paired but no release is current | Publish one ([section 4.1](#41-publish-to-your-server-with-the-cli)). |
+| Upload answers 409 `RELEASE_VERSION_EXISTS` or `RELEASE_VERSION_NOT_NEWER` | The `versionCode` was already published, or is not above the current release | Bump the version, rebuild and publish again ([release runbook](android-release.md#13-troubleshooting)). |
+| Upload answers 503 `storage_not_configured` | Object storage is not configured | Configure it at Admin, then Settings, then Storage ([release runbook](android-release.md#13-troubleshooting)). |
+| The Doctor warns `android.releases` | Phones are paired but no release is current | Publish one ([release runbook](android-release.md)). |
 
 ## 11. Summary checklist
 
-- [ ] Keystore created and backed up outside the repository
-- [ ] A release published: current on the server (`evopathcli android release`) or on `android-latest` (four GitHub secrets, **Android** workflow)
+- [ ] A release published and current ([release runbook](android-release.md), which covers the keystore backup)
 - [ ] APK installed from Settings, then Android app; server address entered
 - [ ] Phone paired (device flow)
 - [ ] Build trusted at `/admin/settings/android`; `assetlinks.json` lists it
@@ -232,6 +176,7 @@ Server-side symptoms:
 
 ## See also
 
+- [Android release runbook](android-release.md) (keystore, versioning, publishing, rollback)
 - [Health Connect sync spec](../specs/health-connect-sync.md)
 - [`evopathcli android` reference](../../apps/cli/README.md#building-and-publishing-the-android-app)
 - [Renaming a fork](../RENAMING.md) (the app's package, label and deep link follow `identity.json`)

@@ -25,6 +25,7 @@ import {
   toggled,
   withFlags,
 } from './fields.js';
+import { publishAndroidAfterDeploy } from './android.js';
 import { optionsFromToggles, UPDATE_TOGGLES } from './flags-model.js';
 import type { AppName } from './install-model.js';
 import type { FieldSpec } from './model.js';
@@ -264,6 +265,8 @@ export async function performUpdate(
 ): Promise<string[]> {
   const ref = answers.get('__ref') ?? '';
   const appVersion = answers.get('__app_version') ?? '';
+  // `--with-android` is not a pipeline option: it runs after the pipeline.
+  const { withAndroid: _withAndroid, ...pipelineToggles } = optionsFromToggles(UPDATE_TOGGLES, chosen);
 
   const result = await runUpdate({
     deployRoot: target.settings.deployRoot,
@@ -284,11 +287,14 @@ export async function performUpdate(
     // subcommand's own Commander definitions, so a toggle for a flag the CLI
     // does not declare is a failing test rather than a control that does
     // nothing.
-    ...optionsFromToggles(UPDATE_TOGGLES, chosen),
+    ...pipelineToggles,
     hooks,
   });
 
+  const deployRoot = target.settings.deployRoot;
+  const android = await publishAndroidAfterDeploy(chosen, recordFor(deployRoot)?.domain ?? target.state?.domain, deployRoot, hooks);
+
   return result.changed
-    ? [`Updated to ${result.commitSha.slice(0, 12)}.`, `Log: ${result.journalPath}`]
-    : ['Already up to date.'];
+    ? [`Updated to ${result.commitSha.slice(0, 12)}.`, `Log: ${result.journalPath}`, ...android]
+    : ['Already up to date.', ...android];
 }

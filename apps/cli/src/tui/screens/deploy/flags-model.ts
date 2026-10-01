@@ -127,6 +127,12 @@ export const INSTALL_TOGGLES: readonly ToggleFlag[] = [
     label: 'Do not bump the version',
     help: 'Deploy the current version: no manifest write, no commit, no push.',
   },
+  {
+    flag: '--with-android',
+    option: 'withAndroid',
+    label: 'Publish the Android APK if newer',
+    help: 'After a healthy deploy: doctor, build and publish the APK to https://<domain> when the local version is newer. Needs a login with system_settings:write; anything missing is skipped with its fix, never failing the deploy.',
+  },
 ];
 
 export const UPDATE_TOGGLES: readonly ToggleFlag[] = [
@@ -183,6 +189,11 @@ export const UPDATE_TOGGLES: readonly ToggleFlag[] = [
     option: 'maintenance',
     label: 'Serve a maintenance page during the risky part',
     help: 'From just before the build until just after the restart, instead of whatever the stop/migrate/restart window looks like underneath.',
+  },  {
+    flag: '--with-android',
+    option: 'withAndroid',
+    label: 'Publish the Android APK if newer',
+    help: 'After a healthy deploy: doctor, build and publish the APK to https://<domain> when the local version is newer. Needs a login with system_settings:write; anything missing is skipped with its fix, never failing the deploy.',
   },
 ];
 
@@ -206,6 +217,10 @@ export const NOT_IN_TUI: Readonly<Record<string, string>> = Object.freeze({
     'Every answer is collected by the screen itself; a second channel for them would be two sources of truth for one value.',
   '--answers-file':
     'Same as --answer: the screen collects them.',
+  '--android-bump':
+    'The Android screen bumps the version (with a preview of old → new); the deploy screen publishes the version as it is, so one place owns version changes.',
+  '--android-notes':
+    'Release notes are asked on the Android screen\'s Publish and Release actions; the deploy screen publishes without notes.',
 });
 
 /** The options object a set of chosen toggles produces. */

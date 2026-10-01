@@ -78,7 +78,8 @@ In this order:
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
 | [runbooks/telemetry.md](runbooks/telemetry.md) | Enabling the GreptimeDB telemetry overlay, setting retention, configuring the AI assistant, connecting a BI tool |
 | [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor |
-| [runbooks/android-app.md](runbooks/android-app.md) | Creating the signing keystore and GitHub secrets, publishing `android-latest`, installing the APK, trusting it, pairing a phone, making source apps share to Health Connect, and diagnosing a phone by self-test check |
+| [runbooks/android-app.md](runbooks/android-app.md) | Installing the APK, trusting it, pairing a phone, making source apps share to Health Connect, and diagnosing a phone by self-test check |
+| [runbooks/android-release.md](runbooks/android-release.md) | Shipping a new Android APK: keystore, versioning, release from the CLI, the terminal menu, a deploy, the admin page or CI, verifying, rolling back and troubleshooting |
 | [runbooks/factory-reset.md](runbooks/factory-reset.md) | Wiping a deployment to a fresh install: backup first, run the reset, verify, recover, troubleshoot |
 
 ## Developer recipes in the code

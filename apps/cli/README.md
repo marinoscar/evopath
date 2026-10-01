@@ -10,8 +10,8 @@ that talks to the API (`api <method> <path>`), so it stays correct against
 endpoints that don't exist yet.
 
 Run with no arguments in an interactive terminal and it opens a full-screen
-menu (login, call an endpoint, status, worker node, deploy this server,
-logout) built with [ink](https://github.com/vadimdemedes/ink). Everything that menu can do
+menu (login, call an endpoint, status, worker node, Android app, deploy
+this server, logout) built with [ink](https://github.com/vadimdemedes/ink). Everything that menu can do
 is also a plain subcommand, and the subcommands are what this document
 covers — they're what you'd script or run in CI.
 
@@ -495,6 +495,12 @@ Options:
                            setup
   --no-version-bump        Deploy the current version: no write, no commit,
                            no push
+  --with-android           After a healthy deploy, build and publish the
+                           Android APK if the local version is newer
+  --android-bump <part>    With --with-android: bump the APK version first
+                           (patch, minor or major)
+  --android-notes <text>   With --with-android: release notes for the
+                           published APK
   --json                   Print a machine-readable result on stdout
 ```
 
@@ -609,11 +615,63 @@ Options:
                            of the current one)
   --no-version-bump        Deploy the current version: no write, no commit,
                            no push
+  --with-android           After a healthy deploy, build and publish the
+                           Android APK if the local version is newer
+  --android-bump <part>    With --with-android: bump the APK version first
+                           (patch, minor or major)
+  --android-notes <text>   With --with-android: release notes for the
+                           published APK
   --maintenance            Serve a 503 from before the build until just after
                            restart, instead of whatever the stop/migrate/
                            restart window looks like underneath
   --json                   Print a machine-readable result on stdout
 ```
+
+### Publishing the Android APK with a deploy
+
+`deploy install` and `deploy update` take `--with-android` to keep the APK the
+server offers in step with the code:
+
+```bash
+evopathcli deploy update --with-android
+evopathcli deploy update --with-android --android-bump patch --android-notes "Faster sync"
+```
+
+After the deploy succeeded and the app is healthy, the CLI:
+
+1. Takes the deployment's URL from its domain (`https://<domain>`). No domain:
+   skipped.
+2. Uses the checkout you run the command from (or `EVOPATHCLI_REPO_ROOT`),
+   else the deployment's own checkout (`<root>/repo`).
+3. Checks the stored login is for **that** URL and that the account has
+   `system_settings:write` (`GET /api/auth/me`), and reads the server's
+   current release (`GET /api/android-app/releases/latest`).
+4. With `--android-bump patch|minor|major`, bumps `version.properties` first.
+   The bump is refused in the deployment's own checkout, where an uncommitted
+   file would block the next update.
+5. When the local `versionCode` is newer than the current release (or nothing
+   is published), runs the Android doctor, builds with
+   `--server-url https://<domain>` and publishes as the current release. With
+   `--android-bump`, `version.properties` is committed only after the upload
+   succeeded, as `android release` does.
+
+The summary gains an `Android APK` line: `published <version> (code N) to
+<url>`, `skipped: <reason>` or `failed: <reason>`, followed by the command
+that fixes it. For example, a missing login prints
+`fix: evopathcli login --server https://app.example.com`. `--json` adds an
+`android` field with the same outcome.
+
+**It never fails the deploy.** A missing JDK, SDK, keystore, login or
+permission, or a failed build or upload, is a warning; the exit code is the
+deploy's own. It never prompts either, so it is safe with `--non-interactive`
+and from cron. `--android-bump` or `--android-notes` without `--with-android`
+is a usage error, reported before the deploy starts.
+
+Most VPS hosts have no JDK or Android SDK. Run `evopathcli android doctor --fix`
+there first, or publish from your workstation with `evopathcli android release`.
+The TUI's Install and Update screens offer the same step as the toggle
+**Publish the Android APK if newer** (without a bump or notes; use the Android
+screen for those).
 
 ### Checking status
 
@@ -1184,6 +1242,9 @@ repository (it walks up to the directory holding `apps/android`).
 | `android releases current <id>` | Makes a release current (rollback is allowed). |
 | `android release [--bump patch] [--notes text] [--server-url URL] [--no-commit]` | Bumps the version, builds, publishes, then commits `apps/android/version.properties` alone as `chore(android): release <versionName> (<versionCode>)`. Skips the commit with `--no-commit` or outside a git repository. If the build or the upload fails nothing is committed, and the CLI tells you the version was bumped locally. |
 
+The full release procedure (versioning, every route, rollback, troubleshooting)
+is the [Android release runbook](../../docs/runbooks/android-release.md).
+
 The keystore and `signing.json` (its passwords, mode 600) live in
 `~/.evopathcli/android/`, outside every checkout. Back both up: losing the
 keystore means installed copies can never be updated.
@@ -1195,7 +1256,39 @@ Advanced environment variables:
 | `EVOPATHCLI_REPO_ROOT` | Repository root to use instead of searching upward for `apps/android`. |
 | `EVOPATHCLI_GRADLE_ARGS` | Extra arguments appended to every Gradle run, for example `-I /path/mirror.init.gradle.kts` or `--offline`. Quotes group arguments containing spaces. |
 
-The menu's **Android app** entry runs the same doctor checks read-only.
+### The Android screen
+
+The menu's **Android app** entry is an interactive release screen. The top
+shows the status:
+
+- **Local**: `versionName (code versionCode)` from `version.properties`.
+- **Keystore**: the release certificate's SHA-256, or the command to create one.
+- **Login**: the logged-in email and server, and whether the account has
+  `system_settings:write`. It shows expired, logged out, or logged in to a
+  different server as well.
+- **Server**: the server's current release, or "No release published yet".
+- **Newer**: whether the local version can be published.
+
+The actions:
+
+| Action | What it does |
+|---|---|
+| Run doctor | The `android doctor` checks (`r` re-checks). |
+| Bump version | Choose patch, minor or major; each row previews `old → new`. Writes `version.properties`, does not commit. |
+| Build | `android build` with the Gradle output streaming in a scroll box, then the APK path, size and the `apksigner` result. When logged in, that server is baked in as `--server-url`. |
+| Publish | Asks for optional release notes, then confirms `Publish vX (code N) to <server>?` and uploads the built APK as the current release, with a byte/percent progress line. |
+| Release | Choose the bump, add optional notes, then one confirmation for bump → build → publish → commit (as `android release`). |
+| Releases | The server's releases (`*` marks the current one). Choosing one asks to make it current. Moving to a lower `versionCode` shows a rollback warning: Android refuses downgrades, so devices on the newer build keep it. |
+| Log in | Shown when the CLI is not logged in, has expired, points at another server or lacks the permission. Opens the login screen and returns here. |
+
+Publish, Release and Releases need a login to the server with
+`system_settings:write`. Without one they are marked `unavailable` and
+selecting them explains why. Every remote action has a confirmation whose
+default is **No**.
+
+Keys: `↑↓` move, `enter` select, `r` refresh the status, `esc` back. While a
+build or upload runs, Esc is ignored because the build cannot be cancelled
+from the screen; `ctrl-c` quits the app.
 
 ## CI usage
 
