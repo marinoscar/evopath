@@ -5,13 +5,59 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-fun stringProp(name: String, default: String): String =
-    (project.findProperty(name) as String?)?.takeIf { it.isNotBlank() } ?: default
+// -----------------------------------------------------------------------------
+// Product identity: packages/shared/identity.json is the single source of truth
+// (see docs/RENAMING.md). Nothing in apps/android spells the product name: the
+// label, applicationId, deep-link scheme and brand colours are all derived here.
+// -----------------------------------------------------------------------------
+val identityFile: File = rootProject.file("../../packages/shared/identity.json")
+check(identityFile.isFile) { "Product identity not found at ${identityFile.path} (packages/shared/identity.json)." }
 
-val appVersionName = stringProp("evopath.versionName", "0.1.0")
-val appVersionCode = stringProp("evopath.versionCode", "1").toInt()
+@Suppress("UNCHECKED_CAST")
+val identity = groovy.json.JsonSlurper().parse(identityFile) as Map<String, Any?>
+
+fun identityValue(key: String): String =
+    (identity[key] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: throw GradleException("packages/shared/identity.json: \"$key\" is missing or empty.")
+
+val productName = identityValue("productName")
+val repoName = identityValue("repoSlug").substringAfter('/')
+
+/** The repo name as a Java package segment / property prefix: lowercase letters and digits only. */
+val identityToken = repoName.lowercase().replace(Regex("[^a-z0-9]"), "").ifEmpty { "app" }
+    .let { if (it.first().isDigit()) "app$it" else it }
+
+/** `#rrggbb` (identity.json) → `#FFRRGGBB` (Android colour resource). */
+fun argb(hex: String): String {
+    require(Regex("^#[0-9a-fA-F]{6}$").matches(hex)) { "identity.json colour \"$hex\" is not #rrggbb." }
+    return "#FF" + hex.substring(1).uppercase()
+}
+
+fun stringProp(name: String): String? = (project.findProperty(name) as String?)?.takeIf { it.isNotBlank() }
+
+/**
+ * A build property under the neutral `app.` prefix, or under the repository's own prefix
+ * (`<repo name>.versionName`), which is what older build scripts and the CLI pass.
+ */
+fun appProp(key: String): String? = stringProp("app.$key") ?: stringProp("$identityToken.$key")
+
+val appApplicationId = stringProp("app.applicationId") ?: "com.$identityToken.android"
+val appProductName = stringProp("app.productName") ?: productName
+val deepLinkScheme = stringProp("app.deepLinkScheme")
+    ?: (repoName.lowercase().replace(Regex("[^a-z0-9+.-]"), "").trimStart('+', '.', '-').ifEmpty { "app" } + "-android")
+val themeColor = argb(identityValue("themeColor"))
+val backgroundColor = argb(identityValue("backgroundColor"))
+
+/** Kotlin package of the sources; identity-neutral on purpose (never renamed by a fork). */
+val codeNamespace = "com.enterpriseapp.android"
+
+val appVersionName = appProp("versionName") ?: "0.1.0"
+val appVersionCode = (appProp("versionCode") ?: "1").toInt()
 // Not blank-filtered: an empty value is meaningful (first-run setup screen).
-val defaultServerUrl = (project.findProperty("evopath.serverUrl") as String?)?.trim().orEmpty()
+val defaultServerUrl = ((project.findProperty("app.serverUrl") ?: project.findProperty("$identityToken.serverUrl")) as String?)
+    ?.trim().orEmpty()
+
+fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 // Release signing comes only from the environment (CI secrets, or a local shell).
 // When any variable is missing the release build is produced unsigned instead of failing.
@@ -23,17 +69,30 @@ val hasReleaseSigning = signingStoreFile != null && file(signingStoreFile).exist
     signingStorePassword != null && signingKeyAlias != null && signingKeyPassword != null
 
 android {
-    namespace = "com.evopath.android"
+    namespace = codeNamespace
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.evopath.android"
+        applicationId = appApplicationId
         minSdk = 26
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
 
-        buildConfigField("String", "DEFAULT_SERVER_URL", "\"${defaultServerUrl.replace("\"", "")}\"")
+        buildConfigField("String", "DEFAULT_SERVER_URL", quoted(defaultServerUrl))
+        buildConfigField("String", "PRODUCT_NAME", quoted(appProductName))
+        buildConfigField("String", "DEEP_LINK_SCHEME", quoted(deepLinkScheme))
+        // Prefix of SharedPreferences files and other on-device names. Equal to the applicationId's
+        // middle segment, so it never changes for an installed app (renaming it would lose pairing).
+        buildConfigField("String", "STORAGE_PREFIX", quoted(identityToken))
+        buildConfigField("int", "THEME_COLOR", "0x" + themeColor.substring(1))
+        buildConfigField("int", "BACKGROUND_COLOR", "0x" + backgroundColor.substring(1))
+
+        resValue("string", "app_name", appProductName)
+        resValue("color", "brand_primary", themeColor)
+        resValue("color", "brand_background", backgroundColor)
+        resValue("color", "ic_launcher_background", themeColor)
+        manifestPlaceholders["deepLinkScheme"] = deepLinkScheme
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -90,10 +149,63 @@ if (!hasReleaseSigning) {
     gradle.taskGraph.whenReady {
         if (allTasks.any { it.name.contains("Release") && it.name.startsWith("assemble") }) {
             logger.warn(
-                "evopath: ANDROID_KEYSTORE_FILE/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD " +
+                "${project.path}: ANDROID_KEYSTORE_FILE/ANDROID_KEYSTORE_PASSWORD/ANDROID_KEY_ALIAS/ANDROID_KEY_PASSWORD " +
                     "not all set; the release APK will be unsigned.",
             )
         }
+    }
+}
+
+/**
+ * res/xml/shortcuts.xml, generated: a static shortcut must name its target package and class
+ * literally, and both derive from the product identity (applicationId) and [codeNamespace].
+ */
+abstract class GenerateShortcutsTask : DefaultTask() {
+    @get:Input abstract val targetPackage: Property<String>
+    @get:Input abstract val targetClass: Property<String>
+    @get:Input abstract val deepLink: Property<String>
+
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun write() {
+        val file = outputDir.file("xml/shortcuts.xml").get().asFile
+        file.parentFile.mkdirs()
+        file.writeText(
+            """
+            |<?xml version="1.0" encoding="utf-8"?>
+            |<!-- Generated by app/build.gradle.kts (GenerateShortcutsTask); do not edit. -->
+            |<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+            |    <shortcut
+            |        android:shortcutId="health_sync"
+            |        android:enabled="true"
+            |        android:icon="@mipmap/ic_launcher"
+            |        android:shortcutShortLabel="@string/shortcut_health_sync_short"
+            |        android:shortcutLongLabel="@string/shortcut_health_sync_long"
+            |        android:shortcutDisabledMessage="@string/shortcut_health_sync_disabled">
+            |        <intent
+            |            android:action="android.intent.action.VIEW"
+            |            android:data="${deepLink.get()}"
+            |            android:targetPackage="${targetPackage.get()}"
+            |            android:targetClass="${targetClass.get()}" />
+            |    </shortcut>
+            |</shortcuts>
+            |""".trimMargin(),
+        )
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val task = tasks.register<GenerateShortcutsTask>(
+            "generate${variant.name.replaceFirstChar { it.uppercase() }}Shortcuts",
+        ) {
+            targetPackage.set(variant.applicationId)
+            targetClass.set("$codeNamespace.healthsync.HealthSyncActivity")
+            deepLink.set("$deepLinkScheme://health-sync")
+            outputDir.set(layout.buildDirectory.dir("generated/identity/${variant.name}/res"))
+        }
+        variant.sources.res?.addGeneratedSourceDirectory(task, GenerateShortcutsTask::outputDir)
     }
 }
 

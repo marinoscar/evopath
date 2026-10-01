@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">EvoPath</string>
     <!-- Placeholder only: TwaLauncherActivity computes the real URL from the configured server. -->
     <string name="twa_default_url" translatable="false">https://localhost/?source=twa</string>
     <string name="shortcut_health_sync_short">Health sync</string>
