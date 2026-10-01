@@ -125,11 +125,14 @@ describe('QuickCardioSheet on Today', () => {
     expect(calls.posts).toEqual([]);
   });
 
-  it('shows an API refusal in place and keeps the sheet open', async () => {
+  it.each([
+    ['PERFORMED_AT_OUT_OF_RANGE', 'performedAt must not be more than 7 days ago', 'That is more than 7 days ago. Log activities from the last week only.'],
+    ['TIME_IN_FUTURE', 'performedAt must not be in the future', 'That time is in the future. Pick when you finished.'],
+  ])('shows the %s refusal in plain words and keeps the sheet open', async (reason, message, shown) => {
     serve({
       respond: () =>
         HttpResponse.json(
-          { statusCode: 400, message: 'performedAt is out of range', error: 'Bad Request' },
+          { statusCode: 400, code: 'BAD_REQUEST', message, details: { reason, path: 'performedAt' } },
           { status: 400 },
         ),
     });
@@ -138,7 +141,8 @@ describe('QuickCardioSheet on Today', () => {
     const sheet = await openSheet(user);
     await user.type(within(sheet).getByRole('textbox', { name: 'Minutes' }), '20');
     await user.click(within(sheet).getByRole('button', { name: 'Log it' }));
-    expect(await within(sheet).findByText('performedAt is out of range')).toBeInTheDocument();
+    expect(await within(sheet).findByText(shown)).toBeInTheDocument();
+    expect(within(sheet).queryByText(message)).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Log a walk / run' })).toBeInTheDocument();
     expect(screen.queryByText('Walk logged.')).toBeNull();
   });
@@ -189,6 +193,12 @@ describe('checkQuickCardio', () => {
     expect(checkQuickCardio(draft({ distance: '101' }), 'km', NOW)).toMatchObject({ ok: false, problems: { distance: 'At most 100 km.' } });
     expect(checkQuickCardio(draft({ distance: '63' }), 'mi', NOW)).toMatchObject({ ok: false, problems: { distance: 'At most 62.13 mi.' } });
     expect(checkQuickCardio(draft({ minutes: 'abc' }), 'km', NOW)).toMatchObject({ ok: false, problems: { minutes: 'Enter a number of minutes.' } });
+    // The API requires a distance greater than 0 m.
+    expect(checkQuickCardio(draft({ distance: '0' }), 'km', NOW)).toMatchObject({ ok: false, problems: { distance: 'Enter a distance greater than 0.' } });
+    expect(checkQuickCardio(draft({ minutes: '30', distance: '0.000001' }), 'mi', NOW)).toMatchObject({
+      ok: false,
+      problems: { distance: 'Enter a distance greater than 0.' },
+    });
   });
 
   it('takes "when" within the last 7 days, never the future', () => {

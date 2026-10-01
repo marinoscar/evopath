@@ -33,7 +33,7 @@ import { useWeightUnit } from '../../hooks/useWeightUnit';
 import {
   logQuickCardio,
   QUICK_CARDIO_BOUNDS,
-  workoutErrorMessage,
+  quickCardioErrorMessage,
   type QuickCardioExercise,
   type QuickCardioInput,
   type QuickCardioResult,
@@ -92,7 +92,9 @@ export function checkQuickCardio(draft: QuickCardioDraft, unit: DistanceUnit, no
   const parsed = parseDistance(draft.distance, unit);
   if (!parsed.ok) problems.distance = parsed.message;
   else if (parsed.value !== null) {
-    if (parsed.value > M.max) problems.distance = `At most ${maxDistanceText(unit)}.`;
+    // The API requires more than 0 m (a value that rounds to 0 m counts as 0).
+    if (parsed.value <= M.min) problems.distance = 'Enter a distance greater than 0.';
+    else if (parsed.value > M.max) problems.distance = `At most ${maxDistanceText(unit)}.`;
     else input.distanceMeters = parsed.value;
   }
 
@@ -176,7 +178,7 @@ export function QuickCardioSheet({ open, onClose, onLogged }: QuickCardioSheetPr
       onLogged(logged, draft.exerciseKey);
     } catch (err) {
       setBusy(false);
-      setApiError(workoutErrorMessage(err, "Couldn't log it. Try again."));
+      setApiError(quickCardioErrorMessage(err, "Couldn't log it. Try again."));
     }
   };
 
