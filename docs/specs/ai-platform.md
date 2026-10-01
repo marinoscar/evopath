@@ -84,7 +84,7 @@ Configuration lives in four places, split by sensitivity:
 - **Administrators choose every model; users choose none.** The
   `ai.assignments` system setting names a default model and, per feature, a
   model. Feature ids are `AI_FEATURE_IDS` (`settings.schema.ts`): `gym_scan`,
-  `workout_prefill`, `body_metric_reading`, `training.researcher`,
+  `workout_prefill`, `body_metric_reading`, `lab_report`, `training.researcher`,
   `training.planner`, `training.critic`, `training.evaluator`. What each needs
   of its model is `AI_FEATURES` in `ai/assignments/ai-features.ts`.
 - `reasoningEffort` is accepted only on `training.*` features.
