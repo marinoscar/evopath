@@ -78,6 +78,9 @@ const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
 // Issue #126, epic #109 — the per-user event x channel notification matrix.
 const UserNotificationsPage = lazy(() => import('./pages/UserNotificationsPage'));
+// AI Coach settings (E7.3, #243).
+const UserCoachSettingsPage = lazy(() => import('./pages/UserCoachSettingsPage'));
+const CoachAdminPage = lazy(() => import('./pages/Admin/CoachAdminPage'));
 const UserTokensPage = lazy(() => import('./pages/UserTokensPage'));
 // Issue #202 — the per-user factory reset (Danger Zone).
 const UserDangerZonePage = lazy(() => import('./pages/UserDangerZonePage'));
@@ -385,6 +388,23 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <UserAgentModelsPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E7.3 (#243). Gated like `/settings/ai/agents`: `ai:use`
+                      (the string `coach-settings.controller.ts` enforces and
+                      the `Coach` card declares) plus AI being on, since every
+                      coach route sits behind `AiEnabledGuard`. */}
+                  <Route
+                    path="/settings/coach"
+                    element={
+                      <RequirePermission
+                        permission="ai:use"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <UserCoachSettingsPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }
@@ -848,6 +868,23 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <AiAssignmentsPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E7.3 (#243). `ai_config:read`, the string the `Coach`
+                      admin card declares and the coach admin controller
+                      enforces on its GET; feature-gated like the other AI
+                      pages. Writes are gated inside the page. */}
+                  <Route
+                    path="/admin/settings/coach"
+                    element={
+                      <RequirePermission
+                        permission="ai_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <CoachAdminPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }

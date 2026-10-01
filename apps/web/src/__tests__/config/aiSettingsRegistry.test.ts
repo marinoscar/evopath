@@ -31,6 +31,9 @@ const rolesConstants = readApiSource('common/constants/roles.constants.ts');
 const aiAdminController = readApiSource('ai/config/ai-admin.controller.ts');
 const aiAssignmentsController = readApiSource('ai/assignments/ai-assignments-admin.controller.ts');
 const userAiKeysController = readApiSource('ai/keys/user-ai-keys.controller.ts');
+// E7.3 (#243): the coach's two controllers, user and admin.
+const coachSettingsController = readApiSource('coach/coach-settings.controller.ts');
+const coachAdminController = readApiSource('coach/admin/coach-admin-settings.controller.ts');
 
 /** Every admin + user card whose destination is part of the AI surface. */
 function allAiTaggedCards() {
@@ -80,6 +83,13 @@ describe('AI settings registry — literal permission parity with the API (#435)
       expect(aiAssignmentsController).toMatch(/@Put\('assignments'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_CONFIG_WRITE\] \}\)/);
     });
 
+    it('coach-admin-settings.controller.ts (E7.3) enforces the same read/write pair the Coach card relies on', () => {
+      expect(coachAdminController).toMatch(/@Get\('settings'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_CONFIG_READ\] \}\)/);
+      expect(coachAdminController).toMatch(/@Put\('settings'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_CONFIG_WRITE\] \}\)/);
+      const { admin } = allAiTaggedCards();
+      expect(admin.find((card) => card.path === '/admin/settings/coach')?.permission).toBe('ai_config:read');
+    });
+
     it('is never confused with ai:use — an admin AI card must not mirror the per-user permission', () => {
       const { admin } = allAiTaggedCards();
       expect(admin.every((card) => card.permission !== 'ai:use')).toBe(true);
@@ -92,6 +102,14 @@ describe('AI settings registry — literal permission parity with the API (#435)
       const offenders = user.filter((card) => card.permission !== 'ai:use');
 
       expect(offenders.map((c) => c.title)).toEqual([]);
+    });
+
+    it('coach-settings.controller.ts (E7.3) enforces PERMISSIONS.AI_USE behind AiEnabledGuard', () => {
+      expect(coachSettingsController).toContain('@UseGuards(AiEnabledGuard)');
+      expect(coachSettingsController).toMatch(/@Get\('settings'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_USE\] \}\)/);
+      expect(coachSettingsController).toMatch(/@Put\('settings'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_USE\] \}\)/);
+      const { user } = allAiTaggedCards();
+      expect(user.find((card) => card.path === '/settings/coach')?.permission).toBe('ai:use');
     });
 
     it('user-ai-keys.controller.ts really does enforce PERMISSIONS.AI_USE', () => {
@@ -145,6 +163,7 @@ describe('AI settings registry — literal permission parity with the API (#435)
       expect(titles).not.toContain('AI Models');
       expect(titles).not.toContain('AI Usage');
       expect(titles).not.toContain('AI Model Assignments');
+      expect(titles).not.toContain('Coach');
     });
   });
 });

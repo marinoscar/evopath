@@ -28,6 +28,7 @@ import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import DescriptionIcon from '@mui/icons-material/Description';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import SportsOutlinedIcon from '@mui/icons-material/SportsOutlined';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -159,6 +160,21 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
           'See the model each training-plan agent uses, and cap what a run may spend.',
         Icon: PsychologyIcon,
         path: '/settings/ai/agents',
+        permission: 'ai:use',
+        feature: 'ai',
+      },
+      {
+        // E7.3 (#243). APPENDED to the AI group. `ai:use` is the exact string
+        // `coach-settings.controller.ts` enforces on `GET`/`PUT
+        // /api/coach/settings` and `GET /api/coach/personas`, all behind
+        // `AiEnabledGuard`, so `feature: 'ai'` hides the card while AI is off
+        // (CLAUDE.md AI Platform Rule 5). Its own path, not under
+        // `/settings/ai`: the coach is a feature that uses AI, not AI setup.
+        title: 'Coach',
+        description:
+          'Choose your coach persona and intensity, when it may message you, and whether it speaks.',
+        Icon: SportsOutlinedIcon,
+        path: '/settings/coach',
         permission: 'ai:use',
         feature: 'ai',
       },

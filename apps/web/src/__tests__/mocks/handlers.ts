@@ -44,6 +44,7 @@ import { mockHealthExport, mockHealthExportDownloadUrl, mockReadyHealthExport } 
 import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
 import { mockHealthSummaryView } from './fixtures/healthSummary';
 import { mockAiFeaturesView } from './fixtures/aiFeatures';
+import { mockCoachPersonas, mockCoachSettingsView, mockSystemCoachSettings } from './fixtures/coach';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -794,6 +795,19 @@ export const handlers = [
   // Every AI feature resolved for the caller (#173): all ready by default.
   http.get(`${API_BASE}/ai/features`, () => {
     return HttpResponse.json({ data: mockAiFeaturesView() });
+  }),
+
+  // AI Coach settings (E7.3, #243): the gallery, the caller's view, the policy.
+  http.get(`${API_BASE}/coach/personas`, () => {
+    return HttpResponse.json({ data: mockCoachPersonas() });
+  }),
+
+  http.get(`${API_BASE}/coach/settings`, () => {
+    return HttpResponse.json({ data: mockCoachSettingsView() });
+  }),
+
+  http.get(`${API_BASE}/admin/coach/settings`, () => {
+    return HttpResponse.json({ data: mockSystemCoachSettings });
   }),
 
   // Training agents: role states and the typical-plan estimate.

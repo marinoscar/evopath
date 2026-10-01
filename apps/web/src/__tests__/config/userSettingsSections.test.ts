@@ -80,6 +80,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     '/settings/health-documents': 'health_data:read',
     // Training agents: the exact string `/api/ai/training/*` enforces.
     '/settings/ai/agents': 'ai:use',
+    // E7.3 (#243): the exact string `coach-settings.controller.ts` enforces.
+    '/settings/coach': 'ai:use',
   };
 
   it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
@@ -205,5 +207,51 @@ describe('USER_SETTINGS_SECTIONS - Health Documents card (issue #190)', () => {
         '/settings/health-documents',
       ),
     ).toBe('Health Documents');
+  });
+});
+
+/**
+ * E7.3 (#243). The Coach card is APPENDED to the `AI` group after Training
+ * agents, gated on `ai:use` (the literal string the coach settings controller
+ * enforces, read off the API source on disk) and hidden while AI is off.
+ */
+describe('USER_SETTINGS_SECTIONS - Coach card (E7.3, #243)', () => {
+  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  const ai = USER_SETTINGS_SECTIONS.find((section) => section.label === 'AI');
+
+  it('is appended after Training agents, the last card of the AI group', () => {
+    expect(ai?.cards.map((card) => card.title)).toEqual(['Training agents', 'Coach']);
+  });
+
+  it('declares ai:use and the ai feature gate', () => {
+    const card = ai?.cards.find((c) => c.path === '/settings/coach');
+    expect(card).toMatchObject({ title: 'Coach', permission: 'ai:use', feature: 'ai' });
+  });
+
+  it('matches the permission coach-settings.controller.ts enforces on every route', () => {
+    const controller = readFileSync(resolve(API_SRC, 'coach/coach-settings.controller.ts'), 'utf8');
+    const auths = controller.match(/@Auth\(\{ permissions: \[PERMISSIONS\.[A-Z_]+\] \}\)/g) ?? [];
+    expect(auths.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(auths)).toEqual(new Set(['@Auth({ permissions: [PERMISSIONS.AI_USE] })']));
+    expect(controller).toContain('@UseGuards(AiEnabledGuard)');
+  });
+
+  it('titles /settings/coach "Coach" while AI is on and falls back to the hub title while it is off', () => {
+    expect(
+      settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/coach', { ai: true }),
+    ).toBe('Coach');
+    expect(settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/coach')).toBe(
+      USER_HUB_TITLE,
+    );
+  });
+
+  it('is hidden while AI is off and without ai:use', () => {
+    const titles = (features: Record<string, boolean>, perms: string[]) =>
+      visibleSettingsSections(USER_SETTINGS_SECTIONS, (p) => perms.includes(p), '', features).flatMap((s) =>
+        s.cards.map((c) => c.title),
+      );
+    expect(titles({ ai: true }, ['ai:use'])).toContain('Coach');
+    expect(titles({ ai: false }, ['ai:use'])).not.toContain('Coach');
+    expect(titles({ ai: true }, [])).not.toContain('Coach');
   });
 });
