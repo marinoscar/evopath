@@ -5,7 +5,7 @@
  */
 import { useMediaQuery, useTheme } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
-import { rainbowSurgePalette } from '@mui/x-charts/colorPalettes';
+import { useChartSeries } from '../../theme/chartPalette';
 import type { PlanSignals } from '../../services/programs';
 import { ChartFrame, weekLabel } from './ChartFrame';
 
@@ -23,7 +23,7 @@ export function AdherenceChart({ adherence, width }: AdherenceChartProps) {
   const theme = useTheme();
   // A local chart layout choice, not one of the coupled shell gates.
   const compact = useMediaQuery(theme.breakpoints.down('sm'));
-  const palette = rainbowSurgePalette(theme.palette.mode);
+  const palette = useChartSeries();
   const { weeks, totals } = adherence;
   const labels = weeks.map((w) => `${weekLabel(w.weekStart)}${w.partial ? '*' : ''}`);
   const summary =
@@ -56,7 +56,8 @@ export function AdherenceChart({ adherence, width }: AdherenceChartProps) {
             id: 'planned',
             label: 'Planned',
             data: weeks.map((w) => w.planned),
-            color: theme.palette.grey[theme.palette.mode === 'dark' ? 600 : 400],
+            // The muted reference bar: outline ink, not a series or status colour.
+            color: theme.palette.outline,
           },
           {
             id: 'completed',

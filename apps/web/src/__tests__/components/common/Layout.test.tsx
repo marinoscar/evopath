@@ -3,6 +3,7 @@ import { act, screen } from '@testing-library/react';
 import { render, mockUser } from '../../utils/test-utils';
 import { setViewportWidth } from '../../setup';
 import { Layout } from '../../../components/common/Layout';
+import { spacingDeclaration } from '../../utils/cssVarSpacing';
 
 /**
  * Rewritten wholesale for issue #55. Most of what this file used to assert
@@ -66,6 +67,11 @@ function mockPushSyncHidden() {
 function renderAt(px: number) {
   setViewportWidth(px);
   return render(<Layout />);
+}
+
+/** Escapes `text` for use inside a RegExp (the emitted `calc(...)` has metacharacters). */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -176,10 +182,18 @@ describe('Layout', () => {
       const main = screen.getByTestId('outlet-content').closest('main')!;
       const rules = emittedRulesFor(main);
 
-      // pb: 10 → 80px, which clears the fixed BottomNav's height.
-      expect(rules).toMatch(/@media \(min-width:0px\)\{[^}]*padding-bottom:80px/);
-      // pb: 3 → 24px at sm and up, matching the other three sides.
-      expect(rules).toMatch(/@media \(min-width:600px\)\{[^}]*padding-bottom:24px/);
+      // The spacing is `theme.spacing(n)`, which the CSS-variables theme emits
+      // as `calc(n * var(--mui-spacing))`; jsdom cannot resolve that to px, so
+      // the assertion is on the emitted declaration (`spacingDeclaration`).
+      //
+      // pb: 10 (80px at the 8px unit) clears the fixed BottomNav's height.
+      expect(rules).toMatch(
+        new RegExp(`@media \\(min-width:0px\\)\\{[^}]*padding-bottom:${escapeRegExp(spacingDeclaration(10))}`),
+      );
+      // pb: 3 (24px) at sm and up, matching the other three sides.
+      expect(rules).toMatch(
+        new RegExp(`@media \\(min-width:600px\\)\\{[^}]*padding-bottom:${escapeRegExp(spacingDeclaration(3))}`),
+      );
     });
   });
 

@@ -14,33 +14,35 @@
  * background pairs THIS component paints — not a generic "is the theme
  * accessible" audit.
  *
- * ## Every ratio here is re-pinned against THIS repo's palette
+ * ## Every ratio here is pinned against THIS repo's palette
  *
- * The measured ratios in the comments below were computed from
- * `theme/light.ts` / `theme/dark.ts` as they stand, NOT carried over from the
- * upstream palette this suite was ported from. They are recorded so that a
- * future palette change shows up as a diff in intent, not just as a pass/fail
- * flip — several pairs clear their floor by very little (`primary.main` on
- * paper in the light theme is 4.60:1 against a 4.5:1 requirement).
+ * The measured ratios in the comments below were computed from the Tidal Teal
+ * palettes (`theme/light.ts` / `dark.ts`, built from `theme/tokens.ts`) with
+ * this file's own `contrastRatio` helper. They are recorded so that a future
+ * palette change shows up as a diff in intent, not just as a pass/fail flip.
+ * The tightest pair is `text.secondary` over the detail wash in the light
+ * scheme (6.44:1 against a 4.5:1 requirement).
  *
- * ## Translucent FOREGROUNDS must be composited too
+ * ## Foregrounds are opaque; the TINTS are still translucent
  *
- * This palette states its text colors as `rgba()` with alpha
- * (`text.primary` is `rgba(0, 0, 0, 0.87)`, `text.secondary` is
- * `rgba(0, 0, 0, 0.6)`), where the upstream palette used opaque hex. That
- * difference is load-bearing here: `contrastRatio()` only composites a
- * translucent color when it is given the opaque surface behind it, so calling
- * it with two arguments would treat `rgba(0, 0, 0, 0.6)` as pure black and
- * report 21:1 — the same number as `text.primary`, and the same number as
- * black-on-white. That is a FALSE pass, not a strict one: it reports a
- * contrast the user never actually sees.
+ * The Tidal Teal palettes state `text.primary` and `text.secondary` as opaque
+ * hex, so a foreground no longer needs compositing. The component-authored
+ * tints DataTable paints over the paper (the selected-row wash, derived from
+ * `primary.main` via `alpha()`; the detail wash, an `rgba()` literal) are
+ * translucent, and a translucent BACKGROUND is the case a naive two-colour
+ * check gets wrong: the rendered surface is the tint alpha-composited over
+ * paper, not the tint read in isolation. So every assertion that involves a
+ * tint passes the opaque backing surface explicitly, and every text assertion
+ * keeps passing it too so the call shape stays uniform.
  *
- * So every assertion below passes the opaque backing surface explicitly, and
- * the "both text colors cannot be 21:1" property is itself asserted at the
- * bottom of this file so the mistake cannot silently return.
+ * These tests read the palette OBJECTS, not rendered output: with a
+ * CSS-variables theme, rendered colours are `var(--mui-palette-…)` references
+ * that jsdom cannot resolve.
  */
 
 import { describe, it, expect } from 'vitest';
+import { alpha } from '@mui/material/styles';
+import { theme } from '../../../theme';
 import { lightPalette } from '../../../theme/light';
 import { darkPalette } from '../../../theme/dark';
 import {
@@ -52,14 +54,16 @@ import {
 
 // Component-authored colors that are not part of the theme palette but ARE
 // painted by DataTable — the selected-row tint (`DesktopGridRenderer.tsx`'s
-// `.MuiDataGrid-row.Mui-selected` equivalent styling, `DataCard.tsx`'s
+// `.MuiDataGrid-row.Mui-selected` equivalent styling, `mobile/DataCard.tsx`'s
 // selected background) and the bulk-action-bar tint (`BulkActionBar.tsx`).
 //
-// These are literals in the components themselves (`BulkActionBar.tsx:63-64`,
-// `DataCard.tsx:160-161`), not palette lookups, so they are mirrored here
-// verbatim rather than derived — verified to match those two files.
-const SELECTED_ROW_TINT_LIGHT = 'rgba(25, 118, 210, 0.06)';
-const SELECTED_ROW_TINT_DARK = 'rgba(144, 202, 249, 0.10)';
+// Both components paint `alpha(theme.palette.primary.main, 0.06)` in the light
+// scheme and `alpha(theme.palette.primary.main, 0.10)` in the dark scheme, so
+// the tints are derived here the same way, from the same palette objects —
+// a palette change to `primary.main` flows into these ratios automatically.
+// The alpha values are mirrored from the components; keep them in step.
+const SELECTED_ROW_TINT_LIGHT = alpha(lightPalette.primary!.main!, 0.06);
+const SELECTED_ROW_TINT_DARK = alpha(darkPalette.primary!.main!, 0.1);
 
 // The collapsed "More details" region's own backing wash (`DataCard.tsx:279-280`),
 // painted over the card's `background.paper`.
@@ -71,26 +75,25 @@ const DARK_PAPER = darkPalette.background!.paper!;
 
 describe('DataTable — WCAG contrast (computed against the real theme)', () => {
   describe('body text on the card / paper surface', () => {
-    // Measured: 16.07:1. `text.primary` is rgba(0,0,0,0.87) composited over #ffffff.
+    // Measured: 17.04:1. `text.primary` is opaque #0E1F1D over #FFFFFF.
     it('light theme: text.primary on background.paper meets AA normal text (4.5:1)', () => {
       const ratio = contrastRatio(lightPalette.text!.primary!, LIGHT_PAPER, LIGHT_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
     });
 
-    // Measured: 5.74:1 — the tightest of the four, and the reason the alpha
-    // must be composited: read as opaque black it would report 21:1.
+    // Measured: 6.73:1. `text.secondary` is opaque #4A605D over #FFFFFF.
     it('light theme: text.secondary on background.paper meets AA normal text (4.5:1)', () => {
       const ratio = contrastRatio(lightPalette.text!.secondary!, LIGHT_PAPER, LIGHT_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
     });
 
-    // Measured: 16.67:1. `text.primary` is opaque #ffffff in the dark palette.
+    // Measured: 14.13:1. `text.primary` is opaque #E3EEEC over #122020.
     it('dark theme: text.primary on background.paper meets AA normal text (4.5:1)', () => {
       const ratio = contrastRatio(darkPalette.text!.primary!, DARK_PAPER, DARK_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
     });
 
-    // Measured: 8.73:1. rgba(255,255,255,0.7) composited over #1e1e1e.
+    // Measured: 7.50:1. `text.secondary` is opaque #9CB2AE over #122020.
     it('dark theme: text.secondary on background.paper meets AA normal text (4.5:1)', () => {
       const ratio = contrastRatio(darkPalette.text!.secondary!, DARK_PAPER, DARK_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
@@ -105,13 +108,13 @@ describe('DataTable — WCAG contrast (computed against the real theme)', () => 
     // ACTUAL rendered background is the tint alpha-composited over paper, not
     // the tint's own (mostly-transparent) color read in isolation.
 
-    // Measured: 14.87:1.
+    // Measured: 15.69:1. `text.primary` over `alpha(#0F766E, 0.06)` over #FFFFFF.
     it('light theme: text.primary over the selected-row tint (composited over paper) meets AA', () => {
       const ratio = contrastRatio(lightPalette.text!.primary!, SELECTED_ROW_TINT_LIGHT, LIGHT_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
     });
 
-    // Measured: 13.50:1.
+    // Measured: 11.61:1. `text.primary` over `alpha(#4FCDBC, 0.10)` over #122020.
     it('dark theme: text.primary over the selected-row tint (composited over paper) meets AA', () => {
       const ratio = contrastRatio(darkPalette.text!.primary!, SELECTED_ROW_TINT_DARK, DARK_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
@@ -123,7 +126,7 @@ describe('DataTable — WCAG contrast (computed against the real theme)', () => 
     // over the detail wash over paper — a THREE-layer stack, and the pair with
     // the least headroom in the light theme once alpha is honoured.
 
-    // Measured: 5.50:1.
+    // Measured: 6.44:1.
     it('light theme: text.secondary over the detail wash (composited over paper) meets AA', () => {
       const ratio = contrastRatio(
         lightPalette.text!.secondary!,
@@ -133,7 +136,7 @@ describe('DataTable — WCAG contrast (computed against the real theme)', () => 
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
     });
 
-    // Measured: 8.05:1.
+    // Measured: 6.92:1.
     it('dark theme: text.secondary over the detail wash (composited over paper) meets AA', () => {
       const ratio = contrastRatio(
         darkPalette.text!.secondary!,
@@ -150,15 +153,14 @@ describe('DataTable — WCAG contrast (computed against the real theme)', () => 
     // row's border all use. WCAG 1.4.11 (non-text contrast) sets the floor at
     // 3:1 against its background, not the stricter 4.5:1 for body text.
 
-    // Measured: 4.60:1 — #1976d2 on #ffffff. The tightest ratio in this file:
-    // it clears AA normal text by 0.10, so any darkening of `background.paper`
-    // or lightening of `primary.main` needs re-checking here first.
+    // Measured: 5.47:1 — #0F766E on #FFFFFF. Clears AA normal text (4.5:1)
+    // too, so `primary.main` text on paper is safe at body size.
     it('light theme: primary.main on background.paper meets the UI-component floor (3:1)', () => {
       const ratio = contrastRatio(lightPalette.primary!.main!, LIGHT_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_UI_COMPONENT);
     });
 
-    // Measured: 9.53:1 — #90caf9 on #1e1e1e.
+    // Measured: 8.61:1 — #4FCDBC on #122020.
     it('dark theme: primary.main on background.paper meets the UI-component floor (3:1)', () => {
       const ratio = contrastRatio(darkPalette.primary!.main!, DARK_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_UI_COMPONENT);
@@ -182,37 +184,37 @@ describe('DataTable — WCAG contrast (computed against the real theme)', () => 
 
   describe('error (destructive) palette', () => {
     // Destructive row/bulk actions (`destructive: true`) paint in
-    // `theme.palette.error.main`. Neither `light.ts` nor `dark.ts` overrides
-    // `error`, so this pins MUI's OWN default (#d32f2f light, #f44336 dark) —
-    // if a future palette change ever adds a custom override, this test starts
-    // exercising it for free.
+    // `theme.palette.error.main`, which the Tidal Teal tokens override per
+    // scheme (`#B42318` light, `#F28B82` dark). The ratios are computed from
+    // the pinned literals; the pin test below ties them to the real theme.
 
-    // Measured: 4.98:1.
-    it('light theme: the default error.main on background.paper meets the UI-component floor', () => {
-      const ratio = contrastRatio('#d32f2f', LIGHT_PAPER);
+    // Measured: 6.57:1.
+    it('light theme: error.main on background.paper meets the UI-component floor', () => {
+      const ratio = contrastRatio('#B42318', LIGHT_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_UI_COMPONENT);
     });
 
-    // Measured: 4.53:1.
-    it('dark theme: the default error.main on background.paper meets the UI-component floor', () => {
-      const ratio = contrastRatio('#f44336', DARK_PAPER);
+    // Measured: 7.01:1.
+    it('dark theme: error.main on background.paper meets the UI-component floor', () => {
+      const ratio = contrastRatio('#F28B82', DARK_PAPER);
       expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_UI_COMPONENT);
     });
 
-    // The two literals above are MUI's defaults, asserted against the real
-    // themes so a palette that starts overriding `error` fails here loudly
-    // rather than leaving these two tests quietly checking a dead constant.
-    it('pins the error.main values these ratios were computed from', async () => {
-      const { lightTheme, darkTheme } = await import('../../../theme');
-      expect(lightTheme.palette.error.main).toBe('#d32f2f');
-      expect(darkTheme.palette.error.main).toBe('#f44336');
+    // The two literals above are asserted against the real theme's colour
+    // schemes so a palette that changes `error` fails here loudly rather than
+    // leaving these two tests quietly checking a dead constant.
+    it('pins the error.main values these ratios were computed from', () => {
+      expect(theme.colorSchemes.light!.palette.error.main).toBe('#B42318');
+      expect(theme.colorSchemes.dark!.palette.error.main).toBe('#F28B82');
+      expect(lightPalette.error).toEqual({ main: '#B42318' });
+      expect(darkPalette.error).toEqual({ main: '#F28B82' });
     });
   });
 
-  describe('the calculator itself honours alpha', () => {
-    // Guards the porting mistake this file's docblock describes: if a future
-    // edit drops the third argument, `text.secondary` collapses onto
-    // `text.primary`'s ratio and every assertion above silently over-reports.
+  describe('the calculator itself', () => {
+    // Guards the calculator's compositing: `text.secondary` must stay
+    // measurably below `text.primary`, so a regression that flattens both onto
+    // one ratio (e.g. mishandling the backing surface) is caught here.
     it('light theme: text.secondary is measurably LOWER contrast than text.primary', () => {
       const primary = contrastRatio(lightPalette.text!.primary!, LIGHT_PAPER, LIGHT_PAPER);
       const secondary = contrastRatio(lightPalette.text!.secondary!, LIGHT_PAPER, LIGHT_PAPER);

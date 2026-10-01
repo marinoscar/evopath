@@ -20,6 +20,7 @@
 import {
   BottomNavigation,
   BottomNavigationAction,
+  Box,
   Paper,
   useMediaQuery,
   useTheme,
@@ -84,7 +85,23 @@ export function BottomNav() {
         zIndex: theme.zIndex.appBar,
       }}
     >
-      <BottomNavigation value={active} onChange={handleChange} showLabels>
+      <BottomNavigation
+        value={active}
+        onChange={handleChange}
+        showLabels
+        sx={{
+          // MATERIAL 3 ACTIVE INDICATOR, matching `NavigationRail`: the
+          // selected action's icon sits in a `primary.container` pill with
+          // `primary.onContainer` ink and the label reads in `text.primary`.
+          // The string tokens resolve to the theme's CSS variables, so this
+          // follows the colour scheme with no `palette.mode` branch.
+          '& .MuiBottomNavigationAction-root.Mui-selected': { color: 'text.primary' },
+          '& .Mui-selected .BottomNav-pill': {
+            bgcolor: 'primary.container',
+            color: 'primary.onContainer',
+          },
+        }}
+      >
         {visibleDestinations.map((destination) => (
           <BottomNavigationAction
             key={destination.key}
@@ -94,7 +111,15 @@ export function BottomNav() {
             // accessible name, so nothing is lost to assistive technology.
             label={destination.compactLabel}
             aria-label={destination.label}
-            icon={<destination.Icon />}
+            icon={
+              <Box
+                component="span"
+                className="BottomNav-pill"
+                sx={{ display: 'inline-flex', px: 2, py: 0.25, borderRadius: 999 }}
+              >
+                <destination.Icon />
+              </Box>
+            }
           />
         ))}
       </BottomNavigation>

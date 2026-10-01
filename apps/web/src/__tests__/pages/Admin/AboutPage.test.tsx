@@ -560,6 +560,7 @@ describe('AboutPage — deployment detail (#392)', () => {
       expect(cert).toHaveAttribute('data-state', 'ok');
       expect(cert).toHaveTextContent(/Expires in (79|80) days/);
       expect(cert).toHaveTextContent('(');
+      expect(getComputedStyle(cert).color).toContain('var(--mui-palette-text-primary');
     });
 
     it('warns when fewer than 21 days remain', async () => {
@@ -568,7 +569,9 @@ describe('AboutPage — deployment detail (#392)', () => {
 
       const cert = await screen.findByTestId('about-certificate-expiry');
       expect(cert).toHaveAttribute('data-state', 'expiring');
-      expect(cert).toHaveStyle({ color: 'rgb(237, 108, 2)' });
+      // `sx` colour tokens emit CSS variables under the CSS-variables theme and
+      // jsdom cannot resolve them, so assert on the emitted declaration.
+      expect(getComputedStyle(cert).color).toContain('var(--mui-palette-warning-main');
     });
 
     it('marks an expired certificate as an error', async () => {
@@ -578,7 +581,7 @@ describe('AboutPage — deployment detail (#392)', () => {
       const cert = await screen.findByTestId('about-certificate-expiry');
       expect(cert).toHaveAttribute('data-state', 'expired');
       expect(cert).toHaveTextContent(/Expired 3 days ago/);
-      expect(cert).toHaveStyle({ color: 'rgb(211, 47, 47)' });
+      expect(getComputedStyle(cert).color).toContain('var(--mui-palette-error-main');
     });
   });
 

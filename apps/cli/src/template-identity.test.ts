@@ -135,6 +135,15 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // Product vision document: deliberately carries the real product name as
   // hand-written prose, not a substitutable token.
   'VISION.md',
+  // Product-specific colour-scheme design proposal: hand-written prose naming
+  // the product, like `VISION.md`; not a substitutable token.
+  'docs/design/color-scheme-options.md',
+  // The proposal's rendered mock-up (page): carries the product name as the
+  // rendered wordmark, not a substitutable token.
+  'docs/design/color-studio/index.html',
+  // The proposal's rendered mock-up (components): the wordmark and sample app
+  // copy the page draws, not a substitutable token.
+  'docs/design/color-studio/studio.jsx',
   // Install one-liners carrying the repo URL for `npm install -g`/`npx`.
   'apps/cli/README.md',
   // Fetched and run via `curl | bash` BEFORE the repository exists on disk —
