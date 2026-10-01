@@ -42,7 +42,7 @@ import com.evopath.android.sync.WorkManagerSyncScheduler
 import com.evopath.android.util.AppInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/** Hub sections. Diagnostics is filled in by #282. */
+/** Hub sections. */
 enum class HealthSyncScreen(val title: String) {
     Hub("Health sync"),
     Connect("Connect"),
@@ -57,6 +57,7 @@ enum class HealthSyncScreen(val title: String) {
 class HealthSyncActivity : ComponentActivity() {
     private val pairingVm: PairingViewModel by viewModels()
     private val syncVm: SyncViewModel by viewModels()
+    private val diagnosticsVm: DiagnosticsViewModel by viewModels()
 
     /** A destination requested by a notification (`EXTRA_OPEN`), consumed by the UI once. */
     private val pendingOpen = MutableStateFlow<String?>(null)
@@ -73,6 +74,7 @@ class HealthSyncActivity : ComponentActivity() {
                 HealthSyncApp(
                     pairingVm = pairingVm,
                     syncVm = syncVm,
+                    diagnosticsVm = diagnosticsVm,
                     pendingOpen = pendingOpen,
                     onOpenWebApp = ::openWebApp,
                 )
@@ -85,6 +87,7 @@ class HealthSyncActivity : ComponentActivity() {
         // Permissions or pairing may have changed in Health Connect or the browser.
         pairingVm.refreshStatus()
         syncVm.refresh()
+        diagnosticsVm.onResume()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -112,6 +115,7 @@ class HealthSyncActivity : ComponentActivity() {
 private fun HealthSyncApp(
     pairingVm: PairingViewModel,
     syncVm: SyncViewModel,
+    diagnosticsVm: DiagnosticsViewModel,
     pendingOpen: MutableStateFlow<String?>,
     onOpenWebApp: () -> Unit,
 ) {
@@ -156,7 +160,12 @@ private fun HealthSyncApp(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             when (screen) {
-                HealthSyncScreen.Hub -> HubScreen(pairingVm = pairingVm, onNavigate = { screen = it }, onOpenWebApp = onOpenWebApp)
+                HealthSyncScreen.Hub -> HubScreen(
+                    pairingVm = pairingVm,
+                    diagnosticsVm = diagnosticsVm,
+                    onNavigate = { screen = it },
+                    onOpenWebApp = onOpenWebApp,
+                )
                 HealthSyncScreen.Connect -> ConnectScreen(
                     pairingVm = pairingVm,
                     syncVm = syncVm,
@@ -164,14 +173,24 @@ private fun HealthSyncApp(
                     onBackgroundRequested = { requestBackground = false },
                 )
                 HealthSyncScreen.Sync -> SyncScreen(syncVm = syncVm, onOpenConnect = { screen = HealthSyncScreen.Connect })
-                HealthSyncScreen.Diagnostics -> PlaceholderScreen(screen)
+                HealthSyncScreen.Diagnostics -> DiagnosticsScreen(
+                    vm = diagnosticsVm,
+                    syncVm = syncVm,
+                    onNavigate = { screen = it },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun HubScreen(pairingVm: PairingViewModel, onNavigate: (HealthSyncScreen) -> Unit, onOpenWebApp: () -> Unit) {
+private fun HubScreen(
+    pairingVm: PairingViewModel,
+    diagnosticsVm: DiagnosticsViewModel,
+    onNavigate: (HealthSyncScreen) -> Unit,
+    onOpenWebApp: () -> Unit,
+) {
+    val diagnostics by diagnosticsVm.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val app = EvoPathApplication.from(context)
     var serverUrl by rememberSaveable { mutableStateOf(app.serverConfig.serverUrl) }
@@ -204,6 +223,7 @@ private fun HubScreen(pairingVm: PairingViewModel, onNavigate: (HealthSyncScreen
         OutlinedButton(onClick = { onNavigate(HealthSyncScreen.Diagnostics) }, modifier = Modifier.fillMaxWidth()) {
             Text("Diagnostics")
         }
+        HealthLine(diagnostics, onOpen = { onNavigate(HealthSyncScreen.Diagnostics) })
     }
 
     OutlinedButton(onClick = onOpenWebApp, enabled = serverUrl != null, modifier = Modifier.fillMaxWidth()) {
@@ -237,9 +257,22 @@ private fun HubScreen(pairingVm: PairingViewModel, onNavigate: (HealthSyncScreen
     }
 }
 
+/** Compact self-test result on the hub: "All checks pass" or "2 problems — open Diagnostics". */
 @Composable
-private fun PlaceholderScreen(screen: HealthSyncScreen) {
-    SectionCard(title = screen.title) {
-        Text("Coming soon.", style = MaterialTheme.typography.bodyLarge)
+private fun HealthLine(state: DiagnosticsUiState, onOpen: () -> Unit) {
+    val result = state.result
+    when {
+        result == null && state.running -> Muted("Checking this phone…")
+        result == null -> Unit
+        result.problemCount == 0 -> Muted("All checks pass")
+        else -> {
+            val n = result.problemCount
+            TextButton(onClick = onOpen) {
+                Text(
+                    "$n problem${if (n == 1) "" else "s"} — open Diagnostics",
+                    color = if (result.failCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }
