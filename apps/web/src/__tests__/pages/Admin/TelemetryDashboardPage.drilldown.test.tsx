@@ -19,6 +19,7 @@ import {
   mockDashboardSummary,
   mockDashboardTopErrors,
   mockDashboardTopRoutes,
+  mockUnknownRoutesTopSql,
 } from '../../mocks/fixtures/telemetryDashboard';
 import TelemetryDashboardPage from '../../../pages/Admin/TelemetryDashboardPage';
 import { http, HttpResponse } from 'msw';
@@ -73,6 +74,8 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       ['panel-top-routes', mockDashboardTopRoutes.sql as string],
       ['panel-top-errors', mockDashboardTopErrors.sql as string],
       ['panel-events', mockDashboardEventsPage1.sql as string],
+      // #258: `unknownRoutes.sql[0]` (the per-route list), not the summary's primary.
+      ['panel-unknown-routes', mockUnknownRoutesTopSql],
     ])('%s hands its API-reported SQL to the explorer', async (panelId, expected) => {
       const user = userEvent.setup();
       renderPage();
@@ -93,6 +96,19 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       await waitFor(() => expect(action).toBeEnabled());
       await user.click(action);
       expect(handedSql()).toBe('SELECT /* logs */ 1');
+    });
+
+    it('is disabled on the unknown-routes panel when the API sends no `unknownRoutes.sql`', async () => {
+      const { sql: _absent, ...olderBlock } = mockDashboardSummary.unknownRoutes!;
+      server.use(
+        http.get('*/api/admin/telemetry/dashboard/summary', () =>
+          HttpResponse.json({ data: { ...mockDashboardSummary, unknownRoutes: olderBlock } }),
+        ),
+      );
+      renderPage();
+      const panel = await screen.findByTestId('panel-unknown-routes');
+      // The summary's own `sql` still lists the statements: they are never picked out of it.
+      expect(within(panel).getByRole('button', { name: 'Open in Explorer' })).toBeDisabled();
     });
 
     it('is disabled until the panel has SQL to hand over', async () => {
@@ -181,7 +197,8 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       await screen.findByLabelText('Telemetry assistant');
       expect(question().value.split('\n').slice(0, 2)).toEqual([
         'Investigate "Verdict" for the last hour (service my-app-api).',
-        'Current state: Degraded — 5xx rate 3.2% on GET /api/users/:id; p95 latency 1.4 s.',
+        'Current state: Degraded — 5xx rate 3.2% on GET /api/users/:id; p95 latency 1.4 s; ' +
+          '3 requests to unknown API routes (GET /api/coach/messages).',
       ]);
     });
 

@@ -27,6 +27,7 @@ import {
   type DashboardTile,
   type DashboardTopError,
   type DashboardTopRoute,
+  type DashboardUnknownRoutes,
   type DashboardVerdictLevel,
 } from '../../../services/telemetryDashboard';
 import { formatDuration, formatMetricValue, formatTileValue, toNumber } from './format';
@@ -52,6 +53,8 @@ export type AssistantPanelContext =
   | { kind: 'api'; title: string; buckets: DashboardApiBucket[] }
   | { kind: 'logs'; title: string; buckets: DashboardLogsBucket[]; severities: DashboardSeverity[] }
   | { kind: 'routes'; title: string; items: DashboardTopRoute[] }
+  /** The summary's unknown API routes (#258). */
+  | { kind: 'unknownRoutes'; title: string; unknownRoutes: DashboardUnknownRoutes }
   | { kind: 'errors'; title: string; items: DashboardTopError[] }
   | { kind: 'events'; title: string; items: DashboardEvent[]; severities: DashboardSeverity[]; q: string }
   /** An infrastructure section (#127): its tiles and tables, as `/metrics` returned them. */
@@ -170,9 +173,26 @@ function routesState(items: DashboardTopRoute[]): string {
     .map((item) => {
       const route = clip([item.method, item.route].filter(Boolean).join(' ') || 'unknown route');
       const p95 = item.p95Ms === null ? 'p95 n/a' : `p95 ${formatDuration(item.p95Ms)}`;
-      return `${route} — ${count(item.count)} requests, ${pct(item.errorRatePct)} errors, ${p95}`;
+      const unknown = item.unknown ? ' (unknown route: no API route matches it)' : '';
+      const clientErrors = item.clientErrors === undefined ? '' : `, ${count(item.clientErrors)} 4xx`;
+      return `${route}${unknown} — ${count(item.count)} requests, ${pct(item.errorRatePct)} errors${clientErrors}, ${p95}`;
     })
     .join('; ');
+}
+
+function unknownRoutesState(block: DashboardUnknownRoutes): string {
+  if (block.requests <= 0) return 'no requests to unknown API routes in this window';
+  const parts = [
+    `${count(block.requests)} requests to unknown API routes (404, no route matched): ` +
+      `${count(block.bearer)} from the application with a bearer token, ${count(block.anonymous)} anonymous; ` +
+      `previous window ${count(block.previousRequests)} (${count(block.previousBearer)} with a bearer)`,
+  ];
+  const top = block.topRoutes.slice(0, ASSISTANT_PROMPT_TOP_N).map((item) => {
+    const route = clip([item.method, item.route].filter(Boolean).join(' ') || 'unknown route');
+    return `${route} — ${count(item.count)} requests, ${count(item.bearer)} with a bearer`;
+  });
+  if (top.length > 0) parts.push(top.join('; '));
+  return parts.join('; ');
 }
 
 function sampleTrace(ids: (string | null)[]): string | null {
@@ -262,6 +282,8 @@ function stateText(panel: AssistantPanelContext, now: number): string {
       return logsState(panel.buckets, panel.severities);
     case 'routes':
       return routesState(panel.items);
+    case 'unknownRoutes':
+      return unknownRoutesState(panel.unknownRoutes);
     case 'errors':
       return errorsState(panel.items);
     case 'events':

@@ -85,7 +85,10 @@ export class TelemetryDashboardController {
       'and tiles for requests/min, 5xx rate, p95 latency, error and warning logs and the latest ' +
       'data timestamp — each with the previous window of equal length and a per-bucket sparkline. ' +
       '`runtime` (heap used, event-loop delay p99) appears when those metrics are collected; it is ' +
-      'not filtered by instance. Routes are request paths with id-like segments normalized to `:id`.\n\n' +
+      'not filtered by instance. Routes are request paths with id-like segments normalized to `:id`. ' +
+      '`unknownRoutes` (tile and block) counts requests to API routes that do not exist — 404s from ' +
+      'the not-found handler, split by whether a bearer was sent; any with a bearer degrades the ' +
+      'verdict. It is absent (tile value null) until the store has recorded one.\n\n' +
       COMMON_DOC,
   })
   @CommonQueries()
@@ -116,8 +119,9 @@ export class TelemetryDashboardController {
   @ApiOperation({
     summary: 'Top routes or top error messages (Admin only)',
     description:
-      '`kind=routes`: the ten request paths (normalized) with the most 5xx responses, then the ' +
-      'highest p95. `kind=errors`: the ten most frequent error log messages (first 200 ' +
+      '`kind=routes`: the ten request paths (normalized) with the most 5xx responses, then the most ' +
+      '4xx except 401 (`clientErrors`), then the highest p95; `unknown` marks a method + path no API ' +
+      'route matches. `kind=errors`: the ten most frequent error log messages (first 200 ' +
       'characters) with first/last seen, a sample trace id and the service.\n\n' +
       COMMON_DOC,
   })

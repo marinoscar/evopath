@@ -17,6 +17,7 @@ import { render, mockAdminUser } from '../../utils/test-utils';
 import {
   dashboardHandlers,
   mockDashboardEventsPage1,
+  mockDashboardSummary,
 } from '../../mocks/fixtures/telemetryDashboard';
 import TelemetryDashboardPage from '../../../pages/Admin/TelemetryDashboardPage';
 
@@ -273,6 +274,81 @@ describe('TelemetryDashboardPage', () => {
     expect(screen.queryByTestId('panel-events')).not.toBeInTheDocument();
   });
 
+  describe('unknown API routes (#258)', () => {
+    it('shows the tile, the unknown-routes panel and the 4xx column with an unknown-route chip', async () => {
+      renderPage();
+
+      const card = await screen.findByTestId('tile-unknownRoutes');
+      expect(card).toHaveTextContent('15');
+      expect(card).toHaveAttribute('data-highlight', 'warning');
+      expect(within(card).getByTestId('tile-unknownRoutes-caption')).toHaveTextContent('3 from the app · 12 anonymous');
+
+      const panel = await screen.findByRole('region', { name: 'Unknown API routes' });
+      const list = within(panel).getByRole('list', { name: 'Unknown API routes' });
+      expect(list).toHaveTextContent('GET /api/coach/messages');
+      expect(list).toHaveTextContent('GET /api/.env');
+
+      const table = await screen.findByRole('table', { name: 'Top routes' });
+      expect(within(table).getByRole('columnheader', { name: '4xx' })).toBeInTheDocument();
+      const unknownRow = within(table).getByText('/api/coach/messages').closest('tr')!;
+      expect(within(unknownRow).getByTestId('unknown-route-chip')).toHaveTextContent('unknown route');
+      const knownRow = within(table).getByText('/api/users/:id').closest('tr')!;
+      expect(within(knownRow).queryByTestId('unknown-route-chip')).not.toBeInTheDocument();
+      expect(within(knownRow).getAllByRole('cell').map((cell) => cell.textContent)).toContain('6');
+    });
+
+    it('links the verdict reason to the panel', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      const verdict = await screen.findByTestId('verdict-banner');
+      await screen.findByRole('region', { name: 'Unknown API routes' });
+      await user.click(await within(verdict).findByRole('button', { name: 'Show unknown routes' }));
+      expect(screen.getByRole('region', { name: 'Unknown API routes' })).toHaveFocus();
+    });
+
+    it('hides the panel and shows "—" while the store cannot tell', async () => {
+      const { unknownRoutes: _absent, ...summary } = mockDashboardSummary;
+      server.use(
+        http.get(`${API}/summary`, () =>
+          HttpResponse.json({
+            data: {
+              ...summary,
+              verdict: { level: 'healthy', reasons: [] },
+              tiles: summary.tiles.map((tile) =>
+                tile.key === 'unknownRoutes' ? { ...tile, value: null, previous: null } : tile,
+              ),
+            },
+          }),
+        ),
+      );
+      renderPage();
+      const card = await screen.findByTestId('tile-unknownRoutes');
+      expect(card).toHaveTextContent('—');
+      expect(card).not.toHaveAttribute('data-highlight');
+      await screen.findByRole('table', { name: 'Top routes' });
+      expect(screen.queryByTestId('panel-unknown-routes')).not.toBeInTheDocument();
+    });
+
+    it('hides the panel when no request hit an unknown route', async () => {
+      server.use(
+        http.get(`${API}/summary`, () =>
+          HttpResponse.json({
+            data: {
+              ...mockDashboardSummary,
+              unknownRoutes: { ...mockDashboardSummary.unknownRoutes, requests: 0, bearer: 0, anonymous: 0, topRoutes: [] },
+            },
+          }),
+        ),
+      );
+      renderPage();
+      await screen.findByTestId('tile-unknownRoutes');
+      await screen.findByRole('table', { name: 'Top routes' });
+      expect(screen.queryByTestId('panel-unknown-routes')).not.toBeInTheDocument();
+      // Its verdict reason gets no link to a panel that is not there.
+      expect(within(screen.getByTestId('verdict-banner')).queryByRole('button', { name: 'Show unknown routes' })).not.toBeInTheDocument();
+    });
+  });
+
   describe('at phone width', () => {
     beforeEach(() => {
       act(() => setViewportWidth(390));
@@ -322,7 +398,12 @@ describe('TelemetryDashboardPage', () => {
 
       const panel = await screen.findByTestId('panel-top');
       expect(screen.queryByRole('table', { name: 'Top routes' })).not.toBeInTheDocument();
-      expect(await within(panel).findByRole('list', { name: 'Top routes' })).toHaveTextContent('/api/users/:id');
+      const routes = await within(panel).findByRole('list', { name: 'Top routes' });
+      expect(routes).toHaveTextContent('/api/users/:id');
+      // #258: the 4xx count and the unknown-route chip fit the card too.
+      expect(routes).toHaveTextContent('6 4xx');
+      const unknownCard = within(routes).getByText('/api/coach/messages', { exact: false }).closest('li')!;
+      expect(within(unknownCard).getByTestId('unknown-route-chip')).toBeInTheDocument();
 
       await user.click(within(panel).getByRole('button', { name: 'Errors' }));
       expect(await within(panel).findByRole('list', { name: 'Top errors' })).toHaveTextContent(

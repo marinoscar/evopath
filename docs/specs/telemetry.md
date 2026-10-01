@@ -627,7 +627,7 @@ rather than an answer.
 | `describe_table` | One table's columns, types and semantic types |
 | `run_query` | The model's own read-only SQL, via `TelemetryQueryService.run` |
 | `get_app_context` | API version, runtime, OTel service name/instance id, telemetry settings, an allowlist of platform feature flags (booleans only), the deploy document's non-sensitive facts (version, commit SHA, timestamps, last outcome — never a hostname, path or secret), the store's tables, `metricFamilies` (per catalog group of §11.14: `available`, families and tables present out of the total, and the catalog keys of the families present), and the data range (earliest/latest timestamp, last-24h coverage, services) of traces and logs |
-| `health_overview(window)` | A baseline over `15m`/`1h`/`6h`/`24h`/`7d`: per-service span/error counts and latency (avg, max, p95), top failing routes, log counts by severity, top error log messages with a sample trace id, the slowest spans, each table's coverage in the window, and `saturation`: the summary verdict's infrastructure probes (§11.7, `metric-verdict.ts`) — worst filesystem %, worst memory %, database connections %, oldest pending job and last backup, stale nodes and job types without an eligible node, failing uptime checks, soonest TLS expiry, collector export failures — each with a `level` (`ok`/`degraded`/`critical`) against `DASHBOARD_VERDICT_THRESHOLDS`; a probe whose tables are absent is listed in `skipped`, one with no fresh reading in `noReading` |
+| `health_overview(window)` | A baseline over `15m`/`1h`/`6h`/`24h`/`7d`: per-service span/error counts and latency (avg, max, p95), top failing routes, `httpStatuses` (server requests by status code — 4xx included, since OpenTelemetry never marks them as errors), `unknownRoutes` (requests to unknown API routes with and without a bearer) and `unknownRoutePaths` (their method + normalized path, bearer first; the method and path are withheld when `shareResults` is off, the counts are not), both skipped with an explicit "not the same as zero" reason until the store has the `app.route.matched` column (§11.15), log counts by severity, top error log messages with a sample trace id, the slowest spans, each table's coverage in the window, and `saturation`: the summary verdict's infrastructure probes (§11.7, `metric-verdict.ts`) — worst filesystem %, worst memory %, database connections %, oldest pending job and last backup, stale nodes and job types without an eligible node, failing uptime checks, soonest TLS expiry, collector export failures — each with a `level` (`ok`/`degraded`/`critical`) against `DASHBOARD_VERDICT_THRESHOLDS`; a probe whose tables are absent is listed in `skipped`, one with no fresh reading in `noReading` |
 | `get_trace(traceId)` | Every span and log record of one trace, oldest first (`traceId` must match `TRACE_ID_PATTERN`, 16–32 hex characters) |
 | `metrics_overview(group, window)` | One catalog group (`host`, `database`, `queue`, `nodes`, `uptime`, `pipeline`, §11.14) computed by `computeMetricGroup` over the window: `tiles` (key, label, unit, `value`, `previous`, and the current window's `max` with `maxAt`, the start of that bucket — no sparkline, no series), `tables` (each at most `METRICS_TABLE_ROWS_TO_MODEL`, 20, rows), `skipped` (catalog keys whose table or column is absent), `available`, `truncated`, and `unavailable` (why a statement failed) |
 | `compare_nodes(window)` | Every worker node's vitals (the catalog's `nodes` table: CPU cores, RSS, heap used/limit/%, state-dir free/size/%, slots) plus the window's reset-aware increase of its `app.nodes.counter` series (lease renew failures, watchdog trips, heartbeat and claim failures, jobs succeeded and failed), the fleet `median` of each vital, per-node `flags` (CPU, RSS or heap over 2× the median, heap ≥ 90% of its limit, state dir < 10% free, slots full, any lease renew failure, watchdog trip, heartbeat or claim failure, no current vitals), fleet health counts (`healthy`/`stale`/`offline`), and the node-offered job types with due work but no eligible node |
@@ -768,6 +768,12 @@ between resolution and the adapter call, request-scoped, not a job.
   `http.response.header.set-cookie` and `url.query` before a batch reaches
   GreptimeDB, so a deleted attribute never becomes a column at all — it
   cannot be un-redacted by a later query.
+- **The bearer flag is a presence bit, never the token** (#258). The API's
+  `onRequest` hook (`apps/api/src/common/otel/request-span-attributes.ts`)
+  writes `app.request.bearer` = `true`/`false` on the server span: whether an
+  `Authorization: Bearer …` header was sent. Only the scheme is read; no part
+  of the token is ever put on a span (the hook's spec asserts it). The
+  header itself remains deleted by the collector as above.
 - **`telemetry:read`/`telemetry:write`/`telemetry:query` are Admin-only**,
   seeded that way in `ROLE_PERMISSIONS` (`apps/api/prisma/seed-data.ts`):
   `read`/`write` gate the deployment-wide policy (whether telemetry is
@@ -1347,7 +1353,8 @@ account. These override the issue text where they differ:
 
 | Table | Finding |
 |---|---|
-| `opentelemetry_traces` | `"span_attributes.http.route"` is **empty on server spans** (the Fastify HTTP instrumentation never sets it; only NestJS-internal spans carry it, and those are missing for a request rejected before the handler) — so routes are grouped by a **normalized `"span_attributes.url.path"`** instead (always present; the collector has already redacted the query string). Numeric, UUID and 24+ hex path segments become `:id`. |
+| `opentelemetry_traces` | `"span_attributes.http.route"` is **empty on server spans** (the Fastify HTTP instrumentation never sets it; only NestJS-internal spans carry it, and those are missing for a request rejected before the handler) — so routes are grouped by a **normalized `"span_attributes.url.path"`** instead (always present; the collector has already redacted the query string). Numeric, UUID and 24+ hex path segments become `:id`. Since #258 the API writes `http.route` (the matched Fastify pattern) on server spans itself (§11.15), but the dashboard keeps grouping by the normalized path: older spans have no route, and an unknown route has none by definition. |
+| `opentelemetry_traces` | #258 attributes, verified live on v1.2.1: `"span_attributes.http.route"` (string), `"span_attributes.app.route.matched"` (boolean, written only as `false`) and `"span_attributes.app.request.bearer"` (boolean). Like every attribute column they exist only once written — `app.route.matched` only after the first request to an unknown route. |
 | `opentelemetry_traces` | Status is `"span_attributes.http.response.status_code"` (bigint). `"span_attributes.http.status_code"` does **not** exist; `span_status_code` is `STATUS_CODE_UNSET` for 4xx, so status classes come from the numeric column, never from `span_status_code`. |
 | `opentelemetry_traces` | Service is `service_name`; instance is `"resource_attributes.app.instance.id"` — a genuine flattened column, present only once an instance id has actually been written (§11.6 covers what happens when it has not). |
 | `opentelemetry_logs` | Severity comes from **`severity_number`** (OTel standard), not `severity_text` (lower-case pino labels): error `>= 17` (17 error, 21 fatal), warn `13..16`, info `9..12`, other `< 9` or `NULL`. |
@@ -1447,9 +1454,9 @@ deployment-wide policy instead; see [§7](#7-security-model)):
 
 | Route | Purpose |
 |---|---|
-| `GET /api/admin/telemetry/dashboard/summary` | The verdict and headline tiles (requests/min, 5xx rate, p95, error/warning logs, latest data), plus optional runtime tiles |
+| `GET /api/admin/telemetry/dashboard/summary` | The verdict and headline tiles (requests/min, 5xx rate, p95, error/warning logs, unknown API routes, latest data), plus optional runtime tiles and the optional `unknownRoutes` block (§11.15) |
 | `GET /api/admin/telemetry/dashboard/timeseries` | `panel=api` (status classes + p95 per bucket) or `panel=logs` (severity bands per bucket) |
-| `GET /api/admin/telemetry/dashboard/top` | `kind=routes` (top 5xx offenders) or `kind=errors` (top error messages) |
+| `GET /api/admin/telemetry/dashboard/top` | `kind=routes` (problem routes: by 5xx, then 4xx except 401, then p95; with `clientErrors`, `unknownRequests` and `unknown` per route, §11.15) or `kind=errors` (top error messages) |
 | `GET /api/admin/telemetry/dashboard/events` | Log events, newest first, keyset-paginated |
 | `GET /api/admin/telemetry/dashboard/filters` | Distinct `service`/`instance` values seen in the window, and the `hosts` the host metrics report (`host_name` of `system_cpu_load_average_1m`) |
 | `GET /api/admin/telemetry/dashboard/metrics` | `group=host\|database\|queue\|nodes\|uptime\|pipeline`: one group of the metric catalog — tiles, series and per-key tables (§11.14). Also takes `host` |
@@ -1541,8 +1548,8 @@ read, capped at 500 entries each (oldest evicted first).
 `computeVerdict` (`apps/api/src/telemetry/dashboard/telemetry-dashboard
 .verdict.ts`) is one pure function over numbers the summary has already
 computed — four traffic rules, each with a **volume guard** so a quiet
-deployment does not flap red on one failed request, and nine infrastructure
-rules (#126). The level reported is the worst rule that fired; `reasons`
+deployment does not flap red on one failed request, the unknown-API-routes
+rule (#258, deliberately without one), and nine infrastructure rules (#126). The level reported is the worst rule that fired; `reasons`
 carries one line per fired rule with its value, the threshold it crossed, and
 the worst offender (route, message, mountpoint, host, server, job type or URL,
 cut to 80 characters). Every threshold lives in
@@ -1554,6 +1561,7 @@ cut to 80 characters). Every threshold lives in
 | p95 latency (streams excluded, §11.5) | > 1000 ms | > 3000 ms | ≥ 20 requests in the window |
 | Error logs vs. the previous window | ≥ 3× | ≥ 10× | ≥ 10 error logs now (a previous count of 0 counts as 1, so the very first burst still ranks as a ratio) |
 | No data | — | — | `now − latest trace/log > 5 min` **overrides every other rule**: the other rules would be judging silence |
+| Unknown API routes (#258, §11.15) | any request **with a bearer** to an unknown route, naming the top `METHOD /path` | ≥ 20 such requests, or ≥ 3 distinct `METHOD /path` | none — one request from the application's own client to a route the API lacks is already a defect. Anonymous unknown-route requests never fire. Skipped while the store has no `app.route.matched` column |
 | Disk utilization (worst mountpoint) | ≥ 85 % | ≥ 95 % | `system_filesystem_utilization_ratio` exists |
 | Memory utilization (worst host, `state = used`) | ≥ 90 % | ≥ 97 % | `system_memory_utilization_ratio` exists |
 | DB connections (`postgresql_backends` summed ÷ `postgresql_connection_max`, worst server) | ≥ 80 % | ≥ 95 % | both tables exist |
@@ -1711,8 +1719,15 @@ controls instead, just not by selecting a span on the chart itself.
 
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.spec.ts` — every
   SQL template, literal-escaping and the SSE exclusion.
+- `apps/api/src/common/otel/request-span-attributes.spec.ts` (#258) — the
+  `onRequest` hook over `fastify.inject` inside an active SERVER span, on
+  plain Fastify and on a Nest Fastify application: `http.route` on a matched
+  route, `app.route.matched=false` on an unknown one (Nest's default 404 and
+  a wrong method included), the bearer flag both ways and never any token
+  text, and no registration without OTel.
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.verdict.spec.ts` —
-  the four traffic rules and their volume guards, and each infrastructure
+  the four traffic rules and their volume guards, the unknown-API-routes
+  rule (bearer vs anonymous, both critical bounds, #258), and each infrastructure
   rule at both levels, its offender and its absence (#126).
 - `apps/api/src/telemetry/metrics/metric-sql.spec.ts` — snapshots of every
   catalog family and table, with and without filters, the uptime, host and
@@ -2142,6 +2157,92 @@ on the reader pool.
   the inner `ORDER BY` (#554); ordering the whole union by key and capping at
   keys × parts keeps every part of the first 50 keys.
 
+### 11.15 Unknown API routes and client errors (#258)
+
+**The incident.** A fork deployed a web build newer than its API build: the
+web app called `GET /api/coach/messages`, `/api/admin/coach/settings` and
+`/api/admin/coach/stats?days=30`, and the API answered Nest's default 404
+("Cannot GET …", about 1 ms, no route matched). The dashboard stayed
+healthy: it counted only 5xx, OpenTelemetry leaves a 4xx server span
+`STATUS_CODE_UNSET`, nothing logged at error level, and — the root of it —
+nothing on the server span said whether a route had matched, so an unknown
+route was indistinguishable from a legitimate 404 (`GET /api/gyms/:id` for a
+deleted gym).
+
+**The source of truth: three span attributes.** One Fastify `onRequest`
+hook, `registerRequestSpanAttributes` in
+`apps/api/src/common/otel/request-span-attributes.ts`, registered in
+`main.ts` on the root instance right after `NestFactory.create` (before any
+plugin or route, so it runs ahead of every other `onRequest` hook, a CORS
+preflight reply included), writes on the **active span**:
+
+| Attribute | Column | When |
+|---|---|---|
+| `http.route` | `"span_attributes.http.route"` | Matched requests: the route pattern (`/api/gyms/:id`). The http instrumentation then also renames the server span to `GET /api/gyms/:id`. |
+| `app.route.matched` = `false` | `"span_attributes.app.route.matched"` | Only when Fastify's not-found handler answers (no route for this method + path). Never written as `true`: the dashboard only asks `= false`. |
+| `app.request.bearer` | `"span_attributes.app.request.bearer"` | Every request: whether an `Authorization: Bearer …` header was **present**. Never the token (§7). |
+
+Verified on Fastify 5.11 and `@opentelemetry/instrumentation-http` 0.221:
+Fastify resolves the route **before** `onRequest` (`request.routeOptions.url`
+is the pattern, `request.is404` is true for the not-found handler, including
+a known path with an unregistered method); and during `onRequest`,
+`trace.getActiveSpan()` **is the http SERVER span** — the instrumentation
+runs the server's `request` emit inside that span's context, and this API has
+no Fastify instrumentation that would open a span of its own in between
+(checked with a real `NodeSDK` over a socket; Jest's module registry defeats
+the require hook, so the spec proves the hook against an active SERVER span
+it opens itself, on plain Fastify and on a Nest Fastify application). The
+hook is registered only when `OTEL_ENABLED=true`, and is a no-op without an
+active span. It ignores the runtime export gate: spans are still created
+while the gate is closed, and two attribute sets cost less than the check.
+The collector's `attributes/redact` only deletes credential attributes, so
+the three pass through to GreptimeDB.
+
+**Definition.** An unknown route is a server span with
+`"span_attributes.http.response.status_code" = 404 AND
+"span_attributes.app.route.matched" = false` (`UNKNOWN_ROUTE_PREDICATE`).
+A 404 alone is never counted. Requests with a bearer come from the
+application's own clients (the web app always sends one; the CLI and worker
+nodes do too): a route this build lacks is a deploy skew or a real defect.
+Requests without one are mostly internet scanners: counted, never alarming.
+
+**Column absence.** `catalogOf` reports `tracesHaveRouteMatched` and
+`tracesHaveBearer` from the discovered schema. Without the matched column
+(a store that has not seen an unknown route since the hook shipped, or old
+data only) **no unknown-route figure is computed at all** — the tile's
+`value` is `null` and the `unknownRoutes` block is absent, meaning
+"unknown", not zero; there is no fallback that guesses from 404s. Without the
+bearer column every bearer count is a literal `0`. The problem-routes
+statement keeps working either way (`0 AS unknown_requests`).
+
+**Summary.** Two statements join the summary's `Promise.all` when the matched
+column exists: `unknownRoutesTotalsSql` (current and previous window: requests
+and bearer requests) and `topUnknownRoutesSql` (by method + normalized path,
+bearer first, literal `LIMIT 6`). They feed:
+
+- the tile `unknownRoutes` ("Unknown API routes", unit `count`, current and
+  previous window, no sparkline), placed before `lastDataAt`;
+- the optional block `unknownRoutes`: `requests`, `bearer`, `anonymous`,
+  `previousRequests`, `previousBearer`, `topRoutes` (at most five
+  `{ method, route, count, bearer, anonymous }`), `truncated`, and `sql` (the
+  two statements exactly as run, per-route list first, then the totals — for
+  "Open in Explorer" without parsing the summary's mixed `sql` list);
+- the verdict rule (§11.7): bearer requests, distinct bearer routes counted
+  from the bounded top list (enough for the threshold of 3), and the top
+  bearer route, e.g. `3 requests to unknown API routes (GET
+  /api/coach/messages)`.
+
+**Problem routes** (`/top?kind=routes`) order by 5xx, then **client errors**
+(4xx except 401 — an expired access token is routine), then p95, and each
+item adds `clientErrors`, `unknownRequests` and `unknown`
+(`unknownRequests > 0`). The grouping, the literal `LIMIT 11` and the
+normalized paths are unchanged.
+
+**Assistant.** `health_overview` gains `httpStatuses`, `unknownRoutes` and
+`unknownRoutePaths` (§6), and the instructions tell it to check 4xx and
+unknown routes in its baseline and to name the method + path of any
+unknown-route request with a bearer.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -2218,3 +2319,4 @@ on the reader pool.
 - #176: per-table row caps in the metric catalog (`maxRows`, default 50);
   `largestTables` returns up to 500 rows so the dashboard can show every
   table (§11.14).
+- #258: unknown API routes and client errors (§11.15) — an `onRequest` hook writes `http.route`, `app.route.matched=false` and the `app.request.bearer` presence flag on the server span; the summary's "Unknown API routes" tile and `unknownRoutes` block; a verdict rule that degrades on any unknown-route request with a bearer (critical at 20 requests or 3 routes) and never on anonymous ones; `clientErrors`/`unknownRequests`/`unknown` on problem routes, now ordered 5xx, then 4xx except 401, then p95; `httpStatuses`, `unknownRoutes` and `unknownRoutePaths` in the assistant's `health_overview`.

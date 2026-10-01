@@ -32,20 +32,50 @@ const envelope = (sql: string | string[]) => ({
 
 const starts = Array.from({ length: 4 }, (_, i) => new Date(Date.parse('2026-09-27T10:00:00.000Z') + i * 60_000).toISOString());
 
+/**
+ * The summary's two unknown-route statements (#258): at the end of the
+ * summary's `sql` and, per-route first, on `unknownRoutes.sql`.
+ */
+export const mockUnknownRoutesTotalsSql =
+  'SELECT /* unknown totals */ count(*) AS requests FROM t WHERE "span_attributes.app.route.matched" = false GROUP BY period';
+export const mockUnknownRoutesTopSql =
+  'SELECT /* unknown top */ method, route FROM t WHERE "span_attributes.app.route.matched" = false GROUP BY method, route';
+
 export const mockDashboardSummary: DashboardSummary = {
-  ...envelope(['SELECT 1 /* summary */', 'SELECT 2']),
-  verdict: { level: 'degraded', reasons: ['5xx rate 3.2% on GET /api/users/:id', 'p95 latency 1.4 s'] },
+  ...envelope(['SELECT 1 /* summary */', 'SELECT 2', mockUnknownRoutesTotalsSql, mockUnknownRoutesTopSql]),
+  verdict: {
+    level: 'degraded',
+    reasons: [
+      '5xx rate 3.2% on GET /api/users/:id',
+      'p95 latency 1.4 s',
+      '3 requests to unknown API routes (GET /api/coach/messages)',
+    ],
+  },
   tiles: [
     { key: 'requestsPerMin', label: 'Requests / min', value: 12.5, previous: 10, unit: 'req/min', sparkline: [10, null, 12, 14] },
     { key: 'errorRatePct', label: '5xx rate', value: 3.2, previous: 1.6, unit: '%', sparkline: [1, 2, null, 4] },
     { key: 'p95Ms', label: 'p95 latency', value: 1400, previous: 2000, unit: 'ms', sparkline: [900, 1200, 1400, 1500] },
     { key: 'errorLogs', label: 'Error logs', value: '7', previous: '7', unit: 'count', sparkline: [1, 2, 2, 2] },
     { key: 'warnLogs', label: 'Warning logs', value: 3, previous: 0, unit: 'count', sparkline: [0, 1, 1, 1] },
+    { key: 'unknownRoutes', label: 'Unknown API routes', value: 15, previous: 10, unit: 'count', sparkline: [] },
     { key: 'lastDataAt', label: 'Last data', value: new Date().toISOString(), previous: null, unit: 'timestamp', sparkline: [] },
   ],
   runtime: [
     { key: 'heapUsedBytes', label: 'Heap used', value: 134217728, previous: 104857600, unit: 'bytes', sparkline: [1, 2, 3, 4] },
   ],
+  unknownRoutes: {
+    requests: 15,
+    bearer: 3,
+    anonymous: 12,
+    previousRequests: 10,
+    previousBearer: 0,
+    topRoutes: [
+      { method: 'GET', route: '/api/coach/messages', count: 3, bearer: 3, anonymous: 0 },
+      { method: 'GET', route: '/api/.env', count: 12, bearer: 0, anonymous: 12 },
+    ],
+    truncated: false,
+    sql: [mockUnknownRoutesTopSql, mockUnknownRoutesTotalsSql],
+  },
 };
 
 export const mockDashboardApiSeries: DashboardApiTimeseries = {
@@ -64,8 +94,9 @@ export const mockDashboardTopRoutes: DashboardTopRoutes = {
   ...envelope('SELECT /* routes */ 1'),
   kind: 'routes',
   items: [
-    { method: 'GET', route: '/api/users/:id', count: 120, errors: 4, errorRatePct: 3.33, p95Ms: 840 },
-    { method: 'POST', route: '/api/jobs', count: 40, errors: 0, errorRatePct: 0, p95Ms: null },
+    { method: 'GET', route: '/api/users/:id', count: 120, errors: 4, errorRatePct: 3.33, clientErrors: 6, unknownRequests: 0, unknown: false, p95Ms: 840 },
+    { method: 'POST', route: '/api/jobs', count: 40, errors: 0, errorRatePct: 0, clientErrors: 0, unknownRequests: 0, unknown: false, p95Ms: null },
+    { method: 'GET', route: '/api/coach/messages', count: 3, errors: 0, errorRatePct: 0, clientErrors: 3, unknownRequests: 3, unknown: true, p95Ms: 2.1 },
   ],
 };
 

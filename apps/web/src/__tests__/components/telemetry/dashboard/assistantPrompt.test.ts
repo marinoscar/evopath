@@ -94,10 +94,29 @@ describe('buildAssistantQuestion', () => {
     );
   });
 
-  it('lists the top routes as "route — count, error %, p95"', () => {
+  it('lists the top routes as "route — count, error %, 4xx, p95", marking unknown routes', () => {
     const text = buildAssistantQuestion({ kind: 'routes', title: 'Top failing routes', items: mockDashboardTopRoutes.items }, HOUR);
     expect(lines(text)[1]).toBe(
-      'Current state: GET /api/users/:id — 120 requests, 3.33% errors, p95 840 ms; POST /api/jobs — 40 requests, 0% errors, p95 n/a.',
+      'Current state: GET /api/users/:id — 120 requests, 3.33% errors, 6 4xx, p95 840 ms; ' +
+        'POST /api/jobs — 40 requests, 0% errors, 0 4xx, p95 n/a; ' +
+        'GET /api/coach/messages (unknown route: no API route matches it) — 3 requests, 0% errors, 3 4xx, p95 2.1 ms.',
+    );
+  });
+
+  it('leaves the 4xx count out for a route an older API sent without it', () => {
+    const { clientErrors: _omitted, ...item } = mockDashboardTopRoutes.items[0];
+    const text = buildAssistantQuestion({ kind: 'routes', title: 'Top failing routes', items: [item] }, HOUR);
+    expect(lines(text)[1]).toBe('Current state: GET /api/users/:id — 120 requests, 3.33% errors, p95 840 ms.');
+  });
+
+  it('describes unknown API routes: totals, the bearer split and the top routes (#258)', () => {
+    const unknownRoutes = mockDashboardSummary.unknownRoutes!;
+    const text = buildAssistantQuestion({ kind: 'unknownRoutes', title: 'Unknown API routes', unknownRoutes }, HOUR);
+    expect(lines(text)[0]).toBe('Investigate "Unknown API routes" for the last hour (all services).');
+    expect(lines(text)[1]).toBe(
+      'Current state: 15 requests to unknown API routes (404, no route matched): 3 from the application with a bearer token, ' +
+        '12 anonymous; previous window 10 (0 with a bearer); ' +
+        'GET /api/coach/messages — 3 requests, 3 with a bearer; GET /api/.env — 12 requests, 0 with a bearer.',
     );
   });
 

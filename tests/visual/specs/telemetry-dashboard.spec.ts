@@ -62,6 +62,8 @@ async function openDashboard(
     await expect(main.getByRole('img', { name: /API requests per bucket/ })).toBeVisible();
     await expect(main.getByTestId(/^panel-top/).first().getByText('/api/jobs').first()).toBeVisible();
     await expect(main.getByText('Database connection refused: connect ECONNREFUSED 10.0.3.14:5432').first()).toBeVisible();
+    // Unknown API routes (#258): the panel the summary's block feeds.
+    await expect(main.getByRole('region', { name: 'Unknown API routes' })).toBeVisible();
     // The infrastructure sections (#127) have answered.
     await expect(main.getByRole('table', { name: 'Uptime targets' })).toBeVisible();
     await expect(main.getByRole('table', { name: 'Scrape targets' })).toBeVisible();
