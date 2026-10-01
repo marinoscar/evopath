@@ -19,6 +19,7 @@ import {
   mockDashboardSummary,
   mockDashboardTopErrors,
   mockDashboardTopRoutes,
+  mockUnknownRoutesTopSql,
 } from '../../mocks/fixtures/telemetryDashboard';
 import TelemetryDashboardPage from '../../../pages/Admin/TelemetryDashboardPage';
 import { http, HttpResponse } from 'msw';
@@ -73,6 +74,8 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       ['panel-top-routes', mockDashboardTopRoutes.sql as string],
       ['panel-top-errors', mockDashboardTopErrors.sql as string],
       ['panel-events', mockDashboardEventsPage1.sql as string],
+      // #258: the per-route statement of the summary, not the summary's primary.
+      ['panel-unknown-routes', mockUnknownRoutesTopSql],
     ])('%s hands its API-reported SQL to the explorer', async (panelId, expected) => {
       const user = userEvent.setup();
       renderPage();
@@ -181,7 +184,8 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       await screen.findByLabelText('Telemetry assistant');
       expect(question().value.split('\n').slice(0, 2)).toEqual([
         'Investigate "Verdict" for the last hour (service my-app-api).',
-        'Current state: Degraded — 5xx rate 3.2% on GET /api/users/:id; p95 latency 1.4 s.',
+        'Current state: Degraded — 5xx rate 3.2% on GET /api/users/:id; p95 latency 1.4 s; ' +
+          '3 requests to unknown API routes (GET /api/coach/messages).',
       ]);
     });
 
