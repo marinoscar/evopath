@@ -152,7 +152,7 @@ export function compileDraft(draft: PlanDraft, context: CompileContext): Compile
   };
 
   if (sanitized > 0) {
-    issues.push({ rule: 'G8', severity: 'repair', code: 'text_sanitized', path: 'plan', message: `Removed links, markup or unverified URLs from ${sanitized} model text${sanitized === 1 ? '' : 's'}.` });
+    issues.push({ rule: 'G8', severity: 'repair', code: 'text_sanitized', path: 'plan', message: `Removed links, markup, unverified URLs or instruction-like sentences from ${sanitized} model text${sanitized === 1 ? '' : 's'}.` });
   }
   for (const stat of new Set([...unverifiedStatistics(header.rationale, context.brief), ...unverifiedStatistics(header.summary, context.brief)])) {
     issues.push({ rule: 'G8', severity: 'warn', code: 'unverified_statistic', path: 'plan', message: `The plan rationale states "${stat}", which the evidence brief does not contain.` });

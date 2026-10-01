@@ -472,6 +472,23 @@ export async function assignFakeTrainingModels(
   });
 }
 
+/**
+ * As an administrator: give `modelId` (a fake model) the capability set
+ * `setupFakeAi` classified it with, with or without `hosted_tools`. A model
+ * assigned to the researcher without hosted tools is refused by
+ * `PUT /api/admin/ai/assignments` (#173), so the "no model can search" state is
+ * reached the way an administrator can reach it: by changing the catalog.
+ * Call it again with `true` to put the model back.
+ */
+export async function setFakeModelHostedTools(admin: AuthedApi, modelId: string, hostedTools: boolean): Promise<void> {
+  const model = await findModel(admin, modelId);
+  expect(model, `${modelId} is not in the catalog; call setupFakeAi first`).toBeTruthy();
+  const capabilities = MODEL_CAPABILITIES[modelId].filter((capability) => hostedTools || capability !== 'hosted_tools');
+  await admin.patch(`/api/admin/ai/models/${encodeURIComponent(model!.id)}`, {
+    capabilities: { ...RESPONSES_MODEL_CAPABILITIES, capabilities },
+  });
+}
+
 /** As the signed-in user: store a fake key for `openai`. The models are the administrator's (`assignFakeTrainingModels`). */
 export async function setupFakeAiForUser(api: AuthedApi): Promise<void> {
   await api.put(`/api/ai/keys/${OPENAI_PROVIDER_ID}`, { apiKey: FAKE_RESPONSES_KEY });
