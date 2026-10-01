@@ -126,6 +126,12 @@ export const mockPermissions = {
     name: 'db_backup:restore',
     description: 'Restore the database from a backup',
   },
+  // Admin factory reset (#211). Seeded to Admin ONLY in `prisma/seed-data.ts`.
+  systemFactoryReset: {
+    id: randomUUID(),
+    name: 'system:factory_reset',
+    description: 'Reset the deployment to a fresh install',
+  },
   // Runtime-configurable Web Push (VAPID) admin UI (#355). Seeded to Admin
   // ONLY in `prisma/seed-data.ts`, and mirrored that way below — split from
   // `system_settings:*` deliberately (see `common/constants/roles.constants.ts`),
@@ -595,6 +601,7 @@ export const rolePermissionsMap = {
     mockPermissions.dbBackupRead,
     mockPermissions.dbBackupWrite,
     mockPermissions.dbBackupRestore,
+    mockPermissions.systemFactoryReset,
     mockPermissions.pushRead,
     mockPermissions.pushWrite,
     mockPermissions.storageConfigRead,

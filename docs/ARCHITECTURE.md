@@ -413,10 +413,19 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 
 A user can delete everything they own and keep their account. `POST /api/user-data/reset` (with the typed phrase `DELETE MY DATA`) enqueues the server-only `user.data_reset` job, which deletes the user's rows in one transaction and then their stored media. The account, roles, refresh token and audit log are kept; personal access tokens are deleted.
 
-- **Code:** `apps/api/src/user-data/`
+- **Code:** `apps/api/src/user-data/` (the per-user deletion in `user-data-purge.ts` is shared with the factory reset, §5.28)
 - **UI:** `/settings/danger-zone` (`apps/web/src/pages/UserDangerZonePage.tsx`)
 - **Permissions:** `user_settings:write`
 - **Read more:** [specs/user-data-reset.md](specs/user-data-reset.md)
+
+### 5.28 Admin factory reset
+
+An administrator can return the deployment to a fresh install. `POST /api/admin/factory-reset` (with the typed phrase `FACTORY RESET`) enqueues the server-only `admin.factory_reset` job, one active reset deployment-wide. It runs seven idempotent steps, each in its own transaction: job history, every user's data (the shared per-user deletion, the actor included), custom catalog rows, worker node reassignment to the actor, other users, deployment-wide leftovers, then storage objects except backup archives. The actor's account and session, roles, system settings, deployment credentials, AI models, seeded catalogs, worker nodes, backups and the audit log are kept.
+
+- **Code:** `apps/api/src/admin-factory-reset/`, `apps/api/src/user-data/user-data-purge.ts`
+- **UI:** `/admin/settings/factory-reset` (`apps/web/src/pages/Admin/FactoryResetPage.tsx`)
+- **Permissions:** `system:factory_reset` (Admin only)
+- **Read more:** [specs/factory-reset.md](specs/factory-reset.md), [runbooks/factory-reset.md](runbooks/factory-reset.md)
 
 ---
 
@@ -574,6 +583,7 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
+| `system:factory_reset` | ✓ | | | Reset the deployment's application data to a fresh install (irreversible; Admin only) |
 | `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`, `GET /api/measurements*`, `GET /api/check-ins*`); reach `/settings/health-profile`; with `intakes:read`, `GET /api/measurements/lab-reports/:intakeId/duplicates` |
 | `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`, `PUT/DELETE /api/check-ins/:date`) |
 | `intakes:read` | ✓ | ✓ | ✓ | Read own photo intakes and their draft items (`GET /api/intakes*`); a kind's own `requiredPermissions.read` is also needed (`body_metric_reading` and `lab_report`: `health_data:read`, `gym_equipment`: `gyms:read`, `workout_prefill`: `workouts:read`) |
@@ -620,6 +630,7 @@ All 34 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Deletes finished runs' events and checkpoints past retention, then old run rows; enqueued by a daily 05:30 cron that only enqueues; profile 30 minutes, 3 attempts | No |
 | `training.evaluation.sweep` | `training-agents/evaluation/handlers/training-evaluation-sweep.handler.ts` | Expires unanswered proposals and starts the due evaluation runs (weekly, deferred, missed sessions) through the scheduler's gates; enqueued hourly (minute 7) by a cron that only enqueues, and only while `ai.enabled`; profile 10 minutes, 3 attempts | No |
 | `user.data_reset` | `user-data/handlers/user-data-reset.handler.ts` | A user's factory reset: collects storage object ids, deletes the user's rows in one transaction, then deletes the media from the storage provider; profile 15 minutes, 3 attempts; server-only | No |
+| `admin.factory_reset` | `admin-factory-reset/handlers/admin-factory-reset.handler.ts` | The deployment factory reset: seven idempotent steps (job history, every user's data via the shared per-user deletion, custom catalog rows, node reassignment to the actor, other users, deployment-wide leftovers, storage objects except backup archives), each in its own transaction; one active reset deployment-wide; profile 30 minutes, 3 attempts; server-only | No |
 | `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
 | `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
 | `example.checksum` | `jobs/handlers/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
@@ -705,6 +716,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/doctor` | Doctor | Observability | `system_settings:read` | none (reports on AI and telemetry while they are off) |
+| `/admin/settings/factory-reset` | Factory reset | Danger Zone | `system:factory_reset` | none |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
@@ -842,7 +854,7 @@ Health endpoints (public, reachable during maintenance):
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
-| A model with a user relation (keep/delete decision for the data reset) | [specs/user-data-reset.md §4](specs/user-data-reset.md#4-extending-it-in-a-fork) |
+| A model with a user relation (keep/delete decision for the data reset and the factory reset, in `user-data/user-data-purge.ts`) | [specs/user-data-reset.md §4](specs/user-data-reset.md#4-extending-it-in-a-fork), [specs/factory-reset.md §4](specs/factory-reset.md#4-extending-it-in-a-fork) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
 
