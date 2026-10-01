@@ -127,3 +127,17 @@ export const LIMITATION_PATTERN_MAP: Readonly<Record<string, { label: string; pa
   neck: { label: 'loaded neck and trap work', patterns: [], keys: /(shrug|overhead|upright)/ },
   other: { label: 'the declared limitation', patterns: [], keys: null },
 };
+
+/** Walking and jogging sessions (#265): the context the planner gets and the cardio rule in G4. */
+export const CARDIO_LIMITS = {
+  /** Weekly cardio minutes may reach the requested `daysPerWeek x minutesPerSession` times this. */
+  weeklyCapFactor: 1.25,
+  /** Weeks of completed cardio the planner context summarises. */
+  historyWeeks: 4,
+  /** The weekly growth the planner is asked for. */
+  weeklyGrowthFraction: 0.1,
+  /** Weekly cardio minutes rising more than this over the previous non-deload week warns. */
+  weeklyJumpWarnFraction: 0.2,
+  /** Goals whose planner context carries the cardio section even when the user did not ask for cardio. */
+  goals: ['endurance', 'fat_loss', 'general'] as readonly string[],
+} as const;

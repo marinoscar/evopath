@@ -1,4 +1,5 @@
 import { isRepsExercise, type PlanExercise, type PlanTree, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { cardioRequested, isCardioOnlyWorkout, isCardioSlot } from './cardio';
 import { DURATION_MODEL, GUARDRAIL_LIMITS } from './limits';
 import { Findings, keyOf, pathOf, weeksOf, workoutLabel } from './tree';
 import type { GuardrailContext, Violation } from './types';
@@ -25,6 +26,11 @@ import type { GuardrailContext, Violation } from './types';
 //   T5 priority rest down to 75 s
 //   T6 cannot fit: drop priority lifts from the end until one is left, at
 //      2 sets, and warn
+//
+// While the intake asks for cardio (#265) the requested cardio has its own
+// time: a cardio-only workout may take the cardio session length (else
+// `minutesPerSession`) plus warm-up and setup; a strength workout that also
+// holds cardio gets the cardio's own minutes on top of `minutesPerSession`.
 // =============================================================================
 
 const M = DURATION_MODEL;
@@ -131,13 +137,27 @@ export function trimToFit(workout: PlanWorkout, budgetMinutes: number): { steps:
   return { steps, fits: fits() };
 }
 
+/** The minutes a workout may take (before the tolerance) and how they read in a message. */
+export function sessionBudget(ctx: GuardrailContext, workout: PlanWorkout): { minutes: number; label: number } {
+  if (!cardioRequested(ctx)) return { minutes: ctx.minutesPerSession, label: ctx.minutesPerSession };
+  if (isCardioOnlyWorkout(ctx, workout)) {
+    const session = ctx.cardio?.minutesPerSession ?? ctx.minutesPerSession;
+    const overhead = M.warmupMinutes + (workout.exercises.length * M.setupSeconds) / 60;
+    return { minutes: session + overhead, label: session };
+  }
+  const cardioSeconds = workout.exercises.filter((e) => isCardioSlot(ctx.library.get(e.exerciseId), e)).reduce((sum, e) => sum + exerciseSeconds(e), 0);
+  const minutes = ctx.minutesPerSession + cardioSeconds / 60;
+  return { minutes, label: Math.ceil(minutes - 1e-9) };
+}
+
 export function checkTime(tree: PlanTree, ctx: GuardrailContext): Violation[] {
   const f = new Findings('G3');
-  const budget = ctx.minutesPerSession * GUARDRAIL_LIMITS.timeTolerance;
 
   for (const { week } of weeksOf(tree)) {
     for (const workout of week.workouts) {
       const before = estimateMinutes(workout);
+      const allowed = sessionBudget(ctx, workout);
+      const budget = allowed.minutes * GUARDRAIL_LIMITS.timeTolerance;
       const { steps, fits } = trimToFit(workout, budget);
 
       for (const step of steps) {
@@ -145,7 +165,7 @@ export function checkTime(tree: PlanTree, ctx: GuardrailContext): Violation[] {
           'repair',
           `trim_${step.step.toLowerCase()}`,
           `${pathOf(ctx, week, workout)} > ${keyOf(ctx, step.exerciseId)}`,
-          `${step.step}: ${keyOf(ctx, step.exerciseId)} ${step.action} to fit ${ctx.minutesPerSession} minutes (was about ${before}).`,
+          `${step.step}: ${keyOf(ctx, step.exerciseId)} ${step.action} to fit ${allowed.label} minutes (was about ${before}).`,
         );
       }
       if (!fits) {
@@ -153,7 +173,7 @@ export function checkTime(tree: PlanTree, ctx: GuardrailContext): Violation[] {
           'warn',
           'time_unfit',
           pathOf(ctx, week, workout),
-          `${workoutLabel(workout)} still takes about ${estimateMinutes(workout)} minutes, over the ${ctx.minutesPerSession} available.`,
+          `${workoutLabel(workout)} still takes about ${estimateMinutes(workout)} minutes, over the ${allowed.label} available.`,
         );
       }
       workout.estimatedMinutes = estimateMinutes(workout);

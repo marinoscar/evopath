@@ -1,4 +1,5 @@
 import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
+import { checkCardio } from './cardio';
 import { estimateMinutes, checkTime } from './duration';
 import { checkEquipment } from './equipment';
 import { checkInjury } from './injury';
@@ -19,9 +20,9 @@ import { checkVolume } from './volume';
 // input order never matters) and runs the rules in a FIXED order, each
 // repairing what it can:
 //
-//   G1 shape, G2 equipment, G6 injury and pain, G3 time, G4 volume and
-//   intensity, G5 recovery, G7 progression, G9 loads (then G7's bounds again
-//   for any load G9 moved), G8 citations
+//   G1 shape, G2 equipment, G6 injury and pain, G4 cardio sessions (#265),
+//   G3 time, G4 volume and intensity, G5 recovery, G7 progression, G9 loads
+//   (then G7's bounds again for any load G9 moved), G8 citations
 //
 // then renumbers positions, recomputes every workout's estimated minutes,
 // re-checks that no week is empty and strictly parses the tree.
@@ -34,8 +35,9 @@ import { checkVolume } from './volume';
 // =============================================================================
 
 export * from './types';
-export { LEVEL_LIMITS, GUARDRAIL_LIMITS, DURATION_MODEL, PROGRESSION_LIMITS, LOAD_LIMITS, effectiveLimits, LIMITATION_PATTERN_MAP } from './limits';
+export { LEVEL_LIMITS, GUARDRAIL_LIMITS, DURATION_MODEL, CARDIO_LIMITS, PROGRESSION_LIMITS, LOAD_LIMITS, effectiveLimits, LIMITATION_PATTERN_MAP } from './limits';
 export { estimateMinutes, trimToFit } from './duration';
+export { weeklyCardioCapMinutes, isCardioSlot, cardioSeconds } from './cardio';
 export { findSubstitutes, fallbackTier, SUBSTITUTION_LADDER } from './substitution';
 
 export function summarizeReport(violations: Violation[]): GuardrailReport {
@@ -52,6 +54,7 @@ export function applyGuardrails(input: PlanTree, ctx: GuardrailContext): Guardra
   violations.push(...checkShape(tree, ctx));
   violations.push(...checkEquipment(tree, ctx));
   violations.push(...checkInjury(tree, ctx));
+  violations.push(...checkCardio(tree, ctx));
   violations.push(...checkTime(tree, ctx));
   violations.push(...checkVolume(tree, ctx));
   violations.push(...checkRecovery(tree, ctx));

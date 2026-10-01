@@ -117,6 +117,9 @@ export const LIBRARY: LibraryExercise[] = [
   ex('walking_lunge', 'lunge', ['quads', 'glutes'], 'bodyweight', []),
   ex('dumbbell_lunge', 'lunge', ['quads', 'glutes'], 'dumbbell', [[{ e: 'dumbbells' }]]),
   ex('treadmill_run', 'cardio', ['full_body'], 'machine', [[{ e: 'treadmill' }]], { trackingMode: 'distance_time' }),
+  ex('outdoor_walk', 'cardio', ['full_body'], 'bodyweight', [], { trackingMode: 'distance_time', isBodyweight: false }),
+  ex('hike', 'cardio', ['full_body'], 'bodyweight', [], { trackingMode: 'distance_time', isBodyweight: false }),
+  ex('outdoor_run', 'cardio', ['full_body'], 'bodyweight', [], { trackingMode: 'distance_time', isBodyweight: false }),
 ];
 
 /** The library by key. */

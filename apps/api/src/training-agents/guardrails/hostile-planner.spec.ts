@@ -76,7 +76,10 @@ describe('hostile planner output', () => {
   });
 
   it('a priority slot nothing can fill blocks (clean failure)', () => {
-    const { report } = run(withLower((e) => (e[0] = draftExercise('treadmill_run', { isPriority: true }))));
+    // The equipment-free cardio would otherwise stand in for the treadmill.
+    const { report } = run(withLower((e) => (e[0] = draftExercise('treadmill_run', { isPriority: true }))), {
+      intake: { avoidExerciseKeys: ['outdoor_run', 'outdoor_walk', 'hike'] },
+    });
     expect(report.status).toBe('blocked');
     expect(codes(report)).toContain('G2:block:priority_unfillable');
   });

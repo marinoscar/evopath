@@ -1,4 +1,5 @@
 import { isRepsExercise, type PlanTree, type PlanWeek, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isExtraCardioWorkout } from './cardio';
 import { GUARDRAIL_LIMITS, PROGRESSION_LIMITS } from './limits';
 import { Findings, WEEKDAY_NAMES, allowedWeekdays, floorHalf, setsByMuscle, sortWeek, weeksOf } from './tree';
 import type { GuardrailContext, Violation } from './types';
@@ -10,7 +11,8 @@ import type { GuardrailContext, Violation } from './types';
 // - No primary muscle trained with 6 or more hard sets on each of two
 //   consecutive days: the later workout moves to another allowed free day
 //   that removes the conflict (smallest such day), else a warning.
-// - At least one rest day a week: seven workouts in a week warns.
+// - At least one rest day a week: seven workouts in a week warns (requested
+//   cardio-only workouts, #265, are easy days and do not count).
 // - Plans of 6 weeks or more: at most 5 non-deload weeks in a row; the 6th
 //   is marked deload and gets the deload transform (sets x 0.6, minimum 2;
 //   load x 0.9, or RPE minus 2 when there is no load).
@@ -93,7 +95,7 @@ export function checkRecovery(tree: PlanTree, ctx: GuardrailContext): Violation[
       sortWeek(week);
     }
 
-    if (week.workouts.length >= 7) {
+    if (week.workouts.filter((w) => !isExtraCardioWorkout(ctx, w)).length >= 7) {
       f.add('warn', 'no_rest_day', `week ${week.weekNumber}`, `Week ${week.weekNumber} has no rest day.`);
     }
   }
