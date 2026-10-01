@@ -42,7 +42,7 @@ async function openDetail(page: Page, theme?: 'light' | 'dark') {
   await expect(main.getByRole('heading', { level: 1, name: 'LDL cholesterol' })).toBeVisible();
   await expect(main.getByRole('img', { name: /^LDL cholesterol, 4 results, latest 142 mg\/dL/ })).toBeVisible();
   await expect(main.getByTestId('reference-band-step')).toHaveCount(3);
-  await expect(main.getByTestId('biomarker-result')).toHaveCount(3);
+  await expect(main.getByTestId('biomarker-result')).toHaveCount(4);
 }
 
 async function noHorizontalScroll(page: Page) {
