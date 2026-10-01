@@ -5,6 +5,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AiConfigProvider } from './contexts/AiConfigContext';
 import { TelemetryConfigProvider } from './contexts/TelemetryConfigContext';
+import { OnboardingProvider } from './contexts/OnboardingContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
@@ -141,6 +142,7 @@ const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboa
 const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
 // Issue #211 — the admin factory reset.
 const FactoryResetPage = lazy(() => import('./pages/Admin/FactoryResetPage'));
+const SetupGuidePage = lazy(() => import('./pages/Admin/SetupGuidePage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -213,13 +215,18 @@ function AppRoutes() {
                     chrome (rail, bottom bar, menu, AppBar) and every routed
                     page, instead of one request per consumer.
                     `TelemetryConfigProvider` (#537, epic #528) is its twin for
-                    `GET /api/telemetry/config`. */}
+                    `GET /api/telemetry/config`. `OnboardingProvider` (#203) is
+                    the same shape again for `GET /api/onboarding`, shared by the
+                    welcome dialog, the Today cards, the user menu and the setup
+                    guide. */}
                 <Route
                   element={
                     <NotificationProvider>
                       <AiConfigProvider>
                         <TelemetryConfigProvider>
-                          <Layout />
+                          <OnboardingProvider>
+                            <Layout />
+                          </OnboardingProvider>
                         </TelemetryConfigProvider>
                       </AiConfigProvider>
                     </NotificationProvider>
@@ -868,6 +875,20 @@ function AppRoutes() {
                         <RequireTelemetryEnabled>
                           <TelemetryDashboardPage />
                         </RequireTelemetryEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #203. `system_settings:read`, the string the `Setup guide`
+                      card declares; `GET /api/onboarding` returns the admin steps
+                      only to holders of it. */}
+                  <Route
+                    path="/admin/settings/setup"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <SetupGuidePage />
                       </RequirePermission>
                     }
                   />

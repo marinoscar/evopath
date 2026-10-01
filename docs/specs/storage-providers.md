@@ -1,6 +1,6 @@
 # Object Storage Providers
 
-> **Status:** shipped · **Code:** `apps/api/src/storage/config/`, `apps/api/src/storage/providers/`, `apps/web/src/pages/Admin/StorageConfigPage.tsx` · **API:** `/api/admin/storage-config/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/storage` · **Runbook:** [storage-configuration.md](../runbooks/storage-configuration.md)
+> **Status:** shipped · **Code:** `apps/api/src/storage/config/`, `apps/api/src/storage/providers/`, `apps/web/src/pages/Admin/StorageConfigPage.tsx`, `apps/api/src/storage/status/` · **API:** `/api/admin/storage-config/*`, `GET /api/storage/status` (see `/api/docs`) · **Admin UI:** `/admin/settings/storage` · **Runbook:** [storage-configuration.md](../runbooks/storage-configuration.md)
 
 Object storage (AWS S3, Cloudflare R2, or an S3-compatible endpoint) is
 configured at runtime by an administrator, with no restart. The `storage`
@@ -261,6 +261,9 @@ Admin only. They are distinct from `system_settings:*` and from `storage:*`
 | `PUT /api/admin/storage-config` | Full replace; blank secret preserves; `If-Match`; `409` + `SWITCH` on relocation | `storage_config:write` |
 | `POST /api/admin/storage-config/test` | Four checks against the submitted config; always `200` | `storage_config:write` |
 | `POST /api/admin/storage-config/bucket` | Create and harden the bucket; always `200`, may be `guided` | `storage_config:write` |
+| `GET /api/storage/status` | `{ configured }` only; never the provider, bucket, region or a credential | `storage:read` |
+
+**Status endpoint.** `GET /api/storage/status` (`apps/api/src/storage/status/`) lets every `storage:read` holder, not only administrators, learn whether uploads can work. `configured` is true exactly when the Doctor's `storage.config` decision (`decideStorageConfig`) passes on the resolved configuration, so the completeness rule is defined once. It is cheap and read-only: a settings read through `StorageConfigService`'s cache and the credential lookup, never a bucket round trip. A configuration that cannot be read answers `configured: false`. The web hook `useStorageStatus` reads it and the upload entry points show a [feature-unavailable notice](onboarding.md#29-feature-unavailable-notices) on `false`; an unknown answer never blocks an upload.
 
 ## 4. Extending it in a fork
 
@@ -289,6 +292,8 @@ Admin only. They are distinct from `system_settings:*` and from `storage:*`
 | Four checks, `skipped` vs `failed`, 404 vs 403, redaction, auditing | `apps/api/src/storage/config/storage-connection-test.service.spec.ts` |
 | CORS rule, `LocationConstraint`, all outcomes, `guided` with real values, runbook path | `apps/api/src/storage/config/storage-bucket-provision.service.spec.ts` |
 | Permissions per route; no secret in any response; probes answer `200` | `apps/api/test/settings/storage-config.integration.spec.ts` |
+| Status follows the Doctor's decision; unreadable configuration is `false` | `apps/api/src/storage/status/storage-status.controller.spec.ts` |
+| Status needs `storage:read`; the body is only `{ configured }` | `apps/api/test/storage/storage-status.integration.spec.ts` |
 
 The unit suites mock the AWS SDK. They prove request shapes and error
 classification, not live vendor behaviour.
@@ -365,6 +370,7 @@ Against a real provider, follow the
 - #519 enforced `MAX_FILE_SIZE` on resumable-upload init and the simple
   upload's multipart limit, and changed the `ALLOWED_MIME_TYPES` default to
   empty (allow every type).
+- #204 added `GET /api/storage/status`, the boolean that lets the web app explain an unconfigured store.
 - #585 moved the SES AWS credential off environment variables and onto its
   own admin-configurable settings field + encrypted credential-store entry,
   exactly like the SMTP password.

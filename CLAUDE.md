@@ -65,6 +65,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
 | Spec: admin Doctor (check contract, read-only rule, check inventory) | [docs/specs/doctor.md](docs/specs/doctor.md) |
+| Spec: first-run onboarding (welcome dialog, admin setup guide, get-started checklist) | [docs/specs/onboarding.md](docs/specs/onboarding.md) |
 | Spec: health data (health profile, measurements, check-ins, photo readings, `health_data` permissions) | [docs/specs/health-data.md](docs/specs/health-data.md) |
 | Spec: health records (documents, retention, blood work, export, AI health summary) | [docs/specs/health-records.md](docs/specs/health-records.md) |
 | Spec: gyms and equipment (catalog, default gym, provenance, AI Scan Gym, GPS location) | [docs/specs/gyms-and-equipment.md](docs/specs/gyms-and-equipment.md) |

@@ -1,21 +1,35 @@
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { SvgIconComponent } from '@mui/icons-material';
 import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import BatteryChargingFullIcon from '@mui/icons-material/BatteryChargingFull';
 import MonitorWeightIcon from '@mui/icons-material/MonitorWeight';
 import PlaceIcon from '@mui/icons-material/Place';
+import ChecklistIcon from '@mui/icons-material/Checklist';
+import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import type { RoadmapArea } from './roadmap';
 import { TodayBodySnapshot } from '../components/today/TodayBodySnapshot';
 import { TodayReadiness } from '../components/today/TodayReadiness';
 import { TodayGym } from '../components/today/TodayGym';
 import { TodayWorkout } from '../components/today/TodayWorkout';
+import {
+  AdminSetupGate,
+  GetStartedGate,
+  TodayAdminSetup,
+  TodayGetStarted,
+} from '../components/today/TodayOnboarding';
 
 /**
  * Cards on the Today page. Append-only order: workout, readiness, body, gym.
  * The epic that builds a card sets its `Content`; the page itself never changes.
+ *
+ * Issue #203 put the two onboarding cards (`adminSetup`, `getStarted`) at the
+ * TOP, deliberately: they are the first thing a new account should see, and
+ * they disappear for good once their steps are done or dismissed. Each carries
+ * a `Gate` so it renders nothing (not even an empty grid cell) when it does
+ * not apply.
  */
 export interface TodayCardDef {
-  key: 'workout' | 'readiness' | 'body' | 'gym';
+  key: 'adminSetup' | 'getStarted' | 'workout' | 'readiness' | 'body' | 'gym';
   title: string;
   description: string;
   Icon: SvgIconComponent;
@@ -26,9 +40,38 @@ export interface TodayCardDef {
   area: RoadmapArea;
   /** Set by the epic that builds the card; replaces the placeholder body. */
   Content?: ComponentType;
+  /**
+   * Renders `children` (the whole card, grid cell included) only when the card
+   * applies to this user right now, and nothing otherwise. Absent ⇒ always shown.
+   */
+  Gate?: ComponentType<{ children: ReactNode }>;
 }
 
 export const TODAY_CARDS: readonly TodayCardDef[] = [
+  {
+    key: 'adminSetup',
+    title: 'Set up the app',
+    description: 'What must be configured before people can use the app.',
+    Icon: RocketLaunchOutlinedIcon,
+    to: '/admin/settings/setup',
+    linkLabel: 'Open setup guide',
+    area: 'programs',
+    // #203: shown to `system_settings:read` holders until every required step is done.
+    Content: TodayAdminSetup,
+    Gate: AdminSetupGate,
+  },
+  {
+    key: 'getStarted',
+    title: 'Get started',
+    description: 'A few first steps to get the most out of the app.',
+    Icon: ChecklistIcon,
+    to: '/settings',
+    linkLabel: 'Open Settings',
+    area: 'programs',
+    // #203: the user checklist, until every step is done or it is dismissed.
+    Content: TodayGetStarted,
+    Gate: GetStartedGate,
+  },
   {
     key: 'workout',
     title: "Today's workout",

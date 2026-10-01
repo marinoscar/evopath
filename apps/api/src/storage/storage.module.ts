@@ -4,6 +4,7 @@ import { ObjectProcessingModule } from './processing/object-processing.module';
 import { CommonModule } from '../common/common.module';
 import { ObjectsController } from './objects/objects.controller';
 import { ObjectsService } from './objects/objects.service';
+import { StorageStatusController } from './status/storage-status.controller';
 import { StorageCleanupTask } from './tasks/storage-cleanup.task';
 import { StorageCleanupHandler } from './handlers/storage-cleanup.handler';
 import { StorageObjectProcessHandler } from './handlers/storage-object-process.handler';
@@ -21,7 +22,7 @@ import { JobsModule } from '../jobs/jobs.module';
     ObjectProcessingModule,
     CommonModule,
   ],
-  controllers: [ObjectsController],
+  controllers: [ObjectsController, StorageStatusController],
   providers: [
     ObjectsService,
     StorageCleanupTask,

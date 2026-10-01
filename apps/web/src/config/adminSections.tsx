@@ -64,6 +64,7 @@ import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
 // Factory reset (#211) — the one destructive card, alone in its own group.
 import DeleteForeverOutlinedIcon from '@mui/icons-material/DeleteForeverOutlined';
+import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -275,6 +276,19 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'Take the application out of service for planned work, with a message for anyone who tries to use it.',
         Icon: BuildCircleOutlinedIcon,
         path: '/admin/settings/maintenance',
+        permission: 'system_settings:read',
+      },
+      // Issue #203. APPENDED to General (not inserted): the first-run setup
+      // guide is about configuration an administrator sets, and every step
+      // links into a sibling General card. `system_settings:read` is the
+      // permission under which `GET /api/onboarding` returns its `admin`
+      // block; no `feature`, because it is how AI gets switched on.
+      {
+        title: 'Setup guide',
+        description:
+          'See what must be configured before people can use the app, check each step against the live configuration, and jump to where it is done.',
+        Icon: ChecklistOutlinedIcon,
+        path: '/admin/settings/setup',
         permission: 'system_settings:read',
       },
     ],

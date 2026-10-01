@@ -923,6 +923,8 @@ describe('the Operations group (#266)', () => {
         'Email',
         'Notifications',
         'Maintenance',
+        // #203: appended to General, gated on `system_settings:read`.
+        'Setup guide',
         'Users & Allowlist',
         'About',
         'Doctor',

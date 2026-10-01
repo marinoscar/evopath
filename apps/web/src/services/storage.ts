@@ -17,6 +17,7 @@
  * needed, kept in memory only, and never logged or stored.
  */
 import { api } from './api';
+import type { StorageStatus } from '../types';
 
 export type StorageObjectStatus = 'pending' | 'uploading' | 'processing' | 'ready' | 'failed';
 
@@ -39,6 +40,16 @@ export interface StorageDownloadUrl {
   url: string;
   /** Seconds until the URL stops working. */
   expiresIn: number;
+}
+
+/**
+ * `GET /storage/status` — `storage:read` (#204). Whether an administrator has
+ * configured object storage, and nothing else: no provider, bucket or
+ * credential ever reaches the browser. Used to replace an upload control
+ * that would fail with a notice; the API still refuses the upload itself.
+ */
+export async function getStorageStatus(): Promise<StorageStatus> {
+  return api.get<StorageStatus>('/storage/status');
 }
 
 /** `POST /storage/objects` — a simple (single-request) upload. */

@@ -4,6 +4,11 @@ export interface TestUserOptions {
   email: string;
   role?: 'admin' | 'contributor' | 'viewer';
   displayName?: string;
+  /**
+   * Leave the first-run welcome dialog (#203) open. By default a brand-new
+   * user's welcome is dismissed with "Later" so it never blocks a spec.
+   */
+  keepWelcome?: boolean;
 }
 
 /**
@@ -35,6 +40,17 @@ export async function loginAsTestUser(
 
   // Wait for redirect to complete (auth callback then home)
   await page.waitForURL('/', { timeout: 10000 });
+
+  if (!options.keepWelcome) {
+    const welcome = page.getByTestId('welcome-dialog');
+    try {
+      await welcome.waitFor({ state: 'visible', timeout: 2000 });
+      await welcome.getByRole('button', { name: 'Later' }).click();
+      await welcome.waitFor({ state: 'hidden' });
+    } catch {
+      // No welcome dialog (an existing user): nothing to dismiss.
+    }
+  }
 }
 
 /**

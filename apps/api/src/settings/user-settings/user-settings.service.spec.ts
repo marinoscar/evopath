@@ -1203,6 +1203,44 @@ describe('UserSettingsService', () => {
   });
 
   // ===========================================================================
+  // onboarding namespace merge logic (#203)
+  // ===========================================================================
+
+  describe('mergeOnboarding (private)', () => {
+    const mergeOnboarding = (current: unknown, patch: unknown) =>
+      (service as any).mergeOnboarding(current, patch);
+    const SEEN = '2026-01-01T00:00:00.000Z';
+
+    it('patch absent leaves the namespace untouched', () => {
+      const current = { goal: 'strength' };
+
+      expect(mergeOnboarding(current, undefined)).toBe(current);
+      expect(mergeOnboarding(undefined, undefined)).toBeUndefined();
+    });
+
+    it('patch null clears the namespace', () => {
+      expect(mergeOnboarding({ goal: 'strength' }, null)).toBeUndefined();
+    });
+
+    it('provided keys replace, omitted keys survive', () => {
+      expect(
+        mergeOnboarding({ welcomeSeenAt: SEEN, goal: 'strength' }, { goal: 'general' }),
+      ).toEqual({ welcomeSeenAt: SEEN, goal: 'general' });
+    });
+
+    it('null deletes one key; an emptied namespace collapses to absent', () => {
+      expect(mergeOnboarding({ welcomeSeenAt: SEEN, goal: 'strength' }, { goal: null })).toEqual({
+        welcomeSeenAt: SEEN,
+      });
+      expect(mergeOnboarding({ welcomeSeenAt: SEEN }, { welcomeSeenAt: null })).toBeUndefined();
+    });
+
+    it('creates the namespace from nothing', () => {
+      expect(mergeOnboarding(undefined, { goal: 'fat_loss' })).toEqual({ goal: 'fat_loss' });
+    });
+  });
+
+  // ===========================================================================
   // ai namespace merge logic: `training` is the only field.
   // ===========================================================================
 

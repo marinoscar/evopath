@@ -2,6 +2,7 @@ import type {
   DataTablesValue,
   NavigationValue,
   NotificationsValue,
+  OnboardingValue,
 } from '../schemas/user-settings-namespaces.schema';
 import {
   DEFAULT_MAINTENANCE_MESSAGE,
@@ -73,6 +74,13 @@ export interface UserSettingsValue {
    * own table, never here. See `userAiSettingsSchema` for the full argument.
    */
   ai?: UserAiSettingsValue;
+  /**
+   * First-run onboarding UI state (#203): when the welcome dialog was seen,
+   * when the getting-started checklist was dismissed, and the goal picked on
+   * the welcome dialog. Absent means none of them. Step completion is derived
+   * by `GET /api/onboarding`, never stored here.
+   */
+  onboarding?: OnboardingValue;
 }
 
 /**

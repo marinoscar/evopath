@@ -261,6 +261,7 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `email-settings` | Outbound email transport configuration | `system_settings:*` | [browser-notifications](specs/browser-notifications.md) |
 | `pat` | Personal access tokens | authenticated (own) | [personal-access-tokens](personal-access-tokens.md) |
 | `storage/objects` | File uploads (simple and resumable) and downloads | authenticated (owner) | [storage-providers](specs/storage-providers.md) |
+| `storage/status` | Whether object storage is configured, a boolean only | `storage:read` | [storage-providers](specs/storage-providers.md) |
 | `admin/storage-config` | Object-storage provider, bucket, credential | `storage_config:*` | [storage-providers](specs/storage-providers.md) |
 | `notifications` | In-app notifications, event registry, push subscriptions, SSE stream | authenticated (own) | [browser-notifications](specs/browser-notifications.md) |
 | `admin/push-config` | Web Push (VAPID) keys | `push:*` | [browser-notifications](specs/browser-notifications.md) |
@@ -273,6 +274,8 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `admin/db-backup` | Database backup, restore and rollback | `db_backup:read/write/restore` | [database-backup](specs/database-backup.md) |
 | `admin/about` | Deployed version and deploy history | `system_settings:read` | [vps-deploy](specs/vps-deploy.md) |
 | `admin/doctor` | Read-only configuration and health checks for every capability | `system_settings:read` | [doctor](specs/doctor.md) |
+| `onboarding` | The caller's first-run checklist, derived from their data (admin steps added with `system_settings:read`) (tag "Onboarding") | `user_settings:read` | [onboarding](specs/onboarding.md) |
+| `admin/onboarding` | New-user activation metrics (aggregates) (tag "Onboarding") | `system_settings:read` | [onboarding](specs/onboarding.md) |
 | `ai` | AI config, BYOK keys, models, per-feature model resolution (`/api/ai/features`), responses, streaming, embeddings, training model resolution and token estimates | `ai:use` (`GET /api/ai/config`: any user) | [ai-platform](specs/ai-platform.md) |
 | `ai/images`, `ai/audio`, `ai/realtime` | Queued image/audio work, realtime sessions | `ai:use` | [ai-platform](specs/ai-platform.md) |
 | `ai/runs`, `ai/usage` | Background run status, caller's own usage | `ai:use` | [ai-platform](specs/ai-platform.md) |

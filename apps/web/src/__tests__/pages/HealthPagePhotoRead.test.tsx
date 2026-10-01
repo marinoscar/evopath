@@ -61,13 +61,15 @@ afterEach(() => {
 const main = () => screen.getByRole('heading', { level: 1, name: 'Health' }).closest('div')!.parentElement!;
 
 describe('HealthPage: Read from photo', () => {
-  it('with AI off there is no Read from photo control anywhere, no intake request, and manual entry works', async () => {
+  it('with AI off the page shows Read from photo disabled with the reason (#204), the dialog has none, no intake request, and manual entry works', async () => {
     healthApi();
     const user = userEvent.setup();
     render(<HealthPage />, { wrapperOptions: { user: reader, aiEnabled: false } });
 
     const log = await screen.findByRole('button', { name: 'Log measurement' });
-    expect(screen.queryByRole('button', { name: 'Read from photo' })).not.toBeInTheDocument();
+    const unavailable = screen.getByRole('button', { name: 'Read from photo' });
+    expect(unavailable).toBeDisabled();
+    expect(unavailable).toHaveAccessibleDescription("AI isn't enabled yet.");
     await user.click(log);
     const dialog = await screen.findByRole('dialog', { name: 'Log measurement' });
     expect(await within(dialog).findByRole('textbox', { name: 'Weight' })).toBeInTheDocument();
@@ -156,5 +158,26 @@ describe('HealthPage: Read from photo', () => {
     await user.click(await within(photo).findByRole('button', { name: 'Continue manually' }));
     expect(await screen.findByRole('dialog', { name: 'Log measurement' })).toBeInTheDocument();
     expect(requests.some((r) => r.includes('/intakes'))).toBe(false);
+  });
+
+  it('with AI on but storage not configured, Read from photo is disabled with the storage reason (#204)', async () => {
+    healthApi();
+    server.use(http.get('*/api/storage/status', () => HttpResponse.json({ data: { configured: false } })));
+    render(<HealthPage />, { wrapperOptions: { user: reader, aiEnabled: true } });
+    await screen.findByRole('button', { name: 'Log measurement' });
+    const button = await screen.findByRole('button', { name: 'Read from photo' });
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveAccessibleDescription("Storage isn't enabled yet.");
+  });
+
+  it('with AI on and an unknown storage answer, Read from photo stays enabled (#204)', async () => {
+    healthApi();
+    server.use(
+      http.get('*/api/storage/status', () =>
+        HttpResponse.json({ statusCode: 500, code: 'INTERNAL', message: 'boom' }, { status: 500 }),
+      ),
+    );
+    render(<HealthPage />, { wrapperOptions: { user: reader, aiEnabled: true } });
+    expect(await screen.findByRole('button', { name: 'Read from photo' })).toBeEnabled();
   });
 });
