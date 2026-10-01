@@ -192,9 +192,28 @@ Each check is `{ id, status: pass | warn | fail | skip, detail, remedy }`. Fixes
 - Health values are never logged on the server. Logs carry ids and counts.
 - The package name and certificate fingerprint a device reports are informational; only an administrator's trust decision changes `assetlinks.json`.
 
+### 2.12 APK releases
+
+The deployment hosts the Android app's APK itself, so users install and update from their own server rather than from GitHub. Code: `apps/api/src/android-app/releases/`.
+
+- **Model.** `android_app_releases`: `packageName`, `versionName` (at most 50 characters of `[0-9A-Za-z._+-]`), `versionCode` (1 to 2,100,000,000, unique per package), `signingSha256` (stored uppercase, colon-separated), `fileSha256` (lowercase hex), `sizeBytes`, `storageKey`, `notes` (at most 2,000 characters), `isCurrent`, `uploadedById` (set null when the user is deleted), `createdAt`. At most **one current release deployment-wide**, enforced by the raw-SQL partial unique index `android_app_releases_one_current_uniq_idx` (intentional schema drift; never a `@@unique`, never a `findFirst` pre-check).
+- **Storage.** The APK lives in object storage under `android-releases/<releaseId>.apk` (`ANDROID_RELEASES_KEY_PREFIX`, on `STORAGE_KEY_PREFIXES`), never on local disk and never as a `storage_objects` row. With storage not configured, an upload answers the storage layer's own `503` (`details.reason: storage_not_configured`).
+- **Upload.** `POST /api/admin/android-app/releases`, multipart: the file in field `apk`, text fields `packageName`, `versionName`, `versionCode`, `signingSha256`, optional `notes`, `makeCurrent` (default `true`) and `force` (default `false`). The file streams from the multipart parser through a check of the ZIP signature `PK\x03\x04`, the 150 MB limit and a SHA-256 straight into storage; it is never buffered. Text fields sent before the file are validated, and the version rules checked, before a byte is stored. Any refusal after the bytes are stored deletes them.
+- **Version rules.** A `(packageName, versionCode)` that exists is `409 RELEASE_VERSION_EXISTS`. Uploading as current a `versionCode` not above the current release of the same package is `409 RELEASE_VERSION_NOT_NEWER` unless `force=true`, because Android refuses to install a lower `versionCode` over a higher one. `make-current` is the explicit rollback and has no such rule.
+- **Make current.** Clears the old flag and sets the new one in one transaction. A concurrent make-current that loses the race is a unique violation on the partial index, answered `409 RELEASE_CURRENT_CONFLICT`. Making a release current (on upload or later) adds its `(packageName, signingSha256)` to the trusted apps (section 2.9) when absent and the list has room, through the same audited save as the settings page.
+- **Delete.** Deletes the stored APK, then the row. The current release cannot be deleted (`409 RELEASE_IS_CURRENT`).
+- **Latest and download.** `GET /api/android-app/releases/latest` returns the current release's public fields or `404 NO_RELEASE`. `POST /api/android-app/releases/:id/download-link` returns `{ url, expiresAt }`: a same-origin path `/api/android-app/download/<token>` valid for 10 minutes. The page or the phone **navigates** to it, so Chrome, the TWA or the system installer downloads natively without an `Authorization` header. The token is a binary payload (release id, user id, expiry) with an HMAC-SHA256 tag truncated to 192 bits, 83 characters so it fits Fastify's 100-character path parameter limit. Its key is derived from `SECRETS_ENCRYPTION_KEY` for the purpose `android-app-download` (`deriveSigningKey`); there is no new environment variable. The download route checks the signature first (`404 DOWNLOAD_LINK_INVALID`), then the expiry (`410 DOWNLOAD_LINK_EXPIRED`), then that the release exists and the user is active (`404`), and streams the object with `Content-Type: application/vnd.android.package-archive`, `Content-Disposition: attachment; filename="evopath-android-<versionName>.apk"`, `Content-Length` and `Cache-Control: private, no-store`. It is not exempt from maintenance mode.
+- **Device updates.** Registration accepts `appVersionCode`, stored on `health_sync_devices.app_version_code`. Every device view adds `appVersionCode`, `latestVersionCode` (the current release's code when its package matches the device's, or the device reports none; else `null`) and `updateAvailable` (`appVersionCode` known and lower).
+- **nginx.** An exact-match block for the upload path raises the body limit to 160m and streams the request; the download path is proxied unbuffered. Both have ten-minute timeouts.
+- **Audit.** `android_app.release.uploaded`, `android_app.release.made_current`, `android_app.release.deleted` (target type `android_app_release`).
+- **Resets.** Releases are deployment artifacts. The user data reset and the factory reset keep the rows and their APKs ([factory-reset.md](factory-reset.md)).
+- **Doctor.** `android.releases` is `skip` with no paired device, `warn` when devices are paired but no release is current, `pass` otherwise ([doctor.md](doctor.md)).
+
+**Release JSON.** The admin routes return `{ id, packageName, versionName, versionCode, fileSha256, sizeBytes, notes, createdAt, signingSha256, isCurrent, uploadedBy: { id, email, displayName } | null }`; the list is `{ data: Release[] }`, newest first. The user route returns only `{ id, packageName, versionName, versionCode, fileSha256, sizeBytes, notes, createdAt }`.
+
 ## 3. Configuration and permissions
 
-- **Env vars:** `DEVICE_PAT_EXPIRY_DAYS` (the pairing token lifetime; see `infra/compose/.env.example`). **System setting:** `android_app` (`trustedApps`), edited at `/admin/settings/android`. No other setting.
+- **Env vars:** `DEVICE_PAT_EXPIRY_DAYS` (the pairing token lifetime; see `infra/compose/.env.example`). The APK download links are signed with a key derived from the existing `SECRETS_ENCRYPTION_KEY`. **System setting:** `android_app` (`trustedApps`), edited at `/admin/settings/android`. No other setting; APK releases live in `android_app_releases` and object storage.
 - **Android build inputs:** Gradle properties `evopath.versionName`, `evopath.versionCode`, `evopath.serverUrl`; CI secrets in the [runbook](../runbooks/android-app.md#3-add-the-github-secrets).
 - **Permissions:**
 
@@ -211,6 +230,12 @@ Each check is `{ id, status: pass | warn | fail | skip, detail, remedy }`. Fixes
 | `/api/sleep/:id` | `DELETE` | `health_data:write` |
 | `/api/admin/android-app` | `GET` / `PUT` | `system_settings:read` / `system_settings:write` |
 | `/api/well-known/assetlinks.json` | `GET` | public, maintenance-exempt |
+| `/api/admin/android-app/releases` | `POST` / `GET` | `system_settings:write` / `system_settings:read` |
+| `/api/admin/android-app/releases/:id/make-current` | `POST` | `system_settings:write` |
+| `/api/admin/android-app/releases/:id` | `DELETE` | `system_settings:write` |
+| `/api/android-app/releases/latest` | `GET` | any signed-in user |
+| `/api/android-app/releases/:id/download-link` | `POST` | any signed-in user |
+| `/api/android-app/download/:token` | `GET` | public, validated by the signed token |
 
 `GET /api/sleep` takes `from` and `to` (at most 400 days) and returns sessions newest day first. A synced session the user deletes comes back on the next sync while the phone still holds it in its window. Per-endpoint detail lives in `/api/docs`.
 
@@ -236,6 +261,10 @@ Each check is `{ id, status: pass | warn | fail | skip, detail, remedy }`. Fixes
 - `apps/api/test/android-app/android-app.integration.spec.ts`: the admin routes and the public document.
 - `apps/api/src/android-app/android-app.schema.spec.ts` and `android-app.service.spec.ts`: the trusted list rules, the document builder and the reported-app merge.
 - `apps/api/src/android-app/doctor/android-assetlinks.doctor-check.spec.ts`: the `skip`, `warn` and `pass` verdicts.
+- `apps/api/src/android-app/releases/*.spec.ts`: upload field and version rules, the streaming APK inspector (magic, size, SHA-256), download token signing, verification and expiry; `android-releases.doctor-check.spec.ts`: the `android.releases` verdicts.
+- `apps/api/test/android-app/android-releases.integration.spec.ts`: RBAC on every release route, the multipart upload and its refusals, list, make current, delete, and a download that streams the exact bytes with its headers (404 and 410 for bad and expired tokens).
+- `apps/api/test/android-app/android-releases.db.spec.ts`: the one-current partial index, concurrent make-current, the unique version per package and the uploader's SET NULL against real Postgres.
+- `apps/api/test/android-app/android-release-nginx.spec.ts`: the upload body limit and the unbuffered download in `infra/nginx/nginx.conf`.
 - `apps/api/test/health-data/measurements.db.spec.ts`: the measurements partial index is the one expected drift.
 - `apps/api/test/docs-links.spec.ts`: this spec's links.
 - Android JVM unit tests (`apps/android`, `./gradlew testDebugUnitTest`): mapping, window computation, payload building, server URL rules, token store, API client errors.
@@ -248,6 +277,8 @@ Each check is `{ id, status: pass | warn | fail | skip, detail, remedy }`. Fixes
 - **Provider per device.** `health_connect:<deviceId>` lets reconciliation delete only that phone's rows. A shared provider would let a second phone erase the first's data.
 - **Reconciliation only for `syncedTypes`.** An empty read can mean a revoked permission as easily as deleted data. Naming the types a phone actually read keeps a missing permission from wiping history.
 - **Measurements soft-delete, sleep and entries hard-delete.** Measurements follow the store's existing delete rule; the others have no history to preserve.
+- **The server hosts the APK.** A fork's users should not depend on a GitHub release page to install or update the app, and the server already knows which version each device runs. The `android-latest` prerelease stays as the fallback when no release is published.
+- **A signed link, not an authenticated download.** The system downloader cannot send a bearer token, and a blob download inside the page breaks the native install flow. A ten-minute token bound to one release and one user is the smallest capability that works.
 - **No queue job.** A sync is one request and one transaction that ends with the response, so the queue rules for long-running work do not apply.
 - **Rejected: a server-side Google API integration.** No usable API exists (section 1).
 
@@ -268,4 +299,4 @@ By hand:
 
 ## History
 
-- Epic #276 (Android Health Connect sync): #277 added the database models and the measurement and sleep external-id columns; #278 added the health-sync API and sleep routes; #279 added the Android app trust setting, Digital Asset Links route and Doctor check; #280 scaffolded the Android project and CI; #281 added pairing, Health Connect reads and the sync engine; #282 added phone diagnostics; #283 added the Connected devices, Android app and Sleep web views; #284 wrote this spec and the runbook.
+- Epic #276 (Android Health Connect sync): #277 added the database models and the measurement and sleep external-id columns; #278 added the health-sync API and sleep routes; #279 added the Android app trust setting, Digital Asset Links route and Doctor check; #280 scaffolded the Android project and CI; #281 added pairing, Health Connect reads and the sync engine; #282 added phone diagnostics; #283 added the Connected devices, Android app and Sleep web views; #284 wrote this spec and the runbook; #285 added hosted APK releases (section 2.12).

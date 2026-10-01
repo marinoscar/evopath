@@ -45,7 +45,7 @@ The table below summarises the decisions. The header comment of the handler is t
 | Deleted unless in use | Custom exercises and custom equipment. One still referenced by another user's row is kept, rather than failing the reset on its `Restrict`. |
 | Deleted (pending jobs) | A pending job whose subject is a deleted row, including a `health.document.purge` for a deleted document (step 3 deletes its file), and the user's own pending `health.export` jobs (a finished export's file is a storage object the user owns, deleted in step 3) |
 | Kept | `User`, `UserIdentity`, `UserRole`, `RefreshToken` (the browser session survives), `AllowedEmail`, `AuditEvent` |
-| Kept (deployment) | Worker nodes and their credentials, system settings, deployment credentials, AI models, broadcasts, backup runs |
+| Kept (deployment) | Worker nodes and their credentials, system settings, deployment credentials, AI models, broadcasts, backup runs, hosted Android APK releases (the user stays their uploader) |
 | Kept (shared) | The seeded exercise and equipment catalog, roles, permissions and capabilities |
 | Kept (jobs) | Running and settled jobs. A running job of the user's (a training run, a scan) finds its rows gone and fails on its own, as handlers already must tolerate. A reset never cancels running work. |
 
