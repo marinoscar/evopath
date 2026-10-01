@@ -90,6 +90,36 @@ describe('HealthSyncService', () => {
       expect(view).toMatchObject({ id: DEVICE, tokenExpiresAt: '2026-12-30T00:00:00.000Z', userTimezone: null });
     });
 
+    it('revokes the previously linked PAT when the phone re-pairs with a new one', async () => {
+      const NEW_PAT = '55555555-5555-4555-8555-555555555555';
+      (prisma.healthSyncDevice.findUnique as jest.Mock).mockResolvedValue({ patId: PAT });
+      (prisma.healthSyncDevice.upsert as jest.Mock).mockResolvedValue(deviceRow({ patId: NEW_PAT }));
+      await service.register(USER, { installationId: deviceRow().installationId, name: 'Pixel 9' }, { kind: 'pat', tokenId: NEW_PAT }, NOW);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.personalAccessToken.updateMany).toHaveBeenCalledWith({
+        where: { id: PAT, userId: USER, revokedAt: null },
+        data: { revokedAt: NOW },
+      });
+      expect((prisma.healthSyncDevice.upsert as jest.Mock).mock.calls[0][0].update).toMatchObject({ patId: NEW_PAT });
+    });
+
+    it('revokes nothing when re-registering with the same PAT, a first registration or a JWT', async () => {
+      (prisma.healthSyncDevice.upsert as jest.Mock).mockResolvedValue(deviceRow());
+      const input = { installationId: deviceRow().installationId, name: 'Pixel 9' };
+
+      (prisma.healthSyncDevice.findUnique as jest.Mock).mockResolvedValueOnce({ patId: PAT });
+      await service.register(USER, input, { kind: 'pat', tokenId: PAT }, NOW);
+      (prisma.healthSyncDevice.findUnique as jest.Mock).mockResolvedValueOnce(null);
+      await service.register(USER, input, { kind: 'pat', tokenId: PAT }, NOW);
+      (prisma.healthSyncDevice.findUnique as jest.Mock).mockResolvedValueOnce({ patId: null });
+      await service.register(USER, input, { kind: 'pat', tokenId: PAT }, NOW);
+      await service.register(USER, input, { kind: 'jwt' }, NOW);
+
+      expect(prisma.personalAccessToken.updateMany).not.toHaveBeenCalled();
+      expect(prisma.healthSyncDevice.findUnique).toHaveBeenCalledTimes(3); // not for the JWT caller
+    });
+
     it('leaves the link alone for a session (JWT) caller', async () => {
       (prisma.healthSyncDevice.upsert as jest.Mock).mockResolvedValue(deviceRow({ patId: null, pat: null }));
       const view = await service.register(USER, { installationId: deviceRow().installationId, name: 'Pixel' }, { kind: 'jwt' }, NOW);

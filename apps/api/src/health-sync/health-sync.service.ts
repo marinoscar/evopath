@@ -51,6 +51,7 @@ import {
 // registers (`POST /devices`, upsert on (user, installationId)) with that
 // PAT, and the device row links the PAT's id (`@AuthCredential()`), so
 // unpairing revokes exactly that token, and `tokenExpiresAt` comes from it.
+// Re-pairing with a new PAT revokes the previously linked one.
 //
 // A SYNC is one transaction (timeout {@link SYNC_TX_TIMEOUT_MS}):
 //   1. upsert each activity entry, measurement and sleep session through its
@@ -111,8 +112,9 @@ export class HealthSyncService {
 
   /**
    * Registers (or re-registers) the caller's phone. A revoked device comes
-   * back active. Authenticated with a PAT, the device links it; a JWT caller
-   * leaves the link as it was.
+   * back active. Authenticated with a PAT, the device links it and the PAT it
+   * linked before (a previous pairing) is revoked in the same transaction; a
+   * JWT caller leaves the link as it was.
    */
   async register(
     userId: string,
@@ -136,11 +138,26 @@ export class HealthSyncService {
       ...(credential?.kind === 'pat' ? { patId: credential.tokenId } : {}),
     };
 
-    const device = await this.prisma.healthSyncDevice.upsert({
-      where: { userId_installationId: { userId, installationId: input.installationId } },
-      create: { userId, installationId: input.installationId, ...fields },
-      update: fields,
-      include: WITH_PAT,
+    const where = { userId_installationId: { userId, installationId: input.installationId } };
+    const device = await this.prisma.$transaction(async (tx) => {
+      if (credential?.kind === 'pat') {
+        // Re-pairing issues a new PAT: revoke the one this device linked
+        // before, as unpairing would, so it does not stay live until expiry.
+        // Never the token authenticating this request.
+        const existing = await tx.healthSyncDevice.findUnique({ where, select: { patId: true } });
+        if (existing?.patId && existing.patId !== credential.tokenId) {
+          await tx.personalAccessToken.updateMany({
+            where: { id: existing.patId, userId, revokedAt: null },
+            data: { revokedAt: now },
+          });
+        }
+      }
+      return tx.healthSyncDevice.upsert({
+        where,
+        create: { userId, installationId: input.installationId, ...fields },
+        update: fields,
+        include: WITH_PAT,
+      });
     });
     return this.toDeviceView(device, await this.healthProfile.getTimeZone(userId));
   }
