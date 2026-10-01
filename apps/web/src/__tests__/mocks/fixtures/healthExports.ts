@@ -34,7 +34,7 @@ export function mockReadyHealthExport(overrides: Partial<HealthExport> = {}): He
     status: 'ready',
     completedAt: '2026-10-01T09:00:05.000Z',
     expiresAt: '2026-10-08T09:00:05.000Z',
-    fileName: 'evopath-health-2026-07-01-2026-10-01.pdf',
+    fileName: 'app-health-2026-07-01-2026-10-01.pdf',
     sizeBytes: 48_213,
     rowCounts: { profile: 1, body: 12, vitals: 4, labs: 0, wellness: 30, documents: 2 },
     ...overrides,

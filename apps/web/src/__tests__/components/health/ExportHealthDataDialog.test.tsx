@@ -262,7 +262,7 @@ describe('ExportHealthDataDialog', () => {
           data: {
             items: [
               mockHealthExport({ id: runningId, status: 'running', format: 'xlsx' }),
-              mockReadyHealthExport({ id: readyId, format: 'json', fileName: 'evopath-health.json' }),
+              mockReadyHealthExport({ id: readyId, format: 'json', fileName: 'app-health-2026-07-01-2026-10-01.json' }),
               mockReadyHealthExport({
                 id: '0b8f3c1e-5d2a-4e7b-9a10-6c2d8e4f1a04',
                 status: 'expired',
