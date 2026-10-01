@@ -55,6 +55,8 @@ import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
 import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
 import AltRouteOutlinedIcon from '@mui/icons-material/AltRouteOutlined';
+// AI Coach (E7.3, #243).
+import SportsOutlinedIcon from '@mui/icons-material/SportsOutlined';
 // Observability (#537, epic #528) — the telemetry policy page and the explorer.
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
@@ -554,6 +556,21 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'Choose the AI model the organization uses by default and for each feature. Users do not choose models.',
         Icon: AltRouteOutlinedIcon,
         path: '/admin/settings/ai/assignments',
+        permission: 'ai_config:read',
+        feature: 'ai',
+      },
+      {
+        // E7.3 (#243). APPENDED to the AI group (append-only, as above).
+        // `ai_config:read` is the literal string
+        // `coach/admin/coach-admin-settings.controller.ts` enforces on its GET;
+        // saving needs `ai_config:write`, gated inside the page. Feature-gated
+        // like the other AI cards (CLAUDE.md AI Platform Rule 5). The coach's
+        // MODELS are chosen on AI Model Assignments (its Coach section).
+        title: 'Coach',
+        description:
+          'Switch the AI Coach on or off, allow adult language and spoken messages, and cap daily nudges.',
+        Icon: SportsOutlinedIcon,
+        path: '/admin/settings/coach',
         permission: 'ai_config:read',
         feature: 'ai',
       },

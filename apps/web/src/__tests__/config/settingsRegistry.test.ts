@@ -1093,7 +1093,20 @@ describe('the AI group (#425)', () => {
       'AI Models',
       'AI Usage',
       'AI Model Assignments',
+      // E7.3 (#243): appended last, never inserted.
+      'Coach',
     ]);
+  });
+
+  it('gates Coach (E7.3, #243) on ai_config:read, feature-gated, at /admin/settings/coach', () => {
+    expect(cards.get('Coach')).toMatchObject({
+      path: '/admin/settings/coach',
+      permission: 'ai_config:read',
+      feature: 'ai',
+    });
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/coach', { ai: true }),
+    ).toBe('Coach');
   });
 
   it('gates AI Model Assignments (#173) on ai_config:read, feature-gated, nested under the AI route', () => {

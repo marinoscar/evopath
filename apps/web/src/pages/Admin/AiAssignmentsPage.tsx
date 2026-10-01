@@ -2,8 +2,8 @@
  * Admin → AI → AI Model Assignments (`/admin/settings/ai/assignments`), #173.
  *
  * Every AI model choice in this app is an administrator's: an organization
- * default, and a model per feature (the photo features and the training
- * agents). Users never pick one. Backed by `GET`/`PUT
+ * default, and a model per feature (the photo features, the training
+ * agents and the coach). Users never pick one. Backed by `GET`/`PUT
  * /api/admin/ai/assignments`; the API decides which models are eligible for
  * each feature and refuses an ineligible save with per-field errors.
  *
@@ -347,6 +347,7 @@ export default function AiAssignmentsPage() {
 
   const photoRows = view?.features.filter((row) => row.group === 'photo') ?? [];
   const trainingRows = view?.features.filter((row) => row.group === 'training') ?? [];
+  const coachRows = view?.features.filter((row) => row.group === 'coach') ?? [];
   const defaultError = errors.get('default');
   const defaultOptions = view && form ? optionsFor(view.default.eligibleModels, form.default) : [];
 
@@ -432,6 +433,19 @@ export default function AiAssignmentsPage() {
                 title="Training agents"
                 description="The agents that research, write, review and evaluate training plans."
                 rows={trainingRows}
+                form={form}
+                setFeature={setFeature}
+                errors={errors}
+                disabled={disabled}
+              />
+
+              {/* E7.3 (#243): coach.decision, coach.chat and coach.voice. The
+                  API filters each row's eligible models by what the feature
+                  needs (`audio_speech` for the voice). */}
+              <FeatureSection
+                title="Coach"
+                description="The AI Coach: deciding and writing nudges and the weekly review, chatting, and speaking messages aloud."
+                rows={coachRows}
                 form={form}
                 setFeature={setFeature}
                 errors={errors}
