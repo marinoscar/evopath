@@ -148,6 +148,56 @@ describe('scripts/rename.mjs --help', () => {
   });
 });
 
+describe('scripts/rename.mjs --accent (the sun in the brand mark)', () => {
+  const identity = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as {
+    themeColor: string;
+    accentColor: string;
+  };
+
+  it('plans the new accentColor in identity.json and one sun-fill rewrite per SVG', () => {
+    const result = run(['--dry-run', '--accent', '#123abc']);
+
+    expect(result.status, `stderr:\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toMatch(/accentColor: "#123abc"/);
+    for (const svg of ['apps/web/public/favicon.svg', 'apps/web/public/icons/source.svg']) {
+      const line = result.stdout.split('\n').find((l) => l.includes(svg) && l.includes('fill='));
+      expect(line, `no sun-fill edit planned for ${svg}`).toBeDefined();
+      expect(line).toContain(`fill=\\"${identity.accentColor}\\"`);
+      expect(line).toMatch(/\b1x\b/);
+    }
+  });
+
+  it('lowercases the hex it writes', () => {
+    const result = run(['--dry-run', '--accent', '#ABCDEF']);
+
+    expect(result.status, `stderr:\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toMatch(/accentColor: "#abcdef"/);
+  });
+
+  it('rejects a 3-digit --accent with a message naming the 6-digit requirement', () => {
+    const result = run(['--dry-run', '--accent', '#fff']);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/--accent must be a 6-digit hex/);
+  });
+
+  it('rejects a non-hex --accent', () => {
+    const result = run(['--dry-run', '--accent', 'gold']);
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/6-digit hex/);
+  });
+
+  it('preserves accentColor when the flag is omitted', () => {
+    const result = run(['--dry-run', '--theme', '#123456']);
+
+    expect(result.status, `stderr:\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain(`accentColor: "${identity.accentColor}"`);
+    // No sun-fill rewrite is planned: only the plate fill moves.
+    expect(result.stdout).not.toMatch(new RegExp(`fill=\\\\"${identity.accentColor}\\\\"`));
+  });
+});
+
 describe('scripts/rename.mjs input validation', () => {
   it('rejects a 3-digit --theme with a message naming the 6-digit requirement', () => {
     const result = run(['--dry-run', '--theme', '#fff']);

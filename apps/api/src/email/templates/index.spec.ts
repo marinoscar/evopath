@@ -251,6 +251,15 @@ describe.each(EMAIL_TEMPLATE_NAMES)('template contract: "%s"', (name) => {
     }
   });
 
+  it('references the brand mark as cid:brand-mark and attaches it inline', () => {
+    expect(rendered.html).toContain('src="cid:brand-mark"');
+    const mark = rendered.attachments.filter((attachment) => attachment.contentId === 'brand-mark');
+    expect(mark).toHaveLength(1);
+    expect(mark[0].disposition).toBe('inline');
+    expect(mark[0].contentType).toBe('image/png');
+    expect(mark[0].contentBase64.length).toBeGreaterThan(0);
+  });
+
   it('html is table-based', () => {
     expect(rendered.html).toMatch(/<table\b/i);
   });

@@ -75,7 +75,7 @@ const SAMPLES: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     jobId: 'c7f1e2a4-9b3d-4f6e-8a21-5d0c9e7b3f18',
     jobType: 'health.export',
     error:
-      'Upload to object storage failed: 403 AccessDenied (bucket evopath-exports, key exports/2026/10/01/oscar.zip)',
+      'Upload to object storage failed: 403 AccessDenied (bucket example-exports, key exports/2026/10/01/oscar.zip)',
     attempts: 5,
     executor: 'node worker-eu-1',
     failedAt: new Date('2026-10-01T03:17:44.000Z'),
