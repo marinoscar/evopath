@@ -57,7 +57,7 @@ An optional Android app imports steps, exercise sessions, heart rate, weight, bo
 4. The server upserts on `(userId, installationId)` and links the PAT: the guard stamps `request.authCredential = { kind: 'pat', tokenId }` and the device row stores that id as `patId`. A JWT caller leaves the link untouched. `tokenExpiresAt` in the device view comes from the linked token.
 5. The app schedules the hourly worker and starts an initial sync.
 
-**Re-pairing.** A token that expires or is revoked answers `401`. The app then marks pairing expired, stops syncing and posts a notification "Re-pair EvoPath Health sync". Pairing again runs the same flow; because the `installationId` is unchanged, registering reuses the same device row (and reactivates it if it was revoked), so history and provider stay the same.
+**Re-pairing.** A token that expires or is revoked answers `401`. The app then marks pairing expired, stops syncing and posts a notification "Re-pair EvoPath Health sync". Pairing again runs the same flow; because the `installationId` is unchanged, registering reuses the same device row (and reactivates it if it was revoked), so history and provider stay the same. When the new PAT differs from the one the device linked, registering revokes the previously linked PAT in the same transaction (as unpairing does), so an old pairing never stays valid until it expires; the token authenticating the request is never revoked.
 
 **Unpairing.** `DELETE /api/health-sync/devices/:id` sets the device `revoked` and revokes the linked PAT in one transaction. With `deleteEntries=true` it also deletes the device's activity entries and sleep sessions and soft-deletes its measurements. It is idempotent.
 
