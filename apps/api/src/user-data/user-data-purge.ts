@@ -43,6 +43,10 @@ export const ZERO_ROW_COUNTS: Readonly<DeletedRowCounts> = Object.freeze({
   coachStates: 0,
   activityGoals: 0,
   activityEntries: 0,
+  healthSyncDevices: 0,
+  healthSyncRuns: 0,
+  healthSyncDiagnosticReports: 0,
+  sleepSessions: 0,
   programs: 0,
   programChangeLogs: 0,
   trainingRuns: 0,
@@ -222,6 +226,15 @@ export async function deleteUserOwnedRows(
   // with its workout and go uncounted. Goals have no dependants.
   counts.activityEntries = (await tx.activityEntry.deleteMany({ where: { userId } })).count;
   counts.activityGoals = (await tx.activityGoal.deleteMany({ where: { userId } })).count;
+
+  // Health sync (epic #276): runs and reports are deleted explicitly so they
+  // are counted; devices after them (both cascade from the device and the
+  // kept User row). Imported entries were already removed above.
+  counts.healthSyncRuns = (await tx.healthSyncRun.deleteMany({ where: { userId } })).count;
+  counts.healthSyncDiagnosticReports = (
+    await tx.healthSyncDiagnosticReport.deleteMany({ where: { userId } })
+  ).count;
+  counts.healthSyncDevices = (await tx.healthSyncDevice.deleteMany({ where: { userId } })).count;
   await tx.programSession.deleteMany({ where: { userId } });
   counts.workouts = (await tx.workout.deleteMany({ where: { userId } })).count;
   counts.programChangeLogs = (await tx.programChangeLog.deleteMany({ where: { userId } })).count;
@@ -253,6 +266,7 @@ export async function deleteUserOwnedRows(
     data: { supersedesId: null },
   });
   counts.measurements = (await tx.measurement.deleteMany({ where: { userId } })).count;
+  counts.sleepSessions = (await tx.sleepSession.deleteMany({ where: { userId } })).count;
   counts.healthProfiles = (await tx.healthProfile.deleteMany({ where: { userId } })).count;
   // The AI health summary (H8, #192): every summary version and the consent
   // (so a reset also turns the opt-in back off). Derived data, not counted.

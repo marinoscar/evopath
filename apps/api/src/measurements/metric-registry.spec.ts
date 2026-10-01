@@ -24,19 +24,21 @@ describe('metric registry', () => {
       ['bp_systolic', 'Systolic pressure', 'mmHg', { mmHg: 1 }, 60, 260, 0, 'vital', false],
       ['bp_diastolic', 'Diastolic pressure', 'mmHg', { mmHg: 1 }, 30, 160, 0, 'vital', false],
       ['resting_hr', 'Resting heart rate', 'bpm', { bpm: 1 }, 25, 220, 0, 'vital', false],
+      ['heart_rate_avg', 'Average heart rate', 'bpm', { bpm: 1 }, 25, 250, 0, 'vital', true],
+      ['hrv_rmssd', 'Heart rate variability (RMSSD)', 'ms', { ms: 1 }, 1, 300, 0, 'vital', false],
       ['energy', 'Energy', 'score', { score: 1 }, 1, 5, 0, 'wellness', true],
       ['sleep_quality', 'Sleep quality', 'score', { score: 1 }, 1, 5, 0, 'wellness', true],
       ['muscle_soreness', 'Muscle soreness', 'score', { score: 1 }, 1, 5, 0, 'wellness', true],
       ['stress', 'Stress', 'score', { score: 1 }, 1, 5, 0, 'wellness', true],
     ] as const;
 
-    it('has exactly the ten metrics, in order, before the lab catalog', () => {
+    it('has exactly the twelve metrics, in order, before the lab catalog', () => {
       expect(
         catalogView()
           .metrics.filter((m) => m.category !== 'lab')
           .map((m) => m.key),
       ).toEqual(EPIC_TABLE.map((row) => row[0]));
-      expect(catalogView().metrics.slice(0, 10).map((m) => m.key)).toEqual(
+      expect(catalogView().metrics.slice(0, EPIC_TABLE.length).map((m) => m.key)).toEqual(
         EPIC_TABLE.map((row) => row[0]),
       );
     });
@@ -145,6 +147,8 @@ describe('metric registry', () => {
         'bp_systolic',
         'bp_diastolic',
         'resting_hr',
+        'heart_rate_avg',
+        'hrv_rmssd',
       ]);
       expect(isMeasurementMetric('ldl_cholesterol')).toBe(true);
       expect(isMeasurementMetric('energy')).toBe(false);

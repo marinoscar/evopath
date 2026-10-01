@@ -140,6 +140,9 @@ const BODY_FAT_METHODS = [
 const WAIST_METHODS = ['unspecified', 'tape', 'other'] as const;
 const BP_METHODS = ['unspecified', 'bp_cuff', 'clinical', 'wearable', 'other'] as const;
 const RESTING_HR_METHODS = ['unspecified', 'wearable', 'bp_cuff', 'manual_pulse', 'other'] as const;
+/** Average heart rate and HRV come from wearables (Health Connect, epic #276). */
+const HEART_RATE_AVG_METHODS = ['unspecified', 'wearable', 'other'] as const;
+const HRV_METHODS = ['unspecified', 'wearable', 'other'] as const;
 const WELLNESS_METHODS = ['self_report'] as const;
 
 const SCORE_UNITS = [{ unit: 'score', factor: 1, label: 'score' }] as const;
@@ -448,7 +451,7 @@ const LAB_METRICS: readonly MetricDef[] = [
 ];
 
 /**
- * The epic's ten metrics, then the lab catalog, in display order. Appending a
+ * The epic's ten metrics (plus the two Health Connect heart metrics, #276), then the lab catalog, in display order. Appending a
  * metric here is the whole of "add a metric"; renaming a `key` is not allowed
  * once rows carry it (it is stored).
  */
@@ -535,6 +538,33 @@ export const METRICS = [
     max: 220,
     decimals: 0,
     methods: RESTING_HR_METHODS,
+    daily: false,
+  },
+  // Epic #276: written by the Android Health Connect sync (origin `device`).
+  {
+    key: 'heart_rate_avg',
+    label: 'Average heart rate',
+    category: 'vital',
+    canonicalUnit: 'bpm',
+    units: [{ unit: 'bpm', factor: 1, label: 'bpm' }],
+    displayUnit: { metric: 'bpm', imperial: 'bpm' },
+    min: 25,
+    max: 250,
+    decimals: 0,
+    methods: HEART_RATE_AVG_METHODS,
+    daily: true,
+  },
+  {
+    key: 'hrv_rmssd',
+    label: 'Heart rate variability (RMSSD)',
+    category: 'vital',
+    canonicalUnit: 'ms',
+    units: [{ unit: 'ms', factor: 1, label: 'ms' }],
+    displayUnit: { metric: 'ms', imperial: 'ms' },
+    min: 1,
+    max: 300,
+    decimals: 0,
+    methods: HRV_METHODS,
     daily: false,
   },
   wellness('energy', 'Energy', 'Drained', 'Energised'),

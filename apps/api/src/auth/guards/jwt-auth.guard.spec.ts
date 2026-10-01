@@ -18,7 +18,7 @@ describe('JwtAuthGuard', () => {
     } as any;
 
     patService = {
-      validateToken: jest.fn(),
+      resolveToken: jest.fn(),
     } as any;
 
     nodeCredentialService = {
@@ -179,7 +179,7 @@ describe('JwtAuthGuard', () => {
   // ============================================================================
 
   describe('PAT token handling', () => {
-    it('should route Bearer pat_... tokens to PatService.validateToken', async () => {
+    it('should route Bearer pat_... tokens to PatService.resolveToken', async () => {
       reflector.getAllAndOverride.mockReturnValue(false);
 
       const mockUser = {
@@ -188,16 +188,17 @@ describe('JwtAuthGuard', () => {
         isActive: true,
         userRoles: [],
       };
-      patService.validateToken.mockResolvedValue(mockUser as any);
+      patService.resolveToken.mockResolvedValue({ user: mockUser as any, tokenId: 'pat-id-1' });
 
       const context = createMockContext('Bearer pat_abc123def456');
       const request = context.switchToHttp().getRequest();
 
       const result = await guard.canActivate(context);
 
-      expect(patService.validateToken).toHaveBeenCalledWith('pat_abc123def456');
+      expect(patService.resolveToken).toHaveBeenCalledWith('pat_abc123def456');
       expect(result).toBe(true);
       expect(request.user).toBe(mockUser);
+      expect(request.authCredential).toEqual({ kind: 'pat', tokenId: 'pat-id-1' });
     });
 
     it('should set request.user to the AuthenticatedUser returned by PatService', async () => {
@@ -216,7 +217,7 @@ describe('JwtAuthGuard', () => {
           },
         ],
       };
-      patService.validateToken.mockResolvedValue(mockUser as any);
+      patService.resolveToken.mockResolvedValue({ user: mockUser as any, tokenId: 'pat-id-1' });
 
       const context = createMockContext('Bearer pat_mytoken123');
       const request = context.switchToHttp().getRequest();
@@ -226,9 +227,9 @@ describe('JwtAuthGuard', () => {
       expect(request.user).toEqual(mockUser);
     });
 
-    it('should throw UnauthorizedException when PAT is invalid (validateToken returns null)', async () => {
+    it('should throw UnauthorizedException when PAT is invalid (resolveToken returns null)', async () => {
       reflector.getAllAndOverride.mockReturnValue(false);
-      patService.validateToken.mockResolvedValue(null);
+      patService.resolveToken.mockResolvedValue(null);
 
       const context = createMockContext('Bearer pat_invalidtoken');
 
@@ -246,8 +247,9 @@ describe('JwtAuthGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
       expect(superSpy).toHaveBeenCalledWith(context);
+      expect(context.switchToHttp().getRequest().authCredential).toEqual({ kind: 'jwt' });
     });
 
     it('should NOT route requests without Authorization header to PatService', async () => {
@@ -258,7 +260,7 @@ describe('JwtAuthGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
       expect(superSpy).toHaveBeenCalledWith(context);
     });
 
@@ -269,22 +271,22 @@ describe('JwtAuthGuard', () => {
 
       const result = await guard.canActivate(context);
 
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
       expect(result).toBe(true);
     });
 
-    it('should pass the full raw token (with pat_ prefix) to validateToken', async () => {
+    it('should pass the full raw token (with pat_ prefix) to resolveToken', async () => {
       reflector.getAllAndOverride.mockReturnValue(false);
 
       const mockUser = { id: 'user-789', email: 'x@x.com', isActive: true, userRoles: [] };
-      patService.validateToken.mockResolvedValue(mockUser as any);
+      patService.resolveToken.mockResolvedValue({ user: mockUser as any, tokenId: 'pat-id-1' });
 
       const rawToken = 'pat_0011223344556677889900aabbccddeeff00112233445566778899aabbccddee';
       const context = createMockContext(`Bearer ${rawToken}`);
 
       await guard.canActivate(context);
 
-      expect(patService.validateToken).toHaveBeenCalledWith(rawToken);
+      expect(patService.resolveToken).toHaveBeenCalledWith(rawToken);
     });
   });
 
@@ -323,7 +325,7 @@ describe('JwtAuthGuard', () => {
       expect(result).toBe(true);
       expect(request.user).toBe(nodeUser);
       // A nod_ token must never fall through to the PAT branch or to Passport.
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
     });
 
     it('accepts a path UNDER /api/nodes/', async () => {
@@ -439,7 +441,7 @@ describe('JwtAuthGuard', () => {
       // Regression guard for the boundary between the two opaque families —
       // #267 must not have narrowed the PAT's documented universality.
       reflector.getAllAndOverride.mockReturnValue(false);
-      patService.validateToken.mockResolvedValue(nodeUser as any);
+      patService.resolveToken.mockResolvedValue(nodeUser as any);
 
       const context = createMockContext('Bearer pat_something', '/api/users');
 

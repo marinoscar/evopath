@@ -532,9 +532,14 @@ export const measurementSchema = z.object({
   unit: z.string().meta({ description: "The metric's canonical unit." }),
   measuredAt: z.iso.datetime(),
   method: z.string(),
-  origin: z
-    .string()
-    .meta({ description: '`manual` for everything written through this API; set by the server only.' }),
+  origin: z.string().meta({
+    description:
+      '`manual` for everything written through this API, `ai` for an applied photo reading, `device` for a ' +
+      'reading synced from a phone (Health Connect); set by the server only.',
+  }),
+  externalProvider: z.string().nullable().meta({
+    description: 'Device-synced readings: `health_connect:<deviceId>` (label it "Health Connect"); null otherwise.',
+  }),
   notes: z.string().nullable(),
   referenceLow: z
     .number()

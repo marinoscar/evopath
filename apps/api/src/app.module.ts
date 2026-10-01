@@ -45,6 +45,8 @@ import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 import { ActivityModule } from './activity/activity.module';
+import { HealthSyncModule } from './health-sync/health-sync.module';
+import { SleepModule } from './sleep/sleep.module';
 import { ProgramsModule } from './programs/programs.module';
 import { TrainingAgentsModule } from './training-agents/training-agents.module';
 import { HealthSummaryModule } from './health-summary/health-summary.module';
@@ -285,6 +287,13 @@ import configuration from './config/configuration';
     // `/api/activity-entries` under `goals:*`; materialises workout-derived
     // entries on `workout.finished`. Exports `GoalProgressService` for the coach.
     ActivityModule,
+
+    // Android Health Connect sync (epic #276): `/api/health-sync` under
+    // `goals:*` (measurements and sleep also `health_data:write`). Imports
+    // activity entries, measurements and sleep per phone.
+    HealthSyncModule,
+    // Sleep sessions (epic #276): `/api/sleep` under `health_data:*`.
+    SleepModule,
 
     // Training programs (E5.1): `/api/programs` under `programs:*`: the plan
     // tree, immutable versions, change log and revert. Exports

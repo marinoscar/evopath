@@ -228,6 +228,19 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       data: { userId: b, occurredOn: new Date('2026-09-01'), activityKind: 'workout_any', source: 'workout', workoutId: workoutB.id },
     });
 
+    // Health sync (epic #276): a device with a run and a report each; B keeps theirs.
+    for (const [uid, installationId] of [[a, '11111111-1111-4111-8111-111111111111'], [b, '22222222-2222-4222-8222-222222222222']] as const) {
+      const device = await client.healthSyncDevice.create({ data: { userId: uid, installationId, name: 'Pixel' } });
+      const now = new Date();
+      await client.healthSyncRun.create({
+        data: { deviceId: device.id, userId: uid, trigger: 'manual', status: 'ok', startedAt: now, finishedAt: now },
+      });
+      await client.healthSyncDiagnosticReport.create({ data: { deviceId: device.id, userId: uid, report: { ok: true } } });
+      await client.sleepSession.create({
+        data: { userId: uid, startAt: new Date('2026-09-01T22:00:00Z'), endAt: new Date('2026-09-02T06:00:00Z'), localDate: new Date('2026-09-02'), durationMinutes: 480 },
+      });
+    }
+
     // --- B's data, which must be untouched ---------------------------------
     await client.gym.create({ data: { userId: b, name: 'B gym' } });
     const docObjectB = await storageObject(b, 'doc-b');
@@ -311,6 +324,10 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       ['coachState', await client.coachState.count({ where: { userId: a } })],
       ['activityGoals', await client.activityGoal.count({ where: { userId: a } })],
       ['activityEntries', await client.activityEntry.count({ where: { userId: a } })],
+      ['healthSyncDevices', await client.healthSyncDevice.count({ where: { userId: a } })],
+      ['healthSyncRuns', await client.healthSyncRun.count({ where: { userId: a } })],
+      ['sleepSessions', await client.sleepSession.count({ where: { userId: a } })],
+      ['healthSyncDiagnosticReports', await client.healthSyncDiagnosticReport.count({ where: { userId: a } })],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -336,6 +353,10 @@ describeWithDb('user.data_reset (real Postgres)', () => {
     expect(await client.coachState.count({ where: { userId: b } })).toBe(1);
     expect(await client.activityGoal.count({ where: { userId: b } })).toBe(1);
     expect(await client.activityEntry.count({ where: { userId: b } })).toBe(1);
+    expect(await client.healthSyncDevice.count({ where: { userId: b } })).toBe(1);
+    expect(await client.healthSyncRun.count({ where: { userId: b } })).toBe(1);
+    expect(await client.sleepSession.count({ where: { userId: b } })).toBe(1);
+    expect(await client.healthSyncDiagnosticReport.count({ where: { userId: b } })).toBe(1);
     // Both document files reached the provider, not just the database.
     expect(storage.delete).toHaveBeenCalledWith(keptDocObject.storageKey);
     expect(storage.delete).toHaveBeenCalledWith(purgeDocObject.storageKey);
@@ -367,6 +388,10 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       coachStates: 1,
       activityGoals: 1,
       activityEntries: 2,
+      healthSyncDevices: 1,
+      healthSyncRuns: 1,
+      healthSyncDiagnosticReports: 1,
+      sleepSessions: 1,
       cancelledJobs: 2,
       storageObjectsDeleted: 5,
       storageObjectsFailed: 1,

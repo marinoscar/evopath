@@ -62,10 +62,16 @@ export function goalsHitBy(progress: readonly GoalProgressData[], fromEvent: (en
   return out;
 }
 
-/** Entries of a manual check-in recorded at or after `recordedSince` (less the skew allowance). */
+/**
+ * Entries of a manual check-in, or of a Health Connect sync (`integration`,
+ * epic #276, which emits the same `activity.entry.recorded`), written at or
+ * after `recordedSince` (less the skew allowance).
+ */
 export function recordedSincePredicate(recordedSince: Date): (entry: EventEntry) => boolean {
   const from = recordedSince.getTime() - RECORDED_SINCE_SKEW_MS;
-  return (entry) => entry.source === 'manual' && Math.max(Date.parse(entry.createdAt), Date.parse(entry.updatedAt)) >= from;
+  return (entry) =>
+    (entry.source === 'manual' || entry.source === 'integration') &&
+    Math.max(Date.parse(entry.createdAt), Date.parse(entry.updatedAt)) >= from;
 }
 
 /** Entries derived from the finished workout. */
