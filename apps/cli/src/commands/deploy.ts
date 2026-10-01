@@ -59,6 +59,15 @@ import {
   type InstallOptions,
 } from '../deploy/install.js';
 import { runUpdate, type UpdateOptions } from '../deploy/update.js';
+import {
+  androidOptionsFromFlags,
+  androidReportLines,
+  defaultAndroidStepDeps,
+  runDeployAndroidStep,
+  type AndroidStepDeps,
+  type AndroidStepOutcome,
+  type DeployAndroidOptions,
+} from '../deploy/android-step.js';
 import type { EnvGroup } from '../deploy/env-metadata.js';
 import { runCommand } from '../deploy/executor.js';
 import { CliError, EXIT, PreconditionError, UsageError, type ExitCode } from '../errors.js';
@@ -144,6 +153,8 @@ export interface DeployContext {
   isTty?: boolean | undefined;
   /** Injected so `status` can be tested without a running deployment. */
   fetch?: typeof globalThis.fetch | undefined;
+  /** Injected so `--with-android` (#292) runs without a toolchain or a server. */
+  androidStepDeps?: AndroidStepDeps | undefined;
 }
 
 export function registerDeployCommand(
@@ -240,6 +251,9 @@ export function registerDeployCommand(
       'Release version to deploy (default: a patch bump of the current one)',
     )
     .option('--no-version-bump', 'Deploy the current version: no write, no commit, no push')
+    .option('--with-android', 'After a healthy deploy, build and publish the Android APK if the local version is newer')
+    .option('--android-bump <part>', 'With --with-android: bump the APK version first (patch, minor or major)')
+    .option('--android-notes <text>', 'With --with-android: release notes for the published APK')
     .option('--json', 'Print a machine-readable result on stdout')
     .addHelpText(
       'after',
@@ -262,6 +276,14 @@ export function registerDeployCommand(
         '',
         'The repository and branch come from THIS checkout\'s git remote unless',
         'you pass --repo/--ref, so a fork deploys itself with no configuration.',
+        '',
+        '--with-android, after a healthy deploy, publishes the Android APK to',
+        'https://<domain> when the local apps/android version is newer than the',
+        'server\'s current release: doctor, build, publish (as the current',
+        `release). It needs \`${CLI_NAME} login --server https://<domain>\` by an`,
+        'account with system_settings:write, a JDK, the Android SDK and the',
+        'release keystore. Anything missing is reported with its fix and',
+        'skipped; it never fails the deploy or changes its exit code.',
       ].join('\n'),
     )
     .action(async (options: InstallCommandOptions) => {
@@ -301,6 +323,9 @@ export function registerDeployCommand(
       'Release version to deploy (default: a patch bump of the current one)',
     )
     .option('--no-version-bump', 'Deploy the current version: no write, no commit, no push')
+    .option('--with-android', 'After a healthy deploy, build and publish the Android APK if the local version is newer')
+    .option('--android-bump <part>', 'With --with-android: bump the APK version first (patch, minor or major)')
+    .option('--android-notes <text>', 'With --with-android: release notes for the published APK')
     .option(
       '--maintenance',
       'Serve a 503 from before the build until just after restart, instead of whatever the stop/migrate/restart window looks like underneath',
@@ -335,6 +360,14 @@ export function registerDeployCommand(
         'before the window closes leaves the deployment in maintenance mode; the',
         'next update (with or without this flag) clears a leftover window on its',
         'own.',
+        '',
+        '--with-android, after a healthy deploy, publishes the Android APK to',
+        'https://<domain> when the local apps/android version is newer than the',
+        'server\'s current release: doctor, build, publish (as the current',
+        `release). It needs \`${CLI_NAME} login --server https://<domain>\` by an`,
+        'account with system_settings:write, a JDK, the Android SDK and the',
+        'release keystore. Anything missing is reported with its fix and',
+        'skipped; it never fails the deploy or changes its exit code.',
       ].join('\n'),
     )
     .action(async (options: UpdateCommandOptions) => {
@@ -1297,6 +1330,10 @@ export interface InstallCommandOptions {
    * one that never versions anything.
    */
   versionBump: boolean;
+  /** `--with-android` and its two companions (#292). */
+  withAndroid?: boolean | undefined;
+  androidBump?: string | undefined;
+  androidNotes?: string | undefined;
   json?: boolean | undefined;
 }
 
@@ -1412,6 +1449,9 @@ export async function runInstallCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
+  // Validated BEFORE anything runs: a typo must not surface after the deploy.
+  const android = androidOptionsFromFlags(options);
+
   const answers = collectedAnswers(options, (message) =>
     stderr.write(`warning: ${message}\n`),
   );
@@ -1467,8 +1507,12 @@ export async function runInstallCommand(
 
   const result = await runInstall(installOptions);
 
+  // ⚠ After the deploy succeeded, and unable to change its outcome: the step
+  // reports, it never throws (see deploy/android-step.ts).
+  const androidOutcome = await androidStep(android, result.domain ?? options.domain, app.deployRoot, json, stderr, ctx);
+
   if (json) {
-    stdout.write(`${JSON.stringify(result)}\n`);
+    stdout.write(`${JSON.stringify(androidOutcome === undefined ? result : { ...result, android: androidOutcome })}\n`);
     return;
   }
 
@@ -1479,11 +1523,51 @@ export async function runInstallCommand(
       '',
       `  Revision   ${result.commitSha.slice(0, 12)}`,
       `  Log        ${result.journalPath}`,
+      ...androidSummary(androidOutcome),
       '',
       `  ${result.nextStep}`,
       '',
     ].join('\n'),
   );
+}
+
+/**
+ * `--with-android` after a successful deploy (#292). Returns undefined when
+ * the flag was not given. Never throws: the deploy has already succeeded, and
+ * nothing about the APK may change the command's exit code.
+ */
+async function androidStep(
+  android: DeployAndroidOptions | undefined,
+  domain: string | undefined,
+  deployRoot: string,
+  json: boolean,
+  stderr: { write(chunk: string): unknown },
+  ctx: DeployContext | undefined,
+): Promise<AndroidStepOutcome | undefined> {
+  if (android === undefined) return undefined;
+  if (!json) stderr.write('\n  [android] Android APK\n');
+  try {
+    return await runDeployAndroidStep(
+      { domain, deployRoot, options: android },
+      ctx?.androidStepDeps ?? defaultAndroidStepDeps(),
+      json ? undefined : (line) => void stderr.write(`    ${line}\n`),
+    );
+  } catch (error) {
+    return { status: 'failed', reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function androidSummary(outcome: AndroidStepOutcome | undefined): string[] {
+  return outcome === undefined ? [] : androidReportLines(outcome).map((line) => `  ${line}`);
+}
+
+/** The recorded domain, or nothing when the record cannot be read. */
+function recordedDomain(deployRoot: string): string | undefined {
+  try {
+    return readState(deployRoot)?.domain;
+  } catch {
+    return undefined;
+  }
 }
 
 
@@ -1518,6 +1602,10 @@ export interface UpdateCommandOptions {
    * one that never versions anything.
    */
   versionBump: boolean;
+  /** `--with-android` and its two companions (#292). */
+  withAndroid?: boolean | undefined;
+  androidBump?: string | undefined;
+  androidNotes?: string | undefined;
   maintenance?: boolean | undefined;
   json?: boolean | undefined;
 }
@@ -1535,6 +1623,9 @@ export async function runUpdateCommand(
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
+
+  // Validated BEFORE anything runs: a typo must not surface after the deploy.
+  const android = androidOptionsFromFlags(options);
 
   const answers = collectedAnswers(options, (message) =>
     stderr.write(`warning: ${message}\n`),
@@ -1578,13 +1669,25 @@ export async function runUpdateCommand(
 
   const result = await runUpdate(updateOptions);
 
+  // Runs on an unchanged revision too: the APK can be newer than what the
+  // server offers even when the server code did not move.
+  const androidOutcome = await androidStep(android, recordedDomain(app.deployRoot), app.deployRoot, json, stderr, ctx);
+
   if (json) {
-    stdout.write(`${JSON.stringify(result)}\n`);
+    stdout.write(`${JSON.stringify(androidOutcome === undefined ? result : { ...result, android: androidOutcome })}\n`);
     return;
   }
 
   if (!result.changed) {
-    stderr.write(`\n  Already at ${result.commitSha.slice(0, 12)}. Nothing to do.\n\n`);
+    stderr.write(
+      [
+        '',
+        `  Already at ${result.commitSha.slice(0, 12)}. Nothing to do.`,
+        ...androidSummary(androidOutcome),
+        '',
+        '',
+      ].join('\n'),
+    );
     return;
   }
 
@@ -1596,6 +1699,7 @@ export async function runUpdateCommand(
       `  ${(result.previousSha ?? 'unknown').slice(0, 12)} -> ${result.commitSha.slice(0, 12)}`,
       `  Took       ${Math.round(result.durationMs / 1000)}s`,
       `  Log        ${result.journalPath}`,
+      ...androidSummary(androidOutcome),
       '',
     ].join('\n'),
   );

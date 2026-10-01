@@ -28,6 +28,7 @@ import {
   toggled,
   withFlags,
 } from './fields.js';
+import { publishAndroidAfterDeploy } from './android.js';
 import { INSTALL_TOGGLES, optionsFromToggles, VALUE_FLAGS } from './flags-model.js';
 import {
   decideResume,
@@ -496,7 +497,8 @@ async function performInstall(
 
   // ⚠ `--all` is dropped before it reaches the pipeline; see the comment at
   // its call site below for why.
-  const { all: _reviewEveryVariable, ...pipelineToggles } = optionsFromToggles(
+  // `--with-android` is not a pipeline option: it runs after the pipeline.
+  const { all: _reviewEveryVariable, withAndroid: _withAndroid, ...pipelineToggles } = optionsFromToggles(
     INSTALL_TOGGLES,
     chosen,
   );
@@ -549,5 +551,12 @@ async function performInstall(
     hooks,
   });
 
-  return [`Installed ${result.commitSha.slice(0, 12)}.`, `Log: ${result.journalPath}`, '', result.nextStep];
+  const android = await publishAndroidAfterDeploy(
+    chosen,
+    result.domain ?? (domain === '' ? undefined : domain),
+    target.settings.deployRoot,
+    hooks,
+  );
+
+  return [`Installed ${result.commitSha.slice(0, 12)}.`, `Log: ${result.journalPath}`, ...android, '', result.nextStep];
 }
