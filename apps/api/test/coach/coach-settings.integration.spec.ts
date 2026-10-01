@@ -237,7 +237,7 @@ describe('/api/coach/settings and /api/coach/personas (E7.2)', () => {
 
       expect(res.body.data.map((p: any) => p.id)).toEqual(['coach', 'drill_sergeant', 'stoic', 'analyst', 'butler', 'hype', 'nana']);
       for (const persona of res.body.data) {
-        expect(Object.keys(persona.sampleLines)).toHaveLength(12);
+        expect(Object.keys(persona.sampleLines)).toHaveLength(14);
         expect(persona.intensities.map((i: any) => i.level)).toEqual([1, 2, 3]);
       }
     });
