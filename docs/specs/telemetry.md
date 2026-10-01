@@ -1938,9 +1938,10 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.coach.nudge.converted` | `app_coach_nudge_converted_total` | counter | `{message}` | `moment`, `target` (`workout`, `check_in`, `photo`), `angle` (a learning-loop angle, or `none`) | A delivered message is followed by its target action inside the conversion window. |
 | `app.coach.feedback` | `app_coach_feedback_total` | counter | `{feedback}` | `value` (`up`, `down`, `cleared`) | A user rates a coach message or removes the rating. |
 | `app.coach.angle.picked` | `app_coach_angle_picked_total` | counter | `{angle}` | `angle` (`loss_aversion`, `identity`, `humor`, `challenge`, `data`, `future_self`, `social_proof_self`) | The learning loop picks an angle for a nudge. |
-| `app.coach.audio.generated` | `app_coach_audio_generated_total` | counter | `{message}` | none | A coach message's spoken version becomes ready. |
+| `app.coach.audio.generated` | `app_coach_audio_generated_total` | counter | `{message}` | none | A coach message's spoken version becomes ready (on request since #259). |
 | `app.coach.audio.failed` | `app_coach_audio_failed_total` | counter | `{message}` | `reason` (`provider_error`, `refusal`, `timeout`, `no_voice_model`) | A message is delivered as text only after its audio failed. |
 | `app.coach.audio.purged` | `app_coach_audio_purged_total` | counter | `{object}` | none | `coach.audio.purge` deletes voice notes past the retention window; adds the batch count. |
+| `app.coach.audio.requested` | `app_coach_audio_requested_total` | counter | `{request}` | `outcome` (`started`, `ready`, `pending`, `failed`, `disabled`, `rate_limited`, `no_voice_model`) | A user asks to hear a coach message (`POST /api/coach/messages/:id/audio`, #259). |
 | `app.coach.chat.turns` | `app_coach_chat_turns_total` | counter | none | `coach.outcome` (`model`, `safety`, `fallback`) | A chat turn is answered. |
 | `app.coach.chat.safety_hits` | `app_coach_chat_safety_hits_total` | counter | none | `coach.screen` (`distress`, `symptom`, `pain`) | A safety screen matches a chat message. |
 | `app.coach.chat.tool_calls` | `app_coach_chat_tool_calls_total` | counter | none | `coach.tool`, `coach.status` | The chat model calls a tool. |

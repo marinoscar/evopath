@@ -150,6 +150,9 @@ describe('AI RBAC matrix — every /api/ai/*, /api/admin/ai/*, /api/coach/* and 
         'GET /api/coach/messages',
         // E7.6: the rate-limited voice preview.
         'POST /api/coach/voice-preview',
+        // #259: on-demand Listen and its poll.
+        'POST /api/coach/messages/{id}/audio',
+        'GET /api/coach/messages/{id}/audio',
         'GET /api/admin/coach/settings',
         'PUT /api/admin/coach/settings',
       ]),

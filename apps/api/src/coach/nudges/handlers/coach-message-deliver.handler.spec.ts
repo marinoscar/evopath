@@ -16,6 +16,10 @@ interface GateOptions {
   coachEnabled?: boolean;
   pausedUntil?: Date | null;
   noSettingsRow?: boolean;
+  /** The system `coach.allowAudio` (default true). */
+  allowAudio?: boolean;
+  /** The user's `coach.audio.enabled` (default false, as stored settings default). */
+  audioEnabled?: boolean;
 }
 
 function setup(message: Record<string, unknown> | null = {}, stampedCount = 1, gate: GateOptions = {}) {
@@ -57,14 +61,19 @@ function setup(message: Record<string, unknown> | null = {}, stampedCount = 1, g
       findUnique: jest.fn(async () =>
         gate.noSettingsRow
           ? null
-          : { value: { coach: { enabled: gate.coachEnabled ?? true } }, user: { isActive: gate.isActive ?? true } },
+          : {
+              value: { coach: { enabled: gate.coachEnabled ?? true, audio: { enabled: gate.audioEnabled ?? false } } },
+              user: { isActive: gate.isActive ?? true },
+            },
       ),
     },
     coachState: { findUnique: jest.fn(async () => ({ pausedUntil: gate.pausedUntil ?? null })) },
     $transaction: jest.fn(),
   };
   const aiConfig = { isEnabled: jest.fn(async () => gate.aiEnabled ?? true) };
-  const systemSettings = { getCoachPolicy: jest.fn(async () => ({ enabled: gate.systemEnabled ?? true })) };
+  const systemSettings = {
+    getCoachPolicy: jest.fn(async () => ({ enabled: gate.systemEnabled ?? true, allowAudio: gate.allowAudio ?? true })),
+  };
   const notifications = {
     notifyNow: jest.fn(async () => {
       calls.push('notify');
@@ -78,23 +87,16 @@ function setup(message: Record<string, unknown> | null = {}, stampedCount = 1, g
   };
   const registry = { register: jest.fn() };
   const metrics = { coachNudgeDelivered: jest.fn(), coachNudgeSuppression: jest.fn() };
-  const audio = {
-    markFailed: jest.fn(async () => {
-      calls.push('audio_failed');
-      return true;
-    }),
-  };
   const handler = new CoachMessageDeliverHandler(
     registry as never,
     prisma as never,
     notifications as never,
     coachState as never,
-    audio as never,
     aiConfig as never,
     systemSettings as never,
     metrics as never,
   );
-  return { handler, prisma, notifications, coachState, registry, metrics, audio, calls };
+  return { handler, prisma, notifications, coachState, registry, metrics, calls };
 }
 
 describe('CoachMessageDeliverHandler', () => {
@@ -141,34 +143,37 @@ describe('CoachMessageDeliverHandler', () => {
     expect(t.notifications.notifyNow).toHaveBeenCalledWith(eventKey, USER, expect.any(Object));
   });
 
-  it('flags hasAudio when the audio is ready with its object (E7.6): the push gets "Hear Coach", the body stays text', async () => {
-    const t = setup({ audioStatus: 'ready', audioStorageObjectId: '00000000-0000-4000-8000-0000000000c1' });
+  it('flags hasAudio when audio is available on demand (#259): user audio on AND system allowAudio; the body stays text', async () => {
+    const t = setup({}, 1, { audioEnabled: true });
     await t.handler.deliver(MESSAGE, NOW);
     expect(t.notifications.notifyNow).toHaveBeenCalledWith(
       'coach.nudge',
       USER,
       expect.objectContaining({ hasAudio: true, pushBody: 'Ready for a short session today?', messageId: MESSAGE }),
     );
-    expect(t.audio.markFailed).not.toHaveBeenCalled();
   });
 
   it.each([
-    ['none', null],
-    ['failed', null],
-    ['ready', null],
-  ])('delivers text only (hasAudio false) for audio %s without an object', async (audioStatus, audioStorageObjectId) => {
-    const t = setup({ audioStatus, audioStorageObjectId });
+    ['user audio off', { audioEnabled: false }],
+    ['system allowAudio off', { audioEnabled: true, allowAudio: false }],
+  ])('hasAudio false when %s', async (_label, gate) => {
+    const t = setup({}, 1, gate);
     await t.handler.deliver(MESSAGE, NOW);
     expect(t.notifications.notifyNow).toHaveBeenCalledWith('coach.nudge', USER, expect.objectContaining({ hasAudio: false }));
   });
 
-  it('never waits on pending audio: records the timeout fallback, then sends the text', async () => {
-    const t = setup({ audioStatus: 'pending' });
-    await expect(t.handler.deliver(MESSAGE, NOW)).resolves.toMatchObject({ status: 'delivered' });
-    expect(t.audio.markFailed).toHaveBeenCalledWith(MESSAGE, 'timeout', null, NOW);
-    expect(t.calls.slice(0, 3)).toEqual(['audio_failed', 'stamp', 'notify']);
-    expect(t.notifications.notifyNow).toHaveBeenCalledWith('coach.nudge', USER, expect.objectContaining({ hasAudio: false }));
-  });
+  it.each([['pending'], ['ready'], ['failed']])(
+    'never touches audioStatus (%s): an on-demand request in flight is left alone and the text goes now',
+    async (audioStatus) => {
+      const t = setup({ audioStatus }, 1, { audioEnabled: true });
+      await expect(t.handler.deliver(MESSAGE, NOW)).resolves.toMatchObject({ status: 'delivered' });
+      expect(t.calls).toEqual(['stamp', 'notify', 'inbox', 'count']);
+      for (const [args] of t.prisma.coachMessage.updateMany.mock.calls as unknown as Array<[{ data: object }]>) {
+        expect(args.data).not.toHaveProperty('audioStatus');
+      }
+      expect(t.notifications.notifyNow).toHaveBeenCalledWith('coach.nudge', USER, expect.objectContaining({ hasAudio: true }));
+    },
+  );
 
   it('is idempotent: an already delivered message is never sent again', async () => {
     const t = setup({ deliveredAt: new Date('2026-10-01T09:00:00Z') });
@@ -309,10 +314,10 @@ describe('CoachMessageDeliverHandler', () => {
       expect(t.prisma.coachMessage.updateMany).not.toHaveBeenCalled();
     });
 
-    it('a pending audio message suppressed at delivery is not marked or sent', async () => {
+    it('a pending audio message suppressed at delivery is not sent and its audio is left alone', async () => {
       const t = setup({ audioStatus: 'pending' }, 1, { pausedUntil: LATER });
       await expect(t.handler.deliver(MESSAGE, NOW)).resolves.toMatchObject({ status: 'suppressed' });
-      expect(t.audio.markFailed).not.toHaveBeenCalled();
+      expect(t.calls).toEqual(['suppress']);
     });
   });
 

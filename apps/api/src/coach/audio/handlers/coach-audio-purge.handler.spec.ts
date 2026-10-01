@@ -24,7 +24,13 @@ function row(n: number, overrides: Record<string, unknown> = {}) {
   };
 }
 
-function setup(opts: { rows?: ReturnType<typeof row>[]; stale?: Array<{ id: string }>; retentionDays?: number } = {}) {
+function setup(
+  opts: {
+    rows?: ReturnType<typeof row>[];
+    stale?: Array<{ id: string; createdAt: Date; data: unknown }>;
+    retentionDays?: number;
+  } = {},
+) {
   const batches = [opts.rows ?? [row(1), row(2)], []];
   const prisma = {
     coachMessage: {
@@ -116,16 +122,34 @@ describe('CoachAudioPurgeHandler', () => {
     expect(t.prisma.coachMessage.updateMany).toHaveBeenCalledTimes(1);
   });
 
-  it('re-queues a timeout settle for a message stuck pending past 10 minutes (safety net)', async () => {
-    const t = setup({ rows: [], stale: [{ id: 'stuck-1' }, { id: 'stuck-2' }] });
+  it('re-queues a timeout settle for a message stuck pending past 10 minutes (safety net), delivered or not', async () => {
+    const old = new Date(NOW.getTime() - 11 * 60_000);
+    const t = setup({
+      rows: [],
+      stale: [
+        { id: 'stuck-1', createdAt: old, data: {} },
+        // On demand on an old message, requested 20 minutes ago: stuck.
+        { id: 'stuck-2', createdAt: new Date(NOW.getTime() - 9 * DAY), data: { audioOnDemand: true, audioRequestedAt: new Date(NOW.getTime() - 20 * 60_000).toISOString() } },
+        // On demand on an old message, requested 2 minutes ago: NOT stale (#259).
+        { id: 'fresh-1', createdAt: new Date(NOW.getTime() - 9 * DAY), data: { audioOnDemand: true, audioRequestedAt: new Date(NOW.getTime() - 2 * 60_000).toISOString() } },
+      ],
+    });
     await expect(t.handler.run(NOW)).resolves.toEqual({ purged: 0, failed: 0, stalePending: 2 });
     const staleQuery = t.prisma.coachMessage.findMany.mock.calls.find(([a]: any) => 'audioStatus' in a.where)![0] as any;
     expect(staleQuery.where).toEqual({
       audioStatus: 'pending',
-      deliveredAt: null,
       createdAt: { lt: new Date(NOW.getTime() - 10 * 60_000) },
     });
     expect(t.audio.enqueueSettle).toHaveBeenCalledWith('stuck-1', 'timeout');
     expect(t.audio.enqueueSettle).toHaveBeenCalledWith('stuck-2', 'timeout');
+    expect(t.audio.enqueueSettle).not.toHaveBeenCalledWith('fresh-1', 'timeout');
+  });
+
+  it('keeps audio generated on demand inside the window even when the message itself is older (#259)', async () => {
+    const recent = row(1, { data: { voice: 'coral', audioOnDemand: true, audioRequestedAt: new Date(NOW.getTime() - DAY).toISOString() } });
+    const t = setup({ rows: [recent, row(2)] });
+    await expect(t.handler.run(NOW)).resolves.toMatchObject({ purged: 1, failed: 0 });
+    expect(t.objects.delete).toHaveBeenCalledTimes(1);
+    expect(t.objects.delete).toHaveBeenCalledWith(row(2).audioStorageObjectId, USER);
   });
 });

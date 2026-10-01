@@ -19,7 +19,7 @@
 // is not tied to any coach message (the settle listener ignores it).
 // =============================================================================
 
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import { RUNNABLE_FEATURE_STATES } from '../../ai/assignments/dto/ai-feature-resolution.dto';
 import { AiFeatureModelResolver } from '../../ai/assignments/ai-feature-model-resolver.service';
@@ -27,7 +27,12 @@ import { AiService } from '../../ai/runtime/ai.service';
 import { fromDbDate } from '../../check-ins/local-date';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
-import { coachAudioDisabledError, coachPersonaUnknownError, coachPreviewRateLimitedError } from '../coach-errors';
+import {
+  coachAudioDisabledError,
+  coachPersonaUnknownError,
+  coachPreviewRateLimitedError,
+  coachVoiceUnavailableError,
+} from '../coach-errors';
 import { coachUserSettingsOf } from '../planning/coach-planner.service';
 import { isCoachPersonaId, type Intensity } from '../personas';
 import { renderPersonaStyle, resolveRegister } from '../personas/resolve-register';
@@ -64,15 +69,7 @@ export class CoachVoicePreviewService {
 
     const resolution = await this.features.resolve(userId, COACH_VOICE_FEATURE_ID);
     if (!RUNNABLE_FEATURE_STATES.includes(resolution.state) || !resolution.model) {
-      throw new ConflictException({
-        message: `No AI model is available for the coach voice (${resolution.state}).`,
-        details: {
-          reason: 'AI_FEATURE_UNAVAILABLE',
-          featureId: COACH_VOICE_FEATURE_ID,
-          state: resolution.state,
-          fix: resolution.fix,
-        },
-      });
+      throw coachVoiceUnavailableError(COACH_VOICE_FEATURE_ID, resolution.state, resolution.fix);
     }
 
     const row = await this.prisma.userSettings.findUnique({

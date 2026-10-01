@@ -23,18 +23,27 @@ const MAX_TRACKED_USERS = 10_000;
 
 export type CoachPreviewRateDecision = { allowed: true } | { allowed: false; retryAfterMs: number };
 
-@Injectable()
-export class CoachPreviewRateLimiter {
+/**
+ * A per-user sliding window: at most `limit` hits in any `windowMs`. Shared by
+ * the voice preview and the on-demand message audio (#259), each with its own
+ * instance and so its own bucket.
+ */
+export class CoachSlidingWindowLimiter {
   private readonly hits = new Map<string, number[]>();
 
-  /** Counts one preview for `userId` at `now` when allowed; refuses (and counts nothing) otherwise. */
+  constructor(
+    readonly limit: number,
+    readonly windowMs: number,
+  ) {}
+
+  /** Counts one hit for `userId` at `now` when allowed; refuses (and counts nothing) otherwise. */
   take(userId: string, now: number = Date.now()): CoachPreviewRateDecision {
-    const windowStart = now - COACH_PREVIEW_WINDOW_MS;
+    const windowStart = now - this.windowMs;
     const recent = (this.hits.get(userId) ?? []).filter((at) => at > windowStart);
 
-    if (recent.length >= COACH_PREVIEW_LIMIT) {
+    if (recent.length >= this.limit) {
       this.hits.set(userId, recent);
-      return { allowed: false, retryAfterMs: Math.max(1, recent[0] + COACH_PREVIEW_WINDOW_MS - now) };
+      return { allowed: false, retryAfterMs: Math.max(1, recent[0] + this.windowMs - now) };
     }
 
     recent.push(now);
@@ -50,5 +59,12 @@ export class CoachPreviewRateLimiter {
   /** Test seam. */
   reset(): void {
     this.hits.clear();
+  }
+}
+
+@Injectable()
+export class CoachPreviewRateLimiter extends CoachSlidingWindowLimiter {
+  constructor() {
+    super(COACH_PREVIEW_LIMIT, COACH_PREVIEW_WINDOW_MS);
   }
 }

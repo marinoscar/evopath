@@ -102,6 +102,9 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
         { path: '/api/coach/messages', method: 'GET' },
         // E7.6: the voice preview.
         { path: '/api/coach/voice-preview', method: 'POST' },
+        // #259: on-demand Listen and its poll.
+        { path: '/api/coach/messages/{id}/audio', method: 'POST' },
+        { path: '/api/coach/messages/{id}/audio', method: 'GET' },
       ]),
     );
     expect(adminAiRoutes).toEqual(expect.arrayContaining([{ path: '/api/admin/coach/settings', method: 'PUT' }]));
