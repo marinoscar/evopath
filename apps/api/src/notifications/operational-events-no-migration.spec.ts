@@ -131,6 +131,9 @@ const MIGRATIONS_AT_288 = [
   // #192 (H8): `health_summary_settings` and `health_summaries`. About the AI
   // health summary, not notifications.
   '20261001100000_add_health_summaries',
+  // #234: `health_profiles.lab_units`. About lab display units, not
+  // notifications.
+  '20261001110000_add_health_profile_lab_units',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
