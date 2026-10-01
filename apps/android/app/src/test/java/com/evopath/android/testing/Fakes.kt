@@ -56,7 +56,10 @@ class FakeHealthConnect : HealthConnectGateway {
     override fun availability() = availability
     override fun providerVersion() = version
     override fun isBackgroundReadAvailable() = backgroundAvailable
-    override suspend fun grantedPermissions(): Set<String> = grantedError?.let { throw it } ?: granted
+    override suspend fun grantedPermissions(): Set<String> {
+        if (grantedDelayMs > 0) kotlinx.coroutines.delay(grantedDelayMs)
+        return grantedError?.let { throw it } ?: granted
+    }
     override suspend fun dailySteps(from: LocalDate, to: LocalDate) = read(HcDataType.STEPS, steps)
     override suspend fun dailyHeartRateAvg(from: LocalDate, to: LocalDate) = read(HcDataType.HEART_RATE, heartRate)
     override suspend fun exerciseSessions(from: Instant, to: Instant) = read(HcDataType.EXERCISE, sessions)
@@ -67,8 +70,14 @@ class FakeHealthConnect : HealthConnectGateway {
     override suspend fun bodyFat(from: Instant, to: Instant) = read(HcDataType.BODY_FAT, bodyFat)
     override suspend fun bloodPressure(from: Instant, to: Instant) = read(HcDataType.BLOOD_PRESSURE, bloodPressure)
     override suspend fun sleepSessions(from: Instant, to: Instant) = read(HcDataType.SLEEP, sleep)
-    override suspend fun inventory(type: HcDataType, from: Instant, to: Instant, cap: Int) =
-        HcTypeInventory(type, 0, false, null, emptyList())
+    val inventories = mutableMapOf<HcDataType, HcTypeInventory>()
+    val inventoryFailures = mutableMapOf<HcDataType, Exception>()
+    var grantedDelayMs = 0L
+
+    override suspend fun inventory(type: HcDataType, from: Instant, to: Instant, cap: Int): HcTypeInventory {
+        inventoryFailures[type]?.let { throw it }
+        return inventories[type] ?: HcTypeInventory(type, 0, false, null, emptyList())
+    }
 }
 
 /** Scripted `/api/health-sync` backend that records every request. */
@@ -85,8 +94,12 @@ class FakeBackend : HealthSyncBackend {
         return registerResult
     }
 
+    var deviceResult: ApiResult<HealthSyncDevice>? = null
+    val uploads = mutableListOf<UploadDiagnosticsRequest>()
+    var uploadResult: ApiResult<UploadDiagnosticsResponse> = ApiResult.Success(UploadDiagnosticsResponse("r1"), 201)
+
     override suspend fun getDevice(deviceId: String): ApiResult<HealthSyncDevice> =
-        ApiResult.Success(HealthSyncDevice(id = deviceId), 200)
+        deviceResult ?: ApiResult.Success(HealthSyncDevice(id = deviceId), 200)
 
     override suspend fun sync(deviceId: String, request: SyncRequest): ApiResult<SyncResponse> {
         syncRequests += request
@@ -98,8 +111,10 @@ class FakeBackend : HealthSyncBackend {
         return unpairResult
     }
 
-    override suspend fun uploadDiagnostics(deviceId: String, request: UploadDiagnosticsRequest) =
-        ApiResult.Success(UploadDiagnosticsResponse("r1"), 201)
+    override suspend fun uploadDiagnostics(deviceId: String, request: UploadDiagnosticsRequest): ApiResult<UploadDiagnosticsResponse> {
+        uploads += request
+        return uploadResult
+    }
 
     companion object {
         fun httpError(status: Int, reason: String? = null) =
