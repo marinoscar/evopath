@@ -55,3 +55,20 @@ export const HEALTH_DOCUMENT_DELETE_AUDIT_ACTION = 'health:document:delete';
 
 /** Span attribute naming the retention mode (intake routes and the purge job). */
 export const RETENTION_SPAN_ATTRIBUTE = 'health.document.retention';
+
+/** Seconds a `GET /api/health/documents/:id/download` URL stays valid (H6, #190). At most 5 minutes. */
+export const HEALTH_DOCUMENT_DOWNLOAD_TTL_SECONDS = 300;
+
+/** `details.reason` values the documents API (H6, #190) refuses with. */
+export const HEALTH_DOCUMENT_REASONS = {
+  /** PATCH or DELETE without a usable `If-Match` (400). */
+  IF_MATCH_REQUIRED: 'IF_MATCH_REQUIRED',
+  /** `If-Match` names an older version (412); `details.currentVersion` has the current one. */
+  STALE: 'HEALTH_DOCUMENT_STALE',
+  /** Download of a document whose file was erased (409). */
+  FILE_DELETED: 'HEALTH_DOCUMENT_FILE_DELETED',
+  /** Download of a document whose file purge is queued or running (409). */
+  FILE_DELETION_PENDING: 'HEALTH_DOCUMENT_FILE_DELETION_PENDING',
+  /** Download of a file whose upload is not `ready` (409). */
+  FILE_NOT_READY: 'HEALTH_DOCUMENT_FILE_NOT_READY',
+} as const;
