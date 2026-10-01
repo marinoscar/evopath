@@ -33,7 +33,7 @@ describe('TelemetryStackService', () => {
       ];
       const { service, prisma } = setup({ status: { ok: true, services } });
 
-      await expect(service.getStatus()).resolves.toEqual({ agent: 'available', services, deploy: null });
+      await expect(service.getStatus()).resolves.toEqual({ agent: 'available', agentError: null, services, deploy: null });
       expect(prisma.job.findFirst).toHaveBeenCalledWith({
         where: { type: TELEMETRY_STACK_DEPLOY_TYPE },
         orderBy: { createdAt: 'desc' },
@@ -41,14 +41,21 @@ describe('TelemetryStackService', () => {
     });
 
     it.each([
-      ['not_configured', 'not_configured'],
-      ['unauthorized', 'unauthorized'],
-      ['unreachable', 'unavailable'],
-      ['failed', 'unavailable'],
-    ])('maps a client %s to agent %s with no services', async (error, agent) => {
+      ['not_configured', 'not_configured', null],
+      ['unauthorized', 'unauthorized', 'x'],
+      ['unreachable', 'unavailable', 'x'],
+      ['failed', 'unavailable', 'x'],
+    ])('maps a client %s to agent %s with no services and agentError %s', async (error, agent, agentError) => {
       const { service } = setup({ status: { ok: false, error, message: 'x' } });
 
-      await expect(service.getStatus()).resolves.toMatchObject({ agent, services: [] });
+      await expect(service.getStatus()).resolves.toMatchObject({ agent, agentError, services: [] });
+    });
+
+    it("carries the client's reason when the agent is unreachable", async () => {
+      const message = 'stack-agent at http://stack-agent:8080 is unreachable: no answer within 5 s';
+      const { service } = setup({ status: { ok: false, error: 'unreachable', message } });
+
+      await expect(service.getStatus()).resolves.toMatchObject({ agent: 'unavailable', agentError: message });
     });
 
     it('describes the most recent deploy job', async () => {

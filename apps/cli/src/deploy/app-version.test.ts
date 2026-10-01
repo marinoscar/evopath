@@ -30,6 +30,26 @@ const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const REAL_LOCKFILE = readFileSync(join(REPO_ROOT, 'package-lock.json'), 'utf8');
 const WORKSPACE_PATHS = ['apps/api', 'apps/web', 'packages/shared'] as const;
 
+/**
+ * The release version the real lockfile carries right now. Derived, never
+ * hardcoded: every release bump (`chore(release): x.y.z`) moves it. The
+ * workspace entries must agree, so a genuinely inconsistent lockfile still
+ * fails loudly here instead of being papered over.
+ */
+function realLockfileVersion(): string {
+  const parsed = JSON.parse(REAL_LOCKFILE) as { packages: Record<string, { version?: string }> };
+  const versions = WORKSPACE_PATHS.map((path) => parsed.packages[path]?.version);
+  const [first] = versions;
+  if (typeof first !== 'string' || versions.some((v) => v !== first)) {
+    throw new Error(
+      `real package-lock.json workspace versions disagree: ${JSON.stringify(
+        Object.fromEntries(WORKSPACE_PATHS.map((path, i) => [path, versions[i]])),
+      )}`,
+    );
+  }
+  return first;
+}
+
 /** A minimal, valid manifest for one of the three versioned workspaces. */
 function manifestJson(version: string): string {
   return JSON.stringify({ name: 'x', version, dependencies: { left: 'right' } }, null, 2) + '\n';
@@ -248,7 +268,7 @@ describe('writeVersion', () => {
 
   describe('against the real repository lockfile', () => {
     it('updates every workspace entry, and touches nothing else in the file', () => {
-      const dir = makeCheckout('1.0.0');
+      const dir = makeCheckout(realLockfileVersion());
       writeFileSync(join(dir, 'package-lock.json'), REAL_LOCKFILE);
 
       const result = writeVersion(dir, '1.2.3');
@@ -283,20 +303,11 @@ describe('writeVersion', () => {
     });
 
     it('reports zero changes when the real lockfile already carries the target version', () => {
-      // Derive the version from the real lockfile so a release bump never
-      // breaks this test. The premise: every workspace entry carries the
-      // same version (a release bumps them together).
-      const lock = JSON.parse(REAL_LOCKFILE) as {
-        packages: Record<string, { version?: string } | undefined>;
-      };
-      const current = lock.packages['apps/api']?.version;
-      if (current === undefined) throw new Error('real lockfile has no apps/api version');
-      expect(lock.packages['apps/web']?.version).toBe(current);
-      expect(lock.packages['packages/shared']?.version).toBe(current);
-
+      const current = realLockfileVersion();
       const dir = makeCheckout(current);
       writeFileSync(join(dir, 'package-lock.json'), REAL_LOCKFILE);
 
+      // Whatever version the real lockfile's workspace entries carry today.
       const result = writeVersion(dir, current);
 
       expect(result.changed).toEqual([]);

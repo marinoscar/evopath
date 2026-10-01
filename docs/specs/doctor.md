@@ -47,7 +47,7 @@ The order is `pass` < `skip` < `warn` < `fail`. The report's `verdict` is the wo
 **`skip` has exactly two causes.**
 
 1. A check listed in `dependsOn` did not pass (it ended `fail` or `skip`). The service decides this and never calls `run()`.
-2. The capability is intentionally off: AI switched off, telemetry collection off, no stack agent because this is not a VPS deploy. That is an operator's choice, so it is neither `warn` (nothing to fix) nor `pass` (nothing was proven).
+2. The capability is intentionally off: AI switched off, telemetry collection off. That is an operator's choice, so it is neither `warn` (nothing to fix) nor `pass` (nothing was proven).
 
 **Field rules.**
 
@@ -108,7 +108,6 @@ A check may reuse the test services' pure helpers where they exist. `push.vapid`
 | `telemetry.tables` | 12000 | A ping plus two reads, each bounded at 5 s by the status service. |
 | `telemetry.reachable` | 7000 | The 5 s ping bound plus 2 s. |
 | `telemetry.freshness` | 7000 | The 5 s statement bound plus 2 s. |
-| `telemetry.stack` | 7000 | The 5 s stack-agent status bound plus 2 s. |
 
 Because a dependent waits for its dependencies, the worst-case latency of a run is the sum of the timeouts along the longest chain: 36 s for the telemetry chain (`export`, `connection`, `reachable`, `tables`, `freshness`). Checks off that chain finish sooner.
 
@@ -144,7 +143,7 @@ An administrator who opens the page is waiting for the answer, and a queued job 
 
 The route is gated on `system_settings:read` and mounted under `admin/`, so it is outside the `nod_` allowlist by construction. No `doctor:read` permission exists; see [§6](#6-design-decisions).
 
-**It is not `@AllowDuringMaintenance()`.** `GET /api/admin/about` is reachable during a window because it reads a file and answers a database liveness probe. The Doctor performs network I/O against object storage, GreptimeDB and the stack agent, and a window (above all the restore swap) is exactly when those dependencies may be mid-change. So while a window is open:
+**It is not `@AllowDuringMaintenance()`.** `GET /api/admin/about` is reachable during a window because it reads a file and answers a database liveness probe. The Doctor performs network I/O against object storage and GreptimeDB, and a window (above all the restore swap) is exactly when those dependencies may be mid-change. So while a window is open:
 
 - with `allowAdmins: true` (the default), an Admin session JWT passes and the Doctor works. `maintenance.mode` reports the open window as a `warn`;
 - with `allowAdmins: false`, every caller gets the maintenance `503`, and the web page shows its request-error alert. Close the window first ([maintenance runbook](../runbooks/maintenance-mode.md));
@@ -152,7 +151,7 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-six checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Twenty-five checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
@@ -234,7 +233,7 @@ This is the single home for the list of checks. Twenty-six checks ship. `depends
 
 #### telemetry
 
-The five-check chain runs `export`, `connection`, `reachable`, `tables`, `freshness`; `stack` stands alone.
+The five checks form one chain: `export`, `connection`, `reachable`, `tables`, `freshness`.
 
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
@@ -243,11 +242,8 @@ The five-check chain runs `export`, `connection`, `reachable`, `tables`, `freshn
 | `telemetry.reachable` | GreptimeDB reachability | `telemetry.connection` | GreptimeDB answers `SELECT version()` as the reader, through `GreptimeClient.ping()`. Timeout 7 s. | pass: latency and version. fail: no answer. |
 | `telemetry.tables` | Telemetry tables and retention | `telemetry.reachable` | Both the traces and logs tables exist, and a retention (TTL) is set. Timeout 12 s. | pass: both present with a finite TTL. fail: store unreadable, or a table missing (tables are created by the first export). warn: no TTL, or one that never expires. |
 | `telemetry.freshness` | Telemetry data freshness | `telemetry.tables` | Data is actually arriving, from the dashboard's `lastDataSql` over the reader path (7-day lookback). Settings page `/admin/settings/telemetry/dashboard`. Timeout 7 s. | pass: both the newest trace and the newest log are within the threshold. warn: either side older than the threshold, or absent for 7 days. fail: neither arrived in 7 days. |
-| `telemetry.stack` | Telemetry containers | none | On a VPS deploy, the containers the stack agent manages are running, through `GET /v1/telemetry` on the agent. Never a deploy. Timeout 7 s. | skip: no stack agent (not a VPS deploy). pass: every container running. warn: a container stopped or unhealthy, none deployed, or the agent unavailable. fail: the agent refused this API's token. |
 
 **`telemetry.freshness` uses the dashboard's threshold.** Its limit is `DASHBOARD_VERDICT_THRESHOLDS.noDataMinutes` (5 minutes), the same constant behind the dashboard's "no data" banner, so the two cannot disagree. It reads through `GreptimeClient.queryReader` rather than `TelemetryDashboardService.summary` because the summary writes a `telemetry:dashboard` audit row per read, which would break [§2.2](#22-the-read-only-rule).
-
-**`telemetry.stack` is independent on purpose.** The containers are worth inspecting even when collection is off, so it does not depend on `telemetry.export`.
 
 ### 2.8 The web page
 
@@ -405,6 +401,7 @@ The read-only rule has no single tripwire suite that scans every check for calls
 - **Always `200`.** A `503` from a diagnostic withholds the list of what is wrong, exactly when it is wanted.
 - **In-process cache, not a stored report.** Fifteen seconds is long enough that a polling page or two administrators do not multiply the probes, and short enough that "Run again" is rarely needed. A stored report would be stale by the time anyone read it.
 - **Dependencies skip rather than cascade failures.** "Bucket unreachable" beneath "storage not configured" is noise and would only time out. `skip` names the cause in its detail and keeps the real problem at the top.
+- **The stack agent is not a Doctor check.** The stack agent only powers the "Deploy / redeploy telemetry services" button; telemetry capture never calls it. A check on it reported a stopped agent as a telemetry `warn` on a VPS where capture was healthy, which misleads the operator. The agent's state is shown where it matters, on the Telemetry settings page ([telemetry spec §10](telemetry.md#the-admin-deploy-flow)). Rejected: keeping the check as informational only (the report has no such status).
 
 ## 7. Verification
 
@@ -428,3 +425,4 @@ By hand, with the app running and signed in as an Admin:
 
 - #182 ported the admin Doctor into this repository and added `ai.feature-assignments` and `ai.web-search`.
 - #634 added the admin Doctor: the check contract, registry, service and `GET /api/admin/doctor`, the checks in each owning module, and the `/admin/settings/doctor` page and card.
+- #214 removed the `telemetry.stack` check, because the stack agent is not part of telemetry capture, and surfaced the agent's error on the Telemetry settings page instead.

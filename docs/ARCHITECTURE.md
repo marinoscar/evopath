@@ -838,7 +838,7 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 - Never log secrets. The AI platform, credential stores and auth guards keep key material out of logs, spans and error bodies by design.
 - Administrators query GreptimeDB with SQL, export results, and ask an AI assistant about them, from the Telemetry Explorer (`/admin/settings/telemetry/explorer`, `telemetry:query`) — see [specs/telemetry.md](specs/telemetry.md).
 - A fixed Telemetry Dashboard (`/admin/settings/telemetry/dashboard`, `telemetry:query`) gives a health verdict, tiles and timelines with no SQL required — see [specs/telemetry.md §11](specs/telemetry.md#11-dashboard).
-- The Doctor (`/admin/settings/doctor`, `system_settings:read`) checks that telemetry capture works (export switches, GreptimeDB connection, tables and retention, data freshness, the stack containers) beside every other capability — see [specs/doctor.md](specs/doctor.md#27-check-inventory).
+- The Doctor (`/admin/settings/doctor`, `system_settings:read`) checks that telemetry capture works (export switches, GreptimeDB connection, tables and retention, data freshness) beside every other capability — see [specs/doctor.md](specs/doctor.md#27-check-inventory).
 - GreptimeDB dashboard: http://localhost:14000/dashboard when `telemetry.compose.yml` is running.
 
 Health endpoints (public, reachable during maintenance):
