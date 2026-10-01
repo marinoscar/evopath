@@ -2,6 +2,7 @@ import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Outlet } from 'react-router-dom';
 import { AppBar } from '../navigation/AppBar';
 import { MaintenanceBanner } from './MaintenanceBanner';
+import { AndroidUpdateBanner } from './AndroidUpdateBanner';
 import { NotificationPermissionBanner } from '../notifications/NotificationPermissionBanner';
 import { usePushSubscriptionSync } from '../../hooks/usePushSubscriptionSync';
 import { NavigationRail } from '../navigation/NavigationRail';
@@ -116,6 +117,10 @@ export function Layout() {
               for anyone without `system_settings:read` and whenever no window
               is open, which is every viewer on every ordinary day. */}
           <MaintenanceBanner />
+          {/* Issue #287, epic #276. Inside the Android app's TWA only, when
+              the installed build is older than the hosted release. Renders
+              nothing, and requests nothing, in an ordinary browser tab. */}
+          <AndroidUpdateBanner />
           {/* Issue #203. Mounted once, here: the one-time welcome reads the
               shell's `OnboardingProvider` and renders nothing once seen (or
               when there is no provider, e.g. a test rendering the shell). */}
