@@ -14,6 +14,23 @@ interface SignInErrorViewProps {
 }
 
 /**
+ * Wraps each hyphenated compound ("invite-only", "sign-in") in a nowrap span so
+ * the headline can wrap between words but never inside one. The text is
+ * unchanged (no Unicode hyphen), so the heading's accessible name is the same.
+ */
+function keepCompoundsTogether(text: string) {
+  return text.split(/(\S+-\S+)/).map((part, index) =>
+    index % 2 === 1 ? (
+      <Box key={index} component="span" sx={{ whiteSpace: 'nowrap' }}>
+        {part}
+      </Box>
+    ) : (
+      part
+    ),
+  );
+}
+
+/**
  * Full-page screen for a failed sign-in (#273), in the same identity as
  * `LoginPage`: the shared `AuthBrandLayout` (brand-teal panel with the sun glow,
  * name and tagline beside the message at `md` and up; the compact brand header
@@ -72,7 +89,7 @@ export function SignInErrorView({
             component="h1"
             sx={{ fontWeight: 'bold', outline: 'none', textWrap: 'balance' }}
           >
-            {headline}
+            {keepCompoundsTogether(headline)}
           </Typography>
           <Typography color="text.secondary" sx={{ mt: 1.5 }}>
             {explanation}

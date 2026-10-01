@@ -90,6 +90,32 @@ describe('SignInErrorView', () => {
       );
     });
 
+    it('keeps hyphenated compounds in the headline on one line without changing its text', () => {
+      renderView('not_allowlisted');
+
+      const heading = screen.getByRole('heading', {
+        level: 1,
+        name: SIGN_IN_ERROR_CONTENT.not_allowlisted.headline,
+      });
+      const compounds = Array.from(heading.querySelectorAll('span'));
+      expect(compounds.map((span) => span.textContent)).toEqual(['invite-only']);
+      expect(compounds[0]).toHaveStyle({ whiteSpace: 'nowrap' });
+    });
+
+    it.each(SIGN_IN_ERROR_CODES)(
+      'does not add wrappers to a headline without a hyphen (%s)',
+      (code) => {
+        renderView(code);
+
+        const { headline } = SIGN_IN_ERROR_CONTENT[code];
+        const heading = screen.getByRole('heading', { level: 1, name: headline });
+        const hyphenated = headline.match(/\S+-\S+/g) ?? [];
+        expect(Array.from(heading.querySelectorAll('span')).map((s) => s.textContent)).toEqual(
+          hyphenated,
+        );
+      },
+    );
+
     it.each(SIGN_IN_ERROR_CODES)('announces %s with the right live region', (code) => {
       renderView(code);
       const isFault = SIGN_IN_ERROR_CONTENT[code].severity === 'error';
