@@ -1,6 +1,6 @@
 # Health Records
 
-> **Status:** in progress (the document store, the keep-or-delete choice, PDFs for body metrics, the lab catalog and the lab report API are shipped; the lab report review UI and the rest of the epic are planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/api/src/measurements/lab-report/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*`, `/api/measurements/lab-reports/*` (see `/api/docs`; the documents API is planned) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
+> **Status:** in progress (the document store, the keep-or-delete choice, PDFs for body metrics, the lab catalog, the lab report API and the AI health summary API are shipped; the lab report review UI, the health summary settings toggle and the rest of the epic are planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/api/src/measurements/lab-report/`, `apps/api/src/health-summary/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*`, `/api/measurements/lab-reports/*`, `/api/ai/training/health-summary` (see `/api/docs`; the documents API is planned) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
 
 Health Records turns the per-user [health data](health-data.md) into a complete, user-owned health record. Every health file a user hands the system becomes a `HealthDocument` with the user's keep-or-delete choice. Values read from those files keep a link to their source document, and the record can grow (lab results, exports, a health summary for the training planner) without the user ever losing control of the files.
 
@@ -270,21 +270,98 @@ Placeholder. The full history of a value links to its source document, including
 
 Placeholder. JSON, CSV, XLSX and PDF export of the health record, as a queue job. This section records the formats, the job and the download flow when it ships.
 
-### 2.14 Planned: AI health summary for the training planner
+### 2.14 AI health summary for the training planner
 
-Placeholder. An opt-in summary the training planner reads in place of raw values, so no raw lab value leaves the summary boundary. This section records the consent, the summary shape and the agent wiring when it ships.
+Issue #192 (H8). An opt-in, AI-written summary of the user's health data that the training planner and evaluator read in place of raw values. No raw lab value, blood pressure reading, document or file name crosses the summary boundary. How the agents use it is in [ai-training-plans.md §2.14](ai-training-plans.md#214-the-opt-in-health-summary).
+
+**Consent.**
+
+- "Use my health data in training plans", per user, **off by default**. Stored in `health_summary_settings` (`enabled`, `consented_at`); no row is off. It has its own table rather than a key of `user_settings.value` because a change is audited and has side effects that the generic settings `PATCH` would bypass.
+- `PUT /api/ai/training/health-summary/consent` with `{ enabled }` turns it on or off and writes the audit row `health_summary:consent` (`meta: { enabled }`, no health data).
+- **On:** a summary is queued at once, and later training runs include it.
+- **Off:** the pending summary job is deleted, a job already running stores nothing (it re-reads the consent), and later runs omit the summary. The stored history is kept for the owner to see.
+- Every `GET` response carries what turning it on shares (`sharing.shared`), what it never shares (`sharing.neverShared`) and which model provider will process it (`sharing.processor`, from the `health_summary` feature's resolution), so the toggle can show them before the user decides.
+
+**The digest** (`health-summary/health-digest.ts`, pure, server-only). The summary job's model input, copied field by field from an allow-list:
+
+| Section | What |
+|---|---|
+| `profile` | Age in whole years at the newest input, sex at birth |
+| `labs` | Per panel, per analyte: the latest and the previous value with date, flag and numeric reference range; the catalog key and canonical unit |
+| `vitals` | Blood pressure and resting heart rate: the latest reading, the 30-day average and the average of the 60 days before |
+| `body` | Weight (latest, 8-week least-squares trend), body fat and waist (latest, previous) |
+| `wellness` | The four check-in scores averaged over 28 days, the low days, the low-day streak ending at the newest check-in and the longest one |
+
+- **Never in it:** documents, file names, storage keys, notes, the printed reference text, the analyte name as printed, the lab's name, the birth date, ids.
+- **Anchored on the data.** Every window ends at the newest input of its section, so the digest depends on the stored rows only. Its SHA-256 (`inputsHash`) changes exactly when the inputs change.
+- **Bounded reads.** `HealthSummaryReader.digestSource` selects only the listed columns of active rows, newest first, with a row cap per group.
+
+**The job `ai.health.summary`** (`health-summary/health-summary.handler.ts`).
+
+- Server-only, permanently: no `nodeResultSchema`, no `persistNodeResult`. Profile `{ maxRuntimeMs: 4 min, maxAttempts: 1 }`. Subject `('health_summary', userId)`, so the queue's active dedup index allows one pending or running summary job per user. Payload `{ force?: boolean }`.
+- **No-ops:** consent off; no digest data; the digest hash equals the newest ready summary's and the job is not forced.
+- **Model.** The `health_summary` AI feature (assigned at `/admin/settings/ai/assignments`, grouped with the training agents; needs `structured_output`), called through `AiService.forUser(userId, { jobId })`. A blocking feature state appends a `failed` version with the matching AI code (`AI_DISABLED`, `AI_KEY_REQUIRED`, ...).
+- **Output** (strict structured output): `narrative` (at most about 300 words), `trainingConsiderations[]` (`text`, `severity` `info` or `caution`, `conservative`), `dataAsOf`. The stored `data_as_of` is the digest's own date, never the model's.
+- **Instructions.** Training-relevant observations only. No diagnosis and no disease named. No treatment, medication or supplement advice and no dose. A flagged value is "outside the reference range, discuss it with a clinician", never interpreted. No exact lab, blood pressure or heart rate numbers. The digest is inside `<context>` as data.
+- **Post-check** (`health-summary.post-check.ts`). Rejects dosing (a number with mg, mcg, IU, ml, tablets and the like, or the word "dose"), medication, supplement and diagnosis language, a raw value (a number with a lab or vital unit, or a blood pressure pair) and a narrative over the word budget. A rejection is regenerated **once** with a nudge naming the rule codes. A second rejection appends a `failed` version (`HEALTH_SUMMARY_POST_CHECK_REJECTED`).
+- **Failures.** A provider throttle defers the job. A terminal AI error appends `failed` with its code and the job returns. Any other error appends `failed` (`HEALTH_SUMMARY_GENERATION_FAILED`) and rethrows.
+
+**Storage.** `health_summaries`: `version` (unique per user), `status` (`ready` or `failed`), `narrative`, `training_considerations`, `data_as_of`, `inputs_as_of`, `inputs_hash`, `provider`, `model`, `regenerations`, `error_code`, `job_id`, `created_at`. Every attempt appends a row, so the history is kept. The training agents read only the newest `ready` row.
+
+**Regeneration.**
+
+- **Automatic, debounced, never inline.** Every committed health write emits `health.data.changed` (`measurements/health-data-events.ts`): a measurement entry created, edited or deleted, a check-in saved or removed, the profile's birth date or sex changed, or a health intake (lab report, body-metric reading) applied. `HealthSummaryListener` calls `HealthSummaryService.requestRegeneration`, which enqueues one job two minutes ahead while the consent is on; further writes collapse onto it through the dedup key.
+- **Refresh.** `POST /api/ai/training/health-summary/refresh` queues a forced job now (202), pulling a waiting debounced job forward. It answers `409 HEALTH_SUMMARY_CONSENT_OFF` while the consent is off and `409 HEALTH_SUMMARY_NO_DATA` without data.
+- **Staleness.** `GET` rebuilds the digest and sets `stale` when its hash differs from the newest ready summary's (or there is none while data exists), whether the consent is off, AI is off or a job is still waiting.
+
+**API** (`/api/ai/training/health-summary`, behind `AiEnabledGuard`):
+
+| Route | Permission | Response |
+|---|---|---|
+| `GET /api/ai/training/health-summary` | `ai:use` + `health_data:read` | The view below |
+| `PUT /api/ai/training/health-summary/consent` | `ai:use` + `health_data:write` | Body `{ enabled: boolean }` (strict); the updated view |
+| `POST /api/ai/training/health-summary/refresh` | `ai:use` + `health_data:write` | 202 with the view (`pending: true`) |
+
+The view (`HealthSummaryView`, wrapped in `{ data }`):
+
+```
+{
+  enabled: boolean,
+  consentedAt: string | null,
+  sharing: {
+    shared: string[],
+    neverShared: string[],
+    modelState: 'ready' | 'auto' | 'no_key' | 'no_models' | 'missing_capability' | 'web_search_disabled' | 'ai_disabled',
+    processor: { provider, modelId, displayName } | null
+  },
+  summary: {
+    version, narrative,
+    trainingConsiderations: [{ text, severity: 'info' | 'caution', conservative }],
+    dataAsOf: 'YYYY-MM-DD' | null, createdAt, provider, model
+  } | null,
+  lastAttempt: { version, status: 'ready' | 'failed', errorCode, createdAt } | null,
+  hasData: boolean,
+  stale: boolean,
+  pending: boolean
+}
+```
+
+**Observability.** Metrics `app.health.summary.generations` (outcome `ready`, `rejected`, `failed`, `skipped`, `deferred`), `app.health.summary.duration`, `app.health.summary.regenerations`, `app.health.summary.post_check_rejections` and `app.health.summary.tokens` (`token_type`); see [telemetry.md](telemetry.md). The job's span carries `health_summary.outcome`, the regeneration and rejection counts and the token totals. The gateway records the call in `ai_runs` and `ai_usage_events` as for every AI call.
+
+**Security.** No summary text, digest or prompt in any log line, span, metric or error; log lines carry ids, versions and rule codes. Every route is owner-scoped. A user data reset deletes the consent and every summary.
 
 ## 3. Configuration and permissions
 
 - No environment variable and no system setting. Storage is configured at runtime in the admin UI ([storage-providers.md](storage-providers.md)).
 - The PDF page cap is a constant (`INTAKE_PDF_MAX_PAGES`, 20) that a kind may override with `maxPdfPages`. It bounds the cost of one AI request, like the 16-inputs-per-request cap.
 - Retention is chosen per intake and per file by the user.
-- **Permissions.** No permission of its own. The routes are the generic intake routes, gated by `intakes:*` plus the kind's `health_data:read` and `health_data:write`.
-- **Job types.** `health.document.purge` and `ai.health.lab_report`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
-- **AI feature.** `lab_report`, assigned a model by the administrator at `/admin/settings/ai` like the other photo features.
+- **Permissions.** No permission of its own. The routes are the generic intake routes, gated by `intakes:*` plus the kind's `health_data:read` and `health_data:write`. The health summary routes require `ai:use` plus `health_data:read` (view) or `health_data:write` (consent, refresh).
+- **Job types.** `health.document.purge`, `ai.health.lab_report` and `ai.health.summary`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
+- **AI features.** `lab_report`, assigned a model by the administrator at `/admin/settings/ai` like the other photo features; `health_summary`, grouped with the training agents.
+- **Per-user setting.** "Use my health data in training plans" (`health_summary_settings`), off by default; no system setting.
 - **Duplicate route.** `GET /api/measurements/lab-reports/:intakeId/duplicates` requires `health_data:read` and `intakes:read`.
-- **Audit action.** `health:document:delete`.
-- **Metric.** `app.health.documents.purges`.
+- **Audit actions.** `health:document:delete`, `health_summary:consent`.
+- **Metrics.** `app.health.documents.purges`; `app.health.summary.*` (2.14).
 
 Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 
@@ -318,6 +395,13 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 - `apps/api/src/measurements/measurements.service.spec.ts`: `fileDeleted` on the measurement view.
 - `apps/api/src/common/otel/app-metrics.service.spec.ts`: the purge counter and its outcome label.
 - `apps/api/test/jobs/cron-enqueue-only.spec.ts` and `apps/api/test/jobs/on-event-no-io.spec.ts`: no long-running work outside the queue.
+- `apps/api/src/health-summary/health-digest.spec.ts`: the digest's allow-list, windows anchored on the data, and its hash.
+- `apps/api/src/health-summary/health-summary.post-check.spec.ts`, `health-summary.prompt.spec.ts`: the rejected language and the pinned instructions.
+- `apps/api/src/health-summary/health-summary.handler.spec.ts`: the job with a scripted provider (schema, a rejection regenerated once then failed, consent off, unchanged inputs, kill switch, throttle, nothing logged). `health-summary.service.spec.ts`: consent, debounce, refresh, staleness.
+- `apps/api/src/measurements/health-data-events.spec.ts`: `health.data.changed` after each committed health write.
+- `apps/api/test/ai/health-summary.integration.spec.ts`: the routes' RBAC, validation, refusals and kill switch.
+- `apps/api/test/health-data/health-summary.db.spec.ts`: on real Postgres, one debounced job per burst of writes, none with the consent off, append-only history, the newest ready summary used, consent off cancelling the job, the cascade.
+- The training canary suites ([ai-training-plans.md §5](ai-training-plans.md#5-guardrails)): no raw value reaches an agent, opted in or not.
 - `apps/api/src/intake/intake-inputs.spec.ts`, `intake-input-inspector.spec.ts`, `intake-kind.registry.spec.ts` and `intake-analyzer.spec.ts`: the `acceptedInputs` default and validation, the magic-byte sniff, page counting in the clear and in object streams (and a decompression bomb), the bounded reads, and the `image` / `file` part mapping.
 - `apps/api/src/intake/intake.service.spec.ts`: a PDF on an image-only kind, renamed files, the page, size and unreadable refusals, the re-check at analyze and the `file_input` refusal with nothing queued.
 - `apps/api/test/health-data/measurements-photo.integration.spec.ts`: over HTTP with the fake AI provider, a PDF attach with its `application/pdf` document, the four refusals with no provider call, the model without `file_input`, and the job sending the PDF as one `file` input.
@@ -401,3 +485,4 @@ In a running app, with AI on:
 - #186: PDFs for body metrics. Adds `IntakeKind.acceptedInputs` and `maxPdfPages`, magic-byte and page-count checks at attach and analyze, the `file_input` refusal, PDFs as `file` parts, the `intake.input_kind` span attribute and body-metric prompt version 2 (API).
 - #188: lab report extraction (API): the `lab_report` intake kind and AI feature, the `ai.health.lab_report` job and prompt, server-side analyte matching and unit conversion, the `UNRESOLVED_ANALYTES` refusal, lab-report provenance and `documentDate`, the duplicate-warning route, analyzer context in `replaceAiDrafts`, `intake.page_count`, and the fake provider's lab report fixture.
 - #187: the lab analyte catalog (39 analytes, seven panels, affine unit conversion, `resolveLabAnalyte`), the `referenceLow`, `referenceHigh`, `referenceText` and `flag` columns on `measurements`, lab entries and the `category` list filter on `/api/measurements` (API).
+- #192: the opt-in AI health summary (API): `health_summary_settings` and `health_summaries`, the `health_summary` AI feature, the digest, the `ai.health.summary` job with its post-check, `health.data.changed` and the debounced regeneration, `/api/ai/training/health-summary`, the `health_summary:consent` audit action, the `app.health.summary.*` metrics, and the planner and evaluator wiring ([ai-training-plans.md §2.14](ai-training-plans.md#214-the-opt-in-health-summary)).
