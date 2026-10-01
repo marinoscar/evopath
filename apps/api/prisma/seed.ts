@@ -237,6 +237,7 @@ async function seedExercises() {
       trackingMode: ex.trackingMode,
       isUnilateral: ex.isUnilateral,
       isBodyweight: ex.isBodyweight,
+      aliases: ex.aliases,
       origin: 'seed',
       status: 'active',
     };

@@ -1046,6 +1046,8 @@ export interface ExerciseSeed {
   trackingMode: ExerciseTrackingMode;
   isUnilateral: boolean;
   isBodyweight: boolean;
+  /** Alternative names the exercise search and AI matching also recognise. */
+  aliases: string[];
   /** AND of groups; index in this array is the row's `groupIndex`. */
   requirements: ExerciseRequirementGroupSeed[];
 }
@@ -1142,10 +1144,19 @@ const EXERCISE_LINES: string[] = [
   'rowing_machine_session | Rowing machine | full_body | cardio | E:rowing_machine | D',
   'stair_climber_session | Stair climber | full_body | cardio | E:stair_climber | D',
   'outdoor_run | Outdoor run | full_body | cardio | - | D',
+  'outdoor_walk | Outdoor walk | full_body | cardio | - | D',
+  'hike | Hike | full_body | cardio | - | D',
   'jump_rope | Jump rope | full_body | cardio | - | BW,T',
   'burpee | Burpee | full_body | cardio | - | BW',
   'band_pull_apart | Band pull-apart | rear_delts; upper_back | horizontal_pull | E:resistance_bands',
 ];
+
+// Aliases by exercise slug (the notation above has no column for them).
+export const EXERCISE_ALIASES: Record<string, string[]> = {
+  outdoor_run: ['jog', 'jogging', 'run', 'running'],
+  outdoor_walk: ['walk', 'walking', 'stroll'],
+  hike: ['hiking', 'trail walk'],
+};
 
 function parseExerciseLine(line: string): ExerciseSeed {
   const parts = line.split(' | ').map((p) => p.trim());
@@ -1190,6 +1201,7 @@ function parseExerciseLine(line: string): ExerciseSeed {
     trackingMode,
     isUnilateral: flags.has('U'),
     isBodyweight: flags.has('BW'),
+    aliases: EXERCISE_ALIASES[slug] ?? [],
     requirements,
   };
 }
