@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 // `__APP_VERSION__` (issue #401, epic #397). THE SAME definition the app's own
 // config spreads. The harness mounts the real `AppBar`, which mounts the real
@@ -10,6 +10,49 @@ import react from '@vitejs/plugin-react';
 import { appVersionDefine } from '../build-config/app-version';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The live registries the harness REPLACES with frozen fixtures (issue #222),
+ * keyed by absolute path. Visual baselines assert layout, theme and
+ * breakpoints; they must not move because somebody appended a settings or
+ * Today card. So every import of these three modules, from any file and under
+ * any relative specifier, resolves to its twin under `visual/fixtures/`.
+ *
+ * Keyed on the RESOLVED path rather than on the import specifier, because the
+ * consumers spell it four different ways (`../config/adminSections`,
+ * `../../config/adminSections`, ...) and an alias regex that missed one would
+ * quietly let the live registry back in. The `load` tripwire below makes that
+ * impossible to miss: a live registry that still gets loaded fails the
+ * harness outright instead of rendering.
+ */
+const REGISTRY_FIXTURES = new Map(
+  ['adminSections.tsx', 'userSettingsSections.tsx', 'todayCards.tsx'].map((file) => [
+    path.resolve(here, '..', 'src', 'config', file),
+    path.resolve(here, 'fixtures', file),
+  ]),
+);
+
+function registryFixtures(): Plugin {
+  return {
+    name: 'visual-registry-fixtures',
+    enforce: 'pre',
+    async resolveId(source, importer, options) {
+      if (!importer) return null;
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (!resolved) return null;
+      const fixture = REGISTRY_FIXTURES.get(resolved.id.split('?')[0]);
+      return fixture ?? resolved;
+    },
+    load(id) {
+      if (REGISTRY_FIXTURES.has(id.split('?')[0])) {
+        throw new Error(
+          `visual harness: the live registry ${id} was loaded; it must resolve to its fixture under visual/fixtures/ (issue #222)`,
+        );
+      }
+      return null;
+    },
+  };
+}
 
 /**
  * Vite config for the visual regression harness (issue #107) ONLY.
@@ -58,7 +101,9 @@ export default defineConfig({
   // Nothing needs disabling to achieve this — the plugin lives only in the
   // OTHER config, and configs do not inherit. The note exists so that "the
   // harness is missing the PWA plugin" is never read as a bug.
-  plugins: [react()],
+  // `registryFixtures()` swaps the live settings/Today registries for frozen
+  // fixtures (issue #222); see `REGISTRY_FIXTURES` above.
+  plugins: [registryFixtures(), react()],
   define: { ...appVersionDefine() },
   // Required for the same reason as in `apps/web/vite.config.ts`, and this is
   // the config where its absence actually shows: `@app/shared` is CommonJS
