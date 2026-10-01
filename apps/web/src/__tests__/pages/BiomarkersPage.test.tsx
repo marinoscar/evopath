@@ -17,6 +17,7 @@ import { LAB_REPORT_TITLE } from '../../components/health/LabReportDialog';
 import { resetMeasurementCatalogCache } from '../../hooks/useMeasurementCatalog';
 import { HEALTH_DATA_UNAVAILABLE } from '../../services/health';
 import type { BiomarkerSummaryItem } from '../../services/biomarkers';
+import { mockHealthProfileSaved } from '../mocks/fixtures/health';
 import { mockLabCatalog } from '../mocks/fixtures/labReportIntake';
 import { mockBiomarkerSummary } from '../mocks/fixtures/biomarkers';
 
@@ -82,6 +83,30 @@ describe('BiomarkersPage', () => {
 
     expect(queries).toEqual(['']);
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('under the SI preference shows latest, previous, change and units in SI (#234)', async () => {
+    summaryApi();
+    server.use(
+      http.get('*/api/health-profile', () => HttpResponse.json({ data: { ...mockHealthProfileSaved, labUnits: 'si' } })),
+    );
+    render(<BiomarkersPage />);
+
+    const lipids = await screen.findByRole('region', { name: 'Lipids' });
+    expect(screen.getByTestId('lab-units-note')).toHaveTextContent('Values in SI units');
+    const ldl = within(lipids).getByRole('article', { name: 'LDL cholesterol' });
+    expect(within(ldl).getByTestId('biomarker-latest')).toHaveTextContent('3.67 mmol/L');
+    expect(within(ldl).getByTestId('biomarker-previous')).toHaveTextContent('Previous 3.36 mmol/L on Mar 10, 2026');
+    // The delta converts with the factor only: +12 mg/dL is +0.31 mmol/L.
+    expect(within(ldl).getByTestId('biomarker-change')).toHaveTextContent('Change up: +0.31 mmol/L');
+    const hdl = within(lipids).getByRole('article', { name: 'HDL cholesterol' });
+    expect(within(hdl).getByTestId('biomarker-change')).toHaveTextContent('Change down: −0.08 mmol/L');
+
+    const hba1c = screen.getByRole('article', { name: 'HbA1c' });
+    expect(within(hba1c).getByTestId('biomarker-latest')).toHaveTextContent('38 mmol/mol');
+    expect(within(hba1c).getByTestId('biomarker-change')).toHaveTextContent('Change unchanged: No change');
+    // An analyte whose SI unit is its canonical one is unchanged.
+    expect(within(screen.getByRole('article', { name: 'TSH' })).getByTestId('biomarker-latest')).toHaveTextContent('2.1 mIU/L');
   });
 
   it('sends the panel and out-of-range filters to the API', async () => {

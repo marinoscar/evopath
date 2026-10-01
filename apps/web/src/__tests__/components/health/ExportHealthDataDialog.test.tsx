@@ -22,14 +22,24 @@ import {
   mockHealthExportDownloadUrl,
   mockReadyHealthExport,
 } from '../../mocks/fixtures/healthExports';
+import type { LabUnits } from '../../../services/health';
 
 const TODAY = '2026-10-01';
 
-function renderDialog(props: { openUrl?: (url: string) => void; onClose?: () => void } = {}) {
+function renderDialog(
+  props: { openUrl?: (url: string) => void; onClose?: () => void; defaultLabUnits?: LabUnits } = {},
+) {
   const openUrl = props.openUrl ?? vi.fn();
   const onClose = props.onClose ?? vi.fn();
   const utils = render(
-    <ExportHealthDataDialog open onClose={onClose} today={TODAY} pollIntervalMs={5} openUrl={openUrl} />,
+    <ExportHealthDataDialog
+      open
+      onClose={onClose}
+      today={TODAY}
+      pollIntervalMs={5}
+      openUrl={openUrl}
+      {...(props.defaultLabUnits ? { defaultLabUnits: props.defaultLabUnits } : {})}
+    />,
   );
   return { ...utils, openUrl, onClose };
 }
@@ -333,5 +343,77 @@ describe('ExportHealthDataDialog', () => {
     const { onClose } = renderDialog();
     await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  describe('lab units (#234)', () => {
+    it('defaults to US conventional and sends it', async () => {
+      const posts = capturePosts();
+      const user = userEvent.setup();
+      renderDialog();
+      const dialog = screen.getByRole('dialog', { name: 'Export health data' });
+      const group = within(dialog).getByRole('radiogroup', { name: 'Lab units' });
+      expect(within(group).getByRole('radio', { name: 'US conventional (mg/dL)' })).toBeChecked();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Create export' }));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0].labUnits).toBe('conventional');
+    });
+
+    it('defaults to the profile preference (SI) and sends it', async () => {
+      const posts = capturePosts();
+      const user = userEvent.setup();
+      renderDialog({ defaultLabUnits: 'si' });
+      const dialog = screen.getByRole('dialog', { name: 'Export health data' });
+      expect(within(dialog).getByRole('radio', { name: 'SI (mmol/L)' })).toBeChecked();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Create export' }));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0].labUnits).toBe('si');
+    });
+
+    it('sends the units the user picks over the preference', async () => {
+      const posts = capturePosts();
+      const user = userEvent.setup();
+      renderDialog({ defaultLabUnits: 'si' });
+      const dialog = screen.getByRole('dialog', { name: 'Export health data' });
+      await user.click(within(dialog).getByRole('radio', { name: 'US conventional (mg/dL)' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Create export' }));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0].labUnits).toBe('conventional');
+    });
+
+    it('without blood work there is no lab units choice and none is sent', async () => {
+      const posts = capturePosts();
+      const user = userEvent.setup();
+      renderDialog({ defaultLabUnits: 'si' });
+      const dialog = screen.getByRole('dialog', { name: 'Export health data' });
+      await user.click(within(dialog).getByRole('checkbox', { name: 'Blood work' }));
+      expect(within(dialog).queryByRole('radiogroup', { name: 'Lab units' })).not.toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Create export' }));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]).not.toHaveProperty('labUnits');
+    });
+
+    it('the recent exports list shows the lab units each export used', async () => {
+      server.use(
+        http.get('*/api/health/exports', () =>
+          HttpResponse.json({
+            data: {
+              items: [
+                mockReadyHealthExport({ id: 'si-export', labUnits: 'si' }),
+                mockReadyHealthExport({ id: 'us-export', labUnits: 'conventional' }),
+                mockReadyHealthExport({ id: 'no-labs', datasets: ['body'] }),
+              ],
+            },
+          }),
+        ),
+      );
+      renderDialog();
+      await waitFor(() => expect(screen.getAllByTestId('export-lab-units')).toHaveLength(2));
+      expect(screen.getAllByTestId('export-lab-units').map((el) => el.textContent)).toEqual([
+        'Lab units: SI',
+        'Lab units: US conventional',
+      ]);
+    });
   });
 });

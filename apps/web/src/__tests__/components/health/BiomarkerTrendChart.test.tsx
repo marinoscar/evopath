@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '../../utils/test-utils';
 import { BiomarkerTrendChart } from '../../../components/health/biomarkers/BiomarkerTrendChart';
 import { labSeriesPoint, mockLdlSeries } from '../../mocks/fixtures/biomarkers';
+import { LAB_METRICS } from '../../mocks/fixtures/labReportIntake';
+import { convertLabPoint, labDisplay } from '../../../utils/labUnits';
 
 describe('BiomarkerTrendChart', () => {
   it('draws one band step per result with a range, each at its own limits', () => {
@@ -43,6 +45,22 @@ describe('BiomarkerTrendChart', () => {
     // Steps follow each other in time, with a gap where the result had no range.
     expect(geometry[1].x).toBeCloseTo(geometry[0].x + geometry[0].width, 5);
     expect(geometry[2].x).toBeGreaterThan(geometry[1].x + geometry[1].width);
+  });
+
+  it('under SI, the band is drawn at each result\'s limits converted to mmol/L (#234)', () => {
+    const ldl = LAB_METRICS.find((m) => m.key === 'ldl_cholesterol')!;
+    const display = labDisplay(ldl, 'si');
+    const points = mockLdlSeries.points.map((p) => convertLabPoint(p, display));
+    render(<BiomarkerTrendChart label="LDL cholesterol" unit={display.unit} decimals={display.decimals} points={points} width={800} />);
+
+    expect(screen.getByRole('img', { name: /^LDL cholesterol, 4 results, latest 3\.67 mmol\/L/ })).toBeInTheDocument();
+    const steps = screen.getAllByTestId('reference-band-step');
+    expect(steps.map((s) => [s.getAttribute('data-low'), s.getAttribute('data-high')])).toEqual([
+      ['0', '3.36'],
+      ['0', '3.36'],
+      ['', '2.59'],
+    ]);
+    for (const step of steps) expect(Number(step.getAttribute('height'))).toBeGreaterThan(0);
   });
 
   it('draws no band when no result has a range', () => {
