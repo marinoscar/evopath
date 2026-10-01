@@ -226,7 +226,7 @@ export function formatAndroidDoctorReport(report: AndroidDoctorReport, options: 
   const lines: string[] = [''];
   for (const check of report.checks) {
     lines.push(`  ${paint(check.status, SYMBOL[check.status])} ${check.label.padEnd(width)}  ${check.detail}`);
-    if (check.fix !== undefined && check.status !== 'pass') lines.push(`  ${' '.repeat(width + 3)}→ ${check.fix}`);
+    if (check.fix !== undefined && check.status !== 'pass') lines.push(`  ${' '.repeat(width + 4)}→ ${check.fix}`);
   }
   lines.push('', report.ok ? 'Ready to build Android releases.' : 'At least one check failed.');
   return `${lines.join('\n')}\n`;
