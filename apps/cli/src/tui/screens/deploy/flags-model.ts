@@ -178,6 +178,12 @@ export const UPDATE_TOGGLES: readonly ToggleFlag[] = [
     label: 'Do not bump the version',
     help: 'Deploy the current version: no manifest write, no commit, no push.',
   },
+  {
+    flag: '--maintenance',
+    option: 'maintenance',
+    label: 'Serve a maintenance page during the risky part',
+    help: 'From just before the build until just after the restart, instead of whatever the stop/migrate/restart window looks like underneath.',
+  },
 ];
 
 /**
@@ -254,7 +260,7 @@ export const VALUE_FLAGS: Readonly<Record<RunnableAction, readonly ValueFlag[]>>
     { flag: '--email', field: '__email' },
     { flag: '--group', field: '__group' },
   ],
-  update: [ROOT, REF, PROXY_CONTAINER, PROXY_MODE],
+  update: [ROOT, REF, PROXY_CONTAINER, PROXY_MODE, { flag: '--app-version', field: '__app_version' }],
 });
 
 /** The toggles each runnable screen offers. `doctor` takes none. */
