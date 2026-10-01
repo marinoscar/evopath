@@ -74,7 +74,7 @@ const IF_MATCH_HEADER = {
 
 const { BAD_ID, UNAUTHENTICATED, NO_READ, NO_WRITE, NOT_FOUND, STALE } = RESPONSES;
 
-@ApiTags('Health documents')
+@ApiTags('Health Documents')
 @Controller('health/documents')
 export class HealthDocumentsController {
   constructor(private readonly documents: HealthDocumentsService) {}

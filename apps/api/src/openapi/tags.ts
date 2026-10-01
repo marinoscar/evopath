@@ -135,6 +135,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '`health_data:read`/`:write`; owner-scoped.',
       },
       {
+        name: 'Health Documents',
+        description:
+          'The calling user\'s health documents: every file handed a health intake (scale photos, ' +
+          'lab reports), kept or erased, with the count of values read from each. List, rename or ' +
+          'date, get a short-lived download link, and delete (the file through the purge job, ' +
+          'optionally its values too). Writes require `If-Match`; a stale one is a 412. Gated on ' +
+          '`health_data:read`/`:write`; owner-scoped (a foreign id is a 404).',
+      },
+      {
         name: 'Intakes',
         description:
           'The calling user\'s photo intakes: share photos instead of typing, let a vision model ' +
