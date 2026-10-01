@@ -1,5 +1,6 @@
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import type { PlanSignals } from '../../src/programs/signals/plan-signals.contract';
+import { CoachAudioService } from '../../src/coach/audio/coach-audio.service';
 import { CoachContentGuard } from '../../src/coach/guard/coach-content-guard.service';
 import { DefaultAnglePicker } from '../../src/coach/nudges/angle-picker';
 import type { CoachNudgeOutput } from '../../src/coach/nudges/nudge-schema';
@@ -81,7 +82,13 @@ export interface SetupOptions {
   coach?: Record<string, unknown>;
   system?: Record<string, unknown>;
   state?: Record<string, unknown> | null;
-  existing?: { id: string; deliveredAt: Date | null } | null;
+  existing?: { id: string; deliveredAt: Date | null; audioStatus?: string; createdAt?: Date } | null;
+  /** `coach.voice` resolution (E7.6); defaults to a runnable speech model. */
+  voiceResolution?: { state: string; model: { provider: string; modelId: string } | null };
+  /** What `speak()` does (E7.6): resolve a run handle (default) or throw. */
+  speak?: Error;
+  /** Status of the speech run right after `speak()` (the early-settle check). */
+  speechRunStatus?: string;
   answers?: Array<CoachNudgeOutput | Error>;
   resolution?: { state: string; model: { provider: string; modelId: string } | null };
   signals?: PlanSignals;
@@ -98,7 +105,11 @@ export function setupNudge(options: SetupOptions = {}) {
     if (next instanceof Error) throw next;
     return { parsed: next, usage: {} };
   });
-  const forUser = jest.fn(() => ({ respondStructured }));
+  const speak = jest.fn(async (_req: unknown) => {
+    if (options.speak) throw options.speak;
+    return { runId: '00000000-0000-4000-8000-0000000000a1', jobId: '00000000-0000-4000-8000-0000000000b1' };
+  });
+  const forUser = jest.fn(() => ({ respondStructured, speak }));
   const prisma = {
     userSettings: {
       findUnique: jest.fn(async () => ({
@@ -129,12 +140,21 @@ export function setupNudge(options: SetupOptions = {}) {
         },
       ]),
       create: jest.fn(async (_args: { data: Record<string, any>; select?: unknown }) => ({ id: 'msg-1' })),
+      findUnique: jest.fn(async () => ({ data: {} })),
+      updateMany: jest.fn(async (_args: { where: Record<string, any>; data: Record<string, any> }) => ({ count: 1 })),
+    },
+    aiRun: {
+      findUnique: jest.fn(async () => ({ status: options.speechRunStatus ?? 'pending' })),
     },
     program: { findFirst: jest.fn(async () => null) },
     trainingPlanRun: { findFirst: jest.fn(async () => null) },
   };
   const features = {
-    resolve: jest.fn(async () => options.resolution ?? { state: 'ready', model: { provider: 'openai', modelId: 'gpt-test' } }),
+    resolve: jest.fn(async (_userId: string, featureId: string) =>
+      featureId === 'coach.voice'
+        ? (options.voiceResolution ?? { state: 'ready', model: { provider: 'openai', modelId: 'tts-test' } })
+        : (options.resolution ?? { state: 'ready', model: { provider: 'openai', modelId: 'gpt-test' } }),
+    ),
   };
   const aiConfig = { isEnabled: jest.fn(async () => options.ai ?? true) };
   const systemSettings = {
@@ -147,6 +167,8 @@ export function setupNudge(options: SetupOptions = {}) {
     coachNudgeSuppression: jest.fn(),
     coachNudgeFallbackUsed: jest.fn(),
     coachGuardRejection: jest.fn(),
+    coachAudioFailure: jest.fn(),
+    coachAudioReady: jest.fn(),
   };
   // Records every Prisma model the handler touches (the never-send canary
   // asserts the job never reads a forbidden source at all).
@@ -157,6 +179,15 @@ export function setupNudge(options: SetupOptions = {}) {
       return Reflect.get(target, prop, receiver);
     },
   });
+  const runs = { cancel: jest.fn(async () => ({})) };
+  const audio = new CoachAudioService(
+    trackedPrisma as never,
+    { forUser } as never,
+    runs as never,
+    features as never,
+    jobs as never,
+    metrics as never,
+  );
   const handler = new CoachNudgeHandler(
     registry as never,
     trackedPrisma as never,
@@ -167,10 +198,11 @@ export function setupNudge(options: SetupOptions = {}) {
     signals as never,
     new CoachContentGuard(metrics as never),
     jobs as never,
+    audio,
     new DefaultAnglePicker(),
     metrics as never,
   );
-  return { handler, prisma, respondStructured, forUser, jobs, metrics, registry, features, accessedModels };
+  return { handler, prisma, respondStructured, forUser, speak, jobs, metrics, registry, features, accessedModels };
 }
 
 /** The `instructions` and user text of the n-th model request. */

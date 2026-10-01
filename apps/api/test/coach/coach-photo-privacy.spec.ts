@@ -10,8 +10,9 @@
 //   1. the progress-photos module starts importing the AI platform, the
 //      orchestration layer, the coach or the notifications module;
 //   2. AI, coach, training-agent, notification or email code imports anything
-//      of `progress-photos/` other than the summary service (or the module, to
-//      wire it), or reads the `progressPhoto` table directly;
+//      of `progress-photos/` other than the summary service, the ids-only
+//      `progress-photo-events` (or the module, to wire it), or reads the
+//      `progressPhoto` table directly;
 //   3. the summary service starts selecting a photo-content field.
 //
 // The behavioural canary (the summary's output carries no id, URL or note) is
@@ -28,7 +29,9 @@ const PHOTOS_SRC = join(SRC, 'progress-photos');
 const SENSITIVE_DIRS = ['ai', 'coach', 'training-agents', 'notifications', 'email'];
 
 /** What a sensitive file may import from `progress-photos/`. */
-const ALLOWED_IMPORTS = /progress-photos\/(progress-photo-summary\.service|progress-photos\.module)$/;
+// `progress-photo-events` carries only the `progress_photo.created` event name
+// and its ids-only payload type (the coach's conversion attribution).
+const ALLOWED_IMPORTS = /progress-photos\/(progress-photo-summary\.service|progress-photos\.module|progress-photo-events)$/;
 
 function sourceFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];

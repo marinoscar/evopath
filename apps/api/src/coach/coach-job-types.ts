@@ -26,7 +26,16 @@ export const AI_COACH_WEEKLY_REVIEW_JOB_TYPE = 'ai.coach.weekly_review';
 /** Delivers one persisted coach message as a notification (E7.5). */
 export const COACH_MESSAGE_DELIVER_JOB_TYPE = 'coach.message.deliver';
 
-/** `jobs.subject_type` of a per-message coach job (`coach.message.deliver`). */
+/**
+ * Settles one message's spoken version once its `ai.audio.speech` run ended,
+ * or when the wait cap elapsed, then enqueues delivery (E7.6).
+ */
+export const COACH_AUDIO_SETTLE_JOB_TYPE = 'coach.audio.settle';
+
+/** Daily: deletes coach audio older than `audioRetentionDays`, keeping the text (E7.6). */
+export const COACH_AUDIO_PURGE_JOB_TYPE = 'coach.audio.purge';
+
+/** `jobs.subject_type` of a per-message coach job (`coach.message.deliver`, `coach.audio.settle`). */
 export const COACH_MESSAGE_SUBJECT_TYPE = 'coach_message';
 
 /** `jobs.subject_type` of every per-user coach job. */

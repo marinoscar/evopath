@@ -150,6 +150,10 @@ export const APP_METRIC_NAMES = {
   coachFeedback: 'app.coach.feedback',
   // AI Coach learning loop (E7.11, #251).
   coachAnglePicked: 'app.coach.angle.picked',
+  // AI Coach voice (E7.6, #246): spoken nudges and the retention purge.
+  coachAudioGenerated: 'app.coach.audio.generated',
+  coachAudioFailed: 'app.coach.audio.failed',
+  coachAudioPurged: 'app.coach.audio.purged',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -327,6 +331,11 @@ const COACH_ANGLE_LABELS = new Set<string>([
   'future_self',
   'social_proof_self',
 ]);
+
+/** Why a coach message's audio fell back to text (E7.6, #246). Closed set. */
+export const COACH_AUDIO_FAILURE_REASONS = ['provider_error', 'refusal', 'timeout', 'no_voice_model'] as const;
+export type CoachAudioFailureReason = (typeof COACH_AUDIO_FAILURE_REASONS)[number];
+const COACH_AUDIO_FAILURE_SET = new Set<string>(COACH_AUDIO_FAILURE_REASONS);
 const COACH_CONVERSION_TARGETS = new Set<string>(['workout', 'check_in', 'photo']);
 
 export interface AiUsageMetric {
@@ -429,6 +438,9 @@ export class AppMetricsService implements OnModuleInit {
   private readonly coachNudgeConverted: Counter;
   private readonly coachFeedback: Counter;
   private readonly coachAnglePicks: Counter;
+  private readonly coachAudioGenerated: Counter;
+  private readonly coachAudioFailed: Counter;
+  private readonly coachAudioPurged: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -603,6 +615,18 @@ export class AppMetricsService implements OnModuleInit {
     this.coachAnglePicks = m.createCounter(N.coachAnglePicked, {
       description: 'Angles chosen by the coach learning loop for a nudge, by angle.',
       unit: '{angle}',
+    });
+    this.coachAudioGenerated = m.createCounter(N.coachAudioGenerated, {
+      description: 'Coach messages whose spoken version became ready.',
+      unit: '{message}',
+    });
+    this.coachAudioFailed = m.createCounter(N.coachAudioFailed, {
+      description: 'Coach messages delivered as text only after their audio failed, by reason.',
+      unit: '{message}',
+    });
+    this.coachAudioPurged = m.createCounter(N.coachAudioPurged, {
+      description: 'Coach voice notes deleted by coach.audio.purge after the retention window.',
+      unit: '{object}',
     });
   }
 
@@ -862,6 +886,22 @@ export class AppMetricsService implements OnModuleInit {
   /** Feedback on a coach message: `up`, `down`, or `cleared` (null). */
   coachFeedbackGiven(value: 'up' | 'down' | null): void {
     this.safely(() => this.coachFeedback.add(1, { value: enumLabel(value ?? 'cleared', COACH_FEEDBACK_VALUES) }));
+  }
+
+  /** A coach message's spoken version is ready (E7.6). */
+  coachAudioReady(): void {
+    this.safely(() => this.coachAudioGenerated.add(1));
+  }
+
+  /** A coach message's audio fell back to text for `reason` (E7.6). */
+  coachAudioFailure(reason: CoachAudioFailureReason): void {
+    this.safely(() => this.coachAudioFailed.add(1, { reason: enumLabel(reason, COACH_AUDIO_FAILURE_SET) }));
+  }
+
+  /** `coach.audio.purge` deleted `count` voice notes (E7.6). */
+  coachAudioPurge(count: number): void {
+    if (count <= 0) return;
+    this.safely(() => this.coachAudioPurged.add(count));
   }
 
   // ===========================================================================

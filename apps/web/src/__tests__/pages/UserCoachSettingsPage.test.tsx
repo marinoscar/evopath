@@ -277,13 +277,38 @@ describe('UserCoachSettingsPage', () => {
       expect(calls[0]).toEqual({ audio: { enabled: true, voice: 'onyx' } });
     });
 
-    it('keeps the preview disabled with "Voice preview arrives soon" until E7.6', async () => {
+    it('enables "Hear it" once audio is on and previews the draft persona, intensity, voice and speed (E7.6)', async () => {
       serveVoices(['alloy']);
-      serveView(mockCoachSettingsView({ settings: { audio: { enabled: true, voice: null, speed: 1 } } }));
-      await renderPage();
+      serveView(mockCoachSettingsView({ settings: { audio: { enabled: true, voice: 'alloy', speed: 1.25 } } }));
+      const bodies: unknown[] = [];
+      server.use(
+        http.post(`${API}/coach/voice-preview`, async ({ request }) => {
+          bodies.push(await request.json());
+          return HttpResponse.json(
+            {
+              data: {
+                runId: 'run_speech_page_preview',
+                jobId: 'job-page-preview',
+                personaId: 'coach',
+                intensity: 2,
+                moment: 'streak_at_risk',
+                voice: 'alloy',
+                censored: false,
+              },
+            },
+            { status: 202 },
+          );
+        }),
+      );
+      const { user } = await renderPage();
       const audio = screen.getByRole('region', { name: 'Spoken messages' });
-      expect(within(audio).getByRole('button', { name: 'Hear it' })).toBeDisabled();
-      expect(within(audio).getByText(VOICE_PREVIEW_SOON)).toBeInTheDocument();
+      const hear = within(audio).getByRole('button', { name: 'Hear it' });
+      expect(hear).toBeEnabled();
+      expect(within(audio).queryByText(VOICE_PREVIEW_SOON)).not.toBeInTheDocument();
+
+      await user.click(hear);
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0]).toEqual({ personaId: 'coach', intensity: 2, voice: 'alloy', speed: 1.25, moment: 'streak_at_risk' });
     });
 
     it('asks the user to contact an admin when the voice model lists no voices', async () => {

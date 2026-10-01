@@ -38,13 +38,12 @@ export const WORKOUT_CONVERTED_MOMENTS: readonly CoachMoment[] = [
   'win_back',
 ];
 
-/** `progress_photo.created`: emitted by the progress photos API (E7.9) after the row commits. Ids only. */
-export const PROGRESS_PHOTO_CREATED_EVENT = 'progress_photo.created';
-
-export interface ProgressPhotoCreatedEvent {
-  userId: string;
-  photoId: string;
-}
+/**
+ * `progress_photo.created`: emitted by `ProgressPhotosService.create` after the
+ * row is written. Ids only. Declared in the photo module (which may import no
+ * coach code) and re-exported here for the conversion listener.
+ */
+export { PROGRESS_PHOTO_CREATED_EVENT, type ProgressPhotoCreatedEvent } from '../../progress-photos/progress-photo-events';
 
 /** The `coach_messages` filter for the message `target` at `at` may convert. */
 export function conversionCandidateWhere(

@@ -32,6 +32,18 @@
 //   5. The content guard; one regeneration naming the failed rules; then the
 //      static persona line (`provider = 'static'`).
 //   6. Persist the `CoachMessage`, then enqueue `coach.message.deliver`.
+//   7. AUDIO (E7.6, spec §2.7). When the user's `audio.enabled`, the system
+//      `allowAudio` AND `coach.voice` resolves, the message is written
+//      `audioStatus = 'pending'` and `CoachAudioService.start` calls
+//      `speak()` (voice: the user's, else the persona's for the rendered
+//      level; the user's speed; persona TTS instructions plus the message's
+//      `audioInstructions`; input `audioScript`, else the body). Delivery is
+//      then NOT enqueued here: `coach.audio.settle` enqueues it when the
+//      speech job settles or the 2-minute wait cap elapses. Audio wanted but
+//      `coach.voice` unresolved: written `failed` with
+//      `data.audioFailure.reason = 'no_voice_model'` and delivered as text.
+//      A `speak()` that throws: `failed`, delivered as text. Audio off: text
+//      only, `audioStatus = 'none'`, `speak()` never called.
 //
 // ⚠ PRIVACY: no prompt, `why`, title, body or reason text in any log line,
 // span or metric; ids, enums and rule names only.
@@ -62,6 +74,7 @@ import { JobsService } from '../../../jobs/jobs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TrainingSignalsService } from '../../../programs/signals/signals.service';
 import { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
+import { COACH_AUDIO_WAIT_CAP_MS, CoachAudioService, type CoachVoiceModel } from '../../audio/coach-audio.service';
 import {
   AI_COACH_NUDGE_JOB_TYPE,
   COACH_MESSAGE_DELIVER_JOB_TYPE,
@@ -142,6 +155,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     private readonly signals: TrainingSignalsService,
     private readonly guard: CoachContentGuard,
     private readonly jobs: JobsService,
+    private readonly audio: CoachAudioService,
     @Inject(COACH_ANGLE_PICKER) private readonly anglePicker: AnglePicker,
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
   ) {}
@@ -208,11 +222,18 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
 
     const existing = await this.prisma.coachMessage.findFirst({
       where: { userId, role: 'coach', data: { path: ['momentKey'], equals: payload.momentKey } },
-      select: { id: true, deliveredAt: true },
+      select: { id: true, deliveredAt: true, audioStatus: true, createdAt: true },
     });
     if (existing) {
       if (existing.deliveredAt) return this.suppress('already_sent', payload, jobId);
-      await this.enqueueDelivery(existing.id);
+      if (existing.audioStatus === 'pending') {
+        // A retry after the write: the audio's own settle (or this wait cap)
+        // delivers; never a second `speak()`.
+        const capAt = new Date((existing.createdAt?.getTime() ?? now.getTime()) + COACH_AUDIO_WAIT_CAP_MS);
+        await this.audio.enqueueSettle(existing.id, 'timeout', capAt.getTime() > now.getTime() ? capAt : undefined);
+      } else {
+        await this.enqueueDelivery(existing.id);
+      }
       return { status: 'redelivered', messageId: existing.id };
     }
 
@@ -339,6 +360,15 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
       text = { send: true, moment, reason: 'static_fallback', ...fallback };
     }
 
+    // ---- 7a. audio: wanted, and can it be spoken? ---------------------------------
+    const audioWanted = settings.audio.enabled && system.allowAudio;
+    const voiceModel: CoachVoiceModel | null = audioWanted ? await this.audio.resolveVoiceModel(userId) : null;
+    const audioStatus = !audioWanted ? 'none' : voiceModel ? 'pending' : 'failed';
+    if (audioWanted && !voiceModel) {
+      this.metrics.coachAudioFailure('no_voice_model');
+      this.logger.log(`Coach nudge job ${jobId}: audio wanted but coach.voice is not runnable; text only`);
+    }
+
     // ---- 6. persist, then deliver ------------------------------------------------
     const message = await this.prisma.coachMessage.create({
       data: {
@@ -353,10 +383,9 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
         body: text.body,
         pushTitle: text.pushTitle,
         pushBody: text.pushBody,
-        // Audio seam (E7.6): when the user's audio is on and the system allows
-        // it, E7.6 calls `speak()` here and stores `pending` + `audioRunId`;
-        // delivery then waits for the speech job. Text only for now.
-        audioStatus: 'none',
+        // E7.6: `pending` until the speech run settles (step 7); `failed` with
+        // a recorded reason when audio is wanted but cannot be spoken.
+        audioStatus,
         aiRunId: null,
         provider: source === 'static' ? STATIC_PROVIDER : model.provider,
         model: source === 'static' ? null : model.modelId,
@@ -370,10 +399,38 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
           fallback: source === 'static',
           audioInstructions: text.audioInstructions,
           audioScript: text.audioScript,
+          ...(audioStatus === 'failed'
+            ? { audioFailure: { reason: 'no_voice_model', code: null, at: now.toISOString() } }
+            : {}),
         } satisfies Prisma.InputJsonObject,
       },
       select: { id: true },
     });
+
+    // ---- 7b. speak, or deliver now ------------------------------------------------
+    if (audioStatus === 'pending' && voiceModel) {
+      const started = await this.audio.start({
+        userId,
+        jobId,
+        messageId: message.id,
+        model: voiceModel,
+        request: this.audio.speechRequest({
+          style,
+          userVoice: settings.audio.voice,
+          speed: settings.audio.speed,
+          audioScript: text.audioScript,
+          body: text.body,
+          audioInstructions: text.audioInstructions,
+        }),
+        now,
+      });
+      if (started.status === 'pending') {
+        this.logger.log(
+          `Coach nudge job ${jobId}: message ${message.id} (${moment}, ${source}) waits for its audio run ${started.runId}`,
+        );
+        return { status: 'persisted', messageId: message.id, source };
+      }
+    }
 
     await this.enqueueDelivery(message.id);
     this.logger.log(

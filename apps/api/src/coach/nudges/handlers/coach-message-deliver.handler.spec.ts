@@ -51,14 +51,21 @@ function setup(message: Record<string, unknown> | null = {}, stampedCount = 1) {
   };
   const registry = { register: jest.fn() };
   const metrics = { coachNudgeDelivered: jest.fn() };
+  const audio = {
+    markFailed: jest.fn(async () => {
+      calls.push('audio_failed');
+      return true;
+    }),
+  };
   const handler = new CoachMessageDeliverHandler(
     registry as never,
     prisma as never,
     notifications as never,
     coachState as never,
+    audio as never,
     metrics as never,
   );
-  return { handler, prisma, notifications, coachState, registry, metrics, calls };
+  return { handler, prisma, notifications, coachState, registry, metrics, audio, calls };
 }
 
 describe('CoachMessageDeliverHandler', () => {
@@ -104,10 +111,33 @@ describe('CoachMessageDeliverHandler', () => {
     expect(t.notifications.notifyNow).toHaveBeenCalledWith(eventKey, USER, expect.any(Object));
   });
 
-  it('flags hasAudio when the audio is ready (E7.6 seam)', async () => {
-    const t = setup({ audioStatus: 'ready' });
+  it('flags hasAudio when the audio is ready with its object (E7.6): the push gets "Hear Coach", the body stays text', async () => {
+    const t = setup({ audioStatus: 'ready', audioStorageObjectId: '00000000-0000-4000-8000-0000000000c1' });
     await t.handler.deliver(MESSAGE, NOW);
-    expect(t.notifications.notifyNow).toHaveBeenCalledWith('coach.nudge', USER, expect.objectContaining({ hasAudio: true }));
+    expect(t.notifications.notifyNow).toHaveBeenCalledWith(
+      'coach.nudge',
+      USER,
+      expect.objectContaining({ hasAudio: true, pushBody: 'Ready for a short session today?', messageId: MESSAGE }),
+    );
+    expect(t.audio.markFailed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['none', null],
+    ['failed', null],
+    ['ready', null],
+  ])('delivers text only (hasAudio false) for audio %s without an object', async (audioStatus, audioStorageObjectId) => {
+    const t = setup({ audioStatus, audioStorageObjectId });
+    await t.handler.deliver(MESSAGE, NOW);
+    expect(t.notifications.notifyNow).toHaveBeenCalledWith('coach.nudge', USER, expect.objectContaining({ hasAudio: false }));
+  });
+
+  it('never waits on pending audio: records the timeout fallback, then sends the text', async () => {
+    const t = setup({ audioStatus: 'pending' });
+    await expect(t.handler.deliver(MESSAGE, NOW)).resolves.toMatchObject({ status: 'delivered' });
+    expect(t.audio.markFailed).toHaveBeenCalledWith(MESSAGE, 'timeout', null, NOW);
+    expect(t.calls.slice(0, 2)).toEqual(['audio_failed', 'notify']);
+    expect(t.notifications.notifyNow).toHaveBeenCalledWith('coach.nudge', USER, expect.objectContaining({ hasAudio: false }));
   });
 
   it('is idempotent: an already delivered message is never sent again', async () => {
