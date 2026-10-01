@@ -13,6 +13,10 @@
 
 import request from 'supertest';
 
+import { ActivityEntriesController } from '../../src/activity/activity-entries.controller';
+import { GoalsController } from '../../src/activity/goals.controller';
+import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+
 import { closeTestApp, createTestApp, TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
@@ -150,6 +154,36 @@ describe('Goals and activity entries (integration)', () => {
     { method: 'patch', path: `/api/activity-entries/${ENTRY}`, permission: 'goals:write', body: { note: 'x' } },
     { method: 'delete', path: `/api/activity-entries/${ENTRY}`, permission: 'goals:write' },
   ];
+
+  describe('declared permission metadata (the matrix)', () => {
+    const goalsMatrix: Array<[keyof GoalsController, string]> = [
+      ['list', 'goals:read'],
+      ['templates', 'goals:read'],
+      ['progressList', 'goals:read'],
+      ['get', 'goals:read'],
+      ['history', 'goals:read'],
+      ['create', 'goals:write'],
+      ['update', 'goals:write'],
+      ['pause', 'goals:write'],
+      ['resume', 'goals:write'],
+      ['archive', 'goals:write'],
+    ];
+    const entriesMatrix: Array<[keyof ActivityEntriesController, string]> = [
+      ['list', 'goals:read'],
+      ['create', 'goals:write'],
+      ['batch', 'goals:write'],
+      ['update', 'goals:write'],
+      ['remove', 'goals:write'],
+    ];
+
+    it.each(goalsMatrix)('GoalsController.%s requires exactly %s', (method, permission) => {
+      expect(Reflect.getMetadata(PERMISSIONS_KEY, GoalsController.prototype[method])).toEqual([permission]);
+    });
+
+    it.each(entriesMatrix)('ActivityEntriesController.%s requires exactly %s', (method, permission) => {
+      expect(Reflect.getMetadata(PERMISSIONS_KEY, ActivityEntriesController.prototype[method])).toEqual([permission]);
+    });
+  });
 
   describe.each(ROUTES)('$method $path ($permission)', ({ method, path, permission, body }) => {
     it('returns 401 without a token', async () => {
