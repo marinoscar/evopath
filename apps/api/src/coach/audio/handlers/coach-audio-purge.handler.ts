@@ -170,8 +170,11 @@ export class CoachAudioPurgeHandler implements JobHandler, OnModuleInit {
         }
       }
 
+      // Deleting the object fires `ON DELETE SET NULL` on this very row, so by
+      // now the pointer is usually already null: match it either way, still
+      // refusing a row that was re-pointed at a different object meanwhile.
       await this.prisma.coachMessage.updateMany({
-        where: { id: row.id, audioStorageObjectId: objectId },
+        where: { id: row.id, OR: [{ audioStorageObjectId: objectId }, { audioStorageObjectId: null }] },
         data: {
           audioStatus: 'none',
           audioStorageObjectId: null,
