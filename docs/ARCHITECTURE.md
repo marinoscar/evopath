@@ -138,6 +138,8 @@ Each subsection describes one subsystem the template ships: what it does, where 
 
 Users sign in with Google through Passport (`GET /api/auth/google`). On the callback the API checks the email against the allowlist, provisions or updates the user, issues a short-lived JWT access token (15 minutes by default) and sets a refresh token in an HttpOnly cookie. The browser receives the access token at `/auth/callback?token=…` and keeps it in memory. `POST /api/auth/refresh` rotates the refresh token on every use; the server stores only its hash.
 
+A failed sign-in redirects to `/auth/callback?error=<code>` with a code from a closed set, and the web app shows a fixed explanation screen with a way to try a different account ([sign-in failure contract](SECURITY-ARCHITECTURE.md#sign-in-failure-contract)).
+
 Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the check, is seeded onto the allowlist and becomes Admin on first sign-in. Every other new user gets the Viewer role. An allowlist entry is `pending` until its owner signs in, then `claimed`; claimed entries cannot be removed. Revoke access by deactivating the user instead.
 
 - **Code:** `apps/api/src/auth/`, `apps/api/src/allowlist/`, `apps/api/src/users/`

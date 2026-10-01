@@ -63,6 +63,23 @@ health, the device-code and device-token polls, avatar images).
   [device authorization grant](DEVICE-AUTH.md). Every sign-in path is gated by
   the email allowlist.
 
+### Google sign-in redirects
+
+The two Google routes answer with redirects, not the JSON envelope.
+
+| Route | Redirects to |
+|---|---|
+| `GET /api/auth/google` | Google's consent screen. `?select_account=1` forwards `prompt=select_account` so Google shows its account chooser; any other value is ignored |
+| `GET /api/auth/google/callback` | On success `<APP_URL>/auth/callback?token=<jwt>&expiresIn=<seconds>`. On any failure `<APP_URL>/auth/callback?error=<code>` |
+
+`<code>` is one of a closed set (`not_allowlisted`, `account_disabled`,
+`access_denied`, `authentication_failed`, `server_misconfigured`), never an
+exception message. Failures raised before the callback handler runs, such as
+cancelled consent or a replayed code, redirect the same way instead of returning
+a JSON error. The meaning of each code, the reason free text is excluded and the
+steps to add a code are in
+[SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract).
+
 ### How required permissions appear in the OpenAPI document
 
 `@Auth({ roles, permissions })` stamps an `x-rbac` extension on the operation,

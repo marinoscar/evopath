@@ -76,13 +76,95 @@ sequenceDiagram
 | Route | Purpose |
 |---|---|
 | `GET /api/auth/providers` | Public. Lists enabled providers |
-| `GET /api/auth/google` | Public. Redirects to Google |
+| `GET /api/auth/google` | Public. Redirects to Google. `?select_account=1` makes Google show its account chooser |
 | `GET /api/auth/google/callback` | Public. Provisions the user, sets the refresh cookie, redirects to the web app |
 
 On success the callback redirects to `<APP_URL>/auth/callback?token=<accessToken>&expiresIn=<seconds>`.
-On failure it redirects to `<APP_URL>/auth/callback?error=<message>`. The
-message has newlines replaced, is truncated to 200 characters and is URL
-encoded, so an exception text can never inject a header.
+On failure it redirects to `<APP_URL>/auth/callback?error=<code>`, where
+`<code>` comes from a closed set (next section).
+
+### Sign-in failure contract
+
+Every failed Google sign-in ends as a 302 to `<APP_URL>/auth/callback?error=<code>`.
+The code is one of a closed set and never free text: no exception message, no
+Google `error_description`, no JSON body.
+
+| Code | Meaning | Web screen primary action |
+|---|---|---|
+| `not_allowlisted` | The email is not on the allowlist | Sign in with a different account |
+| `account_disabled` | The account exists but is deactivated | Sign in with a different account |
+| `access_denied` | The person cancelled or denied consent at Google | Try again |
+| `authentication_failed` | Token exchange failed, code replayed or expired, no email on the profile, or anything unexpected. The default for every unrecognised failure | Try again |
+| `server_misconfigured` | Seed data is missing (`DatabaseSeedException`) | None; an administrator must fix it |
+
+**The web screen.** `AuthCallbackPage` (`/auth/callback`) renders
+`SignInErrorView` for any `error` value. The view sits inside `AuthBrandLayout`,
+the shell `LoginPage` also uses, so a refused person stays in the sign-in page's
+identity (brand panel beside the message from `md` up, compact brand header
+above one card below it). Every headline, explanation, next step, icon, severity
+and primary action lives in `SIGN_IN_ERROR_CONTENT` in
+`apps/web/src/components/auth/signInErrorContent.ts`. For `not_allowlisted` the
+headline reads "<product name> is invite-only right now" (the name comes from
+`APP_NAME`, so a renamed fork shows its own). Refusals the person can act on use
+the `info` and `warning` palette colours; only `authentication_failed` and
+`server_misconfigured` use `error`. To restyle the screen change
+`AuthBrandLayout.tsx` (shared with the sign-in page) or `SignInErrorView.tsx`; to
+reword it change `signInErrorContent.ts`.
+
+**Why free text is excluded.** The `/auth/callback` URL is a link anyone can
+craft. If the page rendered its `error` value, an attacker could put
+attacker-chosen copy on a trusted origin (content spoofing). It also made the
+web app recognise cases by matching prose. The API therefore sends only a code,
+and the web app maps each code to fixed copy and never renders the raw query
+value. An unknown, legacy or missing value shows the `authentication_failed`
+screen without echoing the input.
+
+**Where a failure is caught.**
+
+- **Callback handler.** `AuthController.googleAuthCallback` catches failures
+  from `handleGoogleLogin` and resolves them with `resolveAuthErrorCode`.
+  Policy refusals (allowlist, deactivated account) are
+  `AuthLoginDeniedException`, a 403 `ForbiddenException` carrying a `reason`
+  that becomes the code.
+- **Guard failures.** `GoogleOAuthGuard` runs before the handler, so its errors
+  (cancelled consent, replayed or expired code, profile without an email)
+  never reach the handler's `try/catch`. `GoogleOAuthExceptionFilter`, applied
+  with `@UseFilters` on the callback route only, redirects them to the same
+  URL. Every other route keeps the JSON error envelope.
+- **Anything unrecognised** becomes `authentication_failed`, so a new failure
+  mode cannot leak its message into the redirect.
+
+**`access_denied`.** When the person cancels at Google, `passport-oauth2`
+reports `?error=access_denied` through `fail()`, so the guard sees no user and
+no error. The guard reads only the `error` query value, and when it equals
+`access_denied` raises `AuthLoginDeniedException('access_denied')`. Google's
+`error_description` is never read. A strategy that instead raises an
+`AuthorizationError` with code `access_denied` lands on the same code.
+
+**Account chooser.** After a refusal, the web screen offers "Sign in with a
+different account", which calls `login('google', { selectAccount: true })`.
+That navigates to `/api/auth/google?select_account=1`, and the guard forwards
+`prompt=select_account` to Google. Any other value of the parameter is ignored.
+
+**Logging.** The filter logs the exception's name, never the request URL (it
+carries the authorization code). Expected outcomes (`access_denied`,
+`not_allowlisted`, `account_disabled`) log at `warn`; the rest at `error`.
+
+**Adding a code** touches three places:
+
+1. API: `AUTH_ERROR_CODES` in `apps/api/src/auth/auth-error-codes.ts`, plus the branch in `resolveAuthErrorCode` that produces it.
+2. Web content map: `SIGN_IN_ERROR_CODES` and its `SIGN_IN_ERROR_CONTENT` entry (copy, icon, severity, primary action) in `apps/web/src/components/auth/signInErrorContent.ts`. The web app cannot import from the API, so the list is mirrored by hand.
+3. Parity test: `apps/web/src/__tests__/components/auth/signInErrorContent.test.ts` reads the API file and fails when the two lists differ. It also pins which codes carry `error` severity, so edit it when the new code is a fault.
+
+Also update the `error` description on the callback route's `@ApiResponse` in
+`auth.controller.ts`.
+
+Guardrails: `apps/api/src/auth/auth.controller.spec.ts` (no exception message
+in the redirect), `apps/api/src/auth/filters/google-oauth-exception.filter.spec.ts`,
+`apps/api/src/auth/guards/google-oauth.guard.spec.ts` (account chooser,
+`access_denied`), `apps/api/test/auth/oauth.integration.spec.ts` (guard failures
+redirect with a code), `apps/web/src/__tests__/pages/AuthCallbackPage.test.tsx`,
+`apps/web/src/__tests__/contexts/AuthContext.test.tsx` and the parity test above.
 
 ### User provisioning
 
@@ -437,7 +519,7 @@ flowchart TD
     A[OAuth callback] --> B{Email == INITIAL_ADMIN_EMAIL?}
     B -->|Yes| K[Continue]
     B -->|No| C{Email in allowed_emails?}
-    C -->|No| D["Redirect /auth/callback?error=..."]
+    C -->|No| D["Redirect /auth/callback?error=not_allowlisted"]
     C -->|Yes| K
     K --> F{User exists?}
     F -->|No| G[Create user, mark entry claimed]

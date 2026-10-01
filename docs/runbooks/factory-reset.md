@@ -73,7 +73,7 @@ You should see `202` with a `jobId`, then `status` move from `pending` to `runni
 | Job `failed` | A database step threw (lock timeout, restart, connection loss) | Read `error` on the job, fix the cause, then start the reset again. A retry is safe: every step is idempotent and counts carry over |
 | A second request returned an old job id | A reset is already pending or running | Poll that job instead |
 | A job of another type failed during the reset | It was running and its rows were deleted | Expected; no action needed |
-| Other users cannot sign in | Their accounts and allowlist entries were deleted | Add them to the allowlist and have them sign in again |
+| Other users cannot sign in | Their accounts and allowlist entries were deleted | Add them to the allowlist and have them sign in again. Until then they see the "invite-only" screen ([sign-in failure contract](../SECURITY-ARCHITECTURE.md#sign-in-failure-contract)) |
 
 ## 8. Summary checklist
 
