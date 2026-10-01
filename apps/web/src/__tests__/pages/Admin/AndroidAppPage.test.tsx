@@ -13,6 +13,7 @@ import { mockAdminUser, render, type MockUser } from '../../utils/test-utils';
 import AndroidAppPage, { PACKAGE_ERROR, READ_ONLY_MESSAGE, SHA_ERROR } from '../../../pages/Admin/AndroidAppPage';
 import { PIXEL_SHA, mockAndroidAppConfig } from '../../mocks/fixtures/healthSync';
 import type { AndroidAppConfig, TrustedApp } from '../../../services/healthSync';
+import { ANDROID_PACKAGE_NAME } from '../../../utils/androidIdentity';
 
 const readOnlyAdmin: MockUser = {
   ...mockAdminUser,
@@ -42,14 +43,14 @@ describe('AndroidAppPage', () => {
     render(<AndroidAppPage />, { wrapperOptions: { user: mockAdminUser } });
 
     const reported = await screen.findByRole('list', { name: 'Reported apps' });
-    await user.click(within(reported).getByRole('button', { name: 'Trust com.evopath.android' }));
+    await user.click(within(reported).getByRole('button', { name: `Trust ${ANDROID_PACKAGE_NAME}` }));
 
     await waitFor(() =>
-      expect(puts).toEqual([{ trustedApps: [{ packageName: 'com.evopath.android', sha256: PIXEL_SHA }] }]),
+      expect(puts).toEqual([{ trustedApps: [{ packageName: ANDROID_PACKAGE_NAME, sha256: PIXEL_SHA }] }]),
     );
     const trusted = await screen.findByRole('list', { name: 'Trusted apps' });
-    expect(within(trusted).getByText('com.evopath.android')).toBeInTheDocument();
-    expect(within(reported).getByRole('button', { name: 'com.evopath.android is trusted' })).toBeDisabled();
+    expect(within(trusted).getByText(ANDROID_PACKAGE_NAME)).toBeInTheDocument();
+    expect(within(reported).getByRole('button', { name: `${ANDROID_PACKAGE_NAME} is trusted` })).toBeDisabled();
   });
 
   it('validates the add form, then adds a trusted app (upper-casing the fingerprint)', async () => {
@@ -84,7 +85,7 @@ describe('AndroidAppPage', () => {
         HttpResponse.json({
           data: {
             ...mockAndroidAppConfig,
-            trustedApps: [{ packageName: 'com.evopath.android', sha256: PIXEL_SHA }],
+            trustedApps: [{ packageName: ANDROID_PACKAGE_NAME, sha256: PIXEL_SHA }],
           },
         }),
       ),
@@ -93,7 +94,7 @@ describe('AndroidAppPage', () => {
     const user = userEvent.setup();
     render(<AndroidAppPage />, { wrapperOptions: { user: mockAdminUser } });
 
-    await user.click(await screen.findByRole('button', { name: 'Remove com.evopath.android' }));
+    await user.click(await screen.findByRole('button', { name: `Remove ${ANDROID_PACKAGE_NAME}` }));
     await waitFor(() => expect(puts).toEqual([{ trustedApps: [] }]));
   });
 
@@ -101,7 +102,7 @@ describe('AndroidAppPage', () => {
     const statements = [
       {
         relation: ['delegate_permission/common.handle_all_urls'],
-        target: { namespace: 'android_app', package_name: 'com.evopath.android', sha256_cert_fingerprints: [PIXEL_SHA] },
+        target: { namespace: 'android_app', package_name: ANDROID_PACKAGE_NAME, sha256_cert_fingerprints: [PIXEL_SHA] },
       },
     ];
     server.use(
@@ -120,7 +121,7 @@ describe('AndroidAppPage', () => {
 
     expect(await screen.findByText(READ_ONLY_MESSAGE)).toBeInTheDocument();
     const reported = await screen.findByRole('list', { name: 'Reported apps' });
-    expect(within(reported).getByRole('button', { name: 'Trust com.evopath.android' })).toBeDisabled();
+    expect(within(reported).getByRole('button', { name: `Trust ${ANDROID_PACKAGE_NAME}` })).toBeDisabled();
     const trustForm = screen.getByRole('form', { name: 'Add a trusted app' });
     expect(within(trustForm).getByLabelText('Package name')).toBeDisabled();
     expect(within(trustForm).getByLabelText('Signing certificate SHA-256')).toBeDisabled();

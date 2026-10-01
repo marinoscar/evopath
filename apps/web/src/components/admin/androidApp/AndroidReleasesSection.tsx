@@ -4,8 +4,8 @@
  * The APKs this server hosts for its users: which one is current, make
  * another current (a rollback asks first), delete one that is not current,
  * and upload a new one for an administrator without the CLI. Dropping the
- * `evopath-android-<version>.json` the CLI writes next to the APK fills the
- * form in.
+ * `<repo>-android-<version>.json` the CLI writes next to the APK fills the
+ * form in (names derived from the identity in `utils/androidIdentity.ts`).
  *
  * Every write control is disabled without `system_settings:write` (passed in
  * as `canWrite`); the API enforces it either way, and it decides everything
@@ -49,10 +49,11 @@ import {
   type AdminRelease,
   type AndroidAppConfig,
 } from '../../../services/healthSync';
+import { ANDROID_PACKAGE_NAME, androidMetadataFileName } from '../../../utils/androidIdentity';
 import { formatRelativeTime } from '../../../utils/relativeTime';
 
 export const CLI_HINT_COMMAND = 'evopathcli android release --bump patch';
-export const DEFAULT_PACKAGE_NAME = 'com.evopath.android';
+export const DEFAULT_PACKAGE_NAME = ANDROID_PACKAGE_NAME;
 export const MAX_VERSION_CODE = 2_100_000_000;
 export const MAX_NOTES = 2000;
 export const NOT_NEWER_MESSAGE =
@@ -424,7 +425,7 @@ export const AndroidReleasesSection = memo(function AndroidReleasesSection({
           Upload a release
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Drop the APK here, with the <code>evopath-android-&lt;version&gt;.json</code> the CLI writes next to it to
+          Drop the APK here, with the <code>{androidMetadataFileName('<version>')}</code> the CLI writes next to it to
           fill in the fields.
         </Typography>
         <Stack spacing={1.5}>

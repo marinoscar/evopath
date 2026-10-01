@@ -1,5 +1,6 @@
 /** `services/healthSync.ts` (#283): every route's method, path, query and body, and the helpers. */
 import { describe, it, expect } from 'vitest';
+import { ANDROID_PACKAGE_NAME } from '../../utils/androidIdentity';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import {
@@ -108,7 +109,7 @@ describe('healthSync service', () => {
     expect(get.method).toBe('GET');
     expect(config.reportedApps).toHaveLength(1);
 
-    const trusted = [{ packageName: 'com.evopath.android', sha256: PIXEL_SHA }];
+    const trusted = [{ packageName: ANDROID_PACKAGE_NAME, sha256: PIXEL_SHA }];
     const put = capture('put', '/admin/android-app', { ...mockAndroidAppConfig, trustedApps: trusted });
     const saved = await putAndroidAppConfig(trusted);
     expect(put.method).toBe('PUT');
@@ -138,7 +139,7 @@ describe('healthSync helpers', () => {
   });
 
   it('validates package names and SHA-256 fingerprints as the API does', () => {
-    expect(ANDROID_PACKAGE_PATTERN.test('com.evopath.android')).toBe(true);
+    expect(ANDROID_PACKAGE_PATTERN.test(ANDROID_PACKAGE_NAME)).toBe(true);
     expect(ANDROID_PACKAGE_PATTERN.test('evopath')).toBe(false);
     expect(ANDROID_PACKAGE_PATTERN.test('com..evopath')).toBe(false);
     expect(SHA256_FINGERPRINT_PATTERN.test(PIXEL_SHA)).toBe(true);

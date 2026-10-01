@@ -1,6 +1,7 @@
 /** `utils/twa.ts` (#283): TWA launch capture and detection. */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TWA_SESSION_KEY, captureTwaLaunch, getInstalledAppVersion, isRunningInTwa } from '../../utils/twa';
+import { ANDROID_PACKAGE_NAME } from '../../utils/androidIdentity';
 
 function setReferrer(value: string) {
   Object.defineProperty(document, 'referrer', { value, configurable: true });
@@ -36,7 +37,7 @@ describe('twa utils', () => {
   });
 
   it('detects an android-app:// referrer without the flag', () => {
-    setReferrer('android-app://com.evopath.android/');
+    setReferrer(`android-app://${ANDROID_PACKAGE_NAME}/`);
     expect(isRunningInTwa()).toBe(true);
   });
 

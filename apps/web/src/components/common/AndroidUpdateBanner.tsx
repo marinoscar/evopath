@@ -23,9 +23,10 @@ import { Alert, Button, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useLatestRelease } from '../../hooks/useHealthSync';
 import { ANDROID_APP_SETTINGS_PATH } from '../../services/healthSync';
+import { androidStorageKey } from '../../utils/androidIdentity';
 import { getInstalledAppVersion } from '../../utils/twa';
 
-export const ANDROID_UPDATE_DISMISSED_KEY = 'evopath.androidUpdate.dismissedVersionCode';
+export const ANDROID_UPDATE_DISMISSED_KEY = androidStorageKey('androidUpdate.dismissedVersionCode');
 
 function readDismissed(): number | null {
   try {

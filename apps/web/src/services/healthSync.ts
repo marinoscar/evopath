@@ -13,6 +13,7 @@
  * decides anything: statuses, expiry and retention are the API's.
  */
 import { api, ApiError } from './api';
+import { ANDROID_HEALTH_SYNC_DEEP_LINK } from '../utils/androidIdentity';
 
 // -----------------------------------------------------------------------------
 // Vocabulary
@@ -27,8 +28,8 @@ export type DiagnosticCheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 export const ANDROID_RELEASE_TAG = 'android-latest';
 /** The per-user page that serves the server-hosted APK (#287). */
 export const ANDROID_APP_SETTINGS_PATH = '/settings/android-app';
-/** The deep link `HealthSyncActivity` answers on the phone. */
-export const ANDROID_HEALTH_SYNC_DEEP_LINK = 'evopath-android://health-sync';
+/** The deep link `HealthSyncActivity` answers on the phone (derived from the identity). */
+export { ANDROID_HEALTH_SYNC_DEEP_LINK };
 
 /** Mirrors the API's Zod bounds for the trusted apps editor. */
 export const MAX_TRUSTED_APPS = 10;

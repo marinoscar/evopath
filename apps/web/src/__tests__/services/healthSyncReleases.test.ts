@@ -15,8 +15,9 @@ import {
   type UploadReleaseInput,
 } from '../../services/healthSync';
 import { PIXEL_SHA, RELEASE_ID, mockAdminRelease, mockRelease } from '../mocks/fixtures/healthSync';
+import { ANDROID_PACKAGE_NAME, androidApkFileName } from '../../utils/androidIdentity';
 
-function apk(name = 'evopath-android-0.2.0.apk') {
+function apk(name = androidApkFileName('0.2.0')) {
   return new File([new Uint8Array([0x50, 0x4b, 3, 4])], name, { type: 'application/vnd.android.package-archive' });
 }
 
@@ -24,7 +25,7 @@ const input = (overrides: Partial<UploadReleaseInput> = {}): UploadReleaseInput 
   apk: apk(),
   versionName: '0.2.0',
   versionCode: 2,
-  packageName: 'com.evopath.android',
+  packageName: ANDROID_PACKAGE_NAME,
   signingSha256: PIXEL_SHA,
   notes: '  Fixes  ',
   makeCurrent: true,
@@ -87,12 +88,12 @@ describe('healthSync release calls', () => {
     const form = buildReleaseFormData(input({ force: true }));
     expect(form.get('versionName')).toBe('0.2.0');
     expect(form.get('versionCode')).toBe('2');
-    expect(form.get('packageName')).toBe('com.evopath.android');
+    expect(form.get('packageName')).toBe(ANDROID_PACKAGE_NAME);
     expect(form.get('signingSha256')).toBe(PIXEL_SHA);
     expect(form.get('notes')).toBe('Fixes');
     expect(form.get('makeCurrent')).toBe('true');
     expect(form.get('force')).toBe('true');
-    expect((form.get('apk') as File).name).toBe('evopath-android-0.2.0.apk');
+    expect((form.get('apk') as File).name).toBe(androidApkFileName('0.2.0'));
   });
 
   it('omits empty notes and force, and sends makeCurrent=false', () => {

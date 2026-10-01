@@ -11,9 +11,10 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import { REPO_SLUG } from '@app/shared';
 import { ANDROID_APP_SETTINGS_PATH, androidReleaseUrl, type Release } from '../../../services/healthSync';
+import { ANDROID_RELEASE_APK_ASSET } from '../../../utils/androidIdentity';
 
 export const ANDROID_SETUP_STEPS = [
-  'Install the APK: download evopath-android.apk from the release on your phone and allow installing it.',
+  `Install the APK: download ${ANDROID_RELEASE_APK_ASSET} from the release on your phone and allow installing it.`,
   'Open the app and enter this server’s address.',
   'Open Health sync (from the app menu, or long-press the app icon).',
   'Tap Connect, then approve the phone on the activation page that opens.',
