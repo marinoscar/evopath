@@ -67,10 +67,14 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     aiRoutes = [];
     adminAiRoutes = [];
 
+    // The AI Coach (docs/specs/ai-coach.md §3.6) follows the same rule: its
+    // consumer routes `/api/coach/*` are kill-switched, its admin routes
+    // `/api/admin/coach/*` are not.
+    const under = (path: string, prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
     forEachOperation(document, (_operation, path, method) => {
-      if (path.startsWith('/api/admin/ai')) {
+      if (under(path, '/api/admin/ai') || under(path, '/api/admin/coach')) {
         adminAiRoutes.push({ path, method: method.toUpperCase() });
-      } else if (path.startsWith('/api/ai')) {
+      } else if (under(path, '/api/ai') || under(path, '/api/coach')) {
         aiRoutes.push({ path, method: method.toUpperCase() });
       }
     });
@@ -90,8 +94,12 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     expect(aiRoutes.length).toBeGreaterThanOrEqual(10);
     expect(adminAiRoutes.length).toBeGreaterThanOrEqual(5);
     expect(aiRoutes).toEqual(
-      expect.arrayContaining([{ path: '/api/ai/config', method: 'GET' }]),
+      expect.arrayContaining([
+        { path: '/api/ai/config', method: 'GET' },
+        { path: '/api/coach/settings', method: 'PUT' },
+      ]),
     );
+    expect(adminAiRoutes).toEqual(expect.arrayContaining([{ path: '/api/admin/coach/settings', method: 'PUT' }]));
   });
 
   describe('while ai.enabled = false', () => {

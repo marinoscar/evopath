@@ -1927,6 +1927,8 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.health.summary.regenerations` | `app_health_summary_regenerations_total` | counter | `{regeneration}` | none | An answer asked for again after a post-check rejection. |
 | `app.health.summary.post_check_rejections` | `app_health_summary_post_check_rejections_total` | counter | `{answer}` | none | An answer the post-check rejected. |
 | `app.health.summary.tokens` | `app_health_summary_tokens_total` | counter | `{token}` | `token_type` (`input`, `output`) | Tokens the health summary used. |
+| `app.coach.guard.rejected` | `app_coach_guard_rejected_total` | counter | `{rejection}` | `reason` (`profanity`, `banned_term`, `insult_target`, `lock_screen`, `invented_number`, `length`, `supportive_register`) | The coach content guard refuses a message; one count per failed rule, never the text. |
+| `app.coach.settings.updated` | `app_coach_settings_updated_total` | counter | `{update}` | `persona` (the selected persona id) | A user saves coach settings through `PUT /api/coach/settings`. |
 | `app.jobs.queue.depth` | `app_jobs_queue_depth` | gauge | `{job}` | `job_type`, `status` (`pending`, `running`) | Observed at collection. |
 | `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
 | `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |

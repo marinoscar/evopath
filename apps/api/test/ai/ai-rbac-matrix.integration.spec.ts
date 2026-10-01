@@ -61,6 +61,22 @@ function isPermissionDenied(res: request.Response): boolean {
 const ROLES = ['admin', 'contributor', 'viewer'] as const;
 
 /**
+ * The AI surface: `/api/ai/*` and `/api/admin/ai/*`, plus the AI Coach's
+ * consumer routes `/api/coach/*` and admin routes `/api/admin/coach/*`
+ * (docs/specs/ai-coach.md §3.6), which follow exactly the same rules.
+ */
+const AI_CONSUMER_PREFIXES = ['/api/ai', '/api/coach'] as const;
+const AI_ADMIN_PREFIXES = ['/api/admin/ai', '/api/admin/coach'] as const;
+
+function isAdminAiRoute(path: string): boolean {
+  return AI_ADMIN_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
+function isAiSurface(path: string): boolean {
+  return isAdminAiRoute(path) || AI_CONSUMER_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+}
+
+/**
  * Feature permissions an `/api/ai/*` route may declare AFTER `ai:use`, when
  * it writes (or reads) that feature's data: the quick adaptation's apply
  * routes (`POST /api/ai/training/adaptations/{id}/apply/workout` and
@@ -72,11 +88,13 @@ const ROLES = ['admin', 'contributor', 'viewer'] as const;
 const FEATURE_WRITE_PERMISSIONS_ON_AI_ROUTES: readonly string[] = [
   'workouts:write',
   'programs:write',
+  // Coach routes read training signals (GET /api/coach/state, chat).
+  'programs:read',
   'health_data:read',
   'health_data:write',
 ];
 
-describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every role (#435)', () => {
+describe('AI RBAC matrix — every /api/ai/*, /api/admin/ai/*, /api/coach/* and /api/admin/coach/* route x every role (#435)', () => {
   let app: AiHttpTestApp;
   let aiAndAdminRoutes: AiRoute[];
   const tokensByRole: Record<(typeof ROLES)[number], string> = { admin: '', contributor: '', viewer: '' };
@@ -88,7 +106,7 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
     aiAndAdminRoutes = [];
 
     forEachOperation(document, (operation, path, method) => {
-      if (!path.startsWith('/api/ai') && !path.startsWith('/api/admin/ai')) return;
+      if (!isAiSurface(path)) return;
 
       const rbac = operation[RBAC_EXTENSION_KEY] as RbacExtension | undefined;
       aiAndAdminRoutes.push({ path, method: method.toUpperCase(), permissions: rbac?.permissions ?? [] });
@@ -122,6 +140,16 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
 
   it('discovers a non-trivial route set carrying real x-rbac metadata', () => {
     expect(aiAndAdminRoutes.length).toBeGreaterThanOrEqual(15);
+    // The AI Coach's routes are part of the surface (E7.2).
+    expect(aiAndAdminRoutes.map((r) => `${r.method} ${r.path}`)).toEqual(
+      expect.arrayContaining([
+        'GET /api/coach/personas',
+        'GET /api/coach/settings',
+        'PUT /api/coach/settings',
+        'GET /api/admin/coach/settings',
+        'PUT /api/admin/coach/settings',
+      ]),
+    );
     expect(aiAndAdminRoutes.filter((r) => r.permissions.length > 0).length).toBeGreaterThanOrEqual(10);
   });
 
@@ -147,7 +175,7 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
         continue;
       }
 
-      if (route.path.startsWith('/api/admin/ai')) {
+      if (isAdminAiRoute(route.path)) {
         const ok =
           route.permissions.length === 1 &&
           (route.permissions[0] === 'ai_config:read' || route.permissions[0] === 'ai_config:write');

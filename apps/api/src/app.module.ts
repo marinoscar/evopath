@@ -53,6 +53,7 @@ import { UserDataModule } from './user-data/user-data.module';
 import { AdminFactoryResetModule } from './admin-factory-reset/admin-factory-reset.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { CoachPlanningModule } from './coach/planning/coach-planning.module';
+import { CoachModule } from './coach/coach.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -315,6 +316,11 @@ import configuration from './config/configuration';
     // AI Coach decision engine (E7.4): the hourly `coach.sweep`, the
     // `coach.workout_finished` job and `GET /api/coach/state`.
     CoachPlanningModule,
+    // The AI Coach (epic E7): the persona registry, the content guard,
+    // `/api/coach/*` (`ai:use`, behind `AiEnabledGuard`) and
+    // `/api/admin/coach/*` (`ai_config:*`, reachable while AI is off). Later
+    // coach stories add their sub-modules inside `CoachModule`, not here.
+    CoachModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

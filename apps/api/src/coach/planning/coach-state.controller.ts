@@ -21,7 +21,7 @@ import { CoachStateViewDto } from './dto/coach-state.dto';
 // id comes from the token, never from the request.
 // =============================================================================
 
-@ApiTags('Coach')
+@ApiTags('AI Coach')
 @Controller('coach')
 @UseGuards(AiEnabledGuard)
 export class CoachStateController {

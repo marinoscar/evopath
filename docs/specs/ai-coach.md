@@ -133,6 +133,9 @@ A persona is a data file in a registry, served by `GET /api/coach/personas` so t
 
 - **Registry.** `apps/api/src/coach/personas/*.persona.ts` **(new)**, one file per persona, collected by `apps/api/src/coach/personas/index.ts` **(new)** into `COACH_PERSONAS`.
 - **Each persona carries:** `id`, `name`, `tagline`, `avatar` (icon key), a style card (lexicon, do and don't, an intensity rubric for levels 1 to 3), a default voice with TTS `instructions`, and static sample lines for every moment. Sample lines are served as-is, so a preview in `/settings/coach` costs nothing and calls no model.
+- **Moments with sample lines.** `COACH_MOMENTS` in `apps/api/src/coach/personas/persona.types.ts`: the planned moments of [§2.5](#25-decision-engine) (`missed_twice`, `streak_at_risk`, `comeback`, `pr`, `weekly_target_hit`, `missed_session`, `fresh_start`, `photo_prompt`, `win_back`), plus `back_off` (the auto-silence message), `kickoff` and `weekly_review`, so every message the coach can send has a static fallback. Sarge has a line per level; the other personas carry one line per moment that serves every level (their level changes the rubric the model receives, not the static sample).
+- **Lexicon figures.** A persona may declare `lexiconNumbers`, figures that are style rather than data (Sarge's "40 percent", Coach's "20-minute version"). The content guard's numbers rule admits them besides the context's figures.
+- **Serving L3.** `GET /api/coach/personas` returns Sarge's level-3 lines only to a caller whose register is profane; otherwise the level-2 lines stand in and the card's `censored` is `true`.
 - **Selection.** The user's `coach.personaId` and `coach.intensity` (1 to 3). The persona card goes into the model's system prompt; the registry is the only place persona text lives.
 - **Hard limits, every persona, every level.** No body or weight shaming, no slurs, no insults about protected traits, no sexual content, no self-harm themes, no impersonation of a real person, no health claims. A persona may be harsh about **effort and excuses**, never about the person's body, health or worth.
 
@@ -223,7 +226,7 @@ Voice: `fable`. TTS instructions: "Refined British butler. Dry, deadpan sarcasm 
 - **Style card.** Live sports commentary. Present tense, rising energy, play-by-play of the user's week. Celebrates effort and returns. Never mocks a miss; recasts it as a comeback storyline.
 - **Missed session.** "And Wednesday's session is a no-show, folks! But every great season has a rough night. The comeback starts tonight!"
 - **Streak at risk.** "The crowd is on its feet! {streak} weeks on the line and {time} is the whistle! Get to the court!"
-- **Comeback / PR.** "HE'S BACK! {lift}, a NEW BEST, in front of a home crowd! Ladies and gentlemen, that is how you answer a miss!"
+- **Comeback / PR.** "LOOK WHO'S BACK! {lift}, a NEW BEST, in front of a home crowd! Ladies and gentlemen, that is how you answer a miss!" (Gender-neutral: the coach does not know the listener's gender.)
 - **Photo prompt.** "Time for the highlight reel! Snap one photo today and we'll roll the tape on your progress!"
 
 Voice: `verse`. TTS instructions: "High-energy sports broadcaster. Fast, rising, excited, with crowd-pleasing emphasis. Land the last word of each line loudly."
@@ -587,7 +590,7 @@ Declared in `apps/api/src/common/schemas/user-settings-namespaces.schema.ts` as 
 | `why` | string or null | `null` | At most 200 characters; stored text sent to the model |
 | `preferredTime` | `HH:mm` or null | `null` | Anchor for morning moments |
 
-Written through the existing `PATCH /api/user-settings` with `If-Match` or through `PUT /api/coach/settings` (which applies the unlock rules and returns the effective register).
+Written through the existing `PATCH /api/user-settings` with `If-Match` or through `PUT /api/coach/settings` (which applies the unlock rules and returns the effective register). `PUT /api/coach/settings` takes the namespace's patch form: an omitted field keeps its value and `null` returns it to the default; it never accepts `adultConfirmedAt` (send `confirmAdult: true`). `PATCH /api/user-settings` applies no unlock rule, which is safe because the register is re-evaluated by `resolveRegister` at every use.
 
 ### 3.2 System setting `coach`
 
@@ -682,6 +685,8 @@ Every consumer route sits behind `AiEnabledGuard` plus `ai:use`. Admin routes ar
 | `COACH_MESSAGE_NOT_FOUND` | 404 | The message is not the caller's. |
 | `COACH_PAUSE_INVALID` | 400 | `pause_coach` with `days` outside 1 to 14. |
 | `AI_DISABLED`, `AI_RATE_LIMITED` | 403, 429 | Existing AI errors, unchanged. |
+
+The envelope's `code` is status-derived ([API.md](../API.md#errors)), so a coach code travels in `details.code`. `details.reason` repeats it, except for `COACH_PROFANITY_LOCKED`, whose `details.reason` is the failed unlock condition (`system_disabled`, `age_unverified`, `underage`, `persona_or_intensity`). `COACH_PERSONA_UNKNOWN` also carries `details.issues` naming `personaId`.
 
 Not every failure gets a coach-specific code:
 - Chat input over 2,000 characters, and any other schema failure, is an ordinary 400 validation error.

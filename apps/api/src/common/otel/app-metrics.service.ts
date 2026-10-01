@@ -135,6 +135,9 @@ export const APP_METRIC_NAMES = {
   healthExportSize: 'app.health.export.size',
   healthDocumentDownloads: 'app.health.documents.downloads',
   healthDocumentDeletes: 'app.health.documents.deletes',
+  // AI Coach (E7.2, #242): content-guard rejections and settings writes.
+  coachGuardRejected: 'app.coach.guard.rejected',
+  coachSettingsUpdated: 'app.coach.settings.updated',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -259,6 +262,17 @@ export type HealthDocumentDeleteScope = 'file' | 'record';
 const HEALTH_DOCUMENT_DELETE_SCOPES = new Set<string>(['file', 'record']);
 const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
 
+/** The coach content guard's rule names (E7.2, #242), mirrored so this file does not import the coach. */
+const COACH_GUARD_REASONS = new Set<string>([
+  'profanity',
+  'banned_term',
+  'insult_target',
+  'lock_screen',
+  'invented_number',
+  'length',
+  'supportive_register',
+]);
+
 export interface AiUsageMetric {
   provider: string;
   model: string;
@@ -348,6 +362,8 @@ export class AppMetricsService implements OnModuleInit {
   private readonly healthExportSize: Histogram;
   private readonly healthDocumentDownloads: Counter;
   private readonly healthDocumentDeletes: Counter;
+  private readonly coachGuardRejected: Counter;
+  private readonly coachSettingsUpdated: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -478,6 +494,14 @@ export class AppMetricsService implements OnModuleInit {
     this.healthDocumentDeletes = m.createCounter(N.healthDocumentDeletes, {
       description: 'Health documents deleted by their owner, by scope and whether the values went too.',
       unit: '{document}',
+    });
+    this.coachGuardRejected = m.createCounter(N.coachGuardRejected, {
+      description: 'Coach-written text refused by the content guard, by rule. Never the text.',
+      unit: '{rejection}',
+    });
+    this.coachSettingsUpdated = m.createCounter(N.coachSettingsUpdated, {
+      description: 'Coach settings saved through PUT /api/coach/settings, by persona.',
+      unit: '{update}',
     });
   }
 
@@ -672,6 +696,20 @@ export class AppMetricsService implements OnModuleInit {
         values: withValues ? 'deleted' : 'kept',
       }),
     );
+  }
+
+  // ===========================================================================
+  // AI Coach (E7.2, #242)
+  // ===========================================================================
+
+  /** The content guard refused a coach-written message for `reason` (one count per distinct rule). */
+  coachGuardRejection(reason: string): void {
+    this.safely(() => this.coachGuardRejected.add(1, { reason: enumLabel(reason, COACH_GUARD_REASONS) }));
+  }
+
+  /** A user saved their coach settings; `persona` is the registry id now selected. */
+  coachSettingsUpdate(persona: string): void {
+    this.safely(() => this.coachSettingsUpdated.add(1, { persona: this.boundLabel('persona', persona) }));
   }
 
   // ===========================================================================
