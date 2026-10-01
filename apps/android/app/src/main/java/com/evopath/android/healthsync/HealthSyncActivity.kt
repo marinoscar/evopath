@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,7 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -35,13 +36,14 @@ import com.evopath.android.EvoPathApplication
 import com.evopath.android.TwaLauncherActivity
 import com.evopath.android.ui.components.ServerUrlEditor
 import com.evopath.android.ui.theme.EvoPathTheme
+import com.evopath.android.sync.WorkManagerSyncScheduler
 import com.evopath.android.util.AppInfo
 
-/** Hub sections. Connect / Sync / Diagnostics are filled in by #281 and #282. */
+/** Hub sections. Diagnostics is filled in by #282. */
 enum class HealthSyncScreen(val title: String) {
     Hub("Health sync"),
-    Connect("Connect Health Connect"),
-    Sync("Sync now"),
+    Connect("Connect"),
+    Sync("Sync"),
     Diagnostics("Diagnostics"),
 }
 
@@ -50,10 +52,23 @@ enum class HealthSyncScreen(val title: String) {
  * `evopath-android://health-sync` deep link (the web app's "Open Health sync" button).
  */
 class HealthSyncActivity : ComponentActivity() {
+    private val pairingVm: PairingViewModel by viewModels()
+    private val syncVm: SyncViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { EvoPathTheme { HealthSyncApp(onOpenWebApp = ::openWebApp) } }
+        if (savedInstanceState == null) WorkManagerSyncScheduler.onAppOpen(this)
+        setContent {
+            EvoPathTheme { HealthSyncApp(pairingVm = pairingVm, syncVm = syncVm, onOpenWebApp = ::openWebApp) }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Permissions or pairing may have changed in Health Connect or the browser.
+        pairingVm.refreshStatus()
+        syncVm.refresh()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -68,7 +83,7 @@ class HealthSyncActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HealthSyncApp(onOpenWebApp: () -> Unit) {
+private fun HealthSyncApp(pairingVm: PairingViewModel, syncVm: SyncViewModel, onOpenWebApp: () -> Unit) {
     var screen by rememberSaveable { mutableStateOf(HealthSyncScreen.Hub) }
     BackHandler(enabled = screen != HealthSyncScreen.Hub) { screen = HealthSyncScreen.Hub }
 
@@ -98,20 +113,22 @@ private fun HealthSyncApp(onOpenWebApp: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             when (screen) {
-                HealthSyncScreen.Hub -> HubScreen(onNavigate = { screen = it }, onOpenWebApp = onOpenWebApp)
-                else -> PlaceholderScreen(screen)
+                HealthSyncScreen.Hub -> HubScreen(pairingVm = pairingVm, onNavigate = { screen = it }, onOpenWebApp = onOpenWebApp)
+                HealthSyncScreen.Connect -> ConnectScreen(pairingVm = pairingVm, syncVm = syncVm)
+                HealthSyncScreen.Sync -> SyncScreen(syncVm = syncVm, onOpenConnect = { screen = HealthSyncScreen.Connect })
+                HealthSyncScreen.Diagnostics -> PlaceholderScreen(screen)
             }
         }
     }
 }
 
 @Composable
-private fun HubScreen(onNavigate: (HealthSyncScreen) -> Unit, onOpenWebApp: () -> Unit) {
+private fun HubScreen(pairingVm: PairingViewModel, onNavigate: (HealthSyncScreen) -> Unit, onOpenWebApp: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val app = EvoPathApplication.from(context)
     var serverUrl by rememberSaveable { mutableStateOf(app.serverConfig.serverUrl) }
     var editingServer by rememberSaveable { mutableStateOf(false) }
-    val tokens = app.tokenStore
+    val pairing by pairingVm.state.collectAsState()
     val appInfo = AppInfo.read(context)
 
     SectionCard(title = "Server") {
@@ -120,22 +137,18 @@ private fun HubScreen(onNavigate: (HealthSyncScreen) -> Unit, onOpenWebApp: () -
     }
 
     SectionCard(title = "Pairing") {
-        // Placeholder until #281 adds the device flow.
-        val status = when {
-            !tokens.isPaired -> "Not paired with your EvoPath account yet."
-            else -> buildString {
-                append("Paired")
-                tokens.deviceId?.let { append(" as device ").append(it.take(8)) }
-                tokens.expiresAt?.let { append(". Token expires ").append(it.toString().take(10)) }
-                append('.')
-            }
+        val status = pairing.status
+        when {
+            status.expired -> ErrorText("Pairing expired: re-pair to resume syncing.")
+            status.paired -> Text("Paired. Token expires ${UiFormat.date(status.tokenExpiresAt)}.")
+            status.hasToken -> ErrorText("Signed in, but this phone is not registered yet.")
+            else -> Text("Not paired with your EvoPath account yet.")
         }
-        Text(status)
     }
 
     SectionCard(title = "Health Connect") {
         Button(onClick = { onNavigate(HealthSyncScreen.Connect) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Connect")
+            Text(if (pairing.status.paired && !pairing.status.expired) "Pairing and permissions" else "Connect")
         }
         OutlinedButton(onClick = { onNavigate(HealthSyncScreen.Sync) }, modifier = Modifier.fillMaxWidth()) {
             Text("Sync now")
@@ -180,15 +193,5 @@ private fun HubScreen(onNavigate: (HealthSyncScreen) -> Unit, onOpenWebApp: () -
 private fun PlaceholderScreen(screen: HealthSyncScreen) {
     SectionCard(title = screen.title) {
         Text("Coming soon.", style = MaterialTheme.typography.bodyLarge)
-    }
-}
-
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            content()
-        }
     }
 }

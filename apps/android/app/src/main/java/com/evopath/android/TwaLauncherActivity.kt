@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import com.evopath.android.config.ServerUrls
 import com.evopath.android.setup.SetupActivity
+import com.evopath.android.sync.WorkManagerSyncScheduler
 import com.google.androidbrowserhelper.trusted.LauncherActivity
 
 /**
@@ -25,7 +26,10 @@ class TwaLauncherActivity : LauncherActivity() {
         if (serverUrl == null && !isFinishing) {
             startActivity(Intent(this, SetupActivity::class.java))
             finish()
+            return
         }
+        // Opening the app syncs Health Connect (debounced to every 15 min; no-op unless paired).
+        if (savedInstanceState == null) WorkManagerSyncScheduler.onAppOpen(this)
     }
 
     override fun getLaunchingUrl(): Uri {
