@@ -112,6 +112,28 @@ describe('Onboarding API (Integration)', () => {
       expect(body.data.admin).toBeNull();
     });
 
+    // E7.12: the same step id, relabelled once a plan exists.
+    it('turns ai_plan into "Meet your coach" once a program exists, done after the coach settings were saved', async () => {
+      const contributor = await createMockContributorUser(context);
+      const p = context.prismaMock;
+      p.program.findFirst.mockResolvedValue({ id: 'p1' });
+      const aiPlan = (body: { data: { user: { steps: Array<{ id: string }> } } }) =>
+        body.data.user.steps.find((s) => s.id === 'ai_plan');
+
+      const before = await request(server()).get(ROUTE).set(authHeader(contributor.accessToken)).expect(200);
+      expect(aiPlan(before.body)).toMatchObject({ status: 'todo', label: 'Meet your coach', href: '/settings/coach' });
+      expect(before.body.data.user.steps.length).toBeLessThanOrEqual(4);
+
+      p.userSettings.findUnique.mockResolvedValue({ value: { coach: { personaId: 'stoic' } } });
+      const after = await request(server()).get(ROUTE).set(authHeader(contributor.accessToken)).expect(200);
+      expect(aiPlan(after.body)).toMatchObject({ status: 'done', label: 'Meet your coach' });
+
+      // The GET writes nothing.
+      expect(p.userSettings.create).not.toHaveBeenCalled();
+      expect(p.userSettings.update).not.toHaveBeenCalled();
+      expect(p.userSettings.upsert).not.toHaveBeenCalled();
+    });
+
     it('gives an admin a non-null admin block', async () => {
       const admin = await createMockAdminUser(context);
 

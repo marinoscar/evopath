@@ -6,6 +6,7 @@ import { JobsModule } from '../../jobs/jobs.module';
 import { ProgramsModule } from '../../programs/programs.module';
 import { ProgressPhotosModule } from '../../progress-photos/progress-photos.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { CoachKickoffListener } from '../coach-kickoff.listener';
 import { CoachEventsListener } from './coach-events.listener';
 import { CoachMomentEnqueuer } from './coach-moment-enqueuer';
 import { CoachPlannerService } from './coach-planner.service';
@@ -40,6 +41,7 @@ import { CoachSweepTask } from './tasks/coach-sweep.task';
     CoachWorkoutFinishedHandler,
     CoachSweepTask,
     CoachEventsListener,
+    CoachKickoffListener,
   ],
   exports: [CoachStateService, CoachMomentEnqueuer],
 })

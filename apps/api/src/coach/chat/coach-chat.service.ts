@@ -19,6 +19,7 @@ import { ProgressPhotoSummaryService } from '../../progress-photos/progress-phot
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import { UserSettingsService } from '../../settings/user-settings/user-settings.service';
 import { coachDisabledError } from '../coach-errors';
+import { CoachSettingsService } from '../coach-settings.service';
 import { guardCoachText, extractNumbers, type CoachGuardReason } from '../guard/coach-content-guard';
 import type { Intensity } from '../personas';
 import { renderPersonaStyle, resolveRegister, type RenderedPersonaStyle } from '../personas/resolve-register';
@@ -137,6 +138,8 @@ export class CoachChatService {
     private readonly photos: ProgressPhotoSummaryService,
     private readonly metrics: CoachChatMetrics,
     @Optional() private readonly appMetrics: AppMetricsService = fallbackAppMetrics(),
+    // `save_commitment`'s writer (E7.12). Optional: without it the tool answers `unavailable`.
+    @Optional() private readonly coachSettings?: CoachSettingsService,
   ) {}
 
   /**
@@ -415,6 +418,7 @@ export class CoachChatService {
       checkIns: this.checkIns,
       photos: this.photos,
       now: () => new Date(),
+      ...(this.coachSettings ? { commitments: this.coachSettings } : {}),
     };
   }
 

@@ -105,7 +105,7 @@ describe('ActivationMetrics', () => {
     expect(within(items[0]).getByText('30 of 40, 75%')).toBeInTheDocument();
     expect(within(items[3]).getByText('0 of 40, 0%')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Added a gym: 20 of 40, 50%' })).toHaveAttribute('aria-valuenow', '50');
-    expect(screen.getByRole('progressbar', { name: 'Created an AI training plan: 0 of 40, 0%' })).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Created an AI plan and met the coach: 0 of 40, 0%' })).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Logged a first workout: 12 of 40, 30%' })).toBeInTheDocument();
   });
 

@@ -2,7 +2,7 @@ import { threeDayPlanInput } from '../../../test/fixtures/training/signals/three
 import { toJsonSchema } from '../../ai/core/structured-output';
 import { aggregateSignals } from '../../programs/signals/aggregate-signals';
 import { compactSignals } from '../../programs/signals/compact-signals';
-import { COACH_PAUSE_INVALID } from './coach-chat-errors';
+import { COACH_COMMITMENT_INVALID, COACH_PAUSE_INVALID } from './coach-chat-errors';
 import { COACH_CHAT_TOOL_NAMES, createCoachChatTools, type CoachChatToolDeps, type CoachChatTurnActions } from './tools';
 import { minimiseToday } from './tools/get-today-plan.tool';
 import { withoutIds } from './tools/minimise';
@@ -28,6 +28,7 @@ function makeDeps() {
     checkIns: { today: jest.fn().mockResolvedValue('2026-10-01'), list: jest.fn().mockResolvedValue({ items: [] }) },
     photos: { summarize: jest.fn() },
     now: () => NOW,
+    commitments: { update: jest.fn().mockResolvedValue({}) },
   };
   return { deps, signals };
 }
@@ -75,6 +76,18 @@ describe('coach chat tools (E7.7)', () => {
         .map(([method]) => `${model}.${method}`),
     );
     expect(writes).toEqual(['coachState.upsert']);
+  });
+
+  it('save_commitment writes only through the coach settings writer, never through prisma', async () => {
+    const { deps } = makeDeps();
+    await run(deps, 'save_commitment', { why: 'Keep up with my kids', preferredTime: '07:30' });
+    const writes = Object.entries(deps.prisma).flatMap(([model, api]) =>
+      Object.entries(api as Record<string, jest.Mock>)
+        .filter(([method, fn]) => fn.mock.calls.length > 0 && /create|update|upsert|delete/i.test(method))
+        .map(([method]) => `${model}.${method}`),
+    );
+    expect(writes).toEqual([]);
+    expect(deps.commitments.update).toHaveBeenCalledTimes(1);
   });
 
   describe('get_training_signals', () => {
@@ -265,6 +278,64 @@ describe('coach chat tools (E7.7)', () => {
       const tool = tools(deps).pause_coach;
       expect(tool.parseArguments(JSON.stringify({ days: 1.5, reason: 'x' })).success).toBe(false);
       expect(tool.parseArguments(JSON.stringify({ days: 2, reason: 'x'.repeat(121) })).success).toBe(false);
+    });
+  });
+  describe('save_commitment (E7.12)', () => {
+    it('saves why and preferredTime for the caller and records the field names for the turn', async () => {
+      const { deps } = makeDeps();
+      const actions: CoachChatTurnActions = { pausedUntil: null };
+      const result = await run(deps, 'save_commitment', { why: '  Keep up with my kids  ', preferredTime: '18:15' }, actions);
+
+      expect(result).toEqual({ ok: true, saved: { why: 'Keep up with my kids', preferredTime: '18:15' } });
+      expect(deps.commitments.update).toHaveBeenCalledWith(USER, { why: 'Keep up with my kids', preferredTime: '18:15' });
+      expect(actions.commitmentSaved).toEqual(['why', 'preferredTime']);
+    });
+
+    it('saves only the value given; null leaves the other untouched', async () => {
+      const { deps } = makeDeps();
+      expect(await run(deps, 'save_commitment', { why: null, preferredTime: '06:00' })).toMatchObject({ ok: true });
+      expect(deps.commitments.update).toHaveBeenCalledWith(USER, { preferredTime: '06:00' });
+    });
+
+    it('accepts a why of exactly 200 characters', async () => {
+      const { deps } = makeDeps();
+      const why = 'w'.repeat(200);
+      expect(await run(deps, 'save_commitment', { why, preferredTime: null })).toMatchObject({ ok: true });
+      expect(deps.commitments.update).toHaveBeenCalledWith(USER, { why });
+    });
+
+    it.each([
+      [{ why: 'w'.repeat(201), preferredTime: null }],
+      [{ why: null, preferredTime: '7:30' }],
+      [{ why: null, preferredTime: '24:00' }],
+      [{ why: null, preferredTime: 'after work' }],
+      [{ why: null, preferredTime: null }],
+      [{ why: '   ', preferredTime: '' }],
+    ])('refuses %j with COACH_COMMITMENT_INVALID and writes nothing', async (args) => {
+      const { deps } = makeDeps();
+      const actions: CoachChatTurnActions = { pausedUntil: null };
+      expect(await run(deps, 'save_commitment', args, actions)).toMatchObject({ ok: false, error: COACH_COMMITMENT_INVALID });
+      expect(deps.commitments.update).not.toHaveBeenCalled();
+      expect(actions.commitmentSaved).toBeUndefined();
+    });
+
+    it('answers unavailable (no raw error text) when the write fails or no writer is bound', async () => {
+      const { deps } = makeDeps();
+      deps.commitments.update.mockRejectedValue(new Error('db exploded: secret detail'));
+      const failed = await run(deps, 'save_commitment', { why: 'x', preferredTime: null });
+      expect(failed).toMatchObject({ error: 'unavailable' });
+      expect(JSON.stringify(failed)).not.toContain('exploded');
+
+      const { deps: unbound } = makeDeps();
+      delete (unbound as { commitments?: unknown }).commitments;
+      expect(await run(unbound, 'save_commitment', { why: 'x', preferredTime: null })).toMatchObject({ error: 'unavailable' });
+    });
+
+    it('tells the model to call it only after explicit confirmation', () => {
+      const { deps } = makeDeps();
+      const description = tools(deps).save_commitment.tool.description;
+      expect(description).toMatch(/explicitly confirmed/);
+      expect(description).toMatch(/does not change the training plan/);
     });
   });
 });

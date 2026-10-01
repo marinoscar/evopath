@@ -1,9 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 import { addDays, fromDbDate, toDbDate } from '../check-ins/local-date';
 import { PrismaService } from '../prisma/prisma.service';
+import { PROGRAM_ACTIVATED_EVENT, type ProgramActivatedEvent } from './program-events';
 import {
   planChangeCitationsSchema,
   planChangeOperationsSchema,
@@ -238,7 +240,11 @@ function badPlan(reason: string, message: string, extra: Record<string, unknown>
 
 @Injectable()
 export class ProgramsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so the many hand-built instances in the test suites need no stub.
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   // ===========================================================================
   // The chokepoint
@@ -966,6 +972,14 @@ export class ProgramsService {
         throw conflict(PROGRAM_REASONS.ACTIVE_PROGRAM_CONFLICT, 'Another plan was activated at the same time. Reload and try again.');
       }
       throw error;
+    }
+    // After the commit, ids only (`program-events.ts`); the coach's kickoff
+    // listener only enqueues. A listener error never fails the activation.
+    const event: ProgramActivatedEvent = { userId, programId };
+    try {
+      this.events?.emit(PROGRAM_ACTIVATED_EVENT, event);
+    } catch {
+      // EventEmitter2 rethrows a synchronous listener error; activation already committed.
     }
     return this.get(userId, programId);
   }

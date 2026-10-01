@@ -47,11 +47,11 @@ export class CoachPlanningMetrics {
     });
   }
 
-  momentPlanned(moment: CoachMoment): void {
+  momentPlanned(moment: CoachMoment | 'kickoff'): void {
     if (telemetryGate.isEnabled()) this.planned.add(1, { 'coach.moment': moment });
   }
 
-  suppressed(reason: CoachSuppressionMetricReason, moment: CoachMoment): void {
+  suppressed(reason: CoachSuppressionMetricReason, moment: CoachMoment | 'kickoff'): void {
     if (telemetryGate.isEnabled()) this.suppressedCounter.add(1, { 'coach.reason': reason, 'coach.moment': moment });
   }
 

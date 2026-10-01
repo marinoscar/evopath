@@ -402,3 +402,70 @@ function gate(
 
   return null;
 }
+
+// -----------------------------------------------------------------------------
+// The kickoff gate (E7.12)
+// -----------------------------------------------------------------------------
+//
+// `kickoff` is EVENT-DRIVEN (program activation), not planned by the sweep,
+// and it bypasses the usual-time anchor. It still passes the gates, but a
+// gate that only means "not now" DEFERS it to the next allowed instant rather
+// than dropping it: a program is activated once, so a dropped kickoff would
+// never come back.
+//
+//   coach off (AI, system, user)  -> suppress
+//   paused                        -> defer to `pausedUntil`
+//   quiet hours                   -> defer to the end of the quiet window
+//   daily cap reached             -> defer to the next local morning anchor
+//   spacing (3 hours)             -> defer to `lastNudgeAt` + spacing
+//
+// `silencedAt` does not hold it back: activating a plan is the user
+// re-engaging. One kickoff per program is the caller's `momentKey` check.
+// -----------------------------------------------------------------------------
+
+export type KickoffGateDecision =
+  | { action: 'send' }
+  | { action: 'suppress'; reason: 'coach_off' }
+  | { action: 'defer'; reason: 'paused' | 'quiet_hours' | 'daily_cap' | 'spacing'; until: Date };
+
+export interface KickoffGateInput {
+  aiEnabled: boolean;
+  system: Pick<SystemCoachValue, 'enabled' | 'maxNudgesPerDayCeiling'>;
+  user: Pick<ResolvedCoachUserSettings, 'enabled' | 'quietHours' | 'maxNudgesPerDay' | 'preferredTime'>;
+  state: Pick<CoachPlanningState, 'lastNudgeAt' | 'nudgesToday' | 'nudgeDayLocal' | 'pausedUntil'>;
+}
+
+export function kickoffGate(input: KickoffGateInput, now: CoachNow): KickoffGateDecision {
+  const { user, system, state } = input;
+  if (!input.aiEnabled || !system.enabled || !user.enabled) return { action: 'suppress', reason: 'coach_off' };
+
+  if (state.pausedUntil !== null && state.pausedUntil.getTime() > now.instant.getTime()) {
+    return { action: 'defer', reason: 'paused', until: state.pausedUntil };
+  }
+
+  const quietStart = parseTimeOfDay(user.quietHours.start);
+  const quietEnd = parseTimeOfDay(user.quietHours.end);
+  if (quietStart !== null && quietEnd !== null && isWithinQuietHours(now.minuteOfDay, quietStart, quietEnd)) {
+    const minutes = (quietEnd - now.minuteOfDay + MINUTES_PER_DAY) % MINUTES_PER_DAY || MINUTES_PER_DAY;
+    return { action: 'defer', reason: 'quiet_hours', until: addMinutes(now.instant, minutes) };
+  }
+
+  const sentToday = state.nudgeDayLocal === now.date ? state.nudgesToday : 0;
+  const cap = Math.min(user.maxNudgesPerDay, system.maxNudgesPerDayCeiling);
+  if (sentToday >= cap) {
+    // The next local day's morning anchor; the re-run checks every gate again.
+    const minutes = MINUTES_PER_DAY - now.minuteOfDay + morningMinute(user.preferredTime);
+    return { action: 'defer', reason: 'daily_cap', until: addMinutes(now.instant, minutes) };
+  }
+
+  if (state.lastNudgeAt !== null) {
+    const next = state.lastNudgeAt.getTime() + COACH_PLANNING.minSpacingMs;
+    if (next > now.instant.getTime()) return { action: 'defer', reason: 'spacing', until: new Date(next) };
+  }
+
+  return { action: 'send' };
+}
+
+function addMinutes(instant: Date, minutes: number): Date {
+  return new Date(instant.getTime() + minutes * 60_000);
+}

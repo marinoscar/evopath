@@ -210,6 +210,7 @@ describe('CoachChatService (E7.7)', () => {
       'get_progress_photo_summary',
       'get_last_weekly_review',
       'pause_coach',
+      'save_commitment',
     ]);
   });
 

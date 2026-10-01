@@ -40,3 +40,11 @@ export const COACH_MESSAGE_SUBJECT_TYPE = 'coach_message';
 
 /** `jobs.subject_type` of every per-user coach job. */
 export const COACH_USER_SUBJECT_TYPE = 'user';
+
+/**
+ * `jobs.subject_type` of a program-activation kickoff (`ai.coach.nudge`,
+ * E7.12). The subject is the program, so the active-dedup key is per program
+ * (one pending kickoff per program) and a kickoff never collapses onto a
+ * sweep nudge queued for the same user.
+ */
+export const COACH_PROGRAM_SUBJECT_TYPE = 'program';

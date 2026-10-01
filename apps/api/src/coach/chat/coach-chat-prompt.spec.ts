@@ -62,6 +62,12 @@ describe('buildCoachChatInstructions (E7.7)', () => {
     expect(text).toContain('override the persona');
   });
 
+  it('asks for explicit confirmation before save_commitment (E7.12)', () => {
+    const text = instructions('coach', 2, LOCKED);
+    expect(text).toContain('save_commitment');
+    expect(text).toMatch(/only after the user explicitly says yes/);
+  });
+
   it('includes the user\'s why as delimited data, except in the supportive register', () => {
     expect(instructions('coach', 2, LOCKED, false, 'Keep up with my kids')).toContain('<why>Keep up with my kids</why>');
     expect(instructions('coach', 2, LOCKED, true, 'Keep up with my kids')).not.toContain('Keep up with my kids');
