@@ -143,6 +143,12 @@ const MIGRATIONS_AT_288 = [
   // #266, #267 (epic #260): `activity_goals` and `activity_entries`. About
   // activity goals, not notifications.
   '20261002110000_add_activity_goals_and_entries',
+  // #277 (epic #276): health sync devices, runs and diagnostic reports. About
+  // Android Health Connect sync, not notifications.
+  '20261003100000_add_health_sync',
+  // #277 (epic #276): `sleep_sessions` and device external ids on
+  // `measurements`. About health data, not notifications.
+  '20261003110000_add_sleep_and_measurement_external_ids',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
