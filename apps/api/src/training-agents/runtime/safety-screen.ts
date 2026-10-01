@@ -1,5 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 
+import { HealthSummaryReader } from '../../health-summary/health-summary.reader';
+
+import { healthSummaryTexts } from '../context/build-planner-context';
 import { freeTextOf } from '../contracts/training-intake.contract';
 import type { RunKind } from '../graph/run-state';
 import { SAFETY_STOP_GUIDANCE } from '../guardrails/safety-keywords';
@@ -47,11 +50,19 @@ export class PassThroughSafetyScreen implements SafetyScreen {
  * symptom. The conservative level is not decided here: the context builder
  * recomputes it from the same texts plus readiness, so it is checkpointed
  * with the run's context.
+ *
+ * H8 (#192): the user's opt-in AI health summary is screened with the same
+ * rules, for every run kind (create, revise, evaluate), whenever the run
+ * would send it (`HealthSummaryReader.forTraining`: consent on and a ready
+ * summary). A screen built without the reader screens the request only.
  */
 @Injectable()
 export class FreeTextSafetyScreen implements SafetyScreen {
+  constructor(@Optional() private readonly healthSummaries?: HealthSummaryReader) {}
+
   async screen(args: { userId: string; kind: RunKind; input: Record<string, unknown> }): Promise<SafetyScreenResult> {
-    const outcome = screenFreeText(freeTextOf(args.input));
+    const summary = this.healthSummaries ? await this.healthSummaries.forTraining(args.userId) : null;
+    const outcome = screenFreeText([...freeTextOf(args.input), ...healthSummaryTexts(summary)]);
 
     return outcome.level === 'blocked' ? { stop: true, guidance: SAFETY_STOP_GUIDANCE } : { stop: false };
   }
