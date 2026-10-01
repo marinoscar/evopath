@@ -107,6 +107,8 @@ function summary(url: URL, scenario: DashboardScenario) {
         { key: 'p95Ms', label: 'p95 latency', value: null, previous: null, unit: 'ms', sparkline: [] },
         { key: 'errorLogs', label: 'Error logs', value: 0, previous: 0, unit: 'count', sparkline: [] },
         { key: 'warnLogs', label: 'Warning logs', value: 0, previous: 0, unit: 'count', sparkline: [] },
+        // #258: unknown, not zero — the store has no unknown-route column yet (no `unknownRoutes` block).
+        { key: 'unknownRoutes', label: 'Unknown API routes', value: null, previous: null, unit: 'count', sparkline: [] },
         { key: 'lastDataAt', label: 'Last data', value: null, previous: null, unit: 'timestamp', sparkline: [] },
       ],
     };
@@ -115,6 +117,9 @@ function summary(url: URL, scenario: DashboardScenario) {
     ...envelope(url, [
       "SELECT count(*) AS requests FROM opentelemetry_traces WHERE span_kind = 'SPAN_KIND_SERVER'",
       'SELECT count(*) FROM opentelemetry_logs',
+      // #258: the unknown-route statements (the panel's "Open in Explorer" selects them by this column).
+      'SELECT count(*) AS requests FROM opentelemetry_traces WHERE "span_attributes.app.route.matched" = false GROUP BY period',
+      'SELECT method, route FROM opentelemetry_traces WHERE "span_attributes.app.route.matched" = false GROUP BY method, route',
     ]),
     verdict: {
       level: 'critical',
@@ -123,6 +128,7 @@ function summary(url: URL, scenario: DashboardScenario) {
         'p95 latency 2.4 s on GET /api/reports/:id',
         '38 error logs, up from 4 in the previous window',
         'Disk 91.2% full (≥ 85%) — mountpoint: /',
+        '7 requests to unknown API routes (GET /api/coach/messages)',
       ],
     },
     tiles: [
@@ -131,12 +137,27 @@ function summary(url: URL, scenario: DashboardScenario) {
       { key: 'p95Ms', label: 'p95 latency', value: 1840, previous: 212, unit: 'ms', sparkline: spark(n, (i) => 200 + incident(at(i, n)) * 2200) },
       { key: 'errorLogs', label: 'Error logs', value: 38, previous: 4, unit: 'count', sparkline: spark(n, (i) => incident(at(i, n)) * 5) },
       { key: 'warnLogs', label: 'Warning logs', value: 112, previous: 96, unit: 'count', sparkline: spark(n, (i) => 2 + 2 * wave(i, 9)) },
+      { key: 'unknownRoutes', label: 'Unknown API routes', value: 31, previous: 22, unit: 'count', sparkline: [] },
       { key: 'lastDataAt', label: 'Last data', value: new Date(FIXED_NOW - 12_000).toISOString(), previous: null, unit: 'timestamp', sparkline: [] },
     ],
     runtime: [
       { key: 'heapUsedBytes', label: 'Heap used', value: 187_695_104, previous: 162_529_280, unit: 'bytes', sparkline: spark(n, (i) => 160 + i) },
       { key: 'eventLoopDelayP99Ms', label: 'Event-loop delay p99', value: 41.3, previous: 12.1, unit: 'ms', sparkline: spark(n, (i) => 12 + incident(at(i, n)) * 30) },
     ],
+    // #258: a web build calling a route its API lacks, plus anonymous scanner noise.
+    unknownRoutes: {
+      requests: 31,
+      bearer: 7,
+      anonymous: 24,
+      previousRequests: 22,
+      previousBearer: 0,
+      topRoutes: [
+        { method: 'GET', route: '/api/coach/messages', count: 7, bearer: 7, anonymous: 0 },
+        { method: 'GET', route: '/api/.env', count: 14, bearer: 0, anonymous: 14 },
+        { method: 'POST', route: '/api/wp-login.php', count: 10, bearer: 0, anonymous: 10 },
+      ],
+      truncated: false,
+    },
   };
 }
 
@@ -149,12 +170,13 @@ const TRACE_IDS = [
 function topRoutes(scenario: DashboardScenario) {
   if (scenario === 'no_data') return [];
   return [
-    { method: 'POST', route: '/api/jobs', count: 1842, errors: 262, errorRatePct: 14.22, p95Ms: 912 },
-    { method: 'GET', route: '/api/reports/:id', count: 611, errors: 31, errorRatePct: 5.07, p95Ms: 2410 },
-    { method: 'GET', route: '/api/users/:id', count: 4210, errors: 12, errorRatePct: 0.29, p95Ms: 84 },
-    { method: 'PUT', route: '/api/admin/telemetry/config', count: 14, errors: 1, errorRatePct: 7.14, p95Ms: 133 },
-    { method: 'GET', route: '/api/notifications', count: 2980, errors: 0, errorRatePct: 0, p95Ms: 41 },
-    { method: 'POST', route: '/api/auth/refresh', count: 1204, errors: 0, errorRatePct: 0, p95Ms: 18.4 },
+    { method: 'POST', route: '/api/jobs', count: 1842, errors: 262, errorRatePct: 14.22, clientErrors: 18, unknownRequests: 0, unknown: false, p95Ms: 912 },
+    { method: 'GET', route: '/api/reports/:id', count: 611, errors: 31, errorRatePct: 5.07, clientErrors: 4, unknownRequests: 0, unknown: false, p95Ms: 2410 },
+    { method: 'GET', route: '/api/users/:id', count: 4210, errors: 12, errorRatePct: 0.29, clientErrors: 37, unknownRequests: 0, unknown: false, p95Ms: 84 },
+    { method: 'PUT', route: '/api/admin/telemetry/config', count: 14, errors: 1, errorRatePct: 7.14, clientErrors: 0, unknownRequests: 0, unknown: false, p95Ms: 133 },
+    { method: 'GET', route: '/api/coach/messages', count: 7, errors: 0, errorRatePct: 0, clientErrors: 7, unknownRequests: 7, unknown: true, p95Ms: 2.4 },
+    { method: 'GET', route: '/api/notifications', count: 2980, errors: 0, errorRatePct: 0, clientErrors: 0, unknownRequests: 0, unknown: false, p95Ms: 41 },
+    { method: 'POST', route: '/api/auth/refresh', count: 1204, errors: 0, errorRatePct: 0, clientErrors: 0, unknownRequests: 0, unknown: false, p95Ms: 18.4 },
   ];
 }
 
