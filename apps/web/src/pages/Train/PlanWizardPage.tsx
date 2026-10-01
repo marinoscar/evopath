@@ -365,6 +365,53 @@ function ScheduleStep({
         {errors.minutesPerSession && <FormHelperText>{errors.minutesPerSession}</FormHelperText>}
       </FormControl>
 
+      <Box component="section" aria-labelledby="cardio-label">
+        <FormControlLabel
+          control={<Switch checked={form.cardioInclude} onChange={(e) => update('cardioInclude', e.target.checked)} />}
+          label={<span id="cardio-label">Include walking / cardio days</span>}
+        />
+        <FormHelperText sx={{ mt: 0 }}>Easy walks or jogs on the days between your strength workouts. No equipment needed.</FormHelperText>
+        {form.cardioInclude && (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
+            <FormControl sx={{ minWidth: 180 }}>
+              <InputLabel id="cardio-activity-label">Activity</InputLabel>
+              <Select
+                labelId="cardio-activity-label"
+                label="Activity"
+                value={form.cardioActivity}
+                onChange={(e) => update('cardioActivity', e.target.value as WizardForm['cardioActivity'])}
+              >
+                <MenuItem value="walk">Walking</MenuItem>
+                <MenuItem value="run">Jogging</MenuItem>
+                <MenuItem value="any">Either</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Cardio days per week"
+              type="number"
+              value={Number.isFinite(form.cardioDaysPerWeek) ? form.cardioDaysPerWeek : ''}
+              onChange={(e) => update('cardioDaysPerWeek', Math.round(Number(e.target.value)))}
+              error={!!errors['cardio.daysPerWeek']}
+              helperText={errors['cardio.daysPerWeek'] ?? `${L.cardioDaysPerWeek.min} to ${L.cardioDaysPerWeek.max}`}
+              slotProps={{ htmlInput: { min: L.cardioDaysPerWeek.min, max: L.cardioDaysPerWeek.max } }}
+              sx={{ maxWidth: 200 }}
+            />
+            <TextField
+              label="Minutes per cardio session"
+              type="number"
+              value={Number.isFinite(form.cardioMinutesPerSession) ? form.cardioMinutesPerSession : ''}
+              onChange={(e) => update('cardioMinutesPerSession', Math.round(Number(e.target.value)))}
+              error={!!errors['cardio.minutesPerSession']}
+              helperText={
+                errors['cardio.minutesPerSession'] ?? `${L.cardioMinutesPerSession.min} to ${L.cardioMinutesPerSession.max} minutes`
+              }
+              slotProps={{ htmlInput: { min: L.cardioMinutesPerSession.min, max: L.cardioMinutesPerSession.max } }}
+              sx={{ maxWidth: 220 }}
+            />
+          </Stack>
+        )}
+      </Box>
+
       <TextField
         label="Plan length (weeks)"
         type="number"

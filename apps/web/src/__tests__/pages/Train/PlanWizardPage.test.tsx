@@ -108,6 +108,27 @@ describe('PlanWizardPage steps', () => {
     expect(screen.getByText(SAFETY_NOTE)).toBeInTheDocument();
   });
 
+  it('offers walking / cardio days on the schedule step, validated before Next (#265)', async () => {
+    window.sessionStorage.setItem(WIZARD_STORAGE_KEY, JSON.stringify({ step: 1, form: validForm({ daysPerWeek: 3 }) }));
+    renderWizard();
+    const toggle = await screen.findByRole('switch', { name: 'Include walking / cardio days' });
+    expect(screen.queryByLabelText('Cardio days per week')).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    const days = screen.getByLabelText('Cardio days per week');
+    await userEvent.clear(days);
+    await userEvent.type(days, '9');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Choose 1 to 7 cardio days.')).toBeInTheDocument();
+
+    await userEvent.clear(days);
+    await userEvent.type(days, '4');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByRole('heading', { name: 'Limits and preferences', level: 2 })).toBeInTheDocument();
+    const saved = JSON.parse(window.sessionStorage.getItem(WIZARD_STORAGE_KEY) ?? '{}');
+    expect(saved.form).toMatchObject({ cardioInclude: true, cardioActivity: 'walk', cardioDaysPerWeek: 4, cardioMinutesPerSession: 30 });
+  });
+
   it('keeps the answers across a reload of the tab', async () => {
     const first = renderWizard();
     await userEvent.type(screen.getByLabelText('In your words'), 'Get strong');

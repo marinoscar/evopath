@@ -9,6 +9,7 @@
 import {
   TRAINING_INTAKE_LIMITS as L,
   type TrainingAutonomy,
+  type TrainingCardioActivity,
   type TrainingExperience,
   type TrainingGoalType,
   type TrainingIntake,
@@ -38,6 +39,11 @@ export interface WizardForm {
   includeBio: boolean;
   tailorResearch: boolean;
   autonomy: TrainingAutonomy;
+  /** Walking or jogging sessions on top of the strength days (#265). */
+  cardioInclude: boolean;
+  cardioActivity: TrainingCardioActivity;
+  cardioDaysPerWeek: number;
+  cardioMinutesPerSession: number;
 }
 
 /** The goal the wizard starts on when the user has not told us one (#203). */
@@ -63,6 +69,10 @@ export function initialWizardForm(goalType?: TrainingGoalType | null): WizardFor
     includeBio: false,
     tailorResearch: false,
     autonomy: 'autonomous',
+    cardioInclude: false,
+    cardioActivity: 'walk',
+    cardioDaysPerWeek: 3,
+    cardioMinutesPerSession: 30,
   };
 }
 
@@ -93,6 +103,14 @@ export function validateStep(step: number, form: WizardForm, gymIds: string[] | 
     if (!inRange(form.durationWeeks, L.durationWeeks)) {
       errors.durationWeeks = `Choose ${L.durationWeeks.min} to ${L.durationWeeks.max} weeks.`;
     }
+    if (form.cardioInclude) {
+      if (!inRange(form.cardioDaysPerWeek, L.cardioDaysPerWeek)) {
+        errors['cardio.daysPerWeek'] = `Choose ${L.cardioDaysPerWeek.min} to ${L.cardioDaysPerWeek.max} cardio days.`;
+      }
+      if (!inRange(form.cardioMinutesPerSession, L.cardioMinutesPerSession)) {
+        errors['cardio.minutesPerSession'] = `Choose ${L.cardioMinutesPerSession.min} to ${L.cardioMinutesPerSession.max} minutes.`;
+      }
+    }
     if (!form.gymId) errors.gymId = 'Choose a gym, or No equipment.';
     else if (form.gymId !== NO_GYM && gymIds !== null && !gymIds.includes(form.gymId)) {
       errors.gymId = 'This gym no longer exists. Choose another.';
@@ -120,7 +138,7 @@ export function validateAll(form: WizardForm, gymIds: string[] | null = null): W
 export function stepOfField(field: string): number {
   const head = field.replace(/^intake\./, '').split('.')[0];
   if (head === 'goal' || head === 'experience') return 0;
-  if (['daysPerWeek', 'preferredWeekdays', 'minutesPerSession', 'durationWeeks', 'gymId'].includes(head)) return 1;
+  if (['daysPerWeek', 'preferredWeekdays', 'minutesPerSession', 'durationWeeks', 'gymId', 'cardio'].includes(head)) return 1;
   if (['limitations', 'avoidExerciseKeys', 'preferences'].includes(head)) return 2;
   return 3;
 }
@@ -160,6 +178,16 @@ export function toIntake(form: WizardForm): TrainingIntake {
     includeBio: form.includeBio,
     tailorResearch: form.tailorResearch,
     autonomy: form.autonomy,
+    ...(form.cardioInclude
+      ? {
+          cardio: {
+            include: true,
+            activity: form.cardioActivity,
+            daysPerWeek: form.cardioDaysPerWeek,
+            minutesPerSession: form.cardioMinutesPerSession,
+          },
+        }
+      : {}),
   };
 }
 
