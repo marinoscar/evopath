@@ -156,8 +156,24 @@ function RailRow({
       aria-current={active ? 'page' : undefined}
       aria-label={accessibleName}
       sx={{
-        borderRadius: 1,
+        borderRadius: 999,
         mx: 0.5,
+        // MATERIAL 3 ACTIVE INDICATOR: a `primary.container` pill carrying
+        // `primary.onContainer` ink, with the label in `text.primary`.
+        // Expanded, the whole row is the pill; collapsed, only the icon is
+        // (the `ListItemIcon` below), so the row's own selected wash is
+        // switched off there and hover keeps its usual tint. The sx string
+        // tokens resolve to the theme's CSS variables, so the pill follows the
+        // colour scheme without a `palette.mode` branch.
+        '&.Mui-selected': expanded
+          ? {
+              bgcolor: 'primary.container',
+              '&:hover': { bgcolor: 'primary.container' },
+            }
+          : {
+              bgcolor: 'transparent',
+              '&:hover': { bgcolor: 'action.hover' },
+            },
         // `min-width: auto` on a flex item is a hard floor at its min-content
         // width, so one long label would widen the rail — and through it the
         // whole app shell.
@@ -203,9 +219,19 @@ function RailRow({
     >
       <ListItemIcon
         sx={{
-          color: active ? theme.palette.primary.main : theme.palette.text.secondary,
+          color: active ? 'primary.onContainer' : 'text.secondary',
           minWidth: expanded ? 40 : 'auto',
           justifyContent: 'center',
+          // Collapsed: the icon alone is the pill. 12px each side plus the
+          // small icon's 20px is 44px, inside the 48px the row has at 56px.
+          ...(expanded
+            ? {}
+            : {
+                borderRadius: 999,
+                px: 1.5,
+                py: 0.375,
+                bgcolor: active ? 'primary.container' : 'transparent',
+              }),
         }}
       >
         <Icon fontSize={expanded ? 'medium' : 'small'} />
@@ -214,7 +240,13 @@ function RailRow({
       {expanded ? (
         <ListItemText
           primary={label}
-          slotProps={{ primary: { variant: 'body2', noWrap: true } }}
+          slotProps={{
+            primary: {
+              variant: 'body2',
+              noWrap: true,
+              sx: { color: 'text.primary', fontWeight: active ? 600 : 400 },
+            },
+          }}
           sx={{ minWidth: 0, my: 0 }}
         />
       ) : (
@@ -226,7 +258,8 @@ function RailRow({
             fontSize: '0.625rem',
             lineHeight: 1.2,
             maxWidth: '100%',
-            color: active ? theme.palette.primary.main : theme.palette.text.secondary,
+            color: active ? 'text.primary' : 'text.secondary',
+            fontWeight: active ? 600 : 400,
           }}
         >
           {compactLabel ?? label}

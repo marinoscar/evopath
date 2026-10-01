@@ -7,7 +7,7 @@ display name, the repository slug and the two brand colours.
 |---|---|---|
 | `APP_NAME` | `identity.json` → `productName` | |
 | `THEME_COLOR` | `identity.json` → `themeColor` | MUI primary colour, manifest `theme_color`, brand icons |
-| `BACKGROUND_COLOR` | `identity.json` → `backgroundColor` | Manifest `background_color`, icon backgrounds |
+| `BACKGROUND_COLOR` | `identity.json` → `backgroundColor` | The light `background.default`: manifest `background_color` (the splash), opaque corners of the apple-touch icon |
 | `REPO_SLUG` | `identity.json` → `repoSlug` | `owner/name`; published in the OpenAPI document |
 | `REPO_URL` | derived from `REPO_SLUG` | `https://github.com/<slug>` |
 | `APP_SLUG` | derived from `APP_NAME` | Lowercase, hyphenated |
@@ -49,7 +49,7 @@ Keep this list current when you add one.
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `APP_NAME` |
 | Web theme (`palette.primary.main`, light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |
 | Web app manifest | `apps/web/pwa/manifest.ts` | `APP_NAME`, `THEME_COLOR`, `BACKGROUND_COLOR` |
-| Brand icons and favicon (generated pixels) | `apps/web/public/icons/*.png`, `apps/web/public/favicon.ico` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR`, `BACKGROUND_COLOR` |
+| Brand icons and favicon (generated pixels) | `apps/web/public/icons/*.png`, `apps/web/public/favicon.ico` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR` (plate), `BACKGROUND_COLOR` (apple-touch corners) |
 
 ## Brand icons
 
@@ -67,10 +67,27 @@ badge on every OS-level notification (`apps/web/src/sw.ts`,
 `apps/web/src/services/browserNotifications.ts`), so a skipped regeneration
 shows the old brand on every push notification.
 
-The generator redraws the placeholder mark in Pillow; it does not rasterise
-`icons/source.svg`. Once you have a real logo, export the PNGs from your design
-tool at the same sizes, keeping each file's alpha rules (maskable icons
-full-bleed, `badge-96.png` white on transparent, the iOS icon with no alpha).
+The mark is "the path": one white stroke that enters low on the left, dips
+once, climbs to the upper right and ends in a filled dot, on a rounded square
+in `THEME_COLOR`. Four files carry the same geometry and must move together:
+
+| File | Role |
+|---|---|
+| `apps/web/public/icons/source.svg` | Vector master (512 canvas) with the geometry notes; nothing loads it at runtime |
+| `apps/web/public/favicon.svg` | Tab-size crop (32 canvas), served on every page |
+| `apps/web/scripts/generate-icons.py` | Draws the PNGs and `favicon.ico`; Pillow samples the cubics, so no SVG toolchain is needed |
+| `apps/web/src/components/common/BrandMark.tsx` | Inline SVG in the app bar and the login page, coloured from the live theme |
+
+`backgroundColor` is the light `background.default` (`#f2f7f6`, a hand-kept copy of
+`light` `background.default` in `apps/web/src/theme/tokens.ts`): the manifest's
+`background_color` (the splash before first paint) and the opaque corners of
+`apple-touch-icon-180.png`, which has no alpha. It is not the icon plate.
+
+The generator does not rasterise `icons/source.svg`. A fork may keep the mark
+or replace it by editing those four files and re-running the script. A fork
+that prefers a design tool can export the PNGs at the same sizes instead,
+keeping each file's alpha rules (maskable icons full-bleed, `badge-96.png`
+white on transparent, the iOS icon with no alpha).
 
 ## Consuming it from a Vite app
 

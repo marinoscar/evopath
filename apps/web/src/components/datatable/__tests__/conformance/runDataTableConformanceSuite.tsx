@@ -82,7 +82,7 @@ import type {
   DataTableFilterModel,
   DataTableSortState,
 } from '../../types';
-import { lightTheme, darkTheme } from '../../../../theme';
+import { theme } from '../../../../theme';
 import { assertNoInvisibleHitTargets } from '../testUtils/a11yGuards';
 import {
   installLayoutStubs,
@@ -199,13 +199,13 @@ export const conformanceFixtureColumns: DataTableColumn<ConformanceRow>[] = [
  * DataTable suites): that wrapper's `ThemeContextProvider` computes a theme
  * but never applies it via MUI's `<ThemeProvider>` (only `App.tsx` does), so
  * every existing DataTable test in fact renders against MUI's zero-config
- * default theme, never the app's actual `lightTheme`/`darkTheme` palettes.
+ * default theme, never the app's actual light/dark palettes.
  * The theme-aware checks this suite adds (contrast, both-theme axe passes)
  * need the REAL palette, so they use this wrapper instead.
  */
 function renderWithTheme(ui: ReactElement, mode: 'light' | 'dark' = 'light') {
   return rtlRender(
-    <ThemeProvider theme={mode === 'dark' ? darkTheme : lightTheme}>
+    <ThemeProvider theme={theme} defaultMode={mode} forceThemeRerender noSsr>
       <CssBaseline />
       {ui}
     </ThemeProvider>,

@@ -36,11 +36,32 @@ WHAT IT WRITES
     public/icons/apple-touch-icon-180.png  180  iOS Home Screen
     public/favicon.ico                   16/32/48 frames
 
+Every file carries the same mark — "the path" (see MARK GEOMETRY below) — in
+white, on the brand-coloured plate where the family has one.
+
 `public/favicon.svg` and `public/icons/source.svg` are hand-written vector and
 are NOT touched by this script.
 
 Running it is idempotent: same inputs, byte-comparable outputs, every file
 rewritten from scratch.
+
+THE MARK: "THE PATH"
+=============================================================================
+The product is the user's path of health evolution, built on a longitudinal
+record. The mark is that path, reduced to a silhouette: ONE smooth stroke that
+enters low on the left, dips once, then climbs to the upper right and ends in
+a filled dot — the latest measurement, "you are here". One colour, no
+gradient, no outline, so it survives being an alpha mask (the badge) and
+being two pixels wide (the favicon).
+
+Pillow has no Bezier primitive, so each of the two cubic segments is sampled
+into a polyline (`CURVE_SAMPLES` points per segment) and drawn as straight
+`ImageDraw.line` segments with a disc of radius width/2 stamped on EVERY
+vertex. The discs are the round joins and the round start cap in one gesture
+(`ImageDraw.line`'s own `joint="curve"` leaves hairline slivers inside a wide
+stroke when the segments are short, which at 8x supersampling they are); the
+end is hidden under the terminal dot. The polyline's facets are far below one
+output pixel.
 
 THREE PLATFORM RULES THIS ENCODES (get one wrong and the icon looks broken
 only on the platform that cares)
@@ -51,7 +72,7 @@ only on the platform that cares)
    circle of 80% diameter. A maskable icon that reuses the standard artwork
    gets its own rounded corners shaved off.
 2. The Android notification BADGE is used as an ALPHA MASK. Every opaque pixel
-   is repainted in the system's colour, so a blue square would render as a
+   is repainted in the system's colour, so a teal square would render as a
    solid blob. It is therefore a transparent canvas with the mark in white.
 3. The iOS touch icon must have NO alpha channel at all: iOS composites
    transparency against black, so transparent corners come out as black
@@ -158,21 +179,36 @@ FOREGROUND_COLOR = "#ffffff"
 # =============================================================================
 # Mark geometry — all fractions, so the mark is resolution independent
 # =============================================================================
-# The mark: three horizontal rounded bars, centred, of decreasing width. It is
-# deliberately generic (this is a template) and it silhouettes correctly — the
-# widths still read as three distinct bars at 16px, which a glyph or a wordmark
-# would not.
+# Everything below is expressed in MARK-BOX coordinates: a square box, `0..1`
+# on both axes, y DOWN (as in SVG and Pillow), that the mark is laid out in.
+# The box is centred on the canvas and its side is `MARK_RATIO_*` of the
+# canvas. `apps/web/public/icons/source.svg` carries the same numbers scaled
+# onto the 512 canvas, and `public/favicon.svg` onto the 32 canvas with the
+# favicon crop.
+#
+# The stroke's round caps and the end dot overhang the box slightly on purpose
+# (about 0.06 on the left, 0.11 on the right at the dot): the box frames the
+# path's CENTRELINE, which is what the SVG `d` attribute describes too, so the
+# two descriptions share one set of numbers instead of each carrying its own
+# fudge for the stroke width.
 CORNER_RADIUS_RATIO = 0.22   # rounded-square plate radius, as a fraction of size
-BAR_WIDTH_RATIOS = (1.00, 0.75, 0.50)  # top to bottom, as fractions of mark width
-STACK_HEIGHT_RATIO = 0.86    # stack height as a fraction of mark width
-BAR_HEIGHT_RATIO = 0.22      # one bar's height, as a fraction of stack height
-BAR_GAP_RATIO = 0.17         # gap between bars, as a fraction of stack height
-# 3 bars + 2 gaps must fill the stack exactly: 3(0.22) + 2(0.17) == 1.00. The
-# gaps are wider than they need to look good at 512px on purpose: at 16px a bar
-# is about two pixels tall, and a gap thinner than that merges the three bars
-# into one smear.
 
-# How much of the canvas the mark occupies, per icon family.
+# The path: start, then two cubic Bezier segments as (control 1, control 2, end).
+PATH_START = (0.02, 0.78)
+PATH_SEGMENTS = (
+    # The dip: a shallow trough just right of the start.
+    ((0.16, 0.78), (0.28, 0.92), (0.42, 0.90)),
+    # The climb: a long S-curve up to the top-right.
+    ((0.60, 0.88), (0.74, 0.22), (0.98, 0.18)),
+)
+STROKE_WIDTH_RATIO = 0.16    # stroke width, as a fraction of the mark box side
+END_DOT_RADIUS_RATIO = 0.13  # terminal dot radius; > stroke/2 so it reads as a point
+# How finely each cubic is sampled before it is drawn as a polyline. 64 is far
+# more than the eye needs at 8x supersampling; it costs nothing and keeps the
+# tightest part of the climb free of visible facets at 512px.
+CURVE_SAMPLES = 64
+
+# How much of the canvas the mark box occupies, per icon family.
 MARK_RATIO_STANDARD = 0.68   # rounded plate, corners are ours to shape
 MARK_RATIO_MASKABLE = 0.50   # inside the 80%-diameter safe zone with room to spare
 MARK_RATIO_BADGE = 0.70      # no plate, so the mark can breathe wider
@@ -181,35 +217,76 @@ MARK_RATIO_FAVICON = 0.80    # tab-sized: padding costs whole pixels, so spend f
 # Anti-aliasing. Pillow's drawing primitives are hard-edged, so everything is
 # drawn at this multiple and downsampled with LANCZOS; that resample IS the
 # anti-aliasing. 8x rather than 4x because the 16px favicon frame is where it
-# shows: at 4x its bar edges land on visibly coarser alpha steps.
+# shows: at 4x the stroke's edges land on visibly coarser alpha steps.
 SUPERSAMPLE = 8
 
 
-def draw_mark(draw: ImageDraw.ImageDraw, size: int, mark_ratio: float, fill: str) -> None:
-    """Draw the three-bar mark centred on a `size`x`size` canvas.
+def _cubic_point(
+    p0: tuple[float, float],
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    p3: tuple[float, float],
+    t: float,
+) -> tuple[float, float]:
+    """Evaluate a cubic Bezier at `t` in [0, 1]."""
+    u = 1.0 - t
+    a, b, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
+    return (
+        a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+        a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
+    )
 
-    `mark_ratio` is the width of the widest (top) bar as a fraction of the
-    canvas; the stack is centred on both axes.
+
+def path_points() -> list[tuple[float, float]]:
+    """The whole path as one polyline in mark-box coordinates.
+
+    Each cubic contributes `CURVE_SAMPLES` points, excluding its start (which
+    is the previous segment's end), so consecutive segments share no duplicate
+    vertex — a zero-length segment would otherwise give `joint="curve"` a
+    degenerate direction to round.
     """
-    mark_width = size * mark_ratio
-    stack_height = mark_width * STACK_HEIGHT_RATIO
-    bar_height = stack_height * BAR_HEIGHT_RATIO
-    bar_gap = stack_height * BAR_GAP_RATIO
+    points = [PATH_START]
+    current = PATH_START
+    for control1, control2, end in PATH_SEGMENTS:
+        for step in range(1, CURVE_SAMPLES + 1):
+            points.append(_cubic_point(current, control1, control2, end, step / CURVE_SAMPLES))
+        current = end
+    return points
 
-    center_x = size / 2
-    top = (size - stack_height) / 2
-    # Pill ends: a radius of half the bar height is the largest that is still a
-    # rounded rectangle rather than a lozenge with a flat middle.
-    radius = bar_height / 2
 
-    for index, width_ratio in enumerate(BAR_WIDTH_RATIOS):
-        bar_width = mark_width * width_ratio
-        y0 = top + index * (bar_height + bar_gap)
-        draw.rounded_rectangle(
-            (center_x - bar_width / 2, y0, center_x + bar_width / 2, y0 + bar_height),
-            radius=radius,
-            fill=fill,
-        )
+def draw_mark(draw: ImageDraw.ImageDraw, size: int, mark_ratio: float, fill: str) -> None:
+    """Draw the path mark centred on a `size`x`size` canvas.
+
+    `mark_ratio` is the mark box's side as a fraction of the canvas; the box
+    is centred on both axes and the path is laid out inside it.
+    """
+    box = size * mark_ratio
+    origin = (size - box) / 2
+    stroke = box * STROKE_WIDTH_RATIO
+    dot_radius = box * END_DOT_RADIUS_RATIO
+
+    points = [(origin + x * box, origin + y * box) for x, y in path_points()]
+
+    # Pillow's `width` is an integer number of pixels; at SUPERSAMPLE x the
+    # rounding error is a fraction of one OUTPUT pixel. No `joint=` argument:
+    # the discs below are the joins (see the module docstring for why not
+    # `joint="curve"`).
+    draw.line(points, fill=fill, width=max(1, round(stroke)))
+
+    # A disc on every vertex: round joins between the facets, and a round cap
+    # at the start. Without the cap a square end on a two-pixel stroke reads
+    # as a notch at favicon size.
+    half = stroke / 2
+    for x, y in points:
+        draw.ellipse((x - half, y - half, x + half, y + half), fill=fill)
+
+    # The terminal dot: "you are here". Larger than the stroke's half-width so
+    # it reads as a point on the line rather than as the line's rounded end.
+    end_x, end_y = points[-1]
+    draw.ellipse(
+        (end_x - dot_radius, end_y - dot_radius, end_x + dot_radius, end_y + dot_radius),
+        fill=fill,
+    )
 
 
 def render_standard(size: int, mark_ratio: float = MARK_RATIO_STANDARD) -> Image.Image:
@@ -276,8 +353,8 @@ def main() -> None:
     # differ: 16px is the browser tab, 32px the bookmark bar and taskbar, 48px
     # a Windows desktop shortcut. Each frame is rendered and downsampled
     # independently rather than letting the ICO encoder shrink one big frame —
-    # the 16px bars survive the difference visibly. They also use the tighter
-    # favicon crop, which `public/favicon.svg` matches.
+    # the 16px stroke and dot survive the difference visibly. They also use the
+    # tighter favicon crop, which `public/favicon.svg` matches.
     frames = [render_standard(size, MARK_RATIO_FAVICON) for size in FAVICON_ICO_SIZES]
     ico_path = PUBLIC_DIR / "favicon.ico"
     frames[-1].save(

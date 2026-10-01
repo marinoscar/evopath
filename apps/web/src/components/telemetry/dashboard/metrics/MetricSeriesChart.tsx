@@ -11,10 +11,11 @@
  *
  * Built on `@mui/x-charts`, like the API and log timelines.
  */
-import { Box, Typography, useTheme } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { DashboardMetricSeries } from '../../../../services/telemetryDashboard';
 import { formatBucketLabel, formatMetricValue, formatTimestamp } from '../format';
+import { useChartSeries } from '../../../../theme/chartPalette';
 
 /** Lines past this many are left out (and said so): a 20-line chart reads as noise. */
 export const METRIC_CHART_MAX_LINES = 8;
@@ -46,7 +47,6 @@ export function MetricSeriesChart({
   colorFor,
   testId,
 }: MetricSeriesChartProps) {
-  const theme = useTheme();
   if (series.length === 0) return null;
   const shown = series.slice(0, METRIC_CHART_MAX_LINES);
   const hidden = series.length - shown.length;
@@ -56,17 +56,10 @@ export function MetricSeriesChart({
     (longest, s) => (s.points.length > longest.length ? s.points.map((p) => p.t) : longest),
     [],
   );
-  // Distinct hues first (primary and info are both blue in this theme).
-  const palette = [
-    theme.palette.primary.main,
-    theme.palette.secondary.main,
-    theme.palette.warning.main,
-    theme.palette.success.main,
-    theme.palette.error.main,
-    theme.palette.info.main,
-    theme.palette.grey[500],
-    theme.palette.text.primary,
-  ];
+  // The theme's categorical series (`theme/chartPalette.ts`): six distinct
+  // hues per colour scheme, none of them a status colour. `colorFor` is the
+  // only route to success/error, for lines that ARE a status (`outcome`).
+  const palette = useChartSeries();
   const step = compact ? Math.max(1, Math.ceil(starts.length / 4)) : 1;
 
   return (

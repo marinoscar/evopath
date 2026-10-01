@@ -13,6 +13,7 @@
  */
 
 import { Paper, Stack, Button, Typography, Box } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import type { DataTableBulkAction } from './types';
 
@@ -58,10 +59,14 @@ export function BulkActionBar({ ids, actions, onClear, total }: BulkActionBarPro
         minWidth: 0,
         maxWidth: '100%',
         borderColor: 'primary.main',
+        // A translucent primary tint over the paper, so the bar reads as a
+        // selection accent in whichever colour scheme is active rather than a
+        // hard-coded hue. `ThemeContext` mounts the provider with
+        // `forceThemeRerender`, so `theme.palette` follows the active scheme.
         bgcolor: (theme) =>
           theme.palette.mode === 'dark'
-            ? 'rgba(144, 202, 249, 0.10)'
-            : 'rgba(25, 118, 210, 0.06)',
+            ? alpha(theme.palette.primary.main, 0.1)
+            : alpha(theme.palette.primary.main, 0.06),
       }}
     >
       <Typography variant="body2" sx={{ fontWeight: 600 }} aria-live="polite" role="status">

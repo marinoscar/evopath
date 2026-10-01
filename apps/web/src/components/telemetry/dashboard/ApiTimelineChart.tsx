@@ -25,6 +25,7 @@ import type { DashboardApiBucket } from '../../../services/telemetryDashboard';
 import { formatDuration } from './format';
 import { TIMELINE_AXIS_ID, timelineXAxis } from './timelineAxis';
 import { ZoomBrush } from './ZoomBrush';
+import { useChartSeries } from '../../../theme/chartPalette';
 
 export interface TimelineChartProps {
   height: number;
@@ -41,6 +42,7 @@ export interface ApiTimelineChartProps extends TimelineChartProps {
 
 export function ApiTimelineChart({ buckets, height, spanMs, compact, zoom, onZoomBuckets }: ApiTimelineChartProps) {
   const theme = useTheme();
+  const series = useChartSeries();
   const starts = buckets.map((bucket) => bucket.t);
   const bar = (id: 's2xx' | 's3xx' | 's4xx' | 's5xx', label: string, color: string) => ({
     type: 'bar' as const,
@@ -62,8 +64,11 @@ export function ApiTimelineChart({ buckets, height, spanMs, compact, zoom, onZoo
         height={height}
         skipAnimation
         series={[
-          bar('s2xx', '2xx', theme.palette.success.main),
-          bar('s3xx', '3xx', theme.palette.info.main),
+          // 2xx and 3xx are categories, so they take series colours; 4xx and
+          // 5xx ARE statuses (client / server failure) and keep the status
+          // colours. Status colours are never generic series colours.
+          bar('s2xx', '2xx', series[0]),
+          bar('s3xx', '3xx', series[4]),
           bar('s4xx', '4xx', theme.palette.warning.main),
           bar('s5xx', '5xx', theme.palette.error.main),
           {

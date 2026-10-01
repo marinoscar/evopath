@@ -35,6 +35,7 @@ import {
   Typography,
   ButtonBase,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import type { DataTableColumn, DataTableDensity, DataTableRowAction } from '../types';
@@ -154,10 +155,13 @@ export function DataCard<Row>({
         ...(selected
           ? {
               borderColor: 'primary.main',
+              // Translucent primary tint over the card's paper (the same wash
+              // `BulkActionBar.tsx` paints), derived from the active scheme's
+              // `primary.main` rather than a hard-coded hue.
               bgcolor: (theme) =>
                 theme.palette.mode === 'dark'
-                  ? 'rgba(144, 202, 249, 0.10)'
-                  : 'rgba(25, 118, 210, 0.06)',
+                  ? alpha(theme.palette.primary.main, 0.1)
+                  : alpha(theme.palette.primary.main, 0.06),
             }
           : {}),
       }}

@@ -78,12 +78,11 @@
 import React, { Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
 import { AuthContext } from '../src/contexts/AuthContext';
 import { AiConfigProvider } from '../src/contexts/AiConfigContext';
-import { ThemeContextProvider, useThemeContext } from '../src/contexts/ThemeContext';
+import { ThemeContextProvider } from '../src/contexts/ThemeContext';
 import { ProtectedRoute } from '../src/components/common/ProtectedRoute';
 import { RequirePermission } from '../src/components/common/RequirePermission';
 import { RequireTelemetryEnabled } from '../src/components/common/RequireTelemetryEnabled';
@@ -323,13 +322,15 @@ function HarnessRoutes() {
 }
 
 /**
- * Reads the real `ThemeContext` and wraps in MUI's `ThemeProvider` +
- * `CssBaseline` — the exact composition `App.tsx`'s `AppRoutes` uses.
+ * `CssBaseline` plus the route tree — the exact composition `App.tsx`'s
+ * `AppRoutes` uses. MUI's `ThemeProvider` is mounted by the real
+ * `ThemeContextProvider` above (it owns the colour scheme); nesting a second
+ * one here with the resolved theme would re-merge the DEFAULT (light) scheme
+ * over `theme.palette` and desynchronise it from the CSS variables.
  */
 function Inner() {
-  const { theme: muiTheme } = useThemeContext();
   return (
-    <ThemeProvider theme={muiTheme}>
+    <>
       <CssBaseline />
       <ErrorBoundary>
         <Suspense fallback={<LoadingSpinner fullScreen />}>
@@ -342,7 +343,7 @@ function Inner() {
           )}
         </Suspense>
       </ErrorBoundary>
-    </ThemeProvider>
+    </>
   );
 }
 
