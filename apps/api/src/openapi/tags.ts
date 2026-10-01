@@ -303,6 +303,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'pre-run token estimate against your per-run cap (tokens only, never a price). ' +
           'Requires `ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
       },
+      {
+        name: 'Coach',
+        description:
+          'The AI Coach: accountability nudges, personas, chat, the weekly review and the header state. ' +
+          'Server code decides when the coach may speak (quiet hours, caps, spacing, pauses, safety); ' +
+          'every number comes from the training signals, never a model. Requires `ai:use` and answers ' +
+          '`403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
+      },
     ],
   },
   {

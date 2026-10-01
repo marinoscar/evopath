@@ -163,6 +163,10 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'telemetry.stack.deploy': 'Telemetry services deploy',
   // One user's "factory reset" of their own data (#202), from Settings.
   'user.data_reset': 'User data reset',
+  // Hourly: plans each coach-enabled user's next moment (E7.4).
+  'coach.sweep': 'Coach sweep',
+  // Plans a comeback, PR or weekly-target moment after a finished workout (E7.4).
+  'coach.workout_finished': 'Coach workout check',
 };
 
 /**
