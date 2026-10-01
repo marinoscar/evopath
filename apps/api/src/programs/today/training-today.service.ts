@@ -8,7 +8,7 @@ import { isUniqueViolation } from '../../gyms/gym-views';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkoutsService } from '../../workouts/workouts.service';
 import type { LoadGuidance, PlanExercise, PlanWorkout } from '../contracts/plan-tree.contract';
-import { liveTreeOf } from '../plan-diff';
+import { liveTreeOf, repsPrescriptionOf } from '../plan-diff';
 import { loadProgramRows } from '../program-mapper';
 import { REVIEW_KINDS, type ChangeActor } from '../programs.constants';
 import type {
@@ -237,6 +237,7 @@ export class TrainingTodayService {
       where: { programWorkoutId },
       orderBy: [{ position: 'asc' }, { id: 'asc' }],
       select: {
+        id: true,
         exerciseId: true,
         equipmentTypeId: true,
         isPriority: true,
@@ -261,9 +262,7 @@ export class TrainingTodayService {
       equipmentTypeId: row.equipmentTypeId,
       slug: row.exercise.slug,
       trackingMode: row.exercise.trackingMode,
-      targetSets: row.targetSets,
-      repMin: row.repMin,
-      repMax: row.repMax,
+      ...repsPrescriptionOf(row),
       targetRpe: row.targetRpe === null ? null : Number(row.targetRpe),
       targetLoadKg: row.targetLoadKg === null ? null : Number(row.targetLoadKg),
       loadGuidance: row.loadGuidance,

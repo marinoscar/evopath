@@ -66,6 +66,8 @@ export async function loadProgramRows(db: Db, programId: string): Promise<Progra
         targetSets: true,
         repMin: true,
         repMax: true,
+        targetDurationSeconds: true,
+        targetDistanceMeters: true,
         targetLoadKg: true,
         targetRpe: true,
         restSeconds: true,
@@ -84,6 +86,7 @@ export async function loadProgramRows(db: Db, programId: string): Promise<Progra
     workouts,
     exercises: exercises.map((row) => ({
       ...row,
+      targetDistanceMeters: toNumber(row.targetDistanceMeters),
       targetLoadKg: toNumber(row.targetLoadKg),
       targetRpe: toNumber(row.targetRpe),
     })),

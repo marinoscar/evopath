@@ -167,7 +167,7 @@ export class SignalsLoader {
     const exercises = new Map<string, Array<{ exerciseId: string; targetSets: number; position: number }>>();
     for (const row of rows.exercises) {
       const list = exercises.get(row.programWorkoutId) ?? [];
-      list.push({ exerciseId: row.exerciseId, targetSets: row.targetSets, position: row.position });
+      list.push({ exerciseId: row.exerciseId, targetSets: row.targetSets ?? 1, position: row.position });
       exercises.set(row.programWorkoutId, list);
     }
 
