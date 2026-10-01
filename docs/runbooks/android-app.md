@@ -180,7 +180,7 @@ Start with the self-test under **Diagnostics** on the phone. Each failing or war
 | Check id | Symptom | Cause | Fix |
 |---|---|---|---|
 | `app.version` | Warns the signing certificate could not be read | The installed APK's signature is unreadable (a broken or repackaged install) | Reinstall the APK ([section 5](#5-install-the-apk)). Otherwise it passes and shows the version, package and fingerprint. |
-| `app.update` | Pass: up to date. Warns: an update is available. Skip: the server hosts no release | The server's current release has a higher `versionCode` than the installed app | Download the update from the app's **Health sync** screen, or on the web from Settings, then **Android app** ([section 5](#5-install-the-apk)). |
+| `app.update` | Pass: up to date. Warns: an update is available. Skip: the server hosts no release (or one for another package), the phone is not paired, or the check failed | The server's current release has a higher `versionCode` than the installed app | Download the update from the app's **Health sync** screen, or on the web from Settings, then **Android app** ([section 5](#5-install-the-apk)). |
 | `server.configured` | Fails | No server address stored | Enter it in the app's settings. |
 | `server.reachable` | Fails, or warns slow | No network, wrong address, or the deployment is down | Open the address in the phone's browser; fix the URL or the deployment. `/api/health/live` must answer 200. |
 | `api.connection` | Fails or warns slow | Combines `server.reachable` and `auth.valid`, with both latencies (`liveLatencyMs`, `authLatencyMs`) | Fix the failing half first: the network or address for reachability, re-pairing for a refused token. |
