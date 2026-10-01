@@ -18,7 +18,9 @@ intake/
   intake.module.ts           # Exports IntakeKindRegistry and IntakeService
   intake-kind.interface.ts   # IntakeKind, IntakeApplyArgs, AiDraftInput, status enums
   intake-kind.registry.ts    # IntakeKindRegistry: register(), get(), require(), list()
-  intake-analyzer.ts         # Shared chunk loop, photo content and error handling for analyzer jobs
+  intake-analyzer.ts         # Shared chunk loop, input parts (image/file) and error handling for analyzer jobs
+  intake-inputs.ts           # Accepted inputs, MIME/size caps, magic-byte sniff, PDF page counting (pure)
+  intake-input-inspector.ts  # IntakeInputInspector: reads a stored file's bytes back through STORAGE_PROVIDER
   intake.service.ts          # Routes' logic + replaceAiDrafts / failIntake for jobs
   storage-object-references.ts # StorageObjectReferences: consumers that still use an intake photo
   intake.controller.ts       # /api/intakes (analyze sits behind AiEnabledGuard)
@@ -100,7 +102,9 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
 | `valueSchema` | Validates every `DraftItem.value`: a user's add or edit, and the analyzer job's items in `replaceAiDrafts`. |
 | `analyzeJobType` | The server-only `ai.*` job type, or `null`. A `null` kind answers `analyze` with 400 `MANUAL_ONLY_KIND`. |
 | `aiFeature` | Required when `analyzeJobType` is set: the AI feature id (`AI_FEATURE_IDS`) whose administrator-assigned model analyzes this kind. `IntakeKindRegistry.register` throws for an analyzer kind without one. Register a new id first (see [the AI README](../ai/README.md)). |
-| `maxPhotos` | Optional; default 48 (`DEFAULT_INTAKE_MAX_PHOTOS`). |
+| `maxPhotos` | Optional; default 48 (`DEFAULT_INTAKE_MAX_PHOTOS`). A PDF counts as one photo. |
+| `acceptedInputs` | Optional; `['image']` by default, or `['image', 'pdf']` (`INTAKE_INPUT_KINDS`). What files an attach accepts; a PDF on a kind without `'pdf'` is a 400 `UNSUPPORTED_MEDIA_TYPE`. The registry refuses an empty list, an unknown entry or a duplicate. `body_metric_reading` accepts PDFs; `gym_equipment` and `workout_prefill` stay image-only. See [Accepted Inputs](#accepted-inputs). |
+| `maxPdfPages` | Optional; default 20 (`INTAKE_PDF_MAX_PAGES`). The most pages one PDF input may have; a positive integer. |
 | `itemKinds` | Optional allow-list for `DraftItem.kind`. Omitted means any non-empty string. |
 | `requiredPermissions` | Optional `{ read?, write? }`: permissions this kind needs on top of the routes' `intakes:read` / `intakes:write`. See [Kind Permissions](#kind-permissions). |
 | `healthDocumentKind` | Optional (`body_metric`, `lab_report`). Declares a health intake kind: each attached file becomes one `HealthDocument` carrying the user's `retainFiles` choice, `apply` receives them as `args.healthDocuments`, and a `delete_after_processing` file is erased by the `health.document.purge` job once the intake is applied or discarded. `body_metric_reading` is the worked example. |
@@ -146,7 +150,8 @@ neither the client nor the kind chooses one. The handler:
 
 1. Reads the intake (`provider`, `modelId`, `userId`) and its photos by id.
 2. Calls the model through `AiService.forUser(intake.userId)`, with the photos
-   as stored image inputs. See [the AI README](../ai/README.md).
+   as stored inputs (`intakeInputPart`: images as `image` parts, PDFs as `file`
+   parts). See [the AI README](../ai/README.md).
 3. Hands every item the model returned to `IntakeService.replaceAiDrafts`.
 4. On failure, calls `IntakeService.failIntake` and throws.
 
@@ -234,6 +239,52 @@ export class GymPhotoObjectReferences implements StorageObjectReferenceChecker, 
   delete removes them by cascade). `GymStorageService.deleteObjects` is the
   worked example.
 
+## Accepted Inputs
+
+An attach is checked cheapest first, so a bad file is refused at attach time,
+before any AI call (`IntakeService.attachPhoto`):
+
+1. **Declared type.** The storage object's MIME type must be one the kind
+   accepts: a PNG, JPEG, GIF or WebP image, or `application/pdf` for a kind
+   whose `acceptedInputs` lists `'pdf'`. Otherwise 400 `UNSUPPORTED_MEDIA_TYPE`
+   with `details.allowed`.
+2. **Size.** 20 MiB for an image, 50 MiB for a PDF (the AI platform's
+   `AI_STORAGE_INPUT_IMAGE_MAX_BYTES` / `AI_STORAGE_INPUT_FILE_MAX_BYTES`).
+   Otherwise 400 `OBJECT_TOO_LARGE` with `details.maxBytes`.
+3. **Stored bytes.** `IntakeInputInspector` reads the object back through
+   `STORAGE_PROVIDER`: the first 1024 bytes of an image, the whole of a PDF
+   (bounded by 50 MiB). The magic bytes must agree with the declared type
+   (a text file renamed to `.pdf` is 400 `UNSUPPORTED_MEDIA_TYPE` with
+   `details.contentMismatch: true`), and a PDF's pages are counted against
+   `maxPdfPages` (400 `TOO_MANY_PAGES` with `details.pages` and
+   `details.maxPages`). A PDF whose pages cannot be counted is 400
+   `PDF_UNREADABLE`.
+
+`POST /api/intakes/:id/analyze` repeats the checks before it queues anything:
+every attached file must still be a type the kind accepts, each PDF is read and
+counted again, and a PDF requires `file_input` on top of `vision_input` and
+`structured_output`. A model without it is refused with `AI_CAPABILITY_UNSUPPORTED`,
+`details.capability: 'file_input'`, `details.inputKind: 'pdf'` and the message
+"Your AI model can't read PDFs; choose a model with file input or upload an
+image." No job is queued and no provider is called.
+
+The page counter (`countPdfPages` in `intake-inputs.ts`) needs no PDF library:
+it counts `/Type /Page` objects in the clear and inside Flate-compressed object
+streams, under a 64 MiB inflate budget. It errs high (an incremental update may
+be counted twice), never low.
+
+Analyzer jobs map each input with `intakeInputPart`: an image to
+`{ type: 'image', storageObjectId, detail: 'high' }`, a PDF to
+`{ type: 'file', storageObjectId }`, labelled `Photo <n> (PDF document):`.
+The span attribute `intake.input_kind` (`image`, `pdf` or `mixed`) is set on
+attach, analyze and the `body_metric_reading` job. Nothing logs file bytes, names
+or presigned URLs.
+
+In tests, `src/intake/testing/input-inspector.stub.ts` has
+`trustingInputInspector()` (for rows without bytes) and
+`inMemoryInputInspector(blobs)` (the real inspector over an in-memory storage);
+`src/intake/testing/pdf-bytes.ts` builds PDFs with a known page count.
+
 ## Provenance Fields
 
 The draft item is the public contract (`DraftItemView` in OpenAPI). The
@@ -296,8 +347,10 @@ Refusals carry a machine-readable `details.reason` next to the message.
 | `MANUAL_ONLY_KIND` | 400 | `analyze` on a kind whose `analyzeJobType` is `null`. |
 | `NO_PHOTOS` | 400 | `analyze` with no photo attached. |
 | `OBJECT_NOT_READY` | 400 | The storage object is not `ready`. |
-| `UNSUPPORTED_MEDIA_TYPE` | 400 | The object is not a PNG, JPEG, GIF or WebP image. |
-| `OBJECT_TOO_LARGE` | 400 | The image is over 20 MiB. |
+| `UNSUPPORTED_MEDIA_TYPE` | 400 | The object is not a type the kind accepts (a PNG, JPEG, GIF or WebP image; a PDF only where `acceptedInputs` lists it), or its bytes do not match its type (`details.contentMismatch`). |
+| `OBJECT_TOO_LARGE` | 400 | The image is over 20 MiB, or the PDF over 50 MiB. |
+| `TOO_MANY_PAGES` | 400 | The PDF has more pages than the kind's `maxPdfPages` (default 20); `details.pages`, `details.maxPages`. |
+| `PDF_UNREADABLE` | 400 | The PDF's pages cannot be counted (damaged, or its page objects are encrypted). |
 | `TOO_MANY_PHOTOS` | 400 | The intake already holds `maxPhotos`. |
 | `PENDING_ITEMS` | 400 | `apply` while items are still `pending`; `details.count` says how many. |
 | `DUPLICATE_PHOTO` | 409 | The object is already attached to this intake. |
@@ -311,7 +364,8 @@ Refusals carry a machine-readable `details.reason` next to the message.
 | `AI_MODEL_ASSIGNMENT_LOCKED` | 409 | The request named a model other than the resolved one; `details.provider` and `details.modelId` name it. |
 
 An analyze refused by the AI gates uses the AI platform's reasons
-(`AI_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_CAPABILITY_UNSUPPORTED`), listed in
+(`AI_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_CAPABILITY_UNSUPPORTED`; for a PDF on a
+model without file input, `details.capability: 'file_input'` and `details.inputKind: 'pdf'`), listed in
 [the AI platform spec](../../../../docs/specs/ai-platform.md).
 
 ## Ownership

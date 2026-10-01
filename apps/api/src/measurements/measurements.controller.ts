@@ -21,6 +21,7 @@ import {
   CreateMeasurementEntryDto,
   LatestMeasurementsDto,
   LIST_PAGE_SIZE_DEFAULT,
+  LIST_CATEGORIES,
   LIST_PAGE_SIZE_MAX,
   ListMeasurementsQueryDto,
   MeasurementDto,
@@ -58,7 +59,9 @@ export class MeasurementsController {
       'Every metric this API knows: canonical unit, allowed units with their conversion `factor` ' +
       '(value in `unit` x factor = canonical value), display unit per unit system, hard bounds ' +
       '(canonical, inclusive), display decimals, allowed methods and, for daily wellness scores, ' +
-      'the scale labels. Plus the shared method vocabulary with labels.',
+      'the scale labels. Lab analytes (category `lab`) also carry their `panel` and the `aliases` ' +
+      'lab reports print for them; their canonical unit is the US conventional one. Plus the ' +
+      'shared method vocabulary with labels.',
   })
   @ApiResponse({ status: 200, description: 'Metric catalog', type: MetricCatalogDto })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
@@ -108,10 +111,12 @@ export class MeasurementsController {
   @ApiOperation({
     summary: 'List measurements',
     description:
-      'Active body and vital readings (wellness scores are served by check-ins), newest ' +
-      '`measuredAt` first, ties broken by insertion time. Values are canonical.',
+      'Active readings, newest `measuredAt` first, ties broken by insertion time. Values and ' +
+      'reference limits are canonical. Body and vital readings by default; lab results with ' +
+      '`category=lab` or a lab `metricKey` (wellness scores are served by check-ins).',
   })
-  @ApiQuery({ name: 'metricKey', required: false, type: String, description: 'A body or vital metric.' })
+  @ApiQuery({ name: 'metricKey', required: false, type: String, description: 'A body, vital or lab metric.' })
+  @ApiQuery({ name: 'category', required: false, enum: LIST_CATEGORIES })
   @ApiQuery({ name: 'from', required: false, type: String, format: 'date-time' })
   @ApiQuery({ name: 'to', required: false, type: String, format: 'date-time' })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -134,10 +139,12 @@ export class MeasurementsController {
   @ApiOperation({
     summary: 'Record one measurement entry',
     description:
-      'Saves 1 to 6 body/vital readings together under a new `entryId`, at one `measuredAt` ' +
-      '(default now). Each value may be sent in any unit the metric allows and is stored in its ' +
-      'canonical unit (rounded to 4 decimals). `bp_systolic` and `bp_diastolic` go together, ' +
-      'systolic above diastolic. `origin` is always `manual`; `origin` and `sourceRef` cannot be sent.',
+      'Saves 1 to 6 body/vital readings, or 1 to 40 lab results from one report, together under ' +
+      'a new `entryId`, at one `measuredAt` (default now). Each value may be sent in any unit the ' +
+      'metric allows and is stored in its canonical unit (rounded to 4 decimals). Lab readings may ' +
+      'carry `referenceLow`/`referenceHigh` (in the same unit, converted too), `referenceText` and ' +
+      '`flag`. `bp_systolic` and `bp_diastolic` go together, systolic above diastolic. `origin` ' +
+      'is always `manual`; `origin` and `sourceRef` cannot be sent.',
   })
   @ApiResponse({ status: 201, description: 'The created entry', type: MeasurementEntryDto })
   @ApiResponse({ status: 400, description: 'Validation error; `details.issues` names each field' })
@@ -158,8 +165,9 @@ export class MeasurementsController {
     description:
       'Supersedes every active reading of the entry: the old rows are kept with `supersededAt` ' +
       'set and new rows (`revision + 1`) carry the changes. Readings not mentioned are copied ' +
-      'unchanged; `readings[].metricKey` must already be in the entry; the blood-pressure rule ' +
-      'is checked on the merged result.',
+      'unchanged, and a lab reading keeps its reference range and flag unless the body changes ' +
+      'them (null clears); `readings[].metricKey` must already be in the entry; the ' +
+      'blood-pressure and range rules are checked on the merged result.',
   })
   @ApiParam({ name: 'entryId', type: String, format: 'uuid' })
   @ApiResponse({ status: 200, description: 'The entry as it now stands', type: MeasurementEntryDto })

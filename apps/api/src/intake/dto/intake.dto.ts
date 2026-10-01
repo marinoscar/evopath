@@ -129,7 +129,11 @@ export const attachPhotoSchema = z
   .object({
     storageObjectId: z
       .uuid()
-      .meta({ description: 'A `ready` image storage object the caller uploaded (PNG, JPEG, GIF or WebP, at most 20 MiB).' }),
+      .meta({
+        description:
+          'A `ready` storage object the caller uploaded: a PNG, JPEG, GIF or WebP image (at most 20 MiB), ' +
+          'or a PDF (at most 50 MiB and 20 pages) for a kind that accepts PDFs.',
+      }),
     retainFiles: retainFilesSchema.meta({
       description:
         "Keep this file after processing; omitted = the intake's choice (`retention`). Only a health intake kind " +

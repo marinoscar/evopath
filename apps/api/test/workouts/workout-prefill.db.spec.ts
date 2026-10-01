@@ -62,6 +62,7 @@ import {
   type WorkoutPrefillExample,
 } from '../fixtures/workout-prefill.fixtures';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { trustingInputInspector } from '../../src/intake/testing/input-inspector.stub';
 
 const { describeWithDb } = resolveDbSuite('workout-prefill.db.spec');
 
@@ -216,6 +217,7 @@ describeWithDb('"Prefill from photo" end to end (real Postgres)', () => {
       { assertUsable: jest.fn(async () => ({})) } as never,
       objects as never,
       stubFeatureResolver({ provider: HARNESS_PROVIDER, modelId: HARNESS_MODEL }) as never,
+      trustingInputInspector(),
       references,
     );
     handler = new WorkoutPrefillHandler(

@@ -150,6 +150,8 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Starts GreptimeDB and the OTel collector through the VPS stack-agent (#567),
   // from "Deploy GreptimeDB" on the telemetry settings page.
   'telemetry.stack.deploy': 'Telemetry services deploy',
+  // One user's "factory reset" of their own data (#202), from Settings.
+  'user.data_reset': 'User data reset',
 };
 
 /**

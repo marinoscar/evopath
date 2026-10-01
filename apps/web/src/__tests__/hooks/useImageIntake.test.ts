@@ -14,9 +14,13 @@ vi.mock('../../utils/downscaleImage', async (importOriginal) => {
 import { downscaleImage, UnsupportedImageError } from '../../utils/downscaleImage';
 import {
   IMAGE_INTAKE_CONCURRENCY,
+  INTAKE_PDF_MAX_BYTES,
+  isPdfFile,
   useImageIntake,
+  type IntakePhotoStage,
   type UploadPhotoContext,
 } from '../../hooks/useImageIntake';
+import { ApiError } from '../../services/api';
 
 interface Deferred {
   file: File;
@@ -39,6 +43,7 @@ function controlledUpload() {
 const image = (name: string) => new File(['x'], name, { type: 'image/jpeg' });
 
 beforeEach(() => {
+  vi.mocked(downscaleImage).mockClear();
   vi.mocked(downscaleImage).mockImplementation(async (file: File) => file);
   URL.createObjectURL = vi.fn((file: Blob) => `blob:${(file as File).name}`);
   URL.revokeObjectURL = vi.fn();
@@ -188,5 +193,129 @@ describe('useImageIntake', () => {
     unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:a.jpg');
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:b.jpg');
+  });
+});
+
+describe('useImageIntake: PDFs (H2, #186)', () => {
+  const pdf = (name = 'report.pdf', type = 'application/pdf') => new File(['%PDF-1.7 x'], name, { type });
+
+  it('without acceptPdf a PDF is skipped as "not an image"', () => {
+    const { uploadPhoto } = controlledUpload();
+    const { result } = renderHook(() => useImageIntake({ uploadPhoto, removePhoto: vi.fn() }));
+    expect(result.current.acceptPdf).toBe(false);
+    act(() => result.current.addFiles([pdf()]));
+    expect(result.current.items).toEqual([]);
+    expect(result.current.notice).toBe('1 file is not an image and was skipped.');
+  });
+
+  it('with acceptPdf a PDF skips the downscale, gets no preview and is uploaded untouched', async () => {
+    const { calls, uploadPhoto } = controlledUpload();
+    const stages: IntakePhotoStage[] = [];
+    const { result } = renderHook(() => {
+      const state = useImageIntake({ uploadPhoto, removePhoto: vi.fn(), acceptPdf: true });
+      const stage = state.items[0]?.stage;
+      if (stage && stages[stages.length - 1] !== stage) stages.push(stage);
+      return state;
+    });
+    const file = pdf();
+
+    act(() => result.current.addFiles([file]));
+    expect(result.current.items[0]).toMatchObject({ name: 'report.pdf', kind: 'pdf', previewUrl: null });
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(downscaleImage).not.toHaveBeenCalled();
+    expect(calls[0].file).toBe(file);
+    expect(calls[0].file.type).toBe('application/pdf');
+
+    await act(async () => calls[0].resolve('obj-pdf'));
+    expect(result.current.items[0]).toMatchObject({ stage: 'ready', storageObjectId: 'obj-pdf' });
+    expect(stages).not.toContain('downscaling');
+  });
+
+  it('types a PDF the platform reported with no type as application/pdf, keeping its bytes and name', async () => {
+    const { calls, uploadPhoto } = controlledUpload();
+    const { result } = renderHook(() => useImageIntake({ uploadPhoto, removePhoto: vi.fn(), acceptPdf: true }));
+    act(() => result.current.addFiles([pdf('scan.PDF', '')]));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].file).toMatchObject({ name: 'scan.PDF', type: 'application/pdf' });
+    expect(await calls[0].file.text()).toBe('%PDF-1.7 x');
+    expect(downscaleImage).not.toHaveBeenCalled();
+  });
+
+  it('images next to a PDF are still downscaled', async () => {
+    const { calls, uploadPhoto } = controlledUpload();
+    const { result } = renderHook(() => useImageIntake({ uploadPhoto, removePhoto: vi.fn(), acceptPdf: true }));
+    act(() => result.current.addFiles([image('a.jpg'), pdf()]));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(downscaleImage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(downscaleImage).mock.calls[0][0].name).toBe('a.jpg');
+    expect(result.current.items.map((item) => item.kind)).toEqual(['image', 'pdf']);
+  });
+
+  it(`skips a PDF over ${INTAKE_PDF_MAX_BYTES / 1024 / 1024} MiB before any upload, with a friendly message`, () => {
+    const { uploadPhoto } = controlledUpload();
+    const { result } = renderHook(() => useImageIntake({ uploadPhoto, removePhoto: vi.fn(), acceptPdf: true }));
+    const big = pdf('huge.pdf');
+    Object.defineProperty(big, 'size', { value: INTAKE_PDF_MAX_BYTES + 1 });
+    const atCap = pdf('ok.pdf');
+    Object.defineProperty(atCap, 'size', { value: INTAKE_PDF_MAX_BYTES });
+    act(() => result.current.addFiles([big, atCap]));
+    expect(result.current.items.map((item) => item.name)).toEqual(['ok.pdf']);
+    expect(result.current.notice).toBe('huge.pdf is larger than 50 MiB, the limit for a PDF, and was skipped.');
+  });
+
+  it('counts PDFs towards maxPhotos and words the notice as files', () => {
+    const { uploadPhoto } = controlledUpload();
+    const { result } = renderHook(() =>
+      useImageIntake({ maxPhotos: 1, uploadPhoto, removePhoto: vi.fn(), acceptPdf: true }),
+    );
+    act(() => result.current.addFiles([pdf('a.pdf'), image('b.jpg'), new File(['x'], 'notes.txt', { type: 'text/plain' })]));
+    expect(result.current.items.map((item) => item.name)).toEqual(['a.pdf']);
+    expect(result.current.notice).toBe(
+      '1 file was not added: at most 1 files. 1 file is not an image or a PDF and was skipped.',
+    );
+  });
+
+  it('shows the server refusal of a PDF in words (TOO_MANY_PAGES)', async () => {
+    const { calls, uploadPhoto } = controlledUpload();
+    const { result } = renderHook(() => useImageIntake({ uploadPhoto, removePhoto: vi.fn(), acceptPdf: true }));
+    act(() => result.current.addFiles([pdf()]));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await act(async () =>
+      calls[0].reject(
+        new ApiError('A PDF may have at most 20 pages', 400, 'BAD_REQUEST', {
+          reason: 'TOO_MANY_PAGES',
+          pages: 34,
+          maxPages: 20,
+        }),
+      ),
+    );
+    expect(result.current.items[0]).toMatchObject({ stage: 'error', error: 'This PDF has 34 pages; the limit is 20.' });
+
+    // Retry uploads the same PDF again, still without a downscale.
+    act(() => result.current.retry(result.current.items[0].key));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].file.name).toBe('report.pdf');
+    expect(downscaleImage).not.toHaveBeenCalled();
+  });
+
+  it('a resumed intake shows a stored .pdf as a PDF tile', () => {
+    const initialPhotos = [
+      { storageObjectId: 'obj-1', name: 'old.jpg' },
+      { storageObjectId: 'obj-2', name: 'InBody report.pdf' },
+    ];
+    const { result } = renderHook(() =>
+      useImageIntake({ uploadPhoto: vi.fn(), removePhoto: vi.fn(), initialPhotos, acceptPdf: true }),
+    );
+    expect(result.current.items.map((item) => item.kind)).toEqual(['image', 'pdf']);
+  });
+
+  it('isPdfFile trusts the declared type and falls back to the extension only without one', () => {
+    expect(isPdfFile({ name: 'a.pdf', type: 'application/pdf' })).toBe(true);
+    expect(isPdfFile({ name: 'a.bin', type: 'application/pdf' })).toBe(true);
+    expect(isPdfFile({ name: 'a.pdf', type: '' })).toBe(true);
+    expect(isPdfFile({ name: 'a.pdf', type: 'image/jpeg' })).toBe(false);
+    expect(isPdfFile({ name: 'a.jpg', type: '' })).toBe(false);
   });
 });

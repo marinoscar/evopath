@@ -512,8 +512,8 @@ evopathcli deploy update
 
 Brings an already-installed server up to the latest revision (or, with
 `--ref`, to a specific one): preflight, fetch, environment-drift,
-ensure-database, version, build, migrate, seed, restart, health, publish,
-renewal, verify. It refuses to run at all if nothing is installed at
+ensure-database, version, build, migrate, seed, restart, edge-config,
+health, publish, renewal, verify. It refuses to run at all if nothing is installed at
 `--root` yet. `ensure-database` and `renewal` are the same steps `install`
 runs (see above): a database that has since been dropped or renamed gets the
 same create-with-consent prompt, and renewal ownership is (re-)checked and
@@ -528,6 +528,13 @@ If the resolved ref's commit hasn't moved since the last successful run,
 `update` exits `0` **without doing anything** — no rebuild, no restart —
 which is what makes it safe to run unattended, e.g. from cron. `--force`
 rebuilds anyway even when the revision is unchanged.
+
+The one step that runs on every `update`, moved or not, is `edge-config`: it
+compares the sha256 of `infra/nginx/nginx.conf` and `csp.conf` in the
+checkout with what the running nginx reads, and recreates nginx
+(`up -d --no-deps --force-recreate nginx`) when they differ. Those files are
+single-file bind mounts, which a plain restart does not re-bind after git
+replaces them; `restart` therefore recreates nginx too.
 
 The database seed **re-runs by default** on every `update`. The seed is
 entirely upserts, and re-running it is the only way a permission or role a
@@ -706,10 +713,22 @@ evopathcli deploy certs --renew --domain app.example.com
 budget. Why the window matters, and how automatic renewal is scheduled, is in
 [`docs/runbooks/deploy-to-vps.md`, "Inspecting and renewing the certificate directly"](../../docs/runbooks/deploy-to-vps.md#10-inspecting-and-renewing-the-certificate-directly).
 
-Exit codes: `0` reported, or renewed and the proxy reloaded; `1` the
-certificate is due or expired and `--renew` was not passed, or a renewal ran
-but the proxy's `nginx -t`/reload failed; `2` nothing is installed at
-`--root`.
+Every call — with or without `--renew` — also probes `<domain>:443` live and
+compares the fingerprint of the certificate the proxy is actually serving
+against the one on disk. This is the one check neither the expiry report
+above (only ever reads the file) nor the ordinary health checks (which never
+go through TLS at all) can catch, and it is what a plain, report-only `certs`
+call now answers: not just "is the file on disk due", but "is what is being
+served right now the file on disk". A mismatch prints the exact remedy
+command for this deployment's configured proxy runtime — for example `sudo
+docker exec proxy-nginx nginx -s reload` in container mode, or `sudo nginx -s
+reload` in host mode.
+
+Exit codes: `0` reported, or renewed and the proxy reloaded, and the served
+certificate matches disk; `1` the certificate is due or expired and
+`--renew` was not passed, a renewal ran but the proxy's `nginx -t`/reload
+failed, or the proxy is serving a certificate that does not match the one on
+disk; `2` nothing is installed at `--root`.
 
 ```
 Options:

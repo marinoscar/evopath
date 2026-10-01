@@ -5,6 +5,7 @@ import { AiError, type AiContentPart, type AiErrorCode } from '../ai/core';
 import { AI_STORAGE_INPUTS_MAX } from '../ai/core/types/file-inputs.types';
 import { AI_RUN_TERMINAL_CODES } from '../ai/runtime/ai-response-run.handler';
 import { aiErrorFromStorage } from '../ai/storage/ai-storage-errors';
+import { declaredInputKind } from './intake-inputs';
 
 // =============================================================================
 // Shared helpers for chunked photo-intake analyzer jobs (E3.4, E4.5)
@@ -27,6 +28,14 @@ import { aiErrorFromStorage } from '../ai/storage/ai-storage-errors';
 //                                          an error is THROWN
 //   - the intake stops scanning between    the run ends as `stopped`
 //     chunks (discarded, settled)
+//
+// INPUTS (H2, #186). An attached file is an image or, for a kind that accepts
+// them, a PDF. `intakeInputPart` maps each to its content part: an image to
+// `{ type: 'image', storageObjectId, detail: 'high' }`, a PDF to
+// `{ type: 'file', storageObjectId }` (the runtime resolves both under the
+// owner's authorization and hands the provider what its delivery strategy
+// needs). A PDF counts as ONE input towards the 16-per-request chunk, however
+// many pages it has; the attach already capped its pages.
 //
 // A model output that does not match the handler's schema (a `ZodError` from
 // the `call`) is AI_STRUCTURED_OUTPUT_INVALID, terminal.
@@ -63,14 +72,50 @@ export function chunkPhotos<T>(items: readonly T[], size = INTAKE_ANALYZER_CHUNK
   return chunks;
 }
 
-/** `Photo 0:`, image, `Photo 1:`, image, ..., then the closing reminder. */
-export function buildPhotoContent(storageObjectIds: readonly string[], reminder: string): AiContentPart[] {
-  const content: AiContentPart[] = [];
+/** One attached file as the analyzer sees it: its storage object and declared MIME type. */
+export interface IntakeAnalyzerInput {
+  storageObjectId: string;
+  /** The storage object's MIME type; omitted or unknown = an image, as before H2. */
+  mimeType?: string | null;
+}
 
-  storageObjectIds.forEach((storageObjectId, index) => {
-    content.push({ type: 'text', text: `Photo ${index}:` });
-    content.push({ type: 'image', storageObjectId, detail: 'high' });
+/** Whether an input is a PDF (by its declared MIME type, which the attach verified against the bytes). */
+export function isPdfInput(input: IntakeAnalyzerInput | string): boolean {
+  return typeof input !== 'string' && declaredInputKind(input.mimeType) === 'pdf';
+}
+
+/** The content part for one input: a `file` part for a PDF, a high-detail `image` part otherwise. */
+export function intakeInputPart(input: IntakeAnalyzerInput | string): AiContentPart {
+  const storageObjectId = typeof input === 'string' ? input : input.storageObjectId;
+
+  return isPdfInput(input)
+    ? { type: 'file', storageObjectId }
+    : { type: 'image', storageObjectId, detail: 'high' };
+}
+
+/**
+ * A text label then the input's part, per input: `Photo <n>:` for an image,
+ * `Photo <n> (PDF document):` for a PDF, numbered from `first`.
+ */
+export function numberedInputParts(inputs: readonly (IntakeAnalyzerInput | string)[], first = 0): AiContentPart[] {
+  return inputs.flatMap((input, index): AiContentPart[] => {
+    const n = index + first;
+    return [
+      { type: 'text', text: isPdfInput(input) ? `Photo ${n} (PDF document):` : `Photo ${n}:` },
+      intakeInputPart(input),
+    ];
   });
+}
+
+/**
+ * `Photo 0:`, image, `Photo 1 (PDF document):`, file, ..., then the closing
+ * reminder. A bare string is a storage object id of an image.
+ */
+export function buildPhotoContent(
+  inputs: readonly (IntakeAnalyzerInput | string)[],
+  reminder: string,
+): AiContentPart[] {
+  const content = numberedInputParts(inputs);
 
   content.push({ type: 'text', text: reminder });
 

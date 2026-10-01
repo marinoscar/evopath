@@ -47,6 +47,7 @@ import { TrainingAgentsModule } from './training-agents/training-agents.module';
 import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
 import { TrainingUsageModule } from './training-usage/training-usage.module';
 import { DoctorModule } from './doctor/doctor.module';
+import { UserDataModule } from './user-data/user-data.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -284,6 +285,10 @@ import configuration from './config/configuration';
     // `/api/ai/training/usage`, read-only, tokens by node, role and month.
     TrainingUsageModule,
 
+    // The caller's own data reset (#202): `/api/user-data/*` under
+    // `user_settings:write`, and the server-only `user.data_reset` job that
+    // deletes everything the caller owns and keeps the account.
+    UserDataModule,
     // First-run onboarding (#203): `GET /api/onboarding`, read-only; the user
     // checklist from cheap existence queries, the admin one from the Doctor.
     OnboardingModule,

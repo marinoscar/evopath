@@ -107,6 +107,49 @@ describe('BodyMetricReadingHandler (E2.6)', () => {
     expect(opts.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it('sends a PDF as a file part next to an image part (H2, #186)', async () => {
+    (prisma.photoIntake.findUnique as jest.Mock).mockResolvedValue(
+      scanningIntake({
+        photos: [
+          { storageObjectId: PHOTO_A, storageObject: { mimeType: 'image/jpeg' } },
+          { storageObjectId: PHOTO_B, storageObject: { mimeType: 'application/pdf' } },
+        ],
+      }),
+    );
+
+    await handler.process(job());
+
+    const [request] = respondStructured.mock.calls[0];
+    expect(request.input[0].content).toEqual([
+      { type: 'text', text: expect.stringContaining('2 photos and documents') },
+      { type: 'text', text: 'Photo 1:' },
+      { type: 'image', storageObjectId: PHOTO_A, detail: 'high' },
+      { type: 'text', text: 'Photo 2 (PDF document):' },
+      { type: 'file', storageObjectId: PHOTO_B },
+    ]);
+    expect(JSON.stringify(request.input)).not.toMatch(/https?:|base64|filename/);
+    expect(intakes.replaceAiDrafts).toHaveBeenCalledTimes(1);
+  });
+
+  it('a model refusing the PDF at run time fails the intake with the PDF message, without throwing', async () => {
+    (prisma.photoIntake.findUnique as jest.Mock).mockResolvedValue(
+      scanningIntake({ photos: [{ storageObjectId: PHOTO_A, storageObject: { mimeType: 'application/pdf' } }] }),
+    );
+    respondStructured.mockRejectedValueOnce(
+      new AiError('AI_CAPABILITY_UNSUPPORTED', 'Model "gpt-vision" does not accept file inputs (application/pdf).', {
+        details: { capability: 'file_input' },
+      }),
+    );
+
+    await handler.process(job());
+
+    expect(intakes.failIntake).toHaveBeenCalledWith(
+      INTAKE_ID,
+      'AI_CAPABILITY_UNSUPPORTED',
+      "Your AI model can't read PDFs; choose a model with file input or upload an image.",
+    );
+  });
+
   it('hands every mapped reading to replaceAiDrafts with diagnostics-only resultMeta', async () => {
     await handler.process(job());
 
@@ -122,7 +165,7 @@ describe('BodyMetricReadingHandler (E2.6)', () => {
           sourcePhotoIds: [PHOTO_A],
         },
       ],
-      { resultMeta: { promptVersion: 1, deviceKind: 'scale', unreadable: false, readingsFlagged: 0, readingsTruncated: 0 } },
+      { resultMeta: { promptVersion: 2, deviceKind: 'scale', unreadable: false, readingsFlagged: 0, readingsTruncated: 0 } },
     );
     expect(intakes.failIntake).not.toHaveBeenCalled();
   });

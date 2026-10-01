@@ -111,15 +111,38 @@ describe('USER_SETTINGS_SECTIONS - Health Profile card (issue #47)', () => {
  * (append, never insert), gated on `ai:use` and hidden while AI is off.
  */
 describe('USER_SETTINGS_SECTIONS - Training agents card', () => {
-  it('appends an AI group after Health, as the last group', () => {
+  it('appends an AI group directly after Health', () => {
     const labels = USER_SETTINGS_SECTIONS.map((section) => section.label);
     expect(labels.indexOf('AI')).toBe(labels.indexOf('Health') + 1);
-    expect(labels[labels.length - 1]).toBe('AI');
   });
 
   it('declares the Training agents card with ai:use and the ai feature gate', () => {
     const ai = USER_SETTINGS_SECTIONS.find((section) => section.label === 'AI');
     const card = ai?.cards.find((c) => c.path === '/settings/ai/agents');
     expect(card).toMatchObject({ title: 'Training agents', permission: 'ai:use', feature: 'ai' });
+  });
+});
+
+/**
+ * Issue #202. The per-user factory reset lives in a NEW `Danger Zone` group,
+ * appended after `AI` as the LAST group (append, never insert). No
+ * `permission` (the API enforces `user_settings:write`, which every role
+ * holds) and no `feature` (it must stay reachable while AI is off).
+ */
+describe('USER_SETTINGS_SECTIONS - Danger Zone card (issue #202)', () => {
+  it('appends a Danger Zone group after AI, as the last group', () => {
+    const labels = USER_SETTINGS_SECTIONS.map((section) => section.label);
+    expect(labels.indexOf('Danger Zone')).toBe(labels.indexOf('AI') + 1);
+    expect(labels[labels.length - 1]).toBe('Danger Zone');
+  });
+
+  it('declares the Delete all my data card with no permission and no feature gate', () => {
+    const group = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Danger Zone');
+    expect(group?.cards).toHaveLength(1);
+    const card = group?.cards[0];
+    expect(card?.title).toBe('Delete all my data');
+    expect(card?.path).toBe('/settings/danger-zone');
+    expect(card?.permission).toBeUndefined();
+    expect(card?.feature).toBeUndefined();
   });
 });

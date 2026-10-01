@@ -11,10 +11,7 @@ import { trace } from '@opentelemetry/api';
 import { DraftItem, PhotoIntake, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
-import {
-  AI_STORAGE_INPUT_IMAGE_MAX_BYTES,
-  AI_STORAGE_INPUT_IMAGE_MIME_TYPES,
-} from '../ai/core/types/file-inputs.types';
+import { AiError } from '../ai/core/ai-error';
 import { AiFeatureModelResolver } from '../ai/assignments/ai-feature-model-resolver.service';
 import { RUNNABLE_FEATURE_STATES } from '../ai/assignments/dto/ai-feature-resolution.dto';
 import {
@@ -28,7 +25,6 @@ import {
 import { UsableModelsService } from '../ai/keys/usable-models.service';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { mimeTypeMatches } from '../storage/mime-type-match';
 import { ObjectsService } from '../storage/objects/objects.service';
 import {
   DEFAULT_INTAKE_MAX_PHOTOS,
@@ -47,6 +43,19 @@ import {
  */
 export type CallerPermissions = readonly string[] | undefined;
 import { IntakeKindRegistry } from './intake-kind.registry';
+import { IntakeInputInspector } from './intake-input-inspector';
+import {
+  acceptedInputsOf,
+  allowedMimeTypes,
+  declaredInputKind,
+  INTAKE_INPUT_KIND_SPAN_ATTRIBUTE,
+  inputKindAttribute,
+  inputMaxBytes,
+  maxPdfPagesOf,
+  PDF_INPUT_UNSUPPORTED_MESSAGE,
+  unsupportedTypeMessage,
+  type IntakeInputKind,
+} from './intake-inputs';
 import { StorageObjectReferences } from './storage-object-references';
 import {
   INTAKE_ERROR_MESSAGE_MAX,
@@ -158,6 +167,12 @@ function asRetention(retention: string | null | undefined): FileRetention {
 /** Sets the retention mode on the active span (the HTTP request's or the job's). */
 function recordRetention(retention: string): void {
   trace.getActiveSpan()?.setAttribute(RETENTION_SPAN_ATTRIBUTE, asRetention(retention));
+}
+
+/** `intake.input_kind` on the active span: `image`, `pdf` or `mixed` (H2, #186). */
+function recordInputKinds(kinds: Iterable<IntakeInputKind>): void {
+  const value = inputKindAttribute(kinds);
+  if (value) trace.getActiveSpan()?.setAttribute(INTAKE_INPUT_KIND_SPAN_ATTRIBUTE, value);
 }
 
 function intakeFields(intake: PhotoIntake) {
@@ -288,6 +303,7 @@ export class IntakeService {
     private readonly usableModels: UsableModelsService,
     private readonly objects: ObjectsService,
     private readonly features: AiFeatureModelResolver,
+    private readonly inputs: IntakeInputInspector,
     // Optional so a hand-built service (tests) needs none; Nest always injects it.
     @Optional() private readonly references: StorageObjectReferences = new StorageObjectReferences(),
   ) {}
@@ -522,7 +538,15 @@ export class IntakeService {
 
     const object = await this.prisma.storageObject.findUnique({
       where: { id: storageObjectId },
-      select: { id: true, name: true, status: true, mimeType: true, size: true, uploadedById: true },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        mimeType: true,
+        size: true,
+        storageKey: true,
+        uploadedById: true,
+      },
     });
 
     // Somebody else's object is indistinguishable from a missing one.
@@ -537,19 +561,8 @@ export class IntakeService {
       throw refuse(400, 'OBJECT_NOT_READY', 'The storage object is not ready yet', { storageObjectId });
     }
 
-    if (!mimeTypeMatches(object.mimeType, AI_STORAGE_INPUT_IMAGE_MIME_TYPES)) {
-      throw refuse(400, 'UNSUPPORTED_MEDIA_TYPE', 'Only PNG, JPEG, GIF and WebP images can be attached', {
-        storageObjectId,
-        allowed: [...AI_STORAGE_INPUT_IMAGE_MIME_TYPES],
-      });
-    }
-
-    if (Number(object.size) > AI_STORAGE_INPUT_IMAGE_MAX_BYTES) {
-      throw refuse(400, 'OBJECT_TOO_LARGE', 'The image is larger than 20 MiB', {
-        storageObjectId,
-        maxBytes: AI_STORAGE_INPUT_IMAGE_MAX_BYTES,
-      });
-    }
+    const kindDef = this.registry.get(intake.kind);
+    const inputKind = this.assertDeclaredInput(kindDef, object, storageObjectId);
 
     const maxPhotos = this.maxPhotosFor(intake.kind);
     const [attached, last] = await Promise.all([
@@ -561,7 +574,11 @@ export class IntakeService {
       throw refuse(400, 'TOO_MANY_PHOTOS', `An intake holds at most ${maxPhotos} photos`, { maxPhotos });
     }
 
-    const documentKind = this.registry.get(intake.kind)?.healthDocumentKind;
+    // The bytes last: the cheap row checks above answer first.
+    await this.assertStoredInput(kindDef, object.storageKey, inputKind, storageObjectId);
+    recordInputKinds([inputKind]);
+
+    const documentKind = kindDef?.healthDocumentKind;
     const retention = options.retainFiles === undefined ? asRetention(intake.retention) : retentionOf(options.retainFiles);
 
     try {
@@ -679,9 +696,12 @@ export class IntakeService {
       throw refuse(400, 'NO_PHOTOS', 'Attach at least one photo before analyzing');
     }
 
+    const inputKinds = await this.recheckInputs(kind, intakeId);
+    recordInputKinds(inputKinds);
+
     const { provider, modelId } = await this.resolveAnalyzeModel(userId, kind, input);
 
-    await this.usableModels.assertUsable(userId, provider, modelId, ['vision_input', 'structured_output']);
+    await this.assertModelReads(userId, provider, modelId, inputKinds);
 
     const analyzeJobType = kind.analyzeJobType;
 
@@ -725,6 +745,170 @@ export class IntakeService {
         throw refuse(409, 'INTAKE_SCANNING', 'An analysis of this intake is still running');
       }
       throw error;
+    }
+  }
+
+  /**
+   * Re-checks every attached file before the analyzer is queued (H2, #186):
+   * its declared type is still one the kind accepts and within the size cap,
+   * and a PDF's stored bytes are read again for the magic bytes and the page
+   * cap. The attach made the same checks; this holds them for links made
+   * before a kind changed its declaration, and keeps "no provider call for a
+   * refused file" true however the link came to be. Returns the input kinds.
+   */
+  private async recheckInputs(kind: IntakeKind<any, any>, intakeId: string): Promise<Set<IntakeInputKind>> {
+    const photos =
+      (await this.prisma.photoIntakePhoto.findMany({
+        where: { intakeId },
+        select: {
+          storageObjectId: true,
+          storageObject: { select: { mimeType: true, size: true, storageKey: true } },
+        },
+      })) ?? [];
+
+    const kinds = new Set<IntakeInputKind>();
+
+    for (const photo of photos) {
+      const object = photo.storageObject;
+      if (!object) continue;
+
+      const inputKind = this.assertDeclaredInput(kind, object, photo.storageObjectId);
+      if (inputKind === 'pdf') {
+        await this.assertStoredInput(kind, object.storageKey, inputKind, photo.storageObjectId);
+      }
+      kinds.add(inputKind);
+    }
+
+    return kinds;
+  }
+
+  /**
+   * The resolved model is usable for the intake's inputs: `vision_input` and
+   * `structured_output` always, and `file_input` when a PDF is attached. A
+   * model that cannot read a PDF is refused here, before anything is queued,
+   * with a message the user can act on (`AI_CAPABILITY_UNSUPPORTED`,
+   * `details.capability: 'file_input'`, `details.inputKind: 'pdf'`).
+   */
+  private async assertModelReads(
+    userId: string,
+    provider: string,
+    modelId: string,
+    inputKinds: ReadonlySet<IntakeInputKind>,
+  ): Promise<void> {
+    const hasPdf = inputKinds.has('pdf');
+    const pdfRefusal = () =>
+      new AiError('AI_CAPABILITY_UNSUPPORTED', PDF_INPUT_UNSUPPORTED_MESSAGE, {
+        details: { provider, model: modelId, capability: 'file_input', inputKind: 'pdf' },
+      });
+
+    let usable: Awaited<ReturnType<UsableModelsService['assertUsable']>> | undefined;
+
+    try {
+      usable = await this.usableModels.assertUsable(
+        userId,
+        provider,
+        modelId,
+        hasPdf ? ['vision_input', 'structured_output', 'file_input'] : ['vision_input', 'structured_output'],
+      );
+    } catch (error) {
+      if (
+        hasPdf &&
+        error instanceof AiError &&
+        error.code === 'AI_CAPABILITY_UNSUPPORTED' &&
+        (error.getResponse() as { details?: { capability?: string } }).details?.capability === 'file_input'
+      ) {
+        throw pdfRefusal();
+      }
+      throw error;
+    }
+
+    // The runtime also requires the `file` input modality for a stored PDF.
+    const modalities = usable?.model?.capabilities?.inputModalities;
+    if (hasPdf && modalities && !modalities.includes('file')) {
+      throw pdfRefusal();
+    }
+  }
+
+  /**
+   * The declared type of `object` is one `kind` accepts and within its size
+   * cap; returns the input kind. 400 `UNSUPPORTED_MEDIA_TYPE` or
+   * `OBJECT_TOO_LARGE` otherwise.
+   */
+  private assertDeclaredInput(
+    kind: IntakeKind<any, any> | undefined,
+    object: { mimeType: string; size: bigint | number },
+    storageObjectId: string,
+  ): IntakeInputKind {
+    const accepted = acceptedInputsOf(kind);
+    const inputKind = declaredInputKind(object.mimeType);
+
+    if (!inputKind || !accepted.includes(inputKind)) {
+      throw refuse(400, 'UNSUPPORTED_MEDIA_TYPE', unsupportedTypeMessage(accepted), {
+        storageObjectId,
+        allowed: allowedMimeTypes(accepted),
+      });
+    }
+
+    const maxBytes = inputMaxBytes(inputKind);
+
+    if (Number(object.size) > maxBytes) {
+      throw refuse(
+        400,
+        'OBJECT_TOO_LARGE',
+        inputKind === 'pdf' ? 'The PDF is larger than 50 MiB' : 'The image is larger than 20 MiB',
+        { storageObjectId, maxBytes },
+      );
+    }
+
+    return inputKind;
+  }
+
+  /**
+   * The STORED bytes agree with the declared type (magic bytes), and a PDF is
+   * within the size and page caps. 400 `UNSUPPORTED_MEDIA_TYPE` (with
+   * `details.contentMismatch`), `OBJECT_TOO_LARGE`, `PDF_UNREADABLE` or
+   * `TOO_MANY_PAGES`. Never logs the bytes.
+   */
+  private async assertStoredInput(
+    kind: IntakeKind<any, any> | undefined,
+    storageKey: string,
+    inputKind: IntakeInputKind,
+    storageObjectId: string,
+  ): Promise<void> {
+    const inspection = await this.inputs.inspect(storageKey, inputKind);
+
+    if (inspection.oversize) {
+      throw refuse(400, 'OBJECT_TOO_LARGE', 'The PDF is larger than 50 MiB', {
+        storageObjectId,
+        maxBytes: inputMaxBytes(inputKind),
+      });
+    }
+
+    if (inspection.detected !== inputKind) {
+      throw refuse(
+        400,
+        'UNSUPPORTED_MEDIA_TYPE',
+        inputKind === 'pdf' ? 'This file is not a PDF' : 'This file is not a PNG, JPEG, GIF or WebP image',
+        { storageObjectId, allowed: allowedMimeTypes(acceptedInputsOf(kind)), contentMismatch: true },
+      );
+    }
+
+    if (inputKind !== 'pdf') return;
+
+    const maxPages = maxPdfPagesOf(kind);
+
+    if (inspection.pages === null) {
+      throw refuse(400, 'PDF_UNREADABLE', 'This PDF could not be read; it may be damaged or password-protected', {
+        storageObjectId,
+      });
+    }
+
+    if (inspection.pages > maxPages) {
+      throw refuse(400, 'TOO_MANY_PAGES', `A PDF may have at most ${maxPages} pages`, {
+        storageObjectId,
+        pages: inspection.pages,
+        maxPages,
+      });
     }
   }
 

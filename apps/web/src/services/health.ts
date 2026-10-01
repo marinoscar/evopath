@@ -482,6 +482,13 @@ export const BODY_METRIC_READING_ITEM_KIND = 'reading';
 /** Photos one reading intake takes (the kind's `maxPhotos`). */
 export const BODY_METRIC_READING_MAX_PHOTOS = 4;
 
+/**
+ * The kind also reads PDFs (its server `acceptedInputs` is `['image', 'pdf']`,
+ * H2 #186): a smart-scale or body-composition report. A PDF counts as one of
+ * the four files.
+ */
+export const BODY_METRIC_READING_ACCEPTS_PDF = true;
+
 /** One draft item value: a reading as displayed on the device. */
 export interface BodyMetricReadingValue {
   metricKey: MetricKey;

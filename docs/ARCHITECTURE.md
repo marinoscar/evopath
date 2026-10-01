@@ -335,7 +335,7 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 
 ### 5.20 Health data
 
-Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. The daily readiness check-in (four optional 1 to 5 scores and a note per local day) is stored as `measurements` rows too and served by `/api/check-ins`, with "today" decided by the server in the profile time zone. A reading can also come from a photo: the `body_metric_reading` intake kind (`apps/api/src/measurements/photo/`, see [5.21](#521-photo-intake)) has the server-only job `ai.health.body_metric_reading` draft values from a scale or cuff photo, and its `apply` saves the accepted ones as one entry whose rows carry server-derived provenance. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
+Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry (body, vital, wellness and lab analytes) and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. The daily readiness check-in (four optional 1 to 5 scores and a note per local day) is stored as `measurements` rows too and served by `/api/check-ins`, with "today" decided by the server in the profile time zone. A reading can also come from a photo: the `body_metric_reading` intake kind (`apps/api/src/measurements/photo/`, see [5.21](#521-photo-intake)) has the server-only job `ai.health.body_metric_reading` draft values from a scale or cuff photo, and its `apply` saves the accepted ones as one entry whose rows carry server-derived provenance. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
 - **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/` (photo readings in `photo/`), `apps/api/src/check-ins/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
 - **UI:** `/settings/health-profile`, `/health` (tiles, Daily check-in, Trend and History sections, **Read from photo**), the Today body snapshot and Readiness cards
@@ -409,7 +409,16 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 - **Permissions:** `system_settings:read`
 - **Read more:** [specs/doctor.md](specs/doctor.md), [runbooks/doctor.md](runbooks/doctor.md)
 
-### 5.27 First-run onboarding
+### 5.27 User data reset
+
+A user can delete everything they own and keep their account. `POST /api/user-data/reset` (with the typed phrase `DELETE MY DATA`) enqueues the server-only `user.data_reset` job, which deletes the user's rows in one transaction and then their stored media. The account, roles, refresh token and audit log are kept; personal access tokens are deleted.
+
+- **Code:** `apps/api/src/user-data/`
+- **UI:** `/settings/danger-zone` (`apps/web/src/pages/UserDangerZonePage.tsx`)
+- **Permissions:** `user_settings:write`
+- **Read more:** [specs/user-data-reset.md](specs/user-data-reset.md)
+
+### 5.28 First-run onboarding
 
 A one-time welcome dialog leads into a short checklist: a Setup guide for administrators and a Get started card on Today for everyone else. `GET /api/onboarding` derives every step from real state on each request and never writes; administrator steps reuse the [Doctor](#526-admin-doctor)'s checks. The only stored facts are `welcomeSeenAt`, `checklistDismissedAt` and an optional `goal` in the `onboarding` user-settings namespace, written through `PATCH /api/user-settings`. `GET /api/admin/onboarding/metrics` adds read-only aggregate activation numbers (first completed workout within 7 days of sign-up, over eligible users) to the Setup guide. Entry points of an unconfigured feature (AI, storage, Web Push) show a feature-unavailable notice; storage's state comes from `GET /api/storage/status`.
 
@@ -464,7 +473,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `TrainingRunCheckpoint` | `training_run_checkpoints` | Graph checkpoint per `(threadId, checkpointNs, checkpointId)`, node outputs only, no foreign key |
 | AI | `TrainingRunCheckpointWrite` | `training_run_checkpoint_writes` | Pending writes and interrupts of a checkpoint, keyed by plain `threadId` |
 | Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, time zone, bio, version |
-| Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set |
+| Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set; lab results add a nullable reference range (`referenceLow`, `referenceHigh`, `referenceText`) and `flag` |
 | Intake | `PhotoIntake` | `photo_intakes` | One photo-to-draft flow per row: kind, status, kind-specific context, chosen provider and model, analyze job, error, result metadata |
 | Intake | `PhotoIntakePhoto` | `photo_intake_photos` | Link from an intake to a `storage_objects` row, unique per `(intakeId, storageObjectId)`, with sort order |
 | Intake | `HealthDocument` | `health_documents` | A user's health document (lab report, body-metric photo): kind, file metadata, keep or delete-after-processing retention, optional intake and storage object links, `fileDeletedAt` once purged |
@@ -618,6 +627,7 @@ All 34 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `training.adaptations.purge` | `training-adaptation/handlers/adaptations-purge.handler.ts` | Deletes `workout_adaptations` rows past `expires_at`, in batches of 5000; enqueued by a daily 03:20 cron that only enqueues; profile 15 minutes, 3 attempts | No |
 | `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Deletes finished runs' events and checkpoints past retention, then old run rows; enqueued by a daily 05:30 cron that only enqueues; profile 30 minutes, 3 attempts | No |
 | `training.evaluation.sweep` | `training-agents/evaluation/handlers/training-evaluation-sweep.handler.ts` | Expires unanswered proposals and starts the due evaluation runs (weekly, deferred, missed sessions) through the scheduler's gates; enqueued hourly (minute 7) by a cron that only enqueues, and only while `ai.enabled`; profile 10 minutes, 3 attempts | No |
+| `user.data_reset` | `user-data/handlers/user-data-reset.handler.ts` | A user's factory reset: collects storage object ids, deletes the user's rows in one transaction, then deletes the media from the storage provider; profile 15 minutes, 3 attempts; server-only | No |
 | `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
 | `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
 | `example.checksum` | `jobs/handlers/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
@@ -711,6 +721,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/ai/agents` | Training agents (read-only model view) | AI | `ai:use` | `ai` |
 | `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
+| `/settings/danger-zone` | Delete all my data | Danger Zone | | none (stays reachable while AI is off) |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
 
@@ -840,6 +851,7 @@ Health endpoints (public, reachable during maintenance):
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
+| A model with a user relation (keep/delete decision for the data reset) | [specs/user-data-reset.md §4](specs/user-data-reset.md#4-extending-it-in-a-fork) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
 

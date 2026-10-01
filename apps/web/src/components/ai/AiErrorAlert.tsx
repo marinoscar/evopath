@@ -19,6 +19,10 @@ import { TRAINING_RUN_BUDGET_EXCEEDED, type AiErrorInfo } from '../../services/a
 import { TOKEN_CAP_SETTINGS_PATH, tokenCapText } from '../settings/ai/aiErrorText';
 import { useAiConfig } from '../../hooks/useAiConfig';
 
+/** The server's own words for a PDF on a model without `file_input` (H2, #186). */
+export const PDF_INPUT_UNSUPPORTED_MESSAGE =
+  "Your AI model can't read PDFs; choose a model with file input or upload an image.";
+
 /** Where a user fixes their own key. */
 export const AI_KEYS_PATH = '/settings/ai';
 
@@ -144,6 +148,15 @@ export function aiErrorCopy(error: AiErrorInfo): AiErrorCopy {
         severity: 'warning',
       };
     case 'AI_CAPABILITY_UNSUPPORTED':
+      // H2 (#186): a PDF on a model without file input. A scan that failed in
+      // the job carries no details, only the server's message, so both count.
+      if (error.capability === 'file_input' || error.message === PDF_INPUT_UNSUPPORTED_MESSAGE) {
+        return {
+          title: "Your AI model can't read PDFs",
+          body: PDF_INPUT_UNSUPPORTED_MESSAGE,
+          severity: 'warning',
+        };
+      }
       return {
         title: "This model can't do that",
         body: 'The selected model does not support an option in this request. Turn the option off or pick another model.',

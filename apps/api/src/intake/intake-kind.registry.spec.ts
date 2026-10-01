@@ -41,6 +41,21 @@ describe('IntakeKindRegistry', () => {
     expect(() => registry.register(kind('scan', { analyzeJobType: 'ai.x.scan', aiFeature: 'gym_scan' }))).not.toThrow();
   });
 
+  it('validates acceptedInputs and maxPdfPages (H2, #186)', () => {
+    expect(() => registry.register(kind('ok_default'))).not.toThrow();
+    expect(() => registry.register(kind('ok_pdf', { acceptedInputs: ['image', 'pdf'] }))).not.toThrow();
+    expect(() => registry.register(kind('ok_pdf_only', { acceptedInputs: ['pdf'], maxPdfPages: 5 }))).not.toThrow();
+
+    expect(() => registry.register(kind('empty', { acceptedInputs: [] }))).toThrow(/no `acceptedInputs`/);
+    expect(() => registry.register(kind('unknown', { acceptedInputs: ['image', 'video' as never] }))).toThrow(
+      /unknown input "video"/,
+    );
+    expect(() => registry.register(kind('twice', { acceptedInputs: ['pdf', 'pdf'] }))).toThrow(/twice/);
+    expect(() => registry.register(kind('zero_pages', { maxPdfPages: 0 }))).toThrow(/maxPdfPages/);
+    expect(() => registry.register(kind('half_pages', { maxPdfPages: 2.5 }))).toThrow(/maxPdfPages/);
+    expect(registry.list()).toEqual(['ok_default', 'ok_pdf', 'ok_pdf_only']);
+  });
+
   it('get answers undefined for an unknown kind', () => {
     expect(registry.get('nope')).toBeUndefined();
   });

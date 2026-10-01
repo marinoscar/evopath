@@ -46,6 +46,11 @@ export interface AiErrorInfo {
    */
   limitTokens?: number;
   usedTokens?: number;
+  /**
+   * On `AI_CAPABILITY_UNSUPPORTED`, the capability the model lacks when the
+   * server named it (`file_input`: the model can't read a PDF, H2 #186).
+   */
+  capability?: string;
 }
 
 /**
@@ -56,7 +61,7 @@ export const TRAINING_RUN_BUDGET_EXCEEDED = 'TRAINING_RUN_BUDGET_EXCEEDED';
 
 type AiErrorDetails = Pick<
   AiErrorInfo,
-  'retryAfterMs' | 'limit' | 'max' | 'window' | 'limitTokens' | 'usedTokens'
+  'retryAfterMs' | 'limit' | 'max' | 'window' | 'limitTokens' | 'usedTokens' | 'capability'
 > & {
   reason?: string;
 };
@@ -72,6 +77,7 @@ function readDetails(details: unknown): AiErrorDetails {
   if (record.window === 'minute' || record.window === 'day') out.window = record.window;
   if (typeof record.limitTokens === 'number') out.limitTokens = record.limitTokens;
   if (typeof record.usedTokens === 'number') out.usedTokens = record.usedTokens;
+  if (typeof record.capability === 'string') out.capability = record.capability;
   return out;
 }
 

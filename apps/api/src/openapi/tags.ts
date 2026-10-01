@@ -94,6 +94,13 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '(`PUT`) and JSON Merge Patch (`PATCH`).',
       },
       {
+        name: 'User Data',
+        description:
+          'The calling user\'s own data as a whole: counts of what they own and a "factory reset" ' +
+          'that deletes all of it (a queued job) while keeping the account and its sign-in. ' +
+          'Gated on `user_settings:write`; a reset job is visible only to its owner.',
+      },
+      {
         name: 'Onboarding',
         description:
           'The calling user\'s first-run checklist: onboarding UI state from the `onboarding` ' +

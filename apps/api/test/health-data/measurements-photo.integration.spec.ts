@@ -24,6 +24,7 @@ import type { IntakeKind } from '../../src/intake/intake-kind.interface';
 import { IntakeKindRegistry } from '../../src/intake/intake-kind.registry';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { bodyMetricFixtureText, type BodyMetricFixture } from '../fixtures/body-metric/load';
+import { plainPdf } from '../../src/intake/testing/pdf-bytes';
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { mockPrismaTransaction } from '../mocks/prisma.mock';
 import { type AiHttpTestApp, createAiHttpTestApp } from '../ai/ai-http.helper';
@@ -123,10 +124,10 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
   }
 
   /** Runs the registered handler over a `scanning` intake holding `photoIds`, the fake answering `fixture`. */
-  async function runHandler(fixture: BodyMetricFixture, photoIds: string[]) {
+  async function runHandler(fixture: BodyMetricFixture, photoIds: string[], mimeType = 'image/jpeg') {
     const scanning = {
       ...intakeRow({ status: 'scanning', provider: 'openai', modelId: HARNESS_MODEL, jobId: JOB }),
-      photos: photoIds.map((storageObjectId) => ({ storageObjectId })),
+      photos: photoIds.map((storageObjectId) => ({ storageObjectId, storageObject: { mimeType } })),
     };
     prisma.photoIntake.findUnique.mockResolvedValue(scanning);
     prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
@@ -220,6 +221,166 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
 
   // ---------------------------------------------------------------------------
 
+  describe('PDFs (H2, #186)', () => {
+    const PHOTO_ROW = '99999999-9999-4999-8999-999999999999';
+
+    /** A stored object in the harness storage, and its row as the mocked Prisma returns it. */
+    function storePdf(bytes: Buffer, overrides: Record<string, unknown> = {}) {
+      const stored = t.harness.storage.addObject({
+        uploadedById: HARNESS_USER,
+        mimeType: 'application/pdf',
+        name: 'scale-report.pdf',
+        bytes,
+      });
+      const row = {
+        id: stored.id,
+        name: stored.name,
+        status: 'ready',
+        mimeType: 'application/pdf',
+        size: stored.size,
+        storageKey: stored.storageKey,
+        uploadedById: HARNESS_USER,
+        ...overrides,
+      };
+      prisma.storageObject.findUnique.mockResolvedValue(row);
+      return row;
+    }
+
+    const attach = (storageObjectId: string) =>
+      call('post', `/api/intakes/${INTAKE}/photos`, contributor, { storageObjectId });
+
+    beforeEach(() => {
+      storeIntake(intakeRow());
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+      prisma.photoIntakePhoto.aggregate.mockResolvedValue({ _max: { sortOrder: null } });
+      prisma.photoIntakePhoto.create.mockImplementation(async ({ data }: any) => ({
+        id: PHOTO_ROW,
+        createdAt: new Date(),
+        storageObject: { name: 'scale-report.pdf' },
+        ...data,
+      }));
+      prisma.healthDocument.create.mockImplementation(async ({ data }: any) => ({
+        id: 'doc-1',
+        storageObjectId: data.storageObjectId,
+        retention: data.retention,
+      }));
+    });
+
+    it('attaches a PDF to body_metric_reading; its health document records application/pdf', async () => {
+      const row = storePdf(plainPdf(2));
+
+      const res = await attach(row.id).expect(201);
+
+      expect(res.body.data).toMatchObject({ storageObjectId: row.id, healthDocumentId: 'doc-1', retention: 'keep' });
+      expect(prisma.healthDocument.create.mock.calls[0][0].data).toMatchObject({
+        kind: 'body_metric',
+        mimeType: 'application/pdf',
+        storageObjectId: row.id,
+      });
+    });
+
+    it.each([
+      ['a PDF over the 20-page cap', () => plainPdf(21), {}, 'TOO_MANY_PAGES'],
+      ['a text file renamed to .pdf', () => Buffer.from('these are not the bytes of a PDF'), {}, 'UNSUPPORTED_MEDIA_TYPE'],
+      ['a PDF over 50 MiB', () => plainPdf(1), { size: BigInt(51 * 1024 * 1024) }, 'OBJECT_TOO_LARGE'],
+      ['a PDF with no readable page', () => Buffer.from('%PDF-1.7\n%%EOF\n'), {}, 'PDF_UNREADABLE'],
+    ])('refuses %s with 400, before any provider call and with nothing stored', async (_label, bytes, overrides, reason) => {
+      const row = storePdf(bytes(), overrides);
+
+      const res = await attach(row.id).expect(400);
+
+      expect(res.body.details.reason).toBe(reason);
+      expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+      expect(prisma.healthDocument.create).not.toHaveBeenCalled();
+      expect(t.harness.fake.calls).toEqual([]);
+    });
+
+    describe('analyze', () => {
+      let pdf: ReturnType<typeof storePdf>;
+
+      beforeEach(() => {
+        pdf = storePdf(plainPdf(3));
+        prisma.photoIntakePhoto.count.mockResolvedValue(1);
+        prisma.photoIntakePhoto.findMany.mockResolvedValue([
+          { storageObjectId: pdf.id, storageObject: { mimeType: pdf.mimeType, size: pdf.size, storageKey: pdf.storageKey } },
+        ]);
+        prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+        prisma.job.create.mockImplementation(async (args: any) => ({ id: JOB, status: 'pending', ...args.data }));
+      });
+
+      it('queues the job for a model with file input', async () => {
+        await call('post', `/api/intakes/${INTAKE}/analyze`, contributor, {}).expect(202);
+
+        expect(prisma.job.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('a model without file_input: the typed, user-readable 400, no job and no provider request', async () => {
+        const findUnique = t.harness.prisma.aiModel.findUnique as jest.Mock;
+        const original = findUnique.getMockImplementation()!;
+        findUnique.mockImplementation(async (args: any) => {
+          const row = await original(args);
+          return row && row.capabilities
+            ? {
+                ...row,
+                capabilities: {
+                  ...row.capabilities,
+                  capabilities: row.capabilities.capabilities.filter((c: string) => c !== 'file_input'),
+                  inputModalities: ['text', 'image'],
+                },
+              }
+            : row;
+        });
+
+        try {
+          const res = await call('post', `/api/intakes/${INTAKE}/analyze`, contributor, {}).expect(400);
+
+          expect(res.body.message).toBe("Your AI model can't read PDFs; choose a model with file input or upload an image.");
+          expect(res.body.details).toMatchObject({
+            reason: 'AI_CAPABILITY_UNSUPPORTED',
+            capability: 'file_input',
+            inputKind: 'pdf',
+          });
+          expect(prisma.photoIntake.updateMany).not.toHaveBeenCalled();
+          expect(prisma.job.create).not.toHaveBeenCalled();
+          expect(t.harness.fake.calls).toEqual([]);
+        } finally {
+          findUnique.mockImplementation(original);
+        }
+      });
+    });
+
+    it('the job sends the PDF to the fake provider as one file input and stores the drafts', async () => {
+      const stored = t.harness.storage.addObject({
+        uploadedById: HARNESS_USER,
+        mimeType: 'application/pdf',
+        name: 'scale-report.pdf',
+        bytes: plainPdf(2),
+      });
+
+      await runHandler('smart-scale-report', [stored.id], 'application/pdf');
+
+      expect(t.harness.fake.calls).toHaveLength(1);
+      const [fakeCall] = t.harness.fake.calls;
+      expect(fakeCall.storageInputs?.map((input) => [input.storageObjectId, input.modality])).toEqual([[stored.id, 'file']]);
+      const content = (fakeCall.request?.input as any)[0].content;
+      expect(content).toContainEqual({ type: 'file', storageObjectId: stored.id });
+      expect(content).toContainEqual({ type: 'text', text: 'Photo 1 (PDF document):' });
+
+      const { data } = prisma.draftItem.createMany.mock.calls[0][0];
+      expect(data.map((item: any) => [item.value.metricKey, item.value.value, item.sourcePhotoIds])).toEqual([
+        ['weight', 82.3, [stored.id]],
+        ['body_fat_pct', 21.4, [stored.id]],
+      ]);
+
+      // The presigned URL the provider was handed never lands in a stored row.
+      const url = fakeCall.storageInputs?.[0].url;
+      const writes = JSON.stringify([prisma.draftItem.createMany.mock.calls, prisma.photoIntake.updateMany.mock.calls]);
+      if (url) expect(writes).not.toContain(url);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+
   describe('the job against the fake provider', () => {
     it('scale photo: one pending AI draft, photos sent as storage inputs, nothing written to measurements', async () => {
       const photo = addPhoto();
@@ -248,7 +409,7 @@ describe('Read a value from a photo over HTTP (E2.6)', () => {
       expect(prisma.photoIntake.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: INTAKE, status: 'scanning' },
-          data: expect.objectContaining({ status: 'ready', resultMeta: expect.objectContaining({ promptVersion: 1 }) }),
+          data: expect.objectContaining({ status: 'ready', resultMeta: expect.objectContaining({ promptVersion: 2 }) }),
         }),
       );
       expect(prisma.measurement.create).not.toHaveBeenCalled();
