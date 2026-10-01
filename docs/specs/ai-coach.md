@@ -499,11 +499,19 @@ The review is a `weekly_review` message, rendered as a rich card in `/coach`, wi
 
 The event `coach.weekly_review` declares `email`, `browser` and `push`, so the user's notification preferences control each channel.
 
+**The job.** `ai.coach.weekly_review` (`apps/api/src/coach/review/`) reads `TrainingSignalsService.forUser` over exactly the reviewed ISO week (`from` its Monday, `to` its Sunday), so `planned`, `completed`, `missed` and `adherencePct` are the totals `GET /api/training/signals?from=<Mon>&to=<Sun>` answers; the following week's sessions come from a second read. It runs only once the week's local Sunday has come (and at most 7 days later), and it is idempotent per ISO week: a stored review for the week is only re-delivered, and the streak, `lastWeeklyReviewWeek` and the message are written in one transaction whose guarded update makes a second run a no-op.
+
+- **Prose and fallback.** One structured call at `coach.decision`; a second at the clean register only when the in-app register is profane. Prose that fails the guard (any figure not in the stats block fails `invented_number`), a model that is not runnable, a terminal AI error or a failure on the last attempt is replaced by the static persona review (the registry's `weekly_review` line plus code-written wins and focus), persisted with `provider = 'static'`; there is no regeneration. A provider throttle defers the job.
+- **Preferences.** The planner does not apply the `pref_off` gate to the review lane: the review is an in-app card that also advances the streak, and the dispatcher sends it only on the channels the user left on. Quiet hours, `pausedUntil` and the coach switches still apply.
+- **Push.** `pushTitle` is "Your week in review"; with `lockScreenSafe` the body is "<persona> has your weekly review.", never stats.
+- **`CoachMessage.data`** (version 1): `{ version, isoWeek, stats, prose, emailProse, register, fallback }`. `stats` is `{ isoWeek, weekStart, weekEnd, planned, completed, missed, adherencePct, weeklyStreak, streakPassesLeft, streakChange, prs: [{ exercise, value, unit, reps }], checkIns, photosAdded, nextWeekSessions, nextWeek: [{ date, weekday, name }], noPlan, firstWeek }`; `prose` and `emailProse` are `{ headline, intro, wins[], focus, nextWeekPlanPrompt }`, `emailProse` always clean. `title` and `body` are `prose.headline` and `prose.intro`.
+- **Metrics.** `app.coach.weekly_review.sent{coach.source}`, `.skipped{coach.reason}`, `.fallback{coach.reason}`, `app.coach.weekly_streak.updated{coach.change}` and the histogram `app.coach.weekly_streak.length`; span `coach.weekly_review.generate`. Email delivery is recorded in `notification_deliveries`.
+
 ### 2.11 Weekly streak and passes
 
 The streak counts **consecutive weeks** in which the user reached the week's session target, not days.
 
-- **Counting.** On each weekly review the server sets `weeklyStreak` from signals: it increments when `completed >= target` for the finished ISO week, otherwise it consumes a pass or resets to 0.
+- **Counting.** On each weekly review the server sets `weeklyStreak` from signals: it increments when `completed >= target` for the finished ISO week, otherwise it consumes a pass or resets to 0. The target is the week's `planned` from signals (sessions due by the review's `asOf`), the same figure the review shows.
 - **Passes.** One pass is earned every 4 weeks of streak, up to `streakPassesLeft = 1`. A missed week with a pass left keeps the streak and uses the pass (the streak-freeze idea; Duolingo reports it cut at-risk churn).
 - **Rest days never break it.** The target is sessions per week, not days.
 - **Partial weeks.** The current week is never counted until it ends.
@@ -851,3 +859,4 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
 
 - Proposed under epic E7 (issue 240), stories E7.1 to E7.13 (issues 241 to 253).
 - E7.5 (issue 245): nudge generation, delivery, push action and feedback; the as-built notes are at the end of [§2.7](#27-delivery-and-audio).
+- E7.10 (issue 250): the weekly review job, its email and the weekly streak; the as-built notes are at the end of [§2.10](#210-weekly-review-and-email).

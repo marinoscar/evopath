@@ -28,11 +28,13 @@
 // =============================================================================
 
 import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
 import { AppMetricsService, fallbackAppMetrics } from '../../../common/otel/app-metrics.service';
+import type { CoachWeeklyReviewEmailData } from '../../../email/templates/coach-weekly-review.email';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
@@ -41,7 +43,9 @@ import type { CoachNotificationData } from '../../../notifications/channels/brow
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { COACH_MESSAGE_DELIVER_JOB_TYPE } from '../../coach-job-types';
+import { findCoachPersona } from '../../personas';
 import { CoachStateService } from '../../planning/coach-state.service';
+import { weeklyReviewMessageDataSchema } from '../../review/weekly-review-data';
 import { eventForKind } from '../coach-message-kinds';
 
 const payloadSchema = z.object({ messageId: z.uuid() }).passthrough();
@@ -64,6 +68,7 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly coachState: CoachStateService,
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -110,6 +115,8 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
         pushBody: true,
         audioStatus: true,
         deliveredAt: true,
+        personaId: true,
+        data: true,
         user: { select: { healthProfile: { select: { timeZone: true } } } },
       },
     });
@@ -124,13 +131,18 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     }
 
     const eventKey = eventForKind(message.kind);
-    const data: CoachNotificationData = {
+    const push: CoachNotificationData = {
       messageId: message.id,
       pushTitle: message.pushTitle ?? message.title,
       pushBody: message.pushBody ?? '',
       // E7.6 sets this once the message's audio is `ready` (adds "Hear Coach").
       hasAudio: message.audioStatus === 'ready',
     };
+    // A weekly review also carries what its email renders (E7.10): the stats
+    // block and the CLEAN-register prose. The browser and push templates read
+    // only the lock-screen-safe fields above, so none of it reaches a lock screen.
+    const data: CoachNotificationData & Partial<CoachWeeklyReviewEmailData> =
+      message.kind === 'weekly_review' ? { ...push, ...this.weeklyReviewEmailData(message) } : push;
 
     // Awaited, never rejects, and NOT inside a transaction: the message row
     // was committed by the job that enqueued this one.
@@ -154,5 +166,32 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     this.metrics.coachNudgeDelivered(message.moment);
     this.logger.log(`Coach message ${message.id} delivered as ${eventKey} (inbox ${notificationId ?? 'none'})`);
     return { status: 'delivered', eventKey, notificationId };
+  }
+
+  /**
+   * The email half of a weekly review's notification data. A stored `data`
+   * that does not parse yields no review fields: the email template then
+   * refuses to render and the email channel records the failed delivery,
+   * while the in-app card and the push still go out.
+   */
+  private weeklyReviewEmailData(message: {
+    id: string;
+    personaId: string | null;
+    data: unknown;
+  }): Partial<CoachWeeklyReviewEmailData> {
+    const parsed = weeklyReviewMessageDataSchema.safeParse(message.data);
+    if (!parsed.success) {
+      this.logger.warn(`Coach message ${message.id}: weekly review data does not parse; the email cannot render`);
+      return {};
+    }
+    const { stats, emailProse } = parsed.data;
+    const appUrl = this.config?.get<string>('appUrl');
+    return {
+      messageId: message.id,
+      personaName: findCoachPersona(message.personaId ?? '')?.name ?? 'Coach',
+      stats,
+      prose: { headline: emailProse.headline, intro: emailProse.intro, wins: emailProse.wins, focus: emailProse.focus },
+      ...(appUrl ? { appUrl: appUrl.replace(/\/+$/, '') } : {}),
+    };
   }
 }

@@ -169,6 +169,8 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'coach.workout_finished': 'Coach workout check',
   // Writes, guards and persists one persona-tailored coach message (E7.5).
   'ai.coach.nudge': 'AI coach nudge',
+  // Writes the weekly review and advances the weekly streak (E7.10).
+  'ai.coach.weekly_review': 'AI coach weekly review',
   // Sends one persisted coach message as a notification (E7.5).
   'coach.message.deliver': 'Coach message delivery',
 };

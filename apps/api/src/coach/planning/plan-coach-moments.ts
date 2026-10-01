@@ -383,11 +383,15 @@ function gate(
   const { safetyStop, painStreak, lowReadinessStreak } = signals.safety;
   if ((safetyStop || painStreak || lowReadinessStreak) && PUSHY_MOMENTS.has(moment)) return 'safety_supportive_only';
 
-  if (settings.eventEnabled[COACH_MOMENT_EVENT[moment]] === false) return 'pref_off';
-
+  // The weekly review is not held back by notification preferences (E7.10 AC 5):
+  // it is an in-app card that also advances the weekly streak, and the
+  // dispatcher sends it only on the channels the user left on (none at all
+  // still leaves the card in `/coach`).
   if (lane === 'weekly_review') {
     return candidate.isoWeek !== undefined && state.lastWeeklyReviewWeek === candidate.isoWeek ? 'already_sent' : null;
   }
+
+  if (settings.eventEnabled[COACH_MOMENT_EVENT[moment]] === false) return 'pref_off';
 
   if (state.momentsSentToday.includes(moment)) return 'already_sent';
 

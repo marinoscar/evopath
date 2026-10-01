@@ -100,7 +100,7 @@ export interface EmailTemplateDataMap {
   'backup-failed': BackupFailedEmailData;
   'restore-completed': RestoreCompletedEmailData;
 
-  // AI Coach (E7.5 registers it with the event; E7.10 writes the real body).
+  // AI Coach weekly review (E7.5 registered the event; E7.10 renders the review).
   'coach-weekly-review': CoachWeeklyReviewEmailData;
 }
 
@@ -257,6 +257,9 @@ export { nodeOfflineEmail } from './node-offline.email';
 export { backupFailedEmail } from './backup-failed.email';
 export { restoreCompletedEmail } from './restore-completed.email';
 
+// The AI Coach weekly review (E7.10).
+export { coachWeeklyReviewEmail } from './coach-weekly-review.email';
+
 export type { PlainTextOptions, RenderLayoutOptions } from './layout';
 export type { EmailTemplate, RenderedEmail } from './email-template.types';
 export type { TestEmailData } from './test-email.email';
@@ -281,3 +284,8 @@ export type {
   BackupFailureOutcome,
 } from './backup-failed.email';
 export type { RestoreCompletedEmailData } from './restore-completed.email';
+export type {
+  CoachWeeklyReviewEmailData,
+  CoachWeeklyReviewEmailProse,
+  CoachWeeklyReviewEmailStats,
+} from './coach-weekly-review.email';

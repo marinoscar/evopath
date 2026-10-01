@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import { fromDbDate } from '../check-ins/local-date';
+import { fromDbDate, toDbDate } from '../check-ins/local-date';
 import { PrismaService } from '../prisma/prisma.service';
 import { PROGRESS_PHOTO_POSES, type ProgressPhotoPose } from './progress-photos.constants';
 
@@ -60,5 +60,16 @@ export class ProgressPhotoSummaryService {
     }
 
     return { count, lastLocalDate: last ? fromDbDate(last) : null, byPose };
+  }
+
+  /**
+   * How many progress photos are dated (`localDate`) from `from` to `to`
+   * inclusive (`YYYY-MM-DD`): the weekly review's "photos added" (E7.10). A
+   * bare count; no row is selected.
+   */
+  async countInRange(userId: string, from: string, to: string): Promise<number> {
+    return this.prisma.progressPhoto.count({
+      where: { userId, localDate: { gte: toDbDate(from), lte: toDbDate(to) } },
+    });
   }
 }

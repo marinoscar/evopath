@@ -221,6 +221,8 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.training.adapt.run': null, // filled in per-test: needs a queued workout_adaptations row and its run (E6.1)
       // E7.5 (#245): one coach nudge for a planned moment; filled in per-test.
       'ai.coach.nudge': null,
+      // E7.10 (#250): one user's weekly review; filled in per-test.
+      'ai.coach.weekly_review': null,
     };
 
     let registry: JobHandlerRegistry;
@@ -725,6 +727,31 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
 
       expect(app.harness.fake.calls).toEqual([]);
       expect(prisma.coachMessage.create).not.toHaveBeenCalled();
+    });
+
+    it('ai.coach.weekly_review: disabled makes zero provider calls, writes no review or streak, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.coach.weekly_review');
+      expect(handler).toBeDefined();
+      const prisma = app.context.prismaMock as any;
+      prisma.coachMessage.create.mockClear();
+      prisma.coachState.updateMany.mockClear();
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.coach.weekly_review',
+          subjectType: 'user',
+          subjectId: HARNESS_USER,
+          attempts: 1,
+          payload: { userId: HARNESS_USER, isoWeek: '2026-W40' },
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.coachMessage.create).not.toHaveBeenCalled();
+      expect(prisma.coachState.updateMany).not.toHaveBeenCalled();
     });
 
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {

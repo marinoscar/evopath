@@ -9,6 +9,7 @@ import { CoachSettingsController } from './coach-settings.controller';
 import { CoachSettingsService } from './coach-settings.service';
 import { CoachContentGuard } from './guard/coach-content-guard.service';
 import { CoachNudgesModule } from './nudges/coach-nudges.module';
+import { CoachReviewModule } from './review/coach-review.module';
 import { assertCoachRegistryComplete } from './personas';
 
 /**
@@ -27,12 +28,14 @@ import { assertCoachRegistryComplete } from './personas';
  * `GET /api/coach/messages`.
  * E7.5 (#245): `CoachNudgesModule` (`nudges/`): `ai.coach.nudge`,
  * `coach.message.deliver`, the opened/feedback routes and conversion.
+ * E7.10 (#250): `CoachReviewModule` (`review/`): `ai.coach.weekly_review`
+ * and the weekly streak.
  *
  * The registry is checked at init: a persona missing a moment or an intensity
  * fails the boot, not a request.
  */
 @Module({
-  imports: [SettingsModule, HealthProfileModule, AiConfigModule, CoachChatModule, CoachNudgesModule],
+  imports: [SettingsModule, HealthProfileModule, AiConfigModule, CoachChatModule, CoachNudgesModule, CoachReviewModule],
   controllers: [CoachSettingsController, CoachAdminSettingsController],
   providers: [CoachSettingsService, CoachContentGuard],
   exports: [CoachSettingsService, CoachContentGuard],

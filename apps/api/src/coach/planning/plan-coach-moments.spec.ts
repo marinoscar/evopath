@@ -539,11 +539,17 @@ describe('planCoachMoments', () => {
     it.each([
       ['coach.nudge', 'missed_twice', MISSED_TWICE, utcAt('12:00')],
       ['coach.celebration', 'pr', signalsOf({ event: { comeback: false, pr: true, weeklyTargetHit: false } }), utcAt('12:00')],
-      ['coach.weekly_review', 'weekly_review', signalsOf(), utcAt('18:30', '2026-10-04')],
       ['coach.photo_prompt', 'photo_prompt', signalsOf({ sessionToday: 'planned' }), utcAt('10:00')],
     ] as const)('%s turned off: %s is pref_off', (eventKey, moment, signals, now) => {
       const settings = settingsOf({ eventEnabled: { [eventKey]: false }, user: { photoCadence: 'weekly' } });
       expect(outcomeOf(planCoachMoments(signals, stateOf(), settings, now), moment)).toBe('pref_off');
+    });
+
+    it('coach.weekly_review turned off still plans the review (the card exists; channels follow preferences)', () => {
+      const settings = settingsOf({ eventEnabled: { 'coach.weekly_review': false } });
+      expect(outcomeOf(planCoachMoments(signalsOf(), stateOf(), settings, utcAt('18:30', '2026-10-04')), 'weekly_review')).toBe(
+        'eligible',
+      );
     });
 
     it('an event turned on explicitly or left absent passes', () => {
