@@ -11,6 +11,7 @@ import { CoachSettingsController } from './coach-settings.controller';
 import { CoachSettingsService } from './coach-settings.service';
 import { CoachContentGuard } from './guard/coach-content-guard.service';
 import { CoachNudgesModule } from './nudges/coach-nudges.module';
+import { CoachReviewModule } from './review/coach-review.module';
 import { assertCoachRegistryComplete } from './personas';
 
 /**
@@ -32,12 +33,14 @@ import { assertCoachRegistryComplete } from './personas';
  * E7.11 (#251): the angle bandit (`learning/`, bound in `CoachNudgesModule`)
  * and `GET /api/admin/coach/stats` (`ai_config:read`, not behind
  * `AiEnabledGuard`).
+ * E7.10 (#250): `CoachReviewModule` (`review/`): `ai.coach.weekly_review`
+ * and the weekly streak.
  *
  * The registry is checked at init: a persona missing a moment or an intensity
  * fails the boot, not a request.
  */
 @Module({
-  imports: [SettingsModule, HealthProfileModule, AiConfigModule, CoachChatModule, CoachNudgesModule],
+  imports: [SettingsModule, HealthProfileModule, AiConfigModule, CoachChatModule, CoachNudgesModule, CoachReviewModule],
   controllers: [CoachSettingsController, CoachAdminSettingsController, CoachAdminStatsController],
   providers: [CoachSettingsService, CoachContentGuard, CoachAdminStatsService],
   exports: [CoachSettingsService, CoachContentGuard],

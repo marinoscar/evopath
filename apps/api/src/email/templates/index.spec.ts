@@ -119,12 +119,32 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     preRestoreBackupId: 'run-pre-restore',
     appUrl: 'https://app.example.com',
   },
-  // E7.5's placeholder for the coach weekly review (E7.10 fleshes it out). The
-  // subject is fixed copy, so the hostile fragments go in the title and body.
+  // The coach weekly review (E7.10). The hostile fragments go in every piece
+  // of model-written prose and in the persona and exercise names.
   'coach-weekly-review': {
-    title: '"><img src=x onerror=alert(1)>',
-    body: '<script>alert(document.cookie)</script>',
     messageId: 'message-1',
+    personaName: '<b>Coach</b>',
+    stats: {
+      isoWeek: '2026-W40',
+      weekStart: '2026-09-28',
+      weekEnd: '2026-10-04',
+      planned: 4,
+      completed: 3,
+      adherencePct: 75,
+      weeklyStreak: 2,
+      streakPassesLeft: 0,
+      prs: [{ exercise: '<script>alert(1)</script>', value: 82.5, unit: 'kg', reps: 5 }],
+      checkIns: 4,
+      photosAdded: 1,
+      nextWeekSessions: 3,
+      noPlan: false,
+    },
+    prose: {
+      headline: '"><img src=x onerror=alert(1)>',
+      intro: '<script>alert(document.cookie)</script>',
+      wins: ['<iframe src=javascript:alert(1)>'],
+      focus: '<a href="javascript:alert(1)">click</a>',
+    },
     appUrl: 'https://app.example.com',
   },
 };
