@@ -36,8 +36,14 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
   const backupRunIds: string[] = [];
   const keptJobIds: string[] = [];
 
-  beforeAll(() => {
+  beforeAll(async () => {
     client = createDbClient();
+    // The suite assigns these roles. CI runs `test:db` before seeding, so they
+    // exist only if an earlier suite happened to create them; ensure them here,
+    // before the baseline counts are taken, so the result never depends on order.
+    for (const name of ['admin', 'viewer']) {
+      await client.role.upsert({ where: { name }, create: { name }, update: {} });
+    }
   });
 
   afterAll(async () => {
@@ -206,6 +212,17 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
     await client.activityEntry.create({
       data: { userId: b, occurredOn: new Date('2026-09-01'), activityKind: 'workout_any', source: 'workout', workoutId: bWorkout.id },
     });
+    for (const [uid, installationId] of [[actorId, '11111111-1111-4111-8111-111111111111'], [b, '22222222-2222-4222-8222-222222222222']] as const) {
+      const device = await client.healthSyncDevice.create({ data: { userId: uid, installationId, name: 'Pixel' } });
+      const now = new Date();
+      await client.healthSyncRun.create({
+        data: { deviceId: device.id, userId: uid, trigger: 'manual', status: 'ok', startedAt: now, finishedAt: now },
+      });
+      await client.healthSyncDiagnosticReport.create({ data: { deviceId: device.id, userId: uid, report: { ok: true } } });
+      await client.sleepSession.create({
+        data: { userId: uid, startAt: new Date('2026-09-01T22:00:00Z'), endAt: new Date('2026-09-02T06:00:00Z'), localDate: new Date('2026-09-02'), durationMinutes: 480 },
+      });
+    }
     const backupJob = await client.job.create({
       data: { type: 'db.backup.run', reason: 'rerun', status: 'succeeded' },
     });
@@ -267,6 +284,10 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       ['coach states', await client.coachState.count()],
       ['activity goals', await client.activityGoal.count()],
       ['activity entries', await client.activityEntry.count()],
+      ['health sync devices', await client.healthSyncDevice.count()],
+      ['health sync runs', await client.healthSyncRun.count()],
+      ['sleep sessions', await client.sleepSession.count()],
+      ['health sync reports', await client.healthSyncDiagnosticReport.count()],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -313,6 +334,10 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       coachStates: 2,
       activityGoals: 2,
       activityEntries: 2,
+      healthSyncDevices: 2,
+      healthSyncRuns: 2,
+      healthSyncDiagnosticReports: 2,
+      sleepSessions: 2,
       broadcasts: 1,
       workerNodesReassigned: 1,
       nodeCredentialsReassigned: 1,

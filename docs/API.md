@@ -59,6 +59,7 @@ health, the device-code and device-token polls, avatar images).
 - A `pat_` token carries its owner's full permission set
   ([Personal Access Tokens](personal-access-tokens.md)). A `nod_` credential
   cannot reach `/api/node-credentials`, so a leaked one cannot mint another.
+- The guard records which credential admitted the request (`jwt`, `pat` with the token id, or `node`) as `request.authCredential`; a route reads it with `@AuthCredential()` (`auth/decorators/auth-credential.decorator.ts`). The Android health-sync registration uses it to link the `pat_` token a phone paired with, so unpairing revokes exactly that token ([health-connect-sync.md](specs/health-connect-sync.md#22-pairing)). It is absent on a public route.
 - Browserless clients such as `evopathcli` use the
   [device authorization grant](DEVICE-AUTH.md). Every sign-in path is gated by
   the email allowlist.
@@ -125,8 +126,11 @@ body:
 - Outside production, an unexpected non-HTTP error puts its stack in `details`.
 - A `429` whose `details.retryAfterMs` is set also carries a `Retry-After`
   header, in whole seconds rounded up.
-- One route opts out of the envelope: `POST /api/auth/device/token` returns
-  the RFC 8628 body `{ "error": "…", "error_description": "…" }` verbatim.
+- Two routes opt out of the envelope: `POST /api/auth/device/token` returns
+  the RFC 8628 body `{ "error": "…", "error_description": "…" }` verbatim, and the
+  public `GET /api/well-known/assetlinks.json` returns Digital Asset Links as a
+  bare JSON array, because Chrome expects exactly that
+  ([health-connect-sync.md](specs/health-connect-sync.md#29-digital-asset-links-and-trust)).
 
 ## Pagination
 
@@ -337,6 +341,10 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `workouts` | The caller's own workouts, exercises, sets and the Today summary (tag "Workouts") | `workouts:read/write` | [workouts](specs/workouts.md) |
 | `coach` | AI Coach: personas, the caller's coach settings, voice preview, timeline (`/messages`), message opened and feedback, chat stream, header state | `ai:use` (chat also `programs:read`), behind `AiEnabledGuard` | [ai-coach](specs/ai-coach.md#36-routes) |
 | `admin/coach` | Coach policy (system setting) and engagement stats | `ai_config:read/write` (not behind `AiEnabledGuard`) | [ai-coach](specs/ai-coach.md#36-routes) |
+| `health-sync` | Android Health Connect sync: paired phones (`/devices`), sync upload, runs, diagnostics reports (tag "Health sync") | `goals:read/write` (a sync with measurements or sleep also `health_data:write`) | [health-connect-sync](specs/health-connect-sync.md) |
+| `sleep` | The caller's own sleep sessions: list, delete (tag "Sleep") | `health_data:read/write` | [health-data](specs/health-data.md#218-device-readings-and-sleep-android-health-connect) |
+| `admin/android-app` | Trusted Android apps, reported apps and the Digital Asset Links preview (tag "Android App") | `system_settings:read/write` | [health-connect-sync](specs/health-connect-sync.md#29-digital-asset-links-and-trust) |
+| `well-known/assetlinks.json` | Digital Asset Links for the Android app; public, reachable during maintenance, a bare array without the `{ data }` envelope, served at `/.well-known/assetlinks.json` by nginx (tag "Android App") | public | [health-connect-sync](specs/health-connect-sync.md#29-digital-asset-links-and-trust) |
 | `progress-photos` | The caller's own progress photos: list, add, delete (tag "Progress Photos") | `health_data:read/write` (no `AiEnabledGuard`) | [ai-coach](specs/ai-coach.md#212-progress-photos) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 

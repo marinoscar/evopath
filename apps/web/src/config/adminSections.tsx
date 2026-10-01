@@ -67,6 +67,8 @@ import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutl
 // Factory reset (#211) — the one destructive card, alone in its own group.
 import DeleteForeverOutlinedIcon from '@mui/icons-material/DeleteForeverOutlined';
 import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
+// Android app (#283, epic #276).
+import PhoneAndroidOutlinedIcon from '@mui/icons-material/PhoneAndroidOutlined';
 
 // The types and the pure registry functions live in `settingsRegistry.ts`
 // (issue #222) so the visual harness can reuse them without this file's data.
@@ -219,6 +221,19 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'See what must be configured before people can use the app, check each step against the live configuration, and jump to where it is done.',
         Icon: ChecklistOutlinedIcon,
         path: '/admin/settings/setup',
+        permission: 'system_settings:read',
+      },
+      {
+        // Issue #283, epic #276. APPENDED to General after Setup guide: which
+        // Android app builds the deployment trusts is configuration an
+        // administrator sets once. `system_settings:read` is the exact string
+        // `GET /api/admin/android-app` enforces; changing the trusted apps
+        // needs `system_settings:write`, gated inside the page. No `feature`.
+        title: 'Android app',
+        description:
+          'Publish the Android app’s APK, trust its signing certificate so it opens full screen, and preview the Digital Asset Links file.',
+        Icon: PhoneAndroidOutlinedIcon,
+        path: '/admin/settings/android',
         permission: 'system_settings:read',
       },
     ],

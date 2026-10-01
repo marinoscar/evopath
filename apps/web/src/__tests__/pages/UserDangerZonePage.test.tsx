@@ -26,6 +26,10 @@ const SUMMARY = {
   notifications: 18,
   activityGoals: 3,
   activityEntries: 1,
+  healthSyncDevices: 1,
+  healthSyncRuns: 42,
+  healthSyncDiagnosticReports: 2,
+  sleepSessions: 14,
 };
 
 /** Poll timing is real (1.5 s); give each settled state room to arrive. */
@@ -86,6 +90,10 @@ describe('UserDangerZonePage', () => {
     expect(screen.getByText('1 AI provider key')).toBeInTheDocument();
     expect(screen.getByText('3 activity goals')).toBeInTheDocument();
     expect(screen.getByText('1 activity entry')).toBeInTheDocument();
+    expect(screen.getByText('1 connected phone')).toBeInTheDocument();
+    expect(screen.getByText('42 phone sync runs')).toBeInTheDocument();
+    expect(screen.getByText('2 phone diagnostic reports')).toBeInTheDocument();
+    expect(screen.getByText('14 sleep sessions')).toBeInTheDocument();
 
     expect(screen.getByText('Your sign-in and account, and your role')).toBeInTheDocument();
     expect(screen.getByText('The security audit log')).toBeInTheDocument();
@@ -117,6 +125,10 @@ describe('UserDangerZonePage', () => {
     expect(screen.getByText('Photos')).toBeInTheDocument();
     expect(screen.getByText('Activity goals')).toBeInTheDocument();
     expect(screen.getByText('Activity entries')).toBeInTheDocument();
+    expect(screen.getByText('Connected phones')).toBeInTheDocument();
+    expect(screen.getByText('Phone sync runs')).toBeInTheDocument();
+    expect(screen.getByText('Phone diagnostic reports')).toBeInTheDocument();
+    expect(screen.getByText('Sleep sessions')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete all my data…' })).toBeEnabled();
   });
 

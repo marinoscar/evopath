@@ -1,6 +1,7 @@
 import { Command, CommanderError } from 'commander';
 
 import { CLI_DISPLAY_NAME, CLI_NAME } from './branding.js';
+import { registerAndroidCommand } from './commands/android.js';
 import { registerApiCommand } from './commands/api.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerDeployCommand } from './commands/deploy.js';
@@ -77,6 +78,9 @@ export function buildProgram(): Command {
   // which puts it with `login`/`config` rather than with the group that acts on
   // a remote server.
   registerNodeCommand(program);
+  // `android` acts on THIS machine's checkout (build, sign) and then on the
+  // server (publish), so it sits between the local groups and `deploy`.
+  registerAndroidCommand(program);
   // `deploy` last: it is the only group that acts on a SERVER rather than on
   // this machine's session, and it reads as a separate concern in --help.
   registerDeployCommand(program);

@@ -11,7 +11,7 @@ import { server } from '../../mocks/server';
 import { GoalsGate, TodayGoals } from '../../../components/today/TodayGoals';
 import { localDateIn } from '../../../utils/localDates';
 import { addDays } from '../../../utils/goalFormat';
-import { mockGoal, mockProgress, statefulGoalsApi } from '../../mocks/fixtures/goals';
+import { mockEntry, mockGoal, mockProgress, statefulGoalsApi } from '../../mocks/fixtures/goals';
 
 const writer = { ...mockUser, permissions: [...mockUser.permissions, 'goals:read', 'goals:write'] };
 
@@ -51,6 +51,29 @@ describe('TodayGoals', () => {
     const stepsRow = screen.getByTestId(`today-goal-${steps.id}`);
     expect(within(stepsRow).getByText('5,240 / 8,000 steps')).toBeInTheDocument();
     expect(within(stepsRow).getByText('Behind')).toBeInTheDocument();
+  });
+
+  it('labels progress fed by Health Connect, but not a superseded or manual entry (#283)', async () => {
+    const synced = mockGoal({ title: 'Synced walks' });
+    const manual = mockGoal({ title: 'Manual walks' });
+    const replaced = mockGoal({ title: 'Replaced walks' });
+    const hc = mockEntry({ source: 'integration', provider: 'health_connect:dev-1' });
+    server.use(
+      http.get('*/api/goals/progress', () =>
+        HttpResponse.json({
+          data: [
+            mockProgress(synced, { done: 1, entries: [{ ...hc, superseded: false }] }),
+            mockProgress(manual, { done: 1, entries: [{ ...mockEntry(), superseded: false }] }),
+            mockProgress(replaced, { done: 0, entries: [{ ...hc, superseded: true }] }),
+          ],
+        }),
+      ),
+    );
+    renderCard();
+    const syncedRow = await screen.findByTestId(`today-goal-${synced.id}`);
+    expect(within(syncedRow).getByTestId('health-connect-chip')).toHaveTextContent('Health Connect');
+    expect(within(screen.getByTestId(`today-goal-${manual.id}`)).queryByTestId('health-connect-chip')).toBeNull();
+    expect(within(screen.getByTestId(`today-goal-${replaced.id}`)).queryByTestId('health-connect-chip')).toBeNull();
   });
 
   it('checks in with "I did it" and refreshes progress without a reload', async () => {

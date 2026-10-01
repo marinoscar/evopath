@@ -26,39 +26,43 @@ model User {
   updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  identities             UserIdentity[]
-  userRoles              UserRole[]
-  userSettings           UserSettings?
-  auditEvents            AuditEvent[]            @relation("ActorEvents")
-  settingsUpdates        SystemSettings[]        @relation("SettingsUpdater")
-  refreshTokens          RefreshToken[]          @relation("UserRefreshTokens")
-  allowlistEntriesAdded  AllowedEmail[]          @relation("AllowlistAddedBy")
-  allowlistEntry         AllowedEmail?           @relation("AllowlistClaimedBy")
-  deviceCodes            DeviceCode[]            @relation("UserDeviceCodes")
-  storageObjects         StorageObject[]         @relation("UserStorageObjects")
-  photoIntakes           PhotoIntake[]
-  healthDocuments        HealthDocument[]
-  gyms                   Gym[]
-  equipmentTypes         EquipmentType[]
-  exercises              Exercise[]
-  workouts               Workout[]
-  programs               Program[]
-  activityGoals          ActivityGoal[]
-  activityEntries        ActivityEntry[]
-  programChanges         ProgramChangeLog[]
-  programSessions        ProgramSession[]
-  trainingPlanRuns       TrainingPlanRun[]
-  coachMessages          CoachMessage[]
-  coachState             CoachState?
-  progressPhotos         ProgressPhoto[]
-  workoutAdaptations     WorkoutAdaptation[]
-  personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
-  credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
-  notificationDeliveries NotificationDelivery[]  @relation("UserNotificationDeliveries")
-  notifications          Notification[]          @relation("UserNotifications")
-  pushSubscriptions      PushSubscription[]      @relation("UserPushSubscriptions")
-  workerNodes            WorkerNode[]            @relation("UserWorkerNodes")
-  nodeCredentials        NodeCredential[]        @relation("UserNodeCredentials")
+  identities                  UserIdentity[]
+  userRoles                   UserRole[]
+  userSettings                UserSettings?
+  auditEvents                 AuditEvent[]                 @relation("ActorEvents")
+  settingsUpdates             SystemSettings[]             @relation("SettingsUpdater")
+  refreshTokens               RefreshToken[]               @relation("UserRefreshTokens")
+  allowlistEntriesAdded       AllowedEmail[]               @relation("AllowlistAddedBy")
+  allowlistEntry              AllowedEmail?                @relation("AllowlistClaimedBy")
+  deviceCodes                 DeviceCode[]                 @relation("UserDeviceCodes")
+  storageObjects              StorageObject[]              @relation("UserStorageObjects")
+  photoIntakes                PhotoIntake[]
+  healthDocuments             HealthDocument[]
+  gyms                        Gym[]
+  equipmentTypes              EquipmentType[]
+  exercises                   Exercise[]
+  workouts                    Workout[]
+  programs                    Program[]
+  activityGoals               ActivityGoal[]
+  activityEntries             ActivityEntry[]
+  healthSyncDevices           HealthSyncDevice[]
+  healthSyncRuns              HealthSyncRun[]
+  sleepSessions               SleepSession[]
+  healthSyncDiagnosticReports HealthSyncDiagnosticReport[]
+  programChanges              ProgramChangeLog[]
+  programSessions             ProgramSession[]
+  trainingPlanRuns            TrainingPlanRun[]
+  coachMessages               CoachMessage[]
+  coachState                  CoachState?
+  progressPhotos              ProgressPhoto[]
+  workoutAdaptations          WorkoutAdaptation[]
+  personalAccessTokens        PersonalAccessToken[]        @relation("UserPersonalAccessTokens")
+  credentialUpdates           Credential[]                 @relation("CredentialUpdatedBy")
+  notificationDeliveries      NotificationDelivery[]       @relation("UserNotificationDeliveries")
+  notifications               Notification[]               @relation("UserNotifications")
+  pushSubscriptions           PushSubscription[]           @relation("UserPushSubscriptions")
+  workerNodes                 WorkerNode[]                 @relation("UserWorkerNodes")
+  nodeCredentials             NodeCredential[]             @relation("UserNodeCredentials")
   // Two relations to ONE table, deliberately (#281, epic #254): a
   // `database_backup_runs` row records both "who asked for this backup" and,
   // once Phase 7 restores from it, "who restored it". They are different acts
@@ -66,9 +70,9 @@ model User {
   // columns and therefore different relation names. See the block comment
   // above `DatabaseBackupRun` for why the restore audit lives on the backup's
   // own row rather than in a second table.
-  databaseBackupRuns     DatabaseBackupRun[]     @relation("UserDatabaseBackupRuns")
-  databaseRestores       DatabaseBackupRun[]     @relation("UserDatabaseRestores")
-  broadcastsCreated      NotificationBroadcast[] @relation("BroadcastAuthor")
+  databaseBackupRuns          DatabaseBackupRun[]          @relation("UserDatabaseBackupRuns")
+  databaseRestores            DatabaseBackupRun[]          @relation("UserDatabaseRestores")
+  broadcastsCreated           NotificationBroadcast[]      @relation("BroadcastAuthor")
   // AI platform (#423, epic #419). Four relations, four different
   // `onDelete` answers — see each model's own block comment for why:
   //   - `aiModelsUpdated` (`AiModel.updatedByUser`) is provenance on a
@@ -83,22 +87,25 @@ model User {
   //   - `aiUsageEvents` (`AiUsageEvent.user`) is `SetNull` for the identical
   //     reason `aiRuns` is: usage accounting must outlive the account it
   //     billed.
-  aiModelsUpdated        AiModel[]               @relation("AiModelUpdatedBy")
-  aiKeys                 UserAiKey[]
-  aiRuns                 AiRun[]
-  aiUsageEvents          AiUsageEvent[]
+  aiModelsUpdated             AiModel[]                    @relation("AiModelUpdatedBy")
+  aiKeys                      UserAiKey[]
+  aiRuns                      AiRun[]
+  aiUsageEvents               AiUsageEvent[]
   // Per-user encrypted credentials (issue #387). Cascade: a user-owned
   // secret has no meaning once its owner is gone — see `UserCredential`.
-  userCredentials        UserCredential[]        @relation("UserCredentials")
+  userCredentials             UserCredential[]             @relation("UserCredentials")
   // Health profile (E2.1, #47). Cascade: person-level health facts have no
   // meaning once the account is gone — see `HealthProfile`.
-  healthProfile          HealthProfile?
+  healthProfile               HealthProfile?
   // Measurements (E2.2, #50). Cascade, like `healthProfile`.
-  measurements           Measurement[]
+  measurements                Measurement[]
   // AI health summary (H8, #192). Cascade, like `healthProfile`: the consent
   // and every generated summary are about this person only.
-  healthSummarySetting   HealthSummarySetting?
-  healthSummaries        HealthSummary[]
+  healthSummarySetting        HealthSummarySetting?
+  healthSummaries             HealthSummary[]
+  // Android APK releases (#285, epic #276). SetNull: a release is a
+  // deployment artifact that outlives whoever uploaded it.
+  androidAppReleasesUploaded  AndroidAppRelease[]          @relation("AndroidAppReleaseUploader")
 
   @@map("users")
 }
@@ -274,11 +281,13 @@ model PersonalAccessToken {
   revokedAt     DateTime?       @map("revoked_at") @db.Timestamptz
 
   // Relations
-  user        User         @relation("UserPersonalAccessTokens", fields: [userId], references: [id], onDelete: Cascade)
+  user              User               @relation("UserPersonalAccessTokens", fields: [userId], references: [id], onDelete: Cascade)
   // The device-authorization sessions that issued this PAT (issue #518).
   // Almost always at most one, but not constrained `@unique` here — see
   // `DeviceCode.patId`.
-  deviceCodes DeviceCode[]
+  deviceCodes       DeviceCode[]
+  // Health sync devices paired with this PAT (SetNull on delete).
+  healthSyncDevices HealthSyncDevice[]
 
   @@index([userId])
   @@index([expiresAt])
@@ -410,7 +419,7 @@ model StorageObject {
   gymPhotos       GymPhoto[]
   workoutPhotos   WorkoutPhoto[]
   healthDocuments HealthDocument[]
-  coachAudio      CoachMessage[]     @relation("CoachMessageAudio")
+  coachAudio      CoachMessage[]       @relation("CoachMessageAudio")
   progressPhotos  ProgressPhoto[]
 
   @@index([uploadedById])
@@ -2625,37 +2634,44 @@ model HealthProfile {
 // `supersedesId` means two concurrent edits cannot both win. Cascade: no
 // reader once the user is gone.
 model Measurement {
-  id           String    @id @default(uuid()) @db.Uuid
-  userId       String    @map("user_id") @db.Uuid
-  entryId      String    @map("entry_id") @db.Uuid
-  metricKey    String    @map("metric_key")
-  value        Float
-  unit         String
-  measuredAt   DateTime  @map("measured_at") @db.Timestamptz
-  localDate    DateTime? @map("local_date") @db.Date
-  method       String    @default("unspecified")
-  origin       String    @default("manual") // manual | calculated | ai | device
-  notes        String?
-  referenceLow  Float?   @map("reference_low")
-  referenceHigh Float?   @map("reference_high")
-  referenceText String?  @map("reference_text")
-  flag          String?  // low | normal | high | critical | unknown (validated in the API)
-  sourceRef    Json?     @map("source_ref")
-  revision     Int       @default(1)
-  supersedesId String?   @unique @map("supersedes_id") @db.Uuid
-  supersededAt DateTime? @map("superseded_at") @db.Timestamptz
-  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  entryId            String    @map("entry_id") @db.Uuid
+  metricKey          String    @map("metric_key")
+  value              Float
+  unit               String
+  measuredAt         DateTime  @map("measured_at") @db.Timestamptz
+  localDate          DateTime? @map("local_date") @db.Date
+  method             String    @default("unspecified")
+  origin             String    @default("manual") // manual | calculated | ai | device
+  notes              String?
+  referenceLow       Float?    @map("reference_low")
+  referenceHigh      Float?    @map("reference_high")
+  referenceText      String?   @map("reference_text")
+  flag               String? // low | normal | high | critical | unknown (validated in the API)
+  sourceRef          Json?     @map("source_ref")
+  revision           Int       @default(1)
+  supersedesId       String?   @unique @map("supersedes_id") @db.Uuid
+  supersededAt       DateTime? @map("superseded_at") @db.Timestamptz
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz
+  // Device-synced rows (epic #276): provider is `health_connect:<deviceId>`.
+  // Uniqueness is the raw-SQL partial index `measurements_provider_external_uniq_idx`.
+  externalProvider   String?   @map("external_provider")
+  externalId         String?   @map("external_id")
+  healthSyncDeviceId String?   @map("health_sync_device_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  supersedes   Measurement? @relation("MeasurementRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
-  supersededBy Measurement? @relation("MeasurementRevisions")
+  healthSyncDevice HealthSyncDevice? @relation(fields: [healthSyncDeviceId], references: [id], onDelete: SetNull)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supersedes       Measurement?      @relation("MeasurementRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy     Measurement?      @relation("MeasurementRevisions")
 
   @@index([userId, metricKey, measuredAt(sort: Desc)])
   @@index([userId, entryId])
   @@index([userId, localDate])
+  @@index([healthSyncDeviceId])
   @@map("measurements")
 }
 
@@ -3657,4 +3673,167 @@ model ActivityEntry {
   @@index([userId, occurredOn])
   @@index([workoutId])
   @@map("activity_entries")
+}
+
+// =============================================================================
+// Health sync (Android Health Connect)
+// =============================================================================
+
+enum HealthSyncDeviceStatus {
+  active
+  revoked
+}
+
+enum HealthSyncTrigger {
+  periodic
+  manual
+  initial
+  app_open
+}
+
+enum HealthSyncRunStatus {
+  ok
+  partial
+  failed
+  skipped
+}
+
+model HealthSyncDevice {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  userId               String                 @map("user_id") @db.Uuid
+  installationId       String                 @map("installation_id") @db.Uuid
+  name                 String
+  manufacturer         String?
+  model                String?
+  androidVersion       String?                @map("android_version")
+  sdkInt               Int?                   @map("sdk_int")
+  appVersion           String?                @map("app_version")
+  appVersionCode       Int?                   @map("app_version_code")
+  healthConnectVersion String?                @map("health_connect_version")
+  packageName          String?                @map("package_name")
+  signingSha256        String?                @map("signing_sha256")
+  timezone             String?
+  patId                String?                @map("pat_id") @db.Uuid
+  status               HealthSyncDeviceStatus @default(active)
+  lastSeenAt           DateTime?              @map("last_seen_at") @db.Timestamptz
+  lastSyncAt           DateTime?              @map("last_sync_at") @db.Timestamptz
+  lastSyncStatus       HealthSyncRunStatus?   @map("last_sync_status")
+  lastError            String?                @map("last_error")
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz
+
+  user          User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pat           PersonalAccessToken?         @relation(fields: [patId], references: [id], onDelete: SetNull)
+  runs          HealthSyncRun[]
+  reports       HealthSyncDiagnosticReport[]
+  measurements  Measurement[]
+  sleepSessions SleepSession[]
+
+  @@unique([userId, installationId])
+  @@index([userId, status])
+  @@index([patId])
+  @@map("health_sync_devices")
+}
+
+model HealthSyncRun {
+  id           String              @id @default(uuid()) @db.Uuid
+  deviceId     String              @map("device_id") @db.Uuid
+  userId       String              @map("user_id") @db.Uuid
+  trigger      HealthSyncTrigger
+  status       HealthSyncRunStatus
+  startedAt    DateTime            @map("started_at") @db.Timestamptz
+  finishedAt   DateTime            @map("finished_at") @db.Timestamptz
+  windowFrom   DateTime?           @map("window_from") @db.Date
+  windowTo     DateTime?           @map("window_to") @db.Date
+  recordsRead  Int                 @default(0) @map("records_read")
+  created      Int                 @default(0)
+  updated      Int                 @default(0)
+  deleted      Int                 @default(0)
+  errorCode    String?             @map("error_code")
+  errorMessage String?             @map("error_message")
+  details      Json?
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz
+
+  device HealthSyncDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@index([userId, createdAt])
+  @@map("health_sync_runs")
+}
+
+model HealthSyncDiagnosticReport {
+  id        String   @id @default(uuid()) @db.Uuid
+  deviceId  String   @map("device_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  summary   String?
+  report    Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  device HealthSyncDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@index([userId])
+  @@map("health_sync_diagnostic_reports")
+}
+
+/// A night's sleep. Manual or device-synced (epic #276). Uniqueness of a
+/// device row is the raw-SQL partial index `sleep_sessions_provider_external_uniq_idx`.
+model SleepSession {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  startAt            DateTime @map("start_at") @db.Timestamptz
+  endAt              DateTime @map("end_at") @db.Timestamptz
+  localDate          DateTime @map("local_date") @db.Date // local date of waking (endAt)
+  durationMinutes    Int      @map("duration_minutes") // asleep time
+  awakeMinutes       Int?     @map("awake_minutes")
+  lightMinutes       Int?     @map("light_minutes")
+  deepMinutes        Int?     @map("deep_minutes")
+  remMinutes         Int?     @map("rem_minutes")
+  unknownMinutes     Int?     @map("unknown_minutes")
+  origin             String   @default("manual") // manual | device
+  provider           String?
+  externalId         String?  @map("external_id")
+  healthSyncDeviceId String?  @map("health_sync_device_id") @db.Uuid
+  note               String?
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  healthSyncDevice HealthSyncDevice? @relation(fields: [healthSyncDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, localDate])
+  @@index([healthSyncDeviceId])
+  @@map("sleep_sessions")
+}
+
+/// An Android APK this deployment hosts (#285, epic #276). Uploaded by an
+/// administrator (or `evopathcli android publish`), stored in object storage
+/// under `android-releases/`, downloaded by users through a short-lived signed
+/// link. At most ONE release is current deployment-wide: the raw-SQL partial
+/// unique index `android_app_releases_one_current_uniq_idx` (migration SQL
+/// only; Prisma cannot express it, never declare it as @@unique and never
+/// replace it with a findFirst pre-check). A deployment artifact: kept by user
+/// data reset (uploader SetNull) and by factory reset.
+model AndroidAppRelease {
+  id            String   @id @default(uuid()) @db.Uuid
+  packageName   String   @map("package_name")
+  versionName   String   @map("version_name") @db.VarChar(50)
+  versionCode   Int      @map("version_code")
+  signingSha256 String   @map("signing_sha256")
+  fileSha256    String   @map("file_sha256") @db.Char(64)
+  sizeBytes     Int      @map("size_bytes")
+  storageKey    String   @map("storage_key")
+  notes         String?  @db.VarChar(2000)
+  isCurrent     Boolean  @default(false) @map("is_current")
+  uploadedById  String?  @map("uploaded_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  uploadedBy User? @relation("AndroidAppReleaseUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@unique([packageName, versionCode])
+  @@index([createdAt])
+  @@index([uploadedById])
+  @@map("android_app_releases")
 }

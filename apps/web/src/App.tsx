@@ -143,6 +143,10 @@ const UserAgentModelsPage = lazy(() => import('./pages/UserAgentModelsPage'));
 const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage'));
 // Issue #190 (H6) — the caller's own uploaded health documents.
 const UserHealthDocumentsPage = lazy(() => import('./pages/UserHealthDocumentsPage'));
+// Connected devices (#283, epic #276): phones syncing Health Connect.
+const ConnectedDevicesPage = lazy(() => import('./pages/ConnectedDevicesPage'));
+// Android app download (#287, epic #276): the APK this server hosts.
+const AndroidAppDownloadPage = lazy(() => import('./pages/AndroidAppDownloadPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // E7.8 (#248): the AI Coach timeline.
 const CoachPage = lazy(() => import('./pages/CoachPage'));
@@ -155,6 +159,8 @@ const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorer
 // (`@mui/x-charts`) travel in its own chunk.
 const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
 const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
+// Android app trust (#283, epic #276).
+const AndroidAppPage = lazy(() => import('./pages/Admin/AndroidAppPage'));
 // Issue #211 — the admin factory reset.
 const FactoryResetPage = lazy(() => import('./pages/Admin/FactoryResetPage'));
 const SetupGuidePage = lazy(() => import('./pages/Admin/SetupGuidePage'));
@@ -478,6 +484,26 @@ function AppRoutes() {
                       </RequirePermission>
                     }
                   />
+                  {/* Issue #283, epic #276. Gated on `goals:read`: the exact
+                      string the health-sync controller's reads enforce and the
+                      `Connected devices` card declares. Unpair needs
+                      `goals:write`, gated inside the page. */}
+                  <Route
+                    path="/settings/connected-devices"
+                    element={
+                      <RequirePermission
+                        permission="goals:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <ConnectedDevicesPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #287, epic #276. Ungated like the caller's own
+                      preferences: the latest-release and download-link routes
+                      are `@Auth()` with no permission, and the `Android app`
+                      card declares none. */}
+                  <Route path="/settings/android-app" element={<AndroidAppDownloadPage />} />
                   {/* Issue #425, epic #419 — the `ai` destination. Gated
                       exactly as the destination is: `ai:use` AND
                       `ai_config:read` (#593 — the Playground is an operator
@@ -1003,6 +1029,21 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <DoctorPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #283, epic #276. `system_settings:read`, the string the
+                      `Android app` card declares and `GET /api/admin/android-app`
+                      enforces. Saving needs `system_settings:write`, gated
+                      inside the page. */}
+                  <Route
+                    path="/admin/settings/android"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AndroidAppPage />
                       </RequirePermission>
                     }
                   />

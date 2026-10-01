@@ -120,10 +120,18 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
         name: 'Measurements',
         description:
           'The calling user\'s health measurements (weight, body fat, waist, blood pressure, ' +
-          'resting heart rate): the metric catalog with unit conversion factors, entries of ' +
+          'resting heart rate, average heart rate, HRV; device-synced readings carry `origin: device`): ' +
+          'the metric catalog with unit conversion factors, entries of ' +
           'readings saved together, latest values, and chart series. Values are stored in each ' +
           'metric\'s canonical unit; edits create superseding revisions and deletes are soft. ' +
           'Gated on `health_data:read`/`:write`; owner-scoped (a foreign id is a 404).',
+      },
+      {
+        name: 'Sleep',
+        description:
+          'The calling user\'s sleep sessions, synced from a phone (Health Connect): start, end, the day of ' +
+          'waking, asleep minutes and stage minutes (awake, light, deep, REM). List by day range and delete. ' +
+          'Gated on `health_data:read`/`:write`; owner-scoped.',
       },
       {
         name: 'Check-ins',
@@ -273,6 +281,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'the highest source counts: integration > workout > manual. Meters and seconds. Gated on ' +
           '`goals:read`/`goals:write`; owner-scoped.',
       },
+      {
+        name: 'Health sync',
+        description:
+          'Android Health Connect sync: paired phones (each linked to the access token it paired with), ' +
+          'sync uploads that upsert activity entries (`source: integration`), measurements and sleep ' +
+          'sessions per phone and reconcile deletions inside the sync window, run history and diagnostics ' +
+          'reports. Gated on `goals:read`/`goals:write`; measurements and sleep also need ' +
+          '`health_data:write`. Owner-scoped.',
+      },
     ],
   },
   {
@@ -420,6 +437,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'each with a status, a one-line detail and — when something needs attention — a ' +
           'remedy and the settings page that fixes it. Gated on `system_settings:read`. ' +
           'Always answers 200: a failing check is a row, not a status code.',
+      },
+      {
+        name: 'Android App',
+        description:
+          'Trust for the Android app\'s Trusted Web Activity: the (package, signing certificate ' +
+          'fingerprint) pairs this deployment vouches for, gated on `system_settings:read`/`:write`, ' +
+          'the pairs paired devices report, and the public Digital Asset Links document served at ' +
+          '`/.well-known/assetlinks.json`.',
       },
       {
         name: 'Telemetry',

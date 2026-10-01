@@ -77,7 +77,7 @@ const NEWEST_FIRST = [
   { id: 'desc' as const },
 ];
 
-/** The six body/vital metrics `latest` reports, in registry order. */
+/** The body/vital metrics `latest` reports, in registry order. */
 const LATEST_METRIC_KEYS = MEASUREMENT_METRIC_KEYS;
 
 /**
@@ -614,6 +614,7 @@ export function toMeasurement(row: MeasurementRow, files?: HealthDocumentFileSta
     measuredAt: row.measuredAt.toISOString(),
     method: row.method,
     origin: row.origin,
+    externalProvider: row.externalProvider ?? null,
     notes: row.notes,
     referenceLow: row.referenceLow,
     referenceHigh: row.referenceHigh,

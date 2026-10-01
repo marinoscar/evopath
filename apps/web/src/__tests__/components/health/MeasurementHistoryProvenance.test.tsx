@@ -198,3 +198,24 @@ describe('MeasurementHistory: photo provenance', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 });
+
+describe('MeasurementHistory: Health Connect provenance (#283)', () => {
+  it('labels an entry synced from Health Connect, and only that one', async () => {
+    renderHistory([
+      mockMeasurement('weight', 80, {
+        entryId: 'e-hc',
+        measuredAt: at(29),
+        origin: 'device',
+        externalProvider: 'health_connect:dev-1',
+      }),
+      mockMeasurement('weight', 81, { entryId: 'e-device', measuredAt: at(28), origin: 'device' }),
+      mockMeasurement('weight', 82, { entryId: 'e-manual', measuredAt: at(27) }),
+    ]);
+    const [synced, device, manual] = await entries();
+    expect(within(synced).getByTestId('health-connect-chip')).toHaveTextContent('Health Connect');
+    expect(within(device).queryByTestId('health-connect-chip')).toBeNull();
+    expect(within(device).getByText('Device')).toBeInTheDocument();
+    expect(within(manual).queryByTestId('health-connect-chip')).toBeNull();
+    expect(within(manual).getByText('Manual')).toBeInTheDocument();
+  });
+});

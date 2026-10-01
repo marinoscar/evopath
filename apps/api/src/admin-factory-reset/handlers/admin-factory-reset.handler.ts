@@ -144,6 +144,10 @@
 //   Workout, Exercise, Version)  DELETED (step 2, cascades)
 //   ProgramChangeLog,
 //   ProgramSession               DELETED (step 2)
+//   AndroidAppRelease            KEPT (deployment artifact, #285): rows and
+//                                their APKs under `android-releases/` (not
+//                                StorageObject rows, so step 7 never sees
+//                                them); uploadedById of deleted users SET NULL
 //
 // The raw-SQL partial unique indexes (one active job per dedup key, one
 // default gym / in-progress workout / active run / active program / active

@@ -46,13 +46,13 @@ The handler header comment holds the authoritative per-model list for every mode
 |---|---|
 | Kept (the actor) | The `User` row, `UserIdentity`, `UserRole`, `RefreshToken` (the browser session survives), the actor's `AllowedEmail` entry |
 | Kept (access model) | Roles, permissions, role-permission links |
-| Kept (deployment) | System settings, deployment credentials (storage, AI, SMTP), AI models, worker nodes and node credentials (reassigned to the actor), `JobNodeSecret` handles |
+| Kept (deployment) | System settings, deployment credentials (storage, AI, SMTP), AI models, worker nodes and node credentials (reassigned to the actor), `JobNodeSecret` handles, hosted Android APK releases (`android_app_releases`) and their APKs under `android-releases/` (not `StorageObject` rows, so step 7 never touches them; a deleted uploader's `uploadedById` becomes null) |
 | Kept (shared) | The seeded exercise and equipment catalog and capabilities |
 | Kept (backups) | Database backup runs, their archives in storage and the jobs they link to |
 | Kept (audit) | `AuditEvent`. Deleted users' `actorUserId` becomes null. |
 | Kept (jobs) | Running jobs and this job. A running job of another type finds its rows gone and fails on its own, as handlers already must tolerate. |
 | Deleted (users) | Every other user and their sessions, identities, roles, access tokens and AI keys |
-| Deleted (data) | Everything the user reset deletes, for every user including the actor: workouts, activity goals and entries, programs, gyms, health data, photo intakes, training runs, AI runs and usage, stored credentials, notifications, user settings |
+| Deleted (data) | Everything the user reset deletes, for every user including the actor: workouts, activity goals and entries, connected phones with their sync runs and diagnostic reports, sleep sessions, programs, gyms, health data, photo intakes, training runs, AI runs and usage, stored credentials, notifications, user settings |
 | Deleted (catalog) | Custom exercises and custom equipment types |
 | Deleted (deployment) | Pending and finished job history, job statistics rollups, broadcasts, allowlist entries except the actor's, device codes |
 | Deleted (storage) | Every stored object except backup archives |
@@ -132,6 +132,7 @@ The job stays server-only: never add `nodeResultSchema` or `persistNodeResult`.
 - **Share the per-user deletion.** A second copy of the per-user delete would drift from the first. One file means a new model is decided once and both resets cover it. Rejected: deleting users and relying on cascades, which misses `Restrict` edges and `SET NULL` rows that are user data.
 - **No storage ids in the payload.** The object set is recomputable from the database on every attempt. Persisting it would put a deployment-sized list in a JSON column for no benefit.
 - **Reassign nodes instead of deleting them.** Worker nodes are infrastructure. Handing them to the actor keeps them registered and lets the actor revoke their credentials. The name-clash exception is counted rather than hidden.
+- **Keep Android APK releases and their files.** A release is a deployment artifact, like system settings: the installed phones keep offering updates from it, and it belongs to no user. Rows and stored APKs are kept together, so a kept row never points at a deleted file.
 - **Keep backups, their archives and their jobs.** The backup is the undo. The reset must never remove the thing that lets an operator recover from it.
 - **Keep the actor's session.** Revoking it would sign the administrator out mid-reset with no way to read the result.
 - **Keep the audit log.** The trail records who ran the reset and outlives the data it describes.

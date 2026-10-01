@@ -13,6 +13,7 @@ import {
   MEASUREMENT_ENTRY_AUDIT_TARGET,
   MEASUREMENT_ENTRY_DELETE_AUDIT_ACTION,
   MeasurementsService,
+  toMeasurement,
 } from './measurements.service';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -572,7 +573,10 @@ describe('MeasurementsService', () => {
             userId: USER_ID,
             ...ACTIVE_PREDICATE,
             metricKey: {
-              in: ['weight', 'body_fat_pct', 'waist_circumference', 'bp_systolic', 'bp_diastolic', 'resting_hr'],
+              in: [
+                'weight', 'body_fat_pct', 'waist_circumference', 'bp_systolic', 'bp_diastolic', 'resting_hr',
+                'heart_rate_avg', 'hrv_rmssd',
+              ],
             },
           }),
           orderBy: [{ measuredAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
@@ -606,7 +610,7 @@ describe('MeasurementsService', () => {
       );
     });
 
-    it('latest: six metrics in registry order, two rows each', async () => {
+    it('latest: the body/vital metrics in registry order, two rows each', async () => {
       (prisma.measurement.findMany as jest.Mock).mockImplementation(async ({ where }: any) =>
         where.metricKey === 'weight'
           ? [row({ value: 81 }), row({ value: 80 })]
@@ -624,6 +628,8 @@ describe('MeasurementsService', () => {
         'bp_systolic',
         'bp_diastolic',
         'resting_hr',
+        'heart_rate_avg',
+        'hrv_rmssd',
       ]);
       expect(result.items[0].latest?.value).toBe(81);
       expect(result.items[0].previous?.value).toBe(80);
@@ -707,6 +713,15 @@ describe('MeasurementsService', () => {
       const body = await service.series(USER_ID, { metricKey: 'weight', from: new Date(0), to: new Date() });
 
       expect(Object.keys(body.points[0]).sort()).toEqual(['id', 'measuredAt', 'method', 'origin', 'value']);
+    });
+  });
+
+  describe('device provenance (epic #276)', () => {
+    it('exposes origin and externalProvider so a client can label Health Connect readings', () => {
+      expect(
+        toMeasurement(row({ origin: 'device', externalProvider: 'health_connect:abc', externalId: 'r1' }) as never),
+      ).toMatchObject({ origin: 'device', externalProvider: 'health_connect:abc' });
+      expect(toMeasurement(row() as never).externalProvider).toBeNull();
     });
   });
 

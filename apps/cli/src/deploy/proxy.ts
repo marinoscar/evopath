@@ -333,6 +333,13 @@ function proxyContainerOf(options: ProxyOptions): string | undefined {
  * add_header REPLACES the inherited set rather than merging with it - so
  * adding any header here would silently delete the application's CSP.
  */
+/**
+ * The smallest edge body limit for the APK release upload, in MB. Matches
+ * `client_max_body_size 160m` in infra/nginx/nginx.conf, itself just above
+ * the API's `MAX_APK_BYTES` (150 MiB).
+ */
+export const APK_UPLOAD_MIN_BODY_MB = 160;
+
 export function renderVhost(
   target: ProxyTarget,
   runtime: ProxyRuntime,
@@ -341,7 +348,12 @@ export function renderVhost(
   assertValidDomain(target.domain);
 
   const maxBody = options?.maxBodyBytes;
-  const clientMaxBody = maxBody === undefined ? '100m' : `${Math.ceil(maxBody / (1024 * 1024))}m`;
+  const maxBodyMb = maxBody === undefined ? 100 : Math.ceil(maxBody / (1024 * 1024));
+  const clientMaxBody = `${maxBodyMb}m`;
+  // The APK upload cap (issue #285): just above the API's own 150 MB limit,
+  // and never BELOW the server-wide cap, so a deployment that raised
+  // MAX_FILE_SIZE past 160m does not find this one path stricter than the rest.
+  const apkUploadMaxBody = `${Math.max(APK_UPLOAD_MIN_BODY_MB, maxBodyMb)}m`;
 
   return `# Managed by appctl deploy. Edits will be overwritten.
 # Application: ${target.domain}
@@ -501,6 +513,55 @@ server {
         chunked_transfer_encoding off;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
+    }
+
+    # Android APK release upload (issue #285, epic #276). The API takes a
+    # signed APK of up to 150 MB and refuses anything larger with its own 413;
+    # the application's nginx raises its limit to 160m for this exact path.
+    # The server-wide cap above is matched to MAX_FILE_SIZE (100m by default),
+    # so without this block an APK above it gets a bare 413 here, one hop
+    # before either of those limits. Never lower than the server-wide cap.
+    # Streamed rather than spooled to disk first, with ten minutes for a slow
+    # uplink. \`GET\` on the same path (the release list) is unaffected.
+    location = /api/admin/android-app/releases {
+        proxy_pass http://127.0.0.1:${target.bindPort};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host  $host;
+
+        client_max_body_size ${apkUploadMaxBody};
+        proxy_request_buffering off;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout    600s;
+        proxy_read_timeout    600s;
+    }
+
+    # Android APK download (issue #285): an APK of up to 150 MB streamed from
+    # object storage. The application's nginx forwards it unbuffered; this hop
+    # must too, so the phone's downloader receives bytes as they arrive rather
+    # than after the edge spooled the whole file, with a timeout a slow mobile
+    # connection can live with.
+    location /api/android-app/download/ {
+        proxy_pass http://127.0.0.1:${target.bindPort};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host  $host;
+
+        proxy_buffering off;
+        proxy_cache off;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout    600s;
+        proxy_read_timeout    600s;
     }
 }
 `;

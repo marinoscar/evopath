@@ -66,6 +66,15 @@ export const AI_OUTPUTS_KEY_PREFIX = 'ai-outputs/';
 export const EXPORTS_KEY_PREFIX = 'exports/';
 
 /**
+ * Android APKs an administrator published (#285, epic #276). Individual
+ * objects live under `android-releases/<uuid>.apk`, built by
+ * `androidReleaseKey` in `android-app/releases/android-release.constants.ts`.
+ * They are NOT `storage_objects` rows: the `android_app_releases` row holds
+ * the key, and deleting a release deletes the object.
+ */
+export const ANDROID_RELEASES_KEY_PREFIX = 'android-releases/';
+
+/**
  * Probe objects written by the storage connection test.
  *
  * ⚠ Easy to leave off this list and wrong to: the test deletes its probe on a
@@ -89,5 +98,6 @@ export const STORAGE_KEY_PREFIXES: readonly string[] = Object.freeze([
   NODE_OUTPUTS_KEY_PREFIX,
   AI_OUTPUTS_KEY_PREFIX,
   EXPORTS_KEY_PREFIX,
+  ANDROID_RELEASES_KEY_PREFIX,
   STORAGE_TEST_KEY_PREFIX,
 ]);

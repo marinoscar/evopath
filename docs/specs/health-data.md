@@ -108,7 +108,9 @@ The Health Profile card sits in the **Health** group of `USER_SETTINGS_SECTIONS`
 | `measuredAt` | `timestamptz` | When the reading was taken. |
 | `localDate` | `date`, null | The person's local calendar day, set on daily metrics. The check-in API sets it; the measurements API leaves it null and copies it forward on edit. |
 | `method` | text, default `unspecified` | How it was measured. A plain string. |
-| `origin` | text, default `manual` | How it entered the system: `manual`, `calculated`, `ai` or `device`. A plain string. |
+| `origin` | text, default `manual` | How it entered the system: `manual`, `calculated`, `ai` or `device`. A plain string. `device` rows come only from the Android Health Connect sync. |
+| `externalProvider`, `externalId` | text, null | Device rows only: the provider (`health_connect:<deviceId>`) and the source record's id. Unique together per user where the provider is set. Never client-settable; exposed in responses so the web can label "Health Connect". |
+| `healthSyncDeviceId` | uuid, null | The device that wrote the row; foreign key to `health_sync_devices`, set null when the device is deleted. |
 | `notes` | text, null | Free text, at most 500 characters. |
 | `referenceLow`, `referenceHigh` | float, null | Lab results only: the lab's reference limits, canonical unit ([health-records.md 2.8](health-records.md#28-blood-work-lab-results)). |
 | `referenceText` | text, null | Lab results only: the range as printed (`<100`, `negative`), at most 100 characters. |
@@ -120,7 +122,7 @@ The Health Profile card sits in the **Health** group of `USER_SETTINGS_SECTIONS`
 | `deletedAt` | `timestamptz`, null | Set on a row when its entry is deleted. |
 | `createdAt`, `updatedAt` | `timestamptz` | |
 
-Indexes: `(userId, metricKey, measuredAt desc)` for latest and series, `(userId, entryId)` for entry operations, `(userId, localDate)`, and the unique `supersedes_id`. There is no partial index and no raw SQL: the "active" rule is a query predicate ([2.10](#210-active-rows-and-revisions)).
+Indexes: `(userId, metricKey, measuredAt desc)` for latest and series, `(userId, entryId)` for entry operations, `(userId, localDate)`, `(healthSyncDeviceId)` and the unique `supersedes_id`. The one raw-SQL index is `measurements_provider_external_uniq_idx`, a partial unique index on `(user_id, external_provider, external_id)` where `external_provider` is not null, which makes a device reading idempotent (intentional schema drift; [health-connect-sync.md](health-connect-sync.md#25-idempotency-and-ownership-of-a-key)). The "active" rule is otherwise a query predicate ([2.10](#210-active-rows-and-revisions)).
 
 ### 2.8 Metric registry
 
@@ -134,6 +136,8 @@ Indexes: `(userId, metricKey, measuredAt desc)` for latest and series, `(userId,
 | `bp_systolic` | vital | `mmHg` | none | 60 to 260 | 0 | `bp_cuff`, `clinical`, `wearable`, `other` |
 | `bp_diastolic` | vital | `mmHg` | none | 30 to 160 | 0 | `bp_cuff`, `clinical`, `wearable`, `other` |
 | `resting_hr` | vital | `bpm` | none | 25 to 220 | 0 | `wearable`, `bp_cuff`, `manual_pulse`, `other` |
+| `heart_rate_avg` | vital | `bpm` | none | 25 to 250 | 0 | `wearable`, `other`; `daily`; written by the Health Connect sync (a daily average) |
+| `hrv_rmssd` | vital | `ms` | none | 1 to 300 | 0 | `wearable`, `other`; written by the Health Connect sync |
 | `energy`, `sleep_quality`, `muscle_soreness`, `stress` | wellness | `score` | none | 1 to 5 | 0 | `self_report` only; `daily`, with a `scale` of low and high labels |
 
 The shared method list is `unspecified`, `scale`, `smart_scale`, `bia`, `dexa`, `air_displacement`, `skinfold`, `hydrostatic`, `tape`, `bp_cuff`, `manual_pulse`, `wearable`, `clinical`, `self_report`, `other`, `lab`, `point_of_care` (the last two for lab analytes).
@@ -159,7 +163,7 @@ Readings saved together (a blood-pressure pair; weight with body fat and waist) 
 | `measuredAt` | ISO 8601 with offset, at most 5 minutes ahead of the server clock, not before 1900-01-01 |
 | `notes` | Trimmed, at most 500 characters; an empty string is stored as null |
 
-**Method versus origin.** `method` is per reading and is how the value was physically obtained. `origin` is how it entered the system. Clients can never set `origin` or `sourceRef`: the strict schema rejects them, and the HTTP route always writes `origin: manual`. Server code that records provenance (an accepted AI draft) calls `MeasurementsService.createEntryInTransaction(tx, userId, input, { origin, sourceRef })` inside its own transaction. Its `input` must already be parsed with `createMeasurementEntrySchema`, so it is canonical.
+**Method versus origin.** `method` is per reading and is how the value was physically obtained. `origin` is how it entered the system. Clients can never set `origin` or `sourceRef`: the strict schema rejects them, and the HTTP route always writes `origin: manual`. The Android Health Connect sync is the other server-side writer: it records `origin: device` with an `externalProvider` it derives from the registered device ([2.18](#218-device-readings-and-sleep-android-health-connect)). Server code that records provenance (an accepted AI draft) calls `MeasurementsService.createEntryInTransaction(tx, userId, input, { origin, sourceRef })` inside its own transaction. Its `input` must already be parsed with `createMeasurementEntrySchema`, so it is canonical.
 
 ### 2.10 Active rows and revisions
 
@@ -413,6 +417,20 @@ With every item rejected, `apply` answers `200` with `entryId: null` and writes 
 - Every photo is also a health document with a keep-or-delete choice (kept by default). A file the user chose to erase is deleted after the save or the discard by a queue job, and History then shows **File deleted**. A kept file survives a discard. See [health-records.md](health-records.md#2-how-it-works).
 - `ai.health.body_metric_reading` has no `nodeResultSchema` and no `persistNodeResult`: it is server-only permanently, so no AI key reaches a worker node.
 
+### 2.18 Device readings and sleep (Android Health Connect)
+
+The Android app's sync ([health-connect-sync.md](health-connect-sync.md)) writes into this store through `POST /api/health-sync/devices/:id/sync`, which needs `health_data:write` when the payload carries any reading or sleep session (`403 HEALTH_DATA_SCOPE_REQUIRED` otherwise).
+
+- **Device readings.** Metrics `weight`, `body_fat_pct`, `resting_hr`, `heart_rate_avg` (a daily average), `hrv_rmssd`, `bp_systolic` and `bp_diastolic`, with `origin: device` and a method of `smart_scale`, `wearable` or `bp_cuff` (the server's default when the phone names none). The value, unit and bounds are checked against the registry. A systolic and diastolic pair shares one `entryId`.
+- **In place, no revisions.** A re-synced reading is updated in place (value, unit, time, local day); there is no revision chain for device rows. A reading the user deleted or edited is never overwritten or resurrected.
+- **Provenance.** `externalProvider` is `health_connect:<deviceId>`, built on the server from the device in the URL. `healthSyncDeviceId` links the device. Responses expose `origin` and `externalProvider`, and the web labels such rows "Health Connect".
+- **Reconciliation.** A record deleted on the phone soft-deletes its row on the next sync that lists the type in `run.details.syncedTypes`.
+- **Event.** After commit the sync emits `health.data.changed`, like any measurement write, so the AI health summary's debounce sees it.
+- **Sleep.** `sleep_sessions` is a table of its own: `startAt`, `endAt`, `localDate` (the local day of waking), `durationMinutes` (asleep time: total minus awake when stages exist, else end minus start), optional `awakeMinutes`, `lightMinutes`, `deepMinutes`, `remMinutes` and `unknownMinutes`, `origin` (`manual` or `device`), `provider`, `externalId` and a note. CHECK constraints keep `endAt` after `startAt`, minutes non-negative and the duration at most 1,440. Device rows are unique per `(user_id, provider, external_id)` through the raw-SQL partial unique index `sleep_sessions_provider_external_uniq_idx`.
+- **Sleep API.** `GET /api/sleep?from&to` (`health_data:read`, at most 400 days, newest day first) and `DELETE /api/sleep/:id` (`health_data:write`). A synced session that is deleted returns on the next sync while the phone still holds it in its window.
+- **Web.** The Health page's **Sleep** section shows the last 14 nights: asleep time and a stage bar.
+- **Reset.** Sleep sessions are deleted by the data reset and the factory reset ([user-data-reset.md](user-data-reset.md)).
+
 ## 3. Configuration and permissions
 
 There are no settings keys and no environment variables. Manual entry, History and Trend involve no storage or AI. The photo reading ([2.17](#217-photo-readings)) uses the runtime-configured AI and storage settings and adds no key of its own.
@@ -647,3 +665,4 @@ Manually, signed in as any seeded role:
 - #56: the daily check-in: `/api/check-ins`, the local-day helpers, `check_in:delete` audit, the check-in dialog, the Health page section and the Today Readiness card.
 - #60: History list and Trend chart on `/health` with the method shown, entry edit through `LogMeasurementDialog`, confirmed delete, and their tests and visual baselines.
 - #64: the `body_metric_reading` intake kind, the `ai.health.body_metric_reading` job, per-reading provenance and the `userEdited` recompute, the **Read from photo** dialog and the History provenance chips.
+- #278 (epic #276): device-origin measurements (`externalProvider`, `externalId`, `heart_rate_avg`, `hrv_rmssd`) and sleep sessions written by the Android Health Connect sync; see [health-connect-sync.md](health-connect-sync.md).

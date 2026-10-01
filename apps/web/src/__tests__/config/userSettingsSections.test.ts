@@ -82,6 +82,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     '/settings/ai/agents': 'ai:use',
     // E7.3 (#243): the exact string `coach-settings.controller.ts` enforces.
     '/settings/coach': 'ai:use',
+    // #283 (epic #276): the exact string the health-sync controller's reads enforce.
+    '/settings/connected-devices': 'goals:read',
   };
 
   it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
@@ -172,7 +174,8 @@ describe('USER_SETTINGS_SECTIONS - Health Documents card (issue #190)', () => {
   const card = health?.cards.find((c) => c.path === '/settings/health-documents');
 
   it('is appended after Health Profile in the Health group', () => {
-    expect(health?.cards.map((c) => c.title)).toEqual(['Health Profile', 'Health Documents']);
+    // `Connected devices` (#283) is appended after it.
+    expect(health?.cards.map((c) => c.title).slice(0, 2)).toEqual(['Health Profile', 'Health Documents']);
   });
 
   it('declares health_data:read, no feature gate and no alwaysShow', () => {
@@ -253,5 +256,94 @@ describe('USER_SETTINGS_SECTIONS - Coach card (E7.3, #243)', () => {
     expect(titles({ ai: true }, ['ai:use'])).toContain('Coach');
     expect(titles({ ai: false }, ['ai:use'])).not.toContain('Coach');
     expect(titles({ ai: true }, [])).not.toContain('Coach');
+  });
+});
+
+/**
+ * Issue #283, epic #276. Connected devices is APPENDED to the `Health` group
+ * after Health Documents, gated on `goals:read` — the exact string every read
+ * route of the health-sync controller enforces (the contract reuses the goals
+ * grants). Not behind any feature flag.
+ */
+describe('USER_SETTINGS_SECTIONS - Connected devices card (#283)', () => {
+  const health = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Health');
+  const card = health?.cards.find((c) => c.path === '/settings/connected-devices');
+
+  it('is appended after Health Documents in the Health group', () => {
+    // `Android app` (#287) is appended after it.
+    expect(health?.cards.map((c) => c.title).slice(0, 3)).toEqual([
+      'Health Profile',
+      'Health Documents',
+      'Connected devices',
+    ]);
+  });
+
+  it('declares goals:read, no feature gate and no alwaysShow', () => {
+    expect(card).toMatchObject({ title: 'Connected devices', permission: 'goals:read' });
+    expect(card?.feature).toBeUndefined();
+    expect(card?.alwaysShow).toBeUndefined();
+    expect(card?.disabled).toBeUndefined();
+  });
+
+  it('is visible with goals:read, hidden without it, and titles its route', () => {
+    const titles = (granted: string[]) =>
+      visibleSettingsSections(USER_SETTINGS_SECTIONS, (p) => granted.includes(p)).flatMap((s) =>
+        s.cards.map((c) => c.title),
+      );
+    expect(titles(['goals:read'])).toContain('Connected devices');
+    expect(titles(['goals:write'])).not.toContain('Connected devices');
+    expect(
+      settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/connected-devices'),
+    ).toBe('Connected devices');
+  });
+
+  it('is routed in App.tsx behind the same permission', () => {
+    const app = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'), 'utf8');
+    expect(app).toMatch(
+      /path="\/settings\/connected-devices"\s+element=\{\s+<RequirePermission\s+permission="goals:read"/,
+    );
+  });
+});
+
+/**
+ * Issue #287, epic #276. Android app is APPENDED to the `Health` group after
+ * Connected devices with NO permission: the latest-release and download-link
+ * routes are `@Auth()` with no permission string, so every signed-in user may
+ * install the app. Not behind any feature flag.
+ */
+describe('USER_SETTINGS_SECTIONS - Android app card (#287)', () => {
+  const health = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Health');
+  const card = health?.cards.find((c) => c.path === '/settings/android-app');
+
+  it('is the last card of the Health group, after Connected devices', () => {
+    expect(health?.cards.map((c) => c.title)).toEqual([
+      'Health Profile',
+      'Health Documents',
+      'Connected devices',
+      'Android app',
+    ]);
+  });
+
+  it('declares no permission, no feature gate and no alwaysShow', () => {
+    expect(card).toMatchObject({ title: 'Android app' });
+    expect(card?.permission).toBeUndefined();
+    expect(card?.feature).toBeUndefined();
+    expect(card?.alwaysShow).toBeUndefined();
+    expect(card?.disabled).toBeUndefined();
+  });
+
+  it('is visible with no grant at all and titles its route', () => {
+    const titles = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false).flatMap((s) =>
+      s.cards.map((c) => c.title),
+    );
+    expect(titles).toContain('Android app');
+    expect(
+      settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/android-app'),
+    ).toBe('Android app');
+  });
+
+  it('is routed in App.tsx without a permission gate', () => {
+    const app = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'), 'utf8');
+    expect(app).toMatch(/<Route path="\/settings\/android-app" element=\{<AndroidAppDownloadPage \/>\} \/>/);
   });
 });

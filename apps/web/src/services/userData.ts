@@ -37,6 +37,14 @@ export interface UserDataSummary {
   activityGoals?: number;
   /** Activity entries: manual check-ins and workout-derived entries (epic #260). */
   activityEntries?: number;
+  /** Phones paired for Health Connect sync (#283, epic #276). */
+  healthSyncDevices?: number;
+  /** Their recorded sync runs (#283). */
+  healthSyncRuns?: number;
+  /** Their uploaded diagnostic reports (#283). */
+  healthSyncDiagnosticReports?: number;
+  /** Sleep sessions, synced or manual (#283). */
+  sleepSessions?: number;
   [key: string]: number | undefined;
 }
 

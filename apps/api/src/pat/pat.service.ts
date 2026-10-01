@@ -109,6 +109,16 @@ export class PatService {
    * Validate a raw PAT and return the associated user if valid
    */
   async validateToken(rawToken: string): Promise<AuthenticatedUser | null> {
+    return (await this.resolveToken(rawToken))?.user ?? null;
+  }
+
+  /**
+   * Validate a raw PAT and return the associated user AND the token's id, or
+   * null when it is unknown, revoked, expired or its owner is inactive. The
+   * auth guard uses this so a route can tell which PAT authenticated the
+   * request (`@AuthCredential()`); the health sync pairing links that id.
+   */
+  async resolveToken(rawToken: string): Promise<{ user: AuthenticatedUser; tokenId: string } | null> {
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
     const pat = await this.prisma.personalAccessToken.findUnique({
@@ -156,7 +166,7 @@ export class PatService {
       .update({ where: { id: pat.id }, data: { lastUsedAt: new Date() } })
       .catch(() => {});
 
-    return pat.user as AuthenticatedUser;
+    return { user: pat.user as AuthenticatedUser, tokenId: pat.id };
   }
 
   /**

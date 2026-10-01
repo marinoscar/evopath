@@ -16,6 +16,10 @@
  * to erase the file after processing (#185, `fileDeleted: true`), the entry
  * shows "File deleted" instead of "View photo"; the values and provenance stay.
  *
+ * #283: an entry the Android app synced from Health Connect
+ * (`externalProvider: 'health_connect:<deviceId>'`) shows a "Health Connect"
+ * chip instead of the origin.
+ *
  * This list is also the text equivalent of the Trend chart above it.
  * `health_data:write` only enables the actions; the API enforces it.
  */
@@ -51,11 +55,13 @@ import HideImageOutlinedIcon from '@mui/icons-material/HideImageOutlined';
 import {
   AI_READ_ORIGIN,
   HEALTH_DATA_UNAVAILABLE,
+  isHealthConnectReading,
   photoSourceRef,
   type MetricDef,
   type UnitSystem,
 } from '../../services/health';
 import { ApiError } from '../../services/api';
+import { HEALTH_CONNECT_LABEL } from '../goals/HealthConnectChip';
 import { getStorageObjectDownloadUrl } from '../../services/storage';
 import { useMeasurements } from '../../hooks/useMeasurements';
 import { EmptyState } from '../common/EmptyState';
@@ -70,7 +76,7 @@ import { formatDateTime, formatShortDate, formatShortTime } from '../../utils/me
 export const NO_EDIT_PERMISSION_TOOLTIP = "You don't have permission to change health data";
 
 /** What an origin reads as. An AI-read entry shows the "Read from photo" chip instead. */
-const ORIGIN_LABELS: Record<string, string> = { manual: 'Manual' };
+const ORIGIN_LABELS: Record<string, string> = { manual: 'Manual', device: 'Device' };
 
 export const READ_FROM_PHOTO_CHIP = 'Read from photo';
 export const USER_EDITED_CHIP = 'You edited';
@@ -280,7 +286,9 @@ function HistoryRow({
           ))}
         </Stack>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 0.75 }}>
-          {provenance.readFromPhoto ? (
+          {entry.readings.some(isHealthConnectReading) ? (
+            <Chip size="small" variant="outlined" label={HEALTH_CONNECT_LABEL} data-testid="health-connect-chip" />
+          ) : provenance.readFromPhoto ? (
             <Chip
               size="small"
               variant="outlined"

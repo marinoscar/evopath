@@ -310,10 +310,12 @@ describe('listMetricKeys', () => {
   it('defaults to body and vital, lists lab only on request', () => {
     const parse = (query: Record<string, string>) => listMetricKeys(listMeasurementsQuerySchema.parse(query));
 
-    expect(parse({})).toEqual(['weight', 'body_fat_pct', 'waist_circumference', 'bp_systolic', 'bp_diastolic', 'resting_hr']);
+    expect(parse({})).toEqual([
+      'weight', 'body_fat_pct', 'waist_circumference', 'bp_systolic', 'bp_diastolic', 'resting_hr', 'heart_rate_avg', 'hrv_rmssd',
+    ]);
     expect(parse({ category: 'lab' })).toContain('hba1c');
     expect(parse({ category: 'lab' })).not.toContain('weight');
-    expect(parse({ category: 'vital' })).toEqual(['bp_systolic', 'bp_diastolic', 'resting_hr']);
+    expect(parse({ category: 'vital' })).toEqual(['bp_systolic', 'bp_diastolic', 'resting_hr', 'heart_rate_avg', 'hrv_rmssd']);
     expect(parse({ metricKey: 'tsh' })).toEqual(['tsh']);
     expect(parse({ metricKey: 'tsh', category: 'body' })).toEqual([]);
   });

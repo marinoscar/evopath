@@ -49,3 +49,33 @@ export declare const REPO_SLUG: string;
  * Typed `string`, not a literal — see the note on `APP_NAME`.
  */
 export declare const REPO_URL: string;
+
+/**
+ * The repository's name (`REPO_SLUG` after the slash), case preserved.
+ *
+ * Typed `string`, not a literal — see the note on `APP_NAME`.
+ */
+export declare const REPO_NAME: string;
+
+/**
+ * The Android app's applicationId, `com.<repo name, lowercased, alphanumerics only>.android`
+ * (the same rule as `apps/android/app/build.gradle.kts`).
+ *
+ * Typed `string`, not a literal — see the note on `APP_NAME`.
+ */
+export declare const ANDROID_PACKAGE_NAME: string;
+
+/**
+ * The Android app's deep-link scheme, `<repo name, lowercased>-android`.
+ *
+ * Typed `string`, not a literal — see the note on `APP_NAME`.
+ */
+export declare const ANDROID_DEEP_LINK_SCHEME: string;
+
+/**
+ * The stem of the Android APK file names, `<app slug>-android`
+ * (`<stem>-<versionName>.apk`, `<stem>.apk` for the GitHub release asset).
+ *
+ * Typed `string`, not a literal — see the note on `APP_NAME`.
+ */
+export declare const ANDROID_APK_STEM: string;

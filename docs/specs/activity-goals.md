@@ -8,13 +8,13 @@ A goal is a target a user sets for everyday movement: "walk 4 times a week", "15
 
 - **What it is.**
   - A small set of per-user targets (`activity_goals`) with a status lifecycle and a cap of 10 active goals.
-  - A log of activity (`activity_entries`) that goals count from. A row is a manual check-in, a workout-derived credit or, in the future, an imported reading.
+  - A log of activity (`activity_entries`) that goals count from. A row is a manual check-in, a workout-derived credit or a reading imported from Android Health Connect.
   - Pure counting rules (matching, source precedence, on track, streak) behind `GET /api/goals/progress` and `GET /api/goals/:id/history`.
-  - A shape ready for device sync: provenance columns, an idempotent keyed batch and a precedence rule that lets a measured value win over a typed one (section 2.9).
+  - A shape built for device sync: provenance columns, an idempotent keyed batch and a precedence rule that lets a measured value win over a typed one (section 2.9). The Android Health Connect sync is the live writer.
 - **What it is not.**
   - Not a training plan. A goal prescribes nothing and adapts nothing; the plan and its evaluator ([ai-training-plans.md](ai-training-plans.md)) never read goals.
   - Not a second active plan. See [section 6](#6-design-decisions).
-  - Not a device integration. No importer, OAuth flow or provider setting exists; no client can write a row with source `integration`.
+  - Not a device-integration framework. The only importer is the Android Health Connect sync ([health-connect-sync.md](health-connect-sync.md)); there is no OAuth flow or provider setting, and the `/api/activity-entries` routes cannot write a row with source `integration`.
   - Not a coaching feature itself. The AI Coach reads progress through `GoalProgressService` and reacts to check-ins (section 2.8); goals work with the coach off.
 - **Problem it solves.** A person who wants to "walk more" has nothing to log against: workouts are structured sessions and the plan is one prescription. Goals give a lightweight, forgiving target (backdate a week, say "I did it" without numbers) and credit the work already logged.
 
@@ -160,12 +160,12 @@ All of it is pure code in `goal-progress.ts` (no Nest, no Prisma, no clock); `Go
 ### 2.8 Consumers and the check-in event
 
 - **`GoalProgressService`** (exported by `ActivityModule`) is the programmatic read API: `progressForUser`, `evaluateGoal` and `historyForGoal`. Its results carry `elapsedFraction` on top of the HTTP shape. The AI Coach is its consumer: the sweep and the finish and check-in jobs read every active goal's period, the chat tool `get_goals` reads a compact summary, and the weekly review lists the goals. See [ai-coach.md](ai-coach.md).
-- **`activity.entry.recorded`** (`apps/api/src/activity/activity-events.ts`, EventEmitter2) is emitted by `ActivityEntriesService` **after** a manual check-in committed: `create` once its row exists, and `batch` once its transaction committed and wrote at least one row. An edit or a delete emits nothing. The payload is ids and an instant only (`userId`, `recordedSince`); the coach's listener turns it into the server-only job `coach.activity_recorded`, which plans a `goal_hit` message. The event key is permanent: listeners subscribe by string, and a listener must return quickly and never throw.
+- **`activity.entry.recorded`** (`apps/api/src/activity/activity-events.ts`, EventEmitter2) is emitted **after** a write committed, by `ActivityEntriesService` for a manual check-in (`create` once its row exists, and `batch` once its transaction committed and wrote at least one row) and by `HealthSyncService` for a Health Connect sync that created, updated or deleted an entry. An edit or a delete through the entries routes emits nothing. The payload is ids and an instant only (`userId`, `recordedSince`); the coach's listener turns it into the server-only job `coach.activity_recorded`, which plans a `goal_hit` message. The event key is permanent: listeners subscribe by string, and a listener must return quickly and never throw.
 - Workout credit has its own trigger, the `workout.finished` event (section 2.4).
 
-### 2.9 Sync-ready by design (future device import)
+### 2.9 Device import (Android Health Connect)
 
-External integrations (Oura, Health Connect, Samsung Health, Apple Health) are future work and are **not** built: there is no importer, OAuth code or provider setting, and no HTTP route can write `source: integration`. The model is shaped so one can be added without a migration of meaning:
+The Android app's Health Connect sync is the one importer ([health-connect-sync.md](health-connect-sync.md)). It writes `source: integration` rows with provider `health_connect:<deviceId>` through `POST /api/health-sync/devices/:id/sync`, a route of its own that needs `goals:write`; the `/api/activity-entries` routes never accept `integration`. Other providers (Oura, Samsung Health, Apple Health) are not built. The model is shaped so an importer needs no migration of meaning:
 
 - `source: integration` already ranks above `workout` and `manual`, so a measured reading wins the day (steps: an imported daily total beats a typed one).
 - `provider` and `externalId` with the partial unique index make a re-sent reading replace its earlier row instead of duplicating it. The batch route already honours the pair for manual rows, so a client can prove idempotency today.
@@ -173,7 +173,10 @@ External integrations (Oura, Health Connect, Samsung Health, Apple Health) are f
 - `PATCH` and `DELETE` already refuse non-manual rows (`ENTRY_DERIVED`), and the keyed batch never overwrites one, so a user's edit cannot fight an importer.
 - Steps are daily totals taken as a per-day maximum, so a provider that re-sends a growing total all day is safe.
 
-A real importer adds a server-side writer (a job, per the queue rules in [job-queue.md](job-queue.md)) that inserts `integration` rows through the same index, plus provider settings configured at runtime like every other provider ([CLAUDE.md](../../CLAUDE.md) security guidelines), never environment variables.
+- The sync emits `activity.entry.recorded` after it commits (section 2.8), so the coach's `goal_hit` counts imported entries.
+- A sync deletes the device's own rows that the phone no longer holds (reconciliation, [health-connect-sync.md](health-connect-sync.md#26-reconciliation)); it never touches a manual or workout row.
+
+A second importer (a cloud provider) adds a server-side writer, a job per the queue rules in [job-queue.md](job-queue.md), that inserts `integration` rows through the same index, plus provider settings configured at runtime like every other provider ([CLAUDE.md](../../CLAUDE.md) security guidelines), never environment variables.
 
 ## 3. Configuration and permissions
 
@@ -227,7 +230,7 @@ Refusal reasons (`details.reason`, `ACTIVITY_REASONS` in `activity.constants.ts`
 | Credit another exercise to a kind | Add its slug to `WALK_EXERCISE_SLUGS` or `RUN_EXERCISE_SLUGS`, or extend `derivedEntriesFor` for a new rule. Reconcile re-derives the last 14 days on the next read; older workouts need a one-off sync via `WorkoutActivitySyncService.syncWorkout` |
 | Add a metric | Extend `GoalMetric`, `entryMetricValue` and `toGoalUnits` in `goal-progress.ts`, and the web formatters. Decide its per-day rule in `evaluateDay` first |
 | Read goal progress from another feature | Import `ActivityModule` and inject `GoalProgressService` (`progressForUser`, `evaluateGoal`, `historyForGoal`); never query the goal tables of another user. Call it after a write commits |
-| Import readings from a device | Section 2.9: insert `integration` rows server-side through `activity_entries_provider_external_uniq_idx` from a queue job, never from a client route |
+| Import readings from a device | Section 2.9. A phone adds a data type through [health-connect-sync.md §4](health-connect-sync.md#4-extending-it-in-a-fork); a cloud provider inserts `integration` rows server-side through `activity_entries_provider_external_uniq_idx` from a queue job, never from the `/api/activity-entries` routes |
 | Keep goals through a data reset | Already decided: `activity_entries` and `activity_goals` are deleted by `user-data/user-data-purge.ts`. See [user-data-reset.md §4](user-data-reset.md#4-extending-it-in-a-fork) |
 
 ## 5. Guardrails
@@ -242,13 +245,13 @@ Refusal reasons (`details.reason`, `ACTIVITY_REASONS` in `activity.constants.ts`
 ## 6. Design decisions
 
 - **Goals, not multiple active plans.** A plan is a versioned prescription with an evaluator, an adaptation envelope, signals and a Today resolver, all built around exactly one active plan (`programs_one_active_per_user_uniq_idx`). "Walk 4 times a week" next to a lifting plan would need several active plans and break every one of those assumptions. A goal is lightweight: it prescribes nothing and credits any workout, plan-linked or not. Rejected: relaxing the one-active-plan index; a goals-only "plan" kind.
-- **Materialised workout entries, not computed on read.** A stored row per (workout, kind) lets one query count every source with the same precedence code, and lets a future importer share the table. The cost is keeping rows equal to the workout, paid by the finish event, the 14-day reconcile and the cascade. Rejected: joining `set_logs` at read time (a second counting path, no precedence against manual rows).
+- **Materialised workout entries, not computed on read.** A stored row per (workout, kind) lets one query count every source with the same precedence code, and lets the Health Connect importer share the table. The cost is keeping rows equal to the workout, paid by the finish event, the 14-day reconcile and the cascade. Rejected: joining `set_logs` at read time (a second counting path, no precedence against manual rows).
 - **Reconcile on read, as well as on the event.** The event alone misses edits to a completed workout and workouts created completed. A bounded re-derive of 14 days on read is cheap and self-healing. Rejected: a periodic job (more moving parts, stale between runs).
 - **The listener runs inline, not as a job.** It writes at most four rows of one workout, which is bounded work outside the queue rule's "long-running" definition ([job-queue.md](job-queue.md#all-long-running-work-is-a-job)). It never fails the finish.
 - **Precedence per day, not a merge.** Summing a typed 30 minutes and a workout's 30 minutes would double count one walk. One winning source per day is easy to explain and to test. Rejected: de-duplicating by time overlap (needs timestamps that manual entries do not have).
 - **Steps are a daily maximum.** A step count is a running total for the day, so two readings are the same steps seen twice.
 - **Monday weeks in the user's time zone.** The same week the training signals use, so "this week" means one thing in the app.
-- **Manual-only API.** No client can claim `integration`, so the precedence rule cannot be used to override a user's own history before an importer exists. Tests create `integration` rows directly.
+- **Manual-only entries API.** The `/api/activity-entries` routes cannot claim `integration`, so a client cannot use the precedence rule to override a user's own history. `integration` rows come only from the health-sync route, which derives the provider from a registered device. Entries tests create `integration` rows directly.
 - **`If-Match` with 412 and 428.** Goals use the standard HTTP codes for a stale or missing precondition. Training programs answer 409 and 400 for the same cases ([API.md](../API.md#optimistic-concurrency-if-match)); the two families are documented separately and not unified.
 - **Seven days of backdating.** Long enough to log a forgotten walk, short enough that last month's totals are not rewritten by a typo.
 
@@ -273,4 +276,4 @@ Observe: all suites pass and `/api/docs` lists the "Goals" and "Activity entries
 ## History
 
 - Epic #260 (cardio and everyday activity): #261 seeded the walk and hike exercises and their aliases; #266 added the goals table and API; #267 added activity entries, the keyed batch and workout auto-credit; #268 added progress, history, the Goals page and the Today card. Prescribing duration and distance in plans is documented in [workouts.md](workouts.md), [training-signals.md](training-signals.md) and [ai-training-plans.md](ai-training-plans.md).
-- Device integrations (Oura, Health Connect, Samsung Health, Apple Health) are tracked in #270 and are not built.
+- Epic #276 (Android Health Connect sync) made `integration` rows live: see [health-connect-sync.md](health-connect-sync.md). Other device integrations (Oura, Samsung Health, Apple Health) are tracked in #270 and are not built.

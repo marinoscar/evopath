@@ -455,7 +455,7 @@ On the web, `/coach` is the timeline (nudges, chat, reviews, photo prompts), Tod
 
 ### 5.31 Activity goals
 
-A goal is an everyday-activity target ("walk 4 times a week", "150 minutes of cardio a week", "8,000 steps a day") that sits beside the training plan, not inside it: the plan stays one active program per user, and up to ten goals can be active at once. The user checks in by hand (I did it, minutes or steps, up to seven days back) and a finished workout credits matching goals by materialising `activity_entries` rows (source `workout`). Per local day the highest source wins (integration over workout over manual), steps count as a daily maximum and weeks start on Monday in the Health Profile time zone. The server computes progress, on-track state and streaks; the web draws them. A `workout.finished` listener keeps the derived entries current and every progress read reconciles the last 14 local days. Device sync (Oura, Health Connect, Samsung Health, Apple Health) is not built; the data model is shaped for it. Design, counting rules, lifecycle and extension recipes: [specs/activity-goals.md](specs/activity-goals.md).
+A goal is an everyday-activity target ("walk 4 times a week", "150 minutes of cardio a week", "8,000 steps a day") that sits beside the training plan, not inside it: the plan stays one active program per user, and up to ten goals can be active at once. The user checks in by hand (I did it, minutes or steps, up to seven days back) and a finished workout credits matching goals by materialising `activity_entries` rows (source `workout`). Per local day the highest source wins (integration over workout over manual), steps count as a daily maximum and weeks start on Monday in the Health Profile time zone. The server computes progress, on-track state and streaks; the web draws them. A `workout.finished` listener keeps the derived entries current and every progress read reconciles the last 14 local days. Imported activity enters the same rules through the Android Health Connect sync ([5.32](#532-android-health-connect-sync)); other providers (Oura, Samsung Health, Apple Health) are not built. Design, counting rules, lifecycle and extension recipes: [specs/activity-goals.md](specs/activity-goals.md).
 
 - **Code:** `apps/api/src/activity/` (`ActivityModule`; limits, refusal reasons and templates in `activity.constants.ts`; pure rules in `goal-progress.ts` and `workout-activity.ts`), `apps/web/src/pages/Train/GoalsPage.tsx`, `apps/web/src/components/goals/`, `apps/web/src/components/today/TodayGoals.tsx`
 - **Routes:** `/api/goals` (including `/templates`, `/progress`, `/:id/history` and the `pause`, `resume` and `archive` actions) and `/api/activity-entries` (including `/batch`); details in `/api/docs` (tags "Goals" and "Activity entries")
@@ -463,13 +463,23 @@ A goal is an everyday-activity target ("walk 4 times a week", "150 minutes of ca
 - **Permissions:** `goals:read`, `goals:write`
 - **Read more:** [specs/activity-goals.md](specs/activity-goals.md)
 
+### 5.32 Android Health Connect sync
+
+An optional sideloaded Android app (`apps/android/`, package `com.<repo>.android`, derived from `identity.json`) pairs with the deployment and imports Health Connect data. It is a Trusted Web Activity around the web app plus a native Kotlin module that reads steps, exercise sessions, heart rate, resting heart rate, heart rate variability, weight, body fat, blood pressure and sleep, and posts them hourly to `/api/health-sync`. The phone pairs through the device flow (a `pat_` token, `DEVICE_PAT_EXPIRY_DAYS`, 90 days by default), registers a device row that links the token, and uploads idempotent syncs. Activity entries (`source: integration`, provider `health_connect:<deviceId>`) feed activity goals, measurements (`origin: device`) land in the health store and sleep in `sleep_sessions`, each upserted through a raw-SQL partial unique index. A sync with a window and status `ok` deletes the device's rows the phone no longer holds, only for the data types it names in `run.details.syncedTypes`. The request guard stamps `request.authCredential` (`jwt`, `pat` with the token id, or `node`) so the registering call can link its own token. Administrators trust the app's signing certificate at `/admin/settings/android` (the `android_app` system setting), and the public `/.well-known/assetlinks.json` lets Chrome open the app full screen. The deployment also hosts the APK itself: an administrator (or `evopathcli android publish`) uploads signed releases into object storage (`android_app_releases`, one current), users download the current one through a ten-minute signed link, and each device view says whether an update is available. The phone's self-test report is stored per device and shown at `/settings/connected-devices`. CI (`.github/workflows/android.yml`) builds the APK and publishes it to the rolling prerelease `android-latest`.
+
+- **Code:** `apps/api/src/health-sync/`, `apps/api/src/sleep/`, `apps/api/src/android-app/` (with `doctor/`), `apps/api/src/auth/decorators/auth-credential.decorator.ts`, `apps/android/`, `apps/web/src/pages/ConnectedDevicesPage.tsx`, `apps/web/src/pages/Admin/AndroidAppPage.tsx`, `apps/web/src/components/health/SleepSection.tsx`
+- **Routes:** `/api/health-sync` (devices, sync, runs, diagnostics), `/api/sleep`, `/api/admin/android-app`, `/api/admin/android-app/releases` (upload, list, make current, delete), `/api/android-app/releases/latest`, `/api/android-app/releases/:id/download-link`, `/api/android-app/download/:token` (public, token-validated), `/api/well-known/assetlinks.json` (public, served at `/.well-known/assetlinks.json` by nginx); details in `/api/docs` (tags "Health sync", "Sleep", "Android App")
+- **UI:** `/settings/connected-devices`, `/admin/settings/android`, the Health page "Sleep" section
+- **Permissions:** `goals:read`, `goals:write` (health sync); `health_data:read`, `health_data:write` (sleep, and measurements or sleep in a sync); `system_settings:read`, `system_settings:write` (trusted apps)
+- **Read more:** [specs/health-connect-sync.md](specs/health-connect-sync.md), [runbooks/android-app.md](runbooks/android-app.md)
+
 ---
 
 ## 6. Data architecture
 
 ### 6.1 Prisma models
 
-The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 68 models, grouped by subsystem:
+The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 74 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|
@@ -509,7 +519,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | AI | `TrainingRunCheckpoint` | `training_run_checkpoints` | Graph checkpoint per `(threadId, checkpointNs, checkpointId)`, node outputs only, no foreign key |
 | AI | `TrainingRunCheckpointWrite` | `training_run_checkpoint_writes` | Pending writes and interrupts of a checkpoint, keyed by plain `threadId` |
 | Health | `HealthProfile` | `health_profiles` | One row per user: date of birth, sex at birth, height (mm), unit system, lab units (`conventional` or `si`), time zone, bio, version |
-| Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set; lab results add a nullable reference range (`referenceLow`, `referenceHigh`, `referenceText`) and `flag` |
+| Health | `Measurement` | `measurements` | One reading per row in the metric's canonical unit: entry, metric key, method, origin, revision chain (`supersedesId`), soft delete; daily check-in scores are rows with `localDate` set; a device reading (Health Connect sync) also carries `externalProvider`, `externalId` and `healthSyncDeviceId`, unique through the raw-SQL partial unique index `measurements_provider_external_uniq_idx`; lab results add a nullable reference range (`referenceLow`, `referenceHigh`, `referenceText`) and `flag` |
 | Health | `HealthSummarySetting` | `health_summary_settings` | One row per user who set the opt-in "Use my health data in training plans": `enabled` (no row is off), `consentedAt` |
 | Health | `HealthSummary` | `health_summaries` | The AI health summary, one row per generation attempt (append-only, `version` unique per user): status (`ready`, `failed`), narrative, training considerations, `dataAsOf`, `inputsAsOf`, `inputsHash` of the digest, provider, model, regenerations, error code, job id |
 | Intake | `PhotoIntake` | `photo_intakes` | One photo-to-draft flow per row: kind, status, kind-specific context, chosen provider and model, analyze job, error, result metadata |
@@ -540,13 +550,18 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Training | `WorkoutAdaptation` | `workout_adaptations` | One quick "adjust today's workout" request and its result: `status` (`queued`, `running`, and terminal states), `request`, optional `gymId` (set null when the gym is deleted), `baseRef`, `proposal`, `guardrailReport`, `criticReport`, `safety`, `models`, `runId` and `jobId` as plain columns, `errorCode`, the `applied*` columns and `expiresAt` (30 days); cascade on the user; at most one `queued` or `running` row per user, enforced by the raw-SQL partial unique index `workout_adaptations_active_per_user_uniq_idx` |
 | Activity | `ActivityGoal` | `activity_goals` | One everyday-activity target: `title`, `activityKind` (`walk`, `run`, `cardio_any`, `workout_any`, `custom`), `customLabel`, `metric` (`sessions`, `minutes`, `steps`, `distance_m`), `target`, `period` (`week`, `day`), `status` (`active`, `paused`, `archived`), `startsOn`, `version`; cascade from the user; CHECKs keep the target positive, a `sessions` goal weekly and `steps` out of the kind |
 | Activity | `ActivityEntry` | `activity_entries` | One unit of activity on a local day: `occurredOn`, `activityKind` (a goal's kinds plus `steps`), `completed`, optional `durationSeconds`, `steps`, `distanceMeters`, `source` (`manual`, `workout`, `integration`), optional `workoutId` (cascade with the workout), optional `provider` and `externalId`, `note`; cascade from the user; two raw-SQL partial unique indexes (below) |
+| Health sync | `HealthSyncDevice` | `health_sync_devices` | One paired phone per `(userId, installationId)`: name, model, Android version, app version and `appVersionCode`, package name and signing SHA-256, phone time zone, `patId` (the linked personal access token, set null when it is deleted), `status` (`active`, `revoked`), last seen and last sync fields; cascade from the user |
+| Health sync | `HealthSyncRun` | `health_sync_runs` | One sync attempt of a device: trigger, status (`ok`, `partial`, `failed`, `skipped`), start and finish, window, counts, error, `details` JSON (the phone's per-type counts and the server's `details.server`); newest 200 kept per device |
+| Health sync | `HealthSyncDiagnosticReport` | `health_sync_diagnostic_reports` | An uploaded phone self-test report (JSON, at most 256 KB); newest 20 kept per device |
+| Android | `AndroidAppRelease` | `android_app_releases` | One hosted APK: `packageName`, `versionName`, `versionCode` (unique with `packageName`), `signingSha256`, `fileSha256`, `sizeBytes`, `storageKey` (the object under `android-releases/`), `notes`, `isCurrent`, `uploadedById` (set null when the user is deleted); at most one current release deployment-wide, enforced by the raw-SQL partial unique index `android_app_releases_one_current_uniq_idx`; a deployment artifact kept by both resets |
+| Health | `SleepSession` | `sleep_sessions` | One night: `startAt`, `endAt`, `localDate` (day of waking), asleep minutes and optional stage minutes, `origin` (`manual`, `device`), `provider`, `externalId`, optional `healthSyncDeviceId` (set null when the device is deleted); CHECKs keep the times ordered and the minutes in range; device rows are unique through the raw-SQL partial unique index `sleep_sessions_provider_external_uniq_idx` |
 | Coach | `CoachMessage` | `coach_messages` | One timeline message, every kind in one table: `role` (`coach`, `user`), `kind` (`nudge`, `chat`, `weekly_review`, `celebration`, `photo_prompt`, `comeback`, `kickoff`, `system`), `moment`, bandit `angle`, persona and intensity, title and body, lock-screen `pushTitle`/`pushBody`, `audioStatus` (`none`, `pending`, `ready`, `failed`) with the audio `StorageObject` (set null so retention can purge the file and keep the text), plain `audioRunId`, `aiRunId` and `notificationId` columns, `data` JSON, `deliveredAt`, `openedAt`, `convertedAt`, `feedback` (`up`, `down`); cascade from the user |
 | Coach | `CoachState` | `coach_states` | One row per user (unique `userId`): `lastNudgeAt`, `nudgesToday` with its local day, `consecutiveIgnored`, `pausedUntil`, `silencedAt`, `lastSweepAt`, `usualWorkoutMinuteLocal`, `weeklyStreak`, `streakPassesLeft`, `lastWeeklyReviewWeek` (ISO week key) |
 | Coach | `ProgressPhoto` | `progress_photos` | One progress photo: `localDate`, `pose` (`front`, `side`, `back`, `other`), a note of at most 200 characters no model reads, and the image `StorageObject` (cascade) |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
-Nine indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `gyms_user_default_uniq_idx` (one default gym per user), `workouts_user_in_progress_uniq_idx` (one in-progress workout per user), `training_plan_runs_active_per_user_uniq_idx` (one active training run per user, not counting kind `adapt`), `programs_one_active_per_user_uniq_idx` (one active program per user), `workout_adaptations_active_per_user_uniq_idx` (one queued or running adaptation per user), `activity_entries_provider_external_uniq_idx` (one entry per user, provider and external id where a provider is set, so a re-sent reading replaces its earlier row) and `activity_entries_workout_kind_uniq_idx` (one workout-derived entry per workout and kind). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
+Twelve indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `gyms_user_default_uniq_idx` (one default gym per user), `workouts_user_in_progress_uniq_idx` (one in-progress workout per user), `training_plan_runs_active_per_user_uniq_idx` (one active training run per user, not counting kind `adapt`), `programs_one_active_per_user_uniq_idx` (one active program per user), `workout_adaptations_active_per_user_uniq_idx` (one queued or running adaptation per user), `activity_entries_provider_external_uniq_idx` (one entry per user, provider and external id where a provider is set, so a re-sent reading replaces its earlier row) `activity_entries_workout_kind_uniq_idx` (one workout-derived entry per workout and kind), `measurements_provider_external_uniq_idx` (one device reading per user, external provider and external id), `sleep_sessions_provider_external_uniq_idx` (one device sleep session per user, provider and external id) and `android_app_releases_one_current_uniq_idx` (at most one current Android release). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
 
 ### 6.2 Settings storage
 
@@ -758,6 +773,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/storage` | Storage | General | `storage_config:read` | |
 | `/admin/settings/maintenance` | Maintenance | General | `system_settings:read` | |
 | `/admin/settings/setup` | Setup guide | General | `system_settings:read` | none (it is where AI gets switched on) |
+| `/admin/settings/android` | Android app (trusted apps, reported apps, the Digital Asset Links preview) | General | `system_settings:read` | |
 | `/admin/settings/users` | Users & Allowlist | Access | `users:read` | |
 | `/admin/settings/jobs` | Jobs | Operations | `jobs:read` | |
 | `/admin/settings/jobs/insights` | Job Insights | Operations | `jobs:read` | |
@@ -784,6 +800,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/coach` | Coach (persona, intensity, adult-language opt-in, audio, quiet hours, daily cap, photo cadence) | AI | `ai:use` | `ai` |
 | `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
 | `/settings/health-documents` | Health Documents (view, download, rename, delete uploaded files) | Health | `health_data:read` | |
+| `/settings/connected-devices` | Connected devices (paired Android phones: sync history, diagnostics, unpair) | Health | `goals:read` | |
 | `/settings/danger-zone` | Delete all my data | Danger Zone | | none (stays reachable while AI is off) |
 
 `/health/progress-photos` is not a settings card: it is a Health sub-page reached from the Health page and from the coach's photo prompts.
@@ -860,6 +877,9 @@ docker compose -f base.compose.yml -f prod.compose.yml up
 | `/api/ai/responses/stream` | api | Buffering off for SSE |
 | `/api/ai/training/stream` | api | Buffering off for SSE (training run event replay, `GET /api/ai/training/stream/:runId`) |
 | `/api/admin/telemetry/assistant/stream` | api | Buffering off for SSE (telemetry AI assistant) |
+| `/.well-known/assetlinks.json` | api | Exact match, proxied to `/api/well-known/assetlinks.json` (Digital Asset Links for the Android app) |
+| `= /api/admin/android-app/releases` | api | Exact match: `client_max_body_size 160m` and request buffering off for the streamed APK upload, ten-minute timeouts |
+| `/api/android-app/download/` | api | Buffering off for the streamed APK download, ten-minute timeouts |
 | `/api` | api | Includes `/api/docs` and `/api/openapi.json` |
 | `/` | web | The React app |
 | `/nginx-health` | nginx | Proxy health probe |
@@ -922,6 +942,7 @@ Health endpoints (public, reachable during maintenance):
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
+| A Health Connect data type for the Android sync | [specs/health-connect-sync.md §4](specs/health-connect-sync.md#4-extending-it-in-a-fork) |
 | A goal template, activity kind or workout credit rule | [specs/activity-goals.md §4](specs/activity-goals.md#4-extending-it-in-a-fork) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
 | A model with a user relation (keep/delete decision for the data reset and the factory reset, in `user-data/user-data-purge.ts`) | [specs/user-data-reset.md §4](specs/user-data-reset.md#4-extending-it-in-a-fork), [specs/factory-reset.md §4](specs/factory-reset.md#4-extending-it-in-a-fork) |

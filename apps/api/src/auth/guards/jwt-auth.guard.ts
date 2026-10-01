@@ -9,6 +9,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PatService } from '../../pat/pat.service';
 import { NodeCredentialService } from '../../nodes/node-credential.service';
+import type { AuthCredentialInfo } from '../decorators/auth-credential.decorator';
 
 // =============================================================================
 // The `nod_` route allowlist (issue #267, epic #254)
@@ -117,13 +118,15 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     if (authHeader?.startsWith(PAT_BEARER_PREFIX)) {
       const token = authHeader.slice(BEARER_OFFSET);
-      const user = await this.patService.validateToken(token);
-      if (!user) {
+      const resolved = await this.patService.resolveToken(token);
+      if (!resolved) {
         throw new UnauthorizedException('Invalid or expired personal access token');
       }
       // Set the full AuthenticatedUser on request.user so RolesGuard/PermissionsGuard
       // can call toRequestUser() on it (same format as JWT strategy validate() returns)
-      request.user = user;
+      request.user = resolved.user;
+      // Which PAT it was (its id, never the token): `@AuthCredential()`.
+      request.authCredential = { kind: 'pat', tokenId: resolved.tokenId } satisfies AuthCredentialInfo;
       return true;
     }
 
@@ -168,10 +171,13 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         throw new UnauthorizedException('Invalid or expired node credential');
       }
       request.user = user;
+      request.authCredential = { kind: 'node' } satisfies AuthCredentialInfo;
       return true;
     }
 
-    return super.canActivate(context) as Promise<boolean>;
+    const admitted = await (super.canActivate(context) as Promise<boolean>);
+    if (admitted) request.authCredential = { kind: 'jwt' } satisfies AuthCredentialInfo;
+    return admitted;
   }
 
   /**
