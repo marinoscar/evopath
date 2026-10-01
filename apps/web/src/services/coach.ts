@@ -49,6 +49,9 @@ export const COACH_MOMENTS = [
   'back_off',
   'kickoff',
   'weekly_review',
+  // Activity goals (#269): appended, as on the API.
+  'goal_at_risk',
+  'goal_hit',
 ] as const;
 
 export type CoachMoment = (typeof COACH_MOMENTS)[number];
@@ -66,6 +69,8 @@ export const COACH_MOMENT_LABELS: Record<CoachMoment, string> = {
   back_off: 'Backing off',
   kickoff: 'Program kickoff',
   weekly_review: 'Weekly review',
+  goal_at_risk: 'Goal at risk',
+  goal_hit: 'Goal reached',
 };
 
 /** Mirrors `COACH_REGISTER_REASONS` (`resolve-register.ts`). */

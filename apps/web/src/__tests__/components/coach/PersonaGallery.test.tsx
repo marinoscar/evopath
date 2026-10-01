@@ -69,6 +69,20 @@ describe('PersonaGallery', () => {
     await user.click(toggle);
     expect(within(sarge).getByRole('button', { name: /Hide sample lines/ })).toHaveAttribute('aria-expanded', 'true');
     expect(within(sarge).getAllByText('Recruit. Be at the bar tonight.')).toHaveLength(COACH_MOMENTS.length);
+    // The activity-goal moments (#269) are labelled like the rest.
+    expect(within(sarge).getByText('Goal at risk')).toBeInTheDocument();
+    expect(within(sarge).getByText('Goal reached')).toBeInTheDocument();
+  });
+
+  it('skips a moment an older API sends no sample lines for', async () => {
+    const user = userEvent.setup();
+    const persona = mockCoachPersona();
+    const { goal_at_risk: _risk, goal_hit: _hit, ...older } = persona.sampleLines;
+    renderGallery({ personas: [{ ...persona, sampleLines: older as typeof persona.sampleLines }], selectedId: persona.id, level: 1 });
+    const card = screen.getByRole('region', { name: persona.name });
+    await user.click(within(card).getByRole('button', { name: /Sample lines/ }));
+    expect(within(card).getByText('Streak at risk')).toBeInTheDocument();
+    expect(within(card).queryByText('Goal at risk')).toBeNull();
   });
 
   it('shows the adult level locked with the reason, and the censored note instead of adult lines', async () => {
