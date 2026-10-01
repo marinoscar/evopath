@@ -38,6 +38,10 @@ export const userDataSummarySchema = z.object({
   activityGoals: count,
   /** Activity entries: manual check-ins and workout-derived entries (epic #260). Added after the first release. */
   activityEntries: count,
+  /** Paired Health Connect devices, their sync runs and diagnostic reports (epic #276). */
+  healthSyncDevices: count,
+  healthSyncRuns: count,
+  healthSyncDiagnosticReports: count,
 });
 
 /** `POST /api/user-data/reset` body. Anything but the exact phrase is a 400. */
@@ -72,6 +76,10 @@ export const userDataResetResultSchema = z.object({
   /** Activity goals and entries (epic #260): added after the first release, so an older result reads as 0. */
   activityGoals: count.default(0),
   activityEntries: count.default(0),
+  /** Health sync (epic #276): added after the first release, so an older result reads as 0. */
+  healthSyncDevices: count.default(0),
+  healthSyncRuns: count.default(0),
+  healthSyncDiagnosticReports: count.default(0),
   programs: count,
   programChangeLogs: count,
   trainingRuns: count,

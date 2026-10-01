@@ -75,6 +75,14 @@
 //                                     the kept User row), archived goals too.
 //                                     Counted up front by the summary
 //                                     (`activityGoals`).
+//   HealthSyncRun, HealthSyncDiagnosticReport, HealthSyncDevice
+//                                     userId — explicitly (cascade only from
+//                                     the kept User row), runs and reports
+//                                     before devices. Counted up front by the
+//                                     summary (`healthSyncRuns`,
+//                                     `healthSyncDiagnosticReports`,
+//                                     `healthSyncDevices`). The device's PAT
+//                                     is removed with the other access tokens.
 //   Program                           userId (cascades blocks, weeks, workouts,
 //                                     exercises, versions, sessions, change log)
 //   ProgramChangeLog, ProgramSession  userId — leftovers, explicitly

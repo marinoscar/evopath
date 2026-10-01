@@ -27,6 +27,9 @@ function setup() {
     coachMessage: { count: jest.fn().mockResolvedValue(10) },
     activityGoal: { count: jest.fn().mockResolvedValue(11) },
     activityEntry: { count: jest.fn().mockResolvedValue(12) },
+    healthSyncDevice: { count: jest.fn().mockResolvedValue(13) },
+    healthSyncRun: { count: jest.fn().mockResolvedValue(14) },
+    healthSyncDiagnosticReport: { count: jest.fn().mockResolvedValue(15) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
     job: { findFirst: jest.fn().mockResolvedValue(null) },
   };
@@ -77,6 +80,9 @@ describe('UserDataService', () => {
         coachMessages: 10,
         activityGoals: 11,
         activityEntries: 12,
+        healthSyncDevices: 13,
+        healthSyncRuns: 14,
+        healthSyncDiagnosticReports: 15,
       });
       expect(prisma.activityGoal.count).toHaveBeenCalledWith({ where: { userId: USER } });
       expect(prisma.activityEntry.count).toHaveBeenCalledWith({ where: { userId: USER } });
@@ -167,6 +173,9 @@ describe('toResetStatus', () => {
     coachStates: 1,
     activityGoals: 2,
     activityEntries: 5,
+    healthSyncDevices: 1,
+    healthSyncRuns: 3,
+    healthSyncDiagnosticReports: 1,
     programs: 0,
     programChangeLogs: 0,
     trainingRuns: 0,
@@ -233,6 +242,17 @@ describe('toResetStatus', () => {
     expect(
       toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
     ).toEqual({ jobId: 'j', status: 'succeeded', result: { ...older, activityGoals: 0, activityEntries: 0 } });
+  });
+
+  it('reads a result written before health sync existed as 0 devices, runs and reports', () => {
+    const { healthSyncDevices: _d, healthSyncRuns: _r, healthSyncDiagnosticReports: _p, ...older } = result;
+    expect(
+      toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
+    ).toEqual({
+      jobId: 'j',
+      status: 'succeeded',
+      result: { ...older, healthSyncDevices: 0, healthSyncRuns: 0, healthSyncDiagnosticReports: 0 },
+    });
   });
 
   it('omits a malformed result rather than returning it', () => {
