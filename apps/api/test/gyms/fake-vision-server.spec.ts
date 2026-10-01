@@ -100,7 +100,7 @@ describe('fake vision server', () => {
 
   it('lists fake-vision first, then the adaptation roles', async () => {
     const models = await adapter.listModels(ctx([]));
-    expect(models.map((model) => model.id)).toEqual(['fake-vision', 'fake-planner', 'fake-critic', 'fake-text-only']);
+    expect(models.map((model) => model.id)).toEqual(['fake-vision', 'fake-planner', 'fake-critic', 'fake-text-only', 'fake-coach']);
   });
 
   it('answers one image with cardio-row-wide and two with both, parsed by the real adapter', async () => {

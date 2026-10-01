@@ -213,12 +213,14 @@ No model resolves for `coach.chat`. Assign one that supports tools and streaming
 
 ## 10. Try it without a key
 
-The overlay [`infra/compose/fake-ai.compose.yml`](../../infra/compose/fake-ai.compose.yml) starts two fake servers for development and end-to-end tests ([ai-training-plans.md](ai-training-plans.md#3-try-it-with-the-fake-provider) shows how to start and point at them). What they do for the coach matters, so read this before you rely on them:
+The overlay [`infra/compose/fake-ai.compose.yml`](../../infra/compose/fake-ai.compose.yml) starts two fake servers for development and end-to-end tests ([ai-training-plans.md](ai-training-plans.md#3-try-it-with-the-fake-provider) shows how to start and point at them). Both answer the coach with fixed, digit-free lines that pass the content guard; they do not simulate a persona's voice.
 
-- The fake servers replay scenario files for the photo-intake and training-plan flows. They have **no coach scenario**: they do not return a coach nudge, a coach chat reply or a weekly review, and they have **no speech route**, so a spoken nudge or a voice preview cannot be produced through the overlay.
-- What does work without any model: the coach settings and persona gallery (`/settings/coach`), the admin settings and engagement panel, the `/coach` page and the header state, the progress-photo gallery (it never calls a model), and a weekly review (the static persona review is written when no model resolves).
-- Speech and the structured nudge are simulated only inside the Jest suites, by the in-process `FakeAiProvider` (`apps/api/src/ai/testing/fake-ai-provider.ts`, its audio port with `audioPort: true`). Run them with `npm test --workspace=api`.
-- To see a real nudge, chat reply and clip, use a real key and a cheap model on a test account, with the daily ceiling at 1.
+- **Text** (`fake-ai`, port 4010, the OpenAI-compatible provider, model `fake-coach`): classify it `responses`, `structured_output`, `tools` and `streaming`, then assign `coach.decision` and `coach.chat` to it on `/admin/settings/ai/assignments`. It answers the structured nudge (`coach_nudge`, every moment; the kickoff asks when, where and the fallback) and the weekly review prose (`coach_weekly_review`) by schema name, and a chat turn as one `get_training_signals` call followed by an answer built from the tool result (a progress question), or directly (anything else).
+- **Speech** (`fake-ai-responses`, port 4011, the `openai` provider, model `fake-tts`): the catalog classifies it as a speech model; assign `coach.voice` to it, allow spoken messages in `/admin/settings/coach`, and give the user a key for the `openai` slot (any string of 8 or more characters). `POST /v1/audio/speech` returns a silent MP3 of about 3 KiB, above the 1 KiB floor the coach treats as real audio.
+- **Failure switches**: `POST :4010/__control/coach {"nudge":"send"|"decline"}` makes the fake answer `send: false` (a kickoff is always sent); `POST :4011/__control/speech {"mode":"ok"|"fail"|"refuse"}` makes speech succeed, error, or answer a content-policy refusal (the message is then text only with `audioStatus = failed`). `POST /__control/reset` on either server restores the defaults.
+- `npm test -- coach-settings coach-page progress-photos --workers=1` in `tests/e2e` does the setup itself ([TESTING.md](../TESTING.md)).
+- Without a model assigned, the settings, the `/coach` page, the progress-photo gallery and a static persona weekly review still work.
+- To judge real wording, use a real key and a cheap model on a test account, with the daily ceiling at 1.
 
 ## 11. Turn it off
 

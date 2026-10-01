@@ -71,14 +71,14 @@ export async function resetFake(): Promise<void> {
   expect(response.ok).toBe(true);
 }
 
-interface AdminAiConfig {
+export interface AdminAiConfig {
   enabled: boolean;
   keyPolicy: string;
   logPromptContent: boolean;
   defaults: { maxOutputTokensCap: number | null; allowBackgroundRuns: boolean; allowRealtime: boolean };
 }
 
-interface AdminAiModel {
+export interface AdminAiModel {
   id: string;
   provider: string;
   modelId: string;
@@ -330,27 +330,27 @@ export interface FakeAiSnapshot {
 }
 
 /** `PUT /api/admin/ai/assignments` body: the administrator's model choices (#173). */
-interface AiAssignmentsBody {
+export interface AiAssignmentsBody {
   default: { provider: string; modelId: string } | null;
   features: Record<string, { provider: string; modelId: string; reasoningEffort?: string | null } | null>;
 }
 
-interface AiAssignmentsView {
+export interface AiAssignmentsView {
   assignments: AiAssignmentsBody;
   version: number;
 }
 
-async function putAssignments(admin: AuthedApi, assignments: AiAssignmentsBody): Promise<void> {
+export async function putAssignments(admin: AuthedApi, assignments: AiAssignmentsBody): Promise<void> {
   const current = await admin.get<AiAssignmentsView>('/api/admin/ai/assignments');
   await admin.request('PUT', '/api/admin/ai/assignments', assignments, { 'If-Match': String(current.version) });
 }
 
-interface AdminAiConfigFull extends AdminAiConfig {
+export interface AdminAiConfigFull extends AdminAiConfig {
   hostedTools: Record<string, unknown> & { web_search: boolean };
   providers: Array<{ id: string; enabled: boolean; baseUrl: string | null; keyStatus: { configured: boolean } }>;
 }
 
-async function findModel(admin: AuthedApi, modelId: string): Promise<AdminAiModel | undefined> {
+export async function findModel(admin: AuthedApi, modelId: string): Promise<AdminAiModel | undefined> {
   const result = await admin.get<{ items: AdminAiModel[] } | AdminAiModel[]>(
     `/api/admin/ai/models?provider=${OPENAI_PROVIDER_ID}&q=${modelId}&pageSize=100`,
   );
@@ -359,7 +359,7 @@ async function findModel(admin: AuthedApi, modelId: string): Promise<AdminAiMode
 }
 
 /** Send the whole `ai` namespace back with the openai slot (and web search) set. */
-async function putConfig(
+export async function putConfig(
   admin: AuthedApi,
   config: AdminAiConfigFull,
   patch: { enabled: boolean; webSearch: boolean; openai: { enabled: boolean; baseUrl: string | null } },
@@ -535,6 +535,8 @@ export async function setAiEnabled(admin: AuthedApi, enabled: boolean): Promise<
 export const FAKE_PLANNER = 'fake-planner';
 export const FAKE_CRITIC = 'fake-critic';
 export const FAKE_TEXT_ONLY = 'fake-text-only';
+/** AI Coach (E7.13): text, structured output, function tools and streaming. */
+export const FAKE_COACH = 'fake-coach';
 
 export type AdaptationScenarioName =
   | 'valid'
@@ -626,6 +628,11 @@ const ADAPTATION_MODELS: Record<string, { capabilities: string[]; inputModalitie
   [FAKE_PLANNER]: TEXT_CAPABILITIES,
   [FAKE_CRITIC]: TEXT_CAPABILITIES,
   [FAKE_TEXT_ONLY]: TEXT_CAPABILITIES,
+  [FAKE_COACH]: {
+    capabilities: ['responses', 'structured_output', 'tools', 'streaming'],
+    inputModalities: ['text'],
+    outputModalities: ['text'],
+  },
   [FAKE_MODEL_ID]: VISION_CAPABILITIES,
 };
 
