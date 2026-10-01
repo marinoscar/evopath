@@ -318,9 +318,9 @@ test.describe('Training plans with the fake Responses provider', () => {
     const seq = await lastRequestSeq();
     await fillWizardToReview(page);
     // Go back to the goal step and describe the symptom, then return to Review.
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    // Scoped to the wizard's action bar: the "Back" limitation chip (body area) has the same name.
+    const back = page.getByRole('region', { name: 'Wizard actions' }).getByRole('button', { name: 'Back', exact: true });
+    for (let i = 0; i < 3; i += 1) await back.click();
     await page.getByLabel('In your words').fill('I get crushing chest pain and feel faint when I exercise');
     for (let i = 0; i < 3; i += 1) await page.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(page.getByTestId('sent-data-panel')).toBeVisible();
