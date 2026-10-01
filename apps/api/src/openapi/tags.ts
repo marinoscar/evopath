@@ -273,6 +273,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'the highest source counts: integration > workout > manual. Meters and seconds. Gated on ' +
           '`goals:read`/`goals:write`; owner-scoped.',
       },
+      {
+        name: 'Health sync',
+        description:
+          'Android Health Connect sync: paired phones (each linked to the access token it paired with), ' +
+          'sync uploads that upsert activity entries (`source: integration`), measurements and sleep ' +
+          'sessions per phone and reconcile deletions inside the sync window, run history and diagnostics ' +
+          'reports. Gated on `goals:read`/`goals:write`; measurements and sleep also need ' +
+          '`health_data:write`. Owner-scoped.',
+      },
     ],
   },
   {
