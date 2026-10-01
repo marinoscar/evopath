@@ -78,7 +78,7 @@ describe('CoachAudioPurgeHandler', () => {
     expect(t.objects.delete).toHaveBeenCalledWith(row(1).audioStorageObjectId, USER);
     expect(t.objects.delete).toHaveBeenCalledWith(row(2).audioStorageObjectId, USER);
     expect(t.prisma.coachMessage.updateMany).toHaveBeenCalledWith({
-      where: { id: row(1).id, audioStorageObjectId: row(1).audioStorageObjectId },
+      where: { id: row(1).id, OR: [{ audioStorageObjectId: row(1).audioStorageObjectId }, { audioStorageObjectId: null }] },
       data: {
         audioStatus: 'none',
         audioStorageObjectId: null,
