@@ -76,9 +76,14 @@ describe('UnknownRoutesPanel', () => {
 });
 
 describe('unknownRoutes helpers', () => {
-  it('selects the unknown-route statements of the summary, per-route list first', () => {
-    expect(unknownRoutesSql(mockDashboardSummary.sql)).toEqual([mockUnknownRoutesTopSql, mockUnknownRoutesTotalsSql]);
-    expect(unknownRoutesSql(['SELECT 1', 'SELECT 2'])).toEqual([]);
+  it("hands over the block's own `sql` as the API sent it, per-route list first", () => {
+    expect(unknownRoutesSql(unknownRoutes)).toEqual([mockUnknownRoutesTopSql, mockUnknownRoutesTotalsSql]);
+  });
+
+  it('has nothing to hand over when an older API omits `sql` (the action is then disabled)', () => {
+    const { sql: _absent, ...older } = unknownRoutes;
+    expect(unknownRoutesSql(older)).toEqual([]);
+    expect(unknownRoutesSql({ ...unknownRoutes, sql: [] })).toEqual([]);
     expect(unknownRoutesSql(undefined)).toEqual([]);
   });
 

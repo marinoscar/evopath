@@ -92,6 +92,11 @@ function spark(n: number, fn: (i: number) => number | null) {
   return Array.from({ length: n }, (_, i) => fn(i));
 }
 
+const UNKNOWN_TOTALS_SQL =
+  'SELECT count(*) AS requests FROM opentelemetry_traces WHERE "span_attributes.app.route.matched" = false GROUP BY period';
+const UNKNOWN_TOP_SQL =
+  'SELECT method, route FROM opentelemetry_traces WHERE "span_attributes.app.route.matched" = false GROUP BY method, route';
+
 function summary(url: URL, scenario: DashboardScenario) {
   const n = windowOf(url).buckets;
   if (scenario === 'no_data') {
@@ -117,9 +122,9 @@ function summary(url: URL, scenario: DashboardScenario) {
     ...envelope(url, [
       "SELECT count(*) AS requests FROM opentelemetry_traces WHERE span_kind = 'SPAN_KIND_SERVER'",
       'SELECT count(*) FROM opentelemetry_logs',
-      // #258: the unknown-route statements (the panel's "Open in Explorer" selects them by this column).
-      'SELECT count(*) AS requests FROM opentelemetry_traces WHERE "span_attributes.app.route.matched" = false GROUP BY period',
-      'SELECT method, route FROM opentelemetry_traces WHERE "span_attributes.app.route.matched" = false GROUP BY method, route',
+      // #258: the unknown-route statements, also on `unknownRoutes.sql` (per-route first).
+      UNKNOWN_TOTALS_SQL,
+      UNKNOWN_TOP_SQL,
     ]),
     verdict: {
       level: 'critical',
@@ -157,6 +162,7 @@ function summary(url: URL, scenario: DashboardScenario) {
         { method: 'POST', route: '/api/wp-login.php', count: 10, bearer: 0, anonymous: 10 },
       ],
       truncated: false,
+      sql: [UNKNOWN_TOP_SQL, UNKNOWN_TOTALS_SQL],
     },
   };
 }

@@ -32,7 +32,10 @@ const envelope = (sql: string | string[]) => ({
 
 const starts = Array.from({ length: 4 }, (_, i) => new Date(Date.parse('2026-09-27T10:00:00.000Z') + i * 60_000).toISOString());
 
-/** The summary's two unknown-route statements (#258), as the API reports them after the others. */
+/**
+ * The summary's two unknown-route statements (#258): at the end of the
+ * summary's `sql` and, per-route first, on `unknownRoutes.sql`.
+ */
 export const mockUnknownRoutesTotalsSql =
   'SELECT /* unknown totals */ count(*) AS requests FROM t WHERE "span_attributes.app.route.matched" = false GROUP BY period';
 export const mockUnknownRoutesTopSql =
@@ -71,6 +74,7 @@ export const mockDashboardSummary: DashboardSummary = {
       { method: 'GET', route: '/api/.env', count: 12, bearer: 0, anonymous: 12 },
     ],
     truncated: false,
+    sql: [mockUnknownRoutesTopSql, mockUnknownRoutesTotalsSql],
   },
 };
 
