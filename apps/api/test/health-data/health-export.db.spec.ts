@@ -337,4 +337,38 @@ describeWithDb('health data export (real Postgres)', () => {
     expect(view.download).toBeNull();
     expect((await service.get(owner, fresh.id)).status).toBe('ready');
   });
+
+  it('exports labs in the profile lab units by default, the request overriding them (#234)', async () => {
+    // Default profile: conventional (the canonical, stored values).
+    const conventional = await exportFor(owner, { datasets: ['labs'] });
+    expect((conventional.payload as any).labUnits).toBe('conventional');
+    const plain = await exportedJson(conventional);
+    expect(plain.labUnits).toBe('conventional');
+    expect(plain.datasets.labs![0]).toMatchObject({ value: 132, unit: 'mg/dL', reference_high: 100 });
+
+    await client.healthProfile.update({ where: { userId: owner }, data: { labUnits: 'si' } });
+    try {
+      const si = await exportFor(owner, { datasets: ['labs'] });
+      expect((await service.get(owner, si.id)).labUnits).toBe('si');
+      const file = await exportedJson(si);
+      expect(file.schemaVersion).toBe(1);
+      expect(file.labUnits).toBe('si');
+      // 132 mg/dL = 3.41 mmol/L; the 100 mg/dL limit = 2.59 mmol/L.
+      expect(file.datasets.labs![0]).toMatchObject({ value: 3.41, unit: 'mmol/L', reference_high: 2.59, flag: 'high' });
+
+      // (The PDF's SI text is pinned in writers.spec.ts; the stored file is compressed.)
+      const pdfJob = await exportFor(owner, { format: 'pdf', datasets: ['labs'] });
+      expect((pdfJob.payload as any).labUnits).toBe('si');
+
+      const overridden = await exportedJson(await exportFor(owner, { datasets: ['labs'], labUnits: 'conventional' }));
+      expect(overridden.labUnits).toBe('conventional');
+      expect(overridden.datasets.labs![0]).toMatchObject({ value: 132, unit: 'mg/dL' });
+
+      // Storage stays canonical.
+      const stored = await client.measurement.findFirstOrThrow({ where: { userId: owner, metricKey: 'ldl_cholesterol' } });
+      expect(stored).toMatchObject({ value: 132, unit: 'mg/dL', referenceHigh: 100 });
+    } finally {
+      await client.healthProfile.update({ where: { userId: owner }, data: { labUnits: 'conventional' } });
+    }
+  });
 });
