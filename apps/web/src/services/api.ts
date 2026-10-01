@@ -40,9 +40,13 @@ export interface BlobWithHeaders {
  */
 export const AUTH_REFRESH_LOCK_NAME = `${APP_SLUG}-auth-refresh`;
 
+/** Called when the server definitively refused to refresh a live session. */
+export type SessionExpiredListener = () => void;
+
 export class ApiService {
   private accessToken: string | null = null;
   private refreshPromise: Promise<boolean> | null = null;
+  private sessionExpiredListeners = new Set<SessionExpiredListener>();
 
   setAccessToken(token: string | null) {
     this.accessToken = token;
@@ -50,6 +54,20 @@ export class ApiService {
 
   getAccessToken(): string | null {
     return this.accessToken;
+  }
+
+  /**
+   * Subscribe to "the session is gone" (issue #295): a refresh attempted while
+   * this page HELD an access token was answered 401/403 by the server. Never
+   * fired for a page that was not signed in (the boot-time probe on the login
+   * page or any public page holds no token), nor for a network failure, so a
+   * listener can safely send the user to sign in. Returns the unsubscribe.
+   */
+  onSessionExpired(listener: SessionExpiredListener): () => void {
+    this.sessionExpiredListeners.add(listener);
+    return () => {
+      this.sessionExpiredListeners.delete(listener);
+    };
   }
 
   private async request<T>(
@@ -225,6 +243,9 @@ export class ApiService {
   }
 
   private async doRefreshToken(): Promise<boolean> {
+    // Whether this page believed it was signed in when the refresh started:
+    // only then is a refusal "your session expired" rather than "not signed in".
+    const hadSession = this.accessToken !== null;
     try {
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
@@ -233,6 +254,9 @@ export class ApiService {
 
       if (!response.ok) {
         this.accessToken = null;
+        if (hadSession && (response.status === 401 || response.status === 403)) {
+          this.notifySessionExpired();
+        }
         return false;
       }
 
@@ -251,6 +275,16 @@ export class ApiService {
     } catch {
       this.accessToken = null;
       return false;
+    }
+  }
+
+  private notifySessionExpired() {
+    for (const listener of [...this.sessionExpiredListeners]) {
+      try {
+        listener();
+      } catch (error) {
+        console.error('Session-expired listener failed:', error);
+      }
     }
   }
 
