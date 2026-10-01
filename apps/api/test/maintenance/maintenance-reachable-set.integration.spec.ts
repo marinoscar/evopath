@@ -91,6 +91,13 @@ const EXPECTED_REACHABLE = [
   'GET /api/health',
   'GET /api/health/live',
   'GET /api/health/ready',
+
+  // Digital Asset Links for the Android app (#279), served at
+  // `/.well-known/assetlinks.json` by nginx. Chrome verifies it when the app
+  // launches and remembers a failure, so blocking it would leave installed apps
+  // opening with a URL bar after the window closed. Public, read-only, and it
+  // publishes only what is public by design.
+  'GET /api/well-known/assetlinks.json',
 ].sort();
 
 describe('Maintenance mode: the reachable set', () => {

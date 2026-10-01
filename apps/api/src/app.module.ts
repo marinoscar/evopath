@@ -53,6 +53,7 @@ import { HealthSummaryModule } from './health-summary/health-summary.module';
 import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
 import { TrainingUsageModule } from './training-usage/training-usage.module';
 import { DoctorModule } from './doctor/doctor.module';
+import { AndroidAppModule } from './android-app/android-app.module';
 import { UserDataModule } from './user-data/user-data.module';
 import { AdminFactoryResetModule } from './admin-factory-reset/admin-factory-reset.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
@@ -225,6 +226,12 @@ import configuration from './config/configuration';
     // contributes its checks by providing them (they inject the registry and
     // self-register) without importing this module; see `doctor.module.ts`.
     DoctorModule,
+
+    // Android app trust (#279): the trusted (package, signing fingerprint)
+    // list at `/api/admin/android-app` under `system_settings:*`, the public
+    // `/api/well-known/assetlinks.json` (served at `/.well-known/` by nginx)
+    // and the `android.assetlinks` doctor check.
+    AndroidAppModule,
 
     // The AI platform (epic #419). Since #424 this is only the
     // provider-agnostic core: contracts and an in-memory provider registry,

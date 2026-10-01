@@ -89,9 +89,15 @@ cleanupOutdatedCaches();
 // (Strictly, `NavigationRoute` only sees requests whose `mode` is `navigate`,
 // which an `EventSource` connection is not. The denylist is belt-and-braces
 // against exactly that reasoning being used to remove it.)
+//
+// `/.well-known/` is the server's too (issue #279): `assetlinks.json` there is
+// the Android app's Digital Asset Links document, proxied to the API by nginx.
+// Chrome's own verification fetch never passes through this worker, but a
+// person opening the URL in a tab would otherwise get the SPA shell instead of
+// the JSON they came to check.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL('/index.html'), {
-    denylist: [/^\/api\//],
+    denylist: [/^\/api\//, /^\/\.well-known\//],
   }),
 );
 
