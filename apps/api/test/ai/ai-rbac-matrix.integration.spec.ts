@@ -146,6 +146,8 @@ describe('AI RBAC matrix — every /api/ai/*, /api/admin/ai/*, /api/coach/* and 
         'GET /api/coach/personas',
         'GET /api/coach/settings',
         'PUT /api/coach/settings',
+        'POST /api/coach/chat/stream',
+        'GET /api/coach/messages',
         'GET /api/admin/coach/settings',
         'PUT /api/admin/coach/settings',
       ]),

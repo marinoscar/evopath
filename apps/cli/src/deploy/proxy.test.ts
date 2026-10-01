@@ -141,6 +141,21 @@ describe('renderVhost', () => {
     expect(block).toContain("proxy_set_header Connection        '';");
   });
 
+  it('gives the AI Coach chat stream its own unbuffered block (E7.7)', () => {
+    const start = rendered.indexOf('location /api/coach/chat/stream {');
+    expect(start).toBeGreaterThan(-1);
+    // Only this block's body, up to its closing brace.
+    const block = rendered.slice(start, rendered.indexOf('}', start));
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
+    expect(block).toContain('proxy_http_version 1.1;');
+    expect(block).toContain('proxy_buffering off;');
+    expect(block).toContain('proxy_cache off;');
+    expect(block).toContain('chunked_transfer_encoding off;');
+    expect(block).toContain('proxy_read_timeout 600s;');
+    expect(block).toContain('proxy_send_timeout 600s;');
+    expect(block).toContain("proxy_set_header Connection        '';");
+  });
+
   it('gives the training run stream its own unbuffered block', () => {
     const block = rendered.slice(rendered.indexOf('location /api/ai/training/stream {'));
     expect(rendered).toContain('location /api/ai/training/stream {');
