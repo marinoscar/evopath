@@ -63,12 +63,16 @@ import {
   type HealthExportStatus,
 } from '../../services/healthExport';
 import { useHealthExports, type UseHealthExportsOptions } from '../../hooks/useHealthExports';
+import { LAB_UNITS_VALUES, type LabUnits } from '../../services/health';
+import { DEFAULT_LAB_UNITS, LAB_UNITS_LABELS, LAB_UNITS_SHORT_LABELS } from '../../utils/labUnits';
 
 export interface ExportHealthDataDialogProps extends UseHealthExportsOptions {
   open: boolean;
   onClose: () => void;
   /** The user's calendar date, `YYYY-MM-DD`; tests pin it. Defaults to the local date. */
   today?: string;
+  /** #234: the profile's lab unit preference, the picker's default. */
+  defaultLabUnits?: LabUnits;
 }
 
 const STATUS_COLORS: Record<HealthExportStatus, 'default' | 'info' | 'success' | 'error'> = {
@@ -85,6 +89,12 @@ function formatDateTime(iso: string): string {
 
 function describeExport(item: HealthExport): string {
   return `${HEALTH_EXPORT_FORMAT_LABELS[item.format]}, ${item.from} to ${item.to}`;
+}
+
+/** The lab units an export was written in, for exports that include blood work. */
+function exportLabUnits(item: HealthExport): string | null {
+  if (!item.datasets.includes('labs') || !item.labUnits) return null;
+  return `Lab units: ${LAB_UNITS_SHORT_LABELS[item.labUnits] ?? item.labUnits}`;
 }
 
 /** What the live region says about the export started in this dialog. */
@@ -111,6 +121,7 @@ interface RecentExportProps {
 
 function RecentExport({ item, highlighted, downloading, onDownload }: RecentExportProps) {
   const size = formatExportSize(item.sizeBytes);
+  const labUnits = exportLabUnits(item);
   const active = isHealthExportActive(item);
   return (
     <Box
@@ -134,6 +145,11 @@ function RecentExport({ item, highlighted, downloading, onDownload }: RecentExpo
             {size && (
               <Typography variant="caption" color="text.secondary">
                 {size}
+              </Typography>
+            )}
+            {labUnits && (
+              <Typography variant="caption" color="text.secondary" data-testid="export-lab-units">
+                {labUnits}
               </Typography>
             )}
             {item.status === 'ready' && item.expiresAt && (
@@ -168,7 +184,14 @@ function RecentExport({ item, highlighted, downloading, onDownload }: RecentExpo
   );
 }
 
-export function ExportHealthDataDialog({ open, onClose, today: todayProp, pollIntervalMs, openUrl }: ExportHealthDataDialogProps) {
+export function ExportHealthDataDialog({
+  open,
+  onClose,
+  today: todayProp,
+  defaultLabUnits = DEFAULT_LAB_UNITS,
+  pollIntervalMs,
+  openUrl,
+}: ExportHealthDataDialogProps) {
   const theme = useTheme();
   // A local layout choice for this dialog, NOT one of the five coupled `sm`
   // shell gates (docs/specs/settings-ui.md#breakpoint-gates).
@@ -188,6 +211,9 @@ export function ExportHealthDataDialog({ open, onClose, today: todayProp, pollIn
   const [customTo, setCustomTo] = useState('');
   const [datasets, setDatasets] = useState<HealthExportDataset[]>([...HEALTH_EXPORT_DATASETS]);
   const [includeHistory, setIncludeHistory] = useState(false);
+  // `null` until the user picks: the profile's preference (which may load after the dialog mounts).
+  const [labUnitsChoice, setLabUnitsChoice] = useState<LabUnits | null>(null);
+  const labUnits = labUnitsChoice ?? defaultLabUnits;
   const [submitted, setSubmitted] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -239,7 +265,14 @@ export function ExportHealthDataDialog({ open, onClose, today: todayProp, pollIn
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await create({ format, from: range.from, to: range.to, datasets, includeHistory });
+      const created = await create({
+        format,
+        from: range.from,
+        to: range.to,
+        datasets,
+        includeHistory,
+        ...(datasets.includes('labs') ? { labUnits } : {}),
+      });
       setCurrentId(created.id);
       setSubmitted(false);
     } catch (err) {
@@ -369,6 +402,22 @@ export function ExportHealthDataDialog({ open, onClose, today: todayProp, pollIn
               </FormGroup>
               {submitted && datasetProblem && <FormHelperText>{datasetProblem}</FormHelperText>}
             </FormControl>
+
+            {datasets.includes('labs') && (
+              <FormControl component="fieldset" disabled={creating}>
+                <FormLabel component="legend">Lab units</FormLabel>
+                <RadioGroup
+                  name={`${idBase}-lab-units`}
+                  value={labUnits}
+                  onChange={(event) => setLabUnitsChoice(event.target.value as LabUnits)}
+                >
+                  {LAB_UNITS_VALUES.map((value) => (
+                    <FormControlLabel key={value} value={value} control={<Radio />} label={LAB_UNITS_LABELS[value]} />
+                  ))}
+                </RadioGroup>
+                <FormHelperText>Blood work values and ranges are written in these units.</FormHelperText>
+              </FormControl>
+            )}
 
             <FormControlLabel
               disabled={creating}

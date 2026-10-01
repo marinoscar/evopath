@@ -12,6 +12,7 @@ export const mockHealthProfileEmpty: HealthProfile = {
   unitSystem: 'metric',
   timeZone: null,
   bio: null,
+  labUnits: 'conventional',
   version: 0,
   updatedAt: null,
 };
@@ -24,6 +25,7 @@ export const mockHealthProfileSaved: HealthProfile = {
   unitSystem: 'imperial',
   timeZone: 'America/New_York',
   bio: 'Training for a half marathon.',
+  labUnits: 'conventional',
   version: 3,
   updatedAt: '2026-09-01T10:00:00.000Z',
 };

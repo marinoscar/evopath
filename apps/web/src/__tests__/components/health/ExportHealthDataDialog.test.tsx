@@ -148,6 +148,7 @@ describe('ExportHealthDataDialog', () => {
       to: TODAY,
       datasets: ['profile', 'body', 'vitals', 'labs', 'wellness'],
       includeHistory: true,
+      labUnits: 'conventional',
     });
   });
 

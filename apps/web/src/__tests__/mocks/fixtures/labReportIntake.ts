@@ -23,14 +23,22 @@ import { mockMeasurement, mockMetricCatalog } from './measurements';
 
 const T0 = '2026-09-29T08:00:00.000Z';
 
+/** A unit an analyte accepts: `canonical = value × factor + offset`, shown with `decimals`. */
+interface AltUnit {
+  unit: string;
+  factor: number;
+  offset?: number;
+  decimals?: number;
+}
+
 function lab(
   key: string,
   label: string,
   panel: string,
   canonicalUnit: string,
-  alt: { unit: string; factor: number }[],
+  alt: AltUnit[],
   aliases: string[],
-  bounds: { min: number; max: number } = { min: 0, max: 10000 },
+  options: { min?: number; max?: number; decimals?: number; siUnit?: string } = {},
 ): MetricDef {
   return {
     key,
@@ -39,26 +47,39 @@ function lab(
     canonicalUnit,
     units: [{ unit: canonicalUnit, factor: 1, label: canonicalUnit }, ...alt.map((u) => ({ ...u, label: u.unit }))],
     displayUnit: { metric: canonicalUnit, imperial: canonicalUnit },
-    min: bounds.min,
-    max: bounds.max,
-    decimals: 1,
+    min: options.min ?? 0,
+    max: options.max ?? 10000,
+    decimals: options.decimals ?? 1,
     methods: ['lab'],
     scale: null,
     daily: false,
     panel,
     aliases,
+    // #234: the unit the SI preference shows; the canonical one when they agree.
+    siUnit: options.siUnit ?? canonicalUnit,
   };
 }
 
+/** `per(x)`: the registry's "x SI units per conventional unit", as a factor. */
+const per = (x: number) => 1 / x;
+const CHOLESTEROL_MMOL: AltUnit = { unit: 'mmol/L', factor: per(0.02586), decimals: 2 }; // 38.6698
+const SI = { siUnit: 'mmol/L' };
+
 /** The lab analytes the tests need, mirroring `metric-registry.ts`. */
 export const LAB_METRICS: MetricDef[] = [
-  lab('total_cholesterol', 'Total cholesterol', 'lipids', 'mg/dL', [{ unit: 'mmol/L', factor: 38.67 }], ['Cholesterol', 'Cholesterol, total', 'TC']),
-  lab('ldl_cholesterol', 'LDL cholesterol', 'lipids', 'mg/dL', [{ unit: 'mmol/L', factor: 38.67 }], ['LDL', 'LDL-C', 'LDL Chol Calc']),
-  lab('hdl_cholesterol', 'HDL cholesterol', 'lipids', 'mg/dL', [{ unit: 'mmol/L', factor: 38.67 }], ['HDL', 'HDL-C']),
-  lab('triglycerides', 'Triglycerides', 'lipids', 'mg/dL', [{ unit: 'mmol/L', factor: 88.57 }], ['TG', 'TRIG']),
-  lab('apob', 'Apolipoprotein B', 'lipids', 'mg/dL', [{ unit: 'g/L', factor: 100 }], ['ApoB', 'Apo B']),
-  lab('fasting_glucose', 'Fasting glucose', 'glycemic', 'mg/dL', [{ unit: 'mmol/L', factor: 18.0182 }], ['Glucose', 'FPG', 'GLU']),
-  lab('hba1c', 'HbA1c', 'glycemic', '%', [{ unit: 'mmol/mol', factor: 0.0915 }], ['A1c', 'Hemoglobin A1c']),
+  lab('total_cholesterol', 'Total cholesterol', 'lipids', 'mg/dL', [CHOLESTEROL_MMOL], ['Cholesterol', 'Cholesterol, total', 'TC'], SI),
+  lab('ldl_cholesterol', 'LDL cholesterol', 'lipids', 'mg/dL', [CHOLESTEROL_MMOL], ['LDL', 'LDL-C', 'LDL Chol Calc'], SI),
+  lab('hdl_cholesterol', 'HDL cholesterol', 'lipids', 'mg/dL', [CHOLESTEROL_MMOL], ['HDL', 'HDL-C'], SI),
+  lab('triglycerides', 'Triglycerides', 'lipids', 'mg/dL', [{ unit: 'mmol/L', factor: per(0.01129), decimals: 2 }], ['TG', 'TRIG'], SI),
+  lab('apob', 'Apolipoprotein B', 'lipids', 'mg/dL', [{ unit: 'g/L', factor: 100, decimals: 2 }], ['ApoB', 'Apo B'], { siUnit: 'g/L' }),
+  lab('fasting_glucose', 'Fasting glucose', 'glycemic', 'mg/dL', [{ unit: 'mmol/L', factor: per(0.0555), decimals: 2 }], ['Glucose', 'FPG', 'GLU'], SI),
+  lab('hba1c', 'HbA1c', 'glycemic', '%', [{ unit: 'mmol/mol', factor: per(10.929), offset: 2.15, decimals: 0 }], ['A1c', 'Hemoglobin A1c'], {
+    siUnit: 'mmol/mol',
+  }),
+  lab('creatinine', 'Creatinine', 'cmp', 'mg/dL', [{ unit: 'µmol/L', factor: per(88.42), decimals: 0 }], ['CREA', 'Creat'], {
+    decimals: 2,
+    siUnit: 'µmol/L',
+  }),
   lab('tsh', 'TSH', 'thyroid', 'mIU/L', [{ unit: 'µIU/mL', factor: 1 }], ['Thyrotropin', 'Thyroid stimulating hormone']),
 ];
 

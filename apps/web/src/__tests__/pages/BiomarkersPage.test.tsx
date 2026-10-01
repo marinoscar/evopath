@@ -14,7 +14,6 @@ import { server } from '../mocks/server';
 import BiomarkersPage from '../../pages/BiomarkersPage';
 import { IMPORT_LAB_REPORT_LABEL } from '../../components/health/LabReportButton';
 import { LAB_REPORT_TITLE } from '../../components/health/LabReportDialog';
-import { STANDARD_UNITS_NOTE } from '../../components/health/biomarkers/BiomarkerList';
 import { resetMeasurementCatalogCache } from '../../hooks/useMeasurementCatalog';
 import { HEALTH_DATA_UNAVAILABLE } from '../../services/health';
 import type { BiomarkerSummaryItem } from '../../services/biomarkers';
@@ -50,7 +49,7 @@ describe('BiomarkersPage', () => {
     const { container } = render(<BiomarkersPage />);
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Biomarkers' })).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(STANDARD_UNITS_NOTE.replace(/[().]/g, '\\$&')))).toBeInTheDocument();
+    expect(screen.getByTestId('lab-units-note')).toHaveTextContent('Values in US conventional units');
 
     const panels = await screen.findAllByTestId('biomarker-panel');
     expect(panels.map((p) => within(p).getByRole('heading', { level: 2 }).textContent)).toEqual([

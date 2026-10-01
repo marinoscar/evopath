@@ -98,7 +98,7 @@ describe('BiomarkerDetailPage', () => {
     const { container } = renderDetail();
 
     expect(await screen.findByRole('heading', { level: 1, name: 'LDL cholesterol' })).toBeInTheDocument();
-    expect(screen.getByText('Lipids · Shown in mg/dL, the standard unit for this test.')).toBeInTheDocument();
+    expect(screen.getByText('Lipids · Shown in mg/dL. Values in US conventional units.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Biomarkers' })).toHaveAttribute('href', '/health/biomarkers');
 
     expect(await screen.findByRole('img', { name: /^LDL cholesterol, 4 results, latest 142\.0 mg\/dL/ })).toBeInTheDocument();

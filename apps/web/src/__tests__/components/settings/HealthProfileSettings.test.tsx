@@ -194,6 +194,7 @@ describe('HealthProfileSettings', () => {
         unitSystem: 'imperial',
         timeZone: 'America/New_York',
         bio: 'Training for a half marathon.',
+        labUnits: 'conventional',
       });
     });
 

@@ -16,7 +16,7 @@
  */
 
 import { api, ApiError } from './api';
-import { validationIssues } from './health';
+import { validationIssues, type LabUnits } from './health';
 
 export const HEALTH_EXPORT_FORMATS = ['json', 'csv', 'xlsx', 'pdf'] as const;
 export type HealthExportFormat = (typeof HEALTH_EXPORT_FORMATS)[number];
@@ -50,6 +50,8 @@ export interface HealthExport {
   to: string;
   datasets: HealthExportDataset[];
   includeHistory: boolean;
+  /** Issue #234: the unit system lab values were written in. */
+  labUnits: LabUnits;
   createdAt: string;
   completedAt: string | null;
   /** When the file is deleted (7 days after it was made). */
@@ -69,17 +71,20 @@ export interface CreateHealthExportInput {
   to: string;
   datasets: HealthExportDataset[];
   includeHistory: boolean;
+  /** Omitted = the API uses the profile's `labUnits`. */
+  labUnits?: LabUnits;
 }
 
 /** `POST /api/health/exports`. */
 export function createHealthExport(input: CreateHealthExportInput): Promise<HealthExport> {
-  // The API's schema is strict: exactly these five keys, datasets in canonical order.
+  // The API's schema is strict: only these keys, datasets in canonical order.
   const body: CreateHealthExportInput = {
     format: input.format,
     from: input.from,
     to: input.to,
     datasets: HEALTH_EXPORT_DATASETS.filter((d) => input.datasets.includes(d)),
     includeHistory: input.includeHistory,
+    ...(input.labUnits !== undefined ? { labUnits: input.labUnits } : {}),
   };
   return api.post<HealthExport>('/health/exports', body);
 }
