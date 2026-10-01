@@ -207,7 +207,7 @@ export function liveTreeOf(rows: ProgramRows): PlanTree {
               exercises: rows.exercises
                 .filter((exercise) => exercise.programWorkoutId === workout.id)
                 .sort(byPosition)
-                .map(({ programWorkoutId: _parent, ...exercise }) => ({
+                .map(({ programWorkoutId: _parent, targetDurationSeconds: _duration, targetDistanceMeters: _distance, ...exercise }) => ({
                   ...exercise,
                   ...repsPrescriptionOf(exercise),
                   evidenceRefs: [...exercise.evidenceRefs],
