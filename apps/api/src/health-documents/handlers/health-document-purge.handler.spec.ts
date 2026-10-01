@@ -82,7 +82,7 @@ describe('HealthDocumentPurgeHandler', () => {
     expect(objects.delete).toHaveBeenCalledWith(OBJECT, USER);
     expect(prisma.healthDocument.updateMany).toHaveBeenCalledWith({
       where: { id: DOC, fileDeletedAt: null },
-      data: { fileDeletedAt: expect.any(Date), storageObjectId: null },
+      data: { fileDeletedAt: expect.any(Date), storageObjectId: null, version: { increment: 1 } },
     });
     expect(objects.delete.mock.invocationCallOrder[0]).toBeLessThan(
       prisma.healthDocument.updateMany.mock.invocationCallOrder[0],

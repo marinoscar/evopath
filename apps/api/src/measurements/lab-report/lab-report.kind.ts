@@ -182,7 +182,7 @@ export class LabReportIntakeKind implements IntakeKind<LabReportContext, LabRepo
     if (collectionDate && healthDocuments.length > 0) {
       await tx.healthDocument.updateMany({
         where: { id: { in: healthDocuments.map((doc) => doc.id) }, userId },
-        data: { documentDate: new Date(`${collectionDate}T00:00:00.000Z`) },
+        data: { documentDate: new Date(`${collectionDate}T00:00:00.000Z`), version: { increment: 1 } },
       });
     }
 

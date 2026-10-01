@@ -102,7 +102,7 @@ export class HealthDocumentPurgeHandler implements JobHandler, OnModuleInit {
 
       const { count } = await this.prisma.healthDocument.updateMany({
         where: { id: document.id, fileDeletedAt: null },
-        data: { fileDeletedAt: new Date(), storageObjectId: null },
+        data: { fileDeletedAt: new Date(), storageObjectId: null, version: { increment: 1 } },
       });
 
       if (count === 0) return 'already_purged';

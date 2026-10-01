@@ -214,7 +214,7 @@ describe('LabReportIntakeKind (H4, #188)', () => {
 
       expect(prisma.healthDocument.updateMany).toHaveBeenCalledWith({
         where: { id: { in: [DOC_ID] }, userId: USER_ID },
-        data: { documentDate: new Date('2026-09-15T00:00:00.000Z') },
+        data: { documentDate: new Date('2026-09-15T00:00:00.000Z'), version: { increment: 1 } },
       });
       expect(result).toMatchObject({ measuredAtSource: 'collection_date', documentDate: '2026-09-15' });
       expect(result.items).toHaveLength(2);
