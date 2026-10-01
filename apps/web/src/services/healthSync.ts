@@ -25,6 +25,8 @@ export type DiagnosticCheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
 /** The rolling GitHub release the Android workflow publishes the APK to. */
 export const ANDROID_RELEASE_TAG = 'android-latest';
+/** The per-user page that serves the server-hosted APK (#287). */
+export const ANDROID_APP_SETTINGS_PATH = '/settings/android-app';
 /** The deep link `HealthSyncActivity` answers on the phone. */
 export const ANDROID_HEALTH_SYNC_DEEP_LINK = 'evopath-android://health-sync';
 

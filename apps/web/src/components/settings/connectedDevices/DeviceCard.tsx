@@ -5,6 +5,7 @@
  * the caller; the API enforces it either way.
  */
 import { useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Accordion,
   AccordionDetails,
@@ -21,7 +22,13 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
-import { daysUntil, hasTimezoneMismatch, type Device } from '../../../services/healthSync';
+import SystemUpdateIcon from '@mui/icons-material/SystemUpdate';
+import {
+  ANDROID_APP_SETTINGS_PATH,
+  daysUntil,
+  hasTimezoneMismatch,
+  type Device,
+} from '../../../services/healthSync';
 import { formatRelativeTime } from '../../../utils/relativeTime';
 import { RunStatusChip } from './RunStatusChip';
 import { SyncHistory } from './SyncHistory';
@@ -61,13 +68,26 @@ function TokenExpiry({ device }: { device: Device }) {
   );
 }
 
+/**
+ * "Update available (v0.2.0)" (#287). The device row only knows the current
+ * release's versionCode; its name comes from the latest release when the
+ * codes agree.
+ */
+export function updateLabel(device: Pick<Device, 'latestVersionCode'>, latestVersionName?: string | null): string {
+  if (latestVersionName) return `Update available (v${latestVersionName})`;
+  if (device.latestVersionCode) return `Update available (build ${device.latestVersionCode})`;
+  return 'Update available';
+}
+
 interface DeviceCardProps {
   device: Device;
   canWrite: boolean;
   onUnpair: (device: Device) => void;
+  /** The current release's versionName, when it is the build `device.latestVersionCode` names. */
+  latestVersionName?: string | null;
 }
 
-export function DeviceCard({ device, canWrite, onUnpair }: DeviceCardProps) {
+export function DeviceCard({ device, canWrite, onUnpair, latestVersionName = null }: DeviceCardProps) {
   const [expanded, setExpanded] = useState<'history' | 'diagnostics' | false>(false);
   const toggle = (panel: 'history' | 'diagnostics') => (_: unknown, isOpen: boolean) =>
     setExpanded(isOpen ? panel : false);
@@ -89,11 +109,25 @@ export function DeviceCard({ device, canWrite, onUnpair }: DeviceCardProps) {
                 .join(' · ') || 'Unknown device'}
             </Typography>
           </Box>
-          <Chip
-            size="small"
-            color={revoked ? 'default' : 'success'}
-            label={revoked ? 'Unpaired' : 'Active'}
-          />
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {!revoked && device.updateAvailable && (
+              <Chip
+                size="small"
+                color="warning"
+                icon={<SystemUpdateIcon />}
+                clickable
+                component={RouterLink}
+                to={ANDROID_APP_SETTINGS_PATH}
+                data-testid="device-update-available"
+                label={updateLabel(device, latestVersionName)}
+              />
+            )}
+            <Chip
+              size="small"
+              color={revoked ? 'default' : 'success'}
+              label={revoked ? 'Unpaired' : 'Active'}
+            />
+          </Box>
         </Box>
 
         <Stack spacing={1} sx={{ mt: 2 }}>
