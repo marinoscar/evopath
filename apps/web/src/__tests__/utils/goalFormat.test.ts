@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   addDays,
-  canCheckIn,
+  offersWorkoutLog,
   checkInEntry,
   defaultCheckInMode,
   draftFromGoal,
@@ -179,8 +179,14 @@ describe('check-in helpers', () => {
     });
   });
 
-  it('offers no manual check-in for an "any workout" sessions goal', () => {
-    expect(canCheckIn({ activityKind: 'workout_any', metric: 'sessions' })).toBe(false);
-    expect(canCheckIn({ activityKind: 'walk', metric: 'sessions' })).toBe(true);
+  it('checks in an "any workout" goal as workout_any (the kind the API counts for it)', () => {
+    expect(checkInEntry({ activityKind: 'workout_any' }, 'done', 0)).toEqual({ activityKind: 'workout_any' });
+    expect(checkInEntry({ activityKind: 'workout_any' }, 'minutes', 45)).toEqual({ activityKind: 'workout_any', durationSeconds: 2700 });
+  });
+
+  it('offers "Log a workout" beside the check-in for an "any workout" goal only', () => {
+    expect(offersWorkoutLog({ activityKind: 'workout_any', metric: 'sessions' })).toBe(true);
+    expect(offersWorkoutLog({ activityKind: 'workout_any', metric: 'steps' })).toBe(false);
+    expect(offersWorkoutLog({ activityKind: 'walk', metric: 'sessions' })).toBe(false);
   });
 });

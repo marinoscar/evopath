@@ -111,6 +111,37 @@ describe('TodayGoals', () => {
     });
   });
 
+  it('offers "I did it" for an "any workout" goal, posts workout_any, and keeps "Log a workout"', async () => {
+    const workouts = mockGoal({ title: 'Work out 3x', activityKind: 'workout_any', metric: 'sessions', target: 3 });
+    const api = statefulGoalsApi([workouts]);
+    renderCard();
+    const row = await screen.findByTestId(`today-goal-${workouts.id}`);
+    expect(within(row).getByRole('link', { name: 'Log a workout' })).toHaveAttribute('href', '/train');
+
+    await userEvent.click(within(row).getByRole('button', { name: 'I did it: Work out 3x' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Check in: Work out 3x' });
+    expect(within(sheet).getByRole('button', { name: 'I did it', pressed: true })).toBeInTheDocument();
+    await userEvent.click(within(sheet).getAllByRole('button', { name: 'I did it' }).at(-1)!);
+
+    expect(await within(row).findByText('1 of 3 workouts · 6 days left')).toBeInTheDocument();
+    expect(api.calls.find((c) => c.path === '/activity-entries')?.body).toEqual({ activityKind: 'workout_any' });
+  });
+
+  it('explains a check-in day the API refuses (ENTRY_DATE_OUT_OF_RANGE)', async () => {
+    const walk = mockGoal({ title: 'Walk 4x' });
+    const api = statefulGoalsApi([walk]);
+    // The server decides the window from its own local today; here "yesterday" falls outside it.
+    api.today = addDays(localDateIn(null), -9);
+    renderCard();
+    const row = await screen.findByTestId(`today-goal-${walk.id}`);
+    await userEvent.click(within(row).getByRole('button', { name: 'Check in: Walk 4x' }));
+    const sheet = await screen.findByRole('dialog', { name: 'Check in: Walk 4x' });
+    await userEvent.click(within(sheet).getByRole('combobox', { name: 'Which day' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Yesterday' }));
+    await userEvent.click(within(sheet).getAllByRole('button', { name: 'I did it' }).at(-1)!);
+    expect(await within(sheet).findByText('Check in for today or up to 7 days back.')).toBeInTheDocument();
+  });
+
   it('offers no check-in without goals:write', async () => {
     const walk = mockGoal({ title: 'Walk' });
     statefulGoalsApi([walk]);

@@ -2,7 +2,9 @@
  * The Today page's "Goals" card body (#268): one row per active goal from
  * `GET /api/goals/progress` with a progress ring, the line ("2 of 4 walks ·
  * 3 days left", "5,240 / 8,000 steps"), on track / behind / hit, and a
- * Check in button that opens the check-in sheet. Saving refreshes progress in
+ * Check in button that opens the check-in sheet (an "any workout" goal reads
+ * "I did it", since the API counts a manual `workout_any` check-in, with
+ * "Log a workout" as the second action). Saving refreshes progress in
  * place. No active goal: "Set a goal", linking to `/train/goals`.
  *
  * `GoalsGate` shows the card only with `goals:read`; Check in needs
@@ -20,7 +22,7 @@ import { useDistanceUnit } from '../../hooks/useDistanceUnit';
 import type { Goal, GoalProgress } from '../../services/goals';
 import {
   STANDING_LABELS,
-  canCheckIn,
+  offersWorkoutLog,
   formatGoalProgress,
   formatStreak,
   goalStanding,
@@ -52,6 +54,9 @@ function GoalRow({
   const percent = progressPercent(item.done, item.target);
   const line = formatGoalProgress(item, unit);
   const streak = formatStreak(item.streakPeriods, item.goal.period);
+  const workoutLog = offersWorkoutLog(item.goal);
+  // A sessions goal opens the sheet on "I did it"; say so on the button.
+  const checkInLabel = workoutLog && item.goal.metric === 'sessions' ? 'I did it' : 'Check in';
   return (
     <Box
       component="li"
@@ -69,22 +74,24 @@ function GoalRow({
           {streak && <Chip size="small" variant="outlined" label={streak} />}
         </Box>
       </Box>
-      {canWrite &&
-        (canCheckIn(item.goal) ? (
+      {canWrite && (
+        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
           <Button
             variant="outlined"
             size="small"
             onClick={() => onCheckIn(item.goal)}
-            aria-label={`Check in: ${item.goal.title}`}
+            aria-label={`${checkInLabel}: ${item.goal.title}`}
             sx={{ minHeight: 44 }}
           >
-            Check in
+            {checkInLabel}
           </Button>
-        ) : (
-          <Button component={RouterLink} to="/train" size="small" sx={{ minHeight: 44 }}>
-            Log a workout
-          </Button>
-        ))}
+          {workoutLog && (
+            <Button component={RouterLink} to="/train" size="small" sx={{ minHeight: 44 }}>
+              Log a workout
+            </Button>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }

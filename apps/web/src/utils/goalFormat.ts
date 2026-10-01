@@ -335,11 +335,12 @@ export function defaultCheckInMode(goal: Pick<Goal, 'metric'>): CheckInMode {
 }
 
 /**
- * Whether a manual check-in can count toward the goal: an "any workout" goal
- * counts logged workouts only (unless it tracks steps).
+ * Whether the goal also offers "Log a workout": an "any workout" goal counts
+ * logged workouts (their derived `workout_any` entries) as well as manual
+ * `workout_any` check-ins, so logging one is the natural second action.
  */
-export function canCheckIn(goal: Pick<Goal, 'activityKind' | 'metric'>): boolean {
-  return goal.activityKind !== 'workout_any' || goal.metric === 'steps';
+export function offersWorkoutLog(goal: Pick<Goal, 'activityKind' | 'metric'>): boolean {
+  return goal.activityKind === 'workout_any' && goal.metric !== 'steps';
 }
 
 /** The entry body for a check-in (the API matches it to goals). */
@@ -351,8 +352,9 @@ export function checkInEntry(
 ): CreateActivityEntryInput {
   const day = occurredOn ? { occurredOn } : {};
   if (mode === 'steps') return { activityKind: 'steps', steps: amount, ...day };
-  // `workout_any` has no manual kind of its own; record it as generic cardio.
-  const activityKind: ActivityKind = goal.activityKind === 'workout_any' ? 'cardio_any' : goal.activityKind;
+  // The goal's own kind: the API matches an "any workout" goal to `workout_any`
+  // entries only, manual check-ins included.
+  const activityKind: ActivityKind = goal.activityKind;
   if (mode === 'minutes') return { activityKind, durationSeconds: amount * 60, ...day };
   return { activityKind, ...day };
 }

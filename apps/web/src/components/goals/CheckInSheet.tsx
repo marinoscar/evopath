@@ -82,8 +82,9 @@ export function CheckInSheet({ open, goal, onClose, onSaved }: CheckInSheetProps
 
   if (!goal) return null;
 
-  // An "any workout" goal counts logged workouts; only its steps can be checked in.
-  const modes: CheckInMode[] = goal.activityKind === 'workout_any' ? ['steps'] : ['done', 'minutes', 'steps'];
+  // Every goal kind takes all three: an "any workout" goal counts manual
+  // `workout_any` check-ins as well as logged workouts.
+  const modes: CheckInMode[] = ['done', 'minutes', 'steps'];
   const today = localDateIn(null);
 
   const save = async (event?: FormEvent) => {
