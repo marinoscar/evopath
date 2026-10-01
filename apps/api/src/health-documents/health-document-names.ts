@@ -36,6 +36,8 @@ export function sanitizeDocumentName(raw: string): string {
   return raw
     .normalize('NFC')
     .replace(LONE_SURROGATES, '')
+    // Line breaks and tabs separate words: a space, not nothing.
+    .replace(/[\t\n\v\f\r]+/g, ' ')
     .replace(UNSAFE_CHARACTERS, '')
     .replace(/[\\/]/g, '_')
     .replace(/\s+/g, ' ')
