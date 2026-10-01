@@ -1,6 +1,6 @@
 /** `utils/twa.ts` (#283): TWA launch capture and detection. */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TWA_SESSION_KEY, captureTwaLaunch, isRunningInTwa } from '../../utils/twa';
+import { TWA_SESSION_KEY, captureTwaLaunch, getInstalledAppVersion, isRunningInTwa } from '../../utils/twa';
 
 function setReferrer(value: string) {
   Object.defineProperty(document, 'referrer', { value, configurable: true });
@@ -38,5 +38,23 @@ describe('twa utils', () => {
   it('detects an android-app:// referrer without the flag', () => {
     setReferrer('android-app://com.evopath.android/');
     expect(isRunningInTwa()).toBe(true);
+  });
+
+  it('captures the installed app version from the launch URL (#287)', () => {
+    captureTwaLaunch('?source=twa&appVersion=0.1.0&appVersionCode=1');
+    captureTwaLaunch('');
+    expect(getInstalledAppVersion()).toEqual({ versionName: '0.1.0', versionCode: 1 });
+  });
+
+  it('has no installed version outside the TWA or without a code', () => {
+    captureTwaLaunch('?appVersion=0.1.0&appVersionCode=1');
+    expect(getInstalledAppVersion()).toBeNull();
+    captureTwaLaunch('?source=twa&appVersion=0.1.0');
+    expect(getInstalledAppVersion()).toBeNull();
+  });
+
+  it('ignores a malformed version code', () => {
+    captureTwaLaunch('?source=twa&appVersionCode=abc');
+    expect(getInstalledAppVersion()).toBeNull();
   });
 });
