@@ -89,6 +89,31 @@ export interface BrowserNotificationContent {
    * before it is stored, not before it is rendered.
    */
   link?: string;
+
+  /**
+   * OS notification action buttons, PUSH ONLY (E7.5, #245). The browser
+   * channel's inbox row has no buttons and ignores this; the push channel
+   * forwards each action with its own `link` (root-relative, sanitised like
+   * `link`) so the service worker can open it when that button is clicked.
+   * An action whose link fails `sanitizeLink` is dropped.
+   */
+  actions?: NotificationActionContent[];
+
+  /**
+   * Extra ids the push payload carries in `data` (E7.5: `messageId`, so the
+   * page can find the coach message). Ids only, never content.
+   */
+  data?: { messageId?: string };
+}
+
+/** One OS notification action button (push only). */
+export interface NotificationActionContent {
+  /** Stable identifier the service worker matches on (`hear`). */
+  action: string;
+  /** The button label. */
+  title: string;
+  /** Root-relative path opened when this button is clicked. */
+  link: string;
 }
 
 /** Renders one event's payload into what the user actually sees. */
@@ -172,6 +197,45 @@ const broadcastBrowserTemplate = (data: never): BrowserNotificationContent => {
   }
 
   return { title, body, link };
+};
+
+/**
+ * The payload `coach.message.deliver` raises every `coach.*` event with
+ * (E7.5, #245). The template shows the LOCK-SCREEN-SAFE pair (`pushTitle`,
+ * `pushBody`, guard-approved when `lockScreenSafe` is on) on both the inbox
+ * row and the OS notification; the full in-app text is on `/coach?m=<id>`.
+ * `hasAudio` is set by the voice story (E7.6) once the message's audio is
+ * ready, and adds the "Hear Coach" action.
+ */
+export interface CoachNotificationData {
+  messageId: string;
+  pushTitle: string;
+  pushBody: string;
+  hasAudio?: boolean;
+}
+
+/** The "Hear Coach" push action (spec §2.7). */
+export const COACH_HEAR_ACTION = { action: 'hear', title: '▶ Hear Coach' } as const;
+
+/** `/coach?m=<id>`: where every coach notification leads. */
+export function coachMessageLink(messageId: string): string {
+  return `/coach?m=${encodeURIComponent(messageId)}`;
+}
+
+const coachBrowserTemplate = (data: never): BrowserNotificationContent => {
+  const { messageId, pushTitle, pushBody, hasAudio } = data as CoachNotificationData;
+  if (typeof messageId !== 'string' || typeof pushTitle !== 'string' || typeof pushBody !== 'string') {
+    throw new TypeError('A coach payload needs a string `messageId`, `pushTitle` and `pushBody`.');
+  }
+  const link = coachMessageLink(messageId);
+
+  return {
+    title: pushTitle,
+    body: pushBody,
+    link,
+    data: { messageId },
+    ...(hasAudio === true ? { actions: [{ ...COACH_HEAR_ACTION, link: `${link}&autoplay=1` }] } : {}),
+  };
 };
 
 /**
@@ -382,6 +446,13 @@ export const EVENT_BROWSER_TEMPLATES: Partial<
       link: '/health',
     };
   },
+
+  // AI Coach (E7.5, #245): one renderer for the four coach events; the
+  // payload is the delivered message's lock-screen-safe pair and its id.
+  'coach.nudge': coachBrowserTemplate,
+  'coach.celebration': coachBrowserTemplate,
+  'coach.photo_prompt': coachBrowserTemplate,
+  'coach.weekly_review': coachBrowserTemplate,
 };
 
 /** `health.export_ready` / `health.export_failed` payload (`health-export.handler.ts`). */

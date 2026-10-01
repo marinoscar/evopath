@@ -761,6 +761,18 @@ describe('NotificationsService', () => {
       expect(updateArgs.data.error).toContain('smtp exploded');
     });
 
+    // E7.5 (#245): `coach.message.deliver` stores the inbox row on the message.
+    it('reports the browser channel\'s inbox row id as notificationId, and only that channel\'s', async () => {
+      await expect(
+        service.notifyNow('security.role_changed', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null, notificationId: 'msg-2' });
+
+      // An email-only event has no inbox row to report.
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
     it('never rejects for a user that does not exist, and records nothing', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null as never);
 

@@ -109,7 +109,8 @@ const MAX_BODY_LENGTH = 2_000;
 const MAX_PUSH_FAILURE_COUNT = 5;
 
 /**
- * The five fields a push payload carries, and NOTHING ELSE.
+ * The five fields every push payload carries (plus the two optional ones
+ * below, E7.5), and NOTHING ELSE.
  *
  * Deliberately the durable row's own columns, echoed back rather than the
  * caller's original event payload: `data` (see
@@ -121,12 +122,46 @@ const MAX_PUSH_FAILURE_COUNT = 5;
  * object, and it means the service worker never receives anything it could
  * not also fetch straight out of the notification centre.
  */
-interface PushPayload {
+export interface PushPayload {
   id: string;
   eventKey: string;
   title: string;
   body: string;
   link: string | null;
+  /**
+   * OPTIONAL OS action buttons (E7.5, #245): the coach's "Hear Coach". Present
+   * only when the template returned at least one action whose link passed
+   * `sanitizeLink`; each carries its own root-relative `link`, which the
+   * service worker opens when that button is clicked. Bounded: at most
+   * {@link MAX_PUSH_ACTIONS} short entries, so the ~4KB ceiling still holds.
+   */
+  actions?: PushAction[];
+  /** OPTIONAL ids for the page (E7.5: the coach `messageId`). Ids only. */
+  data?: { messageId?: string };
+}
+
+/** One action button in a push payload. */
+export interface PushAction {
+  action: string;
+  title: string;
+  link: string;
+}
+
+/** Browsers show at most two action buttons; more would only cost payload bytes. */
+export const MAX_PUSH_ACTIONS = 2;
+const MAX_ACTION_TITLE_LENGTH = 40;
+const ACTION_ID = /^[a-z][a-z0-9_-]{0,31}$/;
+
+/** The template's actions, sanitised: valid id, short title, internal link; at most two. */
+export function pushActionsOf(content: BrowserNotificationContent): PushAction[] {
+  const out: PushAction[] = [];
+  for (const candidate of content.actions ?? []) {
+    if (out.length >= MAX_PUSH_ACTIONS) break;
+    const link = sanitizeLink(candidate.link);
+    if (!link || !ACTION_ID.test(candidate.action) || !candidate.title) continue;
+    out.push({ action: candidate.action, title: truncate(candidate.title, MAX_ACTION_TITLE_LENGTH), link });
+  }
+  return out;
 }
 
 @Injectable()
@@ -237,12 +272,16 @@ export class PushNotificationChannel implements NotificationChannelSender {
       };
     }
 
+    const actions = pushActionsOf(rendered.content);
+    const messageId = rendered.content.data?.messageId;
     const payload: PushPayload = {
       id: notification.id,
       eventKey,
       title,
       body,
       link,
+      ...(actions.length > 0 ? { actions } : {}),
+      ...(typeof messageId === 'string' ? { data: { messageId } } : {}),
     };
     const serializedPayload = JSON.stringify(payload);
 

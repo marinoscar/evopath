@@ -5,6 +5,10 @@ import {
 } from './allowlist-invitation.email';
 import { type BroadcastEmailData, broadcastEmail } from './broadcast.email';
 import {
+  type CoachWeeklyReviewEmailData,
+  coachWeeklyReviewEmail,
+} from './coach-weekly-review.email';
+import {
   type BackupFailedEmailData,
   backupFailedEmail,
 } from './backup-failed.email';
@@ -95,6 +99,9 @@ export interface EmailTemplateDataMap {
   'node-offline': NodeOfflineEmailData;
   'backup-failed': BackupFailedEmailData;
   'restore-completed': RestoreCompletedEmailData;
+
+  // AI Coach (E7.5 registers it with the event; E7.10 writes the real body).
+  'coach-weekly-review': CoachWeeklyReviewEmailData;
 }
 
 /**
@@ -131,6 +138,7 @@ export const EMAIL_TEMPLATES: {
   'node-offline': nodeOfflineEmail,
   'backup-failed': backupFailedEmail,
   'restore-completed': restoreCompletedEmail,
+  'coach-weekly-review': coachWeeklyReviewEmail,
 };
 
 /**

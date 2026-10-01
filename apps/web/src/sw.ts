@@ -178,9 +178,14 @@ self.addEventListener('notificationclick', (event) => {
   // in flight, which would just fire it a second time for one click.
   event.notification.close();
 
-  const data = (event.notification.data ?? {}) as { id?: unknown; link?: unknown };
+  const data = (event.notification.data ?? {}) as { id?: unknown; link?: unknown; actionLinks?: unknown };
   const id = typeof data.id === 'string' ? data.id : '';
-  const rawLink = typeof data.link === 'string' ? data.link : null;
+  // An ACTION BUTTON (E7.5, #245: the coach's "Hear Coach") carries its own
+  // link, keyed by the action id in `data.actionLinks` by the push handler
+  // below; a click on the body (`event.action === ''`) uses the plain link.
+  // The action's link goes through the same `isInternalLink` check, and an
+  // unknown action falls back to the plain link rather than to nothing.
+  const rawLink = actionLinkOf(data.actionLinks, event.action) ?? (typeof data.link === 'string' ? data.link : null);
   const link = isInternalLink(rawLink) ? rawLink : '/';
 
   event.waitUntil(
@@ -256,6 +261,15 @@ interface PushNotificationPayload {
   body: string;
   link: string;
   /**
+   * OPTIONAL action buttons (E7.5, #245), each with its own root-relative
+   * link: the coach's "Hear Coach" (`hear`) opens `/coach?m=<id>&autoplay=1`.
+   * The click on the button is the user gesture that lets the page play the
+   * audio (a service worker has no audio output of its own).
+   */
+  actions?: Array<{ action: string; title: string; link: string }>;
+  /** OPTIONAL ids for the page (E7.5: the coach `messageId`). */
+  data?: { messageId?: string };
+  /**
    * Set only by the admin "Send test push" action (`POST
    * /api/admin/push-config/test`, issue #115). See `handleTestPush`.
    */
@@ -318,7 +332,7 @@ async function handlePush(event: PushEvent): Promise<void> {
   // tab can raise its own SSE toast (tagged with the browser-channel row's id)
   // alongside this one (tagged with the push-channel row's id). The two rows
   // have different ids, so the `tag` de-dup below cannot collapse them.
-  await self.registration.showNotification(payload.title, {
+  const options: NotificationOptionsWithActions = {
     body: payload.body,
     // Keyed by the notification's own id, mirroring the `tag` de-dup
     // convention `showNativeNotification` uses for the page-side toast (see
@@ -331,8 +345,64 @@ async function handlePush(event: PushEvent): Promise<void> {
     // notification read and navigate. Passed through unmodified — validating
     // or sanitising `link` is that handler's job at the point it navigates,
     // not this one's.
-    data: { id: payload.id, link: payload.link },
-  });
+    data: notificationDataOf(payload),
+    ...actionsOf(payload),
+  };
+  await self.registration.showNotification(payload.title, options);
+}
+
+/**
+ * `NotificationOptions` plus `actions`, which this project's `lib.webworker`
+ * does not declare yet (every Chromium browser and Firefox support it on a
+ * service-worker notification; Safari ignores it).
+ */
+interface NotificationOptionsWithActions extends NotificationOptions {
+  actions?: Array<{ action: string; title: string }>;
+}
+
+/**
+ * `notification.data` for a real push: `id` and `link` always, plus the
+ * action links and the coach `messageId` only when the payload carries them
+ * (so a plain notification's data is exactly `{ id, link }`).
+ */
+function notificationDataOf(payload: PushNotificationPayload): Record<string, unknown> {
+  const actions = validActions(payload.actions);
+  return {
+    id: payload.id,
+    link: payload.link,
+    ...(actions.length > 0
+      ? { actionLinks: Object.fromEntries(actions.map((a) => [a.action, a.link])) }
+      : {}),
+    ...(typeof payload.data?.messageId === 'string' ? { messageId: payload.data.messageId } : {}),
+  };
+}
+
+/** `{ actions }` for `showNotification`, or nothing when the payload has none. */
+function actionsOf(payload: PushNotificationPayload): { actions?: Array<{ action: string; title: string }> } {
+  const actions = validActions(payload.actions);
+  return actions.length > 0 ? { actions: actions.map(({ action, title }) => ({ action, title })) } : {};
+}
+
+/** Well-formed actions only: string fields, at most two (what browsers show). */
+function validActions(value: unknown): Array<{ action: string; title: string; link: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (a): a is { action: string; title: string; link: string } =>
+        !!a &&
+        typeof a === 'object' &&
+        typeof (a as { action?: unknown }).action === 'string' &&
+        typeof (a as { title?: unknown }).title === 'string' &&
+        typeof (a as { link?: unknown }).link === 'string',
+    )
+    .slice(0, 2);
+}
+
+/** The link stored for `action` by `notificationDataOf`, or null. */
+function actionLinkOf(actionLinks: unknown, action: string | undefined): string | null {
+  if (!action || !actionLinks || typeof actionLinks !== 'object') return null;
+  const link = (actionLinks as Record<string, unknown>)[action];
+  return typeof link === 'string' ? link : null;
 }
 
 /**

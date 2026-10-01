@@ -1152,12 +1152,16 @@ export class NotificationsService implements OnModuleDestroy {
     // local database write; skipping it would make a mail outage erase the
     // durable record too. The verdict is only accumulated and reported.
     let throttle = NOT_THROTTLED;
+    let notificationId: string | undefined;
 
     for (const channel of channels) {
-      throttle = mergeThrottle(throttle, await this.deliverOne(context, channel));
+      const outcome = await this.deliverOne(context, channel);
+      throttle = mergeThrottle(throttle, outcome);
+      // The inbox row id, for a caller that links its own record to it (E7.5).
+      if (channel === 'browser' && outcome.sentMessageId) notificationId = outcome.sentMessageId;
     }
 
-    return throttle;
+    return notificationId ? { ...throttle, notificationId } : throttle;
   }
 
   /**
@@ -1175,7 +1179,7 @@ export class NotificationsService implements OnModuleDestroy {
   private async deliverOne(
     context: NotificationDispatchContext,
     channel: NotificationChannel,
-  ): Promise<Pick<ChannelDeliveryResult, 'rateLimited' | 'retryAfterMs'>> {
+  ): Promise<Pick<ChannelDeliveryResult, 'rateLimited' | 'retryAfterMs'> & { sentMessageId?: string }> {
     const { event, recipient } = context;
     const sender = this.senders.get(channel);
 
@@ -1268,6 +1272,6 @@ export class NotificationsService implements OnModuleDestroy {
 
     await this.deliveries.markSent(deliveryId, result.messageId);
 
-    return {};
+    return result.messageId ? { sentMessageId: result.messageId } : {};
   }
 }

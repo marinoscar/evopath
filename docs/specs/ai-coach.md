@@ -378,6 +378,21 @@ const coachNudgeSchema = z.object({
 - `convertedAt` is set by the attribution rules in [§2.8](#28-learning-loop).
 - `POST /api/coach/messages/:id/feedback` stores thumbs up or down on any coach message.
 
+**As built (E7.5, #245).** Where the implementation settles a detail this section leaves open:
+
+- **Layout.** Everything lives in `apps/api/src/coach/nudges/` (`CoachNudgesModule`, imported by `CoachModule`): `handlers/coach-nudge.handler.ts`, `handlers/coach-message-deliver.handler.ts`, `nudge-context.ts`, `nudge-prompt.ts`, `nudge-schema.ts`, `static-fallback.ts`, `angle-picker.ts`, `coach-messages.controller.ts` and `.service.ts`, `coach-conversion.ts` and `.listener.ts`. The never-send list is `apps/api/src/coach/context/coach-never-send.ts`.
+- **`aiRunId` is null for nudges.** `respondStructured` is a synchronous call and writes no `ai_runs` row (its `ai_usage_events` row is the record). The column stays for E7.6's `speak()` run and for any later background call.
+- **Kinds.** `pr` and `weekly_target_hit` are `celebration`; `comeback` is its own `comeback` kind, raised as `coach.nudge` (the planner's `COACH_MOMENT_EVENT`); `back_off` and `win_back` are `system`; `photo_prompt` and `kickoff` keep their names.
+- **Notification text.** The browser inbox row and the push both show the lock-screen pair (`pushTitle`, `pushBody`); the full text is on `/coach?m=<id>`. `notificationId` is the browser channel's inbox row (`NotifyNowResult.notificationId`). `deliveredAt` is stamped once `notifyNow` has run, whatever each channel's outcome (a channel failure is recorded in `notification_deliveries`, as for every event).
+- **Push actions.** The payload gains optional `actions` (`{ action, title, link }`, at most two, links sanitised) and `data.messageId`. The service worker keeps each action's link in `notification.data.actionLinks` and opens it on that button's click.
+- **Idempotency.** The nudge job stores `momentKey` in `CoachMessage.data`; a retry after the write only re-enqueues delivery, and the delivery job skips a message that already has `deliveredAt`.
+- **`data`.** A nudge row's `data` holds `momentKey`, `trigger`, `register` (`clean`, `profane`, `supportive`), `lowReadiness`, `regenerations`, `fallback`, and the `audioScript` and `audioInstructions` E7.6 speaks.
+- **Angle.** `DefaultAnglePicker` behind the `COACH_ANGLE_PICKER` token: `future_self` when the user wrote a `why`, `data` for the Analyst, else `identity`, always a supportive angle under the supportive register. E7.11 provides `pickAngle` through the same token.
+- **Static fallback.** The sample line is filled from the context (`{n}` this week's done sessions, `{streak}` the streak plus one, `{lift}` the latest PR lift, `{time}` the usual or preferred time, else 17:00); its lock-screen body is `<Persona> has a message for you.`. Under the supportive register the calm `SUPPORTIVE_FALLBACK_LINE` replaces it. Should even that fail the guard, the job ends without a message (`guard_rejected`).
+- **`send: false`.** The reason is logged once (one line, at most 200 characters) and not stored.
+- **Metrics.** `app.coach.nudge.sent{moment}`, `app.coach.nudge.suppressed{reason, moment}` (job reasons: `model_declined`, `coach_off`, `paused`, `no_model`, `ai_error`, `guard_rejected`, `already_sent`), `app.coach.nudge.fallback{moment}`, `app.coach.nudge.opened{moment}`, `app.coach.nudge.converted{moment, target}`, `app.coach.feedback{value}`. The planner's own `coach.nudge.suppressed{coach.reason}` (E7.4) keeps the sweep's gate reasons. Spans: `coach.nudge.generate`, `coach.message.deliver`.
+- **Photo conversion.** The listener subscribes to `progress_photo.created` (`PROGRESS_PHOTO_CREATED_EVENT`, payload `{ userId, photoId }`); E7.9 emits it after the photo row commits.
+
 ### 2.8 Learning loop
 
 **Angles.** Each nudge is written from one angle (the bandit arm), recorded on `CoachMessage.angle`:
@@ -835,3 +850,4 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
 ## History
 
 - Proposed under epic E7 (issue 240), stories E7.1 to E7.13 (issues 241 to 253).
+- E7.5 (issue 245): nudge generation, delivery, push action and feedback; the as-built notes are at the end of [§2.7](#27-delivery-and-audio).

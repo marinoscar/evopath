@@ -119,6 +119,14 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     preRestoreBackupId: 'run-pre-restore',
     appUrl: 'https://app.example.com',
   },
+  // E7.5's placeholder for the coach weekly review (E7.10 fleshes it out). The
+  // subject is fixed copy, so the hostile fragments go in the title and body.
+  'coach-weekly-review': {
+    title: '"><img src=x onerror=alert(1)>',
+    body: '<script>alert(document.cookie)</script>',
+    messageId: 'message-1',
+    appUrl: 'https://app.example.com',
+  },
 };
 
 function render(name: EmailTemplateName): RenderedEmail {
