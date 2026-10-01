@@ -227,17 +227,19 @@ export function updateSystemCoachSettings(patch: Partial<SystemCoachSettings>): 
 }
 
 // -----------------------------------------------------------------------------
-// POST /api/coach/voice-preview (E7.6; planned)
+// POST /api/coach/voice-preview (E7.6, #246)
 // -----------------------------------------------------------------------------
 
 /**
- * Whether the voice preview route exists yet. E7.6 adds
- * `POST /api/coach/voice-preview` (rate-limited, static sample lines); until it
- * ships the page renders "Hear it" disabled with a tooltip. Feature-detecting
- * the route by calling it is deliberately not done: a successful probe is a
- * paid TTS call. E7.6 flips this constant.
+ * Whether the voice preview route exists. E7.6 shipped
+ * `POST /api/coach/voice-preview` (rate-limited, static sample lines), so
+ * "Hear it" is live; the flag stays so a fork can switch the button off.
  */
-export const COACH_VOICE_PREVIEW_AVAILABLE = false;
+export const COACH_VOICE_PREVIEW_AVAILABLE = true;
+
+/** At most this many previews per user in `COACH_PREVIEW_WINDOW_MINUTES` (the server enforces it). */
+export const COACH_PREVIEW_LIMIT = 10;
+export const COACH_PREVIEW_WINDOW_MINUTES = 10;
 
 export interface CoachVoicePreviewRequest {
   personaId: string;
@@ -247,14 +249,21 @@ export interface CoachVoicePreviewRequest {
   moment?: CoachMoment;
 }
 
-/** The planned answer: the stored audio, played through `AiSpeechPlayer`. */
+/**
+ * The 202 answer: a queued speech run. Poll `GET /ai/runs/:id` (`useAiRun`);
+ * once `succeeded`, `output` is the audio (`AiSpeechRunOutput`), played with
+ * `AiSpeechPlayer` and its AI-generated disclosure.
+ */
 export interface CoachVoicePreview {
-  storageObjectId: string;
+  runId: string;
+  jobId: string;
+  personaId: string;
+  /** The level spoken: a locked Sarge 3 speaks level 2. */
+  intensity: number;
+  moment: CoachMoment;
   voice: string;
-  format?: string;
-  mimeType?: string;
-  size?: number;
-  characters?: number;
+  /** The clean line stood in for a locked adult-language level. */
+  censored: boolean;
 }
 
 export function previewCoachVoice(body: CoachVoicePreviewRequest): Promise<CoachVoicePreview> {

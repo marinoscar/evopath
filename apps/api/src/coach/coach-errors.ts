@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
 
 import type { CoachRegisterReason } from './personas/resolve-register';
 
@@ -20,6 +20,7 @@ export const COACH_ERRORS = {
   AUDIO_DISABLED: 'COACH_AUDIO_DISABLED',
   PERSONA_UNKNOWN: 'COACH_PERSONA_UNKNOWN',
   MESSAGE_NOT_FOUND: 'COACH_MESSAGE_NOT_FOUND',
+  PREVIEW_RATE_LIMITED: 'COACH_PREVIEW_RATE_LIMITED',
 } as const;
 
 export function coachDisabledError(): ForbiddenException {
@@ -60,4 +61,22 @@ export function coachMessageNotFoundError(): NotFoundException {
     message: 'Coach message not found.',
     details: { code: COACH_ERRORS.MESSAGE_NOT_FOUND, reason: COACH_ERRORS.MESSAGE_NOT_FOUND },
   });
+}
+
+/**
+ * 429 for a voice preview over the per-user limit (E7.6). `details.retryAfterMs`
+ * makes the global filter set `Retry-After` (whole seconds, rounded up).
+ */
+export function coachPreviewRateLimitedError(retryAfterMs: number): HttpException {
+  return new HttpException(
+    {
+      message: 'Too many voice previews. Try again later.',
+      details: {
+        code: COACH_ERRORS.PREVIEW_RATE_LIMITED,
+        reason: COACH_ERRORS.PREVIEW_RATE_LIMITED,
+        retryAfterMs: Math.max(1, Math.ceil(retryAfterMs)),
+      },
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
 }

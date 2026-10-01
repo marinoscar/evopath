@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, HttpException, NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import type { EventEmitter2 } from '@nestjs/event-emitter';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { Readable } from 'node:stream';
 
@@ -8,6 +9,7 @@ import { StorageObjectReferences } from '../intake/storage-object-references';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { ObjectsService } from '../storage/objects/objects.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
+import { PROGRESS_PHOTO_CREATED_EVENT } from './progress-photo-events';
 import { PROGRESS_PHOTO_MAX_BYTES } from './progress-photos.constants';
 import { decodePhotoCursor, encodePhotoCursor, ProgressPhotosService } from './progress-photos.service';
 
@@ -57,6 +59,7 @@ describe('ProgressPhotosService', () => {
   let references: StorageObjectReferences;
   let storage: { download: jest.Mock };
   let metrics: { progressPhotoChanged: jest.Mock };
+  let events: { emit: jest.Mock };
   let service: ProgressPhotosService;
 
   function storedBytes(bytes: Buffer) {
@@ -69,12 +72,14 @@ describe('ProgressPhotosService', () => {
     references = new StorageObjectReferences();
     storage = { download: jest.fn() };
     metrics = { progressPhotoChanged: jest.fn() };
+    events = { emit: jest.fn() };
     service = new ProgressPhotosService(
       prisma as unknown as PrismaService,
       objects as unknown as ObjectsService,
       references,
       storage as unknown as StorageProvider,
       metrics as unknown as AppMetricsService,
+      events as unknown as EventEmitter2,
     );
     prisma.storageObject.findUnique.mockResolvedValue(objectRow() as any);
     prisma.progressPhoto.count.mockResolvedValue(0);
@@ -117,6 +122,33 @@ describe('ProgressPhotosService', () => {
         createdAt: NOW.toISOString(),
       });
       expect(metrics.progressPhotoChanged).toHaveBeenCalledWith('added');
+    });
+
+    it('emits progress_photo.created with ids only, after the row is written', async () => {
+      prisma.progressPhoto.create.mockImplementation((async () => {
+        expect(events.emit).not.toHaveBeenCalled();
+        return photoRow();
+      }) as any);
+
+      await service.create(USER, input);
+
+      expect(events.emit).toHaveBeenCalledTimes(1);
+      expect(events.emit).toHaveBeenCalledWith(PROGRESS_PHOTO_CREATED_EVENT, { userId: USER, photoId: PHOTO });
+    });
+
+    it('still creates the photo when a listener throws', async () => {
+      events.emit.mockImplementation(() => {
+        throw new Error('listener failed');
+      });
+
+      await expect(service.create(USER, input)).resolves.toEqual(expect.objectContaining({ id: PHOTO }));
+    });
+
+    it('emits nothing when the create is refused', async () => {
+      prisma.progressPhoto.count.mockResolvedValue(1);
+
+      await expect(service.create(USER, input)).rejects.toBeInstanceOf(HttpException);
+      expect(events.emit).not.toHaveBeenCalled();
     });
 
     it('is a 404 for an unknown object', async () => {

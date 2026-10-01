@@ -100,6 +100,8 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
         // E7.7: the coach chat stream and the timeline.
         { path: '/api/coach/chat/stream', method: 'POST' },
         { path: '/api/coach/messages', method: 'GET' },
+        // E7.6: the voice preview.
+        { path: '/api/coach/voice-preview', method: 'POST' },
       ]),
     );
     expect(adminAiRoutes).toEqual(expect.arrayContaining([{ path: '/api/admin/coach/settings', method: 'PUT' }]));

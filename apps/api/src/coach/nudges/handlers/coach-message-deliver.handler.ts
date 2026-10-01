@@ -13,10 +13,12 @@
 // STEPS
 //   1. Load the message. Gone, not a coach message, or ALREADY DELIVERED ->
 //      nothing (a retry after a successful send never sends twice).
-//   2. Audio (E7.6 seam): a message still `pending` audio is not this
-//      story's to wait on; it is delivered as text. E7.6 adds the wait cap and
-//      the `ready`/`failed` branches, and sets `hasAudio` on the payload so
-//      the push carries the "Hear Coach" action.
+//   2. Audio (E7.6): normally settled before this job is enqueued
+//      (`coach.audio.settle`). A message somehow still `pending` is NOT
+//      waited on: its audio is recorded `failed` (`reason = 'timeout'`) and
+//      it goes out as text. `hasAudio` is true only for `ready` audio with
+//      its object, so the push carries the "Hear Coach" action exactly then.
+//      The message ALWAYS carries its text.
 //   3. `notifyNow('coach.<kind>')`, awaited, OUTSIDE any `$transaction` (the
 //      message row committed in an earlier job). It never rejects; a channel
 //      failure is recorded by the dispatcher's own containment.
@@ -40,6 +42,7 @@ import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
 import type { CoachNotificationData } from '../../../notifications/channels/browser-notification.channel';
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { CoachAudioService } from '../../audio/coach-audio.service';
 import { COACH_MESSAGE_DELIVER_JOB_TYPE } from '../../coach-job-types';
 import { CoachStateService } from '../../planning/coach-state.service';
 import { eventForKind } from '../coach-message-kinds';
@@ -63,6 +66,7 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly coachState: CoachStateService,
+    private readonly audio: CoachAudioService,
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
   ) {}
 
@@ -109,6 +113,7 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
         pushTitle: true,
         pushBody: true,
         audioStatus: true,
+        audioStorageObjectId: true,
         deliveredAt: true,
         user: { select: { healthProfile: { select: { timeZone: true } } } },
       },
@@ -123,13 +128,20 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
       return { status: 'skipped', reason: 'already_delivered' };
     }
 
+    let audioReady = message.audioStatus === 'ready' && Boolean(message.audioStorageObjectId);
+    if (message.audioStatus === 'pending') {
+      // Never wait here and never send audio-only: the text goes now.
+      await this.audio.markFailed(message.id, 'timeout', null, now);
+      audioReady = false;
+    }
+
     const eventKey = eventForKind(message.kind);
     const data: CoachNotificationData = {
       messageId: message.id,
       pushTitle: message.pushTitle ?? message.title,
       pushBody: message.pushBody ?? '',
-      // E7.6 sets this once the message's audio is `ready` (adds "Hear Coach").
-      hasAudio: message.audioStatus === 'ready',
+      // Ready audio adds the "Hear Coach" action (`/coach?m=<id>&autoplay=1`).
+      hasAudio: audioReady,
     };
 
     // Awaited, never rejects, and NOT inside a transaction: the message row

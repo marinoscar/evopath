@@ -171,6 +171,10 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'ai.coach.nudge': 'AI coach nudge',
   // Sends one persisted coach message as a notification (E7.5).
   'coach.message.deliver': 'Coach message delivery',
+  // Maps a finished coach speech run (or the wait cap) to its message (E7.6).
+  'coach.audio.settle': 'Coach audio settle',
+  // Daily: deletes coach voice notes older than the retention window (E7.6).
+  'coach.audio.purge': 'Coach audio purge',
 };
 
 /**

@@ -21,6 +21,9 @@
 // write that fails leaves an unreferenced object for the ordinary storage
 // cleanup, which is safe precisely because nothing references it.
 //
+// After a create, `progress_photo.created` (`progress-photo-events.ts`) is
+// emitted with ids only; the coach's conversion attribution listens for it.
+//
 // Delete removes the row, then the storage object unless something else still
 // holds it (another feature registered with `StorageObjectReferences`, or a
 // photo intake that can still use it). The object delete is best effort: the
@@ -43,6 +46,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Prisma } from '@prisma/client';
 import type { Readable } from 'node:stream';
 import { z } from 'zod';
@@ -69,6 +73,7 @@ import {
   PROGRESS_PHOTO_SNIFF_BYTES,
   type ProgressPhotoPose,
 } from './progress-photos.constants';
+import { PROGRESS_PHOTO_CREATED_EVENT, type ProgressPhotoCreatedEvent } from './progress-photo-events';
 
 const PHOTO_SELECT = {
   id: true,
@@ -160,6 +165,7 @@ export class ProgressPhotosService {
     private readonly references: StorageObjectReferences,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /** The caller's photos, newest day first (then newest upload), keyset-paged. */
@@ -255,6 +261,8 @@ export class ProgressPhotosService {
     });
 
     this.metrics.progressPhotoChanged('added');
+    // After the row is written (no transaction), ids only.
+    this.emitCreated({ userId, photoId: row.id });
     return toProgressPhotoView(row);
   }
 
@@ -275,6 +283,17 @@ export class ProgressPhotosService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /** `progress_photo.created` for its listeners. A listener's failure never fails the create. */
+  private emitCreated(event: ProgressPhotoCreatedEvent): void {
+    try {
+      this.events?.emit(PROGRESS_PHOTO_CREATED_EVENT, event);
+    } catch (error) {
+      this.logger.warn(
+        `A ${PROGRESS_PHOTO_CREATED_EVENT} listener threw: ${error instanceof Error ? error.name : 'error'}`,
+      );
+    }
+  }
 
   /** Deletes the object when no feature and no unapplied intake still holds it. Best effort. */
   private async releaseObject(userId: string, storageObjectId: string): Promise<void> {

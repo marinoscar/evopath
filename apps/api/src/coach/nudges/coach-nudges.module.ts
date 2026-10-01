@@ -7,6 +7,7 @@ import { JobsModule } from '../../jobs/jobs.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { ProgramsModule } from '../../programs/programs.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { CoachAudioModule } from '../audio/coach-audio.module';
 import { CoachContentGuard } from '../guard/coach-content-guard.service';
 import { CoachPlanningModule } from '../planning/coach-planning.module';
 import { COACH_ANGLE_PICKER, DefaultAnglePicker } from './angle-picker';
@@ -28,6 +29,7 @@ import { CoachNudgeHandler } from './handlers/coach-nudge.handler';
 // - `POST /api/coach/messages/:id/{opened,feedback}` and the conversion
 //   listener.
 // - `COACH_ANGLE_PICKER`: the angle seam; E7.11 provides `pickAngle` here.
+// - `CoachAudioModule` (E7.6): spoken nudges, their settle and retention.
 //
 // Imported by `CoachModule`, never by `AppModule` directly. `CoachContentGuard`
 // is stateless, so this module provides its own instance rather than importing
@@ -44,6 +46,7 @@ import { CoachNudgeHandler } from './handlers/coach-nudge.handler';
     ProgramsModule,
     SettingsModule,
     CoachPlanningModule,
+    CoachAudioModule,
   ],
   controllers: [CoachMessagesController],
   providers: [
