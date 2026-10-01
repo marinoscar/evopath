@@ -988,6 +988,12 @@ export const handlers = [
     HttpResponse.json({ data: { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 } }),
   ),
 
+  // Activity goals (#268): none yet. Suites that create or check in install
+  // their own stateful API (`fixtures/goals.ts`).
+  http.get(`${API_BASE}/goals/progress`, () => HttpResponse.json({ data: [] })),
+  http.get(`${API_BASE}/goals/templates`, () => HttpResponse.json({ data: [] })),
+  http.get(`${API_BASE}/goals`, () => HttpResponse.json({ data: [] })),
+
   // Storage status (#204): configured by default, so no upload control is
   // swapped for a "not enabled" notice in existing suites.
   http.get(`${API_BASE}/storage/status`, () => HttpResponse.json({ data: { configured: true } })),
