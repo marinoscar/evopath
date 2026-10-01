@@ -7,10 +7,14 @@
  * `trackingMode`):
  * - reps: `3 × 8–12` (`@ RPE 8` when set). This output is unchanged from
  *   before cardio prescriptions existed.
- * - cardio: a distance and/or a duration, `5 km · 30 min`, `30 min`, `5 km`;
- *   `4 × 400 m`-style intervals prefix the set count when there is more than
- *   one. Distance reads in km or miles from the Health Profile unit system
- *   (`distanceUnitFor`); the API speaks metres and seconds only.
+ * - cardio: a distance and/or a duration, `5 km · 30 min`, `30 min`, `5 km`.
+ *   The target is the exercise's TOTAL for the session (the API's contract),
+ *   so it reads as given, with the set count AFTER it when there is more
+ *   than one: `0.4 km · 4 sets`, `5 km · 30 min · 2 sets`, never `4 × 0.4 km`
+ *   (which would read as per-interval). The same rule as the API's
+ *   `prescriptionLabel`. Distance reads in km or miles from the Health
+ *   Profile unit system (`distanceUnitFor`); the API speaks metres and
+ *   seconds only.
  *
  * `ascii` keeps the plan history's older `3 x 8-12` spelling.
  */
@@ -69,8 +73,8 @@ export function formatPrescription(e: PrescriptionFields, options: PrescriptionO
   const rpe = present(e.targetRpe) ? ` @ RPE ${e.targetRpe}` : '';
   const cardio = formatCardioTarget(e, options.distanceUnit);
   if (cardio !== null) {
-    const intervals = present(e.sets) && e.sets > 1 ? `${e.sets} ${times} ` : '';
-    return `${intervals}${cardio}${rpe}`;
+    const sets = present(e.sets) && e.sets > 1 ? ` · ${e.sets} sets` : '';
+    return `${cardio}${sets}${rpe}`;
   }
   const reps = e.repMin === e.repMax ? `${e.repMin}` : `${e.repMin}${dash}${e.repMax}`;
   return `${e.sets} ${times} ${reps}${rpe}`;

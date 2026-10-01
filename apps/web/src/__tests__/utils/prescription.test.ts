@@ -60,9 +60,15 @@ describe('formatPrescription', () => {
       expect(formatPrescription({ ...cardio, targetDistanceMeters: 5000, targetDurationSeconds: 1800 })).toBe('5 km · 30 min');
     });
 
-    it('prefixes intervals when there is more than one set', () => {
-      expect(formatPrescription({ ...cardio, sets: 4, targetDistanceMeters: 400 })).toBe('4 × 0.4 km');
+    it('reads the target as the session total, with the set count after it', () => {
+      expect(formatPrescription({ ...cardio, sets: 4, targetDistanceMeters: 400 })).toBe('0.4 km · 4 sets');
+      expect(formatPrescription({ ...cardio, sets: 3, targetDurationSeconds: 1800 })).toBe('30 min · 3 sets');
+      expect(formatPrescription({ ...cardio, sets: 2, targetDistanceMeters: 5000, targetDurationSeconds: 1800 })).toBe(
+        '5 km · 30 min · 2 sets',
+      );
+      expect(formatPrescription({ ...cardio, sets: 3, targetDurationSeconds: 1800 }, { ascii: true })).toBe('30 min · 3 sets');
       expect(formatPrescription({ ...cardio, sets: 1, targetDurationSeconds: 600 })).toBe('10 min');
+      expect(formatPrescription({ ...cardio, sets: null, targetDurationSeconds: 600 })).toBe('10 min');
     });
 
     it('appends an RPE when set', () => {
