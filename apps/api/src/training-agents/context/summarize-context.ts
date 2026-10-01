@@ -50,6 +50,7 @@ const TITLES: Record<PlannerContextKey, string> = {
   bodyMetrics: 'Body metrics',
   equipment: 'Equipment',
   candidateExercises: 'Candidate exercises',
+  cardio: 'Walking and jogging',
   history: 'Training history (last 6 weeks)',
   readiness: 'Readiness (7-day averages)',
   healthSummary: 'Health summary (opt-in)',
@@ -128,6 +129,19 @@ function itemsFor(key: PlannerContextKey, context: PlannerContext): { items: str
       return {
         items: ['Exercises your equipment supports: name, muscles, movement pattern, tracking mode'],
         count: context.candidateExercises.length,
+      };
+    case 'cardio':
+      if (!context.cardio) return { items: [NONE_USED] };
+      return {
+        items: [
+          context.cardio.requested
+            ? `You asked for ${context.cardio.activity === 'run' ? 'running' : context.cardio.activity === 'any' ? 'walking or running' : 'walking'} sessions` +
+              (context.cardio.daysPerWeek !== null ? `: ${context.cardio.daysPerWeek} a week` : '') +
+              (context.cardio.minutesPerSession !== null ? `, about ${context.cardio.minutesPerSession} minutes each` : '')
+            : 'Optional cardio for your goal',
+          `Equipment-free cardio exercises: ${context.cardio.exerciseKeys.length ? context.cardio.exerciseKeys.join(', ') : 'none'}`,
+          'Your completed cardio minutes per week (last 4 weeks)',
+        ],
       };
     case 'history':
       if (!context.history) return { items: [NONE_USED] };

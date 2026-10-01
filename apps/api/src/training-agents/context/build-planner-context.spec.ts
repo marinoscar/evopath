@@ -54,7 +54,7 @@ describe('buildTrainingRunContext', () => {
     const full = buildTrainingRunContext(
       contextSourceFixture({
         kind: 'revise',
-        intake: { includeBio: true },
+        intake: { includeBio: true, cardio: { include: true, activity: 'walk' } },
         revise: {
           programId: 'p',
           basedOnVersion: 1,
@@ -93,7 +93,7 @@ describe('buildTrainingRunContext', () => {
     expect(summary.excluded).toEqual([...NEVER_SEND_LABELS]);
 
     const empty = summarizePlannerContext(runContextFixture().planner);
-    for (const key of ['profile', 'bodyMetrics', 'history', 'readiness', 'healthSummary', 'bio', 'currentPlan']) {
+    for (const key of ['profile', 'bodyMetrics', 'cardio', 'history', 'readiness', 'healthSummary', 'bio', 'currentPlan']) {
       expect(empty.sections.find((s) => s.key === key)?.items).toEqual([NONE_USED]);
     }
   });
@@ -360,5 +360,123 @@ describe('buildTrainingRunContext', () => {
     expect(compact.weeks.map((w) => w.weekType)).toEqual(['W1', 'W1', 'W2']);
     expect(compact.weekTypes[0].workouts[0].exercises[0].key).toBe('goblet_squat');
     expect(JSON.stringify(compact)).not.toMatch(UUID);
+  });
+});
+
+describe('the cardio section (#265)', () => {
+  const set = (over: Record<string, unknown> = {}) => ({
+    weightKg: null,
+    reps: null,
+    completed: true,
+    isWarmup: false,
+    painFlag: false,
+    ...over,
+  });
+
+  it('is omitted for a strength or hypertrophy goal that asks for no cardio', () => {
+    expect('cardio' in runContextFixture().planner).toBe(false);
+    expect('cardio' in runContextFixture({ intake: { goal: { type: 'strength' } } }).planner).toBe(false);
+    expect('cardio' in runContextFixture({ intake: { cardio: { include: false, activity: 'walk' } } }).planner).toBe(false);
+  });
+
+  it.each(['endurance', 'fat_loss', 'general'] as const)('is present, optional, for a %s goal without a request', (type) => {
+    const cardio = runContextFixture({ intake: { goal: { type } } }).planner.cardio!;
+
+    expect(cardio).toMatchObject({
+      requested: false,
+      activity: null,
+      daysPerWeek: null,
+      minutesPerSession: null,
+      weeklyMinutesCap: null,
+      exerciseKeys: ['hike', 'outdoor_run', 'outdoor_walk'],
+      recentWeeklyMinutes: [0, 0, 0, 0],
+    });
+    expect(cardio.guidance.join(' ')).toMatch(/optional.*inside the daysPerWeek/);
+  });
+
+  it('a walking request: the walking exercises, the cap, and placement and progression guidance', () => {
+    const cardio = runContextFixture({
+      intake: { cardio: { include: true, activity: 'walk', daysPerWeek: 4, minutesPerSession: 30 } },
+    }).planner.cardio!;
+
+    expect(cardio).toMatchObject({
+      requested: true,
+      activity: 'walk',
+      daysPerWeek: 4,
+      minutesPerSession: 30,
+      weeklyMinutesCap: 150,
+      exerciseKeys: ['hike', 'outdoor_walk'],
+    });
+    const text = cardio.guidance.join(' ');
+    expect(text).toContain('Plan 4 cardio sessions a week of about 30 minutes.');
+    expect(text).toContain('weekday without a strength workout');
+    expect(text).toContain('about 10% a week');
+    expect(text).toContain('at or below 150');
+  });
+
+  it('a running request without a budget: outdoor run only, no cap; the avoid list removes a key', () => {
+    const run = runContextFixture({ intake: { cardio: { include: true, activity: 'run' } } }).planner.cardio!;
+    expect(run).toMatchObject({ exerciseKeys: ['outdoor_run'], weeklyMinutesCap: null, daysPerWeek: null });
+    expect(run.guidance.join(' ')).not.toContain('at or below');
+
+    const avoided = runContextFixture({
+      intake: { cardio: { include: true, activity: 'any' }, avoidExerciseKeys: ['outdoor_run'] },
+    }).planner.cardio!;
+    expect(avoided.exerciseKeys).toEqual(['hike', 'outdoor_walk']);
+  });
+
+  it('recent weekly minutes: completed working cardio sets of the last 4 weeks, oldest first', () => {
+    const cardio = runContextFixture({
+      intake: { cardio: { include: true, activity: 'walk' } },
+      workouts: [
+        {
+          date: '2026-09-29',
+          startedAt: daysAgo(1),
+          completed: true,
+          exercises: [
+            {
+              exerciseId: LIB.outdoor_walk.id,
+              sets: [
+                set({ durationSeconds: 1800 }),
+                set({ durationSeconds: 600, isWarmup: true }),
+                set({ durationSeconds: 900, completed: false }),
+              ],
+            },
+            // A timed plank is not cardio.
+            { exerciseId: LIB.plank.id, sets: [set({ durationSeconds: 60 })] },
+          ],
+        },
+        {
+          date: '2026-09-15',
+          startedAt: daysAgo(15),
+          completed: true,
+          // 2500 m and no duration: 2500 x 0.48 s = 20 minutes.
+          exercises: [{ exerciseId: LIB.outdoor_run.id, sets: [set({ distanceMeters: 2500 })] }],
+        },
+        {
+          date: '2026-09-20',
+          startedAt: daysAgo(10),
+          completed: false,
+          exercises: [{ exerciseId: LIB.outdoor_walk.id, sets: [set({ durationSeconds: 3600 })] }],
+        },
+        {
+          date: '2026-08-20',
+          startedAt: daysAgo(40),
+          completed: true,
+          exercises: [{ exerciseId: LIB.outdoor_walk.id, sets: [set({ durationSeconds: 3600 })] }],
+        },
+      ],
+    }).planner.cardio!;
+
+    expect(cardio.recentWeeklyMinutes).toEqual([0, 20, 0, 30]);
+  });
+
+  it('the summary names the request and the exercises, and no uuid is sent', () => {
+    const context = runContextFixture({ intake: { cardio: { include: true, activity: 'walk', daysPerWeek: 4, minutesPerSession: 30 } } });
+    const section = summarizePlannerContext(context.planner).sections.find((s) => s.key === 'cardio')!;
+
+    expect(section.items[0]).toBe('You asked for walking sessions: 4 a week, about 30 minutes each');
+    expect(section.items[1]).toBe('Equipment-free cardio exercises: hike, outdoor_walk');
+    expect(JSON.stringify(context.planner.cardio)).not.toMatch(UUID);
   });
 });
