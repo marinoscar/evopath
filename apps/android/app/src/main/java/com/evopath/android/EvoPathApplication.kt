@@ -4,6 +4,7 @@ import android.app.Application
 import com.evopath.android.auth.EncryptedTokenStore
 import com.evopath.android.auth.TokenStore
 import com.evopath.android.config.ServerConfig
+import com.evopath.android.diagnostics.AppLog
 import com.evopath.android.healthconnect.AndroidAppLabels
 import com.evopath.android.healthconnect.AndroidHealthConnectGateway
 import com.evopath.android.healthconnect.AppLabels
@@ -63,6 +64,7 @@ class EvoPathApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AppLog.init(this)
         SyncNotifications.ensureChannels(this)
         // Re-assert the hourly schedule (KEEP) in case it was lost, e.g. after an app data restore.
         if (isSyncConfigured) runCatching { syncScheduler.ensurePeriodic() }
