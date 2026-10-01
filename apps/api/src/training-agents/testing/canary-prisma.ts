@@ -87,6 +87,12 @@ export function createCanaryPrisma(opts: { userId?: string } = {}) {
     measurement('weight', 83, 20, CANARY.measurementNote),
     measurement('body_fat_pct', 22, 5, CANARY.measurementNote),
     measurement('bp_systolic', 150, 2, CANARY.lab),
+    // Lab results (H3, #187): the registry's `lab` category, with range context.
+    ...['ldl_cholesterol', 'hba1c', 'testosterone_total'].map((key, i) => ({
+      ...measurement(key, 913 + i, 3 + i, CANARY.lab),
+      referenceText: CANARY.lab,
+      flag: 'high',
+    })),
     measurement('medication', 1, 2, CANARY.medication),
     ...CHECK_IN_METRIC_KEYS.map((key, i) => measurement(key, 3 + (i % 2), 1, CANARY.checkInNote, '2026-09-29')),
   ];

@@ -14,16 +14,19 @@ import {
   bloodPressureProblem,
   type CreateMeasurementEntryInput,
   type LatestMeasurements,
+  listMetricKeys,
   type ListMeasurementsQuery,
   type Measurement,
+  type MeasurementFlag,
   type MeasurementEntry,
   type MeasurementSeries,
   type SeriesQuery,
+  referenceRangeProblem,
   SERIES_MAX_POINTS,
   type UpdateMeasurementEntryInput,
 } from './dto/measurement.dto';
 import { ACTIVE } from './measurement-active';
-import { withRecomputedUserEdited } from './photo/photo-source-ref';
+import { healthDocumentIdOf, withRecomputedUserEdited } from './photo/photo-source-ref';
 import {
   BP_DIASTOLIC,
   BP_SYSTOLIC,
@@ -51,8 +54,12 @@ import {
 // index on `supersedes_id` plus the `supersededAt IS NULL` condition on the
 // stamp mean two concurrent edits cannot both win.
 //
-// ⚠ NEVER LOG VALUES OR NOTES. Log ids and counts only; the audit row for a
-// delete carries the reading count and nothing else.
+// LAB CONTEXT (H3, #187). A lab reading may carry the lab's reference range
+// (`referenceLow`/`referenceHigh` canonical, `referenceText`) and `flag`. An
+// edit copies them forward unless the body changes them, like `method`.
+//
+// ⚠ NEVER LOG VALUES, RANGES OR NOTES. Log ids and counts only; the audit row
+// for a delete carries the reading count and nothing else.
 // =============================================================================
 
 export const MEASUREMENT_ENTRY_DELETE_AUDIT_ACTION = 'measurement_entry:delete';
@@ -137,13 +144,18 @@ export class MeasurementsService {
             method: reading.method ?? DEFAULT_METHOD,
             origin,
             notes: input.notes,
+            referenceLow: reading.referenceLow ?? null,
+            referenceHigh: reading.referenceHigh ?? null,
+            referenceText: reading.referenceText ?? null,
+            flag: reading.flag ?? null,
             sourceRef: sourceRef ?? Prisma.DbNull,
           },
         }),
       );
     }
 
-    return { entryId, items: rows.map(toMeasurement) };
+    const files = await fileStatesOf(tx, userId, rows);
+    return { entryId, items: rows.map((row) => toMeasurement(row, files)) };
   }
 
   /**
@@ -190,13 +202,32 @@ export class MeasurementsService {
 
         const merged = old.map((row) => {
           const change = changes.get(row.metricKey);
+          // Undefined = keep the stored context; null = clear it.
+          const keep = <T>(next: T | undefined, current: T): T => (next === undefined ? current : next);
           return {
             row,
             value: change ? change.value : row.value,
             unit: change ? change.unit : row.unit,
             method: change?.method ?? row.method,
+            referenceLow: keep(change?.referenceLow, row.referenceLow),
+            referenceHigh: keep(change?.referenceHigh, row.referenceHigh),
+            referenceText: keep(change?.referenceText, row.referenceText),
+            flag: keep(change?.flag, row.flag),
           };
         });
+
+        for (const reading of merged) {
+          const rangeProblem = referenceRangeProblem(reading.referenceLow, reading.referenceHigh);
+          if (!rangeProblem) continue;
+
+          const index = (input.readings ?? []).findIndex(
+            (candidate) => candidate.metricKey === reading.row.metricKey,
+          );
+          throw new BadRequestException({
+            message: 'Validation failed',
+            details: { issues: [{ path: `readings.${index}.referenceLow`, message: rangeProblem }] },
+          });
+        }
 
         const byKey = new Map(merged.map((reading) => [reading.row.metricKey, reading.value]));
         const problem = bloodPressureProblem(
@@ -253,6 +284,10 @@ export class MeasurementsService {
                     ? Prisma.DbNull
                     : (sourceRef as Prisma.InputJsonValue),
                 notes: input.notes === undefined ? row.notes : input.notes,
+                referenceLow: reading.referenceLow,
+                referenceHigh: reading.referenceHigh,
+                referenceText: reading.referenceText,
+                flag: reading.flag,
                 revision: row.revision + 1,
                 supersedesId: row.id,
               },
@@ -260,7 +295,8 @@ export class MeasurementsService {
           );
         }
 
-        return { entryId, items: rows.map(toMeasurement) };
+        const files = await fileStatesOf(tx, userId, rows);
+        return { entryId, items: rows.map((row) => toMeasurement(row, files)) };
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -290,12 +326,15 @@ export class MeasurementsService {
   // Reads — every one is `{ userId, ...ACTIVE }`
   // ---------------------------------------------------------------------------
 
-  /** Active body/vital rows, newest first, flat pagination. */
+  /**
+   * Active rows, newest first, flat pagination: body and vital by default, a
+   * `category` (lab analytes are only listed on request) or one `metricKey`.
+   */
   async list(userId: string, query: ListMeasurementsQuery) {
     const where: Prisma.MeasurementWhereInput = {
       userId,
       ...ACTIVE,
-      metricKey: query.metricKey ?? { in: [...MEASUREMENT_METRIC_KEYS] },
+      metricKey: oneOrIn(listMetricKeys(query)),
       ...(query.from || query.to
         ? {
             measuredAt: {
@@ -316,8 +355,10 @@ export class MeasurementsService {
       this.prisma.measurement.count({ where }),
     ]);
 
+    const files = await fileStatesOf(this.prisma, userId, rows);
+
     return {
-      items: rows.map(toMeasurement),
+      items: rows.map((row) => toMeasurement(row, files)),
       total,
       page: query.page,
       pageSize: query.pageSize,
@@ -337,13 +378,15 @@ export class MeasurementsService {
       ),
     );
 
+    const files = await fileStatesOf(this.prisma, userId, perMetric.flat());
+
     return {
       items: LATEST_METRIC_KEYS.map((metricKey, index) => {
         const [latest, previous] = perMetric[index];
         return {
           metricKey,
-          latest: latest ? toMeasurement(latest) : null,
-          previous: previous ? toMeasurement(previous) : null,
+          latest: latest ? toMeasurement(latest, files) : null,
+          previous: previous ? toMeasurement(previous, files) : null,
         };
       }),
     };
@@ -409,6 +452,10 @@ export class MeasurementsService {
   }
 }
 
+function oneOrIn(keys: string[]): Prisma.MeasurementWhereInput['metricKey'] {
+  return keys.length === 1 ? keys[0] : { in: keys };
+}
+
 function isProvenanceList(
   provenance: EntryProvenance | readonly EntryProvenance[],
 ): provenance is readonly EntryProvenance[] {
@@ -438,7 +485,45 @@ function sortByRegistry(rows: MeasurementRow[]): MeasurementRow[] {
   );
 }
 
-export function toMeasurement(row: MeasurementRow): Measurement {
+/**
+ * Health document id -> "its file is gone", for the documents the rows'
+ * `sourceRef.healthDocumentId` name (H1, #185). ONE query for a whole page
+ * (none when no row names a document), scoped to the owner.
+ */
+export type HealthDocumentFileStates = ReadonlyMap<string, boolean>;
+
+type HealthDocumentReader = Pick<Prisma.TransactionClient, 'healthDocument'>;
+
+export async function fileStatesOf(
+  client: HealthDocumentReader,
+  userId: string,
+  rows: readonly Pick<MeasurementRow, 'sourceRef'>[],
+): Promise<HealthDocumentFileStates> {
+  const ids = [...new Set(rows.map((row) => healthDocumentIdOf(row.sourceRef)).filter((id): id is string => !!id))];
+  if (ids.length === 0) return new Map();
+
+  const documents = await client.healthDocument.findMany({
+    where: { id: { in: ids }, userId },
+    select: { id: true, fileDeletedAt: true },
+  });
+  const deleted = new Map(documents.map((doc) => [doc.id, doc.fileDeletedAt !== null]));
+
+  // A document that no longer exists has no file either.
+  return new Map(ids.map((id) => [id, deleted.get(id) ?? true]));
+}
+
+/**
+ * `fileDeleted`: null when the row names no health document; otherwise
+ * whether that document's file is gone. Without `files` (a caller that did
+ * not look them up) a named document reads as null, never a guess.
+ */
+function fileDeletedOf(row: MeasurementRow, files?: HealthDocumentFileStates): boolean | null {
+  const id = healthDocumentIdOf(row.sourceRef);
+  if (!id || !files) return null;
+  return files.get(id) ?? null;
+}
+
+export function toMeasurement(row: MeasurementRow, files?: HealthDocumentFileStates): Measurement {
   return {
     id: row.id,
     entryId: row.entryId,
@@ -449,7 +534,12 @@ export function toMeasurement(row: MeasurementRow): Measurement {
     method: row.method,
     origin: row.origin,
     notes: row.notes,
+    referenceLow: row.referenceLow,
+    referenceHigh: row.referenceHigh,
+    referenceText: row.referenceText,
+    flag: row.flag as MeasurementFlag | null,
     sourceRef: (row.sourceRef ?? null) as Record<string, unknown> | null,
+    fileDeleted: fileDeletedOf(row, files),
     revision: row.revision,
     edited: row.revision > 1,
   };

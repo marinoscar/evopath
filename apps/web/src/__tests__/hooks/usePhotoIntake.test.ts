@@ -48,11 +48,13 @@ function intake(status: PhotoIntakeStatus, extra: Partial<PhotoIntakeView<{ name
     jobId: null,
     errorCode: null,
     errorMessage: null,
+    retention: 'keep',
+    retainFiles: true,
     resultMeta: null,
     createdAt: T0,
     updatedAt: T0,
     completedAt: null,
-    photos: [{ id: 'p-1', storageObjectId: 'obj-1', name: 'rack.jpg', sortOrder: 0 }],
+    photos: [{ id: 'p-1', storageObjectId: 'obj-1', name: 'rack.jpg', sortOrder: 0, healthDocumentId: null, retention: null }],
     items: [],
     ...extra,
   };
@@ -271,6 +273,43 @@ describe('usePhotoIntake', () => {
     expect(applied).toBeUndefined();
     expect(result.current.error).toMatchObject({ status: 400, message: '1 item still needs review' });
     expect(result.current.intake?.status).toBe('ready');
+  });
+
+  it('setRetainFiles PATCHes the choice and adopts the answer; a refusal puts it back (#185)', async () => {
+    script([intake('draft')]);
+    const patches: unknown[] = [];
+    let refuse = false;
+    server.use(
+      http.patch('*/api/intakes/:id', async ({ request }) => {
+        const body = (await request.json()) as { retainFiles: boolean };
+        patches.push(body);
+        if (refuse) return HttpResponse.json({ code: 'INTAKE_APPLIED', message: 'Already applied' }, { status: 409 });
+        return HttpResponse.json({
+          data: intake('draft', {
+            retainFiles: body.retainFiles,
+            retention: body.retainFiles ? 'keep' : 'delete_after_processing',
+          }),
+        });
+      }),
+    );
+    const { result } = renderHook(() => usePhotoIntake('in-1', { intervalMs: FAST }));
+    await waitFor(() => expect(result.current.intake?.retainFiles).toBe(true));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.setRetainFiles(false);
+    });
+    expect(ok).toBe(true);
+    expect(patches).toEqual([{ retainFiles: false }]);
+    expect(result.current.intake).toMatchObject({ retainFiles: false, retention: 'delete_after_processing' });
+
+    refuse = true;
+    await act(async () => {
+      ok = await result.current.setRetainFiles(true);
+    });
+    expect(ok).toBe(false);
+    expect(result.current.error?.message).toBe('Already applied');
+    expect(result.current.intake).toMatchObject({ retainFiles: false, retention: 'delete_after_processing' });
   });
 
   it('does nothing without an intake id', () => {

@@ -2,6 +2,8 @@ import type { DraftItem, PhotoIntake, Prisma } from '@prisma/client';
 import type { z } from 'zod';
 
 import type { AiFeatureId } from '../common/schemas/settings.schema';
+import type { HealthDocumentKind } from '../health-documents/health-document.constants';
+import type { IntakeInputKind } from './intake-inputs';
 
 // =============================================================================
 // IntakeKind — what one photo-intake flow plugs in (E3.1)
@@ -75,6 +77,12 @@ export interface IntakeApplyArgs<TContext = unknown> {
   context: TContext;
   /** Every `accepted` item, in `sortOrder`. Rejected items are not passed. */
   accepted: DraftItem[];
+  /**
+   * The intake's health documents (one per attached file) for a kind that
+   * declares `healthDocumentKind`, so `apply` can record `healthDocumentId`
+   * in its provenance; empty (or omitted) for other kinds.
+   */
+  healthDocuments?: Array<{ id: string; storageObjectId: string | null }>;
 }
 
 export interface IntakeKind<TContext = unknown, TValue = unknown> {
@@ -96,6 +104,18 @@ export interface IntakeKind<TContext = unknown, TValue = unknown> {
   /** The most photos one intake may hold. Default 48. */
   readonly maxPhotos?: number;
   /**
+   * The kinds of file this kind accepts (H2, #186): `['image']` (the default
+   * when omitted) or `['image', 'pdf']`. A PDF is refused with 400
+   * `UNSUPPORTED_MEDIA_TYPE` on a kind that does not list `'pdf'`. The
+   * registry refuses an empty list, an unknown entry or a duplicate.
+   */
+  readonly acceptedInputs?: readonly IntakeInputKind[];
+  /**
+   * The most pages one PDF input may have, for a kind that accepts PDFs.
+   * Default `INTAKE_PDF_MAX_PAGES` (20); a positive integer.
+   */
+  readonly maxPdfPages?: number;
+  /**
    * Allowed `DraftItem.kind` values. Omitted = any non-empty string. A kind
    * with one item kind declares it so a typo is a 400 rather than a row.
    */
@@ -105,6 +125,14 @@ export interface IntakeKind<TContext = unknown, TValue = unknown> {
    * Omitted = the routes' `intakes:*` permissions are enough.
    */
   readonly requiredPermissions?: IntakeKindPermissions;
+  /**
+   * Declares a HEALTH intake kind (H1, #185): every attached file becomes one
+   * `HealthDocument` of this kind, carrying the user's keep-or-delete choice
+   * (`retainFiles`), and a `delete_after_processing` file is purged by the
+   * `health.document.purge` job once the intake is applied or discarded.
+   * Omitted = the photos are plain intake photos, as before.
+   */
+  readonly healthDocumentKind?: HealthDocumentKind;
   /** Checks the context against the caller (e.g. the gym is theirs); throw a 404 otherwise. */
   assertContext?(userId: string, context: TContext): Promise<void>;
   /**

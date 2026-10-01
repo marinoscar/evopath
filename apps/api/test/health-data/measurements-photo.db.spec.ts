@@ -43,6 +43,7 @@ import { bodyMetricOutputSchema } from '../../src/measurements/photo/body-metric
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { bodyMetricFixture, type BodyMetricFixture } from '../fixtures/body-metric/load';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { trustingInputInspector } from '../../src/intake/testing/input-inspector.stub';
 
 const { describeWithDb } = resolveDbSuite('measurements-photo.db.spec');
 
@@ -86,6 +87,7 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
   let measurements: FlakyMeasurementsService;
   let handler: BodyMetricReadingHandler;
   let answer: BodyMetricFixture;
+  let respondStructured: jest.Mock;
   const run = randomUUID().slice(0, 8);
   const createdUserIds: string[] = [];
 
@@ -150,8 +152,9 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
       { assertUsable: jest.fn(async () => ({})) } as never,
       { delete: jest.fn(async () => undefined) } as never,
       stubFeatureResolver({ provider: 'openai', modelId: 'vision-model' }) as never,
+      trustingInputInspector(),
     );
-    const respondStructured = jest.fn(async () => ({ parsed: bodyMetricOutputSchema.parse(bodyMetricFixture(answer)) }));
+    respondStructured = jest.fn(async () => ({ parsed: bodyMetricOutputSchema.parse(bodyMetricFixture(answer)) }));
     handler = new BodyMetricReadingHandler(
       new JobHandlerRegistry(),
       prisma,
@@ -180,7 +183,7 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
 
     const intake = await client.photoIntake.findUniqueOrThrow({ where: { id: intakeId } });
     expect(intake.status).toBe('ready');
-    expect(intake.resultMeta).toMatchObject({ promptVersion: 1, deviceKind: 'scale', unreadable: false });
+    expect(intake.resultMeta).toMatchObject({ promptVersion: 2, deviceKind: 'scale', unreadable: false });
 
     const [draft] = await items(intakeId);
     expect(draft).toMatchObject({
@@ -208,6 +211,8 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
     expect(result.items).toHaveLength(1);
 
     const [row] = await rowsOf(userId);
+    // The photo is a health document (H1, #185); the reading names it.
+    const document = await client.healthDocument.findFirstOrThrow({ where: { intakeId, storageObjectId: photoId } });
     expect(row).toMatchObject({ entryId: result.entryId, metricKey: 'weight', value: 94.0751, unit: 'kg', origin: 'ai' });
     expect(row.sourceRef).toEqual({
       kind: 'photo_intake',
@@ -217,6 +222,7 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
       aiDraft: { metricKey: 'weight', value: 208.4, unit: 'lb', method: 'scale' },
       confidence: 'high',
       userEdited: true,
+      healthDocumentId: document.id,
     });
     expect((await client.photoIntake.findUniqueOrThrow({ where: { id: intakeId } })).status).toBe('applied');
     // The photo stays stored and linked from the intake.
@@ -239,6 +245,49 @@ describeWithDb('read a value from a photo (real Postgres)', () => {
     );
     active = await client.measurement.findFirstOrThrow({ where: { userId, supersededAt: null } });
     expect(active.sourceRef).toMatchObject({ userEdited: true });
+  });
+
+  it('a smart-scale PDF (H2, #186): sent as one file part, two readings, apply links the PDF document', async () => {
+    const userId = await makeUser('pdf');
+    const intake = await intakes.create(userId, { kind: 'body_metric_reading' }, PERMS);
+    const pdf = await client.storageObject.create({
+      data: {
+        name: 'scale-report.pdf',
+        size: BigInt(4096),
+        mimeType: 'application/pdf',
+        storageKey: `test/photo-read/${run}/report-${randomUUID()}.pdf`,
+        status: 'ready',
+        uploadedById: userId,
+      },
+      select: { id: true },
+    });
+    const photo = await intakes.attachPhoto(userId, intake.id, pdf.id, PERMS);
+    const { jobId } = await intakes.analyze(userId, intake.id, {}, PERMS);
+    const job = await client.job.findUniqueOrThrow({ where: { id: jobId } });
+
+    answer = 'smart-scale-report';
+    respondStructured.mockClear();
+    await handler.process(job);
+    await client.job.update({ where: { id: jobId }, data: { status: 'succeeded', finishedAt: new Date() } });
+
+    const content = (respondStructured.mock.calls[0] as any[])[0].input[0].content;
+    expect(content).toContainEqual({ type: 'file', storageObjectId: pdf.id });
+    expect(content.filter((part: { type: string }) => part.type === 'image')).toEqual([]);
+
+    const drafts = await items(intake.id);
+    expect(drafts.map((d) => (d.value as { metricKey: string }).metricKey)).toEqual(['weight', 'body_fat_pct']);
+    for (const draft of drafts) {
+      await intakes.updateItem(userId, intake.id, draft.id, { status: 'accepted' }, PERMS);
+    }
+    await intakes.apply(userId, intake.id, PERMS);
+
+    const document = await client.healthDocument.findUniqueOrThrow({ where: { id: photo.healthDocumentId! } });
+    expect(document.mimeType).toBe('application/pdf');
+    const rows = await rowsOf(userId);
+    expect(rows.map((r) => r.metricKey).sort()).toEqual(['body_fat_pct', 'weight']);
+    for (const row of rows) {
+      expect(row.sourceRef).toMatchObject({ intakeId: intake.id, healthDocumentId: document.id, storageObjectIds: [pdf.id] });
+    }
   });
 
   it('without health_data:write, apply is a 403 that writes nothing and leaves the intake ready', async () => {

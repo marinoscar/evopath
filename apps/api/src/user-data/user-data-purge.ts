@@ -36,6 +36,7 @@ export const ZERO_ROW_COUNTS: Readonly<DeletedRowCounts> = Object.freeze({
   measurements: 0,
   healthProfiles: 0,
   photoIntakes: 0,
+  healthDocuments: 0,
   programs: 0,
   programChangeLogs: 0,
   trainingRuns: 0,
@@ -92,9 +93,9 @@ export function addCounts<T extends Record<string, number>>(a: T, b: Partial<T>)
   return sum;
 }
 
-/** Every storage object id a user's reset must delete (uploads, photo links, the avatar). */
+/** Every storage object id a user's reset must delete (uploads, photo and document links, the avatar). */
 export async function collectUserObjectIds(db: Db, userId: string): Promise<string[]> {
-  const [uploaded, intakePhotos, gymPhotos, workoutPhotos, settings] = await Promise.all([
+  const [uploaded, intakePhotos, gymPhotos, workoutPhotos, healthDocuments, settings] = await Promise.all([
     db.storageObject.findMany({ where: { uploadedById: userId }, select: { id: true } }),
     db.photoIntakePhoto.findMany({
       where: { intake: { userId } },
@@ -105,6 +106,11 @@ export async function collectUserObjectIds(db: Db, userId: string): Promise<stri
       where: { workout: { userId } },
       select: { storageObjectId: true },
     }),
+    // A purged document has already given its file up (`storageObjectId` null).
+    db.healthDocument.findMany({
+      where: { userId, storageObjectId: { not: null } },
+      select: { storageObjectId: true },
+    }),
     db.userSettings.findUnique({ where: { userId }, select: { value: true } }),
   ]);
 
@@ -113,6 +119,9 @@ export async function collectUserObjectIds(db: Db, userId: string): Promise<stri
   intakePhotos.forEach((row) => ids.add(row.storageObjectId));
   gymPhotos.forEach((row) => ids.add(row.storageObjectId));
   workoutPhotos.forEach((row) => ids.add(row.storageObjectId));
+  healthDocuments.forEach((row) => {
+    if (row.storageObjectId) ids.add(row.storageObjectId);
+  });
 
   const settingsValue = settings?.value as { profile?: unknown } | null | undefined;
   const avatarId = settingsValue ? normalizeProfileSettings(settingsValue.profile).imageObjectId : null;
@@ -139,18 +148,19 @@ export async function deleteUserOwnedRows(
 
   // Ids the rest of the system may name without a foreign key: checkpoints
   // (thread = run or adaptation id) and pending jobs' subjects.
-  const [runs, adaptations, intakes, workouts, gyms, programs] = await Promise.all([
+  const [runs, adaptations, intakes, workouts, gyms, programs, healthDocuments] = await Promise.all([
     tx.trainingPlanRun.findMany({ where: { userId }, select: { id: true } }),
     tx.workoutAdaptation.findMany({ where: { userId }, select: { id: true } }),
     tx.photoIntake.findMany({ where: { userId }, select: { id: true } }),
     tx.workout.findMany({ where: { userId }, select: { id: true } }),
     tx.gym.findMany({ where: { userId }, select: { id: true } }),
     tx.program.findMany({ where: { userId }, select: { id: true } }),
+    tx.healthDocument.findMany({ where: { userId }, select: { id: true } }),
   ]);
   const threadIds = [...runs, ...adaptations].map((row) => row.id);
   const subjectIds = [
     ...threadIds,
-    ...[...intakes, ...workouts, ...gyms, ...programs].map((row) => row.id),
+    ...[...intakes, ...workouts, ...gyms, ...programs, ...healthDocuments].map((row) => row.id),
     ...objectIds,
   ];
 
@@ -180,6 +190,9 @@ export async function deleteUserOwnedRows(
   counts.programChangeLogs = (await tx.programChangeLog.deleteMany({ where: { userId } })).count;
   counts.programs = (await tx.program.deleteMany({ where: { userId } })).count;
 
+  // Health documents cascade only from the (kept) User row, so they are
+  // deleted explicitly; their intake link is SET NULL. Files: step 3.
+  counts.healthDocuments = (await tx.healthDocument.deleteMany({ where: { userId } })).count;
   counts.photoIntakes = (await tx.photoIntake.deleteMany({ where: { userId } })).count;
   // Before custom equipment (GymEquipment RESTRICTs the equipment type).
   counts.gyms = (await tx.gym.deleteMany({ where: { userId } })).count;

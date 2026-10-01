@@ -300,13 +300,25 @@ re-seeds, restarts, and re-verifies. `update` refuses outright if nothing is
 installed at `--root` — run `install` first.
 
 **If the revision hasn't moved, `update` exits `0` and does nothing else** —
-no rebuild, no restart, no seed. That's what makes it safe to run
-unattended, for example from cron:
+no rebuild, no restart, no seed — apart from one check (below). That's what
+makes it safe to run unattended, for example from cron:
 
 ```cron
 # Check for a new release every night at 03:00, do nothing if there isn't one
 0 3 * * * cd /opt/infra/apps/repo && evopathcli deploy update --non-interactive >> /var/log/evopathcli-update.log 2>&1
 ```
+
+**Every run checks that nginx serves the checkout's config**, including an
+"already up to date" one. `infra/nginx/nginx.conf` and `csp.conf` are
+single-file bind mounts, and git replaces a file rather than editing it, so a
+container that is only restarted keeps serving the old file (stale security
+headers, CSP or routing). `update` hashes both files in the checkout and in
+the running nginx; if they differ, or nginx isn't running, it recreates nginx
+(`up -d --no-deps --force-recreate nginx`) and checks again, failing with the
+exact command to run by hand if the recreated container still differs. This
+also repairs a checkout you updated by hand with `git pull`. To rebuild and
+redeploy everything else after such a manual pull, run
+`evopathcli deploy update --force`.
 
 Two behaviors are worth knowing before your first `update`; both are
 deliberate:
@@ -491,12 +503,25 @@ not implied by `--renew` alone. An expiry that cannot be read is reported as
 exactly that, `expiry unreadable`, never silently treated as "not due" —
 assuming a certificate is healthy is how one quietly expires.
 
-Exit codes mirror `status`: `0` for a report or a successful renewal, `1` when
-the certificate is due or expired and `--renew` was not passed, **or when a
-renewal ran but the proxy's reload afterward failed** (so a cron wrapper
-notices either failure), `2` when nothing is installed at `--root`.
-`--domain` defaults to the domain recorded for the deployment; `--email`
-defaults to `INITIAL_ADMIN_EMAIL` read from that deployment's own `.env`.
+Every call — with or without `--renew` — also probes `<domain>:443` live and
+compares the fingerprint of the certificate the proxy actually serves against
+the one on disk. Neither the expiry report above (only ever reads the file)
+nor the ordinary health checks (which never go through TLS) can catch a
+served/disk mismatch, so this is what a plain, report-only `certs` call now
+tells you in addition to expiry: whether what is actually being served right
+now is the file on disk. A mismatch prints the exact remedy command for this
+deployment's configured proxy runtime (container or host mode), sharing its
+logic with the reload `install`/`update` already run, so the printed command
+can never drift from what the CLI itself would run.
+
+Exit codes mirror `status`: `0` for a report or a successful renewal, and the
+served certificate matching disk; `1` when the certificate is due or expired
+and `--renew` was not passed, when a renewal ran but the proxy's reload
+afterward failed, **or when the proxy is serving a certificate that does not
+match the one on disk** (so a cron wrapper notices any of these), `2` when
+nothing is installed at `--root`. `--domain` defaults to the domain recorded
+for the deployment; `--email` defaults to `INITIAL_ADMIN_EMAIL` read from that
+deployment's own `.env`.
 
 ### 10.1 Renewal is scheduled automatically, but only when nothing else owns it
 
@@ -550,6 +575,11 @@ docker exec <proxy-container> nginx -t && docker exec <proxy-container> nginx -s
 warning on a deployment where renewal is scheduled by something *other* than
 `evopathcli`, it usually means that other mechanism renews but does not reload —
 worth fixing at the source, not just running the command above once.
+
+**If a domain shows a certificate or SSL warning in a browser after a
+deploy**, `evopathcli deploy certs --domain <domain>` (section 10, above) is
+the command that tells you whether this is the cause: it reports whether the
+proxy needs a manual reload and, if so, the exact command to run.
 
 ## 11. Removing a deployment
 

@@ -138,6 +138,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Daily deletion of abandoned temporary gyms (E6.2, the hotel flow): older
   // than 30 days and referenced by no workout, live adaptation, plan or scan.
   'gyms.temporary.purge': 'Temporary gym purge',
+  // Erases one "delete after processing" health document's file once its
+  // intake was applied or discarded (H1, #185).
+  'health.document.purge': 'Health document file purge',
   // Hourly: expires unanswered plan proposals and starts the weekly,
   // missed-sessions and deferred plan evaluations that are due.
   'training.evaluation.sweep': 'Training evaluation sweep',

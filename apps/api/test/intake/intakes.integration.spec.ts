@@ -43,6 +43,7 @@ import { forEachOperation, type MutableDocument } from '../../src/openapi/types'
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { mockPrismaTransaction } from '../mocks/prisma.mock';
 import { type AiHttpTestApp, createAiHttpTestApp } from '../ai/ai-http.helper';
+import { JPEG_BYTES } from '../../src/intake/testing/pdf-bytes';
 
 const INTAKE = '33333333-3333-4333-8333-333333333333';
 const ITEM = '44444444-4444-4444-8444-444444444444';
@@ -378,7 +379,9 @@ describe('/api/intakes over HTTP (E3.1)', () => {
     });
 
     it('attaches a ready image the caller owns (201)', async () => {
-      prisma.storageObject.findUnique.mockResolvedValue(readyImage);
+      // The attach reads the stored bytes back (magic bytes, H2 #186).
+      const stored = t.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'image/jpeg', bytes: JPEG_BYTES });
+      prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, storageKey: stored.storageKey });
       prisma.photoIntakePhoto.create.mockResolvedValue({
         id: '99999999-9999-4999-8999-999999999999',
         intakeId: INTAKE,
@@ -395,6 +398,9 @@ describe('/api/intakes over HTTP (E3.1)', () => {
         storageObjectId: OBJECT,
         name: 'rack.jpg',
         sortOrder: 0,
+        // `gym_equipment` is not a health intake kind: no health document.
+        healthDocumentId: null,
+        retention: null,
       });
     });
 
@@ -402,6 +408,7 @@ describe('/api/intakes over HTTP (E3.1)', () => {
       ["another user's object", { uploadedById: HARNESS_OTHER_USER }, 404, undefined],
       ['a non-ready object', { status: 'uploading' }, 400, 'OBJECT_NOT_READY'],
       ['a non-image object', { mimeType: 'text/plain' }, 400, 'UNSUPPORTED_MEDIA_TYPE'],
+      ['a PDF (the kind is image-only, H2 #186)', { mimeType: 'application/pdf' }, 400, 'UNSUPPORTED_MEDIA_TYPE'],
       ['a 21 MiB object', { size: BigInt(21 * 1024 * 1024) }, 400, 'OBJECT_TOO_LARGE'],
     ])('refuses %s', async (_label, override, status, reason) => {
       prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, ...override });

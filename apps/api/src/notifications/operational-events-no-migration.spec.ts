@@ -121,6 +121,10 @@ const MIGRATIONS_AT_288 = [
   // #173: deletes the retired `ai.defaultModel`/`ai.taskModels` from
   // `user_settings.value`. About AI model selection, not notifications.
   '20260930180000_remove_user_ai_model_choices',
+  // #185 (H1): `health_documents` and `photo_intakes.retention`. About health
+  // files, not notifications.
+  '20260930190000_add_health_documents',
+  '20260930200000_add_measurement_reference_range',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

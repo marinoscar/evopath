@@ -204,6 +204,7 @@ export function mockMeasurement(
     origin: 'manual',
     notes: null,
     sourceRef: null,
+    fileDeleted: null,
     revision: 1,
     edited: false,
     ...overrides,

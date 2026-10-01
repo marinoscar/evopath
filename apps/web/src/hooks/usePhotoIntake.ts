@@ -29,6 +29,7 @@ import {
   discardIntake,
   getIntake,
   updateDraftItem,
+  updateIntakeRetainFiles,
   type DraftItemView,
   type PhotoIntakePhotoView,
   type PhotoIntakeView,
@@ -82,6 +83,12 @@ export interface UsePhotoIntakeReturn<TValue = unknown, TContext = unknown> {
   /** Resolves with the kind's result, or `undefined` when the API refused. */
   apply: <TResult = unknown>() => Promise<TResult | undefined>;
   discard: () => Promise<boolean>;
+  /**
+   * Change the keep-or-delete choice (`PATCH { retainFiles }`, health kinds,
+   * #185). Shown at once; put back when the API refuses. Resolves `true` on
+   * success.
+   */
+  setRetainFiles: (retainFiles: boolean) => Promise<boolean>;
 }
 
 export function usePhotoIntake<TValue = unknown, TContext = unknown>(
@@ -312,6 +319,29 @@ export function usePhotoIntake<TValue = unknown, TContext = unknown>(
     return result.ok;
   }, [intakeId, run]);
 
+  const setRetainFiles = useCallback(
+    async (retainFiles: boolean) => {
+      if (!intakeId) return false;
+      const withChoice = (current: PhotoIntakeView<TValue, TContext> | null, keep: boolean) =>
+        current
+          ? {
+              ...current,
+              retainFiles: keep,
+              retention: keep ? ('keep' as const) : ('delete_after_processing' as const),
+            }
+          : current;
+      setIntake((current) => withChoice(current, retainFiles));
+      const result = await run('Could not change what happens to your files', () =>
+        updateIntakeRetainFiles<TValue, TContext>(intakeId, retainFiles),
+      );
+      if (!isMounted()) return result.ok;
+      if (result.ok) adopt(result.value);
+      else setIntake((current) => withChoice(current, !retainFiles));
+      return result.ok;
+    },
+    [intakeId, run, adopt, isMounted],
+  );
+
   const clearError = useCallback(() => setError(null), []);
 
   const scanError: AiErrorInfo | null =
@@ -341,5 +371,6 @@ export function usePhotoIntake<TValue = unknown, TContext = unknown>(
     acceptAll,
     apply,
     discard,
+    setRetainFiles,
   };
 }

@@ -24,6 +24,7 @@ import {
   UNREADABLE_MESSAGE,
 } from '../../../components/health/PhotoReadDialog';
 import { clearPhotoUrlCache } from '../../../components/intake/StoragePhotoThumb';
+import { RETAIN_FILES_HELPER_TEXT, RETAIN_FILES_LABEL } from '../../../components/intake';
 import { resetMeasurementCatalogCache } from '../../../hooks/useMeasurementCatalog';
 import { mockAiPublicConfigEnabled } from '../../mocks/fixtures/ai';
 import { mockAiFeaturesView, mockBlockedFeatureView } from '../../mocks/fixtures/aiFeatures';
@@ -69,7 +70,7 @@ const photo = () => new File(['x'], 'scale.jpg', { type: 'image/jpeg' });
 /** Wait for the photo step, add one photo and press Read. */
 async function addPhotoAndRead(user: ReturnType<typeof userEvent.setup>) {
   await screen.findByText(PHOTO_READ_HELPER_TEXT);
-  await user.upload(screen.getByLabelText('Add photos'), photo());
+  await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
   await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'ready'));
   const read = within(dialog()).getByRole('button', { name: 'Read' });
   await waitFor(() => expect(read).toBeEnabled());
@@ -369,7 +370,7 @@ describe('PhotoReadDialog: failures offer Try again and Enter manually', () => {
       { wrapperOptions: { user: reader, aiEnabled: true } },
     );
     await screen.findByText(PHOTO_READ_HELPER_TEXT);
-    await user.upload(screen.getByLabelText('Add photos'), photo());
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
     await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'error'));
     expect(screen.getByText('File storage is not configured')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry scale.jpg' })).toBeInTheDocument();
@@ -398,7 +399,7 @@ describe('PhotoReadDialog: resume and discard', () => {
   it('resumes the newest unfinished intake instead of creating another', async () => {
     const existing = readingIntake('ready', {
       id: 'intake-old',
-      photos: [{ id: 'p-1', storageObjectId: 'obj-1', name: 'scale.jpg', sortOrder: 0 }],
+      photos: [{ id: 'p-1', storageObjectId: 'obj-1', name: 'scale.jpg', sortOrder: 0, healthDocumentId: 'doc-1', retention: 'keep' }],
       items: scaleItems(),
     });
     const { api } = setup({ existing: [existing] });
@@ -421,6 +422,157 @@ describe('PhotoReadDialog: resume and discard', () => {
     await user.click(within(dialog()).getByRole('button', { name: 'Discard' }));
     await waitFor(() => expect(api.discarded).toBe(1));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('PhotoReadDialog: keep or delete the file (#185)', () => {
+  const keepBox = () => within(dialog()).getByRole('checkbox', { name: RETAIN_FILES_LABEL });
+  const createBody = (api: ReturnType<typeof readingIntakeApi>) =>
+    api.requests.find((r) => r.method === 'POST' && r.path === '/api/intakes')?.body;
+  const attachBodies = (api: ReturnType<typeof readingIntakeApi>) =>
+    api.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/photos')).map((r) => r.body);
+
+  it('is checked by default, explained by its helper text, and a new intake is created keeping files', async () => {
+    const { api } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    expect(keepBox()).toBeChecked();
+    expect(keepBox()).toHaveAccessibleDescription(RETAIN_FILES_HELPER_TEXT);
+    expect(createBody(api)).toEqual({ kind: 'body_metric_reading', retainFiles: true });
+    expect(api.intakePatches).toEqual([]);
+  });
+
+  it('unchecking sends retainFiles: false, and a photo added afterwards carries it', async () => {
+    const { api, user } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.click(keepBox());
+    await waitFor(() => expect(api.intakePatches).toEqual([{ id: 'intake-new-1', body: { retainFiles: false } }]));
+    await waitFor(() => expect(keepBox()).not.toBeChecked());
+
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
+    await waitFor(() => expect(attachBodies(api)).toHaveLength(1));
+    expect(attachBodies(api)[0]).toMatchObject({ retainFiles: false });
+    expect(api.intakes.get('intake-new-1')?.photos[0]?.retention).toBe('delete_after_processing');
+  });
+
+  it('a photo added with the default choice is attached keeping the file', async () => {
+    const { api, user } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), photo());
+    await waitFor(() => expect(attachBodies(api)).toHaveLength(1));
+    expect(attachBodies(api)[0]).toMatchObject({ retainFiles: true });
+  });
+
+  it('a resumed intake shows its stored choice, and re-checking it PATCHes retainFiles: true', async () => {
+    const existing = readingIntake('ready', {
+      id: 'intake-old',
+      retainFiles: false,
+      retention: 'delete_after_processing',
+      items: scaleItems(),
+    });
+    const { api, user } = setup({ existing: [existing] });
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    expect(keepBox()).not.toBeChecked();
+    await user.click(keepBox());
+    await waitFor(() => expect(api.intakePatches).toEqual([{ id: 'intake-old', body: { retainFiles: true } }]));
+    await waitFor(() => expect(keepBox()).toBeChecked());
+    expect(api.created).toBe(0);
+  });
+
+  it('a refused change is put back', async () => {
+    const { api, user } = setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    server.use(
+      http.patch('*/api/intakes/:id', () =>
+        HttpResponse.json({ code: 'INTAKE_APPLIED', message: 'This intake was already applied' }, { status: 409 }),
+      ),
+    );
+    await user.click(keepBox());
+    expect(await screen.findByText('This intake was already applied')).toBeInTheDocument();
+    await waitFor(() => expect(keepBox()).toBeChecked());
+    expect(api.intakePatches).toEqual([]);
+  });
+});
+
+describe('PhotoReadDialog: PDF reports (H2, #186)', () => {
+  const report = () => new File(['%PDF-1.7 report'], 'InBody report.pdf', { type: 'application/pdf' });
+  const PDF_MESSAGE = "Your AI model can't read PDFs; choose a model with file input or upload an image.";
+
+  it('offers "Add photos or PDFs" (image/*,application/pdf) while Take photo stays image-only', async () => {
+    setup();
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    expect(within(dialog()).getByRole('button', { name: 'Add photos or PDFs' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Add photos or PDFs')).toHaveAttribute('accept', 'image/*,application/pdf');
+    expect(screen.getByLabelText('Take photo')).toHaveAttribute('accept', 'image/*');
+  });
+
+  it('uploads a PDF as it is (application/pdf), shows it as a PDF tile, and reads it into drafts', async () => {
+    const { api, user } = setup({ photoName: 'InBody report.pdf' });
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), report());
+
+    const tile = screen.getByTestId('intake-photo-tile');
+    expect(tile).toHaveAttribute('data-kind', 'pdf');
+    expect(within(tile).getByRole('img', { name: 'InBody report.pdf (PDF)' })).toBeInTheDocument();
+    await waitFor(() => expect(tile).toHaveAttribute('data-stage', 'ready'));
+    expect(api.uploads).toEqual([{ type: 'application/pdf' }]);
+
+    const read = within(dialog()).getByRole('button', { name: 'Read' });
+    await waitFor(() => expect(read).toBeEnabled());
+    await user.click(read);
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    // The draft's source is the PDF: a file icon, no image fetched for it.
+    expect(within(rows()[0]).getByRole('img', { name: 'InBody report.pdf (PDF)' })).toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      'TOO_MANY_PAGES',
+      apiError(400, 'A PDF may have at most 20 pages', { reason: 'TOO_MANY_PAGES', pages: 34, maxPages: 20 }, 'BAD_REQUEST'),
+      'This PDF has 34 pages; the limit is 20.',
+    ],
+    [
+      'PDF_UNREADABLE',
+      apiError(400, 'This PDF could not be read', { reason: 'PDF_UNREADABLE' }, 'BAD_REQUEST'),
+      "This PDF can't be read. It may be damaged or password-protected; export it again or upload a photo instead.",
+    ],
+    [
+      'a renamed file',
+      apiError(400, 'This file is not a PDF', { reason: 'UNSUPPORTED_MEDIA_TYPE', contentMismatch: true }, 'BAD_REQUEST'),
+      "This file isn't a real PDF. Export the report as a PDF again, or upload a photo.",
+    ],
+  ])('an attach refused for %s shows it in words on the tile, with Retry', async (_name, attachError, message) => {
+    const { api, user } = setup({ attachError });
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), report());
+    await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'error'));
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry InBody report.pdf' })).toBeInTheDocument();
+    expect(within(dialog()).getByRole('button', { name: 'Read' })).toBeDisabled();
+    // The refused object is not left behind.
+    await waitFor(() => expect(api.deletedObjects).toEqual(['obj-1']));
+  });
+
+  it('Read on a model without file input says so, and Enter manually stays available', async () => {
+    const { user, onEnterManually } = setup({
+      analyzeError: apiError(
+        400,
+        PDF_MESSAGE,
+        { reason: 'AI_CAPABILITY_UNSUPPORTED', capability: 'file_input', inputKind: 'pdf' },
+        'BAD_REQUEST',
+      ),
+    });
+    await screen.findByText(PHOTO_READ_HELPER_TEXT);
+    await user.upload(screen.getByLabelText('Add photos or PDFs'), report());
+    await waitFor(() => expect(screen.getByTestId('intake-photo-tile')).toHaveAttribute('data-stage', 'ready'));
+    const read = within(dialog()).getByRole('button', { name: 'Read' });
+    await waitFor(() => expect(read).toBeEnabled());
+    await user.click(read);
+
+    const failure = await screen.findByTestId('photo-read-failure');
+    expect(within(failure).getByText("Your AI model can't read PDFs")).toBeInTheDocument();
+    expect(within(failure).getByText(PDF_MESSAGE)).toBeInTheDocument();
+    await user.click(within(failure).getByRole('button', { name: 'Enter manually' }));
+    expect(onEnterManually).toHaveBeenCalled();
   });
 });
 

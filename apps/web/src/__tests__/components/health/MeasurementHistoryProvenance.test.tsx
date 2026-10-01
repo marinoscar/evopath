@@ -2,16 +2,17 @@
  * Photo provenance in History (issue #64, E2.6): "Read from photo" for an
  * entry with an AI-read reading, "You edited" when `sourceRef.userEdited`,
  * and "View photo" showing the first source photo through a signed URL.
- * Manual entries are unchanged.
+ * Manual entries are unchanged. A file erased after processing (#185,
+ * `fileDeleted: true`) shows "File deleted" instead of "View photo".
  */
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
-import { render, screen, waitFor, within } from '../../utils/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
-import { MeasurementHistory, entryPhotoProvenance } from '../../../components/health/MeasurementHistory';
+import { FILE_DELETED_CHIP, MeasurementHistory, entryPhotoProvenance } from '../../../components/health/MeasurementHistory';
 import type { MeasurementDto } from '../../../services/health';
 import { mockListPage, mockMeasurement, mockMetricCatalog } from '../../mocks/fixtures/measurements';
 
@@ -83,6 +84,7 @@ describe('entryPhotoProvenance', () => {
       readFromPhoto: false,
       userEdited: false,
       photoId: null,
+      fileDeleted: false,
     });
     expect(
       entryPhotoProvenance(
@@ -91,10 +93,15 @@ describe('entryPhotoProvenance', () => {
           mockMeasurement('bp_diastolic', 84, { origin: 'ai', sourceRef: aiRef(false, ['a', 'b']) }),
         ]),
       ),
-    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: 'a' });
+    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: 'a', fileDeleted: false });
     expect(
       entryPhotoProvenance(entry([mockMeasurement('weight', 80, { origin: 'ai', sourceRef: { kind: 'other' } })])),
-    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: null });
+    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: null, fileDeleted: false });
+    expect(
+      entryPhotoProvenance(
+        entry([mockMeasurement('weight', 80, { origin: 'ai', sourceRef: aiRef(false, ['gone']), fileDeleted: true })]),
+      ),
+    ).toEqual({ readFromPhoto: true, userEdited: false, photoId: null, fileDeleted: true });
   });
 });
 
@@ -138,6 +145,25 @@ describe('MeasurementHistory: photo provenance', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Photo' })).not.toBeInTheDocument());
   });
 
+  it('a source the image cannot draw (a PDF, H2 #186) offers the new tab instead', async () => {
+    server.use(
+      http.get('*/api/storage/objects/:id/download', ({ params }) =>
+        HttpResponse.json({ data: { url: `https://signed.example.test/${String(params.id)}`, expiresIn: 300 } }),
+      ),
+    );
+    const { user } = renderHistory();
+    const [, unedited] = await entries();
+    await user.click(within(unedited).getByRole('button', { name: /^View photo for weight entry from/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Photo' });
+    fireEvent.error(await within(dialog).findByRole('img'));
+    expect(await within(dialog).findByText(/can't be shown here\. Open it in a new tab\./)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('img')).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Open in a new tab' })).toHaveAttribute(
+      'href',
+      'https://signed.example.test/obj-photo-2',
+    );
+  });
+
   it('says so when the photo is gone', async () => {
     server.use(
       http.get('*/api/storage/objects/:id/download', () =>
@@ -148,6 +174,22 @@ describe('MeasurementHistory: photo provenance', () => {
     const [edited] = await entries();
     await user.click(within(edited).getByRole('button', { name: /^View photo/ }));
     expect(await screen.findByText('This photo is no longer available.')).toBeInTheDocument();
+  });
+
+  it('shows File deleted, and no View photo, when the file was erased after processing', async () => {
+    const data = rows();
+    data[1] = { ...data[1], fileDeleted: true };
+    data[0] = { ...data[0], fileDeleted: false };
+    renderHistory(data);
+    const [kept, erased, manual] = await entries();
+
+    expect(within(erased).getByText(FILE_DELETED_CHIP)).toBeInTheDocument();
+    expect(within(erased).getByText('Read from photo')).toBeInTheDocument();
+    expect(within(erased).queryByRole('button', { name: /View photo/ })).not.toBeInTheDocument();
+
+    expect(within(kept).queryByText(FILE_DELETED_CHIP)).not.toBeInTheDocument();
+    expect(within(kept).getByRole('button', { name: /View photo/ })).toBeInTheDocument();
+    expect(within(manual).queryByText(FILE_DELETED_CHIP)).not.toBeInTheDocument();
   });
 
   it('has no axe violations with the chips', async () => {

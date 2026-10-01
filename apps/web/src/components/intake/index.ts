@@ -3,7 +3,16 @@
  * the AI draft. Every photo-first flow imports from here and supplies only
  * its own `renderValue` / `renderEditor`.
  */
-export { ImageIntake, STAGE_LABEL, type ImageIntakeProps } from './ImageIntake';
+export {
+  ImageIntake,
+  STAGE_LABEL,
+  IMAGE_ACCEPT,
+  IMAGE_OR_PDF_ACCEPT,
+  ADD_PHOTOS_LABEL,
+  ADD_PHOTOS_OR_PDFS_LABEL,
+  PdfTileFace,
+  type ImageIntakeProps,
+} from './ImageIntake';
 export { AiDraftReview, type AiDraftReviewProps } from './AiDraftReview';
 export { DraftItemRow, provenanceLabel, type DraftItemRowProps, type DraftItemEditorProps } from './DraftItemRow';
 export { ConfidenceBadge, type ConfidenceBadgeProps } from './ConfidenceBadge';
@@ -15,11 +24,21 @@ export {
 } from './AiVisionDisclosure';
 export { NoVisionModelNotice, type NoVisionModelNoticeProps, type NoVisionReason } from './NoVisionModelNotice';
 export { StoragePhotoThumb, type StoragePhotoThumbProps } from './StoragePhotoThumb';
+export {
+  RetainFilesControl,
+  RETAIN_FILES_LABEL,
+  RETAIN_FILES_HELPER_TEXT,
+  type RetainFilesControlProps,
+} from './RetainFilesControl';
 
 export {
   useImageIntake,
   IMAGE_INTAKE_CONCURRENCY,
   IMAGE_INTAKE_DEFAULT_MAX_PHOTOS,
+  INTAKE_PDF_MAX_BYTES,
+  isPdfFile,
+  isPdfName,
+  type IntakeFileKind,
   type IntakePhotoStage,
   type IntakePhotoState,
   type UseImageIntakeOptions,
@@ -44,6 +63,10 @@ export { downscaleImage, UnsupportedImageError, type DownscaleImageOptions } fro
 export {
   uploadAndAttach,
   detachFrom,
+  intakeFileErrorMessage,
+  isHealthIntakeKind,
+  HEALTH_INTAKE_KINDS,
+  type FileRetention,
   type DraftItemView,
   type PhotoIntakeView,
   type PhotoIntakePhotoView,

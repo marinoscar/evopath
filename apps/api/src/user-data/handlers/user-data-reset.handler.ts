@@ -11,7 +11,8 @@
 //
 //   1. COLLECT the storage objects to delete: every object the user uploaded
 //      (`uploadedById`, which includes the avatar), every object linked through
-//      the user's photo intakes, gym photos and workout photos, and the avatar
+//      the user's photo intakes, gym photos, workout photos and health
+//      documents (`storageObjectId`, SET NULL on the object), and the avatar
 //      named by the settings (`profile.imageObjectId`). The ids are written to
 //      `payload.objectIds` BEFORE step 2, because step 2 cascades away the link
 //      rows that name them: a retry after step 2 committed still knows them.
@@ -48,6 +49,13 @@
 //                                     `supersedesId` is cleared first: the
 //                                     self-FK is ON DELETE RESTRICT.
 //   PhotoIntake                       userId (cascades PhotoIntakePhoto, DraftItem)
+//   HealthDocument                    userId — explicitly (it cascades only from
+//                                     the User row, which is kept; the intake
+//                                     link is SET NULL). Its file is collected
+//                                     in step 1 and deleted in step 3: the
+//                                     `health_documents` reference checker
+//                                     only guards the intake's own cleanup,
+//                                     and the document is gone by step 3.
 //   Gym                               userId (cascades GymEquipment, GymPhoto,
 //                                     GymEquipmentPhoto)
 //   Workout                           userId (cascades WorkoutExercise, SetLog,
@@ -75,7 +83,9 @@
 //   StorageObject (+Chunk)            step 3
 //   User.profileImageUrl/displayName  cleared (displayName mirrors a setting)
 //   Job (pending, others')            a PENDING job whose subject is a deleted
-//                                     row is deleted; see below
+//                                     row is deleted (including a
+//                                     `health.document.purge` for a deleted
+//                                     document: step 3 deletes its file)
 //
 // KEPT:
 //   User, UserIdentity, UserRole      the account and its access

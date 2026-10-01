@@ -32,6 +32,7 @@ export interface FactoryResetSummary {
   workouts?: number;
   gyms?: number;
   measurements?: number;
+  healthDocuments?: number;
   programs?: number;
   trainingRuns?: number;
   storageObjects?: number;

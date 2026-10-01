@@ -200,3 +200,35 @@ describe('AiErrorAlert', () => {
     });
   });
 });
+
+describe('AI_CAPABILITY_UNSUPPORTED for a PDF (H2, #186)', () => {
+  const PDF_MESSAGE = "Your AI model can't read PDFs; choose a model with file input or upload an image.";
+
+  it('an analyze refusal naming file_input reads "Your AI model can\'t read PDFs"', () => {
+    const info = toAiErrorInfo(
+      new ApiError(PDF_MESSAGE, 400, 'BAD_REQUEST', {
+        reason: 'AI_CAPABILITY_UNSUPPORTED',
+        capability: 'file_input',
+        inputKind: 'pdf',
+      }),
+    );
+    expect(info).toMatchObject({ code: 'AI_CAPABILITY_UNSUPPORTED', capability: 'file_input' });
+    expect(aiErrorCopy(info)).toEqual({ title: "Your AI model can't read PDFs", body: PDF_MESSAGE, severity: 'warning' });
+    renderAlert(info);
+    expect(screen.getByText("Your AI model can't read PDFs")).toBeInTheDocument();
+    // The body is the server's message: it is not repeated under it.
+    expect(screen.getAllByText(PDF_MESSAGE)).toHaveLength(1);
+  });
+
+  it('a scan that failed in the job with that message (no details) reads the same', () => {
+    expect(aiErrorCopy({ code: 'AI_CAPABILITY_UNSUPPORTED', message: PDF_MESSAGE }).title).toBe(
+      "Your AI model can't read PDFs",
+    );
+  });
+
+  it('another missing capability keeps the generic copy', () => {
+    expect(aiErrorCopy({ code: 'AI_CAPABILITY_UNSUPPORTED', message: 'x', capability: 'reasoning' }).title).toBe(
+      "This model can't do that",
+    );
+  });
+});

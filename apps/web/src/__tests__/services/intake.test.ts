@@ -17,9 +17,11 @@ import {
   detachFrom,
   discardIntake,
   getIntake,
+  intakeFileErrorMessage,
   listIntakes,
   removeIntakePhoto,
   updateDraftItem,
+  updateIntakeRetainFiles,
   uploadAndAttach,
 } from '../../services/intake';
 import { ApiError } from '../../services/api';
@@ -106,9 +108,73 @@ describe('services/intake', () => {
     expect(deleted).toHaveLength(1);
   });
 
+  it('carries the keep-or-delete choice on create, PATCH and attach (#185)', async () => {
+    const seen = record();
+    await createIntake({ kind: 'body_metric_reading', retainFiles: false });
+    await updateIntakeRetainFiles('in-1', true);
+    await attachIntakePhoto('in-1', 'obj-1', { retainFiles: false });
+    await attachIntakePhoto('in-1', 'obj-2', { retainFiles: undefined });
+    expect(seen.map(({ method, path, body }) => [method, path, body])).toEqual([
+      ['POST', '/intakes', { kind: 'body_metric_reading', retainFiles: false }],
+      ['PATCH', '/intakes/in-1', { retainFiles: true }],
+      ['POST', '/intakes/in-1/photos', { storageObjectId: 'obj-1', retainFiles: false }],
+      ['POST', '/intakes/in-1/photos', { storageObjectId: 'obj-2' }],
+    ]);
+  });
+
+  it('uploadAndAttach reads the choice at attach time', async () => {
+    const seen = record();
+    let keep = true;
+    const upload = uploadAndAttach('in-1', { retainFiles: () => keep });
+    keep = false;
+    const result = await upload(new File(['x'], 'a.jpg', { type: 'image/jpeg' }));
+    expect(seen).toEqual([
+      expect.objectContaining({ path: '/intakes/in-1/photos', body: { storageObjectId: result.storageObjectId, retainFiles: false } }),
+    ]);
+  });
+
   it('detachFrom removes the photo from the intake', async () => {
     const seen = record();
     await detachFrom('in-1')('obj-9');
     expect(seen[0]).toMatchObject({ method: 'DELETE', path: '/intakes/in-1/photos/obj-9' });
+  });
+});
+
+describe('intakeFileErrorMessage (H2, #186)', () => {
+  const refusal = (reason: string, details: Record<string, unknown> = {}, message = 'Server words') =>
+    new ApiError(message, 400, 'BAD_REQUEST', { reason, storageObjectId: 'obj-1', ...details });
+
+  it.each([
+    ['TOO_MANY_PAGES', { pages: 34, maxPages: 20 }, 'pdf', 'This PDF has 34 pages; the limit is 20.'],
+    ['TOO_MANY_PAGES', { maxPages: 20 }, 'pdf', 'This PDF has too many pages; the limit is 20.'],
+    [
+      'PDF_UNREADABLE',
+      {},
+      'pdf',
+      "This PDF can't be read. It may be damaged or password-protected; export it again or upload a photo instead.",
+    ],
+    [
+      'UNSUPPORTED_MEDIA_TYPE',
+      { contentMismatch: true },
+      'pdf',
+      "This file isn't a real PDF. Export the report as a PDF again, or upload a photo.",
+    ],
+    [
+      'UNSUPPORTED_MEDIA_TYPE',
+      { contentMismatch: true },
+      'image',
+      "This file isn't a real image. Use a JPEG, PNG, GIF or WebP photo.",
+    ],
+    ['UNSUPPORTED_MEDIA_TYPE', { allowed: ['image/png'] }, 'pdf', "PDFs can't be read here. Upload a photo instead."],
+    ['OBJECT_TOO_LARGE', { maxBytes: 50 * 1024 * 1024 }, 'pdf', 'This PDF is over the size limit of 50 MiB.'],
+    ['OBJECT_TOO_LARGE', { maxBytes: 20 * 1024 * 1024 }, 'image', 'This photo is over the size limit of 20 MiB.'],
+  ] as const)('%s %j (%s) reads in words', (reason, details, kind, expected) => {
+    expect(intakeFileErrorMessage(refusal(reason, details), kind)).toBe(expected);
+  });
+
+  it("keeps the server's message for any other refusal, and the Error's for a network failure", () => {
+    expect(intakeFileErrorMessage(refusal('TOO_MANY_PHOTOS', {}, 'At most 4 photos'), 'pdf')).toBe('At most 4 photos');
+    expect(intakeFileErrorMessage(new Error('Network down'))).toBe('Network down');
+    expect(intakeFileErrorMessage('?')).toBe('Upload failed');
   });
 });

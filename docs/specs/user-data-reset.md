@@ -28,7 +28,7 @@ The queue's active dedup (`jobs_active_dedup_uniq_idx` over `user.data_reset:use
 
 | Step | What it does |
 |---|---|
-| 1. Collect | Gathers every storage object id the user owns (uploads, intake, gym and workout photo links, the avatar named by the settings) into `payload.objectIds`. It writes them **before** step 2, because step 2 cascades away the link rows that name them. |
+| 1. Collect | Gathers every storage object id the user owns (uploads, intake, gym and workout photo links, health document files, the avatar named by the settings) into `payload.objectIds`. It writes them **before** step 2, because step 2 cascades away the link rows that name them. |
 | 2. Delete rows | Deletes the user's rows in **one** `$transaction` (timeout 5 minutes), children before the parents they `Restrict`. The counts go on `payload.deleted` in the same commit. |
 | 3. Delete media | Deletes each collected object from the active storage provider, then its row. An unfinished multipart upload is aborted first. A provider failure is counted in `storageObjectsFailed`, logged, and **keeps the row**. It never fails the job. |
 
@@ -40,10 +40,10 @@ The table below summarises the decisions. The header comment of the handler is t
 
 | Decision | What |
 |---|---|
-| Deleted | Health profile, measurements (every revision, check-ins included), photo intakes, gyms and their equipment and photos, workouts and sets, programs and their sessions and change log, training runs, events and checkpoints, quick adaptations, AI runs and usage events, AI keys, stored credentials, personal access tokens, device codes, push subscriptions, notifications and deliveries, user settings, every uploaded storage object |
+| Deleted | Health profile, measurements (every revision, check-ins included), health documents and their files (kept or not; the `health_documents` reference checker only guards the intake's own cleanup), photo intakes, gyms and their equipment and photos, workouts and sets, programs and their sessions and change log, training runs, events and checkpoints, quick adaptations, AI runs and usage events, AI keys, stored credentials, personal access tokens, device codes, push subscriptions, notifications and deliveries, user settings, every uploaded storage object |
 | Cleared | `User.profileImageUrl` and `User.displayName` |
 | Deleted unless in use | Custom exercises and custom equipment. One still referenced by another user's row is kept, rather than failing the reset on its `Restrict`. |
-| Deleted (pending jobs) | A pending job whose subject is a deleted row |
+| Deleted (pending jobs) | A pending job whose subject is a deleted row, including a `health.document.purge` for a deleted document (step 3 deletes its file) |
 | Kept | `User`, `UserIdentity`, `UserRole`, `RefreshToken` (the browser session survives), `AllowedEmail`, `AuditEvent` |
 | Kept (deployment) | Worker nodes and their credentials, system settings, deployment credentials, AI models, broadcasts, backup runs |
 | Kept (shared) | The seeded exercise and equipment catalog, roles, permissions and capabilities |

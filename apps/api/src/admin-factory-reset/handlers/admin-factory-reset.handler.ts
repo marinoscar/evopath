@@ -117,6 +117,11 @@
 //   HealthProfile, Measurement   DELETED (step 2)
 //   PhotoIntake (+Photo,
 //   DraftItem)                   DELETED (step 2, cascades)
+//   HealthDocument               DELETED (step 2, explicitly: it cascades only
+//                                from the User row). Its file is deleted in
+//                                step 7 with every non-backup object; a
+//                                pending `health.document.purge` job is
+//                                deleted in step 1 with every pending job
 //   Gym (+GymEquipment,
 //   GymPhoto, GymEquipmentPhoto) DELETED (step 2, cascades)
 //   Capability                   KEPT (seeded catalog)

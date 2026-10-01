@@ -131,6 +131,13 @@ const DELETED_CATEGORIES: Array<{
     detail: 'Health profiles, measurements and check-ins.',
   },
   {
+    key: 'healthDocuments',
+    singular: 'health document',
+    plural: 'health documents',
+    fallback: 'Health documents',
+    detail: 'Lab reports and body-metric photos, with their files.',
+  },
+  {
     key: 'customExercises',
     singular: 'custom exercise',
     plural: 'custom exercises',

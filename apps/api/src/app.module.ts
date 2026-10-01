@@ -38,6 +38,7 @@ import { HealthProfileModule } from './health-profile/health-profile.module';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
+import { HealthDocumentsModule } from './health-documents/health-documents.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
@@ -246,6 +247,11 @@ import configuration from './config/configuration';
     // behind `AiEnabledGuard` + `ai:use`). Exports `IntakeKindRegistry` and
     // `IntakeService` for the features that register an intake kind.
     IntakeModule,
+
+    // Health documents (H1, #185): the files of health intakes and their
+    // keep-or-delete choice; the `health.document.purge` job (server-only) and
+    // the `health_documents` storage reference checker. No routes yet.
+    HealthDocumentsModule,
 
     // Gyms (E3.3): `/api/gyms` (with equipment and photos), `/api/equipment-types`
     // and `/api/capabilities` under `gyms:*` (photo attach/remove also

@@ -7,19 +7,24 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { trace } from '@opentelemetry/api';
 import { DraftItem, PhotoIntake, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
-import {
-  AI_STORAGE_INPUT_IMAGE_MAX_BYTES,
-  AI_STORAGE_INPUT_IMAGE_MIME_TYPES,
-} from '../ai/core/types/file-inputs.types';
+import { AiError } from '../ai/core/ai-error';
 import { AiFeatureModelResolver } from '../ai/assignments/ai-feature-model-resolver.service';
 import { RUNNABLE_FEATURE_STATES } from '../ai/assignments/dto/ai-feature-resolution.dto';
+import {
+  type FileRetention,
+  HEALTH_DOCUMENT_PURGE_JOB_TYPE,
+  HEALTH_DOCUMENT_SUBJECT_TYPE,
+  RETENTION_SPAN_ATTRIBUTE,
+  retainsFiles,
+  retentionOf,
+} from '../health-documents/health-document.constants';
 import { UsableModelsService } from '../ai/keys/usable-models.service';
 import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { mimeTypeMatches } from '../storage/mime-type-match';
 import { ObjectsService } from '../storage/objects/objects.service';
 import {
   DEFAULT_INTAKE_MAX_PHOTOS,
@@ -38,10 +43,24 @@ import {
  */
 export type CallerPermissions = readonly string[] | undefined;
 import { IntakeKindRegistry } from './intake-kind.registry';
+import { IntakeInputInspector } from './intake-input-inspector';
+import {
+  acceptedInputsOf,
+  allowedMimeTypes,
+  declaredInputKind,
+  INTAKE_INPUT_KIND_SPAN_ATTRIBUTE,
+  inputKindAttribute,
+  inputMaxBytes,
+  maxPdfPagesOf,
+  PDF_INPUT_UNSUPPORTED_MESSAGE,
+  unsupportedTypeMessage,
+  type IntakeInputKind,
+} from './intake-inputs';
 import { StorageObjectReferences } from './storage-object-references';
 import {
   INTAKE_ERROR_MESSAGE_MAX,
   type AnalyzeIntakeInput,
+  type AttachPhotoInput,
   type CreateDraftItemInput,
   type CreateIntakeInput,
   type UpdateIntakeInput,
@@ -102,10 +121,12 @@ const INTAKE_DETAIL_INCLUDE = {
     include: { storageObject: { select: { name: true } } },
   },
   items: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
+  healthDocuments: { select: { id: true, storageObjectId: true, retention: true } },
 } satisfies Prisma.PhotoIntakeInclude;
 
 type IntakeWithDetail = Prisma.PhotoIntakeGetPayload<{ include: typeof INTAKE_DETAIL_INCLUDE }>;
-type PhotoWithName = IntakeWithDetail['photos'][number];
+type PhotoWithName = Pick<IntakeWithDetail['photos'][number], 'id' | 'storageObjectId' | 'sortOrder' | 'storageObject'>;
+type HealthDocumentLink = { id: string; storageObjectId: string | null; retention: string };
 
 // -----------------------------------------------------------------------------
 // Views
@@ -128,13 +149,30 @@ export function toDraftItemView(item: DraftItem): DraftItemViewData {
   };
 }
 
-function toPhotoView(photo: PhotoWithName): PhotoIntakePhotoViewData {
+function toPhotoView(photo: PhotoWithName, document?: HealthDocumentLink | null): PhotoIntakePhotoViewData {
   return {
     id: photo.id,
     storageObjectId: photo.storageObjectId,
     name: photo.storageObject.name,
     sortOrder: photo.sortOrder,
+    healthDocumentId: document?.id ?? null,
+    retention: document ? asRetention(document.retention) : null,
   };
+}
+
+function asRetention(retention: string | null | undefined): FileRetention {
+  return retainsFiles(retention ?? 'keep') ? 'keep' : 'delete_after_processing';
+}
+
+/** Sets the retention mode on the active span (the HTTP request's or the job's). */
+function recordRetention(retention: string): void {
+  trace.getActiveSpan()?.setAttribute(RETENTION_SPAN_ATTRIBUTE, asRetention(retention));
+}
+
+/** `intake.input_kind` on the active span: `image`, `pdf` or `mixed` (H2, #186). */
+function recordInputKinds(kinds: Iterable<IntakeInputKind>): void {
+  const value = inputKindAttribute(kinds);
+  if (value) trace.getActiveSpan()?.setAttribute(INTAKE_INPUT_KIND_SPAN_ATTRIBUTE, value);
 }
 
 function intakeFields(intake: PhotoIntake) {
@@ -150,6 +188,8 @@ function intakeFields(intake: PhotoIntake) {
     jobId: intake.jobId,
     errorCode: intake.errorCode,
     errorMessage: intake.errorMessage,
+    retention: asRetention(intake.retention),
+    retainFiles: retainsFiles(intake.retention ?? 'keep'),
     resultMeta: (intake.resultMeta ?? null) as Record<string, unknown> | null,
     createdAt: intake.createdAt.toISOString(),
     updatedAt: intake.updatedAt.toISOString(),
@@ -158,9 +198,10 @@ function intakeFields(intake: PhotoIntake) {
 }
 
 export function toPhotoIntakeView(intake: IntakeWithDetail): PhotoIntakeViewData {
+  const documents = new Map((intake.healthDocuments ?? []).map((doc) => [doc.storageObjectId, doc]));
   return {
     ...intakeFields(intake),
-    photos: intake.photos.map(toPhotoView),
+    photos: intake.photos.map((photo) => toPhotoView(photo, documents.get(photo.storageObjectId))),
     items: intake.items.map(toDraftItemView),
   };
 }
@@ -262,6 +303,7 @@ export class IntakeService {
     private readonly usableModels: UsableModelsService,
     private readonly objects: ObjectsService,
     private readonly features: AiFeatureModelResolver,
+    private readonly inputs: IntakeInputInspector,
     // Optional so a hand-built service (tests) needs none; Nest always injects it.
     @Optional() private readonly references: StorageObjectReferences = new StorageObjectReferences(),
   ) {}
@@ -280,6 +322,8 @@ export class IntakeService {
     }
 
     const subject = kind.subjectOf?.(context) ?? null;
+    const retention = retentionOf(input.retainFiles);
+    recordRetention(retention);
 
     const intake = await this.prisma.photoIntake.create({
       data: {
@@ -289,6 +333,7 @@ export class IntakeService {
         subjectType: subject?.subjectType ?? input.subjectType ?? null,
         subjectId: subject?.subjectId ?? input.subjectId ?? null,
         context: nullableJson(context),
+        retention,
       },
       include: INTAKE_DETAIL_INCLUDE,
     });
@@ -301,6 +346,11 @@ export class IntakeService {
    * reads), in `draft`, `ready` or `failed`. Validated and checked by the kind
    * exactly as on create; the subject is re-derived when the kind defines
    * `subjectOf`. Photos and items are untouched.
+   *
+   * `retainFiles` changes the keep-or-delete choice of the intake AND of every
+   * health document it holds, in the same conditional write's transaction. A
+   * body carrying only `retainFiles` leaves `context` alone; any other body
+   * (including `{}`) replaces it, as before.
    */
   async updateContext(
     userId: string,
@@ -315,19 +365,44 @@ export class IntakeService {
     }
 
     const kind = this.registry.require(intake.kind);
-    const context = parseWith(kind.contextSchema, input.context, 'context');
+    const replacesContext = input.context !== undefined || input.retainFiles === undefined;
+    const data: Prisma.PhotoIntakeUpdateManyMutationInput = {};
 
-    if (kind.assertContext) {
-      await kind.assertContext(userId, context);
+    if (replacesContext) {
+      const context = parseWith(kind.contextSchema, input.context, 'context');
+
+      if (kind.assertContext) {
+        await kind.assertContext(userId, context);
+      }
+
+      const subject = kind.subjectOf?.(context) ?? null;
+      data.context = nullableJson(context);
+      if (subject) {
+        data.subjectType = subject.subjectType;
+        data.subjectId = subject.subjectId;
+      }
     }
 
-    const subject = kind.subjectOf?.(context) ?? null;
-    const { count } = await this.prisma.photoIntake.updateMany({
-      where: { id: intakeId, userId, status: { in: [...CONTEXT_EDITABLE] } },
-      data: {
-        context: nullableJson(context),
-        ...(subject ? { subjectType: subject.subjectType, subjectId: subject.subjectId } : {}),
-      },
+    const retention = input.retainFiles === undefined ? null : retentionOf(input.retainFiles);
+    if (retention) {
+      data.retention = retention;
+      recordRetention(retention);
+    }
+
+    const count = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.photoIntake.updateMany({
+        where: { id: intakeId, userId, status: { in: [...CONTEXT_EDITABLE] } },
+        data,
+      });
+
+      if (updated.count > 0 && retention && kind.healthDocumentKind) {
+        await tx.healthDocument.updateMany({
+          where: { intakeId, userId, fileDeletedAt: null },
+          data: { retention },
+        });
+      }
+
+      return updated.count;
     });
 
     if (count === 0) {
@@ -388,6 +463,12 @@ export class IntakeService {
   /**
    * Discards an intake (anything but `applied`), then deletes, best effort,
    * each of its storage objects that no other intake still links.
+   *
+   * A health intake's documents outlive it (`intake_id` is SET NULL): a
+   * `keep` file stays, claimed by the `health_documents` reference checker,
+   * so the cleanup below leaves it alone; a `delete_after_processing` file is
+   * handed to `health.document.purge`, enqueued in the SAME transaction as the
+   * delete, so the intent is never lost and no worker sees it before commit.
    */
   async discard(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<void> {
     const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
@@ -396,14 +477,28 @@ export class IntakeService {
       throw stateConflict(intake.status, 'discard');
     }
 
+    recordRetention(intake.retention);
+    const kind = this.registry.get(intake.kind);
+
     const photos = await this.prisma.photoIntakePhoto.findMany({
       where: { intakeId },
       select: { storageObjectId: true },
     });
 
-    // Conditional on "not applied", so a concurrent apply cannot be undone.
-    const { count } = await this.prisma.photoIntake.deleteMany({
-      where: { id: intakeId, userId, status: { not: 'applied' } },
+    const count = await this.prisma.$transaction(async (tx) => {
+      // Read before the delete: the delete sets their `intake_id` to NULL.
+      const toPurge = kind?.healthDocumentKind ? await this.documentsToPurge(tx, userId, intakeId) : [];
+
+      // Conditional on "not applied", so a concurrent apply cannot be undone.
+      const deleted = await tx.photoIntake.deleteMany({
+        where: { id: intakeId, userId, status: { not: 'applied' } },
+      });
+
+      if (deleted.count > 0) {
+        await this.enqueuePurges(tx, toPurge);
+      }
+
+      return deleted.count;
     });
 
     if (count === 0) {
@@ -421,11 +516,19 @@ export class IntakeService {
   // Photos
   // ---------------------------------------------------------------------------
 
+  /**
+   * Links a photo. For a health intake kind (`healthDocumentKind`) the link
+   * and the file's `HealthDocument` are written in one transaction; the
+   * document's retention is `options.retainFiles` when given, else the
+   * intake's. The document takes name, type and size from the storage
+   * object (never logged).
+   */
   async attachPhoto(
     userId: string,
     intakeId: string,
     storageObjectId: string,
     permissions?: CallerPermissions,
+    options: Pick<AttachPhotoInput, 'retainFiles'> = {},
   ): Promise<PhotoIntakePhotoViewData> {
     const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
@@ -435,7 +538,15 @@ export class IntakeService {
 
     const object = await this.prisma.storageObject.findUnique({
       where: { id: storageObjectId },
-      select: { id: true, name: true, status: true, mimeType: true, size: true, uploadedById: true },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        mimeType: true,
+        size: true,
+        storageKey: true,
+        uploadedById: true,
+      },
     });
 
     // Somebody else's object is indistinguishable from a missing one.
@@ -450,19 +561,8 @@ export class IntakeService {
       throw refuse(400, 'OBJECT_NOT_READY', 'The storage object is not ready yet', { storageObjectId });
     }
 
-    if (!mimeTypeMatches(object.mimeType, AI_STORAGE_INPUT_IMAGE_MIME_TYPES)) {
-      throw refuse(400, 'UNSUPPORTED_MEDIA_TYPE', 'Only PNG, JPEG, GIF and WebP images can be attached', {
-        storageObjectId,
-        allowed: [...AI_STORAGE_INPUT_IMAGE_MIME_TYPES],
-      });
-    }
-
-    if (Number(object.size) > AI_STORAGE_INPUT_IMAGE_MAX_BYTES) {
-      throw refuse(400, 'OBJECT_TOO_LARGE', 'The image is larger than 20 MiB', {
-        storageObjectId,
-        maxBytes: AI_STORAGE_INPUT_IMAGE_MAX_BYTES,
-      });
-    }
+    const kindDef = this.registry.get(intake.kind);
+    const inputKind = this.assertDeclaredInput(kindDef, object, storageObjectId);
 
     const maxPhotos = this.maxPhotosFor(intake.kind);
     const [attached, last] = await Promise.all([
@@ -474,17 +574,42 @@ export class IntakeService {
       throw refuse(400, 'TOO_MANY_PHOTOS', `An intake holds at most ${maxPhotos} photos`, { maxPhotos });
     }
 
-    try {
-      const photo = await this.prisma.photoIntakePhoto.create({
-        data: {
-          intakeId,
-          storageObjectId,
-          sortOrder: (last._max.sortOrder ?? -1) + 1,
-        },
-        include: { storageObject: { select: { name: true } } },
-      });
+    // The bytes last: the cheap row checks above answer first.
+    await this.assertStoredInput(kindDef, object.storageKey, inputKind, storageObjectId);
+    recordInputKinds([inputKind]);
 
-      return toPhotoView(photo);
+    const documentKind = kindDef?.healthDocumentKind;
+    const retention = options.retainFiles === undefined ? asRetention(intake.retention) : retentionOf(options.retainFiles);
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const photo = await tx.photoIntakePhoto.create({
+          data: {
+            intakeId,
+            storageObjectId,
+            sortOrder: (last._max.sortOrder ?? -1) + 1,
+          },
+          include: { storageObject: { select: { name: true } } },
+        });
+
+        if (!documentKind) return toPhotoView(photo);
+
+        const document = await tx.healthDocument.create({
+          data: {
+            userId,
+            kind: documentKind,
+            storageObjectId,
+            originalName: object.name,
+            mimeType: object.mimeType,
+            sizeBytes: object.size,
+            retention,
+            intakeId,
+          },
+          select: { id: true, storageObjectId: true, retention: true },
+        });
+
+        return toPhotoView(photo, document);
+      });
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw refuse(409, 'DUPLICATE_PHOTO', 'This photo is already attached to the intake', { storageObjectId });
@@ -505,8 +630,20 @@ export class IntakeService {
       throw stateConflict(intake.status, 'remove photos from');
     }
 
-    const { count } = await this.prisma.photoIntakePhoto.deleteMany({
-      where: { intakeId, storageObjectId },
+    const isHealthKind = Boolean(this.registry.get(intake.kind)?.healthDocumentKind);
+
+    // A removed file was never processed: its health document goes with the
+    // link (same transaction), so the cleanup below may delete the object.
+    const count = await this.prisma.$transaction(async (tx) => {
+      const removed = await tx.photoIntakePhoto.deleteMany({
+        where: { intakeId, storageObjectId },
+      });
+
+      if (removed.count > 0 && isHealthKind) {
+        await tx.healthDocument.deleteMany({ where: { intakeId, userId, storageObjectId, fileDeletedAt: null } });
+      }
+
+      return removed.count;
     });
 
     if (count === 0) {
@@ -559,9 +696,12 @@ export class IntakeService {
       throw refuse(400, 'NO_PHOTOS', 'Attach at least one photo before analyzing');
     }
 
+    const inputKinds = await this.recheckInputs(kind, intakeId);
+    recordInputKinds(inputKinds);
+
     const { provider, modelId } = await this.resolveAnalyzeModel(userId, kind, input);
 
-    await this.usableModels.assertUsable(userId, provider, modelId, ['vision_input', 'structured_output']);
+    await this.assertModelReads(userId, provider, modelId, inputKinds);
 
     const analyzeJobType = kind.analyzeJobType;
 
@@ -605,6 +745,170 @@ export class IntakeService {
         throw refuse(409, 'INTAKE_SCANNING', 'An analysis of this intake is still running');
       }
       throw error;
+    }
+  }
+
+  /**
+   * Re-checks every attached file before the analyzer is queued (H2, #186):
+   * its declared type is still one the kind accepts and within the size cap,
+   * and a PDF's stored bytes are read again for the magic bytes and the page
+   * cap. The attach made the same checks; this holds them for links made
+   * before a kind changed its declaration, and keeps "no provider call for a
+   * refused file" true however the link came to be. Returns the input kinds.
+   */
+  private async recheckInputs(kind: IntakeKind<any, any>, intakeId: string): Promise<Set<IntakeInputKind>> {
+    const photos =
+      (await this.prisma.photoIntakePhoto.findMany({
+        where: { intakeId },
+        select: {
+          storageObjectId: true,
+          storageObject: { select: { mimeType: true, size: true, storageKey: true } },
+        },
+      })) ?? [];
+
+    const kinds = new Set<IntakeInputKind>();
+
+    for (const photo of photos) {
+      const object = photo.storageObject;
+      if (!object) continue;
+
+      const inputKind = this.assertDeclaredInput(kind, object, photo.storageObjectId);
+      if (inputKind === 'pdf') {
+        await this.assertStoredInput(kind, object.storageKey, inputKind, photo.storageObjectId);
+      }
+      kinds.add(inputKind);
+    }
+
+    return kinds;
+  }
+
+  /**
+   * The resolved model is usable for the intake's inputs: `vision_input` and
+   * `structured_output` always, and `file_input` when a PDF is attached. A
+   * model that cannot read a PDF is refused here, before anything is queued,
+   * with a message the user can act on (`AI_CAPABILITY_UNSUPPORTED`,
+   * `details.capability: 'file_input'`, `details.inputKind: 'pdf'`).
+   */
+  private async assertModelReads(
+    userId: string,
+    provider: string,
+    modelId: string,
+    inputKinds: ReadonlySet<IntakeInputKind>,
+  ): Promise<void> {
+    const hasPdf = inputKinds.has('pdf');
+    const pdfRefusal = () =>
+      new AiError('AI_CAPABILITY_UNSUPPORTED', PDF_INPUT_UNSUPPORTED_MESSAGE, {
+        details: { provider, model: modelId, capability: 'file_input', inputKind: 'pdf' },
+      });
+
+    let usable: Awaited<ReturnType<UsableModelsService['assertUsable']>> | undefined;
+
+    try {
+      usable = await this.usableModels.assertUsable(
+        userId,
+        provider,
+        modelId,
+        hasPdf ? ['vision_input', 'structured_output', 'file_input'] : ['vision_input', 'structured_output'],
+      );
+    } catch (error) {
+      if (
+        hasPdf &&
+        error instanceof AiError &&
+        error.code === 'AI_CAPABILITY_UNSUPPORTED' &&
+        (error.getResponse() as { details?: { capability?: string } }).details?.capability === 'file_input'
+      ) {
+        throw pdfRefusal();
+      }
+      throw error;
+    }
+
+    // The runtime also requires the `file` input modality for a stored PDF.
+    const modalities = usable?.model?.capabilities?.inputModalities;
+    if (hasPdf && modalities && !modalities.includes('file')) {
+      throw pdfRefusal();
+    }
+  }
+
+  /**
+   * The declared type of `object` is one `kind` accepts and within its size
+   * cap; returns the input kind. 400 `UNSUPPORTED_MEDIA_TYPE` or
+   * `OBJECT_TOO_LARGE` otherwise.
+   */
+  private assertDeclaredInput(
+    kind: IntakeKind<any, any> | undefined,
+    object: { mimeType: string; size: bigint | number },
+    storageObjectId: string,
+  ): IntakeInputKind {
+    const accepted = acceptedInputsOf(kind);
+    const inputKind = declaredInputKind(object.mimeType);
+
+    if (!inputKind || !accepted.includes(inputKind)) {
+      throw refuse(400, 'UNSUPPORTED_MEDIA_TYPE', unsupportedTypeMessage(accepted), {
+        storageObjectId,
+        allowed: allowedMimeTypes(accepted),
+      });
+    }
+
+    const maxBytes = inputMaxBytes(inputKind);
+
+    if (Number(object.size) > maxBytes) {
+      throw refuse(
+        400,
+        'OBJECT_TOO_LARGE',
+        inputKind === 'pdf' ? 'The PDF is larger than 50 MiB' : 'The image is larger than 20 MiB',
+        { storageObjectId, maxBytes },
+      );
+    }
+
+    return inputKind;
+  }
+
+  /**
+   * The STORED bytes agree with the declared type (magic bytes), and a PDF is
+   * within the size and page caps. 400 `UNSUPPORTED_MEDIA_TYPE` (with
+   * `details.contentMismatch`), `OBJECT_TOO_LARGE`, `PDF_UNREADABLE` or
+   * `TOO_MANY_PAGES`. Never logs the bytes.
+   */
+  private async assertStoredInput(
+    kind: IntakeKind<any, any> | undefined,
+    storageKey: string,
+    inputKind: IntakeInputKind,
+    storageObjectId: string,
+  ): Promise<void> {
+    const inspection = await this.inputs.inspect(storageKey, inputKind);
+
+    if (inspection.oversize) {
+      throw refuse(400, 'OBJECT_TOO_LARGE', 'The PDF is larger than 50 MiB', {
+        storageObjectId,
+        maxBytes: inputMaxBytes(inputKind),
+      });
+    }
+
+    if (inspection.detected !== inputKind) {
+      throw refuse(
+        400,
+        'UNSUPPORTED_MEDIA_TYPE',
+        inputKind === 'pdf' ? 'This file is not a PDF' : 'This file is not a PNG, JPEG, GIF or WebP image',
+        { storageObjectId, allowed: allowedMimeTypes(acceptedInputsOf(kind)), contentMismatch: true },
+      );
+    }
+
+    if (inputKind !== 'pdf') return;
+
+    const maxPages = maxPdfPagesOf(kind);
+
+    if (inspection.pages === null) {
+      throw refuse(400, 'PDF_UNREADABLE', 'This PDF could not be read; it may be damaged or password-protected', {
+        storageObjectId,
+      });
+    }
+
+    if (inspection.pages > maxPages) {
+      throw refuse(400, 'TOO_MANY_PAGES', `A PDF may have at most ${maxPages} pages`, {
+        storageObjectId,
+        pages: inspection.pages,
+        maxPages,
+      });
     }
   }
 
@@ -791,6 +1095,11 @@ export class IntakeService {
    * marks the intake `applied`. The status flip comes first and is
    * conditional, so it doubles as the lock: a concurrent apply waits on the
    * row and then answers 409; a throw from the kind rolls both back.
+   *
+   * A health intake's `delete_after_processing` documents get their
+   * `health.document.purge` job in the same transaction, after the kind's
+   * writes: nothing is purged unless the measurements committed, and a
+   * worker cannot claim the job before they have.
    */
   async apply(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<unknown> {
     const result = await this.prisma.$transaction(async (tx) => {
@@ -826,13 +1135,29 @@ export class IntakeService {
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       });
 
-      return kind.apply({
+      recordRetention(intake.retention);
+      const healthDocuments = kind.healthDocumentKind
+        ? await tx.healthDocument.findMany({
+            where: { intakeId, userId },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { id: true, storageObjectId: true },
+          })
+        : [];
+
+      const applied = await kind.apply({
         tx,
         userId,
         intake,
         context: this.contextOf(kind, intake),
         accepted,
+        healthDocuments,
       });
+
+      if (kind.healthDocumentKind) {
+        await this.enqueuePurges(tx, await this.documentsToPurge(tx, userId, intakeId));
+      }
+
+      return applied;
     });
 
     return result ?? null;
@@ -1002,6 +1327,33 @@ export class IntakeService {
     if (!item) throw itemNotFound();
 
     return item;
+  }
+
+  /** The intake's documents whose file is to be erased and still exists. */
+  private async documentsToPurge(tx: Prisma.TransactionClient, userId: string, intakeId: string): Promise<string[]> {
+    const rows = await tx.healthDocument.findMany({
+      where: { intakeId, userId, retention: 'delete_after_processing', fileDeletedAt: null },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * One `health.document.purge` job per document, inside the caller's
+   * transaction. `skipDedup`: a unique violation would abort that
+   * transaction, and the handler is idempotent anyway.
+   */
+  private async enqueuePurges(tx: Prisma.TransactionClient, healthDocumentIds: readonly string[]): Promise<void> {
+    for (const healthDocumentId of healthDocumentIds) {
+      await this.jobs.enqueueWithin(tx, {
+        type: HEALTH_DOCUMENT_PURGE_JOB_TYPE,
+        reason: 'upload',
+        subjectType: HEALTH_DOCUMENT_SUBJECT_TYPE,
+        subjectId: healthDocumentId,
+        payload: { healthDocumentId },
+        skipDedup: true,
+      });
+    }
   }
 
   private maxPhotosFor(kindName: string): number {

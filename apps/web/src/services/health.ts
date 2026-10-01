@@ -160,6 +160,12 @@ export interface MeasurementDto {
   origin: string;
   notes: string | null;
   sourceRef: Record<string, unknown> | null;
+  /**
+   * Whether the file this reading was read from (`sourceRef.healthDocumentId`)
+   * was erased (delete after processing, #185); `null` when the reading names
+   * no health document.
+   */
+  fileDeleted: boolean | null;
   revision: number;
   edited: boolean;
 }
@@ -476,6 +482,13 @@ export const BODY_METRIC_READING_ITEM_KIND = 'reading';
 /** Photos one reading intake takes (the kind's `maxPhotos`). */
 export const BODY_METRIC_READING_MAX_PHOTOS = 4;
 
+/**
+ * The kind also reads PDFs (its server `acceptedInputs` is `['image', 'pdf']`,
+ * H2 #186): a smart-scale or body-composition report. A PDF counts as one of
+ * the four files.
+ */
+export const BODY_METRIC_READING_ACCEPTS_PDF = true;
+
 /** One draft item value: a reading as displayed on the device. */
 export interface BodyMetricReadingValue {
   metricKey: MetricKey;
@@ -526,6 +539,8 @@ export interface PhotoIntakeSourceRef {
   confidence?: string | null;
   /** The saved value differs from `aiDraft`. */
   userEdited?: boolean;
+  /** The health document the reading was read from (#185); its file may since have been erased. */
+  healthDocumentId?: string;
 }
 
 /** The row's `sourceRef` when it is a photo intake's, else `null`. Never throws on unexpected shapes. */

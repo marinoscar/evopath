@@ -36,6 +36,10 @@ function row(overrides: Record<string, unknown> = {}) {
     method: 'scale',
     origin: 'manual',
     notes: 'morning',
+    referenceLow: null,
+    referenceHigh: null,
+    referenceText: null,
+    flag: null,
     sourceRef: null,
     revision: 1,
     supersedesId: null,
@@ -378,6 +382,147 @@ describe('MeasurementsService', () => {
     });
   });
 
+  describe('lab results (H3, #187)', () => {
+    function labRow(overrides: Record<string, unknown> = {}) {
+      return row({
+        metricKey: 'ldl_cholesterol',
+        value: 130,
+        unit: 'mg/dL',
+        method: 'lab',
+        notes: null,
+        referenceLow: 0,
+        referenceHigh: 99,
+        referenceText: '<100',
+        flag: 'high',
+        ...overrides,
+      });
+    }
+
+    it('creates a panel under one entryId with canonical ranges and flags', async () => {
+      echoCreate(prisma);
+      const input = createMeasurementEntrySchema.parse({
+        readings: [
+          {
+            metricKey: 'ldl_cholesterol',
+            value: 3.36,
+            unit: 'mmol/L',
+            method: 'lab',
+            referenceLow: 0,
+            referenceHigh: 2.59,
+            referenceText: '<2.59',
+            flag: 'high',
+          },
+          { metricKey: 'hdl_cholesterol', value: 55, method: 'lab', flag: 'normal' },
+          { metricKey: 'fasting_glucose', value: 5.55, unit: 'mmol/L' },
+        ],
+      });
+
+      const result = await service.createEntry(USER_ID, input);
+
+      const calls = (prisma.measurement.create as jest.Mock).mock.calls.map(([arg]) => arg.data);
+      expect(new Set(calls.map((d) => d.entryId)).size).toBe(1);
+      expect(calls[0]).toMatchObject({
+        metricKey: 'ldl_cholesterol',
+        unit: 'mg/dL',
+        method: 'lab',
+        referenceLow: 0,
+        referenceText: '<2.59',
+        flag: 'high',
+      });
+      expect(calls[0].value).toBeCloseTo(129.93, 2);
+      expect(calls[0].referenceHigh).toBeCloseTo(100.15, 2);
+      expect(calls[1]).toMatchObject({ referenceLow: null, referenceHigh: null, referenceText: null, flag: 'normal' });
+      expect(calls[2]).toMatchObject({ method: 'unspecified', flag: null });
+      expect(Math.round(calls[2].value)).toBe(100);
+      expect(result.items[0]).toMatchObject({ referenceText: '<2.59', flag: 'high', unit: 'mg/dL' });
+    });
+
+    it('keeps range and flag when an edit changes only the value', async () => {
+      const ldl = labRow();
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([ldl]);
+      (prisma.measurement.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      echoCreate(prisma);
+
+      const result = await service.updateEntry(
+        USER_ID,
+        ENTRY_ID,
+        updateMeasurementEntrySchema.parse({ readings: [{ metricKey: 'ldl_cholesterol', value: 128 }] }),
+      );
+
+      const [created] = (prisma.measurement.create as jest.Mock).mock.calls.map(([arg]) => arg.data);
+      expect(created).toMatchObject({
+        value: 128,
+        referenceLow: 0,
+        referenceHigh: 99,
+        referenceText: '<100',
+        flag: 'high',
+        method: 'lab',
+        revision: 2,
+        supersedesId: ldl.id,
+      });
+      expect(result.items[0]).toMatchObject({ flag: 'high', referenceHigh: 99, edited: true });
+    });
+
+    it('keeps range and flag on a notes-only edit, and changes or clears them when sent', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([labRow()]);
+      (prisma.measurement.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
+      echoCreate(prisma);
+
+      await service.updateEntry(USER_ID, ENTRY_ID, updateMeasurementEntrySchema.parse({ notes: 'fasted' }));
+      await service.updateEntry(
+        USER_ID,
+        ENTRY_ID,
+        updateMeasurementEntrySchema.parse({
+          readings: [{ metricKey: 'ldl_cholesterol', value: 130, flag: 'normal', referenceText: null, referenceLow: null }],
+        }),
+      );
+
+      const [notesOnly, changed] = (prisma.measurement.create as jest.Mock).mock.calls.map(([arg]) => arg.data);
+      expect(notesOnly).toMatchObject({ notes: 'fasted', referenceLow: 0, referenceHigh: 99, referenceText: '<100', flag: 'high' });
+      expect(changed).toMatchObject({ referenceLow: null, referenceHigh: 99, referenceText: null, flag: 'normal' });
+    });
+
+    it('checks low <= high on the merged reading', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([labRow()]);
+
+      const error = await service
+        .updateEntry(
+          USER_ID,
+          ENTRY_ID,
+          updateMeasurementEntrySchema.parse({ readings: [{ metricKey: 'ldl_cholesterol', value: 130, referenceLow: 120 }] }),
+        )
+        .catch((e) => e);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(error.getResponse()).toMatchObject({
+        details: {
+          issues: [
+            { path: 'readings.0.referenceLow', message: 'referenceLow must not be higher than referenceHigh' },
+          ],
+        },
+      });
+      expect(prisma.measurement.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('list: lists lab rows only on request', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([labRow()]);
+      (prisma.measurement.count as jest.Mock).mockResolvedValue(1);
+
+      const result = await service.list(USER_ID, { category: 'lab', page: 1, pageSize: 20 });
+
+      const where = (prisma.measurement.findMany as jest.Mock).mock.calls[0][0].where;
+      expect(where.metricKey.in).toContain('ldl_cholesterol');
+      expect(where.metricKey.in).not.toContain('weight');
+      expect(result.items[0]).toMatchObject({ referenceLow: 0, referenceHigh: 99, referenceText: '<100', flag: 'high' });
+
+      await service.list(USER_ID, { metricKey: 'tsh', page: 1, pageSize: 20 });
+      expect((prisma.measurement.findMany as jest.Mock).mock.calls[1][0].where.metricKey).toBe('tsh');
+
+      await service.list(USER_ID, { category: 'body', metricKey: 'tsh', page: 1, pageSize: 20 });
+      expect((prisma.measurement.findMany as jest.Mock).mock.calls[2][0].where.metricKey).toEqual({ in: [] });
+    });
+  });
+
   describe('deleteEntry', () => {
     it('soft-deletes the active rows and audits the reading count only', async () => {
       (prisma.measurement.updateMany as jest.Mock).mockResolvedValue({ count: 2 });
@@ -535,6 +680,64 @@ describe('MeasurementsService', () => {
 
       expect(result.truncated).toBe(false);
       expect(result.points.map((p) => p.value)).toEqual([1, 2]);
+    });
+  });
+
+  describe('fileDeleted (H1, #185)', () => {
+    const KEPT = '77777777-7777-4777-8777-777777777771';
+    const ERASED = '77777777-7777-4777-8777-777777777772';
+    const GONE = '77777777-7777-4777-8777-777777777773';
+    const ref = (healthDocumentId?: string) => ({
+      kind: 'photo_intake',
+      intakeId: '33333333-3333-4333-8333-333333333333',
+      ...(healthDocumentId ? { healthDocumentId } : {}),
+    });
+
+    it('list: one owner-scoped document lookup for the page; kept false, erased or missing true, none null', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([
+        row({ origin: 'ai', sourceRef: ref(KEPT) }),
+        row({ origin: 'ai', sourceRef: ref(ERASED) }),
+        row({ origin: 'manual', sourceRef: ref(ERASED) }),
+        row({ origin: 'ai', sourceRef: ref(GONE) }),
+        row({ origin: 'manual', sourceRef: ref() }),
+        row(),
+      ]);
+      (prisma.measurement.count as jest.Mock).mockResolvedValue(6);
+      (prisma.healthDocument.findMany as jest.Mock).mockResolvedValue([
+        { id: KEPT, fileDeletedAt: null },
+        { id: ERASED, fileDeletedAt: new Date() },
+      ]);
+
+      const result = await service.list(USER_ID, { page: 1, pageSize: 20 });
+
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledWith({
+        where: { id: { in: [KEPT, ERASED, GONE] }, userId: USER_ID },
+        select: { id: true, fileDeletedAt: true },
+      });
+      expect(result.items.map((item) => item.fileDeleted)).toEqual([false, true, true, true, null, null]);
+    });
+
+    it('list: no lookup at all when no row names a document', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([row(), row({ sourceRef: ref() })]);
+      (prisma.measurement.count as jest.Mock).mockResolvedValue(2);
+
+      const result = await service.list(USER_ID, { page: 1, pageSize: 20 });
+
+      expect(prisma.healthDocument.findMany).not.toHaveBeenCalled();
+      expect(result.items.map((item) => item.fileDeleted)).toEqual([null, null]);
+    });
+
+    it('latest: one lookup across every metric', async () => {
+      (prisma.measurement.findMany as jest.Mock).mockImplementation(async ({ where }: any) =>
+        where.metricKey === 'weight' ? [row({ sourceRef: ref(ERASED) })] : [],
+      );
+      (prisma.healthDocument.findMany as jest.Mock).mockResolvedValue([{ id: ERASED, fileDeletedAt: new Date() }]);
+
+      const result = await service.latest(USER_ID);
+
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledTimes(1);
+      expect(result.items.find((item) => item.metricKey === 'weight')!.latest!.fileDeleted).toBe(true);
     });
   });
 });

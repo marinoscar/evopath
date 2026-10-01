@@ -155,6 +155,30 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
     const bObject = await storageObject(b, 'b-photo');
     const brokenObject = await storageObject(b, 'broken');
     const orphanObject = await storageObject(null, 'orphan');
+    // A deleted user's health document whose file the actor uploaded: only the
+    // document links it to B, so step 7 (every non-backup object) must still
+    // delete it, and its pending purge job goes in step 1.
+    const docObject = await storageObject(actorId, 'b-labs');
+    const bDoc = await client.healthDocument.create({
+      data: {
+        userId: b,
+        kind: 'lab_report',
+        storageObjectId: docObject.id,
+        originalName: 'labs.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: BigInt(10),
+        retention: 'delete_after_processing',
+      },
+    });
+    const docPurge = await client.job.create({
+      data: {
+        type: 'health.document.purge',
+        reason: 'upload',
+        subjectType: 'health_document',
+        subjectId: bDoc.id,
+        payload: { healthDocumentId: bDoc.id },
+      },
+    });
     const backupJob = await client.job.create({
       data: { type: 'db.backup.run', reason: 'rerun', status: 'succeeded' },
     });
@@ -206,6 +230,9 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       ['finished job', await client.job.count({ where: { id: finished.id } })],
       ['b object', await client.storageObject.count({ where: { id: bObject.id } })],
       ['orphan object', await client.storageObject.count({ where: { id: orphanObject.id } })],
+      ['health documents', await client.healthDocument.count()],
+      ['health document file', await client.storageObject.count({ where: { id: docObject.id } })],
+      ['health document purge job', await client.job.count({ where: { id: docPurge.id } })],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -244,14 +271,15 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       usersDeleted: 2,
       workouts: 1,
       gyms: 1,
+      healthDocuments: 1,
       broadcasts: 1,
       workerNodesReassigned: 1,
       nodeCredentialsReassigned: 1,
       storageObjectsFailed: 1,
     });
-    expect(result.storageObjectsDeleted).toBeGreaterThanOrEqual(2);
+    expect(result.storageObjectsDeleted).toBeGreaterThanOrEqual(3);
     expect(result.customExercises).toBeGreaterThanOrEqual(1);
-    expect(result.jobs).toBeGreaterThanOrEqual(2);
+    expect(result.jobs).toBeGreaterThanOrEqual(3);
     expect(
       await client.auditEvent.count({ where: { action: 'admin.factory_reset.completed', targetId: job.id } }),
     ).toBe(1);

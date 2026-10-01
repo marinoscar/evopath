@@ -5,11 +5,15 @@ import {
   BP_DIASTOLIC,
   BP_SYSTOLIC,
   getMetric,
+  isLabMetric,
   isMeasurementMetric,
   isMethodAllowed,
   isMetricKey,
   isWithinBounds,
+  LAB_PANELS,
+  MEASUREMENT_METRIC_KEYS,
   METRIC_CATEGORIES,
+  METRICS,
   toCanonical,
   unitFor,
 } from '../metric-registry';
@@ -32,6 +36,14 @@ import {
 // =============================================================================
 
 export const MAX_READINGS_PER_ENTRY = 6;
+/** A lab entry is one report (a panel or several): at most this many analytes. */
+export const MAX_LAB_READINGS_PER_ENTRY = 40;
+export const REFERENCE_TEXT_MAX = 100;
+/** The lab's own flag on a result (H3, #187). Stored as text; Zod is the guard. */
+export const MEASUREMENT_FLAGS = ['low', 'normal', 'high', 'critical', 'unknown'] as const;
+export type MeasurementFlag = (typeof MEASUREMENT_FLAGS)[number];
+/** The reading fields only a lab analyte may carry. */
+const REFERENCE_FIELDS = ['referenceLow', 'referenceHigh', 'referenceText', 'flag'] as const;
 export const MEASUREMENT_NOTES_MAX = 500;
 /** `measuredAt` may be at most this far ahead of the server clock (clock skew). */
 export const MEASURED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
@@ -74,18 +86,59 @@ const readingInputSchema = z
         description:
           "How it was measured; one of the metric's `methods`. Omitted = `unspecified` on create, unchanged on edit.",
       }),
+    referenceLow: z
+      .number()
+      .nullable()
+      .optional()
+      .meta({
+        description:
+          "Lab metrics only. The lab's lower reference limit, in `unit` (converted like `value`). Null or omitted = none on create; omitted = unchanged, null = cleared on edit.",
+      }),
+    referenceHigh: z
+      .number()
+      .nullable()
+      .optional()
+      .meta({
+        description:
+          "Lab metrics only. The lab's upper reference limit, in `unit`; not below `referenceLow`. Same null/omitted rules as `referenceLow`.",
+      }),
+    referenceText: z
+      .string()
+      .trim()
+      .max(REFERENCE_TEXT_MAX, {
+        message: `referenceText must be at most ${REFERENCE_TEXT_MAX} characters`,
+      })
+      .transform((value) => (value === '' ? null : value))
+      .nullable()
+      .optional()
+      .meta({
+        description: `Lab metrics only. The range as printed when it is not two numbers (\`<100\`, \`negative\`), at most ${REFERENCE_TEXT_MAX} characters. An empty string is stored as null.`,
+      }),
+    flag: z
+      .enum(MEASUREMENT_FLAGS)
+      .nullable()
+      .optional()
+      .meta({ description: "Lab metrics only. The lab's flag on the result." }),
   })
   .strict();
 
 type ReadingInput = z.output<typeof readingInputSchema>;
 
-/** A validated reading, value already in the canonical unit. */
+/** A validated reading, value (and reference limits) already in the canonical unit. */
 export interface NormalizedReading {
   metricKey: string;
   value: number;
   unit: string;
   /** Undefined = default (create) or keep the existing method (edit). */
   method?: string;
+  /**
+   * Lab context. Undefined = none (create) or keep the stored one (edit);
+   * null = none / clear.
+   */
+  referenceLow?: number | null;
+  referenceHigh?: number | null;
+  referenceText?: string | null;
+  flag?: MeasurementFlag | null;
 }
 
 /**
@@ -102,6 +155,24 @@ function checkReadings(
 
   const seen = new Set<string>();
   const canonical = new Map<string, number>();
+  const keys = readings
+    .map((reading: Partial<ReadingInput> | undefined) => reading?.metricKey)
+    .filter((key): key is string => typeof key === 'string' && isMeasurementMetric(key));
+  const labCount = keys.filter(isLabMetric).length;
+
+  if (labCount > 0 && labCount < keys.length) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['readings'],
+      message: 'Lab metrics and body or vital metrics cannot be saved in one entry',
+    });
+  } else if (labCount === 0 && readings.length > MAX_READINGS_PER_ENTRY) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['readings'],
+      message: `readings must contain at most ${MAX_READINGS_PER_ENTRY} readings`,
+    });
+  }
 
   readings.forEach((raw: Partial<ReadingInput> | undefined, index) => {
     if (!raw || typeof raw.metricKey !== 'string') return;
@@ -141,6 +212,20 @@ function checkReadings(
       });
     }
 
+    const lab = isLabMetric(metricKey);
+
+    if (!lab) {
+      for (const field of REFERENCE_FIELDS) {
+        if (raw[field] !== undefined && raw[field] !== null) {
+          ctx.addIssue({
+            code: 'custom',
+            path: at(field),
+            message: `${field} is only accepted for lab metrics`,
+          });
+        }
+      }
+    }
+
     const unit = raw.unit ?? getMetric(metricKey)!.canonicalUnit;
 
     if (!unitFor(metricKey, unit)) {
@@ -150,6 +235,19 @@ function checkReadings(
         message: `unit is not allowed for ${metricKey}`,
       });
       return;
+    }
+
+    if (lab) {
+      const low = typeof raw.referenceLow === 'number' ? raw.referenceLow : undefined;
+      const high = typeof raw.referenceHigh === 'number' ? raw.referenceHigh : undefined;
+      const problem = referenceRangeProblem(
+        low === undefined ? undefined : toCanonical(metricKey, low, unit),
+        high === undefined ? undefined : toCanonical(metricKey, high, unit),
+      );
+
+      if (problem) {
+        ctx.addIssue({ code: 'custom', path: at('referenceLow'), message: problem });
+      }
     }
 
     if (typeof raw.value !== 'number' || !Number.isFinite(raw.value)) return;
@@ -206,15 +304,36 @@ export function bloodPressureProblem(
   return null;
 }
 
+/**
+ * The range rule, shared by the schemas and the service's merged-reading
+ * check on edit. Limits are canonical; undefined or null = not set.
+ */
+export function referenceRangeProblem(
+  low: number | null | undefined,
+  high: number | null | undefined,
+): string | null {
+  if (typeof low === 'number' && typeof high === 'number' && low > high) {
+    return 'referenceLow must not be higher than referenceHigh';
+  }
+
+  return null;
+}
+
 function normalize(reading: ReadingInput): NormalizedReading {
   const metric = getMetric(reading.metricKey)!;
   const unit = reading.unit ?? metric.canonicalUnit;
+  const limit = (value: number | null | undefined) =>
+    value === undefined || value === null ? value : toCanonical(reading.metricKey, value, unit);
 
   return {
     metricKey: reading.metricKey,
     value: toCanonical(reading.metricKey, reading.value, unit),
     unit: metric.canonicalUnit,
     ...(reading.method !== undefined ? { method: reading.method } : {}),
+    ...(reading.referenceLow !== undefined ? { referenceLow: limit(reading.referenceLow) } : {}),
+    ...(reading.referenceHigh !== undefined ? { referenceHigh: limit(reading.referenceHigh) } : {}),
+    ...(reading.referenceText !== undefined ? { referenceText: reading.referenceText } : {}),
+    ...(reading.flag !== undefined ? { flag: reading.flag } : {}),
   };
 }
 
@@ -250,8 +369,10 @@ const notesSchema = z
 const readingsSchema = z
   .array(readingInputSchema)
   .min(1, { message: 'readings must contain at least one reading' })
-  .max(MAX_READINGS_PER_ENTRY, {
-    message: `readings must contain at most ${MAX_READINGS_PER_ENTRY} readings`,
+  // Six for body and vital entries (checked in `checkReadings`); a lab report
+  // may carry up to MAX_LAB_READINGS_PER_ENTRY analytes.
+  .max(MAX_LAB_READINGS_PER_ENTRY, {
+    message: `readings must contain at most ${MAX_LAB_READINGS_PER_ENTRY} readings`,
   });
 
 // -----------------------------------------------------------------------------
@@ -275,7 +396,7 @@ export const createMeasurementEntrySchema = z
   }))
   .meta({
     description:
-      'One entry: 1 to 6 readings saved together (for example a blood-pressure pair, or weight + body fat + waist). `origin` and `sourceRef` are server-owned and refused.',
+      `One entry: readings saved together (for example a blood-pressure pair, or weight + body fat + waist): 1 to ${MAX_READINGS_PER_ENTRY} body/vital readings, or 1 to ${MAX_LAB_READINGS_PER_ENTRY} lab analytes from one report (lab and body/vital metrics never share an entry). Lab readings may carry a reference range and flag. \`origin\` and \`sourceRef\` are server-owned and refused.`,
   });
 
 export class CreateMeasurementEntryDto extends createZodDto(createMeasurementEntrySchema) {}
@@ -319,6 +440,9 @@ export type UpdateMeasurementEntryInput = z.output<typeof updateMeasurementEntry
 // Query strings
 // -----------------------------------------------------------------------------
 
+/** The categories `GET /api/measurements` can filter by (wellness is served by check-ins). */
+export const LIST_CATEGORIES = ['body', 'vital', 'lab'] as const;
+
 const queryDateSchema = (name: string) =>
   z.iso
     .datetime({ offset: true, message: `${name} must be an ISO 8601 date-time` })
@@ -328,8 +452,12 @@ export const listMeasurementsQuerySchema = z
   .object({
     metricKey: z
       .string()
-      .refine(isMeasurementMetric, { message: 'metricKey must be a body or vital metric' })
+      .refine(isMeasurementMetric, { message: 'metricKey must be a body, vital or lab metric' })
       .optional(),
+    category: z
+      .enum(LIST_CATEGORIES)
+      .optional()
+      .meta({ description: 'Only this category. Omitted (and no `metricKey`) = body and vital.' }),
     from: queryDateSchema('from').optional(),
     to: queryDateSchema('to').optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -344,6 +472,24 @@ export const listMeasurementsQuerySchema = z
     path: ['from'],
     message: 'from must not be later than to',
   });
+
+/**
+ * The metric keys a list query covers: one `metricKey` (inside `category`
+ * when both are given), a whole `category`, or by default body and vital.
+ */
+export function listMetricKeys(query: Pick<ListMeasurementsQuery, 'metricKey' | 'category'>): string[] {
+  const inCategory = query.category
+    ? (METRICS as ReadonlyArray<{ key: string; category: string }>)
+        .filter((metric) => metric.category === query.category)
+        .map((metric) => metric.key)
+    : null;
+
+  if (query.metricKey) {
+    return !inCategory || inCategory.includes(query.metricKey) ? [query.metricKey] : [];
+  }
+
+  return inCategory ?? [...MEASUREMENT_METRIC_KEYS];
+}
 
 export class ListMeasurementsQueryDto extends createZodDto(listMeasurementsQuerySchema) {}
 export type ListMeasurementsQuery = z.output<typeof listMeasurementsQuerySchema>;
@@ -390,10 +536,31 @@ export const measurementSchema = z.object({
     .string()
     .meta({ description: '`manual` for everything written through this API; set by the server only.' }),
   notes: z.string().nullable(),
+  referenceLow: z
+    .number()
+    .nullable()
+    .meta({ description: "Lab metrics: the lab's lower reference limit in the canonical unit; null when not given." }),
+  referenceHigh: z
+    .number()
+    .nullable()
+    .meta({ description: "Lab metrics: the lab's upper reference limit in the canonical unit; null when not given." }),
+  referenceText: z
+    .string()
+    .nullable()
+    .meta({ description: 'Lab metrics: the range as printed (`<100`, `negative`); null when not given.' }),
+  flag: z.enum(MEASUREMENT_FLAGS).nullable().meta({ description: "Lab metrics: the lab's flag; null when not given." }),
   sourceRef: z
     .record(z.string(), z.unknown())
     .nullable()
     .meta({ description: 'Provenance written by server code (photo intake); null otherwise.' }),
+  fileDeleted: z
+    .boolean()
+    .nullable()
+    .meta({
+      description:
+        "Whether the file this reading was read from (`sourceRef.healthDocumentId`) was erased (delete after processing); " +
+        'null when the reading names no health document.',
+    }),
   revision: z.number().int(),
   edited: z.boolean().meta({ description: '`revision > 1`.' }),
 });
@@ -442,7 +609,12 @@ export const measurementSeriesSchema = z.object({
 export class MeasurementSeriesDto extends createZodDto(measurementSeriesSchema) {}
 export type MeasurementSeries = z.infer<typeof measurementSeriesSchema>;
 
-const unitDefSchema = z.object({ unit: z.string(), factor: z.number(), label: z.string() });
+const unitDefSchema = z.object({
+  unit: z.string(),
+  factor: z.number(),
+  offset: z.number().meta({ description: 'Added after `factor`; 0 for every unit but HbA1c in mmol/mol.' }),
+  label: z.string(),
+});
 
 export const metricCatalogSchema = z.object({
   metrics: z.array(
@@ -453,7 +625,10 @@ export const metricCatalogSchema = z.object({
       canonicalUnit: z.string(),
       units: z
         .array(unitDefSchema)
-        .meta({ description: 'Allowed units; `factor` converts a value in `unit` to the canonical unit.' }),
+        .meta({
+          description:
+            'Allowed units; canonical = value in `unit` x `factor` + `offset`. The first unit is the canonical one.',
+        }),
       displayUnit: z.object({ metric: z.string(), imperial: z.string() }),
       min: z.number(),
       max: z.number(),
@@ -468,6 +643,13 @@ export const metricCatalogSchema = z.object({
         })
         .nullable(),
       daily: z.boolean(),
+      panel: z
+        .enum(LAB_PANELS)
+        .nullable()
+        .meta({ description: 'Lab analytes: the panel it is shown under; null for other categories.' }),
+      aliases: z
+        .array(z.string())
+        .meta({ description: 'Lab analytes: other names labs print for it; empty for other categories.' }),
     }),
   ),
   methods: z.array(z.object({ key: z.string(), label: z.string() })),

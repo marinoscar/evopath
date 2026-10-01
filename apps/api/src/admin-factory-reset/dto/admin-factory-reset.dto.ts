@@ -18,6 +18,8 @@ export const adminFactoryResetSummarySchema = z.object({
   gyms: count,
   /** Active measurement readings, check-in scores included. */
   measurements: count,
+  /** Health documents (lab reports, body-metric photos), kept files or not. */
+  healthDocuments: count,
   programs: count,
   trainingRuns: count,
   /** Storage objects, excluding database backup archives (which are kept). */

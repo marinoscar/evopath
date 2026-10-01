@@ -84,7 +84,8 @@ export class IntakesController {
     summary: 'Start a photo intake',
     description:
       'Creates a `draft` intake of a registered `kind`. `context` is validated by the kind (for ' +
-      'example that the gym it names is yours; a foreign id is a 404).',
+      'example that the gym it names is yours; a foreign id is a 404). `retainFiles` (default `true`) ' +
+      'is the keep-or-delete choice for the files of a health intake kind.',
   })
   @ApiDataResponse(PhotoIntakeView, { status: 201, description: 'The new intake' })
   @ApiResponse({
@@ -151,10 +152,12 @@ export class IntakesController {
   @Patch(':id')
   @Auth({ permissions: [PERMISSIONS.INTAKES_WRITE] })
   @ApiOperation({
-    summary: 'Change a photo intake\'s context',
+    summary: 'Change a photo intake\'s context or file retention',
     description:
       'Replaces `context` (for example a source hint the analyzer reads) in `draft`, `ready` or ' +
-      '`failed`. The kind validates it as on create; photos and items are untouched.',
+      '`failed`. The kind validates it as on create; photos and items are untouched. `retainFiles` ' +
+      'changes the keep-or-delete choice of the intake and of every file already attached; a body ' +
+      'with only `retainFiles` leaves `context` as it is.',
   })
   @ApiParam(ID_PARAM)
   @ApiDataResponse(PhotoIntakeView, { description: 'The intake' })
@@ -195,16 +198,20 @@ export class IntakesController {
   @ApiOperation({
     summary: 'Attach a photo',
     description:
-      'Links one of your `ready` image storage objects (PNG, JPEG, GIF or WebP, at most 20 MiB) to ' +
-      'the intake, while it is `draft`, `ready` or `failed`. At most the kind\'s photo cap (default 48).',
+      'Links one of your `ready` storage objects to the intake, while it is `draft`, `ready` or `failed`: ' +
+      'a PNG, JPEG, GIF or WebP image of at most 20 MiB, or, for a kind that accepts PDFs ' +
+      '(`body_metric_reading`), a PDF of at most 50 MiB and 20 pages. The stored bytes are read back: ' +
+      'their magic bytes must match the declared type. At most the kind\'s photo cap (default 48); ' +
+      'a PDF counts as one.',
   })
   @ApiParam(ID_PARAM)
   @ApiDataResponse(PhotoIntakePhotoView, { status: 201, description: 'The attached photo' })
   @ApiResponse({
     status: 400,
     description:
-      'Validation error, or `details.reason`: `OBJECT_NOT_READY`, `UNSUPPORTED_MEDIA_TYPE`, ' +
-      '`OBJECT_TOO_LARGE`, `TOO_MANY_PHOTOS`',
+      'Validation error, or `details.reason`: `OBJECT_NOT_READY`, `UNSUPPORTED_MEDIA_TYPE` ' +
+      '(`details.contentMismatch` when the bytes do not match the type), `OBJECT_TOO_LARGE`, ' +
+      '`TOO_MANY_PAGES` (`details.pages`, `details.maxPages`), `PDF_UNREADABLE`, `TOO_MANY_PHOTOS`',
     type: ErrorDto,
   })
   @ApiResponse(UNAUTHENTICATED)
@@ -220,7 +227,9 @@ export class IntakesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AttachPhotoDto,
   ) {
-    return this.intakes.attachPhoto(user.id, id, dto.storageObjectId, user.permissions);
+    return this.intakes.attachPhoto(user.id, id, dto.storageObjectId, user.permissions, {
+      retainFiles: dto.retainFiles,
+    });
   }
 
   @Delete(':id/photos/:storageObjectId')
@@ -395,14 +404,17 @@ export class IntakeAnalyzeController {
       '(`details.featureId`, `details.state`, `details.fix`).\n\n' +
       'AI refusals carry the code in `details.reason`: `AI_DISABLED`, `AI_PROVIDER_DISABLED`, ' +
       '`AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE` (403); ' +
-      '`AI_CAPABILITY_UNSUPPORTED` (400).',
+      '`AI_CAPABILITY_UNSUPPORTED` (400). With a PDF attached the model also needs `file_input`; ' +
+      'without it the 400 carries `details.capability: file_input` and `details.inputKind: pdf`, and ' +
+      'nothing is queued. Each attached file is re-checked first (type, size, a PDF\'s magic bytes and pages).',
   })
   @ApiParam(ID_PARAM)
   @ApiDataResponse(IntakeAnalyzeStarted, { status: 202, description: 'The analysis was queued' })
   @ApiResponse({
     status: 400,
     description:
-      'Validation error, `AI_CAPABILITY_UNSUPPORTED`, or `details.reason`: `NO_PHOTOS`, `MANUAL_ONLY_KIND`',
+      'Validation error, `AI_CAPABILITY_UNSUPPORTED`, or `details.reason`: `NO_PHOTOS`, `MANUAL_ONLY_KIND`, ' +
+      '`UNSUPPORTED_MEDIA_TYPE`, `OBJECT_TOO_LARGE`, `TOO_MANY_PAGES`, `PDF_UNREADABLE`',
     type: ErrorDto,
   })
   @ApiResponse(UNAUTHENTICATED)

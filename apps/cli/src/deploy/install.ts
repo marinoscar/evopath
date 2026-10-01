@@ -1179,10 +1179,20 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         );
 
         if (!isHealthy(report)) {
+          // The external HTTPS probe is the one check that can fail for a
+          // reason `deploy status` does not specifically diagnose: the proxy
+          // serving a different certificate than the one on disk (#199,
+          // #205) -- `deploy certs` is the command that actually compares
+          // them and names the exact remedy for this deployment's runtime.
+          const certHint =
+            report.external !== undefined && !report.external.probe.ok
+              ? ` If the domain shows a certificate/SSL error in a browser, run \`${CLI_NAME} deploy certs --domain ${context.options.domain as string}\` to check whether the proxy needs reloading.`
+              : '';
           throw new Error(
             'The stack is up but not healthy. Run `' +
               CLI_NAME +
-              ' deploy status` for the detail.',
+              ' deploy status` for the detail.' +
+              certHint,
           );
         }
 

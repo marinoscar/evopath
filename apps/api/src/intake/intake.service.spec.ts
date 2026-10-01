@@ -8,6 +8,10 @@ import { IntakeKindRegistry } from './intake-kind.registry';
 import { stubFeatureResolver } from '../ai/testing/feature-resolver.stub';
 import { IntakeService } from './intake.service';
 import { StorageObjectReferences } from './storage-object-references';
+import type { IntakeInputInspector } from './intake-input-inspector';
+import { trustingInputInspector } from './testing/input-inspector.stub';
+import { AiError } from '../ai/core/ai-error';
+import { PDF_INPUT_UNSUPPORTED_MESSAGE } from './intake-inputs';
 
 // =============================================================================
 // IntakeService — the provenance and state invariants, over a mocked Prisma
@@ -107,6 +111,7 @@ describe('IntakeService', () => {
   let usableModels: { assertUsable: jest.Mock };
   let objects: { delete: jest.Mock };
   let features: ReturnType<typeof stubFeatureResolver>;
+  let inputs: IntakeInputInspector;
   let service: IntakeService;
   let references: StorageObjectReferences;
   let kind: IntakeKind<unknown, StubValue>;
@@ -121,6 +126,7 @@ describe('IntakeService', () => {
     usableModels = { assertUsable: jest.fn(async () => ({})) };
     objects = { delete: jest.fn(async () => undefined) };
     features = stubFeatureResolver({ provider: 'openai', modelId: 'vision-1' });
+    inputs = trustingInputInspector();
     references = new StorageObjectReferences();
     service = new IntakeService(
       prisma as never,
@@ -129,6 +135,7 @@ describe('IntakeService', () => {
       usableModels as never,
       objects as never,
       features as never,
+      inputs,
       references,
     );
   });
@@ -322,6 +329,105 @@ describe('IntakeService', () => {
 
       await expect(service.attachPhoto(USER, INTAKE, OBJECT)).rejects.toBeInstanceOf(ConflictException);
     });
+
+    describe('file content and PDFs (H2, #186)', () => {
+      const readyPdf = { ...readyImage, name: 'scale-report.pdf', mimeType: 'application/pdf', storageKey: 'k/pdf' };
+      const inspect = () => inputs.inspect as jest.Mock;
+
+      function pdfKind(overrides: Partial<IntakeKind<unknown, StubValue>> = {}) {
+        registry.register(stubKind({ acceptedInputs: ['image', 'pdf'], ...overrides }));
+      }
+
+      beforeEach(() => {
+        prisma.photoIntakePhoto.create.mockResolvedValue({
+          id: 'photo-1',
+          intakeId: INTAKE,
+          storageObjectId: OBJECT,
+          sortOrder: 0,
+          createdAt: new Date(),
+          storageObject: { name: 'x' },
+        } as never);
+      });
+
+      it('an image-only kind refuses a PDF with UNSUPPORTED_MEDIA_TYPE, before reading any bytes', async () => {
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(reasonOf(error)).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(((error as BadRequestException).getResponse() as any).details.allowed).not.toContain('application/pdf');
+        expect(inspect()).not.toHaveBeenCalled();
+        expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+      });
+
+      it('a kind accepting PDFs attaches one after reading its stored bytes', async () => {
+        pdfKind();
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+
+        await service.attachPhoto(USER, INTAKE, OBJECT);
+
+        expect(inspect()).toHaveBeenCalledWith('k/pdf', 'pdf');
+        expect(prisma.photoIntakePhoto.create).toHaveBeenCalledTimes(1);
+      });
+
+      it('an image is sniffed too, and a non-image under an image type is refused', async () => {
+        prisma.storageObject.findUnique.mockResolvedValue({ ...readyImage, storageKey: 'k/img' } as never);
+        inspect().mockResolvedValueOnce({ detected: null, pages: null, oversize: false });
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(inspect()).toHaveBeenCalledWith('k/img', 'image');
+        expect(reasonOf(error)).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(((error as BadRequestException).getResponse() as any).details.contentMismatch).toBe(true);
+        expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['a renamed non-PDF', { detected: null, pages: null, oversize: false }, 'UNSUPPORTED_MEDIA_TYPE'],
+        ['an image renamed to .pdf', { detected: 'image', pages: null, oversize: false }, 'UNSUPPORTED_MEDIA_TYPE'],
+        ['a PDF over the default 20-page cap', { detected: 'pdf', pages: 21, oversize: false }, 'TOO_MANY_PAGES'],
+        ['a PDF whose pages cannot be counted', { detected: 'pdf', pages: null, oversize: false }, 'PDF_UNREADABLE'],
+        ['a stored file larger than its row claimed', { detected: 'pdf', pages: null, oversize: true }, 'OBJECT_TOO_LARGE'],
+      ])('refuses %s with 400, writing nothing', async (_label, inspection, reason) => {
+        pdfKind();
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+        inspect().mockResolvedValueOnce(inspection);
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect(reasonOf(error)).toBe(reason);
+        expect(prisma.photoIntakePhoto.create).not.toHaveBeenCalled();
+      });
+
+      it('names the page count and the cap, and honours a kind-level maxPdfPages', async () => {
+        pdfKind({ maxPdfPages: 2 });
+        prisma.storageObject.findUnique.mockResolvedValue(readyPdf as never);
+        inspect().mockResolvedValueOnce({ detected: 'pdf', pages: 3, oversize: false });
+
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+
+        expect(((error as BadRequestException).getResponse() as any).details).toMatchObject({
+          reason: 'TOO_MANY_PAGES',
+          pages: 3,
+          maxPages: 2,
+        });
+      });
+
+      it('caps a PDF at 50 MiB (not the 20 MiB image cap) on the recorded size', async () => {
+        pdfKind();
+        prisma.storageObject.findUnique.mockResolvedValue({ ...readyPdf, size: BigInt(30 * 1024 * 1024) } as never);
+        await service.attachPhoto(USER, INTAKE, OBJECT);
+        expect(prisma.photoIntakePhoto.create).toHaveBeenCalledTimes(1);
+
+        prisma.storageObject.findUnique.mockResolvedValue({ ...readyPdf, size: BigInt(51 * 1024 * 1024) } as never);
+        const error = await caught(service.attachPhoto(USER, INTAKE, OBJECT));
+        expect(((error as BadRequestException).getResponse() as any).details).toMatchObject({
+          reason: 'OBJECT_TOO_LARGE',
+          maxBytes: 50 * 1024 * 1024,
+        });
+      });
+    });
   });
 
   describe('detachPhoto and discard', () => {
@@ -439,6 +545,87 @@ describe('IntakeService', () => {
         data: { jobId: '66666666-6666-4666-8666-666666666666' },
       });
       expect(started).toEqual({ intakeId: INTAKE, jobId: '66666666-6666-4666-8666-666666666666' });
+    });
+
+    describe('with a PDF attached (H2, #186)', () => {
+      const pdfPhoto = {
+        storageObjectId: OBJECT,
+        storageObject: { mimeType: 'application/pdf', size: BigInt(2048), storageKey: 'k/pdf' },
+      };
+
+      beforeEach(() => {
+        registry.register(stubKind({ acceptedInputs: ['image', 'pdf'] }));
+        prisma.photoIntakePhoto.findMany.mockResolvedValue([pdfPhoto] as never);
+      });
+
+      it('re-reads the PDF and asks the model gate for file_input too', async () => {
+        await service.analyze(USER, INTAKE, {});
+
+        expect(inputs.inspect).toHaveBeenCalledWith('k/pdf', 'pdf');
+        expect(usableModels.assertUsable).toHaveBeenCalledWith(USER, 'openai', 'vision-1', [
+          'vision_input',
+          'structured_output',
+          'file_input',
+        ]);
+        expect(jobs.enqueueWithin).toHaveBeenCalledTimes(1);
+      });
+
+      it('a model without file_input gets the typed, user-readable error, and nothing is queued', async () => {
+        usableModels.assertUsable.mockRejectedValue(
+          new AiError('AI_CAPABILITY_UNSUPPORTED', 'Model "vision-1" does not support file_input.', {
+            details: { provider: 'openai', model: 'vision-1', capability: 'file_input' },
+          }),
+        );
+
+        const error = (await caught(service.analyze(USER, INTAKE, {}))) as AiError;
+
+        expect(error).toBeInstanceOf(AiError);
+        expect(error.code).toBe('AI_CAPABILITY_UNSUPPORTED');
+        expect(error.message).toBe(PDF_INPUT_UNSUPPORTED_MESSAGE);
+        expect((error.getResponse() as any).details).toMatchObject({ capability: 'file_input', inputKind: 'pdf' });
+        expect(prisma.photoIntake.updateMany).not.toHaveBeenCalled();
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('a model whose input modalities lack "file" is refused the same way', async () => {
+        usableModels.assertUsable.mockResolvedValue({
+          model: { capabilities: { capabilities: ['file_input'], inputModalities: ['text', 'image'] } },
+        });
+
+        const error = (await caught(service.analyze(USER, INTAKE, {}))) as AiError;
+
+        expect(error.message).toBe(PDF_INPUT_UNSUPPORTED_MESSAGE);
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('a PDF over the page cap is refused at analyze too, before the model is resolved', async () => {
+        (inputs.inspect as jest.Mock).mockResolvedValueOnce({ detected: 'pdf', pages: 40, oversize: false });
+
+        expect(reasonOf(await caught(service.analyze(USER, INTAKE, {})))).toBe('TOO_MANY_PAGES');
+        expect(features.resolve).not.toHaveBeenCalled();
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('a PDF on a kind that no longer accepts PDFs is refused at analyze', async () => {
+        registry.register(stubKind());
+
+        expect(reasonOf(await caught(service.analyze(USER, INTAKE, {})))).toBe('UNSUPPORTED_MEDIA_TYPE');
+        expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      });
+
+      it('images only: no bytes are read and file_input is not asked for', async () => {
+        prisma.photoIntakePhoto.findMany.mockResolvedValue([
+          { storageObjectId: OBJECT, storageObject: { mimeType: 'image/png', size: BigInt(10), storageKey: 'k/img' } },
+        ] as never);
+
+        await service.analyze(USER, INTAKE, {});
+
+        expect(inputs.inspect).not.toHaveBeenCalled();
+        expect(usableModels.assertUsable).toHaveBeenCalledWith(USER, 'openai', 'vision-1', [
+          'vision_input',
+          'structured_output',
+        ]);
+      });
     });
 
     it('refuses a model the gate refuses, and queues nothing', async () => {
@@ -957,6 +1144,254 @@ describe('IntakeService', () => {
 
       expect(prisma.photoIntake.create).toHaveBeenCalledTimes(1);
       expect(prisma.photoIntake.findMany.mock.calls[0][0]!.where).toEqual({ userId: USER });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // File retention and health documents (H1, #185)
+  // ---------------------------------------------------------------------------
+
+  describe('retainFiles and health documents', () => {
+    const DOC = '77777777-7777-4777-8777-777777777777';
+    const DOC_2 = '77777777-7777-4777-8777-777777777778';
+    const readyImage = {
+      id: OBJECT,
+      name: 'scale.jpg',
+      status: 'ready',
+      mimeType: 'image/jpeg',
+      size: BigInt(2048),
+      uploadedById: USER,
+    };
+
+    beforeEach(() => {
+      registry.register(stubKind({ kind: 'health_stub', healthDocumentKind: 'body_metric' }));
+    });
+
+    it('create stores retention keep by default and delete_after_processing for retainFiles: false', async () => {
+      prisma.photoIntake.create.mockResolvedValue({ ...intakeRow({ retention: 'keep' }), photos: [], items: [] } as never);
+
+      const view = await service.create(USER, { kind: 'test_stub' });
+      await service.create(USER, { kind: 'test_stub', retainFiles: true });
+      await service.create(USER, { kind: 'test_stub', retainFiles: false });
+
+      expect(prisma.photoIntake.create.mock.calls.map(([args]) => args.data.retention)).toEqual([
+        'keep',
+        'keep',
+        'delete_after_processing',
+      ]);
+      expect(view).toMatchObject({ retention: 'keep', retainFiles: true });
+    });
+
+    it('the view reports delete_after_processing as retainFiles: false and each photo its document', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue({
+        ...intakeRow({ kind: 'health_stub', retention: 'delete_after_processing' }),
+        photos: [{ id: 'p1', storageObjectId: OBJECT, sortOrder: 0, storageObject: { name: 'scale.jpg' } }],
+        items: [],
+        healthDocuments: [{ id: DOC, storageObjectId: OBJECT, retention: 'delete_after_processing' }],
+      } as never);
+
+      const view = await service.get(USER, INTAKE);
+
+      expect(view).toMatchObject({ retention: 'delete_after_processing', retainFiles: false });
+      expect(view.photos[0]).toMatchObject({ healthDocumentId: DOC, retention: 'delete_after_processing' });
+    });
+
+    describe('attachPhoto', () => {
+      beforeEach(() => {
+        prisma.storageObject.findUnique.mockResolvedValue(readyImage as never);
+        prisma.photoIntakePhoto.count.mockResolvedValue(0);
+        prisma.photoIntakePhoto.aggregate.mockResolvedValue({ _max: { sortOrder: null } } as never);
+        prisma.photoIntakePhoto.create.mockResolvedValue({
+          id: 'p1',
+          intakeId: INTAKE,
+          storageObjectId: OBJECT,
+          sortOrder: 0,
+          storageObject: { name: 'scale.jpg' },
+        } as never);
+        prisma.healthDocument.create.mockImplementation((async (args: { data: Record<string, unknown> }) => ({
+          id: DOC,
+          storageObjectId: args.data.storageObjectId,
+          retention: args.data.retention,
+        })) as never);
+      });
+
+      it("a health kind writes one document from the object's metadata, with the intake's retention", async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(
+          intakeRow({ kind: 'health_stub', status: 'draft', retention: 'delete_after_processing' }) as never,
+        );
+
+        const view = await service.attachPhoto(USER, INTAKE, OBJECT);
+
+        expect(prisma.healthDocument.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: {
+              userId: USER,
+              kind: 'body_metric',
+              storageObjectId: OBJECT,
+              originalName: 'scale.jpg',
+              mimeType: 'image/jpeg',
+              sizeBytes: BigInt(2048),
+              retention: 'delete_after_processing',
+              intakeId: INTAKE,
+            },
+          }),
+        );
+        expect(view).toMatchObject({ healthDocumentId: DOC, retention: 'delete_after_processing' });
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      });
+
+      it('retainFiles on the attach overrides the intake choice for that file', async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(
+          intakeRow({ kind: 'health_stub', status: 'draft', retention: 'keep' }) as never,
+        );
+
+        await service.attachPhoto(USER, INTAKE, OBJECT, undefined, { retainFiles: false });
+
+        expect(prisma.healthDocument.create.mock.calls[0][0].data.retention).toBe('delete_after_processing');
+      });
+
+      it('a kind without healthDocumentKind writes no document', async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'draft' }) as never);
+
+        const view = await service.attachPhoto(USER, INTAKE, OBJECT, undefined, { retainFiles: false });
+
+        expect(prisma.healthDocument.create).not.toHaveBeenCalled();
+        expect(view).toMatchObject({ healthDocumentId: null, retention: null });
+      });
+    });
+
+    it('detach removes the file\'s document with the link, before the object cleanup', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub' }) as never);
+      prisma.photoIntakePhoto.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.healthDocument.deleteMany.mockResolvedValue({ count: 1 });
+      prisma.photoIntakePhoto.count.mockResolvedValue(0);
+
+      await service.detachPhoto(USER, INTAKE, OBJECT);
+
+      expect(prisma.healthDocument.deleteMany).toHaveBeenCalledWith({
+        where: { intakeId: INTAKE, userId: USER, storageObjectId: OBJECT, fileDeletedAt: null },
+      });
+      expect(prisma.healthDocument.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+        objects.delete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('discard enqueues one purge per delete_after_processing document, in the delete transaction', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub' }) as never);
+      prisma.photoIntakePhoto.findMany.mockResolvedValue([] as never);
+      prisma.healthDocument.findMany.mockResolvedValue([{ id: DOC }, { id: DOC_2 }] as never);
+      prisma.photoIntake.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.discard(USER, INTAKE);
+
+      expect(prisma.healthDocument.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { intakeId: INTAKE, userId: USER, retention: 'delete_after_processing', fileDeletedAt: null },
+        }),
+      );
+      // Read before the delete, which sets their intake_id to NULL.
+      expect(prisma.healthDocument.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.photoIntake.deleteMany.mock.invocationCallOrder[0],
+      );
+      expect(jobs.enqueueWithin.mock.calls.map(([, input]) => input)).toEqual([
+        expect.objectContaining({
+          type: 'health.document.purge',
+          subjectType: 'health_document',
+          subjectId: DOC,
+          payload: { healthDocumentId: DOC },
+        }),
+        expect.objectContaining({ subjectId: DOC_2, payload: { healthDocumentId: DOC_2 } }),
+      ]);
+    });
+
+    it('a discard that loses to a concurrent apply enqueues nothing', async () => {
+      prisma.photoIntake.findFirst
+        .mockResolvedValueOnce(intakeRow({ kind: 'health_stub' }) as never)
+        .mockResolvedValue(intakeRow({ kind: 'health_stub', status: 'applied' }) as never);
+      prisma.photoIntakePhoto.findMany.mockResolvedValue([] as never);
+      prisma.healthDocument.findMany.mockResolvedValue([{ id: DOC }] as never);
+      prisma.photoIntake.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.discard(USER, INTAKE)).rejects.toBeInstanceOf(ConflictException);
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+    });
+
+    it('apply hands the kind its documents and enqueues the purges after its writes', async () => {
+      const healthKind = stubKind({ kind: 'health_stub', healthDocumentKind: 'body_metric' });
+      registry.register(healthKind);
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub' }) as never);
+      prisma.draftItem.count.mockResolvedValue(0);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      prisma.draftItem.findMany.mockResolvedValue([] as never);
+      prisma.healthDocument.findMany
+        .mockResolvedValueOnce([{ id: DOC, storageObjectId: OBJECT }] as never)
+        .mockResolvedValueOnce([{ id: DOC }] as never);
+
+      await service.apply(USER, INTAKE);
+
+      expect(healthKind.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ healthDocuments: [{ id: DOC, storageObjectId: OBJECT }] }),
+      );
+      expect(jobs.enqueueWithin).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({ type: 'health.document.purge', subjectId: DOC }),
+      );
+      expect((healthKind.apply as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+        jobs.enqueueWithin.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('apply of a kind without healthDocumentKind reads no documents and enqueues nothing', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.draftItem.count.mockResolvedValue(0);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      prisma.draftItem.findMany.mockResolvedValue([] as never);
+
+      await service.apply(USER, INTAKE);
+
+      expect(prisma.healthDocument.findMany).not.toHaveBeenCalled();
+      expect(jobs.enqueueWithin).not.toHaveBeenCalled();
+      expect(kind.apply).toHaveBeenCalledWith(expect.objectContaining({ healthDocuments: [] }));
+    });
+
+    describe('updateContext with retainFiles', () => {
+      beforeEach(() => {
+        prisma.photoIntake.findFirst.mockResolvedValue({
+          ...intakeRow({ kind: 'health_stub', context: { label: 'kept' } }),
+          photos: [],
+          items: [],
+          healthDocuments: [],
+        } as never);
+        prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      });
+
+      it('a body with only retainFiles changes the retention of the intake and its documents, not the context', async () => {
+        await service.updateContext(USER, INTAKE, { retainFiles: false });
+
+        const data = prisma.photoIntake.updateMany.mock.calls[0][0].data;
+        expect(data).toEqual({ retention: 'delete_after_processing' });
+        expect(prisma.healthDocument.updateMany).toHaveBeenCalledWith({
+          where: { intakeId: INTAKE, userId: USER, fileDeletedAt: null },
+          data: { retention: 'delete_after_processing' },
+        });
+      });
+
+      it('a body without retainFiles replaces the context as before and leaves retention alone', async () => {
+        await service.updateContext(USER, INTAKE, { context: { label: 'new' } });
+
+        const data = prisma.photoIntake.updateMany.mock.calls[0][0].data;
+        expect(data).toEqual({ context: { label: 'new' } });
+        expect(prisma.healthDocument.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('once applied, a retention change is refused 409 ALREADY_APPLIED', async () => {
+        prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub', status: 'applied' }) as never);
+
+        const error = await caught(service.updateContext(USER, INTAKE, { retainFiles: false }));
+
+        expect(reasonOf(error)).toBe('ALREADY_APPLIED');
+        expect(prisma.healthDocument.updateMany).not.toHaveBeenCalled();
+      });
     });
   });
 });

@@ -129,12 +129,13 @@ describe('UserDataResetHandler', () => {
   });
 
   describe('step 1: collecting storage objects', () => {
-    it('unions uploaded objects, intake/gym/workout photo links and the avatar setting', async () => {
-      const { handler } = setup({
+    it('unions uploaded objects, intake/gym/workout photo links, health documents and the avatar setting', async () => {
+      const { handler, prisma } = setup({
         'storageObject.findMany': [{ id: 'o-up' }, { id: 'o-avatar' }],
         'photoIntakePhoto.findMany': [{ storageObjectId: 'o-intake' }],
         'gymPhoto.findMany': [{ storageObjectId: 'o-gym' }, { storageObjectId: 'o-up' }],
         'workoutPhoto.findMany': [{ storageObjectId: 'o-workout' }],
+        'healthDocument.findMany': [{ storageObjectId: 'o-doc' }],
         'userSettings.findUnique': {
           value: { profile: { imageSource: 'upload', imageObjectId: '11111111-1111-4111-8111-111111111111' } },
         },
@@ -143,8 +144,14 @@ describe('UserDataResetHandler', () => {
       const ids = await handler.collectObjectIds(USER);
 
       expect(ids.sort()).toEqual(
-        ['11111111-1111-4111-8111-111111111111', 'o-avatar', 'o-gym', 'o-intake', 'o-up', 'o-workout'].sort(),
+        ['11111111-1111-4111-8111-111111111111', 'o-avatar', 'o-doc', 'o-gym', 'o-intake', 'o-up', 'o-workout'].sort(),
       );
+      // A purged document (file already erased) has nothing left to collect.
+      const docs = prisma.calls.find((c) => c.model === 'healthDocument' && c.method === 'findMany');
+      expect(docs?.args).toEqual({
+        where: { userId: USER, storageObjectId: { not: null } },
+        select: { storageObjectId: true },
+      });
     });
 
     it('records the collected ids on the payload BEFORE the deletion transaction', async () => {
@@ -199,6 +206,7 @@ describe('UserDataResetHandler', () => {
         'workout',
         'programChangeLog',
         'program',
+        'healthDocument',
         'photoIntake',
         'gym',
         'measurement',
@@ -271,10 +279,11 @@ describe('UserDataResetHandler', () => {
       );
     });
 
-    it('cancels only PENDING jobs about deleted rows, never itself', async () => {
+    it('cancels only PENDING jobs about deleted rows (health.document.purge included), never itself', async () => {
       const { handler, prisma } = setup({
         'trainingPlanRun.findMany': [{ id: 'run-1' }],
         'photoIntake.findMany': [{ id: 'intake-1' }],
+        'healthDocument.findMany': (args: any) => (args.select.id ? [{ id: 'doc-1' }] : []),
         'job.deleteMany': { count: 2 },
       });
       await handler.process(job());
@@ -282,7 +291,7 @@ describe('UserDataResetHandler', () => {
       const cancel = prisma.calls.find((c) => c.model === 'job' && c.method === 'deleteMany');
       expect(cancel?.args.where).toEqual({
         status: 'pending',
-        subjectId: { in: ['run-1', 'intake-1'] },
+        subjectId: { in: ['run-1', 'intake-1', 'doc-1'] },
         id: { not: 'job-1' },
       });
     });

@@ -67,6 +67,8 @@ export function readingIntake(
     jobId: null,
     errorCode: null,
     errorMessage: null,
+    retention: 'keep',
+    retainFiles: true,
     resultMeta: null,
     createdAt: T0,
     updatedAt: T0,
@@ -96,6 +98,17 @@ export interface ReadingIntakeApiOptions {
   analyzeError?: { status: number; body: unknown };
   /** A refusal for create. `network` fails the request outright. */
   createError?: { status: number; body: unknown } | 'network';
+  /**
+   * A refusal for attach (`POST /intakes/:id/photos`), answered once: the
+   * H2 (#186) file checks (`TOO_MANY_PAGES`, `PDF_UNREADABLE`, …).
+   */
+  attachError?: { status: number; body: unknown };
+  /**
+   * The name the server reports for an attached file (the storage object's
+   * name). Default `scale.jpg`: jsdom's multipart body loses the File's own
+   * name, so a test that needs a `.pdf` name sets it here.
+   */
+  photoName?: string;
   /** A refusal for apply, answered once. */
   applyError?: { status: number; body: unknown };
   /** What apply saves; by default one canonical row per accepted AI/user item. */
@@ -109,8 +122,14 @@ export interface ReadingIntakeApiState {
   analyzed: Record<string, unknown>[];
   itemPatches: { itemId: string; body: Record<string, unknown> }[];
   itemPosts: { kind: string; value: Reading }[];
+  /** Bodies of `PATCH /api/intakes/:id` (the keep-or-delete choice). */
+  intakePatches: { id: string; body: Record<string, unknown> }[];
   applied: number;
   discarded: number;
+  /** Each `POST /api/storage/objects` file part's declared type, as the client sent it. */
+  uploads: { type: string }[];
+  /** Storage object ids deleted (`DELETE /storage/objects/:id`), e.g. after a refused attach. */
+  deletedObjects: string[];
 }
 
 /** Error envelope as the API's exception filter writes it. */
@@ -126,9 +145,13 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
     analyzed: [],
     itemPatches: [],
     itemPosts: [],
+    intakePatches: [],
     applied: 0,
     discarded: 0,
+    uploads: [],
+    deletedObjects: [],
   };
+  let attachError = options.attachError;
   // A resumed intake that is already scanning answers `scanning` for `scanPolls` reads too.
   let pollsLeft = new Map<string, number>(
     (options.existing ?? []).filter((i) => i.status === 'scanning').map((i) => [i.id, options.scanPolls ?? 1]),
@@ -165,11 +188,16 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
     }),
 
     http.post('*/api/intakes', async ({ request }) => {
-      await record(request, '/api/intakes');
+      const body = ((await record(request, '/api/intakes')) ?? {}) as { retainFiles?: boolean };
       if (options.createError === 'network') return HttpResponse.error();
       if (options.createError) return HttpResponse.json(options.createError.body, { status: options.createError.status });
       state.created += 1;
-      const intake = readingIntake('draft', { id: `intake-new-${state.created}` });
+      const retainFiles = body.retainFiles !== false;
+      const intake = readingIntake('draft', {
+        id: `intake-new-${state.created}`,
+        retainFiles,
+        retention: retainFiles ? 'keep' : 'delete_after_processing',
+      });
       state.intakes.set(intake.id, intake);
       return HttpResponse.json({ data: intake }, { status: 201 });
     }),
@@ -195,6 +223,24 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
       return HttpResponse.json({ data: view(id) });
     }),
 
+    http.patch('*/api/intakes/:id', async ({ request, params }) => {
+      const id = String(params.id);
+      const body = (await record(request, `/api/intakes/${id}`)) as Record<string, unknown>;
+      state.intakePatches.push({ id, body });
+      const intake = state.intakes.get(id);
+      if (!intake) return notFound();
+      if (intake.status === 'applied') {
+        return HttpResponse.json({ code: 'INTAKE_APPLIED', message: 'This intake was already applied' }, { status: 409 });
+      }
+      if (typeof body.retainFiles === 'boolean') {
+        const retention = body.retainFiles ? 'keep' : 'delete_after_processing';
+        intake.retainFiles = body.retainFiles;
+        intake.retention = retention;
+        intake.photos = intake.photos.map((photo) => ({ ...photo, retention }));
+      }
+      return HttpResponse.json({ data: view(id) });
+    }),
+
     http.delete('*/api/intakes/:id', async ({ request, params }) => {
       const id = String(params.id);
       await record(request, `/api/intakes/${id}`);
@@ -205,10 +251,23 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
 
     http.post('*/api/intakes/:id/photos', async ({ request, params }) => {
       const id = String(params.id);
-      const body = (await record(request, `/api/intakes/${id}/photos`)) as { storageObjectId: string };
+      const body = (await record(request, `/api/intakes/${id}/photos`)) as { storageObjectId: string; retainFiles?: boolean };
       const intake = state.intakes.get(id);
       if (!intake) return notFound();
-      const photo = { id: `p-${intake.photos.length + 1}`, storageObjectId: body.storageObjectId, name: 'scale.jpg', sortOrder: intake.photos.length };
+      if (attachError) {
+        const refusal = attachError;
+        attachError = undefined;
+        return HttpResponse.json(refusal.body, { status: refusal.status });
+      }
+      const keep = body.retainFiles ?? intake.retainFiles;
+      const photo = {
+        id: `p-${intake.photos.length + 1}`,
+        storageObjectId: body.storageObjectId,
+        name: options.photoName ?? 'scale.jpg',
+        sortOrder: intake.photos.length,
+        healthDocumentId: `doc-${intake.photos.length + 1}`,
+        retention: keep ? ('keep' as const) : ('delete_after_processing' as const),
+      };
       intake.photos.push(photo);
       return HttpResponse.json({ data: photo }, { status: 201 });
     }),
@@ -316,15 +375,30 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
       return HttpResponse.json({ data: { entryId: items.length ? 'entry-photo-1' : null, items } });
     }),
 
-    // Photos upload already `ready` so the tile does not wait on processing.
-    http.post('*/api/storage/objects', () =>
-      HttpResponse.json(
+    // Files upload already `ready` so the tile does not wait on processing.
+    // The first is `obj-1` (the id the canned items cite), then `obj-2`, …
+    http.post('*/api/storage/objects', async ({ request }) => {
+      // Read the part's Content-Type from the raw multipart body: parsing it
+      // with `request.formData()` is not reliable across Node/undici versions
+      // (it throws on some, which silently fell back to the default).
+      let mimeType = 'image/jpeg';
+      try {
+        const body = await request.text();
+        const match = /name="file"[^\r\n]*\r?\nContent-Type:\s*([^\r\n;]+)/i.exec(body);
+        if (match) mimeType = match[1].trim();
+      } catch {
+        // Unreadable body: keep the default.
+      }
+      state.uploads.push({ type: mimeType });
+      const id = `obj-${state.uploads.length}`;
+      const name = options.photoName ?? 'scale.jpg';
+      return HttpResponse.json(
         {
           data: {
-            id: 'obj-1',
-            name: 'scale.jpg',
+            id,
+            name,
             size: '1024',
-            mimeType: 'image/jpeg',
+            mimeType,
             status: 'ready',
             metadata: null,
             createdAt: T0,
@@ -332,8 +406,13 @@ export function readingIntakeApi(options: ReadingIntakeApiOptions = {}): Reading
           },
         },
         { status: 201 },
-      ),
-    ),
+      );
+    }),
+
+    http.delete('*/api/storage/objects/:objectId', ({ params }) => {
+      state.deletedObjects.push(String(params.objectId));
+      return new HttpResponse(null, { status: 204 });
+    }),
   );
   return state;
 }
