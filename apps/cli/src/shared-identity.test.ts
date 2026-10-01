@@ -4,7 +4,18 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { APP_NAME, APP_SLUG, REPO_SLUG, REPO_URL, THEME_COLOR, BACKGROUND_COLOR } from '@app/shared';
+import {
+  ANDROID_APK_STEM,
+  ANDROID_DEEP_LINK_SCHEME,
+  ANDROID_PACKAGE_NAME,
+  APP_NAME,
+  APP_SLUG,
+  BACKGROUND_COLOR,
+  REPO_NAME,
+  REPO_SLUG,
+  REPO_URL,
+  THEME_COLOR,
+} from '@app/shared';
 
 // =============================================================================
 // packages/shared: APP_SLUG, REPO_SLUG, REPO_URL (issue #343, epic #341)
@@ -82,6 +93,34 @@ describe('REPO_SLUG', () => {
 describe('REPO_URL', () => {
   it('equals https://github.com/${REPO_SLUG}, so the two cannot drift', () => {
     expect(REPO_URL).toBe(`https://github.com/${REPO_SLUG}`);
+  });
+});
+
+describe('REPO_NAME', () => {
+  it('is the part of REPO_SLUG after the slash, case preserved', () => {
+    expect(REPO_NAME).toBe(REPO_SLUG.split('/')[1]);
+  });
+});
+
+describe('the Android app identity (issue #276)', () => {
+  // Same derive-don't-list discipline as above: each assertion applies the
+  // rule to the live REPO_NAME, so a rename needs no edit here.
+  it('ANDROID_PACKAGE_NAME is com.<repo name, lowercased, alphanumerics only>.android', () => {
+    const token = REPO_NAME.toLowerCase().replace(/[^a-z0-9]/g, '') || 'app';
+    expect(ANDROID_PACKAGE_NAME).toBe(`com.${/^[0-9]/.test(token) ? `app${token}` : token}.android`);
+  });
+
+  it('ANDROID_PACKAGE_NAME is a valid Android application id', () => {
+    expect(ANDROID_PACKAGE_NAME).toMatch(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/);
+  });
+
+  it('ANDROID_DEEP_LINK_SCHEME is <repo name, lowercased>-android, a valid URI scheme', () => {
+    expect(ANDROID_DEEP_LINK_SCHEME).toMatch(/^[a-z][a-z0-9+.-]*-android$/);
+    expect(ANDROID_DEEP_LINK_SCHEME.startsWith(REPO_NAME.toLowerCase().replace(/[^a-z0-9+.-]/g, '').replace(/^[+.-]+/, '') || 'app')).toBe(true);
+  });
+
+  it('ANDROID_APK_STEM is <app slug>-android, as the CLI and the CI workflow name APKs', () => {
+    expect(ANDROID_APK_STEM).toBe(`${APP_SLUG}-android`);
   });
 });
 

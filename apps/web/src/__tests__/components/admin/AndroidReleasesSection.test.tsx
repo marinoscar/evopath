@@ -28,6 +28,7 @@ import {
   mockOldRelease,
 } from '../../mocks/fixtures/healthSync';
 import type { AdminRelease } from '../../../services/healthSync';
+import { ANDROID_PACKAGE_NAME, androidApkFileName, androidMetadataFileName } from '../../../utils/androidIdentity';
 
 const readOnlyAdmin: MockUser = {
   ...mockAdminUser,
@@ -44,7 +45,7 @@ function field(body: string, name: string): string | null {
   return match ? match[1] : null;
 }
 
-function apkFile(name = 'evopath-android-0.3.0.apk') {
+function apkFile(name = androidApkFileName('0.3.0')) {
   return new File([new Uint8Array([0x50, 0x4b, 3, 4])], name, { type: 'application/vnd.android.package-archive' });
 }
 
@@ -96,7 +97,7 @@ describe('AndroidReleasesSection', () => {
     const form = screen.getByRole('form', { name: 'Upload a release' });
     // The one reported signer and package prefill the form.
     await waitFor(() => expect(within(form).getByLabelText('Signing certificate SHA-256')).toHaveValue(PIXEL_SHA));
-    expect(within(form).getByLabelText('Package name')).toHaveValue('com.evopath.android');
+    expect(within(form).getByLabelText('Package name')).toHaveValue(ANDROID_PACKAGE_NAME);
 
     await fillUpload(user);
     await user.click(within(form).getByRole('switch'));
@@ -105,7 +106,7 @@ describe('AndroidReleasesSection', () => {
     expect(await screen.findByText('Uploaded 0.3.0 (3).')).toBeInTheDocument();
     expect(field(body, 'versionName')).toBe('0.3.0');
     expect(field(body, 'versionCode')).toBe('3');
-    expect(field(body, 'packageName')).toBe('com.evopath.android');
+    expect(field(body, 'packageName')).toBe(ANDROID_PACKAGE_NAME);
     expect(field(body, 'signingSha256')).toBe(PIXEL_SHA);
     expect(field(body, 'notes')).toBe('New sync');
     expect(field(body, 'makeCurrent')).toBe('false');
@@ -187,15 +188,15 @@ describe('AndroidReleasesSection', () => {
     const other = PIXEL_SHA.replace(/^AB/, '12').toLowerCase();
     const meta = new File(
       [JSON.stringify({ packageName: 'com.example.fit', versionName: '1.4.0', versionCode: 14, signingSha256: other })],
-      'evopath-android-1.4.0.json',
+      androidMetadataFileName('1.4.0'),
       { type: 'application/json' },
     );
-    await user.upload(screen.getByTestId('release-file-input'), [apkFile('evopath-android-1.4.0.apk'), meta]);
+    await user.upload(screen.getByTestId('release-file-input'), [apkFile(androidApkFileName('1.4.0')), meta]);
     await waitFor(() => expect(within(form).getByLabelText('Version name')).toHaveValue('1.4.0'));
     expect(within(form).getByLabelText('Version code')).toHaveValue('14');
     expect(within(form).getByLabelText('Package name')).toHaveValue('com.example.fit');
     expect(within(form).getByLabelText('Signing certificate SHA-256')).toHaveValue(other.toUpperCase());
-    expect(screen.getByTestId('release-file-name')).toHaveTextContent('evopath-android-1.4.0.apk');
+    expect(screen.getByTestId('release-file-name')).toHaveTextContent(androidApkFileName('1.4.0'));
   });
 
   it('makes a newer release current without asking', async () => {
@@ -285,7 +286,7 @@ describe('release form helpers', () => {
     expect(
       soleKnownSigner({
         ...mockAndroidAppConfig,
-        trustedApps: [{ packageName: 'com.evopath.android', sha256: PIXEL_SHA.replace(/^AB/, '12') }],
+        trustedApps: [{ packageName: ANDROID_PACKAGE_NAME, sha256: PIXEL_SHA.replace(/^AB/, '12') }],
       }),
     ).toBe('');
   });

@@ -31,6 +31,7 @@ import {
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useLatestRelease } from '../hooks/useHealthSync';
 import { formatMegabytes, type Release } from '../services/healthSync';
+import { ANDROID_APP_LABEL } from '../utils/androidIdentity';
 import { getInstalledAppVersion, isRunningInTwa, type InstalledAppVersion } from '../utils/twa';
 import { DownloadApkButton } from '../components/settings/androidApp/DownloadApkButton';
 import { GetAndroidApp } from '../components/settings/connectedDevices/GetAndroidApp';
@@ -41,9 +42,9 @@ export const ANDROID_APP_PAGE_DESCRIPTION =
   'Download and install the Android app, check for updates and verify the file.';
 
 export const INSTALL_STEPS = [
-  'Tap Download APK. When Android asks, allow installing apps from this source (your browser, or the EvoPath app).',
+  `Tap Download APK. When Android asks, allow installing apps from this source (your browser, or the ${ANDROID_APP_LABEL} app).`,
   'Open the downloaded file and tap Install (or Update).',
-  'Open EvoPath and enter this server’s address:',
+  `Open ${ANDROID_APP_LABEL} and enter this server’s address:`,
 ] as const;
 
 export const NO_RELEASE_MESSAGE =

@@ -11,6 +11,10 @@ import type {
   ReportSummary,
   Run,
 } from '../../../services/healthSync';
+import { ANDROID_PACKAGE_NAME } from '../../../utils/androidIdentity';
+
+/** The Android app's package as the identity derives it (`com.<repo>.android`). */
+export const PACKAGE_NAME = ANDROID_PACKAGE_NAME;
 
 export const DEVICE_ID = 'dev11111-0000-4000-8000-000000000001';
 export const REPORT_ID = 'rep11111-0000-4000-8000-000000000001';
@@ -27,7 +31,7 @@ export function mockDevice(overrides: Partial<Device> = {}): Device {
     sdkInt: 36,
     appVersion: '0.1.0',
     healthConnectVersion: '1.1.0',
-    packageName: 'com.evopath.android',
+    packageName: PACKAGE_NAME,
     signingSha256: PIXEL_SHA,
     timezone: 'America/Costa_Rica',
     userTimezone: 'America/Costa_Rica',
@@ -99,9 +103,9 @@ export const mockReport: Report = {
   ...mockReportSummary,
   report: {
     generatedAt: '2026-09-30T12:04:59.000Z',
-    app: { versionName: '0.1.0', versionCode: 1, packageName: 'com.evopath.android', signingSha256: PIXEL_SHA },
+    app: { versionName: '0.1.0', versionCode: 1, packageName: PACKAGE_NAME, signingSha256: PIXEL_SHA },
     device: { manufacturer: 'Google', model: 'Pixel 9', androidVersion: '16', sdkInt: 36, timezone: 'America/Costa_Rica' },
-    server: { url: 'https://evopath.example.com' },
+    server: { url: 'https://app.example.com' },
     pairing: { deviceId: DEVICE_ID, tokenExpiresAt: '2026-12-29T12:00:00.000Z' },
     healthConnect: {
       status: 'available',
@@ -149,7 +153,7 @@ export const mockReport: Report = {
 export const mockAndroidAppConfig: AndroidAppConfig = {
   trustedApps: [],
   reportedApps: [
-    { packageName: 'com.evopath.android', sha256: PIXEL_SHA, deviceCount: 1, lastSeenAt: '2026-09-30T12:00:00.000Z' },
+    { packageName: PACKAGE_NAME, sha256: PIXEL_SHA, deviceCount: 1, lastSeenAt: '2026-09-30T12:00:00.000Z' },
   ],
   assetLinks: [],
 };
@@ -165,7 +169,7 @@ export const FILE_SHA = 'a'.repeat(32) + 'b'.repeat(32);
 export function mockAdminRelease(overrides: Partial<AdminRelease> = {}): AdminRelease {
   return {
     id: RELEASE_ID,
-    packageName: 'com.evopath.android',
+    packageName: PACKAGE_NAME,
     versionName: '0.2.0',
     versionCode: 2,
     fileSha256: FILE_SHA,

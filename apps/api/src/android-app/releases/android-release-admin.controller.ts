@@ -21,6 +21,7 @@ import { ErrorDto } from '../../common/dto/error.dto';
 import { AdminReleaseDto, AdminReleaseListDto } from '../dto/android-release.dto';
 import {
   APK_FILE_FIELD,
+  DEFAULT_ANDROID_PACKAGE_NAME,
   MAX_APK_BYTES,
   MAX_RELEASE_NOTES_LENGTH,
   MAX_VERSION_CODE,
@@ -82,7 +83,7 @@ export class AndroidReleaseAdminController {
       type: 'object',
       required: [APK_FILE_FIELD, 'packageName', 'versionName', 'versionCode', 'signingSha256'],
       properties: {
-        packageName: { type: 'string', example: 'com.evopath.android' },
+        packageName: { type: 'string', example: DEFAULT_ANDROID_PACKAGE_NAME },
         versionName: { type: 'string', example: '0.1.0' },
         versionCode: { type: 'integer', example: 1 },
         signingSha256: { type: 'string', description: 'AA:BB:… (32 bytes)' },

@@ -12,15 +12,16 @@
  * Presentation only: the answer decides whether to OFFER a deep link into the
  * native Health sync screen. It grants nothing.
  */
+import { androidStorageKey } from './androidIdentity';
 
-export const TWA_SESSION_KEY = 'evopath.twa';
+export const TWA_SESSION_KEY = androidStorageKey('twa');
 export const TWA_SOURCE_PARAM = 'source';
 export const TWA_SOURCE_VALUE = 'twa';
 /** The launch URL also names the installed build (#287): `&appVersion=<name>&appVersionCode=<code>`. */
 export const TWA_APP_VERSION_PARAM = 'appVersion';
 export const TWA_APP_VERSION_CODE_PARAM = 'appVersionCode';
-export const TWA_APP_VERSION_KEY = 'evopath.twa.appVersion';
-export const TWA_APP_VERSION_CODE_KEY = 'evopath.twa.appVersionCode';
+export const TWA_APP_VERSION_KEY = androidStorageKey('twa.appVersion');
+export const TWA_APP_VERSION_CODE_KEY = androidStorageKey('twa.appVersionCode');
 
 /** The Android app build this TWA was launched from. */
 export interface InstalledAppVersion {

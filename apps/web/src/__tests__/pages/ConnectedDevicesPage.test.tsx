@@ -14,6 +14,7 @@ import { mockUser, render, type MockUser } from '../utils/test-utils';
 import ConnectedDevicesPage, { OPEN_HEALTH_SYNC_LABEL } from '../../pages/ConnectedDevicesPage';
 import { DELETE_ENTRIES_LABEL } from '../../components/settings/connectedDevices/UnpairDialog';
 import { TWA_SESSION_KEY } from '../../utils/twa';
+import { ANDROID_HEALTH_SYNC_DEEP_LINK } from '../../utils/androidIdentity';
 import {
   DEVICE_ID,
   REPORT_ID,
@@ -258,7 +259,7 @@ describe('ConnectedDevicesPage', () => {
     window.sessionStorage.setItem(TWA_SESSION_KEY, '1');
     renderPage();
     const button = await screen.findByRole('link', { name: OPEN_HEALTH_SYNC_LABEL });
-    expect(button).toHaveAttribute('href', 'evopath-android://health-sync');
+    expect(button).toHaveAttribute('href', ANDROID_HEALTH_SYNC_DEEP_LINK);
   });
 
   describe('APK releases (#287)', () => {

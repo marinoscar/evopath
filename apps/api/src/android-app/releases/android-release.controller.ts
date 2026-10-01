@@ -8,7 +8,7 @@ import { Public } from '../../auth/decorators/public.decorator';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { ErrorDto } from '../../common/dto/error.dto';
 import { DownloadLinkDto, PublicReleaseDto } from '../dto/android-release.dto';
-import { APK_MIME_TYPE, DOWNLOAD_LINK_TTL_SECONDS } from './android-release.constants';
+import { APK_MIME_TYPE, DOWNLOAD_LINK_TTL_SECONDS, apkFileName } from './android-release.constants';
 import { AndroidReleaseService } from './android-release.service';
 
 // =============================================================================
@@ -75,7 +75,8 @@ export class AndroidReleaseController {
     description:
       'Streams the APK named by a link from `POST /api/android-app/releases/{id}/download-link`: ' +
       `\`Content-Type: ${APK_MIME_TYPE}\`, \`Content-Disposition: attachment; ` +
-      'filename="evopath-android-<versionName>.apk"`, `Content-Length`. 404 `DOWNLOAD_LINK_INVALID` for a ' +
+      `filename="${apkFileName('<versionName>')}"\`, \`Content-Length\`. ` +
+      '404 `DOWNLOAD_LINK_INVALID` for a ' +
       'malformed or tampered token (or a deleted release or deactivated user); 410 `DOWNLOAD_LINK_EXPIRED` ' +
       'once the link has expired.',
   })
