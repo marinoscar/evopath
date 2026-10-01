@@ -53,7 +53,7 @@ In this order:
 | [specs/factory-reset.md](specs/factory-reset.md) | The admin Danger Zone factory reset (`admin.factory_reset`): step design, what is deleted and kept, confirmation, extending it | you change the reset or add a model with a user relation |
 | [specs/user-data-reset.md](specs/user-data-reset.md) | The per-user Danger Zone factory reset (`user.data_reset`): what is deleted and kept, confirmation, retry safety | you add a model with a user relation or change the reset |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
-| [design/color-scheme-options.md](design/color-scheme-options.md) | Proposal: four candidate colour schemes for light and dark mode, a recommendation, and the theme migration plan (interactive mock-up in `design/color-studio/`) | you change the web theme, add palette roles or chart colours |
+| [design/color-scheme-options.md](design/color-scheme-options.md) | Adopted colour scheme (Tidal Teal) for light and dark mode: the four candidates, where the theme lives, the rules for new UI and the implementation plan (interactive mock-up in `design/color-studio/`) | you change the web theme, add palette roles or chart colours |
 
 ## Runbooks
 

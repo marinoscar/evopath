@@ -1,20 +1,20 @@
 # Colour scheme options
 
-> **Status:** proposal, decision pending · **Mock-up:** [color-studio/index.html](color-studio/index.html) · **Code:** `apps/web/src/theme/` · **Vision:** [../../VISION.md](../../VISION.md)
+> **Status:** adopted: Tidal Teal (implementation in progress on this branch) · **Mock-up:** [color-studio/index.html](color-studio/index.html) · **Code:** `apps/web/src/theme/` · **Vision:** [../../VISION.md](../../VISION.md)
 
-Four candidate colour schemes for EvoPath, one recommendation (Tidal Teal), and the plan to ship whichever is chosen. The hex values below are the ones the mock-up renders.
+Four candidate colour schemes for EvoPath, the choice (Tidal Teal), where it lives in the code and the rules for new UI. The hex values below are the ones the mock-up renders and `apps/web/src/theme/tokens.ts` carries.
 
 ## 1. Purpose and status
 
-- **Purpose:** pick one palette for the web app in light and dark mode before any theme code changes.
-- **Status:** proposal. No candidate is implemented. The theme in `apps/web/src/theme/` is unchanged.
+- **Purpose:** record the palette choice for the web app in light and dark mode, and the rules that keep new UI on it.
+- **Status:** adopted. Candidate A (Tidal Teal) is the theme in `apps/web/src/theme/` ([§7](#7-implementation-plan) lists what is done and what is pending). Candidates B, C and D are kept as the rejected alternatives.
 - **Mock-up:** [color-studio/index.html](color-studio/index.html) renders every candidate with Material UI components in light and dark. Its screens are Today, Health, Telemetry dashboard, Components and Tokens. The logic lives in [color-studio/studio.jsx](color-studio/studio.jsx).
 - **How to open it:** the page loads React 18 and MUI 5 as UMD bundles from CDNs, plus the Inter font from Google Fonts. Open it in a browser with network access. It does not render from a text viewer or offline.
 - **Scope:** the mock-up is a design aid. It is separate from the app (the app runs on MUI 9 with its own build) and is not imported by it.
 
-## 2. What is wrong today
+## 2. What the previous theme got wrong
 
-Source: `apps/web/src/theme/light.ts` and `dark.ts`.
+The findings that motivated the change, against the former `light.ts` and `dark.ts` pair.
 
 | # | Finding | Effect |
 |---|---|---|
@@ -22,7 +22,7 @@ Source: `apps/web/src/theme/light.ts` and `dark.ts`.
 | 2 | Secondary is purple `#9c27b0`, unrelated to the brand. | It has no job in the product: it marks neither AI content nor training effort. |
 | 3 | Dark primary is the MUI default light blue `#90caf9`. | The brand teal disappears in dark mode. |
 | 4 | Dark surfaces are `#121212` and `#1e1e1e` with pure white text. | Neutral grey with maximum-contrast text is harsh for long reading and has no brand tint. |
-| 5 | Charts (telemetry `MetricSeriesChart`) cycle primary, secondary, warning, success, error, info, grey. | Series colours double as status colours, so a plain line can read as "error" or "success". |
+| 5 | Charts (telemetry `MetricSeriesChart`) cycled primary, secondary, warning, success, error, info, grey. | Series colours doubled as status colours, so a plain line could read as "error" or "success". |
 
 The telemetry dashboard already pairs severity colours with an icon and a word. That rule stays.
 
@@ -97,25 +97,53 @@ All four candidates use the same status set. Each is always shown with an icon o
 
 Adopt **A. Tidal Teal**.
 
-- **Continuity:** the brand teal already drives the icons, the manifest and `THEME_COLOR`. A keeps all of them, so there is no rebrand and no icon regeneration.
+- **Continuity:** the brand teal already drives the icons, the manifest and `THEME_COLOR`. A keeps `THEME_COLOR` (`#0f766e`) unchanged, so there is no rebrand. The brand mark itself is the path mark ([§8](#8-where-it-lives)).
 - **Calm:** a tinted teal-grey neutral set suits long reading of lab results and plans. It matches the "calm, not overwhelming" principle.
 - **Dashboards:** the dark teal-black surfaces and the validated six-colour series keep dense telemetry and health charts legible.
 - **Accents with jobs:** coral is the effort accent for training. Violet is the AI accent, so AI-proposed content is always distinguishable. Status colours stay reserved.
 - **Dark mode:** the brand hue survives in dark mode as `#4FCDBC`, which fixes the disappearing teal.
 - **Known risk:** teal is common in health apps. Distinctiveness comes from the coral and violet roles and from typography.
 
-## 7. Implementation plan once decided
+## 7. Implementation plan
 
-Applies to A. File the GitHub issue first, as [CLAUDE.md](../../CLAUDE.md) requires for a feature, before any worktree or branch exists.
+Applies to A. The tracking issue and branch exist, as [CLAUDE.md](../../CLAUDE.md) requires for a feature.
 
-| Step | Work | Owner |
-|---|---|---|
-| 1 | Move `apps/web/src/theme/` to `createTheme({ cssVariables: true, colorSchemes: { light, dark } })`. Replace the `lightTheme` and `darkTheme` pair and read the mode with `useColorScheme`. Keep `THEME_COLOR` from `packages/shared` as the light `primary.main`, as the comment in `light.ts` requires. | `frontend-dev` |
-| 2 | Add palette extensions through module augmentation: `tertiary`, surface container levels and chart series. | `frontend-dev` |
-| 3 | Add a chart palette helper. Replace the ad-hoc series list in the telemetry charts (`MetricSeriesChart.tsx`) so series never use status colours. | `frontend-dev` |
-| 4 | Only if B, C or D is chosen: update `themeColor` and `backgroundColor` in `packages/shared/identity.json` and regenerate the icons. Skip for A. | `frontend-dev` |
-| 5 | Add or update theme tests, then regenerate the visual baselines under `tests/visual/`. | `testing-dev` |
-| 6 | Update this page to status "shipped" or move the final palette into the web theme documentation. List any new doc in [../README.md](../README.md). | `docs-dev` |
+| Step | Work | Owner | State |
+|---|---|---|---|
+| 1 | Move `apps/web/src/theme/` to one `createTheme` with `cssVariables: { colorSchemeSelector: 'class' }` and `colorSchemes: { light, dark }`. Read the mode with `useColorScheme`. `THEME_COLOR` from `packages/shared` stays the light `primary.main`, as the comment in `light.ts` requires. | `frontend-dev` | Done |
+| 2 | Add palette extensions through module augmentation: `tertiary`, `container` and `onContainer` tones, surface container levels, `outline` and chart series (`apps/web/src/theme/augment.ts`). | `frontend-dev` | Done |
+| 3 | Add a chart palette helper (`useChartSeries()`) and take every chart's series from `palette.chart.series`, so series never use status colours. | `frontend-dev` | Done |
+| 4 | Brand: draw the path mark, regenerate the icons, set `backgroundColor` in `packages/shared/identity.json` to the light `background.default` (`#f2f7f6`). `themeColor` is unchanged. | `frontend-dev` | Done |
+| 5 | Add theme tests, then regenerate the visual baselines under `tests/visual/` with the **Regenerate visual baselines** workflow on the branch. | `testing-dev` | Theme tests done. Baseline regeneration pending |
+| 6 | Move the status of this page to "shipped" once the baselines are regenerated and merged. List any new doc in [../README.md](../README.md). | `docs-dev` | Pending |
+
+## 8. Where it lives
+
+| Concern | File |
+|---|---|
+| Colour tokens, both schemes (the shipped copy of Candidate A) | `apps/web/src/theme/tokens.ts` |
+| Light and dark palettes (`lightPalette`, `darkPalette`) | `apps/web/src/theme/light.ts`, `apps/web/src/theme/dark.ts` |
+| Extra roles: `tertiary`, `container` and `onContainer`, `surface.container1` and `container2`, `outline`, `chart.series` | `apps/web/src/theme/augment.ts` |
+| Chart series (`useChartSeries()`) | `apps/web/src/theme/chartPalette.ts` |
+| Material 3 flavoured component overrides (pill buttons, outlined cards, paper app bar, container pill in the rail and bottom nav) | `apps/web/src/theme/components.ts` |
+| The one theme object | `apps/web/src/theme/index.ts` |
+| Mode (light, dark, system), `<meta name="theme-color">` | `apps/web/src/contexts/ThemeContext.tsx` |
+| Brand mark | `apps/web/public/icons/source.svg`, `apps/web/public/favicon.svg`, `apps/web/scripts/generate-icons.py`, `apps/web/src/components/common/BrandMark.tsx` |
+| Manifest splash and apple-touch corner colour | `packages/shared/identity.json` (`backgroundColor`); see [the shared package README](../../packages/shared/README.md) |
+
+- The mock-up in [color-studio/studio.jsx](color-studio/studio.jsx) is the design source. Change a colour there first, then in `tokens.ts`.
+- `ThemeContext.tsx` stores the mode under `theme_mode`, mounts the theme with `forceThemeRerender` and keeps `<meta name="theme-color">` on the active scheme's `background.paper`.
+- The four brand-mark files carry the same geometry and move together.
+
+## 9. Rules for new UI
+
+- Use palette roles (`primary.main`, `tertiary.container`, `surface.container1`), never a hex literal.
+- Use `tertiary` only for AI-proposed content.
+- Use `secondary` only for effort and training content.
+- Show a status colour (`success`, `warning`, `error`, `info`) only with an icon and a word, and never as a chart series.
+- Take chart series from `useChartSeries()` in assignment order. Never cycle: the set has six colours, and a repeated colour is indistinguishable from the first.
+- Where a value must follow the scheme, prefer `theme.vars.palette.*` (in an `sx` or `styled` callback) or `sx` string tokens over reading `theme.palette.*`. Both emit `var(--mui-palette-…)`, which the `.light` or `.dark` class on `<html>` flips without a re-render.
+- Read `theme.palette.*` only where a real colour string is required (a chart library that interpolates colours). Take it from `useChartSeries()` or the active scheme.
 
 ## Research basis
 

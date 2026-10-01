@@ -167,6 +167,11 @@ Planned edits (Prior Name -> Acme Hub):
 on your fork the "before" side will be whatever `identity.json` currently
 holds, not the fictional values above.)
 
+The template's own `backgroundColor` is `#f2f7f6`, the light `background.default`
+of the web theme. `--background` is usually left alone; if you change it, keep it
+equal to the light `background.default` in `apps/web/src/theme/tokens.ts`.
+See [`packages/shared/README.md`](../packages/shared/README.md#brand-icons).
+
 ## The binary-name decision
 
 `--cli-name` is deliberately a separate flag from `--name`, not a value

@@ -875,6 +875,11 @@ rail caption or a card grid with the wrong column count.
   (`health-photo-read.spec.ts`) does the same with
   `tests/visual/support/photoRead.ts`.
 
+### Unit tests and the CSS-variable theme
+
+The web theme uses CSS variables, so styles emit `var(--mui-palette-…)` and `calc(n * var(--mui-spacing))` instead of resolved colours and pixels. jsdom does not resolve them, so a unit test asserts on the emitted declaration or on the theme object, never on a computed rgb or px value. Pixel-level colour and spacing belong to the visual suite above.
+`apps/web/src/__tests__/theme/theme.test.ts` is the token and contrast guard for the palettes in `apps/web/src/theme/`.
+
 ### The pinned browser
 
 Pixel baselines depend on the exact browser build. `@playwright/test` is

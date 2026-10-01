@@ -748,12 +748,19 @@ Destinations are declared once, in `apps/web/src/config/destinations.ts`; the ra
 
 | Context | File | Provides |
 |---|---|---|
-| `ThemeContextProvider` | `apps/web/src/contexts/ThemeContext.tsx` | Light, dark or system theme preference |
+| `ThemeContextProvider` | `apps/web/src/contexts/ThemeContext.tsx` | Light, dark or system mode preference (stored as `theme_mode`) on top of the one application theme ([§9.5](#95-theme)) |
 | `AuthProvider` | `apps/web/src/contexts/AuthContext.tsx` | Current user, enabled sign-in providers, sign-in and sign-out |
 | `NotificationProvider` | `apps/web/src/contexts/NotificationContext.tsx` | In-app inbox and the SSE notification stream |
 | `AiConfigProvider` | `apps/web/src/contexts/AiConfigContext.tsx` | The one `GET /api/ai/config` answer: whether AI is on, key policy, enabled providers |
 
 All HTTP calls go through `ApiService` in `apps/web/src/services/api.ts`. It resolves the base URL (`VITE_API_BASE_URL`, default `/api`), attaches the in-memory access token, refreshes it once on `401`, unwraps the `{ data }` envelope, and recognizes the maintenance `503` centrally. Feature-specific clients (`services/jobs.ts`, `services/ai.ts`, `services/storage.ts` and others) are thin wrappers over it. `services/sse.ts` opens event streams against the same base URL.
+
+### 9.5 Theme
+
+The web app has one MUI 9 theme (`apps/web/src/theme/index.ts`) with CSS variables (`cssVariables: { colorSchemeSelector: 'class' }`) and two colour schemes, `light` and `dark`, built from the "Tidal Teal" tokens in `theme/tokens.ts`. MUI emits each palette value as a `--mui-palette-*` custom property, and a mode change flips a `.light` or `.dark` class on `<html>` instead of swapping a theme object.
+`ThemeContextProvider` is the only place that mounts the theme. It drives the mode through `useColorScheme` (stored as `theme_mode`), uses `forceThemeRerender` so direct `theme.palette` reads follow the scheme, and keeps `<meta name="theme-color">` on the active scheme's `background.paper`.
+`theme/augment.ts` adds `tertiary` (AI content), `container` and `onContainer` tones, `surface.container1` and `container2`, `outline` and `chart.series`; charts take series from `useChartSeries()`, never from status colours. `THEME_COLOR` from `packages/shared` is the light `primary.main`.
+Palette, rules for new UI and brand-mark files: [design/color-scheme-options.md](design/color-scheme-options.md).
 
 ---
 
