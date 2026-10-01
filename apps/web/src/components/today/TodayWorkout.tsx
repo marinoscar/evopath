@@ -5,14 +5,18 @@
  * week's count. With `programs:read`, the active plan's session for today
  * (`TodayPlanCard`, shared with Train) comes first.
  *
+ * #264: "Log a walk / run" opens `QuickCardioSheet`; a logged walk refreshes
+ * this card and the plan's session (it may count toward today's plan).
+ *
  * Rendered inside `TodayCard`, which keeps the frame, the `h2` and the
  * "Open Train" link. Loading and failure are quiet and local: the other
  * Today cards never wait on this one.
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { Box, Button, Link, Skeleton, Typography } from '@mui/material';
+import { Box, Button, Link, Skeleton, Snackbar, Stack, Typography } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import DirectionsWalkIcon from '@mui/icons-material/DirectionsWalk';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useWorkoutSummary } from '../../hooks/useWorkoutSummary';
 import {
@@ -24,6 +28,7 @@ import {
 import { formatWeight, type WeightUnit } from '../../utils/units';
 import { formatDaysAgo, formatDuration, formatVolume, pluralize } from '../../utils/workoutFormat';
 import { StartWorkoutDialog } from '../train/StartWorkoutDialog';
+import { QuickCardioSheet, QUICK_CARDIO_TITLE, activityLabel } from './QuickCardioSheet';
 import { TodayPlanCard } from '../training/TodayPlanCard';
 import { AdjustWorkoutEntry } from '../training/adapt/AdjustWorkoutEntry';
 import { WORKOUT_IN_PROGRESS_NOTICE } from '../../pages/TrainPage';
@@ -125,10 +130,12 @@ function LastWorkout({
   );
 }
 
-function Training({ canWrite }: { canWrite: boolean }) {
+function Training({ canWrite, onCardioLogged }: { canWrite: boolean; onCardioLogged: () => void }) {
   const { summary, isLoading, error, forbidden, weightUnit, refresh } = useWorkoutSummary();
   const navigate = useNavigate();
   const [startOpen, setStartOpen] = useState(false);
+  const [cardioOpen, setCardioOpen] = useState(false);
+  const [snack, setSnack] = useState<string | null>(null);
 
   const onStarted = (result: StartWorkoutResult) => {
     setStartOpen(false);
@@ -160,19 +167,18 @@ function Training({ canWrite }: { canWrite: boolean }) {
     const { inProgress, last, thisWeek, daysSinceLast } = summary;
     body = (
       <Box>
-        {inProgress ? (
-          <InProgress workout={inProgress} />
-        ) : (
-          canWrite && (
-            <Button
-              variant="contained"
-              startIcon={<PlayArrowIcon aria-hidden />}
-              onClick={() => setStartOpen(true)}
-              sx={{ mb: 2 }}
-            >
-              Start workout
+        {inProgress && <InProgress workout={inProgress} />}
+        {canWrite && (
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mb: 2 }}>
+            {!inProgress && (
+              <Button variant="contained" startIcon={<PlayArrowIcon aria-hidden />} onClick={() => setStartOpen(true)}>
+                Start workout
+              </Button>
+            )}
+            <Button variant="outlined" startIcon={<DirectionsWalkIcon aria-hidden />} onClick={() => setCardioOpen(true)}>
+              {QUICK_CARDIO_TITLE}
             </Button>
-          )
+          </Stack>
         )}
         {last ? (
           <LastWorkout last={last} daysSinceLast={daysSinceLast} unit={weightUnit} />
@@ -205,6 +211,22 @@ function Training({ canWrite }: { canWrite: boolean }) {
       {canWrite && (
         <StartWorkoutDialog open={startOpen} onClose={() => setStartOpen(false)} onStarted={onStarted} />
       )}
+      {canWrite && (
+        <QuickCardioSheet
+          open={cardioOpen}
+          onClose={() => setCardioOpen(false)}
+          onLogged={(result, key) => {
+            setSnack(
+              result.linkedProgramWorkoutId
+                ? `${activityLabel(key)} logged. It counts toward today's plan.`
+                : `${activityLabel(key)} logged.`,
+            );
+            void refresh();
+            onCardioLogged();
+          }}
+        />
+      )}
+      <Snackbar open={snack !== null} autoHideDuration={4000} onClose={() => setSnack(null)} message={snack ?? ''} />
     </>
   );
 }
@@ -212,8 +234,10 @@ function Training({ canWrite }: { canWrite: boolean }) {
 export function TodayWorkout() {
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('workouts:write');
+  // #264: a quick walk or run may complete today's planned session.
+  const [planKey, setPlanKey] = useState(0);
   const plan = hasPermission('programs:read') ? (
-    <TodayPlanCard canStart={canWrite} canWritePrograms={hasPermission('programs:write')} />
+    <TodayPlanCard canStart={canWrite} canWritePrograms={hasPermission('programs:write')} refreshKey={planKey} />
   ) : null;
   // E6.1: beside Start, never in its way; hidden with a reason when AI is off.
   const adjust = <AdjustWorkoutEntry showResume sx={{ mb: 2 }} />;
@@ -230,7 +254,7 @@ export function TodayWorkout() {
     <>
       {plan}
       {adjust}
-      <Training canWrite={canWrite} />
+      <Training canWrite={canWrite} onCardioLogged={() => setPlanKey((k) => k + 1)} />
     </>
   );
 }

@@ -10,7 +10,7 @@
  * own Resume; a start refused because another workout is in progress offers
  * Resume for that one. Errors are quiet and local, with Retry.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { Alert, Box, Button, Chip, Link, Skeleton, Stack, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -42,6 +42,8 @@ export interface TodayPlanCardProps {
   canStart: boolean;
   /** `programs:write`: Duplicate plan is offered when the plan is complete. */
   canWritePrograms?: boolean;
+  /** Bumped by the host after a write elsewhere (#264: a quick walk or run); each change refetches. */
+  refreshKey?: number;
 }
 
 interface StartProblem {
@@ -150,8 +152,13 @@ function ProgramLine({ name }: { name: string }) {
   );
 }
 
-export function TodayPlanCard({ canStart, canWritePrograms = false }: TodayPlanCardProps) {
+export function TodayPlanCard({ canStart, canWritePrograms = false, refreshKey = 0 }: TodayPlanCardProps) {
   const { today, date, isLoading, error, forbidden, weightUnit, localDate, refresh } = useTrainingToday();
+  useEffect(() => {
+    if (refreshKey > 0) void refresh();
+    // Only a change of key refetches; `refresh` changes with the profile.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
   const navigate = useNavigate();
   const [starting, setStarting] = useState(false);
   const [problem, setProblem] = useState<StartProblem | null>(null);

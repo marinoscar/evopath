@@ -381,6 +381,45 @@ export function finishWorkout(id: string, input: FinishWorkoutInput = {}): Promi
   return api.post<Workout>(`${workoutPath(id)}/finish`, input);
 }
 
+// -----------------------------------------------------------------------------
+// Quick cardio (#264): log a walk, run or hike in one call
+// -----------------------------------------------------------------------------
+
+/** The library exercises `POST /workouts/quick-cardio` accepts, by key (slug). */
+export const QUICK_CARDIO_EXERCISES = ['outdoor_walk', 'outdoor_run', 'hike'] as const;
+export type QuickCardioExercise = (typeof QUICK_CARDIO_EXERCISES)[number];
+
+/** Mirrors the API's quick-cardio schema; the API decides. */
+export const QUICK_CARDIO_BOUNDS = {
+  durationSeconds: { min: 60, max: 36_000 },
+  distanceMeters: { min: 0, max: 100_000 },
+  noteMax: 280,
+  /** `performedAt` may be at most this many days back (and never in the future). */
+  daysBack: 7,
+} as const;
+
+/** At least one of `durationSeconds` / `distanceMeters`. */
+export interface QuickCardioInput {
+  exerciseKey: QuickCardioExercise;
+  durationSeconds?: number;
+  distanceMeters?: number;
+  /** ISO instant; default now. */
+  performedAt?: string;
+  note?: string;
+}
+
+export interface QuickCardioResult {
+  /** The completed workout (no gym, one exercise, one set). */
+  workout: Workout;
+  /** The planned session it counted toward, when today's plan had that exercise. */
+  linkedProgramWorkoutId: string | null;
+}
+
+/** `POST /workouts/quick-cardio` (`workouts:write`): a finished workout, answered 201. */
+export function logQuickCardio(input: QuickCardioInput): Promise<QuickCardioResult> {
+  return api.post<QuickCardioResult>('/workouts/quick-cardio', input);
+}
+
 /** `DELETE /workouts/:id` (`workouts:write`): the workout with its exercises and sets. */
 export async function deleteWorkout(id: string): Promise<void> {
   await api.delete<void>(workoutPath(id));
