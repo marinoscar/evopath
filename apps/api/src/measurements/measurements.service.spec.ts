@@ -13,6 +13,7 @@ import {
   MEASUREMENT_ENTRY_AUDIT_TARGET,
   MEASUREMENT_ENTRY_DELETE_AUDIT_ACTION,
   MeasurementsService,
+  toMeasurement,
 } from './measurements.service';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -712,6 +713,15 @@ describe('MeasurementsService', () => {
       const body = await service.series(USER_ID, { metricKey: 'weight', from: new Date(0), to: new Date() });
 
       expect(Object.keys(body.points[0]).sort()).toEqual(['id', 'measuredAt', 'method', 'origin', 'value']);
+    });
+  });
+
+  describe('device provenance (epic #276)', () => {
+    it('exposes origin and externalProvider so a client can label Health Connect readings', () => {
+      expect(
+        toMeasurement(row({ origin: 'device', externalProvider: 'health_connect:abc', externalId: 'r1' }) as never),
+      ).toMatchObject({ origin: 'device', externalProvider: 'health_connect:abc' });
+      expect(toMeasurement(row() as never).externalProvider).toBeNull();
     });
   });
 

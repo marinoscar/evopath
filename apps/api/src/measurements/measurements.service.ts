@@ -614,6 +614,7 @@ export function toMeasurement(row: MeasurementRow, files?: HealthDocumentFileSta
     measuredAt: row.measuredAt.toISOString(),
     method: row.method,
     origin: row.origin,
+    externalProvider: row.externalProvider ?? null,
     notes: row.notes,
     referenceLow: row.referenceLow,
     referenceHigh: row.referenceHigh,
