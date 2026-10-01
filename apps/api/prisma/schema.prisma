@@ -47,6 +47,7 @@ model User {
   activityEntries             ActivityEntry[]
   healthSyncDevices           HealthSyncDevice[]
   healthSyncRuns              HealthSyncRun[]
+  sleepSessions               SleepSession[]
   healthSyncDiagnosticReports HealthSyncDiagnosticReport[]
   programChanges              ProgramChangeLog[]
   programSessions             ProgramSession[]
@@ -2630,37 +2631,44 @@ model HealthProfile {
 // `supersedesId` means two concurrent edits cannot both win. Cascade: no
 // reader once the user is gone.
 model Measurement {
-  id            String    @id @default(uuid()) @db.Uuid
-  userId        String    @map("user_id") @db.Uuid
-  entryId       String    @map("entry_id") @db.Uuid
-  metricKey     String    @map("metric_key")
-  value         Float
-  unit          String
-  measuredAt    DateTime  @map("measured_at") @db.Timestamptz
-  localDate     DateTime? @map("local_date") @db.Date
-  method        String    @default("unspecified")
-  origin        String    @default("manual") // manual | calculated | ai | device
-  notes         String?
-  referenceLow  Float?    @map("reference_low")
-  referenceHigh Float?    @map("reference_high")
-  referenceText String?   @map("reference_text")
-  flag          String? // low | normal | high | critical | unknown (validated in the API)
-  sourceRef     Json?     @map("source_ref")
-  revision      Int       @default(1)
-  supersedesId  String?   @unique @map("supersedes_id") @db.Uuid
-  supersededAt  DateTime? @map("superseded_at") @db.Timestamptz
-  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  entryId            String    @map("entry_id") @db.Uuid
+  metricKey          String    @map("metric_key")
+  value              Float
+  unit               String
+  measuredAt         DateTime  @map("measured_at") @db.Timestamptz
+  localDate          DateTime? @map("local_date") @db.Date
+  method             String    @default("unspecified")
+  origin             String    @default("manual") // manual | calculated | ai | device
+  notes              String?
+  referenceLow       Float?    @map("reference_low")
+  referenceHigh      Float?    @map("reference_high")
+  referenceText      String?   @map("reference_text")
+  flag               String? // low | normal | high | critical | unknown (validated in the API)
+  sourceRef          Json?     @map("source_ref")
+  revision           Int       @default(1)
+  supersedesId       String?   @unique @map("supersedes_id") @db.Uuid
+  supersededAt       DateTime? @map("superseded_at") @db.Timestamptz
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz
+  // Device-synced rows (epic #276): provider is `health_connect:<deviceId>`.
+  // Uniqueness is the raw-SQL partial index `measurements_provider_external_uniq_idx`.
+  externalProvider   String?   @map("external_provider")
+  externalId         String?   @map("external_id")
+  healthSyncDeviceId String?   @map("health_sync_device_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  supersedes   Measurement? @relation("MeasurementRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
-  supersededBy Measurement? @relation("MeasurementRevisions")
+  healthSyncDevice HealthSyncDevice? @relation(fields: [healthSyncDeviceId], references: [id], onDelete: SetNull)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supersedes       Measurement?      @relation("MeasurementRevisions", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy     Measurement?      @relation("MeasurementRevisions")
 
   @@index([userId, metricKey, measuredAt(sort: Desc)])
   @@index([userId, entryId])
   @@index([userId, localDate])
+  @@index([healthSyncDeviceId])
   @@map("measurements")
 }
 
@@ -3710,10 +3718,12 @@ model HealthSyncDevice {
   createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime               @updatedAt @map("updated_at") @db.Timestamptz
 
-  user    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pat     PersonalAccessToken?         @relation(fields: [patId], references: [id], onDelete: SetNull)
-  runs    HealthSyncRun[]
-  reports HealthSyncDiagnosticReport[]
+  user          User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pat           PersonalAccessToken?         @relation(fields: [patId], references: [id], onDelete: SetNull)
+  runs          HealthSyncRun[]
+  reports       HealthSyncDiagnosticReport[]
+  measurements  Measurement[]
+  sleepSessions SleepSession[]
 
   @@unique([userId, installationId])
   @@index([userId, status])
@@ -3762,4 +3772,34 @@ model HealthSyncDiagnosticReport {
   @@index([deviceId, createdAt])
   @@index([userId])
   @@map("health_sync_diagnostic_reports")
+}
+
+/// A night's sleep. Manual or device-synced (epic #276). Uniqueness of a
+/// device row is the raw-SQL partial index `sleep_sessions_provider_external_uniq_idx`.
+model SleepSession {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  startAt            DateTime @map("start_at") @db.Timestamptz
+  endAt              DateTime @map("end_at") @db.Timestamptz
+  localDate          DateTime @map("local_date") @db.Date // local date of waking (endAt)
+  durationMinutes    Int      @map("duration_minutes") // asleep time
+  awakeMinutes       Int?     @map("awake_minutes")
+  lightMinutes       Int?     @map("light_minutes")
+  deepMinutes        Int?     @map("deep_minutes")
+  remMinutes         Int?     @map("rem_minutes")
+  unknownMinutes     Int?     @map("unknown_minutes")
+  origin             String   @default("manual") // manual | device
+  provider           String?
+  externalId         String?  @map("external_id")
+  healthSyncDeviceId String?  @map("health_sync_device_id") @db.Uuid
+  note               String?
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  healthSyncDevice HealthSyncDevice? @relation(fields: [healthSyncDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, localDate])
+  @@index([healthSyncDeviceId])
+  @@map("sleep_sessions")
 }
