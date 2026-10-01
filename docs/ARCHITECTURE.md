@@ -147,7 +147,7 @@ Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the c
 
 ### 5.2 Role-based access control
 
-Three roles (Admin, Contributor, Viewer) grant 37 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
+Three roles (Admin, Contributor, Viewer) grant 44 permissions named `resource:action`. Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`), seeded from `apps/api/prisma/seed-data.ts`. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show.
 
 - **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts`
 - **Matrix:** [§7](#7-authorization)
@@ -454,7 +454,7 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
 | RBAC | `Role` | `roles` | Admin, Contributor, Viewer |
-| RBAC | `Permission` | `permissions` | The 37 `resource:action` permissions |
+| RBAC | `Permission` | `permissions` | The 44 `resource:action` permissions |
 | RBAC | `RolePermission` | `role_permissions` | Role-to-permission grants |
 | RBAC | `UserRole` | `user_roles` | User-to-role assignments |
 | Settings | `SystemSettings` | `system_settings` | Keyed JSONB rows for deployment settings |
