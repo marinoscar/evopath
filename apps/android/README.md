@@ -140,6 +140,22 @@ with `errorCode` `BACKGROUND_PERMISSION_MISSING` and posts at most one notificat
 ("Allow background access so <product> can sync while closed") that opens the permission prompt.
 Sync now, app-open and initial syncs read normally.
 
+## Updates
+
+The server hosts the APK releases (Admin → Settings → Android app, or the CLI's
+`android publish`). The app opens the PWA at
+`<server>/?source=twa&appVersion=<versionName>&appVersionCode=<versionCode>` and registers its
+`appVersionCode`, so the web app and Connected devices can tell which build a phone runs.
+
+On app open (launcher or Health sync), at most every 12 hours and only while paired (the endpoint
+needs the token), `update/UpdateChecker` asks `GET /api/android-app/releases/latest`. A release
+for this package with a higher `versionCode` is remembered and the Health sync hub shows
+**Update available: vX** with its size and What's new; **Download** posts
+`/api/android-app/releases/:id/download-link` and opens the returned same-origin URL in the
+browser (`ACTION_VIEW`), which downloads the APK and hands it to the system installer. A 404
+`NO_RELEASE` clears the offer; a network failure retries on the next open. The first launch of
+a new `versionCode` clears the offer and the 12 h throttle.
+
 ## Diagnostics
 
 Health sync → **Diagnostics** runs a self-test on open (`diagnostics/SelfTest`). Each check is
@@ -151,6 +167,7 @@ Connected devices page…). Verdicts are pure functions in `diagnostics/Checks.k
 | Id | Label | Verifies |
 |---|---|---|
 | `app.version` | App version | version, package, signing SHA-256 |
+| `app.update` | App update | the server's current release (`GET /api/android-app/releases/latest`): pass up to date, warn when a higher versionCode is offered, skip when not paired, no release, another package, or the call failed |
 | `server.configured` | Server address | a server URL is set |
 | `server.reachable` | Server reachable | `GET /api/health/live`, latency (warn over 3 s) |
 | `pairing.token` | Pairing token | token and device id present; warn under 14 days, fail when expired |
@@ -171,7 +188,8 @@ Connected devices page…). Verdicts are pure functions in `diagnostics/Checks.k
 | `twa.verification` | Full-screen web app (Digital Asset Links) | `<server>/.well-known/assetlinks.json` lists this package and signing SHA-256 |
 
 **Report** (`DiagnosticReport`, uploaded with `POST /api/health-sync/devices/:id/diagnostics`,
-or shared/copied as JSON): `{ generatedAt, summary, app, device, server, pairing, healthConnect
+or shared/copied as JSON): `{ generatedAt, summary, app { versionName, versionCode, packageName, signingSha256,
+latestVersionCode?, latestVersionName?, updateAvailable? }, device, server, pairing, healthConnect
 { status, version, grantedPermissions, backgroundAvailable, inventory[], sources[] }, work,
 checks[], recentRuns[≤20], log[≤300] }`. `summary` is `"N fail, M warn: <first failing label>"`.
 The serialized report is scrubbed of the token (and anything shaped like `pat_…` or
@@ -205,5 +223,6 @@ app/src/main/java/com/enterpriseapp/android/
   diagnostics/               AppLog (rolling redacted log), Checks (verdicts), SelfTest (runner),
                              DiagnosticReport, AutoDiagnostics (upload after failed runs)
   healthsync/                Health sync hub, Connect, Sync and Diagnostics screens (Compose)
+  update/                    UpdateChecker (12 h, paired only), UpdatePolicy, release API, AppUpdates (download)
   ui/                        theme and shared Compose components
 ```
