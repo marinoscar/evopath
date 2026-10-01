@@ -4,11 +4,15 @@ import {
   fromCanonical,
   getMetric,
   isLabMetric,
+  labDisplayUnit,
+  MetricRegistryError,
   LAB_METRIC_KEYS,
   LAB_PANELS,
   MEASUREMENT_METHODS,
   resolveLabAnalyte,
   toCanonical,
+  toDisplayUnit,
+  unitDecimals,
   unitFor,
 } from './metric-registry';
 
@@ -273,10 +277,85 @@ describe('lab catalog', () => {
     });
     expect(byKey.get('ldl_cholesterol')!.aliases).toContain('LDL-C');
     expect(byKey.get('hba1c')!.units).toEqual([
-      { unit: '%', factor: 1, offset: 0, label: '%' },
-      { unit: 'mmol/mol', factor: 1 / 10.929, offset: 2.15, label: 'mmol/mol' },
+      { unit: '%', factor: 1, offset: 0, label: '%', decimals: 1 },
+      { unit: 'mmol/mol', factor: 1 / 10.929, offset: 2.15, label: 'mmol/mol', decimals: 0 },
     ]);
-    expect(byKey.get('weight')).toMatchObject({ panel: null, aliases: [] });
+    expect(byKey.get('hba1c')!.siUnit).toBe('mmol/mol');
+    expect(byKey.get('alt')!.siUnit).toBe('U/L');
+    expect(byKey.get('weight')).toMatchObject({ panel: null, aliases: [], siUnit: null });
+    expect(byKey.get('weight')!.units.map((u) => u.decimals)).toEqual([1, 1]);
     expect(byKey.get('weight')!.units.every((u) => u.offset === 0)).toBe(true);
+  });
+
+  describe('SI display units (#234)', () => {
+    it.each(LAB_METRIC_KEYS)('%s declares an SI unit among its units, with a display precision', (key) => {
+      const metric = getMetric(key)!;
+      const si = metric.siUnit!;
+
+      expect(typeof si).toBe('string');
+      expect(metric.units.map((u) => u.unit)).toContain(si);
+      expect(labDisplayUnit(metric, 'si')).toBe(si);
+      expect(labDisplayUnit(key, 'conventional')).toBe(metric.canonicalUnit);
+      expect(Number.isInteger(unitDecimals(key, si))).toBe(true);
+
+      // Round trip: canonical -> SI (unrounded) -> canonical.
+      const canonical = metric.max / 7;
+      const back = toCanonical(key, fromCanonical(key, canonical, si), si);
+      expect(Math.abs(back - canonical)).toBeLessThanOrEqual(1e-4);
+    });
+
+    it('keeps SI and conventional on one unit only where they agree', () => {
+      const same = LAB_METRIC_KEYS.filter((key) => getMetric(key)!.siUnit === getMetric(key)!.canonicalUnit);
+      expect(same).toEqual([
+        'mcv',
+        'alt',
+        'ast',
+        'alp',
+        'egfr',
+        'sodium',
+        'potassium',
+        'tsh',
+        'transferrin_saturation',
+        'hs_crp',
+      ]);
+    });
+
+    it('answers the canonical unit for non-lab metrics whatever the preference', () => {
+      expect(labDisplayUnit('weight', 'si')).toBe('kg');
+      expect(getMetric('weight')!.siUnit).toBeUndefined();
+    });
+
+    // key | canonical value | SI unit | displayed value (rounded to the SI unit's decimals)
+    const PINNED: Array<[string, number, string, number]> = [
+      ['fasting_glucose', 100, 'mmol/L', 5.6],
+      ['ldl_cholesterol', 124, 'mmol/L', 3.21],
+      ['creatinine', 1.0, 'µmol/L', 88],
+      ['hba1c', 6.5, 'mmol/mol', 48],
+      ['triglycerides', 150, 'mmol/L', 1.69],
+      ['vitamin_d_25oh', 30, 'nmol/L', 75],
+      ['testosterone_total', 500, 'nmol/L', 17.3],
+      ['hemoglobin', 14, 'g/L', 140],
+      ['bun', 14, 'mmol/L', 5],
+    ];
+
+    it.each(PINNED)('%s %d -> %s shows %d', (key, canonical, unit, shown) => {
+      expect(labDisplayUnit(key, 'si')).toBe(unit);
+      expect(toDisplayUnit(key, canonical, unit)).toBe(shown);
+    });
+
+    it('pins glucose 100 mg/dL = 5.55 mmol/L at 2 dp and HbA1c 6.5 % = 47.54 mmol/mol', () => {
+      expect(fromCanonical('fasting_glucose', 100, 'mmol/L').toFixed(2)).toBe('5.55');
+      expect(fromCanonical('hba1c', 6.5, 'mmol/mol').toFixed(2)).toBe('47.54');
+      expect(fromCanonical('creatinine', 1, 'µmol/L').toFixed(2)).toBe('88.42');
+    });
+
+    it('shows the canonical unit at the metric precision', () => {
+      expect(toDisplayUnit('ldl_cholesterol', 123.6, 'mg/dL')).toBe(124);
+      expect(unitDecimals('hba1c', '%')).toBe(1);
+    });
+
+    it('rejects a unit the metric does not allow', () => {
+      expect(() => toDisplayUnit('ldl_cholesterol', 100, 'g/L')).toThrow(MetricRegistryError);
+    });
   });
 });
