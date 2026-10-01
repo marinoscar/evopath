@@ -34,6 +34,10 @@ export const userDataSummarySchema = z.object({
   progressPhotos: count,
   /** AI Coach conversation: nudges, chat turns, weekly reviews. */
   coachMessages: count,
+  /** Activity goals, archived ones included (epic #260). Added after the first release. */
+  activityGoals: count,
+  /** Activity entries: manual check-ins and workout-derived entries (epic #260). Added after the first release. */
+  activityEntries: count,
 });
 
 /** `POST /api/user-data/reset` body. Anything but the exact phrase is a 400. */

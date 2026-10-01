@@ -25,6 +25,8 @@ function setup() {
     healthDocument: { count: jest.fn().mockResolvedValue(7) },
     progressPhoto: { count: jest.fn().mockResolvedValue(8) },
     coachMessage: { count: jest.fn().mockResolvedValue(10) },
+    activityGoal: { count: jest.fn().mockResolvedValue(11) },
+    activityEntry: { count: jest.fn().mockResolvedValue(12) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
     job: { findFirst: jest.fn().mockResolvedValue(null) },
   };
@@ -73,7 +75,11 @@ describe('UserDataService', () => {
         healthDocuments: 7,
         progressPhotos: 8,
         coachMessages: 10,
+        activityGoals: 11,
+        activityEntries: 12,
       });
+      expect(prisma.activityGoal.count).toHaveBeenCalledWith({ where: { userId: USER } });
+      expect(prisma.activityEntry.count).toHaveBeenCalledWith({ where: { userId: USER } });
 
       expect(prisma.workout.count).toHaveBeenCalledWith({ where: { userId: USER } });
       expect(prisma.measurement.count).toHaveBeenCalledWith({
