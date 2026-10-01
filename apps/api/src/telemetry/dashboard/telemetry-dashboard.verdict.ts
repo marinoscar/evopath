@@ -13,6 +13,13 @@
 //                                                        previous 0 counts as 1)
 //   no data       now - latest trace/log > 5 min        → no_data, overriding
 //                                                        every other rule
+//   unknown API   any request WITH a bearer to an unknown route (#258)
+//   routes        degraded; >= 20 such requests or >= 3 distinct
+//                 METHOD /path critical. No volume guard: one request from
+//                 our own client to a route this build lacks is already a
+//                 defect (a deploy skew). Anonymous unknown-route requests
+//                 (scanners) never fire; the summary tile still counts them.
+//                 A 404 from a MATCHED route never counts here.
 //
 // The level is the worst rule that fired; `reasons` has one line per fired
 // rule with its value, the threshold it crossed and the worst offender.
@@ -49,6 +56,11 @@ export const DASHBOARD_VERDICT_THRESHOLDS = {
   },
   /** Minutes without any trace or log after which the verdict is `no_data`. */
   noDataMinutes: 5,
+  /**
+   * Unknown API routes (#258), bearer requests only. Any is degraded; either
+   * bound below (`>=`) is critical.
+   */
+  unknownRoutes: { criticalBearerRequests: 20, criticalDistinctRoutes: 3 },
   // ---- infrastructure rules (#126) ----
   /** Worst mountpoint, `>=`. */
   diskUtilizationPct: { degraded: 85, critical: 95 },
@@ -92,6 +104,13 @@ export interface VerdictInput {
   slowestRoute?: string | null;
   /** The most frequent error message, if any. */
   topErrorMessage?: string | null;
+  /**
+   * Requests WITH a bearer to an unknown route (#258): how many, over how
+   * many distinct `METHOD /path` (counted from the bounded top list, which is
+   * enough for the threshold), and the top one. Undefined/null when the store
+   * cannot tell (no `app.route.matched` column yet): the rule is skipped.
+   */
+  unknownRoutes?: { bearerRequests: number; bearerRoutes: number; topRoute: string | null } | null;
 
   // ---- infrastructure inputs (#126): undefined/null = the rule is skipped ----
 
@@ -177,6 +196,19 @@ export function computeVerdict(input: VerdictInput): DashboardVerdict {
           `(${formatNumber(ratio)}× ≥ ${threshold}×)${offender('top', input.topErrorMessage)}`,
       );
     }
+  }
+
+  if (input.unknownRoutes && input.unknownRoutes.bearerRequests > 0) {
+    const { bearerRequests, bearerRoutes, topRoute } = input.unknownRoutes;
+    const critical =
+      bearerRequests >= t.unknownRoutes.criticalBearerRequests ||
+      bearerRoutes >= t.unknownRoutes.criticalDistinctRoutes;
+    fire(
+      critical ? 'critical' : 'degraded',
+      `${bearerRequests} ${bearerRequests === 1 ? 'request' : 'requests'} to unknown API routes` +
+        (bearerRoutes > 1 ? ` across ${bearerRoutes} routes` : '') +
+        (topRoute ? ` (${shorten(topRoute)})` : ''),
+    );
   }
 
   infrastructureRules(input, fire);
@@ -300,9 +332,13 @@ function infrastructureRules(input: VerdictInput, fire: Fire): void {
 
 function offender(label: string, value: string | null | undefined): string {
   if (!value) return '';
+  return ` — ${label}: ${shorten(value)}`;
+}
+
+/** One line, at most `VERDICT_OFFENDER_CHARS`. */
+function shorten(value: string): string {
   const oneLine = value.replace(/\s+/g, ' ').trim();
-  const cut = oneLine.length > VERDICT_OFFENDER_CHARS ? `${oneLine.slice(0, VERDICT_OFFENDER_CHARS - 1)}…` : oneLine;
-  return ` — ${label}: ${cut}`;
+  return oneLine.length > VERDICT_OFFENDER_CHARS ? `${oneLine.slice(0, VERDICT_OFFENDER_CHARS - 1)}…` : oneLine;
 }
 
 /** One decimal, without a trailing `.0`. */

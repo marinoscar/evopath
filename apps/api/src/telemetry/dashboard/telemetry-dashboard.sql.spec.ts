@@ -22,6 +22,9 @@ import {
   timestampLiteral,
   topErrorsSql,
   topRoutesSql,
+  topUnknownRoutesSql,
+  UNKNOWN_ROUTE_PREDICATE,
+  unknownRoutesTotalsSql,
   type DashboardSqlFilters,
 } from './telemetry-dashboard.sql';
 
@@ -42,6 +45,8 @@ const WINDOW = { from: FROM, to: TO, bucketSeconds: 60 };
 const NONE: DashboardSqlFilters = {};
 const FILTERED: DashboardSqlFilters = { service: "my-app-api", instance: "node-1", tracesHaveInstance: true };
 const BOTH = { traces: true, logs: true };
+/** A store that has recorded the #258 span attributes. */
+const UNKNOWN_COLUMNS: DashboardSqlFilters = { tracesHaveRouteMatched: true, tracesHaveBearer: true };
 
 /** Every template must be exactly one SELECT the guard accepts, with a literal top-level LIMIT. */
 function expectGuarded(sql: string): void {
@@ -76,6 +81,64 @@ describe('telemetry dashboard SQL templates', () => {
       const sql = build(FILTERED);
       expect(sql).toMatchSnapshot();
       expectGuarded(sql);
+    });
+  });
+
+  describe('unknown API routes and client errors (#258)', () => {
+    const templates650: Array<[string, (f: DashboardSqlFilters) => string | null]> = [
+      ['unknownRoutesTotals', (f) => unknownRoutesTotalsSql(PREVIOUS_FROM, WINDOW, f)],
+      ['topUnknownRoutes', (f) => topUnknownRoutesSql(WINDOW, f, 6)],
+      ['topRoutes with the matched column', (f) => topRoutesSql(WINDOW, f)],
+    ];
+
+    describe.each(templates650)('%s', (_name, build) => {
+      it('matches the snapshot without filters', () => {
+        const sql = build(UNKNOWN_COLUMNS) as string;
+        expect(sql).toMatchSnapshot();
+        expectGuarded(sql);
+      });
+
+      it('matches the snapshot with service and instance filters', () => {
+        const sql = build({ ...FILTERED, ...UNKNOWN_COLUMNS }) as string;
+        expect(sql).toMatchSnapshot();
+        expectGuarded(sql);
+      });
+    });
+
+    it('is a 404 the not-found handler answered, never a 404 alone', () => {
+      expect(UNKNOWN_ROUTE_PREDICATE).toBe(
+        `"span_attributes.http.response.status_code" = 404 AND "span_attributes.app.route.matched" = false`,
+      );
+    });
+
+    it('builds no unknown-route statement without the matched column (old data: no guessing)', () => {
+      expect(unknownRoutesTotalsSql(PREVIOUS_FROM, WINDOW, NONE)).toBeNull();
+      expect(topUnknownRoutesSql(WINDOW, { tracesHaveBearer: true })).toBeNull();
+      const top = topRoutesSql(WINDOW, NONE);
+      expect(top).toContain('0 AS unknown_requests');
+      expect(top).not.toContain('app.route.matched');
+    });
+
+    it('counts bearer requests as a literal 0 without the bearer column', () => {
+      const sql = unknownRoutesTotalsSql(PREVIOUS_FROM, WINDOW, { tracesHaveRouteMatched: true }) as string;
+      expect(sql).toContain('0 AS bearer');
+      expect(sql).not.toContain('app.request.bearer');
+      expectGuarded(sql);
+    });
+
+    it('orders problem routes by 5xx, then 4xx except 401, then p95', () => {
+      const sql = topRoutesSql(WINDOW, UNKNOWN_COLUMNS);
+      expect(sql).toContain(
+        'sum(CASE WHEN "span_attributes.http.response.status_code" >= 400 AND "span_attributes.http.response.status_code" < 500 ' +
+          'AND "span_attributes.http.response.status_code" <> 401 THEN 1 ELSE 0 END) AS client_errors',
+      );
+      expect(sql).toContain('ORDER BY errors DESC, client_errors DESC, p95_ns DESC LIMIT 11');
+    });
+
+    it('lists unknown routes bearer-first with a literal LIMIT', () => {
+      expect(topUnknownRoutesSql(WINDOW, UNKNOWN_COLUMNS)).toMatch(
+        /GROUP BY method, route ORDER BY bearer DESC, requests DESC, method, route LIMIT 11$/,
+      );
     });
   });
 

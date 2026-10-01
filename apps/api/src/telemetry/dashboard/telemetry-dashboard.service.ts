@@ -60,8 +60,10 @@ import {
   TOP_N,
   topErrorsSql,
   topRoutesSql,
+  topUnknownRoutesSql,
   TRACE_COLUMNS,
   TRACES_TABLE,
+  unknownRoutesTotalsSql,
 } from './telemetry-dashboard.sql';
 import { computeVerdict } from './telemetry-dashboard.verdict';
 
@@ -208,6 +210,10 @@ export class SharedTtlCache<T> {
 export interface DashboardCatalog {
   traces: boolean;
   tracesHaveInstance: boolean;
+  /** `"span_attributes.app.route.matched"` exists (#258): unknown routes can be told apart. */
+  tracesHaveRouteMatched: boolean;
+  /** `"span_attributes.app.request.bearer"` exists (#258). */
+  tracesHaveBearer: boolean;
   logs: boolean;
   heap: boolean;
   eventLoop: boolean;
@@ -224,6 +230,8 @@ export function catalogOf(schema: TelemetrySchema): DashboardCatalog {
   return {
     traces: !!traces && REQUIRED_TRACE_COLUMNS.every((c) => traces.has(c)),
     tracesHaveInstance: !!traces && traces.has(TRACE_COLUMNS.instance),
+    tracesHaveRouteMatched: !!traces && traces.has(TRACE_COLUMNS.routeMatched),
+    tracesHaveBearer: !!traces && traces.has(TRACE_COLUMNS.bearer),
     logs: !!logs && REQUIRED_LOG_COLUMNS.every((c) => logs.has(c)),
     heap: columns(HEAP_USED_TABLE) !== null,
     eventLoop: columns(EVENT_LOOP_P99_TABLE) !== null,
@@ -551,7 +559,11 @@ export class TelemetryDashboardService {
     known: { catalog: DashboardCatalog; tables: MetricTables },
     timeoutMs: number,
   ): Promise<DashboardSqlFilters> {
-    const filters: DashboardSqlFilters = { tracesHaveInstance: known.catalog.tracesHaveInstance };
+    const filters: DashboardSqlFilters = {
+      tracesHaveInstance: known.catalog.tracesHaveInstance,
+      tracesHaveRouteMatched: known.catalog.tracesHaveRouteMatched,
+      tracesHaveBearer: known.catalog.tracesHaveBearer,
+    };
     if (!query.service && !query.instance && !query.host) return filters;
 
     const values = await this.distinct.get(window.spanKey, () =>
@@ -633,7 +645,16 @@ export class TelemetryDashboardService {
     // family, null (not run) when its tables are absent.
     const probeSql = verdictProbeSql(tables, window);
 
-    const [apiTotals, apiSeries, logsTotals, logsSeries, last, routes, errors, heap, eventLoop, probeResults] = await Promise.all([
+    // Unknown API routes (#258): only when the store has the matched column
+    // (see UNKNOWN_ROUTE_PREDICATE); the templates return null otherwise.
+    const unknownSql = catalog.traces
+      ? {
+          totals: unknownRoutesTotalsSql(window.previousFrom, window, filters),
+          top: topUnknownRoutesSql(window, filters, UNKNOWN_ROUTES_TOP_N + 1),
+        }
+      : { totals: null, top: null };
+
+    const [apiTotals, apiSeries, logsTotals, logsSeries, last, routes, errors, heap, eventLoop, probeResults, unknownTotals, unknownTop] = await Promise.all([
       runner.maybe(catalog.traces ? apiTotalsSql(window.previousFrom, window, filters) : null),
       runner.maybe(catalog.traces ? apiTimeseriesSql(window, filters) : null),
       runner.maybe(catalog.logs ? logsTotalsSql(window.previousFrom, window, filters) : null),
@@ -653,6 +674,8 @@ export class TelemetryDashboardService {
         catalog.eventLoop ? eventLoopDelayP99Sql(window.previousFrom, window.to, runtimeBucket, runtimeService) : null,
       ),
       Promise.all(VERDICT_PROBES.map((probe) => runner.maybe(probeSql[probe]))),
+      runner.maybe(unknownSql.totals),
+      runner.maybe(unknownSql.top),
     ]);
     const infrastructure = verdictInputsFrom(
       Object.fromEntries(VERDICT_PROBES.map((probe, i) => [probe, probeResults[i]])),
@@ -684,6 +707,8 @@ export class TelemetryDashboardService {
     const routeLabel = (r: Record<string, unknown> | null | undefined) =>
       r ? [str(r.method), str(r.route)].filter(Boolean).join(' ') || null : null;
 
+    const unknownRoutes = unknownSql.totals ? unknownRoutesOf(unknownTotals, unknownTop) : null;
+
     const verdict = computeVerdict({
       now,
       lastDataAt,
@@ -695,6 +720,13 @@ export class TelemetryDashboardService {
       topErrorRoute: routeLabel(topErrorRow),
       slowestRoute: routeLabel(slowest),
       topErrorMessage: str(objects(errors)[0]?.message),
+      unknownRoutes: unknownRoutes
+        ? {
+            bearerRequests: unknownRoutes.bearer,
+            bearerRoutes: unknownRoutes.topRoutes.filter((r) => r.bearer > 0).length,
+            topRoute: routeLabel(unknownRoutes.topRoutes.find((r) => r.bearer > 0)),
+          }
+        : null,
       ...infrastructure,
     });
 
@@ -759,6 +791,17 @@ export class TelemetryDashboardService {
         sparkline: starts.map((t) => num(logBuckets.get(t)?.[at(logsSeries, 'warn')])),
       },
       {
+        // #258: requests answered by the not-found handler. Null when the
+        // store has no `app.route.matched` column yet (old data): unknown,
+        // not zero. The bearer/anonymous split is `unknownRoutes` below.
+        key: 'unknownRoutes',
+        label: 'Unknown API routes',
+        value: unknownRoutes ? unknownRoutes.requests : null,
+        previous: unknownRoutes ? unknownRoutes.previousRequests : null,
+        unit: 'count',
+        sparkline: [],
+      },
+      {
         key: 'lastDataAt',
         label: 'Last data',
         value: lastDataAt?.toISOString() ?? null,
@@ -784,6 +827,7 @@ export class TelemetryDashboardService {
       verdict,
       tiles,
       ...(runtime.length ? { runtime } : {}),
+      ...(unknownRoutes ? { unknownRoutes } : {}),
     };
   }
 
@@ -880,12 +924,16 @@ export class TelemetryDashboardService {
         items: rows.slice(0, TOP_N).map((r) => {
           const count = num(r.requests);
           const errors = num(r.errors);
+          const unknownRequests = num(r.unknown_requests);
           return {
             method: str(r.method),
             route: str(r.route),
             count,
             errors,
             errorRatePct: count ? round2((errors / count) * 100) : 0,
+            clientErrors: num(r.client_errors),
+            unknownRequests,
+            unknown: unknownRequests > 0,
             p95Ms: nsToMs(r.p95_ns),
           };
         }),
@@ -962,6 +1010,41 @@ export class TelemetryDashboardService {
       nextCursor: more && last ? encodeCursor({ ts: String(last.ts), spanId: String(last.span_id ?? '') }) : null,
     };
   }
+}
+
+/** Unknown API routes the summary lists (#258); a short list, the verdict only needs >= 3. */
+export const UNKNOWN_ROUTES_TOP_N = 5;
+
+/** The summary's `unknownRoutes` block from its two statements (#258). */
+export function unknownRoutesOf(
+  totals: TelemetryQueryResult | null,
+  top: TelemetryQueryResult | null,
+): NonNullable<TelemetryDashboardSummary['unknownRoutes']> {
+  const p = periods(totals);
+  const requests = num(p.current.requests);
+  const bearer = num(p.current.bearer);
+  const previousRequests = num(p.previous.requests);
+  const previousBearer = num(p.previous.bearer);
+  const rows = objects(top);
+  return {
+    requests,
+    bearer,
+    anonymous: Math.max(requests - bearer, 0),
+    previousRequests,
+    previousBearer,
+    topRoutes: rows.slice(0, UNKNOWN_ROUTES_TOP_N).map((r) => {
+      const count = num(r.requests);
+      const withBearer = num(r.bearer);
+      return {
+        method: str(r.method),
+        route: str(r.route),
+        count,
+        bearer: withBearer,
+        anonymous: Math.max(count - withBearer, 0),
+      };
+    }),
+    truncated: rows.length > UNKNOWN_ROUTES_TOP_N,
+  };
 }
 
 interface ComputeContext {
