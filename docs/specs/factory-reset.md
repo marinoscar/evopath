@@ -52,7 +52,7 @@ The handler header comment holds the authoritative per-model list for every mode
 | Kept (audit) | `AuditEvent`. Deleted users' `actorUserId` becomes null. |
 | Kept (jobs) | Running jobs and this job. A running job of another type finds its rows gone and fails on its own, as handlers already must tolerate. |
 | Deleted (users) | Every other user and their sessions, identities, roles, access tokens and AI keys |
-| Deleted (data) | Everything the user reset deletes, for every user including the actor: workouts, activity goals and entries, programs, gyms, health data, photo intakes, training runs, AI runs and usage, stored credentials, notifications, user settings |
+| Deleted (data) | Everything the user reset deletes, for every user including the actor: workouts, activity goals and entries, connected phones with their sync runs and diagnostic reports, sleep sessions, programs, gyms, health data, photo intakes, training runs, AI runs and usage, stored credentials, notifications, user settings |
 | Deleted (catalog) | Custom exercises and custom equipment types |
 | Deleted (deployment) | Pending and finished job history, job statistics rollups, broadcasts, allowlist entries except the actor's, device codes |
 | Deleted (storage) | Every stored object except backup archives |
