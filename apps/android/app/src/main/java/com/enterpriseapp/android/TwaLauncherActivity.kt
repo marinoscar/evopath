@@ -9,7 +9,8 @@ import com.enterpriseapp.android.sync.WorkManagerSyncScheduler
 import com.google.androidbrowserhelper.trusted.LauncherActivity
 
 /**
- * Launcher entry point: opens the PWA at `${server}/?source=twa` in a Trusted Web Activity.
+ * Launcher entry point: opens the PWA at `${server}/?source=twa&appVersion=…&appVersionCode=…`
+ * in a Trusted Web Activity.
  * When no server is configured yet it shows [SetupActivity] instead.
  *
  * The manifest's DEFAULT_URL is only a placeholder; the real URL comes from ServerConfig, so
@@ -34,6 +35,6 @@ class TwaLauncherActivity : LauncherActivity() {
 
     override fun getLaunchingUrl(): Uri {
         val server = serverUrl ?: return super.getLaunchingUrl()
-        return Uri.parse(ServerUrls.twaLaunchUrl(server))
+        return Uri.parse(ServerUrls.twaLaunchUrl(server, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()))
     }
 }

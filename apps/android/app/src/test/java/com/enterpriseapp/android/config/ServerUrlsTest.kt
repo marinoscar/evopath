@@ -59,12 +59,21 @@ class ServerUrlsTest {
     @Test fun `rejects malformed hosts`() {
         assertInvalid("https://")
         assertInvalid("myserver")
-        assertInvalid("evo path.example.com")
+        assertInvalid("app server.example.com")
         assertInvalid("https://exa mple.com")
     }
 
-    @Test fun `builds the twa launch url`() =
-        assertEquals("https://app.example.com/?source=twa", ServerUrls.twaLaunchUrl("https://app.example.com/"))
+    @Test fun `builds the twa launch url with the app version`() =
+        assertEquals(
+            "https://app.example.com/?source=twa&appVersion=0.2.1&appVersionCode=7",
+            ServerUrls.twaLaunchUrl("https://app.example.com/", "0.2.1", 7),
+        )
+
+    @Test fun `encodes an unusual version name in the twa launch url`() =
+        assertEquals(
+            "https://app.example.com:8443/?source=twa&appVersion=1.0+beta%261&appVersionCode=12",
+            ServerUrls.twaLaunchUrl("https://app.example.com:8443", "1.0 beta&1", 12),
+        )
 }
 
 class ServerConfigTest {

@@ -1,6 +1,7 @@
 package com.enterpriseapp.android.config
 
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.net.URLEncoder
 
 /** Outcome of validating a user-entered server address. */
 sealed interface ServerUrlResult {
@@ -52,6 +53,12 @@ object ServerUrls {
         return ServerUrlResult.Valid("https://$hostPart$port")
     }
 
-    /** The URL the TWA opens; `source=twa` lets the web app know it runs inside the Android shell. */
-    fun twaLaunchUrl(server: String): String = "${server.trimEnd('/')}/?source=twa"
+    /**
+     * The URL the TWA opens. `source=twa` lets the web app know it runs inside the Android shell;
+     * `appVersion`/`appVersionCode` tell it which build, so it can offer an update.
+     */
+    fun twaLaunchUrl(server: String, versionName: String, versionCode: Long): String =
+        "${server.trimEnd('/')}/?source=twa" +
+            "&appVersion=${URLEncoder.encode(versionName, Charsets.UTF_8.name())}" +
+            "&appVersionCode=$versionCode"
 }
