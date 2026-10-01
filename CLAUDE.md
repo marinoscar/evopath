@@ -73,6 +73,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: gyms and equipment (catalog, default gym, provenance, AI Scan Gym, GPS location) | [docs/specs/gyms-and-equipment.md](docs/specs/gyms-and-equipment.md) |
 | Spec: exercise library and workout logging (set model, PRs, training summary, AI Prefill from photo) | [docs/specs/workouts.md](docs/specs/workouts.md) |
 | Spec: Android Health Connect sync (pairing, data mapping, reconciliation, assetlinks, diagnostics) | [docs/specs/health-connect-sync.md](docs/specs/health-connect-sync.md) |
+| Spec: native companion architecture (TWA + native module pattern, coordination channels, recipe) | [docs/specs/native-companion-architecture.md](docs/specs/native-companion-architecture.md) |
 | Spec: training signals and adherence | [docs/specs/training-signals.md](docs/specs/training-signals.md) |
 | Spec: activity goals (weekly goals, check-ins, workout credit, precedence) | [docs/specs/activity-goals.md](docs/specs/activity-goals.md) |
 | Spec: background job queue | [docs/specs/job-queue.md](docs/specs/job-queue.md) |

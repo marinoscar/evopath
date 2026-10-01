@@ -471,7 +471,7 @@ An optional sideloaded Android app (`apps/android/`, package `com.<repo>.android
 - **Routes:** `/api/health-sync` (devices, sync, runs, diagnostics), `/api/sleep`, `/api/admin/android-app`, `/api/admin/android-app/releases` (upload, list, make current, delete), `/api/android-app/releases/latest`, `/api/android-app/releases/:id/download-link`, `/api/android-app/download/:token` (public, token-validated), `/api/well-known/assetlinks.json` (public, served at `/.well-known/assetlinks.json` by nginx); details in `/api/docs` (tags "Health sync", "Sleep", "Android App")
 - **UI:** `/settings/connected-devices`, `/admin/settings/android`, the Health page "Sleep" section
 - **Permissions:** `goals:read`, `goals:write` (health sync); `health_data:read`, `health_data:write` (sleep, and measurements or sleep in a sync); `system_settings:read`, `system_settings:write` (trusted apps)
-- **Read more:** [specs/health-connect-sync.md](specs/health-connect-sync.md), [runbooks/android-app.md](runbooks/android-app.md)
+- **Read more:** [specs/health-connect-sync.md](specs/health-connect-sync.md), [runbooks/android-app.md](runbooks/android-app.md); why it is a TWA plus a native module and how to add another native capability: [specs/native-companion-architecture.md](specs/native-companion-architecture.md)
 
 ---
 

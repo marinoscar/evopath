@@ -20,6 +20,8 @@ An optional Android app imports steps, exercise sessions, heart rate, weight, bo
 
 ### 2.1 Architecture
 
+Why the app is a TWA plus a native module, the options rejected and the coordination channels between the halves: [native-companion-architecture.md](native-companion-architecture.md).
+
 ```
  Phone                                                     Server (same origin)
 ┌─────────────────────────────────────────────┐
@@ -277,7 +279,7 @@ The deployment hosts the Android app's APK itself, so users install and update f
 
 ## 6. Design decisions
 
-- **TWA plus native module, not a native app.** The web app is already a PWA with every screen; a TWA reuses it and shares its sign-in. Only Health Connect access needs native code.
+- **TWA plus native module, not a native app.** The web app is already a PWA with every screen; a TWA reuses it and shares its sign-in. Only Health Connect access needs native code. The full comparison and the reusable pattern are in [native-companion-architecture.md](native-companion-architecture.md).
 - **Device flow and a PAT, not a new credential type.** Pairing reuses RFC 8628 and `pat_` tokens, which already have expiry, revocation and a settings page. The cost is that expiry means re-pairing.
 - **Push from the phone, not a server pull.** Health Connect has no cloud API, so the server cannot poll it. The phone reads and uploads.
 - **Provider per device.** `health_connect:<deviceId>` lets reconciliation delete only that phone's rows. A shared provider would let a second phone erase the first's data.

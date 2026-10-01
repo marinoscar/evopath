@@ -1,5 +1,7 @@
 # Android app
 
+Why it is built this way (a PWA in a TWA plus a small native module, coordinated through the server): [native companion architecture](../../docs/specs/native-companion-architecture.md).
+
 A small Android app for the product (its name, package and colours come from
 `packages/shared/identity.json`; see [Product identity](#product-identity)):
 

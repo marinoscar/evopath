@@ -1243,7 +1243,9 @@ repository (it walks up to the directory holding `apps/android`).
 | `android release [--bump patch] [--notes text] [--server-url URL] [--no-commit]` | Bumps the version, builds, publishes, then commits `apps/android/version.properties` alone as `chore(android): release <versionName> (<versionCode>)`. Skips the commit with `--no-commit` or outside a git repository. If the build or the upload fails nothing is committed, and the CLI tells you the version was bumped locally. |
 
 The full release procedure (versioning, every route, rollback, troubleshooting)
-is the [Android release runbook](../../docs/runbooks/android-release.md).
+is the [Android release runbook](../../docs/runbooks/android-release.md); the
+architecture behind the app is the
+[native companion architecture](../../docs/specs/native-companion-architecture.md).
 
 The keystore and `signing.json` (its passwords, mode 600) live in
 `~/.evopathcli/android/`, outside every checkout. Back both up: losing the

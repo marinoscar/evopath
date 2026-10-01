@@ -178,6 +178,7 @@ Server-side symptoms:
 
 - [Android release runbook](android-release.md) (keystore, versioning, publishing, rollback)
 - [Health Connect sync spec](../specs/health-connect-sync.md)
+- [Native companion architecture](../specs/native-companion-architecture.md) (why the app is a TWA plus a native module)
 - [`evopathcli android` reference](../../apps/cli/README.md#building-and-publishing-the-android-app)
 - [Renaming a fork](../RENAMING.md) (the app's package, label and deep link follow `identity.json`)
 - [Personal access tokens](../personal-access-tokens.md) and [device authorization](../DEVICE-AUTH.md)

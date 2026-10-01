@@ -321,6 +321,7 @@ Roll back:
 ## See also
 
 - [Android app runbook](android-app.md): install, trust, pair, source apps and phone diagnostics
+- [Native companion architecture](../specs/native-companion-architecture.md): why the app is a TWA plus a native module, and what needs a new APK
 - [Health Connect sync spec §2.12](../specs/health-connect-sync.md#212-apk-releases): the release model, rules and routes
 - [`evopathcli android` reference](../../apps/cli/README.md#building-and-publishing-the-android-app)
 - [Deploy to a VPS](deploy-to-vps.md) and [storage configuration](storage-configuration.md)
