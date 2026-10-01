@@ -47,8 +47,17 @@ export const AI_SSE_HEADERS = {
   'X-Accel-Buffering': 'no',
 } as const;
 
+/**
+ * Any frame `pipeAiSse` can write: a `type` that names the SSE event. The AI
+ * routes stream `AiStreamEvent`; a feature route (the coach chat, E7.7) may
+ * stream its own frames through the same pipe, with the same wire rules.
+ */
+export interface SseFrame {
+  type: string;
+}
+
 /** One SSE frame. `JSON.stringify` never emits a raw newline, so `data:` is one line. */
-export function formatSseEvent(event: AiStreamEvent): string {
+export function formatSseEvent<E extends SseFrame>(event: E): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -91,9 +100,9 @@ export function abortOnDisconnect(res: ServerResponse): DisconnectSignal {
  * the iterable ends. A failure thrown mid-stream becomes an `error` frame (the
  * facade already turns a provider failure into one, in band). Never throws.
  */
-export async function pipeAiSse(
+export async function pipeAiSse<E extends SseFrame = AiStreamEvent>(
   reply: FastifyReply,
-  events: AsyncIterable<AiStreamEvent>,
+  events: AsyncIterable<E>,
   disconnect: DisconnectSignal,
 ): Promise<void> {
   // Keep headers hooks already set on the reply (CORS, request id) — a

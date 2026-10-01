@@ -4,6 +4,7 @@ import { AiConfigModule } from '../ai/config/ai-config.module';
 import { HealthProfileModule } from '../health-profile/health-profile.module';
 import { SettingsModule } from '../settings/settings.module';
 import { CoachAdminSettingsController } from './admin/coach-admin-settings.controller';
+import { CoachChatModule } from './chat/coach-chat.module';
 import { CoachSettingsController } from './coach-settings.controller';
 import { CoachSettingsService } from './coach-settings.service';
 import { CoachContentGuard } from './guard/coach-content-guard.service';
@@ -21,11 +22,14 @@ import { assertCoachRegistryComplete } from './personas';
  *   `AiEnabledGuard`) and `/api/admin/coach/settings` (`ai_config:*`, not
  *   behind it).
  *
+ * E7.7 (#247): `CoachChatModule` — `POST /api/coach/chat/stream` and
+ * `GET /api/coach/messages`.
+ *
  * The registry is checked at init: a persona missing a moment or an intensity
  * fails the boot, not a request.
  */
 @Module({
-  imports: [SettingsModule, HealthProfileModule, AiConfigModule],
+  imports: [SettingsModule, HealthProfileModule, AiConfigModule, CoachChatModule],
   controllers: [CoachSettingsController, CoachAdminSettingsController],
   providers: [CoachSettingsService, CoachContentGuard],
   exports: [CoachSettingsService, CoachContentGuard],

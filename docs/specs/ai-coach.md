@@ -446,6 +446,23 @@ Plan changes are not tools. The coach proposes and links to the existing adjust 
 
 **Limits.** Rate limits come from `ai.limits` (`AiLimitsService`); a limited call answers `429 AI_RATE_LIMITED`. Chat turns are stored as `CoachMessage` rows (`kind = 'chat'`).
 
+**Stream contract (as built, E7.7).** Body `{ text }` (1 to 2,000 characters). Frames, each `event: <type>` with the frame as JSON in `data:`:
+
+| Frame | Payload | When |
+|---|---|---|
+| `safety` | `{ level: 'blocked' \| 'conservative', screen: 'distress' \| 'symptom' \| 'pain' }` | First, when a screen matched |
+| `tool` | `{ name, status }` | One per tool call, while the model works; never arguments or results |
+| `delta` | `{ text }` | The reply, in order |
+| `done` | `{ messageId, userMessageId, links: [{ label, href }], pausedUntil, fallback }` | Last, on success |
+| `error` | `{ code, message }` | Last, on a failure after streaming began |
+
+- **Guard before display.** `runTools` is not a streaming call, and a reply shown token by token could not be withdrawn if the content guard rejected it. The final text is guarded first (chat context: the nudge `body` length limit is replaced by a 1,200-character chat limit; numbers may come from tool results, the user's message and the history), then sent as `delta` frames. A failing reply is replaced by a fixed fallback line and stored with `data.fallback = true`.
+- **Preconditions are JSON errors.** The coach system switch (`403 COACH_DISABLED`), an unresolvable `coach.chat` model (`409 AI_FEATURE_UNAVAILABLE`, as for photo intake) and every refusal of the **first** model call (`429 AI_RATE_LIMITED`, key errors) are answered before the response becomes a stream, and nothing is stored. The user's message is stored once the first model call succeeds.
+- **Disconnect.** Closing the connection aborts the provider call; the partial reply is discarded (no coach row, no `data.truncated`).
+- **Pause reason.** `CoachState` has no column for it, so the `reason` of `pause_coach` only shapes the model's confirmation; it is never stored or logged.
+- **Plan changes** link to `/train`, where "Adjust today's workout" starts the quick adaptation; `done.links` carries the link when the reply contains it.
+- **Never-send.** The tools select only the fields they return (no ids, notes, storage keys or photo content) and the history sends only `title` and `body`; the list itself is `training-agents/context/never-send.ts` until `coach-never-send.ts` lands with the nudges.
+
 ### 2.10 Weekly review and email
 
 At local Sunday 18:00 the sweep enqueues `ai.coach.weekly_review`, deduped by ISO week through `CoachState.lastWeeklyReviewWeek`.
@@ -690,6 +707,7 @@ The envelope's `code` is status-derived ([API.md](../API.md#errors)), so a coach
 
 Not every failure gets a coach-specific code:
 - Chat input over 2,000 characters, and any other schema failure, is an ordinary 400 validation error.
+- A chat turn when `coach.chat` has no resolvable model returns `409` with `details.reason: AI_FEATURE_UNAVAILABLE` (the photo-intake convention).
 - A voice preview or audio request when `coach.voice` has no resolvable model returns the existing unresolved-feature 409 from `AiFeatureModelResolver`.
 - The 18+ dialog sends `confirmAdult: true` on `PUT /api/coach/settings`, and the server stamps `adultConfirmedAt`; the client never writes the timestamp itself.
 
