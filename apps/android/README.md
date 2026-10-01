@@ -1,14 +1,15 @@
-# EvoPath Android
+# Android app
 
-A small Android app for EvoPath:
+A small Android app for the product (its name, package and colours come from
+`packages/shared/identity.json`; see [Product identity](#product-identity)):
 
-- **Trusted Web Activity (TWA)**: the launcher icon opens the EvoPath PWA full screen
+- **Trusted Web Activity (TWA)**: the launcher icon opens the PWA full screen
   (`<server>/?source=twa`) in the user's browser engine.
 - **Health sync** (native, Jetpack Compose): pairs with the server and imports Health Connect
   data. Reached from the app shortcut "Health sync" or the deep link
-  `evopath-android://health-sync`.
+  `<repo>-android://health-sync`.
 
-Package `com.evopath.android`, minSdk 26, target/compile SDK 36. Sideloaded; CI publishes the signed
+Package `com.<repo>.android`, minSdk 26, target/compile SDK 36. Sideloaded; CI publishes the signed
 APK to the rolling GitHub prerelease `android-latest` (`.github/workflows/android.yml`).
 
 ## Build locally
@@ -25,15 +26,44 @@ export ANDROID_HOME=/path/to/android-sdk
 
 Install on a connected phone: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
 
+### Product identity
+
+Nothing under `apps/android` spells the product name. `app/build.gradle.kts` reads
+`packages/shared/identity.json` (the template's single identity source, see `docs/RENAMING.md`)
+and derives, with `<repo>` = the part of `repoSlug` after `/`:
+
+| Value | Derived as | Where it lands |
+|---|---|---|
+| App label | `productName` | `@string/app_name` (resValue), `BuildConfig.PRODUCT_NAME` |
+| applicationId | `com.<repo, lowercase, letters and digits only>.android` | the installed package |
+| Deep-link scheme | `<repo, lowercase>-android` | manifest placeholder `${deepLinkScheme}`, `BuildConfig.DEEP_LINK_SCHEME`, the generated `res/xml/shortcuts.xml` |
+| Brand colours | `themeColor`, `backgroundColor` | `@color/brand_primary`, `@color/brand_background`, `@color/ic_launcher_background`, `BuildConfig.THEME_COLOR`/`BACKGROUND_COLOR` (Compose theme) |
+| Storage prefix | same token as the applicationId | `BuildConfig.STORAGE_PREFIX`: SharedPreferences file names |
+
+User-facing text reads the name through `util/Brand.kt` (notifications, rationale, user agent
+`<ProductName without spaces>-Android/<version>`, log tags). The Kotlin namespace
+`com.enterpriseapp.android` is identity-neutral and is never renamed; only the applicationId
+follows the product. A fork that renames with `scripts/rename.mjs` therefore gets a new package
+(a separate app on the phone) with no Android source change. Keep the derived values stable for
+a published app: changing `repoSlug` changes the applicationId, so phones would install it as a
+new app and lose their pairing.
+
+The launcher entry is an `activity-alias` named `${applicationId}.TwaLauncherActivity`, so the
+launcher component (and home-screen icons) stay the same whatever the Kotlin package is.
+
 ### Gradle properties
+
+Each property can be given with the neutral `app.` prefix or with the repository's own prefix
+(`<repo>.versionName`, the form older scripts pass); `app.` wins.
 
 | Property | Default | Meaning |
 |---|---|---|
-| `evopath.versionName` | `0.1.0` | `versionName` |
-| `evopath.versionCode` | `1` | `versionCode` |
-| `evopath.serverUrl` | empty | Server baked into `BuildConfig.DEFAULT_SERVER_URL`. Empty shows a first-run setup screen. |
+| `app.versionName` | `0.1.0` | `versionName` |
+| `app.versionCode` | `1` | `versionCode` |
+| `app.serverUrl` | empty | Server baked into `BuildConfig.DEFAULT_SERVER_URL`. Empty shows a first-run setup screen. |
+| `app.applicationId`, `app.productName`, `app.deepLinkScheme` | from `identity.json` | Override one derived identity value (rarely needed). |
 
-Example: `./gradlew assembleDebug -Pevopath.serverUrl=https://evopath.example.com`.
+Example: `./gradlew assembleDebug -Papp.serverUrl=https://app.example.com`.
 
 ### Signed release
 
@@ -41,9 +71,9 @@ Release signing reads only environment variables; without all four the release A
 unsigned (`app-release-unsigned.apk`) and debug builds are unaffected.
 
 ```bash
-export ANDROID_KEYSTORE_FILE=/secure/path/evopath-release.jks
-export ANDROID_KEYSTORE_PASSWORD=…  ANDROID_KEY_ALIAS=evopath  ANDROID_KEY_PASSWORD=…
-./gradlew --no-daemon assembleRelease -Pevopath.versionName=0.1.5 -Pevopath.versionCode=5
+export ANDROID_KEYSTORE_FILE=/secure/path/release.jks
+export ANDROID_KEYSTORE_PASSWORD=…  ANDROID_KEY_ALIAS=release  ANDROID_KEY_PASSWORD=…
+./gradlew --no-daemon assembleRelease
 $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
 ```
 
@@ -92,13 +122,13 @@ the last 30 days (until a sync has succeeded once) or 7 days, in the phone's tim
 `run.details.syncedTypes` lists only the types read in full, so the server reconciles (deletes
 rows that disappeared) for those types only; a type that is off, not permitted or failed is
 left alone and the run is `partial`. On 401 the app stops syncing and posts a
-"Re-pair EvoPath Health sync" notification; on 409 `DEVICE_REVOKED` it forgets the pairing.
+"Re-pair <product> Health sync" notification; on 409 `DEVICE_REVOKED` it forgets the pairing.
 The last 20 runs are kept on the phone (Sync screen).
 
 **Background access.** A periodic (hourly) run that lacks `READ_HEALTH_DATA_IN_BACKGROUND`, or
 runs on a Health Connect without the background feature, reads nothing: it reports a `skipped` run
 with `errorCode` `BACKGROUND_PERMISSION_MISSING` and posts at most one notification per 24 h
-("Allow background access so EvoPath can sync while closed") that opens the permission prompt.
+("Allow background access so <product> can sync while closed") that opens the permission prompt.
 Sync now, app-open and initial syncs read normally.
 
 ## Diagnostics
@@ -149,13 +179,14 @@ a body) write to it; Diagnostics shows the last 200 lines.
 ## Layout
 
 ```
-app/src/main/java/com/evopath/android/
+app/src/main/java/com/enterpriseapp/android/
   TwaLauncherActivity.kt     launcher: TWA, or setup when no server is configured
-  EvoPathApplication.kt      process-wide ServerConfig, TokenStore, ApiClient
+  MobileApplication.kt       process-wide ServerConfig, TokenStore, ApiClient
   config/                    ServerConfig (prefs) + ServerUrls (pure validation)
   auth/TokenStore.kt         pairing token, expiry, device id, installation id (encrypted prefs)
   net/                       ApiClient (OkHttp + kotlinx.serialization), ApiResult/ApiError
   util/AppInfo.kt            version, package, signing certificate SHA-256
+  util/Brand.kt              product name, deep-link scheme (from BuildConfig)
   setup/SetupActivity.kt     first-run server address screen
   pairing/                   device flow (DeviceFlowPoller), registration, PairingManager
   healthconnect/             HealthConnectGateway (availability, permissions, per-type readers
