@@ -135,6 +135,11 @@
 //   TrainingPlanRun
 //   (+TrainingRunEvent)          DELETED (step 2)
 //   WorkoutAdaptation            DELETED (step 2)
+//   ProgressPhoto, CoachMessage,
+//   CoachState                   DELETED (step 2, explicitly: they cascade only
+//                                from the User row). Photo images and coach
+//                                voice notes are deleted in step 7 with every
+//                                non-backup object
 //   Program (+Block, Week,
 //   Workout, Exercise, Version)  DELETED (step 2, cascades)
 //   ProgramChangeLog,

@@ -98,6 +98,30 @@ describe('AI feature registry', () => {
     });
   });
 
+  it('the coach features (E7.1) sit in the coach group with their needs, no role and no effort', () => {
+    expect(AI_FEATURES['coach.decision']).toMatchObject({ group: 'coach', needs: ['responses', 'structured_output'] });
+    expect(AI_FEATURES['coach.chat']).toMatchObject({ group: 'coach', needs: ['responses', 'tools', 'streaming'] });
+    expect(AI_FEATURES['coach.voice']).toMatchObject({ group: 'coach', needs: ['audio_speech'] });
+    for (const id of ['coach.decision', 'coach.chat', 'coach.voice'] as const) {
+      expect(AI_FEATURES[id]).toMatchObject({
+        inputModalities: [],
+        providers: null,
+        requiresWebSearch: false,
+        defaultEffort: null,
+        trainingRole: null,
+      });
+    }
+  });
+
+  it('coach.voice is unusable on a model, or a provider, without audio_speech', () => {
+    const supports = () => true;
+    expect(featureShortfall(AI_FEATURES['coach.voice'], { provider: 'openai', capabilities: ['responses'] }, supports)).toEqual(['audio_speech']);
+    expect(featureShortfall(AI_FEATURES['coach.voice'], { provider: 'openai', capabilities: ['audio_speech'] }, supports)).toEqual([]);
+    expect(
+      featureShortfall(AI_FEATURES['coach.voice'], { provider: 'anthropic', capabilities: ['audio_speech'] }, (_p, cap) => cap !== 'audio_speech'),
+    ).toEqual(['audio_speech']);
+  });
+
   it('featureShortfall names capabilities, modalities and provider restrictions', () => {
     const supports = () => true;
     expect(featureShortfall(AI_FEATURES.gym_scan, { provider: 'openai', capabilities: ['responses'], inputModalities: ['text'] }, supports)).toEqual([
@@ -212,6 +236,15 @@ describe('resolveFeature — blocking states', () => {
     );
 
     expect(r).toMatchObject({ state: 'missing_capability', fix: 'admin', candidates: [{ modelId: 'vision-off', enabled: false }] });
+  });
+
+  it('coach.voice resolves only to an audio_speech model; an assigned text model falls through (E7.1)', () => {
+    const speech = model('tts-1', ['audio_speech'], { inputModalities: ['text'] });
+
+    expect(resolveFeature('coach.voice', facts({ usable: [textOnly] }))).toMatchObject({ state: 'missing_capability', fix: 'admin' });
+    expect(
+      resolveFeature('coach.voice', facts({ usable: [textOnly, speech], assignments: assign({ 'coach.voice': ref('text-only') }) })),
+    ).toMatchObject({ state: 'auto', model: { modelId: 'tts-1' }, assignmentUnavailable: ref('text-only') });
   });
 
   it('an unusable assignment with nothing to fall back to still names it', () => {

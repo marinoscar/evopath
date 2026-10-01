@@ -31,6 +31,8 @@ export interface UserDataSummary {
   aiKeys?: number;
   accessTokens?: number;
   notifications?: number;
+  progressPhotos?: number;
+  coachMessages?: number;
   [key: string]: number | undefined;
 }
 

@@ -5,6 +5,7 @@ import {
   navigationSchema,
   notificationsSchema,
   onboardingSettingsSchema,
+  coachSettingsSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import { profileImageSourceSchema } from '../../common/schemas/settings.schema';
 
@@ -26,6 +27,9 @@ export const userSettingsResponseSchema = z.object({
   notifications: notificationsSchema.optional(),
   // First-run onboarding UI state (#203); absent until the user has any.
   onboarding: onboardingSettingsSchema.optional(),
+  // AI Coach preferences (E7.1, #241); absent until the user stores any, and
+  // the client then applies the built-in defaults.
+  coach: coachSettingsSchema.optional(),
   updatedAt: z.iso.datetime(),
   version: z.number(),
 });

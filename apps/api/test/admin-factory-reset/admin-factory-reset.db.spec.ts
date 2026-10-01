@@ -179,6 +179,26 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
         payload: { healthDocumentId: bDoc.id },
       },
     });
+    // AI Coach (E7): B's progress photo and voice-note message, whose files
+    // the actor uploaded, and coach state for B and for the actor (the actor's
+    // own data is reset too).
+    const photoObject = await storageObject(actorId, 'b-progress');
+    await client.progressPhoto.create({
+      data: { userId: b, storageObjectId: photoObject.id, localDate: new Date('2026-09-01'), pose: 'front' },
+    });
+    const audioObject = await storageObject(actorId, 'b-coach-audio');
+    await client.coachMessage.create({
+      data: {
+        userId: b,
+        role: 'coach',
+        kind: 'nudge',
+        body: 'Time to train',
+        audioStatus: 'ready',
+        audioStorageObjectId: audioObject.id,
+      },
+    });
+    await client.coachState.create({ data: { userId: b } });
+    await client.coachState.create({ data: { userId: actorId, weeklyStreak: 3 } });
     const backupJob = await client.job.create({
       data: { type: 'db.backup.run', reason: 'rerun', status: 'succeeded' },
     });
@@ -233,6 +253,11 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       ['health documents', await client.healthDocument.count()],
       ['health document file', await client.storageObject.count({ where: { id: docObject.id } })],
       ['health document purge job', await client.job.count({ where: { id: docPurge.id } })],
+      ['progress photos', await client.progressPhoto.count()],
+      ['progress photo file', await client.storageObject.count({ where: { id: photoObject.id } })],
+      ['coach messages', await client.coachMessage.count()],
+      ['coach audio file', await client.storageObject.count({ where: { id: audioObject.id } })],
+      ['coach states', await client.coachState.count()],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -258,6 +283,8 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
     expect(keptRun.createdById).toBeNull();
     expect(await client.storageObject.count({ where: { id: backupObject.id } })).toBe(1);
     expect(storage.delete).not.toHaveBeenCalledWith(backupObject.storageKey);
+    expect(storage.delete).toHaveBeenCalledWith(photoObject.storageKey);
+    expect(storage.delete).toHaveBeenCalledWith(audioObject.storageKey);
     expect(await client.job.count({ where: { id: { in: [running.id, backupJob.id, job.id] } } })).toBe(3);
     // The provider refused it: the row stays so a later reset can retry.
     expect(await client.storageObject.count({ where: { id: brokenObject.id } })).toBe(1);
@@ -272,6 +299,9 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       workouts: 1,
       gyms: 1,
       healthDocuments: 1,
+      progressPhotos: 1,
+      coachMessages: 1,
+      coachStates: 2,
       broadcasts: 1,
       workerNodesReassigned: 1,
       nodeCredentialsReassigned: 1,

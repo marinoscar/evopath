@@ -78,6 +78,8 @@ const DELETED_CATEGORIES: Array<{
   { key: 'aiKeys', singular: 'AI provider key', plural: 'AI provider keys', detail: 'Your own keys for AI providers.' },
   { key: 'accessTokens', singular: 'access token', plural: 'access tokens', detail: 'Personal access tokens for the API and CLI.' },
   { key: 'notifications', singular: 'notification', plural: 'notifications', detail: 'Your notification history.' },
+  { key: 'progressPhotos', singular: 'progress photo', plural: 'progress photos', detail: 'Progress photos you saved for your coach.' },
+  { key: 'coachMessages', singular: 'coach message', plural: 'coach messages', detail: 'Your AI Coach conversation, nudges and weekly reviews.' },
 ];
 
 const STORAGE_RESULT_KEYS = new Set(['storageObjectsDeleted', 'storageObjectsFailed']);
