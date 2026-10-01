@@ -10,6 +10,8 @@
  */
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+import { APP_SLUG } from '@app/shared';
+
 // Issue #258, epic #254. The maintenance recogniser is imported here — and
 // nowhere near a page — because the interception is CENTRAL: see `toError`.
 import { readMaintenanceBlock, reportMaintenanceBlock } from './maintenance';
@@ -31,7 +33,14 @@ export interface BlobWithHeaders {
   headers: Headers;
 }
 
-class ApiService {
+/**
+ * The Web Lock every page of this app on one origin takes around
+ * `POST /auth/refresh` (issue #295). Derived from the shared identity so two
+ * apps built from this template never contend for each other's lock.
+ */
+export const AUTH_REFRESH_LOCK_NAME = `${APP_SLUG}-auth-refresh`;
+
+export class ApiService {
   private accessToken: string | null = null;
   private refreshPromise: Promise<boolean> | null = null;
 
@@ -174,14 +183,45 @@ class ApiService {
       return this.refreshPromise;
     }
 
-    // Start a new refresh
-    this.refreshPromise = this.doRefreshToken();
+    // Start a new refresh. `refreshPromise` dedupes within THIS page; the
+    // Web Lock serialises across pages (see `refreshAcrossPages`).
+    this.refreshPromise = this.refreshAcrossPages();
 
     try {
       return await this.refreshPromise;
     } finally {
       this.refreshPromise = null;
     }
+  }
+
+  /**
+   * Run the refresh under an exclusive Web Lock shared by every page of this
+   * origin (issue #295).
+   *
+   * WHY: the `refresh_token` cookie is HttpOnly, rotated on every use, and
+   * shared by every page in the browser profile: several tabs, and on Android
+   * the TWA window plus a Chrome Custom Tab (the pairing flow on `/activate`).
+   * Two pages refreshing at once would present the SAME cookie twice; the
+   * server treats a second presentation of a rotated token as theft and
+   * revokes every refresh token the user holds (reuse detection in
+   * `auth.service.ts`), signing out all of them. Serialised, the page that
+   * waited presents the NEWER cookie the first page's rotation left in the
+   * shared jar, so there is no reuse.
+   *
+   * Without `navigator.locks` (older browsers, jsdom) this is the plain
+   * in-page refresh it was before.
+   */
+  private refreshAcrossPages(): Promise<boolean> {
+    const locks =
+      typeof navigator !== 'undefined'
+        ? (navigator as Navigator & { locks?: LockManager }).locks
+        : undefined;
+    if (!locks || typeof locks.request !== 'function') {
+      return this.doRefreshToken();
+    }
+    return locks.request(AUTH_REFRESH_LOCK_NAME, { mode: 'exclusive' }, () =>
+      this.doRefreshToken(),
+    );
   }
 
   private async doRefreshToken(): Promise<boolean> {
