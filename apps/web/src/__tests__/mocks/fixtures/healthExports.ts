@@ -16,6 +16,7 @@ export function mockHealthExport(overrides: Partial<HealthExport> = {}): HealthE
     to: '2026-10-01',
     datasets: ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents'],
     includeHistory: false,
+    labUnits: 'conventional',
     createdAt: '2026-10-01T09:00:00.000Z',
     completedAt: null,
     expiresAt: null,

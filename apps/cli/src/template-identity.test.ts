@@ -399,6 +399,7 @@ describe('exampleDocExemptions (issue #514)', () => {
     tagline: 'A worked example.',
     repoSlug: EXAMPLE_IDENTITY.repo,
     themeColor: '#7c3aed',
+    accentColor: '#f6c445',
     backgroundColor: '#ffffff',
   };
 
@@ -419,6 +420,7 @@ describe('exampleDocExemptions (issue #514)', () => {
       tagline: 'A real product.',
       repoSlug: 'someone/nimbus-works',
       themeColor: '#7c3aed',
+      accentColor: '#f6c445',
       backgroundColor: '#ffffff',
     };
 

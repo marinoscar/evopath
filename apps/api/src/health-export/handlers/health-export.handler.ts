@@ -143,6 +143,7 @@ export class HealthExportHandler implements JobHandler, OnModuleInit {
         to: payload.to,
         datasets: payload.datasets,
         includeHistory: payload.includeHistory,
+        labUnits: payload.labUnits,
       },
       now,
     );

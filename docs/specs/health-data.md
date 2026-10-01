@@ -31,6 +31,7 @@ Health data is per-user data an app built from this template interprets in conte
 | `sexAtBirth` | text, null | `female`, `male` or `prefer_not_to_say`. |
 | `heightMm` | integer, null | Height in whole millimetres. |
 | `unitSystem` | text, default `metric` | `metric` or `imperial`. Display and entry preference. |
+| `labUnits` | text, default `conventional` (`lab_units`) | `conventional` or `si` (#234). The unit lab results are shown and exported in; display only, stored lab values stay canonical ([health-records.md 2.8](health-records.md#28-blood-work-lab-results)). |
 | `timeZone` | text, null | IANA name, for example `Europe/Madrid` or `UTC`. |
 | `bio` | text, null | Free text, at most 1000 characters. |
 | `version` | integer, default 1 | Optimistic-concurrency counter, incremented on every change. |
@@ -43,11 +44,11 @@ Two storage choices worth knowing:
 
 ### 2.2 Reading
 
-`GET /api/health-profile` returns the caller's profile. A user who never saved one gets a `200` with every field `null`, `unitSystem: "metric"`, `version: 0` and `updatedAt: null`. No row is created by reading.
+`GET /api/health-profile` returns the caller's profile. A user who never saved one gets a `200` with every field `null`, `unitSystem: "metric"`, `labUnits: "conventional"`, `version: 0` and `updatedAt: null`. No row is created by reading.
 
 ### 2.3 Saving
 
-`PUT /api/health-profile` is a **full replace**. Only `unitSystem` is required; an omitted nullable field is stored as `null`. The body is validated by a strict Zod schema, so an unknown property is a `400`, not a silently dropped field.
+`PUT /api/health-profile` is a **full replace**. Only `unitSystem` is required; an omitted nullable field is stored as `null`. `labUnits` is the exception: it is not nullable, and an omitted `labUnits` **keeps** the stored preference, so a client that does not know the field never resets it. The body is validated by a strict Zod schema, so an unknown property is a `400`, not a silently dropped field.
 
 | Field | Rule |
 |---|---|
@@ -57,6 +58,7 @@ Two storage choices worth knowing:
 | `unitSystem` | `metric` or `imperial`, required |
 | `timeZone` | trimmed, an IANA name `Intl.DateTimeFormat` accepts (`UTC` is valid, an empty string is not), or null |
 | `bio` | trimmed, at most 1000 characters; an empty string is stored as null |
+| `labUnits` | `conventional` or `si`; optional, omitted = unchanged (`conventional` for a new profile) |
 
 "Not in the future" is measured against UTC+14, the earliest calendar date on Earth. A person born today in Auckland has a birth date that is still tomorrow in UTC; a UTC-only check would refuse a true answer.
 

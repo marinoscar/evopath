@@ -5,10 +5,18 @@
 // Every dataset, with cells that exercise the writers' edge cases: a note
 // that a spreadsheet would read as a formula, a file name starting with `@`,
 // a name with a quote and a comma, and a negative number that must stay a
-// number.
+// number. Lab rows are written canonical and shown in the fixture's
+// `labUnits` through the export's own `convertLabRow` (#234).
 // =============================================================================
 
-import { datasetColumns, type ExportReading, type ExportRow, type HealthExportData } from '../health-export-data';
+import type { LabUnits } from '../../measurements/metric-registry';
+import {
+  convertLabRow,
+  datasetColumns,
+  type ExportReading,
+  type ExportRow,
+  type HealthExportData,
+} from '../health-export-data';
 import { HEALTH_EXPORT_DATASET_TITLES, HEALTH_EXPORT_DATASETS, type HealthExportDataset } from '../health-export.constants';
 
 export const FIXTURE_FORMULA_NOTE = '=HYPERLINK("http://evil.example","click")';
@@ -72,7 +80,7 @@ const ROWS: Record<HealthExportDataset, ExportRow[]> = {
       panel: 'lipids',
       analyte_key: 'ldl_cholesterol',
       analyte: 'LDL cholesterol',
-      value: 132,
+      value: 124,
       unit: 'mg/dL',
       reference_low: null,
       reference_high: 100,
@@ -137,7 +145,7 @@ const READINGS: ExportReading[] = [
   { metricKey: 'bp_systolic', value: 121, day: '2026-09-10' },
   { metricKey: 'bp_diastolic', value: 79, day: '2026-09-10' },
   { metricKey: 'resting_hr', value: 58, day: '2026-09-10' },
-  { metricKey: 'ldl_cholesterol', value: 132, day: '2026-09-05', referenceHigh: 100, referenceText: '<100', flag: 'high' },
+  { metricKey: 'ldl_cholesterol', value: 124, day: '2026-09-05', referenceHigh: 100, referenceText: '<100', flag: 'high' },
   { metricKey: 'hba1c', value: 5.2, day: '2026-09-05', referenceLow: 4, referenceHigh: 5.6, flag: 'normal' },
   { metricKey: 'energy', value: 4, day: '2026-09-28' },
   { metricKey: 'energy', value: 2, day: '2026-09-10' },
@@ -151,8 +159,12 @@ const READINGS: ExportReading[] = [
   ...partial,
 }));
 
-/** The fixture for `datasets` (all by default). */
-export function exportFixture(datasets: readonly HealthExportDataset[] = HEALTH_EXPORT_DATASETS): HealthExportData {
+/** The fixture for `datasets` (all by default), lab values in `labUnits` (conventional by default). */
+export function exportFixture(
+  datasets: readonly HealthExportDataset[] = HEALTH_EXPORT_DATASETS,
+  options: { labUnits?: LabUnits } = {},
+): HealthExportData {
+  const labUnits = options.labUnits ?? 'conventional';
   const selected = HEALTH_EXPORT_DATASETS.filter((dataset) => datasets.includes(dataset));
   const rowCounts = Object.fromEntries(
     HEALTH_EXPORT_DATASETS.map((dataset) => [dataset, selected.includes(dataset) ? ROWS[dataset].length : 0]),
@@ -162,6 +174,7 @@ export function exportFixture(datasets: readonly HealthExportDataset[] = HEALTH_
     exportedAt: new Date('2026-09-30T12:00:00.000Z'),
     range: { from: '2026-09-01', to: '2026-09-30' },
     includeHistory: false,
+    labUnits,
     datasets: selected,
     userName: 'Ana "Doc", Pérez',
     profile: selected.includes('profile')
@@ -179,7 +192,7 @@ export function exportFixture(datasets: readonly HealthExportDataset[] = HEALTH_
       dataset,
       title: HEALTH_EXPORT_DATASET_TITLES[dataset],
       columns: datasetColumns(dataset),
-      rows: ROWS[dataset],
+      rows: dataset === 'labs' ? ROWS.labs.map((row) => convertLabRow(row, labUnits)) : ROWS[dataset],
     })),
     readings: READINGS.filter((reading) => {
       const category = reading.metricKey;

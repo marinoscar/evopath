@@ -122,6 +122,22 @@ describe('healthProfileInputSchema', () => {
     });
   });
 
+  describe('labUnits', () => {
+    it.each(['conventional', 'si'])('accepts %s', (value) => {
+      expect(healthProfileInputSchema.parse({ ...VALID, labUnits: value }).labUnits).toBe(value);
+    });
+
+    it('leaves an omitted labUnits undefined (keep the stored value), never null', () => {
+      const parsed = healthProfileInputSchema.parse(VALID);
+      expect(parsed.labUnits).toBeUndefined();
+      expect('labUnits' in parsed).toBe(false);
+    });
+
+    it.each(['metric', 'SI', null, ''])('refuses %j', (value) => {
+      expect(healthProfileInputSchema.safeParse({ ...VALID, labUnits: value }).success).toBe(false);
+    });
+  });
+
   describe('timeZone', () => {
     it('accepts UTC', () => {
       expect(healthProfileInputSchema.parse({ ...VALID, timeZone: 'UTC' }).timeZone).toBe('UTC');
@@ -177,6 +193,7 @@ describe('healthProfileSchema (response)', () => {
         unitSystem: 'metric',
         timeZone: null,
         bio: null,
+        labUnits: 'conventional',
         version: 0,
         updatedAt: null,
       }).success,

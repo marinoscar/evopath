@@ -68,6 +68,29 @@ describe('UserHealthProfilePage', () => {
     expect(screen.getByRole('textbox', { name: 'Height (inches)' })).toHaveValue('10');
   });
 
+  it('sends the lab units preference with If-Match (#234)', async () => {
+    let body: Record<string, unknown> | null = null;
+    let ifMatch: string | null = null;
+    server.use(
+      http.get('*/api/health-profile', () => HttpResponse.json({ data: mockHealthProfileSaved })),
+      http.put('*/api/health-profile', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        ifMatch = request.headers.get('If-Match');
+        return HttpResponse.json({ data: { ...body, version: 4, updatedAt: '2026-10-01T00:00:00.000Z' } });
+      }),
+    );
+    const user = userEvent.setup();
+    render(<UserHealthProfilePage />);
+
+    await user.click(await screen.findByRole('radio', { name: 'SI (mmol/L)' }));
+    await user.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(await screen.findByText('Health profile saved')).toBeInTheDocument();
+    expect(ifMatch).toBe(String(mockHealthProfileSaved.version));
+    expect(body).toMatchObject({ labUnits: 'si' });
+    expect(screen.getByRole('radio', { name: 'SI (mmol/L)' })).toBeChecked();
+  });
+
   it('a stale save shows the conflict message; Reload refetches', async () => {
     let gets = 0;
     server.use(

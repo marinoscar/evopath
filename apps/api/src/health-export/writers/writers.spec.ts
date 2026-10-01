@@ -9,7 +9,7 @@ import { streamToBuffer } from '../testing/stream-to-buffer';
 import { csvZipExportStream, tableToCsv } from './csv.writer';
 import { renderHealthExport } from './index';
 import { healthExportJsonFileSchema, jsonExportStream } from './json.writer';
-import { PDF_FOOTER_TEXT, PDF_SECTIONS, pdfExportStream, pdfSafe } from './pdf.writer';
+import { PDF_FOOTER_TEXT, PDF_LAB_UNITS_LINE, PDF_SECTIONS, pdfExportStream, pdfSafe } from './pdf.writer';
 import { sheetName, xlsxExportStream } from './xlsx.writer';
 
 /** A strict RFC 4180 reader: quoted fields, doubled quotes, CRLF records. */
@@ -246,5 +246,88 @@ describe('health export writers', () => {
     expect(appSlug('!!!')).toBe('app');
     expect(healthExportFileName('2026-01-01', '2026-09-30', 'csv')).toBe(`${appSlug()}-health-2026-01-01-2026-09-30.zip`);
     expect(healthExportFileName('2026-01-01', '2026-09-30', 'pdf')).toMatch(/^[a-z0-9-]+-health-2026-01-01-2026-09-30\.pdf$/);
+  });
+
+  describe('lab units (#234)', () => {
+    const col = (records: string[][], key: string) => records[0].indexOf(key);
+
+    it('JSON: carries labUnits at the top level, schemaVersion unchanged, lab rows in that unit', async () => {
+      const conventional = healthExportJsonFileSchema.parse(
+        JSON.parse((await streamToBuffer(jsonExportStream(exportFixture(['labs'])))).toString('utf8')),
+      );
+      const si = healthExportJsonFileSchema.parse(
+        JSON.parse((await streamToBuffer(jsonExportStream(exportFixture(['labs'], { labUnits: 'si' })))).toString('utf8')),
+      );
+
+      expect(conventional.schemaVersion).toBe(1);
+      expect(si.schemaVersion).toBe(1);
+      expect(conventional.labUnits).toBe('conventional');
+      expect(si.labUnits).toBe('si');
+      expect(conventional.datasets.labs![0]).toMatchObject({ value: 124, unit: 'mg/dL', reference_high: 100 });
+      // LDL 124 mg/dL = 3.21 mmol/L; the 100 mg/dL limit = 2.59 mmol/L.
+      expect(si.datasets.labs![0]).toMatchObject({
+        analyte_key: 'ldl_cholesterol',
+        value: 3.21,
+        unit: 'mmol/L',
+        reference_low: null,
+        reference_high: 2.59,
+        reference_text: '<100',
+      });
+      expect(si.datasets.labs![1]).toMatchObject({ analyte_key: 'hba1c', unit: 'mmol/mol', reference_low: 20, reference_high: 38 });
+    });
+
+    it('CSV: the labs file names the unit used on each row', async () => {
+      for (const [labUnits, value, unit] of [
+        ['conventional', '124', 'mg/dL'],
+        ['si', '3.21', 'mmol/L'],
+      ] as const) {
+        const zip = await JSZip.loadAsync(await streamToBuffer(csvZipExportStream(exportFixture(['labs'], { labUnits }))));
+        const records = parseCsv((await zip.file('labs.csv')!.async('string')).replace(/^\uFEFF/, ''));
+
+        expect(records[1][col(records, 'analyte_key')]).toBe('ldl_cholesterol');
+        expect(records[1][col(records, 'value')]).toBe(value);
+        expect(records[1][col(records, 'unit')]).toBe(unit);
+      }
+    });
+
+    it('XLSX: the Labs sheet holds the converted number and its unit', async () => {
+      for (const [labUnits, value, unit] of [
+        ['conventional', 124, 'mg/dL'],
+        ['si', 3.21, 'mmol/L'],
+      ] as const) {
+        const workbook = new Workbook();
+        await workbook.xlsx.load((await streamToBuffer(xlsxExportStream(exportFixture(['labs'], { labUnits })))) as never);
+        const sheet = workbook.getWorksheet('Labs')!;
+        const index = (key: string) => datasetColumns('labs').findIndex((c) => c.key === key) + 1;
+
+        expect(sheet.getRow(2).getCell(index('value')).value).toBe(value);
+        expect(sheet.getRow(2).getCell(index('unit')).value).toBe(unit);
+      }
+    });
+
+    it('PDF: prints converted values and ranges, and names the lab units in the header', async () => {
+      const conventional = pdfText(await streamToBuffer(pdfExportStream(exportFixture(['labs']), { compress: false })));
+      const si = pdfText(
+        await streamToBuffer(pdfExportStream(exportFixture(['labs'], { labUnits: 'si' }), { compress: false })),
+      );
+
+      expect(conventional).toContain(PDF_LAB_UNITS_LINE.conventional);
+      expect(PDF_LAB_UNITS_LINE.conventional).toBe('Lab units: US conventional');
+      expect(conventional).toContain('124');
+      expect(conventional).toContain('mg/dL');
+      expect(conventional).not.toContain('mmol/L');
+
+      expect(si).toContain('Lab units: SI');
+      expect(si).toContain('3.21');
+      expect(si).toContain('mmol/L');
+      expect(si).toContain('mmol/mol');
+      expect(si).toContain('20 - 38'); // HbA1c 4-5.6 % as mmol/mol
+      expect(si).not.toContain('mg/dL');
+    });
+
+    it('PDF: no lab-units line without the labs dataset', async () => {
+      const text = pdfText(await streamToBuffer(pdfExportStream(exportFixture(['body']), { compress: false })));
+      expect(text).not.toContain('Lab units:');
+    });
   });
 });

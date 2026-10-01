@@ -655,6 +655,10 @@ const unitDefSchema = z.object({
   factor: z.number(),
   offset: z.number().meta({ description: 'Added after `factor`; 0 for every unit but HbA1c in mmol/mol.' }),
   label: z.string(),
+  decimals: z
+    .number()
+    .int()
+    .meta({ description: "Display precision of a value shown in this unit (the metric's `decimals` unless the unit sets its own)." }),
 });
 
 export const metricCatalogSchema = z.object({
@@ -691,6 +695,13 @@ export const metricCatalogSchema = z.object({
       aliases: z
         .array(z.string())
         .meta({ description: 'Lab analytes: other names labs print for it; empty for other categories.' }),
+      siUnit: z
+        .string()
+        .nullable()
+        .meta({
+          description:
+            "Lab analytes: the unit shown when the user's `labUnits` preference is `si` (one of `units`; the canonical unit when SI and US conventional agree). Null for other categories.",
+        }),
     }),
   ),
   methods: z.array(z.object({ key: z.string(), label: z.string() })),

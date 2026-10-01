@@ -2595,6 +2595,7 @@ model HealthProfile {
   sexAtBirth  String?   @map("sex_at_birth") // female | male | prefer_not_to_say
   heightMm    Int?      @map("height_mm")
   unitSystem  String    @default("metric") @map("unit_system") // metric | imperial
+  labUnits    String    @default("conventional") @map("lab_units") // conventional | si, validated by Zod
   timeZone    String?   @map("time_zone") // IANA name
   bio         String?
   version     Int       @default(1)

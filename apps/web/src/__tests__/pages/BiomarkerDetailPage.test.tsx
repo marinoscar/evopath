@@ -21,6 +21,7 @@ import {
 } from '../../components/health/biomarkers/SourceDocumentLink';
 import { REVISION_HISTORY_TITLE } from '../../components/health/biomarkers/RevisionHistoryDialog';
 import { mockLabCatalog } from '../mocks/fixtures/labReportIntake';
+import { mockHealthProfileSaved } from '../mocks/fixtures/health';
 import {
   KEPT_DOCUMENT_ID,
   MISSING_DOCUMENT_ID,
@@ -98,7 +99,7 @@ describe('BiomarkerDetailPage', () => {
     const { container } = renderDetail();
 
     expect(await screen.findByRole('heading', { level: 1, name: 'LDL cholesterol' })).toBeInTheDocument();
-    expect(screen.getByText('Lipids · Shown in mg/dL, the standard unit for this test.')).toBeInTheDocument();
+    expect(screen.getByText('Lipids · Shown in mg/dL. Values in US conventional units.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Biomarkers' })).toHaveAttribute('href', '/health/biomarkers');
 
     expect(await screen.findByRole('img', { name: /^LDL cholesterol, 4 results, latest 142\.0 mg\/dL/ })).toBeInTheDocument();
@@ -178,6 +179,35 @@ describe('BiomarkerDetailPage', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('under the SI preference shows the trend, results, ranges and history in SI (#234)', async () => {
+    detailApi();
+    server.use(
+      http.get('*/api/health-profile', () => HttpResponse.json({ data: { ...mockHealthProfileSaved, labUnits: 'si' } })),
+    );
+    const { user } = renderDetail();
+
+    expect(await screen.findByText('Lipids · Shown in mmol/L. Values in SI units.')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('img', { name: /^LDL cholesterol, 4 results, latest 3\.67 mmol\/L.*lowest 3\.10 mmol\/L, highest 3\.67 mmol\/L/ }),
+    ).toBeInTheDocument();
+
+    const table = await screen.findByRole('table', { name: 'LDL cholesterol results' });
+    const rows = within(table).getAllByTestId('biomarker-result');
+    expect(rows[0]).toHaveTextContent('3.67');
+    expect(rows[0]).toHaveTextContent('mmol/L');
+    expect(rows[0]).toHaveTextContent('≤ 2.59');
+    expect(rows[0]).not.toHaveTextContent('mg/dL');
+    expect(rows[1]).toHaveTextContent('0–3.36');
+
+    await user.click(within(rows[0]).getByRole('button', { name: 'LDL cholesterol 3.67 mmol/L on Sep 15, 2026: show value history' }));
+    const dialog = await screen.findByRole('dialog', { name: new RegExp(`^${REVISION_HISTORY_TITLE}`) });
+    expect(dialog).toHaveTextContent('Values in SI units');
+    const items = await within(dialog).findAllByTestId('revision-item');
+    expect(items[0]).toHaveTextContent('3.67 mmol/L');
+    expect(items[1]).toHaveTextContent('3.21 mmol/L');
+    expect(items[0]).toHaveTextContent('Range ≤ 2.59');
   });
 
   it('pages through the results', async () => {

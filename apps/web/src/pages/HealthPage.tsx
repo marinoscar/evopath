@@ -47,6 +47,7 @@ import { ExportHealthDataDialog } from '../components/health/ExportHealthDataDia
 import { LabReportButton } from '../components/health/LabReportButton';
 import { LabReportDialog } from '../components/health/LabReportDialog';
 import { BloodWorkSection } from '../components/health/biomarkers/BloodWorkSection';
+import { labUnitsOf } from '../utils/labUnits';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -143,7 +144,7 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         {!forbidden && <CheckInSection canWrite={canLog} />}
 
         {/* H5 (#189): the way into the blood-work history. */}
-        {!forbidden && <BloodWorkSection />}
+        {!forbidden && <BloodWorkSection labUnits={labUnitsOf(profile)} />}
 
         {!forbidden && catalog && !loading && (
           <HealthHistorySections
@@ -175,7 +176,11 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         onSaved={readingsChanged}
       />
 
-      <ExportHealthDataDialog open={exportOpen && !forbidden} onClose={() => setExportOpen(false)} />
+      <ExportHealthDataDialog
+        open={exportOpen && !forbidden}
+        onClose={() => setExportOpen(false)}
+        defaultLabUnits={labUnitsOf(profile)}
+      />
       <LabReportDialog open={labOpen && !forbidden} onClose={() => setLabOpen(false)} onSaved={readingsChanged} />
     </>
   );

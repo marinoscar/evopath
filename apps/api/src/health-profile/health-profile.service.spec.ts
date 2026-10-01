@@ -34,6 +34,7 @@ function row(overrides: Record<string, unknown> = {}) {
     unitSystem: 'imperial',
     timeZone: 'America/Costa_Rica',
     bio: 'private free text',
+    labUnits: 'conventional',
     version: 1,
     createdAt: UPDATED_AT,
     updatedAt: UPDATED_AT,
@@ -71,6 +72,7 @@ describe('HealthProfileService', () => {
         unitSystem: 'metric',
         timeZone: null,
         bio: null,
+        labUnits: 'conventional',
         version: 0,
         updatedAt: null,
       });
@@ -87,9 +89,16 @@ describe('HealthProfileService', () => {
         unitSystem: 'imperial',
         timeZone: 'America/Costa_Rica',
         bio: 'private free text',
+        labUnits: 'conventional',
         version: 4,
         updatedAt: UPDATED_AT.toISOString(),
       });
+    });
+
+    it('maps a stored SI lab-unit preference', async () => {
+      prisma.healthProfile.findUnique.mockResolvedValue(row({ labUnits: 'si' }) as any);
+
+      await expect(service.get(USER_ID)).resolves.toMatchObject({ labUnits: 'si' });
     });
   });
 
@@ -121,6 +130,7 @@ describe('HealthProfileService', () => {
       const saved = await service.put(USER_ID, INPUT);
 
       expect(saved.version).toBe(1);
+      expect(saved.labUnits).toBe('conventional');
       expect(saved.dateOfBirth).toBe('2000-02-29');
       expect(prisma.healthProfile.create).toHaveBeenCalledWith({
         data: {
@@ -179,6 +189,21 @@ describe('HealthProfileService', () => {
           },
         }),
       );
+    });
+
+    it('writes labUnits when given and leaves the stored value alone when omitted', async () => {
+      prisma.healthProfile.findUnique.mockResolvedValue(row() as any);
+      prisma.healthProfile.updateMany.mockResolvedValue({ count: 1 });
+      prisma.healthProfile.findUniqueOrThrow.mockResolvedValue(row({ version: 2, labUnits: 'si' }) as any);
+
+      await expect(service.put(USER_ID, { ...INPUT, labUnits: 'si' })).resolves.toMatchObject({ labUnits: 'si' });
+      expect(prisma.healthProfile.updateMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ labUnits: 'si' }) }),
+      );
+
+      await service.put(USER_ID, INPUT);
+      const data = (prisma.healthProfile.updateMany as jest.Mock).mock.calls.at(-1)[0].data;
+      expect(data).not.toHaveProperty('labUnits');
     });
 
     it('accepts If-Match 0 for a first save', async () => {
@@ -249,6 +274,7 @@ describe('HealthProfileService', () => {
         await service.put(USER_ID, INPUT);
 
         expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
+        // (labUnits unchanged: not named.)
         expect(prisma.auditEvent.create).toHaveBeenCalledWith({
           data: {
             actorUserId: USER_ID,
@@ -279,6 +305,18 @@ describe('HealthProfileService', () => {
               },
             }),
           }),
+        );
+      });
+
+      it('names labUnits (never its value) when the preference changes', async () => {
+        prisma.healthProfile.findUnique.mockResolvedValue(row() as any);
+        prisma.healthProfile.updateMany.mockResolvedValue({ count: 1 });
+        prisma.healthProfile.findUniqueOrThrow.mockResolvedValue(row({ version: 2, labUnits: 'si' }) as any);
+
+        await service.put(USER_ID, { ...INPUT, labUnits: 'si' });
+
+        expect(prisma.auditEvent.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ meta: { fields: ['labUnits'] } }) }),
         );
       });
 
@@ -319,6 +357,7 @@ describe('HealthProfileService', () => {
       unitSystem: 'metric' as const,
       timeZone: 'UTC',
       bio: null,
+      labUnits: 'conventional' as const,
       version: 1,
       updatedAt: UPDATED_AT.toISOString(),
     };

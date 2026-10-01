@@ -19,6 +19,7 @@ import { HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundExceptio
 import type { Job, Prisma } from '@prisma/client';
 
 import { JobsService } from '../jobs/jobs.service';
+import { DEFAULT_LAB_UNITS, type LabUnits } from '../measurements/metric-registry';
 import { PrismaService } from '../prisma/prisma.service';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/providers/storage-provider.interface';
 import {
@@ -80,6 +81,7 @@ export class HealthExportService {
       to: input.to,
       datasets: orderDatasets(input.datasets),
       includeHistory: input.includeHistory,
+      labUnits: input.labUnits ?? (await this.profileLabUnits(userId)),
     };
 
     // Distinct requests are distinct work: two exports of different formats
@@ -96,6 +98,12 @@ export class HealthExportService {
     this.logger.log(`Health export ${job.id} (${payload.format}, ${payload.datasets.length} dataset(s)) queued`);
 
     return (await this.toViews([job]))[0];
+  }
+
+  /** The caller's stored lab-unit preference (#234); conventional without a profile. */
+  private async profileLabUnits(userId: string): Promise<LabUnits> {
+    const profile = await this.prisma.healthProfile.findUnique({ where: { userId }, select: { labUnits: true } });
+    return profile?.labUnits === 'si' ? 'si' : DEFAULT_LAB_UNITS;
   }
 
   /** The caller's recent exports, newest first, without download URLs. */
@@ -184,6 +192,7 @@ export class HealthExportService {
         to: payload.to,
         datasets: payload.datasets,
         includeHistory: payload.includeHistory,
+        labUnits: payload.labUnits,
         createdAt: job.createdAt.toISOString(),
         completedAt: result?.completedAt ?? job.finishedAt?.toISOString() ?? null,
         expiresAt: result?.expiresAt ?? null,

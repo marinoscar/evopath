@@ -3,6 +3,49 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../../utils/test-utils';
 import { OAuthButton } from '../../../components/auth/OAuthButton';
+import { theme } from '../../../theme';
+
+/**
+ * The theme emits CSS variables, and jsdom does not resolve a `var()` chain in
+ * `backgroundColor`/`color`. Read the custom property that MUI's contained
+ * button routes the colour through, and follow the chain to a literal.
+ */
+function resolveVar(button: HTMLElement, value: string): string {
+  const style = getComputedStyle(button);
+  let resolved = value.trim();
+  for (let i = 0; i < 5; i += 1) {
+    const match = /^var\((--[\w-]+)\)$/.exec(resolved);
+    if (!match) break;
+    // jsdom lower-cases the name inside a computed `var()` (it reports
+    // `--variant-containedcolor` for `--variant-containedColor`), so fall back
+    // to a case-insensitive match against the declared custom properties.
+    const name = match[1];
+    let next = style.getPropertyValue(name).trim();
+    if (!next) {
+      const declared = Array.from(style).find((n) => n.toLowerCase() === name.toLowerCase());
+      next = declared ? style.getPropertyValue(declared).trim() : '';
+    }
+    resolved = next;
+  }
+  return resolved;
+}
+
+// Start from the button's real computed colours, so an `sx` override that
+// replaces the theme-driven value is seen (not just the variant's default).
+const effectiveBg = (button: HTMLElement) =>
+  resolveVar(button, getComputedStyle(button).backgroundColor);
+const effectiveColor = (button: HTMLElement) =>
+  resolveVar(button, getComputedStyle(button).color);
+
+/** The `:hover` rule that sets the contained background, for the button's own class. */
+function hoverBackground(button: HTMLElement): string | undefined {
+  const css = [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n');
+  for (const cls of Array.from(button.classList).filter((c) => c.startsWith('css-'))) {
+    const match = new RegExp(`\\.${cls}:hover\\{[^}]*--variant-containedBg:([^;}]+)`).exec(css);
+    if (match) return match[1].trim();
+  }
+  return undefined;
+}
 
 /** Every emitted CSS rule whose selector targets one of the element's classes. */
 function emittedCssFor(element: Element): string {
@@ -275,6 +318,61 @@ describe('OAuthButton', () => {
 
       const button = container.querySelector('button');
       expect(button).toBeInTheDocument();
+    });
+  });
+
+  describe('Theme-following fallback (#236)', () => {
+    afterEach(() => {
+      localStorage.removeItem('theme_mode');
+    });
+
+    it.each(['light', 'dark'] as const)(
+      'should style an unknown provider with the theme primary colours in %s mode',
+      (mode) => {
+        localStorage.setItem('theme_mode', mode);
+        const { primary } = theme.colorSchemes[mode]!.palette!;
+
+        render(<OAuthButton provider="okta" onClick={mockOnClick} />);
+
+        const button = screen.getByRole('button', { name: /continue with okta/i });
+        expect(document.documentElement.classList.contains(mode)).toBe(true);
+        expect(effectiveBg(button).toLowerCase()).toBe(String(primary!.main).toLowerCase());
+        expect(effectiveColor(button).toLowerCase()).toBe(
+          String(primary!.contrastText).toLowerCase(),
+        );
+        expect(effectiveBg(button).toLowerCase()).not.toBe('#1976d2');
+      },
+    );
+
+    it('should follow primary.dark on hover for an unknown provider', () => {
+      render(<OAuthButton provider="okta" onClick={mockOnClick} />);
+
+      const button = screen.getByRole('button');
+      expect(hoverBackground(button)).toBe('var(--mui-palette-primary-dark)');
+    });
+
+    it('should not hard-code the previous blue fallback', () => {
+      render(<OAuthButton provider="okta" onClick={mockOnClick} />);
+
+      const css = [...document.querySelectorAll('style')]
+        .map((s) => s.textContent)
+        .join('\n')
+        .toLowerCase();
+      expect(css).not.toContain('#1976d2');
+    });
+
+    it.each([
+      ['google', 'rgb(255, 255, 255)', 'rgb(117, 117, 117)'],
+      ['microsoft', 'rgb(47, 47, 47)', 'rgb(255, 255, 255)'],
+      ['github', 'rgb(36, 41, 46)', 'rgb(255, 255, 255)'],
+    ])('should keep the %s brand colours in dark mode', (provider, bg, fg) => {
+      localStorage.setItem('theme_mode', 'dark');
+
+      render(<OAuthButton provider={provider} onClick={mockOnClick} />);
+
+      const style = getComputedStyle(screen.getByRole('button'));
+      expect(style.backgroundColor).toBe(bg);
+      expect(style.color).toBe(fg);
     });
   });
 

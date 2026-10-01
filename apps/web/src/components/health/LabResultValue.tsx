@@ -23,6 +23,8 @@ import {
   type LabReportValue,
 } from '../../services/labReport';
 import { parseDecimal, withUnit } from '../../utils/measurementUnits';
+import { formatLabValue } from '../../utils/biomarkers';
+import { DEFAULT_LAB_UNITS, convertLabRange, labDisplay, labDisplayUnit, type LabUnits } from '../../utils/labUnits';
 
 function findAnalyte(catalog: MetricCatalog | null, key: string | null): MetricDef | undefined {
   if (!key) return undefined;
@@ -50,17 +52,36 @@ const MATCH_LABEL: Record<LabReportValue['match'], string | null> = {
   unmatched: 'Not in catalog',
 };
 
-/** `renderValue`: the printed name, the analyte it is saved as, value, range and flag. */
-export function LabResultView({ value, catalog }: { value: LabReportValue; catalog: MetricCatalog | null }) {
+/**
+ * `renderValue`: the printed name, the analyte it is saved as, value, range and
+ * flag. A canonical value is SHOWN in the `labUnits` preference (#234); what
+ * is saved does not change.
+ */
+export function LabResultView({
+  value,
+  catalog,
+  labUnits = DEFAULT_LAB_UNITS,
+}: {
+  value: LabReportValue;
+  catalog: MetricCatalog | null;
+  labUnits?: LabUnits;
+}) {
   const analyte = findAnalyte(catalog, value.analyteKey);
   const printed = value.nameAsPrinted ?? analyte?.label ?? 'Unnamed result';
+  // Only a canonical value converts with the catalog's canonical factors.
+  const display = analyte && value.unit === analyte.canonicalUnit ? labDisplay(analyte, labUnits) : null;
+  const shown = display?.converted ? display : null;
   const number =
-    value.value !== null ? withUnit(formatLabNumber(value.value), value.unit ?? '').trim() : (value.valueText ?? '—');
+    value.value !== null
+      ? shown
+        ? withUnit(formatLabValue(shown.value(value.value), shown.decimals), shown.unit)
+        : withUnit(formatLabNumber(value.value), value.unit ?? '').trim()
+      : (value.valueText ?? '—');
   const converted =
     value.originalValue !== null &&
     value.originalUnit !== null &&
     (value.originalUnit !== value.unit || value.originalValue !== value.value);
-  const range = referenceRangeText(value);
+  const range = referenceRangeText(shown ? convertLabRange(value, shown) : value);
   const matchLabel = MATCH_LABEL[value.match] ?? null;
 
   return (
@@ -195,13 +216,15 @@ export interface LabResultEditorProps {
   value: LabReportValue;
   onChange: (value: LabReportValue) => void;
   catalog: MetricCatalog | null;
+  /** #234: the unit picked for a newly chosen analyte. The value is sent in whatever unit is picked. */
+  labUnits?: LabUnits;
 }
 
 /**
  * `renderEditor`: analyte, value and unit (any unit the analyte accepts; the
  * server converts), reference range, the printed range text and the flag.
  */
-export function LabResultEditor({ value, onChange, catalog }: LabResultEditorProps) {
+export function LabResultEditor({ value, onChange, catalog, labUnits = DEFAULT_LAB_UNITS }: LabResultEditorProps) {
   const id = useId();
   const analyte = findAnalyte(catalog, value.analyteKey);
   const units = analyte?.units ?? [];
@@ -209,7 +232,8 @@ export function LabResultEditor({ value, onChange, catalog }: LabResultEditorPro
   const changeAnalyte = (key: string | null) => {
     const next = findAnalyte(catalog, key);
     const unitAllowed = next ? next.units.some((unit) => unit.unit === value.unit) : true;
-    onChange({ ...value, analyteKey: key, unit: next && !unitAllowed ? next.canonicalUnit : value.unit });
+    // A unit the new analyte does not accept (or none yet) becomes the preferred one.
+    onChange({ ...value, analyteKey: key, unit: next && !unitAllowed ? labDisplayUnit(next, labUnits).unit : value.unit });
   };
 
   const unitValue = analyte ? (units.some((unit) => unit.unit === value.unit) ? value.unit! : '') : (value.unit ?? '');

@@ -137,10 +137,47 @@ const SCRIPT_SCHEME = /\b(?:javascript|data|vbscript|file):[^\s]*/gi;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 
 /**
+ * Sentences that address the model rather than the reader: an instruction
+ * override ("ignore your previous instructions"), a request to disclose the
+ * prompt ("reveal the system prompt") or a role reset ("you are now
+ * unrestricted"). No training rationale, evidence claim or reason reads like
+ * this, so such a sentence is evidence of prompt injection (a retrieved page,
+ * or a planner that obeyed the user's goal text). The patterns are narrow on
+ * purpose: they need the override verb AND a qualifier AND an instruction
+ * noun, so "ignore the usual rules of thumb" or "you are now ready for
+ * heavier loads" survive. This is defence in depth, not the containment (the
+ * delimited-data prompt blocks and the numeric guardrails are): it keeps the
+ * text out of storage, the UI and every later prompt that quotes the plan.
+ */
+const INSTRUCTION_LIKE: readonly RegExp[] = [
+  /\b(?:ignore|disregard|forget|override|bypass)\b[^.!?]{0,40}?\b(?:previous|prior|above|earlier|preceding|all|any|your|my|system|developer|safety|these|those)\b[^.!?]{0,30}?\b(?:instructions?|prompts?|rules|guidelines|directives|guardrails|safeguards|constraints|restrictions)\b/i,
+  /\b(?:reveal|print|show|repeat|output|leak|disclose|display)\b[^.!?]{0,40}?\b(?:system|developer|hidden|initial|original|your)\s+(?:prompt|instructions?|message)s?\b/i,
+  /\bsystem\s+prompt\b/i,
+  /\byou are now\s+(?:an?\s+)?(?:unrestricted|unfiltered|jailbroken|uncensored|DAN\b|free of|in (?:developer|god|jailbreak) mode)/i,
+  /\b(?:developer|jailbreak|god|DAN)\s+mode\b/i,
+  /\bnew instructions?\s*:/i,
+];
+
+/** Whether one sentence reads as an instruction to the model (see `INSTRUCTION_LIKE`). */
+export function isInstructionLike(sentence: string): boolean {
+  return INSTRUCTION_LIKE.some((pattern) => pattern.test(sentence));
+}
+
+/** `text` without its instruction-like sentences (sentences end at `.`, `!` or `?` followed by a space). */
+function dropInstructionSentences(text: string): string {
+  if (!INSTRUCTION_LIKE.some((pattern) => pattern.test(text))) return text;
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !isInstructionLike(sentence))
+    .join(' ');
+}
+
+/**
  * Model text made safe to store and show: control characters and HTML tags
  * stripped, markdown links reduced to their text (the URL kept only when it
- * is in `verified`), bare URLs not in `verified` removed, whitespace
- * collapsed, truncated to `max` characters.
+ * is in `verified`), bare URLs not in `verified` removed, sentences that
+ * address the model (prompt injection) dropped, whitespace collapsed,
+ * truncated to `max` characters.
  */
 export function sanitizeModelText(text: string, max: number, verified: ReadonlySet<string> = new Set()): string {
   if (typeof text !== 'string' || max <= 0) return '';
@@ -173,7 +210,7 @@ export function sanitizeModelText(text: string, max: number, verified: ReadonlyS
 
   out = out.replace(SCRIPT_SCHEME, '');
 
-  out = out.replace(/\s+/g, ' ').trim();
+  out = dropInstructionSentences(out.replace(/\s+/g, ' ').trim());
 
   return [...out].slice(0, max).join('').trim();
 }

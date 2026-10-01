@@ -5,13 +5,16 @@ interface OAuthButtonProps {
   onClick: () => void;
 }
 
-// Provider configurations
-const providerConfig: Record<string, {
+interface ProviderConfig {
   label: string;
   icon: React.ReactNode;
-  color: string;
-  textColor: string;
-}> = {
+  /** Brand colours. Omitted for providers without a brand: the button then follows the theme. */
+  color?: string;
+  textColor?: string;
+}
+
+// Provider configurations
+const providerConfig: Record<string, ProviderConfig> = {
   google: {
     label: 'Continue with Google',
     icon: <GoogleIcon />,
@@ -33,38 +36,32 @@ const providerConfig: Record<string, {
 };
 
 export function OAuthButton({ provider, onClick }: OAuthButtonProps) {
-  const brand = providerConfig[provider.toLowerCase()];
-
-  // Known providers keep their brand colours. Any other provider follows the
-  // theme's primary palette (CSS variables), so it is correct in light and
-  // dark mode without a colour literal.
-  const colorSx = brand
-    ? {
-        backgroundColor: brand.color,
-        color: brand.textColor,
-        '&:hover': {
-          backgroundColor: brand.color,
-          opacity: 0.9,
-        },
-      }
-    : {
-        bgcolor: 'primary.main',
-        color: 'primary.contrastText',
-        '&:hover': {
-          bgcolor: 'primary.dark',
-        },
-      };
+  const config: ProviderConfig = providerConfig[provider.toLowerCase()] || {
+    label: `Continue with ${provider}`,
+    icon: null,
+  };
+  const hasBrand = config.color !== undefined;
 
   return (
     <Button
       fullWidth
       variant="contained"
-      color="primary"
       size="large"
+      // Without a brand, the contained primary button supplies the theme's
+      // `primary.main` / `primary.contrastText` and a `primary.dark` hover,
+      // in both colour schemes (#236).
+      color="primary"
       onClick={onClick}
-      startIcon={brand ? brand.icon : null}
+      startIcon={config.icon}
       sx={{
-        ...colorSx,
+        ...(hasBrand && {
+          backgroundColor: config.color,
+          color: config.textColor,
+          '&:hover': {
+            backgroundColor: config.color,
+            opacity: 0.9,
+          },
+        }),
         textTransform: 'none',
         fontWeight: 500,
         py: 1.5,
@@ -72,7 +69,7 @@ export function OAuthButton({ provider, onClick }: OAuthButtonProps) {
         border: provider === 'google' ? '1px solid #dadce0' : 'none',
       }}
     >
-      {brand ? brand.label : `Continue with ${provider}`}
+      {config.label}
     </Button>
   );
 }

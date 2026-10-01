@@ -134,7 +134,7 @@ describe('hostile planner output', () => {
     expectShippable(tree, ctx);
   });
 
-  it('a prompt-injection string in a rationale is kept as inert text and changes nothing', () => {
+  it('a prompt-injection string in a rationale is removed and changes nothing else', () => {
     const clean = run(draftFixture());
     const hostile = run(withLower(() => undefined));
     const injected = run(
@@ -145,7 +145,8 @@ describe('hostile planner output', () => {
       })(),
     );
     expect(injected.report.status).toBe(hostile.report.status);
-    expect(injected.tree.blocks[0].weeks[0].workouts[0].exercises[0].rationale).toBe(INJECTION.slice(0, 200));
+    expect(codes(injected.report)).toContain('G8:repair:text_sanitized');
+    expect(injected.tree.blocks[0].weeks[0].workouts[0].exercises[0].rationale).toBeNull();
     expect(injected.tree.blocks[0].weeks[0].workouts[0].exercises.map((e) => [e.targetSets, e.targetLoadKg])).toEqual(
       hostile.tree.blocks[0].weeks[0].workouts[0].exercises.map((e) => [e.targetSets, e.targetLoadKg]),
     );

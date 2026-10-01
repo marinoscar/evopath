@@ -28,7 +28,7 @@ export class HealthProfileController {
   @ApiOperation({
     summary: "Get the caller's health profile",
     description:
-      'Returns the stored profile, or an empty one (all fields null, `unitSystem: metric`, `version: 0`, `updatedAt: null`) when none has been saved.',
+      'Returns the stored profile, or an empty one (all fields null, `unitSystem: metric`, `labUnits: conventional`, `version: 0`, `updatedAt: null`) when none has been saved.',
   })
   @ApiResponse({ status: 200, description: 'Health profile', type: HealthProfileDto })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
@@ -42,7 +42,7 @@ export class HealthProfileController {
   @ApiOperation({
     summary: "Replace the caller's health profile",
     description:
-      'Full replace (upsert). Every nullable field that is omitted is stored as null; only `unitSystem` is required. Send the `version` from the last read as `If-Match` to refuse a save over a newer one (409).',
+      'Full replace (upsert). Every nullable field that is omitted is stored as null; only `unitSystem` is required. `labUnits` (`conventional` or `si`) is optional: omitted keeps the stored lab-unit preference. Send the `version` from the last read as `If-Match` to refuse a save over a newer one (409).',
   })
   @ApiHeader({
     name: 'If-Match',

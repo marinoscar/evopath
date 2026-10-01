@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { LAB_UNIT_SYSTEMS, type LabUnits } from '../../measurements/metric-registry';
 import { checkDateOfBirth, isValidTimeZone } from '../health-profile.validation';
 
 // =============================================================================
@@ -12,7 +13,9 @@ import { checkDateOfBirth, isValidTimeZone } from '../health-profile.validation'
 //                             (optional If-Match: <version>)
 //
 // PUT is a FULL REPLACE: an omitted nullable field is stored as null. Only
-// `unitSystem` is required. `.strict()` refuses unknown properties, so a typo
+// `unitSystem` is required. `labUnits` (#234) is the one exception: it is not
+// nullable, and omitting it KEEPS the stored preference (a client that does
+// not know the field must not silently reset it). `.strict()` refuses unknown properties, so a typo
 // is a 400 rather than a silently dropped field.
 //
 // Never echo a submitted value in a validation message: the messages below
@@ -28,6 +31,13 @@ export const HEALTH_PROFILE_BIO_MAX = 1000;
 
 export type SexAtBirth = (typeof SEX_AT_BIRTH_VALUES)[number];
 export type UnitSystem = (typeof UNIT_SYSTEM_VALUES)[number];
+export { LAB_UNIT_SYSTEMS, type LabUnits };
+
+const labUnitsSchema = z.enum(LAB_UNIT_SYSTEMS).meta({
+  description:
+    'How lab results are shown: `conventional` (US conventional units, e.g. mg/dL; the default) or `si` ' +
+    '(SI units, e.g. mmol/L). Display and export only: stored values stay in the canonical unit.',
+});
 
 const DOB_MESSAGES = {
   invalid: 'dateOfBirth must be a real calendar date in YYYY-MM-DD form',
@@ -80,11 +90,15 @@ export const healthProfileInputSchema = z
     unitSystem: z.enum(UNIT_SYSTEM_VALUES),
     timeZone: timeZoneSchema.nullish().transform(toNull),
     bio: bioSchema.nullish().transform((value) => (value ? value : null)),
+    labUnits: labUnitsSchema.optional().meta({
+      description:
+        'Lab unit preference: `conventional` or `si`. Omitted = keep the stored preference (`conventional` for a new profile).',
+    }),
   })
   .strict()
   .meta({
     description:
-      'Full replacement of the caller\'s health profile. Every nullable field that is omitted is stored as null; only `unitSystem` is required.',
+      'Full replacement of the caller\'s health profile. Every nullable field that is omitted is stored as null; only `unitSystem` is required; an omitted `labUnits` keeps the stored preference.',
   });
 
 export class HealthProfileInputDto extends createZodDto(healthProfileInputSchema) {}
@@ -99,6 +113,7 @@ export const healthProfileSchema = z.object({
   unitSystem: z.enum(UNIT_SYSTEM_VALUES),
   timeZone: z.string().nullable(),
   bio: z.string().nullable(),
+  labUnits: labUnitsSchema,
   /** 0 when no profile has been saved yet; send it back as `If-Match`. */
   version: z.number().int(),
   /** Null when no profile has been saved yet. */
@@ -116,6 +131,7 @@ export const HEALTH_PROFILE_FIELDS = [
   'unitSystem',
   'timeZone',
   'bio',
+  'labUnits',
 ] as const satisfies ReadonlyArray<keyof HealthProfileInput>;
 
 export type HealthProfileField = (typeof HEALTH_PROFILE_FIELDS)[number];

@@ -36,8 +36,10 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useBiomarkerSummary } from '../hooks/useBiomarkers';
 import { useMeasurementCatalog } from '../hooks/useMeasurementCatalog';
 import { useCanReadFromPhoto } from '../hooks/useCanReadFromPhoto';
+import { useLabUnits } from '../hooks/useLabUnits';
+import { convertSummaryItem, labDisplay, labUnitsNote } from '../utils/labUnits';
 import { EmptyState } from '../components/common/EmptyState';
-import { BIOMARKERS_TITLE, BiomarkerList, STANDARD_UNITS_NOTE } from '../components/health/biomarkers/BiomarkerList';
+import { BIOMARKERS_TITLE, BiomarkerList } from '../components/health/biomarkers/BiomarkerList';
 import { LabReportButton } from '../components/health/LabReportButton';
 import { LabReportDialog } from '../components/health/LabReportDialog';
 
@@ -62,9 +64,26 @@ function BiomarkersOverview() {
   const canImport = useCanReadFromPhoto();
   const summary = useBiomarkerSummary({ outOfRange, panel: panel || undefined });
   const { catalog } = useMeasurementCatalog();
+  // #234: values are converted to the preferred unit for display; storage stays canonical.
+  const { labUnits, isLoading: labUnitsLoading } = useLabUnits();
+  const displays = useMemo(
+    () =>
+      new Map(
+        labMetrics(catalog).map((metric) => [metric.key, { metric, display: labDisplay(metric, labUnits) }] as const),
+      ),
+    [catalog, labUnits],
+  );
   const decimals = useMemo(
-    () => new Map(labMetrics(catalog).map((metric) => [metric.key, metric.decimals])),
-    [catalog],
+    () => new Map([...displays].map(([key, { metric, display }]) => [key, display.decimals ?? metric.decimals])),
+    [displays],
+  );
+  const items = useMemo(
+    () =>
+      summary.data?.map((item) => {
+        const entry = displays.get(item.analyteKey);
+        return entry ? convertSummaryItem(item, entry.display, entry.metric.canonicalUnit) : item;
+      }) ?? null,
+    [summary.data, displays],
   );
   const filtered = outOfRange || panel !== '';
   const clearFilters = () => {
@@ -88,8 +107,8 @@ function BiomarkersOverview() {
         </Alert>
       );
     }
-    if (!summary.data) return <BiomarkerListSkeleton />;
-    if (summary.data.length === 0) {
+    if (!items || labUnitsLoading) return <BiomarkerListSkeleton />;
+    if (items.length === 0) {
       return filtered ? (
         <EmptyState
           Icon={FilterListOffIcon}
@@ -118,7 +137,7 @@ function BiomarkersOverview() {
         />
       );
     }
-    return <BiomarkerList items={summary.data} decimals={decimals} />;
+    return <BiomarkerList items={items} decimals={decimals} />;
   };
 
   return (
@@ -128,7 +147,9 @@ function BiomarkersOverview() {
           <Typography variant="h4" component="h1" gutterBottom>
             {BIOMARKERS_TITLE}
           </Typography>
-          <Typography color="text.secondary">Your blood work over time. {STANDARD_UNITS_NOTE}</Typography>
+          <Typography color="text.secondary" data-testid="lab-units-note">
+            Your blood work over time. {labUnitsNote(labUnits)}.
+          </Typography>
         </Box>
         {!summary.forbidden && <LabReportButton onClick={() => setLabOpen(true)} />}
       </Box>

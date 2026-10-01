@@ -8,9 +8,11 @@
 // formats):
 //
 //   header      name, age and sex at birth (age and sex only when the profile
-//               dataset is selected), the period and the generation date
+//               dataset is selected), the period, the generation date and,
+//               with labs, the lab units ("Lab units: SI")
 //   labs        the latest result of each analyte, grouped by panel, with
-//               the lab's reference range and flag
+//               the lab's reference range and flag, in the export's
+//               `labUnits` (#234: values and limits converted for display)
 //   trends      the last readings of key metrics, a sparkline per metric
 //   summary     body and vitals: latest, 30-day average, min, max, count
 //   wellness    "Wellness / mood": 7- and 30-day averages of the check-in
@@ -27,7 +29,15 @@ import type { Readable } from 'node:stream';
 import { APP_NAME } from '@app/shared';
 import PDFDocument from 'pdfkit';
 
-import { getMetric, LAB_PANELS, type LabPanel } from '../../measurements/metric-registry';
+import {
+  fromCanonical,
+  getMetric,
+  LAB_PANELS,
+  labDisplayUnit,
+  type LabPanel,
+  type LabUnits,
+  unitDecimals,
+} from '../../measurements/metric-registry';
 import type { ExportReading, HealthExportData } from '../health-export-data';
 import { HEALTH_EXPORT_DATASET_TITLES } from '../health-export.constants';
 
@@ -69,15 +79,41 @@ export function pdfSafe(text: string): string {
   return text.replace(/[^\x20-\x7E\xA0-\xFF–—‘’“”•…]/g, '?');
 }
 
-function formatValue(metricKey: string, value: number): string {
-  const decimals = getMetric(metricKey)?.decimals ?? 2;
-  return value.toFixed(decimals);
-}
+/** The header line naming the lab units, exported for the tests. */
+export const PDF_LAB_UNITS_LINE: Record<LabUnits, string> = {
+  conventional: 'Lab units: US conventional',
+  si: 'Lab units: SI',
+};
 
-function unitOf(metricKey: string): string {
-  const metric = getMetric(metricKey);
-  if (!metric) return '';
-  return metric.scale ? `${metric.scale.min}-${metric.scale.max}` : metric.canonicalUnit;
+/**
+ * How one report shows values: canonical for every metric but lab analytes,
+ * which follow the export's `labUnits` (#234). Display only.
+ */
+class Units {
+  constructor(private readonly labUnits: LabUnits) {}
+
+  /** The unit `metricKey` is shown in. */
+  unit(metricKey: string): string {
+    const metric = getMetric(metricKey);
+    if (!metric) return '';
+    if (metric.scale) return `${metric.scale.min}-${metric.scale.max}`;
+    return metric.category === 'lab' ? labDisplayUnit(metric, this.labUnits) : metric.canonicalUnit;
+  }
+
+  /** A canonical value in the shown unit, unrounded (for sparklines). */
+  value(metricKey: string, canonical: number): number {
+    const metric = getMetric(metricKey);
+    if (metric?.category !== 'lab') return canonical;
+    return fromCanonical(metricKey, canonical, this.unit(metricKey));
+  }
+
+  /** A canonical value in the shown unit, at that unit's display precision. */
+  format(metricKey: string, canonical: number): string {
+    const metric = getMetric(metricKey);
+    if (!metric) return canonical.toFixed(2);
+    const decimals = metric.category === 'lab' ? unitDecimals(metricKey, this.unit(metricKey)) : metric.decimals;
+    return this.value(metricKey, canonical).toFixed(decimals);
+  }
 }
 
 function labelOf(metricKey: string): string {
@@ -228,9 +264,10 @@ function writeHeader(report: Report, data: HealthExportData): void {
   }
   report.line(`Period: ${data.range.from} to ${data.range.to}`);
   report.line(`Generated: ${data.exportedAt.toISOString().slice(0, 10)}`);
+  if (data.datasets.includes('labs')) report.line(PDF_LAB_UNITS_LINE[data.labUnits]);
 }
 
-function writeLabs(report: Report, readings: Map<string, ExportReading[]>): void {
+function writeLabs(report: Report, readings: Map<string, ExportReading[]>, units: Units): void {
   report.heading(PDF_SECTIONS.labs);
   let any = false;
 
@@ -243,14 +280,14 @@ function writeLabs(report: Report, readings: Map<string, ExportReading[]>): void
       const range =
         latest.referenceText ??
         (latest.referenceLow !== null || latest.referenceHigh !== null
-          ? `${latest.referenceLow !== null ? formatValue(metricKey, latest.referenceLow) : ''} - ${
-              latest.referenceHigh !== null ? formatValue(metricKey, latest.referenceHigh) : ''
+          ? `${latest.referenceLow !== null ? units.format(metricKey, latest.referenceLow) : ''} - ${
+              latest.referenceHigh !== null ? units.format(metricKey, latest.referenceHigh) : ''
             }`.trim()
           : '-');
       rows.push([
         metric.label,
-        formatValue(metricKey, latest.value),
-        metric.canonicalUnit,
+        units.format(metricKey, latest.value),
+        units.unit(metricKey),
         range,
         latest.flag ? capitalise(latest.flag) : '-',
         latest.day,
@@ -275,7 +312,7 @@ function writeLabs(report: Report, readings: Map<string, ExportReading[]>): void
   if (!any) report.empty('No lab results in this period.');
 }
 
-function writeTrends(report: Report, readings: Map<string, ExportReading[]>, keys: string[]): void {
+function writeTrends(report: Report, readings: Map<string, ExportReading[]>, keys: string[], units: Units): void {
   report.heading(PDF_SECTIONS.trends);
   let any = false;
 
@@ -284,21 +321,27 @@ function writeTrends(report: Report, readings: Map<string, ExportReading[]>, key
     if (!list || list.length < 2) continue;
     any = true;
     const recent = list.slice(-TREND_POINTS);
-    report.subheading(`${labelOf(metricKey)} (${unitOf(metricKey)})`);
-    report.sparkline(recent.map((reading) => reading.value));
+    report.subheading(`${labelOf(metricKey)} (${units.unit(metricKey)})`);
+    report.sparkline(recent.map((reading) => units.value(metricKey, reading.value)));
     report.table(
       [
         { header: 'Date', width: 100 },
         { header: 'Value', width: 80, align: 'right' },
       ],
-      recent.map((reading) => [reading.day, formatValue(metricKey, reading.value)]),
+      recent.map((reading) => [reading.day, units.format(metricKey, reading.value)]),
     );
   }
 
   if (!any) report.empty('Not enough repeated readings in this period to show a trend.');
 }
 
-function writeSummary(report: Report, readings: Map<string, ExportReading[]>, keys: string[], to: string): void {
+function writeSummary(
+  report: Report,
+  readings: Map<string, ExportReading[]>,
+  keys: string[],
+  to: string,
+  units: Units,
+): void {
   report.heading(PDF_SECTIONS.summary);
   const since = shiftDay(to, -29);
   const rows: string[][] = [];
@@ -310,12 +353,12 @@ function writeSummary(report: Report, readings: Map<string, ExportReading[]>, ke
     const values = list.map((reading) => reading.value);
     const last30 = average(list.filter((reading) => reading.day >= since && reading.day <= to).map((r) => r.value));
     rows.push([
-      `${labelOf(metricKey)} (${unitOf(metricKey)})`,
-      formatValue(metricKey, latest.value),
+      `${labelOf(metricKey)} (${units.unit(metricKey)})`,
+      units.format(metricKey, latest.value),
       latest.day,
-      last30 === null ? '-' : formatValue(metricKey, last30),
-      formatValue(metricKey, Math.min(...values)),
-      formatValue(metricKey, Math.max(...values)),
+      last30 === null ? '-' : units.format(metricKey, last30),
+      units.format(metricKey, Math.min(...values)),
+      units.format(metricKey, Math.max(...values)),
       String(list.length),
     ]);
   }
@@ -432,20 +475,21 @@ export function renderPdfReport(doc: PDFKit.PDFDocument, data: HealthExportData)
   const report = new Report(doc);
   const selected = new Set(data.datasets);
   const readings = byMetric(data.readings);
+  const units = new Units(data.labUnits);
 
   writeHeader(report, data);
 
-  if (selected.has('labs')) writeLabs(report, readings);
+  if (selected.has('labs')) writeLabs(report, readings, units);
 
   const trendKeys = [
     ...(selected.has('body') ? BODY_KEYS : []),
     ...(selected.has('vitals') ? VITAL_KEYS : []),
     ...(selected.has('labs') ? LAB_TREND_KEYS : []),
   ];
-  if (trendKeys.length > 0) writeTrends(report, readings, trendKeys);
+  if (trendKeys.length > 0) writeTrends(report, readings, trendKeys, units);
 
   const summaryKeys = [...(selected.has('body') ? BODY_KEYS : []), ...(selected.has('vitals') ? VITAL_KEYS : [])];
-  if (summaryKeys.length > 0) writeSummary(report, readings, summaryKeys, data.range.to);
+  if (summaryKeys.length > 0) writeSummary(report, readings, summaryKeys, data.range.to, units);
 
   if (selected.has('wellness')) writeWellness(report, readings, data.range.to);
   if (selected.has('documents')) writeDocuments(report, data);

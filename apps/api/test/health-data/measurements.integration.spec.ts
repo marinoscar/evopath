@@ -217,6 +217,16 @@ describe('Measurements (integration)', () => {
         min: 20,
         max: 500,
         decimals: 1,
+        siUnit: null,
+      });
+      const ldl = response.body.data.metrics.find((metric: { key: string }) => metric.key === 'ldl_cholesterol');
+      expect(ldl).toMatchObject({
+        canonicalUnit: 'mg/dL',
+        siUnit: 'mmol/L',
+        units: [
+          { unit: 'mg/dL', decimals: 0 },
+          { unit: 'mmol/L', decimals: 2 },
+        ],
       });
       expect(response.body.data.methods.length).toBeGreaterThan(10);
       expect(response.body.meta?.timestamp).toBeDefined();

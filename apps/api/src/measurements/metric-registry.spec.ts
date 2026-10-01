@@ -95,7 +95,7 @@ describe('metric registry', () => {
 
     it('returns copies, so a caller cannot mutate the registry', () => {
       const view = catalogView();
-      view.metrics[0].units.push({ unit: 'stone', factor: 6.35, offset: 0, label: 'st' });
+      view.metrics[0].units.push({ unit: 'stone', factor: 6.35, offset: 0, label: 'st', decimals: 1 });
       view.metrics[0].methods.push('dexa');
 
       expect(getMetric('weight')!.units).toHaveLength(2);
