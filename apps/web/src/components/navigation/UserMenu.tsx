@@ -40,12 +40,13 @@ import {
   Typography,
   Box,
 } from '@mui/material';
-import { Logout as LogoutIcon } from '@mui/icons-material';
+import { Logout as LogoutIcon, Checklist as ChecklistIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
+import { useOnboarding } from '../../hooks/useOnboarding';
 
 export function UserMenu() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -53,6 +54,10 @@ export function UserMenu() {
   const { hasPermission } = usePermissions();
   const features = useSettingsFeatures();
   const navigate = useNavigate();
+  // Issue #203. The shell's shared onboarding state; `available` is false with
+  // no `OnboardingProvider` above (tests rendering the menu alone), and then
+  // the "Getting started" row is not offered.
+  const onboarding = useOnboarding();
 
   const open = Boolean(anchorEl);
 
@@ -67,6 +72,13 @@ export function UserMenu() {
   const handleNavigate = (path: string) => {
     navigate(path);
     handleClose();
+  };
+
+  const handleGettingStarted = () => {
+    handleClose();
+    // Clears `welcomeSeenAt` and `checklistDismissedAt`: the welcome dialog
+    // opens again and the Today checklist comes back.
+    void onboarding.reopen();
   };
 
   const handleLogout = async () => {
@@ -151,6 +163,15 @@ export function UserMenu() {
             <ListItemText>{destination.label}</ListItemText>
           </MenuItem>
         ))}
+
+        {onboarding.available && onboarding.state !== null && (
+          <MenuItem onClick={handleGettingStarted}>
+            <ListItemIcon>
+              <ChecklistIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Getting started</ListItemText>
+          </MenuItem>
+        )}
 
         <Divider />
 

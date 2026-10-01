@@ -417,8 +417,111 @@ export interface UserSettings {
    * has it until the user sets a training-run limit on `/settings/ai/agents`.
    */
   ai?: UserAiSettings;
+  /**
+   * First-run onboarding UI state (#203). Optional and absent for anyone who
+   * has not seen the welcome yet: absent means "never seen, never dismissed,
+   * no goal". The checklist's steps are NOT stored here; they are derived
+   * from real data by `GET /api/onboarding`.
+   */
+  onboarding?: OnboardingSettings;
   updatedAt: string;
   version: number;
+}
+
+// =============================================================================
+// First-run onboarding (#203)
+// =============================================================================
+
+/** The optional goal the welcome dialog asks for; a subset of the plan wizard's goal types. */
+export type OnboardingGoal = 'strength' | 'hypertrophy' | 'fat_loss' | 'endurance' | 'general';
+
+export const ONBOARDING_GOALS: readonly OnboardingGoal[] = [
+  'strength',
+  'hypertrophy',
+  'fat_loss',
+  'endurance',
+  'general',
+];
+
+/** `user_settings.onboarding`. Every field is optional; absent means default. */
+export interface OnboardingSettings {
+  welcomeSeenAt?: string | null;
+  checklistDismissedAt?: string | null;
+  goal?: OnboardingGoal | null;
+}
+
+/**
+ * PATCH form of `onboarding`: shallow-merged server-side, `null` clears a key.
+ * Same shape as the stored form, because every field is already nullable.
+ */
+export type OnboardingSettingsPatch = OnboardingSettings;
+
+/** One checklist step, ticked by the API from real data, never by hand. */
+export interface OnboardingStep {
+  id: string;
+  /** `required` / `features` for the admin guide; `null` for user steps. */
+  group: 'required' | 'features' | null;
+  status: 'done' | 'todo';
+  label: string;
+  detail: string | null;
+  /** Where the user goes to do this step. */
+  href: string;
+}
+
+export interface OnboardingChecklistState {
+  steps: OnboardingStep[];
+  completed: number;
+  total: number;
+}
+
+export interface OnboardingAdminState extends OnboardingChecklistState {
+  /** Every `required` step is done. */
+  requiredDone: boolean;
+}
+
+/** `GET /api/onboarding`. */
+export interface OnboardingState {
+  welcomeSeenAt: string | null;
+  checklistDismissedAt: string | null;
+  goal: OnboardingGoal | null;
+  user: OnboardingChecklistState;
+  /** Non-null only when the caller holds `system_settings:read`. */
+  admin: OnboardingAdminState | null;
+}
+
+/** The user steps the activation funnel counts (#212). */
+export type OnboardingMetricsStepId = 'health_profile' | 'gym' | 'first_workout' | 'ai_plan';
+
+/** One funnel step: cohort users with the step done now. */
+export interface OnboardingMetricsStep {
+  id: OnboardingMetricsStepId;
+  completed: number;
+  /** `completed / cohortSize`; `null` when the cohort is empty. */
+  rate: number | null;
+}
+
+/** `GET /api/admin/onboarding/metrics?days=` — aggregates only, never per-user rows (#212). */
+export interface OnboardingMetrics {
+  /** Echo of `days`. */
+  windowDays: number;
+  /** Days after sign-up within which a completed workout counts as activation (7). */
+  activationWindowDays: number;
+  /** Users created in the last `windowDays` days. */
+  cohortSize: number;
+  /** Cohort users whose activation window has closed. */
+  eligible: number;
+  /** Eligible users with a completed workout within the activation window. */
+  activated: number;
+  /** `activated / eligible`; `null` when nobody is eligible yet. */
+  activationRate: number | null;
+  /** Over cohort users with at least one completed workout; `null` when none. */
+  medianHoursToFirstWorkout: number | null;
+  steps: OnboardingMetricsStep[];
+}
+
+/** `GET /api/storage/status` (#204): whether object storage is configured. Never provider details. */
+export interface StorageStatus {
+  configured: boolean;
 }
 
 /** The training-plan agent roles. */
@@ -514,6 +617,8 @@ export interface UserSettingsUpdate {
    * by field; `ai: null` clears the namespace.
    */
   ai?: UserAiSettingsPatch | null;
+  /** First-run onboarding state (#203). Shallow merge; `null` clears a key. */
+  onboarding?: OnboardingSettingsPatch | null;
 }
 
 /**

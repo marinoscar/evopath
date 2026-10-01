@@ -437,3 +437,48 @@ describe('GymDetailPage', () => {
     expect(results).toHaveNoViolations();
   });
 });
+
+describe('GymDetailPage: storage not configured (#204)', () => {
+  beforeEach(() => {
+    clearPhotoUrlCache();
+  });
+
+  it('storage false: the notice replaces Add photos', async () => {
+    statefulGymsApi([mockGymDetail({ id: GYM_ID })]);
+    server.use(http.get('*/api/storage/status', () => HttpResponse.json({ data: { configured: false } })));
+    renderDetail();
+    expect(await screen.findByText("Storage isn't enabled yet")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add photos' })).toBeNull();
+  });
+
+  it('a failed status read fails open: Add photos stays', async () => {
+    statefulGymsApi([mockGymDetail({ id: GYM_ID })]);
+    server.use(
+      http.get('*/api/storage/status', () =>
+        HttpResponse.json({ statusCode: 500, code: 'INTERNAL', message: 'boom' }, { status: 500 }),
+      ),
+    );
+    renderDetail();
+    expect(await screen.findByRole('button', { name: 'Add photos' })).toBeEnabled();
+    expect(screen.queryByText("Storage isn't enabled yet")).toBeNull();
+  });
+
+  it.each([
+    ['storage:write', ['gyms:read', 'gyms:write']],
+    ['gyms:write', ['gyms:read', 'storage:write']],
+  ])('does not ask for the storage status without %s', async (_missing, permissions) => {
+    let calls = 0;
+    statefulGymsApi([mockGymDetail({ id: GYM_ID })]);
+    server.use(
+      http.get('*/api/storage/status', () => {
+        calls += 1;
+        return HttpResponse.json({ data: { configured: false } });
+      }),
+    );
+    renderDetail({ user: { ...mockUser, permissions } });
+    await screen.findByRole('heading', { level: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls).toBe(0);
+    expect(screen.queryByText("Storage isn't enabled yet")).toBeNull();
+  });
+});

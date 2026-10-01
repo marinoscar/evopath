@@ -40,9 +40,16 @@ export interface WizardForm {
   autonomy: TrainingAutonomy;
 }
 
-export function initialWizardForm(): WizardForm {
+/** The goal the wizard starts on when the user has not told us one (#203). */
+export const DEFAULT_GOAL_TYPE: TrainingGoalType = 'hypertrophy';
+
+/**
+ * A fresh form. `goalType` seeds the goal (the welcome dialog's
+ * `settings.onboarding.goal`, #203); absent or null keeps the default.
+ */
+export function initialWizardForm(goalType?: TrainingGoalType | null): WizardForm {
   return {
-    goalType: 'hypertrophy',
+    goalType: goalType ?? DEFAULT_GOAL_TYPE,
     goalDescription: '',
     experience: '',
     daysPerWeek: 3,

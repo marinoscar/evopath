@@ -12,7 +12,7 @@
  *
  * Routed behind `ai:use` and AI being on; the API enforces both again.
  */
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -49,6 +49,7 @@ import { useGyms } from '../../hooks/useGyms';
 import { useExercises } from '../../hooks/useExercises';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useOnboarding } from '../../hooks/useOnboarding';
 import { ApiError } from '../../services/api';
 import {
   TRAINING_EXPERIENCE_LEVELS,
@@ -72,6 +73,7 @@ import { StickyActionBar } from '../../components/training/StickyActionBar';
 import { WeekdayPicker } from '../../components/training/WeekdayPicker';
 import { EXPERIENCE_LABEL, GOAL_LABEL, LIMITATION_LABEL } from '../../components/training/planLabels';
 import {
+  DEFAULT_GOAL_TYPE,
   MINUTE_PRESETS,
   NO_GYM,
   WIZARD_STEPS,
@@ -110,7 +112,18 @@ export default function PlanWizardPage() {
   const { hasPermission } = usePermissions();
   const draft = useMemo(() => loadWizardDraft(), []);
   const [step, setStep] = useState(draft?.step ?? 0);
-  const [form, setForm] = useState<WizardForm>(draft?.form ?? initialWizardForm());
+  // #203: a fresh form starts on the goal chosen in the welcome dialog
+  // (`settings.onboarding.goal`), else the default. A saved draft wins.
+  const { goal: onboardingGoal } = useOnboarding();
+  const [form, setForm] = useState<WizardForm>(draft?.form ?? initialWizardForm(onboardingGoal));
+  // The onboarding state may land after the first render; seed it then, once,
+  // and only if the user has not already moved off the default goal.
+  const goalSeeded = useRef(draft !== null || onboardingGoal !== null);
+  useEffect(() => {
+    if (goalSeeded.current || onboardingGoal === null) return;
+    goalSeeded.current = true;
+    setForm((f) => (f.goalType === DEFAULT_GOAL_TYPE ? { ...f, goalType: onboardingGoal } : f));
+  }, [onboardingGoal]);
   const [errors, setErrors] = useState<WizardErrors>({});
   const { gyms, isLoading: gymsLoading, refresh: refreshGyms } = useGyms({ enabled: hasPermission('gyms:read') });
 

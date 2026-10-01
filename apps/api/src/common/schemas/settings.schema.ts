@@ -7,6 +7,8 @@ import {
   notificationsSchema,
   notificationsPatchSchema,
   notificationEventKeySchema,
+  onboardingSettingsSchema,
+  onboardingPatchSchema,
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
 } from './user-settings-namespaces.schema';
 
@@ -152,6 +154,10 @@ export const userSettingsSchema = z.object({
   // three namespaces above: absent means "no training limits set" (the
   // server defaults). Models are the administrator's (#173).
   ai: userAiSettingsSchema.optional(),
+  // First-run onboarding UI state (#203). Optional and sparse like the
+  // namespaces above: absent means "welcome not seen, checklist not
+  // dismissed, no goal".
+  onboarding: onboardingSettingsSchema.optional(),
 });
 
 export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
@@ -172,6 +178,9 @@ export const userSettingsPatchSchema = z.object({
   // nullability on `training` (see `userAiSettingsPatchSchema`) clears just
   // the run limits. Same two-level shape `dataTablesPatchSchema` uses.
   ai: userAiSettingsPatchSchema.nullable().optional(),
+  // `onboarding: null` clears the namespace; a field sent as `null` clears
+  // just that field (#203).
+  onboarding: onboardingPatchSchema.nullable().optional(),
 });
 
 // =============================================================================

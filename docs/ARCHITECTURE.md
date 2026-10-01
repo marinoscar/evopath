@@ -427,6 +427,15 @@ An administrator can return the deployment to a fresh install. `POST /api/admin/
 - **Permissions:** `system:factory_reset` (Admin only)
 - **Read more:** [specs/factory-reset.md](specs/factory-reset.md), [runbooks/factory-reset.md](runbooks/factory-reset.md)
 
+### 5.29 First-run onboarding
+
+A one-time welcome dialog leads into a short checklist: a Setup guide for administrators and a Get started card on Today for everyone else. `GET /api/onboarding` derives every step from real state on each request and never writes; administrator steps reuse the [Doctor](#526-admin-doctor)'s checks. The only stored facts are `welcomeSeenAt`, `checklistDismissedAt` and an optional `goal` in the `onboarding` user-settings namespace, written through `PATCH /api/user-settings`. `GET /api/admin/onboarding/metrics` adds read-only aggregate activation numbers (first completed workout within 7 days of sign-up, over eligible users) to the Setup guide. Entry points of an unconfigured feature (AI, storage, Web Push) show a feature-unavailable notice; storage's state comes from `GET /api/storage/status`.
+
+- **Code:** `apps/api/src/onboarding/`, `apps/web/src/components/onboarding/`, `apps/web/src/pages/Admin/SetupGuidePage.tsx`
+- **UI:** welcome dialog (every signed-in page), Today cards, `/admin/settings/setup`
+- **Permissions:** `user_settings:read` (the endpoint); the `admin` block, the Setup guide and the metrics endpoint need `system_settings:read`; `GET /api/storage/status` needs `storage:read`
+- **Read more:** [specs/onboarding.md](specs/onboarding.md)
+
 ---
 
 ## 6. Data architecture
@@ -530,7 +539,7 @@ Namespaces of the `global` document (`systemSettingsSchema`):
 
 Every read completes missing namespaces from built-in defaults, so the stored document is always whole.
 
-`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (`training` limits only; models are chosen by administrators in the `ai.assignments` system setting). An absent optional namespace means "use the defaults".
+`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences), `ai` (`training` limits only; models are chosen by administrators in the `ai.assignments` system setting) and `onboarding` (`welcomeSeenAt`, `checklistDismissedAt`, `goal`: UI state only, step completion is derived; see [specs/onboarding.md](specs/onboarding.md)). An absent optional namespace means "use the defaults".
 
 ---
 
@@ -597,7 +606,7 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `programs:read` | ✓ | ✓ | ✓ | Read own training programs, versions and change log (`GET /api/programs*`) |
 | `programs:write` | ✓ | ✓ | ✓ | Create, edit, activate, pause, archive, duplicate, revert and delete own programs (`POST/PATCH/PUT/DELETE /api/programs*`) |
 
-**Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
+**Note on `storage:*`.** `GET /api/storage/status` (a `configured` boolean) and every `/api/storage/objects` route require `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
 Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`, `exercises:*`, `workouts:*`, `programs:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
@@ -701,6 +710,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/push` | Web Push | General | `push:read` | |
 | `/admin/settings/storage` | Storage | General | `storage_config:read` | |
 | `/admin/settings/maintenance` | Maintenance | General | `system_settings:read` | |
+| `/admin/settings/setup` | Setup guide | General | `system_settings:read` | none (it is where AI gets switched on) |
 | `/admin/settings/users` | Users & Allowlist | Access | `users:read` | |
 | `/admin/settings/jobs` | Jobs | Operations | `jobs:read` | |
 | `/admin/settings/jobs/insights` | Job Insights | Operations | `jobs:read` | |
