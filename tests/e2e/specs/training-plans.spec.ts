@@ -14,7 +14,7 @@ import {
   lastRequestSeq,
   resetFakeResponses,
   setAiEnabled,
-  assignFakeTrainingModels,
+  setFakeModelHostedTools,
   setupFakeAi,
   setupFakeAiForUser,
   teardownFakeAi,
@@ -347,18 +347,17 @@ test.describe('Training plans with the fake Responses provider', () => {
     expect(requests.every((r) => r.hasAuthorization && r.status === 200)).toBe(true);
   });
 
-  test('a blocked role: the researcher on a model without hosted tools shows the blocker and Start is disabled', async ({ page, owner: _owner, browser, baseURL }) => {
-    // The administrator assigns a model without hosted tools to the researcher.
-    await withAdmin(browser, baseURL, (admin) =>
-      assignFakeTrainingModels(admin, { researcher: { modelId: FAKE_FAST, reasoningEffort: 'medium' } }),
-    );
+  test('a blocked role: no model can search, so the researcher shows the blocker and Start is disabled', async ({ page, owner: _owner, browser, baseURL }) => {
+    // Models are the administrator's choice (#173), and a model without hosted tools cannot be assigned to
+    // the researcher. The state is reached by the catalog: the only searching model loses `hosted_tools`.
+    await withAdmin(browser, baseURL, (admin) => setFakeModelHostedTools(admin, FAKE_FRONTIER, false));
     try {
       await fillWizardToReview(page);
 
-      await expect(page.getByText(/needs web search/)).toBeVisible();
+      await expect(page.getByText(/The researcher agent needs a model with web search/)).toBeVisible();
       await expect(page.getByTestId('wizard-start')).toBeDisabled();
     } finally {
-      await withAdmin(browser, baseURL, (admin) => assignFakeTrainingModels(admin));
+      await withAdmin(browser, baseURL, (admin) => setFakeModelHostedTools(admin, FAKE_FRONTIER, true));
     }
   });
 
