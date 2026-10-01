@@ -70,11 +70,15 @@ Registered events:
 | `training.plan_safety_stop` | browser, push | yes |
 | `health.export_ready` | browser, push | no |
 | `health.export_failed` | browser, push | no |
+| `coach.nudge` | browser, push | no |
+| `coach.celebration` | browser, push | no |
+| `coach.photo_prompt` | browser, push | no |
+| `coach.weekly_review` | email, browser, push | no |
 
 The two broadcast events are specified in
 [notification-broadcasts.md](notification-broadcasts.md). The four
 operational events are in §2.9. The two health export events are in
-[health-records.md](health-records.md#213-export).
+[health-records.md](health-records.md#213-export). The four coach events are raised by the AI Coach ([ai-coach.md](ai-coach.md#35-notification-events)).
 
 ### 2.2 Dispatch and the delivery model
 
@@ -299,6 +303,23 @@ an OS notification, focused tab or not. The page's SSE handler raises no OS
 toast for a focused tab (§2.12), so this is the only visible alert a focused
 user gets, not a duplicate. A backgrounded but still open tab skips its own
 SSE toast when the push will show it (§2.12).
+
+**Action buttons and `data.messageId`.** A browser template may carry up to two
+`actions`, each `{ action, title, link }`. `pushActionsOf`
+(`channels/push-notification.channel.ts`) keeps an action only when its id
+matches `^[a-z][a-z0-9_-]{0,31}$`, its title is non-empty (cut to 40
+characters) and its `link` passes `sanitizeLink` (root-relative only). The push
+body then carries `actions` and an optional `data: { messageId }` (an id only,
+never text). The worker's `push` handler stores the action links in
+`notification.data.actionLinks` and the id in `notification.data.messageId`.
+The `notificationclick` handler resolves the link by `event.action`: a click on
+an action button uses that action's link, a click on the body (empty
+`event.action`) or an unknown action uses the plain `link`, and every result
+passes `isInternalLink` or falls back to `/`. The coach is the only user: a
+message with audio carries one action, `hear` ("Hear Coach"), linking to
+`/coach?m=<messageId>&autoplay=1`; the body link is `/coach?m=<messageId>`. The
+click is the user gesture that lets the page start audio. A push cannot play
+sound itself. See [ai-coach.md §2.7](ai-coach.md#27-delivery-and-audio).
 
 **Icon attribution.** Android attributes a notification to the app that posts
 it. From a browser tab that is the browser (for example Chrome), which a site
