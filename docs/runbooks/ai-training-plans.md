@@ -64,7 +64,7 @@ Scenarios:
 | `happy` | Research, one draft, the critic approves; the plan is created as a draft |
 | `critic-reject-once` | The critic rejects with one blocker, the planner revises, the critic approves |
 | `critic-exhausted` | The critic rejects every round while guardrails stay clean; the plan ships with open notes |
-| `planner-hostile` | An unsafe draft (unknown and unsupported exercises, 500 kg loads, a fabricated citation and link, injected instructions): guardrails repair or block it |
+| `planner-hostile` | An unsafe draft (unknown and unsupported exercises, 500 kg loads, a fabricated citation and link, injected instructions): guardrails repair or block it; the injected sentences are dropped from the plan name and rationale |
 | `research-fabricated-url` | The brief cites a URL the search never returned; the source and its claim are dropped |
 | `research-insufficient` | Fewer than two verified sources remain; the run stops with an insufficient-evidence error |
 | `research-page-injection` | A retrieved page told the model to ignore its rules; the injected text never reaches the plan |
