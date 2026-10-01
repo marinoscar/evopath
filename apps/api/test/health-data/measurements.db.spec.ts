@@ -77,7 +77,11 @@ describeWithDb('measurements (real Postgres)', () => {
     expect(byName['measurements_user_id_local_date_idx']).toMatch(/\(user_id, local_date\)/);
     expect(byName['measurements_supersedes_id_key']).toMatch(/UNIQUE INDEX .*\(supersedes_id\)/);
     // No partial ("active rows") index: the predicate lives in the queries.
-    expect(Object.values(byName).some((def) => / WHERE /i.test(def))).toBe(false);
+    // The one partial index is the device-sync key (epic #276), on
+    // `external_provider`, never on the active-row columns.
+    const partial = Object.entries(byName).filter(([, def]) => / WHERE /i.test(def));
+    expect(partial.map(([name]) => name)).toEqual(['measurements_provider_external_uniq_idx']);
+    expect(partial[0][1]).toMatch(/\(user_id, external_provider, external_id\) WHERE \(external_provider IS NOT NULL\)/);
   });
 
   it('refuses a second row superseding the same row (unique supersedes_id)', async () => {
