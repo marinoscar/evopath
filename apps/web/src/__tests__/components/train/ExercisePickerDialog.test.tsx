@@ -78,7 +78,7 @@ describe('ExercisePickerDialog', () => {
     expect(screen.getByText(/Needs: Leg press/)).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: 'Leg press' }));
     await user.click(screen.getByRole('button', { name: 'Add exercise' }));
-    expect(onAdd).toHaveBeenCalledWith([legPress.id], { [legPress.id]: legPress.name });
+    expect(onAdd).toHaveBeenCalledWith([legPress.id], { [legPress.id]: legPress.name }, { [legPress.id]: legPress.trackingMode });
   });
 
   it('without a gym, offers everything and no gym toggle', async () => {
@@ -97,7 +97,11 @@ describe('ExercisePickerDialog', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Pull-up' }));
     await user.click(screen.getByRole('checkbox', { name: 'Dumbbell bench press' }));
     await user.click(screen.getByRole('button', { name: 'Add 2 exercises' }));
-    expect(onAdd).toHaveBeenCalledWith([pullUp.id, bench.id], { [pullUp.id]: pullUp.name, [bench.id]: bench.name });
+    expect(onAdd).toHaveBeenCalledWith(
+      [pullUp.id, bench.id],
+      { [pullUp.id]: pullUp.name, [bench.id]: bench.name },
+      { [pullUp.id]: pullUp.trackingMode, [bench.id]: bench.trackingMode },
+    );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
