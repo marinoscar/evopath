@@ -61,6 +61,9 @@ const HealthPage = lazy(() => import('./pages/HealthPage'));
 // `/health` prefix; not settings pages.
 const BiomarkersPage = lazy(() => import('./pages/BiomarkersPage'));
 const BiomarkerDetailPage = lazy(() => import('./pages/BiomarkerDetailPage'));
+// E7.9 (#249): progress photos. Owned by the `health` destination through the
+// `/health` prefix; `?add=1` opens the add flow (the Coach's "Take photo").
+const ProgressPhotosPage = lazy(() => import('./pages/ProgressPhotosPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
 // E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
 // destination through the `/gyms` prefix.
@@ -319,6 +322,14 @@ function AppRoutes() {
                   <Route path="/health" element={<HealthPage />} />
                   <Route path="/health/biomarkers" element={<BiomarkersPage />} />
                   <Route path="/health/biomarkers/:analyteKey" element={<BiomarkerDetailPage />} />
+                  <Route
+                    path="/health/progress-photos"
+                    element={
+                      <RequirePermission permission="health_data:read" fallback={<Navigate to="/health" replace />}>
+                        <ProgressPhotosPage />
+                      </RequirePermission>
+                    }
+                  />
                   <Route path="/gyms" element={<GymsPage />} />
                   <Route path="/gyms/new" element={<GymNewPage />} />
                   <Route path="/gyms/:gymId" element={<GymDetailPage />} />

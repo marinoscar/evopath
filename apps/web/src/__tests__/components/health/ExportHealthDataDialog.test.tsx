@@ -79,6 +79,7 @@ describe('ExportHealthDataDialog', () => {
       'Blood work',
       'Wellness / mood (check-in scores)',
       'Documents index',
+      'Progress photos',
     ]) {
       expect(within(dialog).getByRole('checkbox', { name })).toBeChecked();
     }
@@ -138,6 +139,7 @@ describe('ExportHealthDataDialog', () => {
     await user.click(within(dialog).getByRole('radio', { name: /^JSON/ }));
     await user.click(within(dialog).getByRole('radio', { name: 'Last 6 months' }));
     await user.click(within(dialog).getByRole('checkbox', { name: 'Documents index' }));
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Progress photos' }));
     await user.click(within(dialog).getByRole('switch', { name: /Include edit history/ }));
     await user.click(within(dialog).getByRole('button', { name: 'Create export' }));
 

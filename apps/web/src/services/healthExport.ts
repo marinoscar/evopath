@@ -22,7 +22,16 @@ export const HEALTH_EXPORT_FORMATS = ['json', 'csv', 'xlsx', 'pdf'] as const;
 export type HealthExportFormat = (typeof HEALTH_EXPORT_FORMATS)[number];
 
 /** In the API's canonical order (the order the file lists them in). */
-export const HEALTH_EXPORT_DATASETS = ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents'] as const;
+export const HEALTH_EXPORT_DATASETS = [
+  'profile',
+  'body',
+  'vitals',
+  'labs',
+  'wellness',
+  'documents',
+  // E7.9 (#249): the user's progress photos.
+  'progress_photos',
+] as const;
 export type HealthExportDataset = (typeof HEALTH_EXPORT_DATASETS)[number];
 
 export const HEALTH_EXPORT_STATUSES = ['pending', 'running', 'ready', 'failed', 'expired'] as const;
@@ -125,6 +134,7 @@ export const HEALTH_EXPORT_DATASET_LABELS: Record<HealthExportDataset, string> =
   labs: 'Blood work',
   wellness: 'Wellness / mood (check-in scores)',
   documents: 'Documents index',
+  progress_photos: 'Progress photos',
 };
 
 export const HEALTH_EXPORT_STATUS_LABELS: Record<HealthExportStatus, string> = {

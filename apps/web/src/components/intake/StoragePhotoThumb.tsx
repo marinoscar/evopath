@@ -33,6 +33,24 @@ function cached(id: string): string | null {
   return null;
 }
 
+/**
+ * A signed URL for one of the caller's photos, from the same in-memory cache
+ * the thumbnails use (E7.9 #249: the progress-photo viewer and compare draw
+ * the full image, not a square thumb). Fetches only on a miss.
+ */
+export async function getCachedPhotoUrl(id: string): Promise<string> {
+  const hit = cached(id);
+  if (hit) return hit;
+  const { url, expiresIn } = await getStorageObjectDownloadUrl(id);
+  cache.set(id, { url, expiresAt: Date.now() + expiresIn * 1000 });
+  return url;
+}
+
+/** The cached signed URL for `id` when it is still fresh, else `null` (no fetch). */
+export function peekCachedPhotoUrl(id: string): string | null {
+  return cached(id);
+}
+
 /** For tests: forget every cached URL. */
 export function clearPhotoUrlCache(): void {
   cache.clear();
