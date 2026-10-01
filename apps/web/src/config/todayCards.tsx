@@ -7,6 +7,7 @@ import PlaceIcon from '@mui/icons-material/Place';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
 import SportsIcon from '@mui/icons-material/Sports';
+import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import type { RoadmapArea } from './roadmap';
 import { TodayBodySnapshot } from '../components/today/TodayBodySnapshot';
 import { TodayReadiness } from '../components/today/TodayReadiness';
@@ -19,10 +20,11 @@ import {
   TodayGetStarted,
 } from '../components/today/TodayOnboarding';
 import { CoachGate, TodayCoach } from '../components/today/TodayCoach';
+import { GoalsGate, TodayGoals } from '../components/today/TodayGoals';
 
 /**
  * Cards on the Today page. Append-only order: workout, readiness, body, gym,
- * coach (E7.8, #248).
+ * coach (E7.8, #248), goals (#268).
  * The epic that builds a card sets its `Content`; the page itself never changes.
  *
  * Issue #203 put the two onboarding cards (`adminSetup`, `getStarted`) at the
@@ -32,7 +34,7 @@ import { CoachGate, TodayCoach } from '../components/today/TodayCoach';
  * not apply.
  */
 export interface TodayCardDef {
-  key: 'adminSetup' | 'getStarted' | 'workout' | 'readiness' | 'body' | 'gym' | 'coach';
+  key: 'adminSetup' | 'getStarted' | 'workout' | 'readiness' | 'body' | 'gym' | 'coach' | 'goals';
   title: string;
   description: string;
   Icon: SvgIconComponent;
@@ -132,5 +134,18 @@ export const TODAY_CARDS: readonly TodayCardDef[] = [
     area: 'programs',
     Content: TodayCoach,
     Gate: CoachGate,
+  },
+  {
+    // #268 (epic #260): appended. One progress ring per active goal and a
+    // one-tap check-in; shown only with `goals:read` (`GET /api/goals/progress`).
+    key: 'goals',
+    title: 'Goals',
+    description: 'Your activity goals: walks, steps, minutes, and how this week is going.',
+    Icon: TrackChangesIcon,
+    to: '/train/goals',
+    linkLabel: 'Open Goals',
+    area: 'programs',
+    Content: TodayGoals,
+    Gate: GoalsGate,
   },
 ];

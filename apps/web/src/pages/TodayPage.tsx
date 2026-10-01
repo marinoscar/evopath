@@ -13,6 +13,7 @@ const CARD_SIZE: Record<TodayCardDef['key'], { xs: number; md: number }> = {
   body: { xs: 12, md: 6 },
   gym: { xs: 12, md: 6 },
   coach: { xs: 12, md: 6 },
+  goals: { xs: 12, md: 6 },
 };
 
 export default function TodayPage() {

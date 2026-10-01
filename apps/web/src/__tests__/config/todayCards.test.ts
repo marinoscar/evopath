@@ -14,13 +14,22 @@ describe('TODAY_CARDS', () => {
       'body',
       'gym',
       'coach',
+      'goals',
     ]);
   });
 
-  it('appends the coach card last (E7.8), gated, linking to /coach', () => {
+  it('keeps the coach card (E7.8) gated, linking to /coach', () => {
+    const coach = TODAY_CARDS.find((c) => c.key === 'coach')!;
+    expect(coach.to).toBe('/coach');
+    expect(coach.Gate).toBeDefined();
+    expect(coach.Content).toBeDefined();
+  });
+
+  it('appends the goals card last (#268), gated, linking to /train/goals', () => {
     const last = TODAY_CARDS[TODAY_CARDS.length - 1];
-    expect(last.key).toBe('coach');
-    expect(last.to).toBe('/coach');
+    expect(last.key).toBe('goals');
+    expect(last.to).toBe('/train/goals');
+    expect(last.linkLabel).toBe('Open Goals');
     expect(last.Gate).toBeDefined();
     expect(last.Content).toBeDefined();
   });
