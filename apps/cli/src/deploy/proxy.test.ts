@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { UsageError } from '../errors.js';
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from './executor.js';
 import {
+  APK_UPLOAD_MIN_BODY_MB,
   assertValidContainerName,
   assertValidDomain,
   certbotArgv,
@@ -187,6 +188,49 @@ describe('renderVhost', () => {
     const sized = renderVhost(target(root), runtime, { maxBodyBytes: 10 * 1024 * 1024 });
     expect(sized).toContain('client_max_body_size 10m;');
   });
+
+  /** One location block's body, from its opening line up to its closing brace. */
+  function blockOf(config: string, opener: string): string {
+    const start = config.indexOf(opener);
+    expect(start).toBeGreaterThan(-1);
+    return config.slice(start, config.indexOf('}', start));
+  }
+
+  it('streams the APK release upload with its own body limit and timeouts (#285)', () => {
+    const block = blockOf(rendered, 'location = /api/admin/android-app/releases {');
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
+    expect(block).toContain('proxy_set_header X-Forwarded-Proto https;');
+    expect(block).toContain('client_max_body_size 160m;');
+    expect(block).toContain('proxy_request_buffering off;');
+    expect(block).toMatch(/proxy_send_timeout\s+600s;/);
+    expect(block).toMatch(/proxy_read_timeout\s+600s;/);
+    // The server-wide default stays matched to MAX_FILE_SIZE.
+    expect(rendered).toContain('    client_max_body_size 100m;');
+  });
+
+  it('proxies the APK download unbuffered with a ten-minute read timeout (#285)', () => {
+    const block = blockOf(rendered, 'location /api/android-app/download/ {');
+    expect(block).toContain('proxy_pass http://127.0.0.1:3535;');
+    expect(block).toContain('proxy_buffering off;');
+    expect(block).toMatch(/proxy_read_timeout\s+600s;/);
+  });
+
+  it.each([
+    [5 * 1024 * 1024, '5m', '160m'],
+    [160 * 1024 * 1024, '160m', '160m'],
+    [500 * 1024 * 1024, '500m', '500m'],
+  ])(
+    'never sets the APK upload cap below the server-wide cap (MAX_FILE_SIZE %d)',
+    (bytes, serverWide, upload) => {
+      const sized = renderVhost(target(root), runtime, { maxBodyBytes: bytes });
+      expect(sized).toContain(`    client_max_body_size ${serverWide};`);
+      const block = blockOf(sized, 'location = /api/admin/android-app/releases {');
+      expect(block).toContain(`client_max_body_size ${upload};`);
+      const uploadMb = Number(/client_max_body_size (\d+)m;/.exec(block)?.[1]);
+      expect(uploadMb).toBeGreaterThanOrEqual(Number.parseInt(serverWide, 10));
+      expect(uploadMb).toBeGreaterThanOrEqual(APK_UPLOAD_MIN_BODY_MB);
+    },
+  );
 
   it('refuses a hostile domain', () => {
     expect(() => renderVhost({ ...target(root), domain: 'a b;c' }, runtime)).toThrow(UsageError);
