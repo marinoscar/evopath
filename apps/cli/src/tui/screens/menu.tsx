@@ -63,8 +63,8 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
       },
       {
         key: 'android',
-        // Read-only toolchain check; build/publish stay subcommands.
-        label: 'Android app  (toolchain check)',
+        // Status, doctor, bump, build, publish, release and rollback (#291).
+        label: 'Android app  (build, publish, releases)',
         value: 'android',
       },
       {

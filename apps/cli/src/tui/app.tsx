@@ -55,6 +55,19 @@ export function App(): ReactNode {
     setRoute('menu');
   }, []);
 
+  // The one exception to "every screen returns to the menu": the Android
+  // screen (#291) sends a user to log in when publishing needs it, and the
+  // login returns them there rather than making them walk back in.
+  const [afterLogin, setAfterLogin] = useState<Route>('menu');
+  const loginDone = useCallback(() => {
+    setRoute(afterLogin);
+    setAfterLogin('menu');
+  }, [afterLogin]);
+  const loginFromAndroid = useCallback(() => {
+    setAfterLogin('android');
+    setRoute('login');
+  }, []);
+
   // `useApp().exit()` is the ONLY way out, and it is the same path Ctrl-C
   // takes. It performs a real React unmount — every screen's effect cleanup
   // runs, aborting an in-flight poll loop or request — and then resolves the
@@ -87,7 +100,7 @@ export function App(): ReactNode {
     case 'menu':
       return <MenuScreen onSelect={setRoute} onQuit={quit} />;
     case 'login':
-      return <LoginScreen onDone={toMenu} />;
+      return <LoginScreen onDone={loginDone} />;
     case 'invoke':
       return <InvokeScreen onDone={toMenu} />;
     case 'status':
@@ -95,7 +108,7 @@ export function App(): ReactNode {
     case 'node':
       return <NodeScreen onDone={toMenu} />;
     case 'android':
-      return <AndroidScreen onDone={toMenu} />;
+      return <AndroidScreen onDone={toMenu} onLogin={loginFromAndroid} />;
     case 'deploy':
       return <DeployScreen onDone={toMenu} />;
     case 'logout':
