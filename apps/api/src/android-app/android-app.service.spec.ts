@@ -58,4 +58,37 @@ describe('AndroidAppService', () => {
       }),
     });
   });
+
+  describe('ensureTrusted (#285)', () => {
+    it('adds an absent pair through an audited save', async () => {
+      const existing = { packageName: 'com.example.old', sha256: SHA };
+      const { prisma, service } = setup({ trustedApps: [existing] });
+
+      await expect(service.ensureTrusted({ packageName: 'com.example.app', sha256: SHA.toLowerCase() }, 'user-1')).resolves.toBe(true);
+
+      expect(prisma.systemSettings.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            value: { trustedApps: [existing, { packageName: 'com.example.app', sha256: SHA }] },
+          }),
+        }),
+      );
+      expect(prisma.auditEvent.create).toHaveBeenCalled();
+    });
+
+    it('does nothing when the pair is already trusted (in any case)', async () => {
+      const { prisma, service } = setup({ trustedApps: [{ packageName: 'com.example.app', sha256: SHA }] });
+
+      await expect(service.ensureTrusted({ packageName: 'com.example.app', sha256: SHA.toLowerCase() }, 'user-1')).resolves.toBe(false);
+      expect(prisma.systemSettings.upsert).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the list is full', async () => {
+      const full = Array.from({ length: 10 }, (_, i) => ({ packageName: `com.example.app${i}`, sha256: SHA }));
+      const { prisma, service } = setup({ trustedApps: full });
+
+      await expect(service.ensureTrusted({ packageName: 'com.example.new', sha256: SHA }, 'user-1')).resolves.toBe(false);
+      expect(prisma.systemSettings.upsert).not.toHaveBeenCalled();
+    });
+  });
 });
