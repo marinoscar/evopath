@@ -4,7 +4,29 @@ import android.app.Application
 import com.evopath.android.auth.EncryptedTokenStore
 import com.evopath.android.auth.TokenStore
 import com.evopath.android.config.ServerConfig
+import com.evopath.android.healthconnect.AndroidAppLabels
+import com.evopath.android.healthconnect.AndroidHealthConnectGateway
+import com.evopath.android.healthconnect.AppLabels
+import com.evopath.android.healthconnect.HealthConnectGateway
 import com.evopath.android.net.ApiClient
+import com.evopath.android.net.HealthSyncApi
+import com.evopath.android.net.HealthSyncBackend
+import com.evopath.android.pairing.ApiDeviceFlowTransport
+import com.evopath.android.pairing.DeviceFlowPoller
+import com.evopath.android.pairing.DeviceInfo
+import com.evopath.android.pairing.PairingManager
+import com.evopath.android.sync.HealthSyncEngine
+import com.evopath.android.sync.PrefsSyncHistoryStore
+import com.evopath.android.sync.PrefsSyncStateStore
+import com.evopath.android.sync.SyncHistoryStore
+import com.evopath.android.sync.SyncNotifications
+import com.evopath.android.sync.SyncScheduling
+import com.evopath.android.sync.SyncStateStore
+import com.evopath.android.sync.WorkManagerSyncScheduler
+import com.evopath.android.util.AppInfo
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Process-wide singletons. Kept deliberately small (no DI framework): screens and
@@ -19,7 +41,56 @@ class EvoPathApplication : Application() {
         ApiClient(
             baseUrlProvider = { serverConfig.serverUrl },
             tokenProvider = { tokenStore.token },
+            userAgent = DeviceInfo.userAgent(AppInfo.read(this).versionName),
         )
+    }
+
+    val healthSyncApi: HealthSyncBackend by lazy { HealthSyncApi(apiClient) }
+    val healthConnect: HealthConnectGateway by lazy { AndroidHealthConnectGateway(this) }
+    val appLabels: AppLabels by lazy { AndroidAppLabels(this) }
+    val syncState: SyncStateStore by lazy { PrefsSyncStateStore.from(this) }
+    val syncHistory: SyncHistoryStore by lazy { PrefsSyncHistoryStore.from(this) }
+    val syncScheduler: SyncScheduling by lazy { WorkManagerSyncScheduler(this) }
+
+    private val syncTicks = MutableStateFlow(0L)
+
+    /** Bumps after every sync run, so open screens reload status and history. */
+    val syncFinished: StateFlow<Long> = syncTicks.asStateFlow()
+
+    /** Paired, registered and not expired: the state in which syncing runs. */
+    val isSyncConfigured: Boolean
+        get() = tokenStore.isPaired && !tokenStore.deviceId.isNullOrEmpty() && !syncState.pairingExpired
+
+    override fun onCreate() {
+        super.onCreate()
+        SyncNotifications.ensureChannels(this)
+        // Re-assert the hourly schedule (KEEP) in case it was lost, e.g. after an app data restore.
+        if (isSyncConfigured) runCatching { syncScheduler.ensurePeriodic() }
+    }
+
+    fun newSyncEngine(): HealthSyncEngine = HealthSyncEngine(
+        gateway = healthConnect,
+        backend = healthSyncApi,
+        tokens = tokenStore,
+        state = syncState,
+        history = syncHistory,
+        labels = appLabels,
+        notifier = { SyncNotifications.notifyPairingExpired(this) },
+    )
+
+    fun newPairingManager(): PairingManager = PairingManager(
+        transport = ApiDeviceFlowTransport(apiClient),
+        poller = DeviceFlowPoller(ApiDeviceFlowTransport(apiClient)),
+        backend = healthSyncApi,
+        tokens = tokenStore,
+        state = syncState,
+        scheduler = syncScheduler,
+        clientInfo = { DeviceInfo.clientInfo(this) },
+        deviceRegistration = { installationId -> DeviceInfo.registration(this, installationId) },
+    )
+
+    fun onSyncFinished() {
+        syncTicks.value = syncTicks.value + 1
     }
 
     companion object {
