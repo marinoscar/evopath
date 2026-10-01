@@ -36,8 +36,14 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
   const backupRunIds: string[] = [];
   const keptJobIds: string[] = [];
 
-  beforeAll(() => {
+  beforeAll(async () => {
     client = createDbClient();
+    // The suite assigns these roles. CI runs `test:db` before seeding, so they
+    // exist only if an earlier suite happened to create them; ensure them here,
+    // before the baseline counts are taken, so the result never depends on order.
+    for (const name of ['admin', 'viewer']) {
+      await client.role.upsert({ where: { name }, create: { name }, update: {} });
+    }
   });
 
   afterAll(async () => {
