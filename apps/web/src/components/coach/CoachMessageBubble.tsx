@@ -14,10 +14,30 @@
  *
  * Audio plays through `AiSpeechPlayer` only when `audioStatus` is `ready`;
  * `pending`, `failed` and `none` render text only, without a word about it.
+ *
+ * LISTEN (#259). With speech on (`speechEnabled`: the caller's audio toggle
+ * and the deployment's policy), every coach message carries a **Listen**
+ * button beside the thumbs. Audio is generated only on that press
+ * (`useCoachMessageAudio`): ready audio plays at once, pending audio shows
+ * "Creating audio…" while it is polled, then plays. A deep-linked
+ * `autoPlay` message without audio makes the same request by itself (the
+ * push action was the reader's request). A 403 hides the button
+ * (`onSpeechDisabled`).
+ *
  * Text is rendered as text (React escapes it), never as HTML.
  */
 import { useEffect, useRef } from 'react';
-import { Avatar, Box, Button, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import {
+  Avatar,
+  Box,
+  Button,
+  CircularProgress,
+  IconButton,
+  Paper,
+  Stack,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import ThumbUpOutlinedIcon from '@mui/icons-material/ThumbUpOutlined';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import ThumbDownOutlinedIcon from '@mui/icons-material/ThumbDownOutlined';
@@ -26,9 +46,11 @@ import EmojiEventsOutlinedIcon from '@mui/icons-material/EmojiEventsOutlined';
 import InsightsIcon from '@mui/icons-material/Insights';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import VolunteerActivismOutlinedIcon from '@mui/icons-material/VolunteerActivismOutlined';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import { Link as RouterLink } from 'react-router-dom';
 import { AiSpeechPlayer } from '../ai/AiSpeechPlayer';
 import {
+  COACH_AUDIO_MESSAGES,
   coachDisplayText,
   coachMessageData,
   parseWeeklyReviewData,
@@ -38,6 +60,7 @@ import {
 } from '../../services/coach';
 import { personaIcon } from './personaAvatar';
 import { WeeklyReviewCard } from './WeeklyReviewCard';
+import { useCoachMessageAudio, type CoachMessageAudioState } from '../../hooks/useCoachMessageAudio';
 
 export const COACH_TAKE_PHOTO_PATH = '/health/progress-photos?add=1';
 /** Screens whose reply is the fixed supportive text (no model, no persona). */
@@ -60,6 +83,52 @@ export interface CoachMessageBubbleProps {
   onDisplayed?: (message: CoachTimelineItem) => void;
   /** A weekly review's **Plan my week**: pre-fill the composer with this prompt. */
   onPlanWeek?: (prompt: string) => void;
+  /**
+   * Speech is on for the caller (their audio toggle and the deployment's
+   * policy). Shows **Listen** on coach messages; false while unknown.
+   */
+  speechEnabled?: boolean;
+  /** The API refused audio as switched off (403): hide Listen everywhere. */
+  onSpeechDisabled?: () => void;
+}
+
+export const COACH_LISTEN_LABEL = 'Listen to this message';
+
+function ListenButton({ state, onListen }: { state: CoachMessageAudioState; onListen: () => void }) {
+  const working = state.status === 'requesting' || state.status === 'pending';
+  return (
+    <Tooltip title="Listen">
+      <IconButton
+        size="small"
+        aria-label={COACH_LISTEN_LABEL}
+        aria-busy={working}
+        onClick={onListen}
+        color={state.status === 'ready' ? 'primary' : 'default'}
+      >
+        <VolumeUpIcon fontSize="small" />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function ListenStatus({ state }: { state: CoachMessageAudioState }) {
+  const working = state.status === 'requesting' || state.status === 'pending';
+  const text = working ? COACH_AUDIO_MESSAGES.creating : state.status === 'error' ? state.message : '';
+  return (
+    <Box
+      role="status"
+      aria-live="polite"
+      data-testid="coach-audio-status"
+      sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, minWidth: 0, ml: text ? 0.5 : 0 }}
+    >
+      {working && <CircularProgress size={16} aria-hidden />}
+      {text && (
+        <Typography variant="caption" color={state.status === 'error' ? 'error' : 'text.secondary'}>
+          {text}
+        </Typography>
+      )}
+    </Box>
+  );
 }
 
 function formatTime(iso: string): string {
@@ -173,8 +242,23 @@ export function CoachMessageBubble({
   onFeedback,
   onDisplayed,
   onPlanWeek,
+  speechEnabled = false,
+  onSpeechDisabled,
 }: CoachMessageBubbleProps) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const audio = useCoachMessageAudio(message, { onDisabled: onSpeechDisabled });
+  const { listen } = audio;
+  const isCoach = message.role === 'coach';
+  const timelineAudioReady = message.audioStatus === 'ready' && Boolean(message.audioStorageObjectId);
+
+  // Deep link with `autoplay=1` (a push's "Hear Coach"): a message without
+  // audio yet is requested on the reader's behalf, once.
+  const autoRequested = useRef(false);
+  useEffect(() => {
+    if (!isCoach || !autoPlay || timelineAudioReady || !speechEnabled || autoRequested.current) return;
+    autoRequested.current = true;
+    listen();
+  }, [isCoach, autoPlay, timelineAudioReady, speechEnabled, listen]);
   const reported = useRef(false);
   const latest = useRef({ message, onDisplayed });
   useEffect(() => {
@@ -268,7 +352,15 @@ export function CoachMessageBubble({
   // The review card renders its headline (= title) as its own heading.
   const labelTitle = Boolean(message.title) && message.kind !== 'chat';
   const showTitle = labelTitle && !review;
-  const audioReady = message.audioStatus === 'ready' && Boolean(message.audioStorageObjectId);
+  const playerOutput =
+    audio.state.status === 'ready'
+      ? { storageObjectId: audio.state.storageObjectId, voice: audio.state.voice }
+      : timelineAudioReady
+        ? { storageObjectId: message.audioStorageObjectId as string, voice: message.voice ?? 'default' }
+        : null;
+  const audioRefused = audio.state.status === 'error' && audio.state.kind === 'disabled';
+  const showListen = speechEnabled && !audioRefused;
+  const showFeedback = Boolean(onFeedback) && !supportive;
 
   return (
     <Box
@@ -332,11 +424,8 @@ export function CoachMessageBubble({
               Careful mode: no advice to train through pain.
             </Typography>
           )}
-          {audioReady && (
-            <AiSpeechPlayer
-              output={{ storageObjectId: message.audioStorageObjectId as string, voice: message.voice ?? 'default' }}
-              autoPlay={autoPlay}
-            />
+          {playerOutput && (
+            <AiSpeechPlayer output={playerOutput} autoPlay={autoPlay} playRequest={audio.playRequest} />
           )}
           {(message.kind === 'photo_prompt' || data.links.length > 0) && (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
@@ -366,7 +455,13 @@ export function CoachMessageBubble({
               ))}
             </Box>
           )}
-          {onFeedback && !supportive && <FeedbackControls message={message} onFeedback={onFeedback} />}
+          {(showListen || showFeedback || audio.state.status !== 'idle') && (
+            <Box sx={{ display: 'flex', alignItems: 'center', columnGap: 0.5, rowGap: 0.5, flexWrap: 'wrap', minWidth: 0 }}>
+              {showListen && <ListenButton state={audio.state} onListen={listen} />}
+              {showFeedback && onFeedback && <FeedbackControls message={message} onFeedback={onFeedback} />}
+              {(showListen || audio.state.status !== 'idle') && <ListenStatus state={audio.state} />}
+            </Box>
+          )}
         </Stack>
       </Paper>
     </Box>

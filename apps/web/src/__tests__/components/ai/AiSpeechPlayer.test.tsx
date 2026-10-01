@@ -107,4 +107,30 @@ describe('run output guards', () => {
       expect(screen.getByText(AI_GENERATED_AUDIO_LABEL)).toBeInTheDocument();
     });
   });
+
+  describe('playRequest (#259)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('plays each time the counter grows, from the start, and not at zero', async () => {
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+      const { container, rerender } = render(<AiSpeechPlayer output={mockAiSpeechRunOutput} playRequest={0} />);
+      await waitFor(() => expect(container.querySelector('audio')).not.toBeNull());
+      expect(play).not.toHaveBeenCalled();
+
+      rerender(<AiSpeechPlayer output={mockAiSpeechRunOutput} playRequest={1} />);
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+      rerender(<AiSpeechPlayer output={mockAiSpeechRunOutput} playRequest={2} />);
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(2));
+      expect((container.querySelector('audio') as HTMLAudioElement).currentTime).toBe(0);
+    });
+
+    it('offers the Play button when the browser refuses a requested play', async () => {
+      const refusal = Object.assign(new Error('blocked'), { name: 'NotAllowedError' });
+      vi.spyOn(HTMLMediaElement.prototype, 'play').mockRejectedValueOnce(refusal);
+      render(<AiSpeechPlayer output={mockAiSpeechRunOutput} playRequest={1} />);
+      expect(await screen.findByRole('button', { name: /^Play/ })).toBeInTheDocument();
+    });
+  });
 });

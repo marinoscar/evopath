@@ -18,11 +18,14 @@ import {
   coachMessageId,
   coachSseBody,
   mockCoachMessage,
+  mockCoachSettingsView,
   mockWeeklyReviewMessage,
   WEEKLY_REVIEW_PLAN_PROMPT,
 } from '../mocks/fixtures/coach';
 import { SPEECH_OBJECT_ID } from '../mocks/fixtures/ai';
 import type { CoachTimelineItem } from '../../services/coach';
+import { COACH_LISTEN_LABEL } from '../../components/coach/CoachMessageBubble';
+import { coachAudioTiming } from '../../hooks/useCoachMessageAudio';
 
 const API = '*/api';
 
@@ -580,6 +583,112 @@ describe('CoachPage', () => {
       await user.clear(field);
       await user.click(within(card).getByRole('button', { name: 'Plan my week' }));
       expect(field).toHaveValue(WEEKLY_REVIEW_PLAN_PROMPT);
+    });
+  });
+
+  describe('Listen (#259)', () => {
+    const original = { ...coachAudioTiming };
+    beforeEach(() => {
+      coachAudioTiming.pollIntervalMs = 10;
+    });
+    afterEach(() => {
+      Object.assign(coachAudioTiming, original);
+    });
+
+    function speech(settingsAudio: boolean, allowAudio = true) {
+      server.use(
+        http.get(`${API}/coach/settings`, () =>
+          HttpResponse.json({
+            data: mockCoachSettingsView({
+              settings: { audio: { enabled: settingsAudio, voice: null, speed: 1 } },
+              policy: { allowAudio },
+            }),
+          }),
+        ),
+      );
+    }
+
+    function recordAudioPosts(status = 202, body: unknown = { data: { status: 'pending', runId: 'r' } }) {
+      const posts: string[] = [];
+      server.use(
+        http.post(`${API}/coach/messages/:id/audio`, ({ params }) => {
+          posts.push(String(params.id));
+          return HttpResponse.json(body, { status });
+        }),
+      );
+      return posts;
+    }
+
+    it('offers Listen on every coach message, never on a user turn, when speech is on', async () => {
+      speech(true);
+      messagesPages({ first: { items: [nudge, reply, oldest], nextCursor: null } });
+      renderPage();
+      await screen.findByText('Newest nudge');
+      await waitFor(() => expect(screen.getAllByRole('button', { name: COACH_LISTEN_LABEL })).toHaveLength(2));
+      const userTurn = document.querySelector(`[data-message-id="${reply.id}"]`) as HTMLElement;
+      expect(within(userTurn).queryByRole('button', { name: COACH_LISTEN_LABEL })).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['the user has spoken messages off', false, true],
+      ['the deployment does not allow audio', true, false],
+    ])('hides Listen when %s', async (_label, enabled, allowAudio) => {
+      speech(enabled, allowAudio);
+      messagesPages({ first: { items: [nudge], nextCursor: null } });
+      renderPage();
+      await screen.findByText('Newest nudge');
+      await screen.findByTestId('coach-weekly-target');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(screen.queryByRole('button', { name: COACH_LISTEN_LABEL })).not.toBeInTheDocument();
+    });
+
+    it('hides every Listen button once the API says spoken messages are off', async () => {
+      speech(true);
+      recordAudioPosts(403, { message: 'Audio is off', details: { code: 'COACH_AUDIO_DISABLED' } });
+      messagesPages({ first: { items: [nudge, oldest], nextCursor: null } });
+      const user = userEvent.setup();
+      renderPage();
+      await waitFor(() => expect(screen.getAllByRole('button', { name: COACH_LISTEN_LABEL })).toHaveLength(2));
+      await user.click(screen.getAllByRole('button', { name: COACH_LISTEN_LABEL })[0]);
+      expect(await screen.findByText('Spoken messages are turned off')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: COACH_LISTEN_LABEL })).not.toBeInTheDocument();
+    });
+
+    it('a deep link with &autoplay=1 creates missing audio once, then plays it', async () => {
+      speech(true);
+      const posts = recordAudioPosts();
+      const silent = mockCoachMessage({ id: coachMessageId(43), openedAt: null, body: 'Silent nudge' });
+      messagesPages({ first: { items: [nudge, silent], nextCursor: null } });
+      const { container } = renderPage(`/coach?m=${silent.id}&autoplay=1`);
+      await screen.findByText('Silent nudge');
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+      const target = container.querySelector(`[data-message-id="${silent.id}"]`) as HTMLElement;
+      expect(target.querySelector('audio')).not.toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(posts).toEqual([silent.id]);
+    });
+
+    it('a deep link with &autoplay=1 does not create audio while speech is off', async () => {
+      speech(false);
+      const posts = recordAudioPosts();
+      const silent = mockCoachMessage({ id: coachMessageId(43), openedAt: null, body: 'Silent nudge' });
+      messagesPages({ first: { items: [silent], nextCursor: null } });
+      renderPage(`/coach?m=${silent.id}&autoplay=1`);
+      await screen.findByText('Silent nudge');
+      await screen.findByTestId('coach-weekly-target');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(posts).toEqual([]);
+      expect(play).not.toHaveBeenCalled();
+    });
+
+    it('has no axe violations with Listen buttons', async () => {
+      speech(true);
+      messagesPages({ first: { items: [nudge, reply, oldest], nextCursor: null } });
+      const { container } = renderPage();
+      await waitFor(() => expect(screen.getAllByRole('button', { name: COACH_LISTEN_LABEL })).toHaveLength(2));
+      await screen.findByTestId('coach-weekly-target');
+      const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
+      expect(results).toHaveNoViolations();
     });
   });
 

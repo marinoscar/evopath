@@ -17,6 +17,10 @@
  * user gesture. A browser may still refuse (`play()` rejects with
  * `NotAllowedError`); the rejection is caught, never left unhandled, and a
  * large "Play" button is offered instead.
+ *
+ * PLAY ON REQUEST (#259). `playRequest` is a counter: each time it grows (and
+ * is above zero) the loaded audio plays from the start — the coach's Listen
+ * button, whose press is a user gesture. A refusal is handled as for autoplay.
  */
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, Chip, Paper, Skeleton, Typography } from '@mui/material';
@@ -44,9 +48,11 @@ export interface AiSpeechPlayerProps {
   output: AiSpeechPlayerOutput;
   /** Start playback as soon as the audio has loaded; a refusal shows a Play button. */
   autoPlay?: boolean;
+  /** A counter; each increase (above zero) plays the audio from the start. */
+  playRequest?: number;
 }
 
-export function AiSpeechPlayer({ output, autoPlay = false }: AiSpeechPlayerProps) {
+export function AiSpeechPlayer({ output, autoPlay = false, playRequest = 0 }: AiSpeechPlayerProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playbackFailed, setPlaybackFailed] = useState(false);
@@ -71,9 +77,16 @@ export function AiSpeechPlayer({ output, autoPlay = false }: AiSpeechPlayerProps
   // Try once per loaded URL. `play()` returns a promise in every current
   // browser (a refusal REJECTS it); older engines return nothing or throw.
   useEffect(() => {
-    if (!autoPlay || !url) return;
+    if ((!autoPlay && playRequest <= 0) || !url) return;
     const audio = audioRef.current;
     if (!audio) return;
+    if (playRequest > 0) {
+      try {
+        audio.currentTime = 0;
+      } catch {
+        // Not seekable yet: play from wherever it is.
+      }
+    }
     const blocked = () => {
       if (isMounted()) setAutoplayBlocked(true);
     };
@@ -83,7 +96,7 @@ export function AiSpeechPlayer({ output, autoPlay = false }: AiSpeechPlayerProps
     } catch {
       blocked();
     }
-  }, [autoPlay, url, isMounted]);
+  }, [autoPlay, playRequest, url, isMounted]);
 
   const playNow = () => {
     const audio = audioRef.current;

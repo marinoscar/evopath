@@ -8,6 +8,11 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { ApiError } from '../../services/api';
 import {
+  COACH_AUDIO_MESSAGES,
+  coachAudioFailureOf,
+  coachSpeechEnabled,
+  getCoachMessageAudio,
+  requestCoachMessageAudio,
   coachChatFailureOf,
   coachDisplayText,
   coachMessageData,
@@ -19,7 +24,14 @@ import {
   setCoachMessageFeedback,
   streamCoachChat,
 } from '../../services/coach';
-import { coachMessageId, coachSseBody, mockCoachState } from '../mocks/fixtures/coach';
+import {
+  coachMessageId,
+  coachSseBody,
+  mockCoachAudioPending,
+  mockCoachAudioReady,
+  mockCoachSettingsView,
+  mockCoachState,
+} from '../mocks/fixtures/coach';
 
 const API = '*/api';
 
@@ -150,5 +162,47 @@ describe('coach page services', () => {
     expect(coachDisplayText('Go [Adjust](/train) now, [x](https://e.com)')).toBe('Go Adjust now, [x](https://e.com)');
     expect(coachToolLabel('get_today_plan')).toBe("Looking at today's plan");
     expect(coachToolLabel('unknown')).toBe('Working on it');
+  });
+
+  describe('on-demand Listen (#259)', () => {
+    it('posts for audio (202 pending) and reads its status (ready) by default', async () => {
+      const id = coachMessageId(7);
+      const seen: string[] = [];
+      server.events.on('request:start', ({ request }) => {
+        if (request.url.includes('/audio')) seen.push(`${request.method} ${new URL(request.url).pathname}`);
+      });
+      expect(await requestCoachMessageAudio(id)).toEqual(mockCoachAudioPending());
+      expect(await getCoachMessageAudio(id)).toEqual(mockCoachAudioReady());
+      server.events.removeAllListeners();
+      expect(seen).toEqual([`POST /api/coach/messages/${id}/audio`, `GET /api/coach/messages/${id}/audio`]);
+    });
+
+    it('answers 200 ready when the audio exists', async () => {
+      server.use(
+        http.post(`${API}/coach/messages/:id/audio`, () => HttpResponse.json({ data: mockCoachAudioReady('o', 'v') })),
+      );
+      expect(await requestCoachMessageAudio(coachMessageId(7))).toEqual({ status: 'ready', storageObjectId: 'o', voice: 'v' });
+    });
+
+    it('classifies refusals', () => {
+      const err = (status: number, details: unknown = {}) => new ApiError('x', status, undefined, details);
+      expect(coachAudioFailureOf(err(403, { code: 'COACH_AUDIO_DISABLED' }))).toEqual({
+        kind: 'disabled',
+        message: COACH_AUDIO_MESSAGES.disabled,
+      });
+      expect(coachAudioFailureOf(err(409, { reason: 'x' })).kind).toBe('unavailable');
+      expect(coachAudioFailureOf(err(429)).message).toBe('Too many requests, try again in a minute');
+      expect(coachAudioFailureOf(err(404, { code: 'COACH_MESSAGE_NOT_FOUND' })).kind).toBe('not_found');
+      expect(coachAudioFailureOf(err(500)).kind).toBe('other');
+      expect(coachAudioFailureOf(new Error('network')).message).toBe(COACH_AUDIO_MESSAGES.failed);
+    });
+
+    it('treats speech as on only when the user and the policy both allow it', () => {
+      const on = { audio: { enabled: true, voice: null, speed: 1 } };
+      expect(coachSpeechEnabled(null)).toBe(false);
+      expect(coachSpeechEnabled(mockCoachSettingsView())).toBe(false);
+      expect(coachSpeechEnabled(mockCoachSettingsView({ settings: on }))).toBe(true);
+      expect(coachSpeechEnabled(mockCoachSettingsView({ settings: on, policy: { allowAudio: false } }))).toBe(false);
+    });
   });
 });
