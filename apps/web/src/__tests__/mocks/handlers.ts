@@ -44,7 +44,14 @@ import { mockHealthExport, mockHealthExportDownloadUrl, mockReadyHealthExport } 
 import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
 import { mockHealthSummaryView } from './fixtures/healthSummary';
 import { mockAiFeaturesView } from './fixtures/aiFeatures';
-import { mockCoachPersonas, mockCoachSettingsView, mockSystemCoachSettings } from './fixtures/coach';
+import {
+  coachSseBody,
+  mockCoachChatFrames,
+  mockCoachPersonas,
+  mockCoachSettingsView,
+  mockCoachState,
+  mockSystemCoachSettings,
+} from './fixtures/coach';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -808,6 +815,26 @@ export const handlers = [
 
   http.get(`${API_BASE}/admin/coach/settings`, () => {
     return HttpResponse.json({ data: mockSystemCoachSettings });
+  }),
+
+  // The /coach page (E7.8, #248): the header, an empty timeline, the E7.5
+  // opened/feedback signals (204) and a short chat stream.
+  http.get(`${API_BASE}/coach/state`, () => {
+    return HttpResponse.json({ data: mockCoachState() });
+  }),
+
+  http.get(`${API_BASE}/coach/messages`, () => {
+    return HttpResponse.json({ data: { items: [], nextCursor: null } });
+  }),
+
+  http.post(`${API_BASE}/coach/messages/:id/opened`, () => new HttpResponse(null, { status: 204 })),
+
+  http.post(`${API_BASE}/coach/messages/:id/feedback`, () => new HttpResponse(null, { status: 204 })),
+
+  http.post(`${API_BASE}/coach/chat/stream`, () => {
+    return new HttpResponse(coachSseBody(mockCoachChatFrames), {
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+    });
   }),
 
   // Training agents: role states and the typical-plan estimate.

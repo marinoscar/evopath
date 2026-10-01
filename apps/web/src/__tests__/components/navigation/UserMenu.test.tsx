@@ -499,6 +499,33 @@ describe('UserMenu', () => {
       }
     });
 
+    it('lists Gyms while Coach holds the fourth tab (AI on, ai:use) and never lists Coach (E7.8)', async () => {
+      const user = userEvent.setup();
+      setPermissions(['user_settings:read', 'ai:use'], false);
+
+      render(<UserMenu />, { wrapperOptions: { aiEnabled: true } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: 'Gyms' })).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('menuitem', { name: 'Coach' })).not.toBeInTheDocument();
+    });
+
+    it('lists neither Gyms nor Coach while AI is off: Gyms is back in the bar (E7.8)', async () => {
+      const user = userEvent.setup();
+      setPermissions(['user_settings:read', 'ai:use'], false);
+
+      render(<UserMenu />, { wrapperOptions: { aiEnabled: false } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('menuitem', { name: 'Gyms' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('menuitem', { name: 'Coach' })).not.toBeInTheDocument();
+    });
+
     it('labels and targets every entry from the destination table', async () => {
       const user = userEvent.setup();
       setPermissions(['users:read', 'system_settings:read'], true);
@@ -512,9 +539,11 @@ describe('UserMenu', () => {
 
       // Feature-gated destinations (`ai`, #425) are absent with no feature
       // provider above the menu — AI is off, failing closed.
-      const expected = DESTINATIONS.filter((d) => !d.primary && !d.feature).map(
-        (d) => d.label,
-      );
+      // Primary-ness is per user (E7.8): with AI off, Gyms holds the fourth
+      // tab, so it is not listed here either.
+      const expected = DESTINATIONS.filter(
+        (d) => !d.primary && !d.primaryWhenHidden && !d.feature,
+      ).map((d) => d.label);
       for (const label of expected) {
         expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument();
       }

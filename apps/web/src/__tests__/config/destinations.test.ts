@@ -9,8 +9,10 @@ import {
   DESTINATION_ROUTES,
   UNOWNED_ROUTES,
   isDestinationVisible,
+  isPrimaryDestination,
   owns,
   resolveActiveDestination,
+  resolvePrimaryDestinations,
 } from '../../config/destinations';
 import type { Destination, DestinationKey } from '../../config/destinations';
 import { ADMIN_SECTIONS } from '../../config/adminSections';
@@ -186,7 +188,7 @@ describe('destinations — reachability regression', () => {
     }
   });
 
-  it('offers seven destinations: four primary product areas, Settings, Console and AI', () => {
+  it('offers eight destinations: five product areas (four primary per user), Settings, Console and AI', () => {
     // NOT four any more (#92). `/admin/users` stops being a destination PATH
     // while staying a resolvable route — it redirects to
     // `/admin/settings/users`, and the assertion above is what proves the
@@ -195,7 +197,7 @@ describe('destinations — reachability regression', () => {
     // `/ai` (#425, epic #419) is the fourth — the bottom bar's ceiling, asserted
     // below — and is hidden unless the user holds `ai:use` AND AI is on.
     expect(DESTINATIONS.map((destination) => destination.path).sort()).toEqual(
-      ['/', '/train', '/health', '/gyms', '/settings', '/admin/settings', '/ai'].sort(),
+      ['/', '/train', '/health', '/gyms', '/coach', '/settings', '/admin/settings', '/ai'].sort(),
     );
   });
 });
@@ -207,24 +209,49 @@ describe('destinations — primary flag and product routes', () => {
       'train',
       'health',
       'gyms',
+      'coach',
       'settings',
       'console',
       'ai',
     ]);
   });
 
-  it('marks exactly the four product destinations primary, within the ceiling', () => {
+  it('marks Today, Train, Health and Coach primary, and Gyms primary only while Coach is hidden (E7.8)', () => {
     const primary = DESTINATIONS.filter((d) => d.primary);
-    expect(primary.map((d) => d.key)).toEqual(['today', 'train', 'health', 'gyms']);
+    expect(primary.map((d) => d.key)).toEqual(['today', 'train', 'health', 'coach']);
     expect(primary.length).toBeLessThanOrEqual(PRIMARY_DESTINATION_LIMIT);
+    const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+    expect(byKey.gyms.primary).toBeFalsy();
+    expect(byKey.gyms.primaryWhenHidden).toBe('coach');
   });
 
-  it('gives the primary destinations no permission or feature gate', () => {
-    for (const d of DESTINATIONS.filter((x) => x.primary)) {
+  it('gives every ungated primary slot no permission or feature gate, so three tabs always show', () => {
+    // A gated primary destination must have an ungated stand-in; the three
+    // that have none must be visible to every authenticated user.
+    const standIns = new Set(DESTINATIONS.map((d) => d.primaryWhenHidden).filter(Boolean));
+    for (const d of DESTINATIONS.filter((x) => x.primary && !standIns.has(x.key))) {
       expect(d.permission, d.key).toBeUndefined();
       expect(d.anyPermission, d.key).toBeUndefined();
       expect(d.feature, d.key).toBeUndefined();
     }
+  });
+
+  it('points every primaryWhenHidden at a primary destination, and gives each stand-in no gate of its own', () => {
+    // Mutual exclusion is what keeps the bar at the ceiling in every state:
+    // the stand-in is primary exactly when its owner is not visible.
+    const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+    const standIns = DESTINATIONS.filter((d) => d.primaryWhenHidden);
+    expect(standIns.map((d) => d.key)).toEqual(['gyms']);
+    for (const d of standIns) {
+      const owner = byKey[d.primaryWhenHidden as DestinationKey];
+      expect(owner, `${d.key} stands in for an unknown destination`).toBeDefined();
+      expect(owner.primary, `${d.key} stands in for a non-primary destination`).toBe(true);
+      expect(d.primary, `${d.key} cannot be both primary and a stand-in`).toBeFalsy();
+      expect(d.permission ?? d.anyPermission ?? d.feature, d.key).toBeUndefined();
+    }
+    // Statically primary plus stand-ins never exceed the ceiling by more than
+    // the stand-ins, and each stand-in replaces exactly one owner.
+    expect(DESTINATIONS.filter((d) => d.primary).length).toBeLessThanOrEqual(PRIMARY_DESTINATION_LIMIT);
   });
 
   it('resolves the product routes on segment boundaries', () => {
@@ -324,6 +351,89 @@ describe('destinations — the table itself', () => {
     expect(DESTINATIONS.filter((d) => d.primary).length).toBeLessThanOrEqual(
       PRIMARY_DESTINATION_LIMIT,
     );
+  });
+});
+
+/**
+ * E7.8 (#248), docs/specs/ai-coach.md §2.13. Coach holds the fourth tab only
+ * while the user can see it; otherwise Gyms keeps it. The bar never drops to
+ * three tabs and never grows past the ceiling.
+ */
+describe('destinations — the primary resolver (E7.8)', () => {
+  const holding = (granted: string[]) => (permission: string) => granted.includes(permission);
+  const keys = (granted: string[], features: { ai?: boolean }) =>
+    resolvePrimaryDestinations(holding(granted), features).map((d) => d.key);
+
+  it('keeps PRIMARY_DESTINATION_LIMIT at 4', () => {
+    expect(PRIMARY_DESTINATION_LIMIT).toBe(4);
+  });
+
+  it('gives Today, Train, Health, Coach with AI on and ai:use', () => {
+    expect(keys(['ai:use'], { ai: true })).toEqual(['today', 'train', 'health', 'coach']);
+  });
+
+  it('gives Today, Train, Health, Gyms with AI off, even to an ai:use holder', () => {
+    expect(keys(['ai:use'], { ai: false })).toEqual(['today', 'train', 'health', 'gyms']);
+    expect(keys(['ai:use'], {})).toEqual(['today', 'train', 'health', 'gyms']);
+  });
+
+  it('gives Today, Train, Health, Gyms with AI on but no ai:use', () => {
+    expect(keys([], { ai: true })).toEqual(['today', 'train', 'health', 'gyms']);
+  });
+
+  it.each([
+    [['ai:use'], { ai: true }],
+    [['ai:use'], { ai: false }],
+    [[], { ai: true }],
+    [[], { ai: false }],
+    [['ai:use', 'ai_config:read', 'system_settings:read', 'users:read'], { ai: true }],
+  ])('returns exactly PRIMARY_DESTINATION_LIMIT destinations for %j / %j', (granted, features) => {
+    expect(keys(granted, features)).toHaveLength(PRIMARY_DESTINATION_LIMIT);
+  });
+
+  it('never makes Coach visible while AI is off, and never makes Gyms invisible', () => {
+    const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+    expect(isDestinationVisible(byKey.coach, holding(['ai:use']), { ai: false })).toBe(false);
+    for (const features of [{ ai: true }, { ai: false }]) {
+      for (const granted of [[], ['ai:use']]) {
+        expect(isDestinationVisible(byKey.gyms, holding(granted), features)).toBe(true);
+      }
+    }
+  });
+
+  it('answers isPrimaryDestination per user for Gyms and Coach', () => {
+    const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+    expect(isPrimaryDestination(byKey.gyms, holding(['ai:use']), { ai: true })).toBe(false);
+    expect(isPrimaryDestination(byKey.gyms, holding(['ai:use']), { ai: false })).toBe(true);
+    expect(isPrimaryDestination(byKey.coach, holding(['ai:use']), { ai: true })).toBe(true);
+    expect(isPrimaryDestination(byKey.coach, holding([]), { ai: true })).toBe(false);
+    expect(isPrimaryDestination(byKey.settings, holding([]), { ai: true })).toBe(false);
+  });
+
+  it('owns /coach with coach and /gyms with gyms, in both states', () => {
+    expect(DESTINATION_ROUTES.coach).toEqual(['/coach']);
+    expect(resolveActiveDestination('/coach')).toBe('coach');
+    expect(resolveActiveDestination('/coachfoo')).toBeNull();
+    expect(resolveActiveDestination('/gyms')).toBe('gyms');
+    expect(resolveActiveDestination('/settings/coach')).toBe('settings');
+    expect(resolveActiveDestination('/admin/settings/coach')).toBe('console');
+  });
+
+  it('declares coach → /coach on ai:use, feature-gated, after gyms', () => {
+    const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
+    expect(byKey.coach).toMatchObject({ path: '/coach', permission: 'ai:use', feature: 'ai', primary: true });
+    expect(byKey.coach.anyPermission).toBeUndefined();
+    const order = DESTINATIONS.map((d) => d.key);
+    expect(order.indexOf('coach')).toBe(order.indexOf('gyms') + 1);
+  });
+
+  it('routes /coach under ai:use and RequireAiEnabled, as the destination declares', () => {
+    const source = readFileSync(APP_TSX, 'utf8');
+    const chunk = source.split('<Route').find((c) => /^\s*path="\/coach"/.test(c));
+    expect(chunk, '/coach has no route').toBeDefined();
+    const routePermissions = [...(chunk ?? '').matchAll(/permission="([^"]+)"/g)].map((m) => m[1]);
+    expect(routePermissions).toEqual(['ai:use']);
+    expect(chunk).toContain('<RequireAiEnabled>');
   });
 });
 

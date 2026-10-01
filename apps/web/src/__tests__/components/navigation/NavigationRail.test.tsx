@@ -710,7 +710,8 @@ describe('NavigationRail', () => {
       expect(row).toHaveAttribute('href', '/ai');
       expect(row).toHaveAttribute('aria-current', 'page');
       const nav = screen.getByRole('navigation', { name: /main navigation/i });
-      expect(within(nav).getAllByRole('link')).toHaveLength(7);
+      // E7.8: Coach joins the library list while AI is on and ai:use is held.
+      expect(within(nav).getAllByRole('link')).toHaveLength(8);
     });
 
     describe('Console rows', () => {
@@ -755,6 +756,38 @@ describe('NavigationRail', () => {
         expect(screen.queryByRole('link', { name: 'AI' })).not.toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'AI Models' })).not.toBeInTheDocument();
       });
+    });
+  });
+
+  /** E7.8 (#248): the rail lists both Gyms and Coach whenever Coach is visible. */
+  describe('Coach and Gyms (E7.8)', () => {
+    it('lists Gyms and Coach with AI on and ai:use, Coach right after Gyms', () => {
+      setPermissions(['ai:use']);
+      render(<NavigationRail />, { wrapperOptions: { aiEnabled: true, route: '/coach' } });
+
+      expect(screen.getByRole('link', { name: 'Gyms' })).toHaveAttribute('href', '/gyms');
+      const coach = screen.getByRole('link', { name: 'Coach' });
+      expect(coach).toHaveAttribute('href', '/coach');
+      expect(coach).toHaveAttribute('aria-current', 'page');
+      const nav = screen.getByRole('navigation', { name: /main navigation/i });
+      const names = within(nav).getAllByRole('link').map((l) => l.getAttribute('aria-label') ?? l.textContent);
+      expect(names.indexOf('Coach')).toBe(names.indexOf('Gyms') + 1);
+    });
+
+    it('lists Gyms but no Coach with AI off', () => {
+      setPermissions(['ai:use']);
+      render(<NavigationRail />, { wrapperOptions: { aiEnabled: false } });
+
+      expect(screen.getByRole('link', { name: 'Gyms' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Coach' })).not.toBeInTheDocument();
+    });
+
+    it('lists no Coach without ai:use, even with AI on', () => {
+      setPermissions([]);
+      render(<NavigationRail />, { wrapperOptions: { aiEnabled: true } });
+
+      expect(screen.getByRole('link', { name: 'Gyms' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Coach' })).not.toBeInTheDocument();
     });
   });
 });

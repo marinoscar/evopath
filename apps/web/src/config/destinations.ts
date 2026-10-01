@@ -44,6 +44,7 @@ import PlaceIcon from '@mui/icons-material/Place';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AdminIcon from '@mui/icons-material/AdminPanelSettings';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import SportsIcon from '@mui/icons-material/Sports';
 import type { SettingsFeatureKey, SettingsFeatures } from './adminSections';
 import { isFeatureEnabled } from './adminSections';
 
@@ -52,6 +53,7 @@ export type DestinationKey =
   | 'train'
   | 'health'
   | 'gyms'
+  | 'coach'
   | 'settings'
   | 'console'
   | 'ai';
@@ -92,6 +94,9 @@ export const DESTINATION_ROUTES: Record<DestinationKey, readonly string[]> = {
   train: ['/train'],
   health: ['/health'],
   gyms: ['/gyms'],
+  // E7.8 (#248). The AI Coach timeline. Its settings live at `/settings/coach`
+  // and so belong to `settings`, not here.
+  coach: ['/coach'],
   settings: ['/settings'],
   console: ['/admin'],
   // Issue #425, epic #419. The AI Playground. `/ai` only — the per-user AI
@@ -180,6 +185,22 @@ export interface Destination {
    */
   primary?: boolean;
   /**
+   * Primary ONLY while the named destination is hidden from this user (E7.8,
+   * #248): the bottom bar's fallback occupant of a slot whose owner is gated.
+   *
+   * `gyms` carries `primaryWhenHidden: 'coach'`. Coach (`ai:use` AND the `ai`
+   * feature) holds the fourth tab whenever the user can see it; when they
+   * cannot (AI off, or no `ai:use`) Gyms takes the slot back, so the bar never
+   * drops to three tabs. The named destination must itself be `primary` (a
+   * test asserts it), which is what keeps the pair mutually exclusive and the
+   * bar within `PRIMARY_DESTINATION_LIMIT` in every state.
+   *
+   * Never read this flag directly: `isPrimaryDestination` and
+   * `resolvePrimaryDestinations` are the only answers to "is this primary for
+   * this user", exactly as `isDestinationVisible` is for visibility.
+   */
+  primaryWhenHidden?: DestinationKey;
+  /**
    * A deployment-wide feature this destination only exists under (#425) — the
    * same `feature` field, and the same fail-closed rule, as a settings card
    * (`SettingsCardDef.feature` in `config/adminSections.tsx`): hidden unless
@@ -210,11 +231,13 @@ export function isDestinationVisible(
 }
 
 /**
- * The destinations, in navigation order: the four `primary` product
- * destinations, then Settings, Console (pinned) and AI.
+ * The destinations, in navigation order: the product destinations (Today,
+ * Train, Health, Gyms, Coach; four of them primary for any one user, see
+ * `resolvePrimaryDestinations`), then Settings, Console (pinned) and AI.
  *
  * Declaration order IS navigation order on every surface. The bottom bar shows
- * only `primary` destinations and the user menu only the rest. The rail is the one
+ * only the primary destinations (`isPrimaryDestination`) and the user menu only
+ * the rest. The rail is the one
  * exception, and only for the tail of the list: it lifts `pinned` destinations
  * out to its foot (#105) while leaving the rest in this order.
  *
@@ -264,6 +287,25 @@ export const DESTINATIONS: readonly Destination[] = [
     compactLabel: 'Gyms',
     Icon: PlaceIcon,
     path: '/gyms',
+    // E7.8 (#248): the fourth tab only while Coach is hidden from the user.
+    // Otherwise reached from the rail, the user menu and a link on Train.
+    primaryWhenHidden: 'coach',
+  },
+  {
+    // E7.8 (#248), docs/specs/ai-coach.md §2.13. The AI Coach timeline: the
+    // fourth primary tab whenever the user can see it. `ai:use` is the string
+    // the coach controllers enforce (`PERMISSIONS.AI_USE`), and `feature: 'ai'`
+    // hides it while AI is off, where every coach route answers `AI_DISABLED`.
+    //
+    // DECLARED DIRECTLY AFTER `gyms`, so in either state the bar reads Today,
+    // Train, Health, then one of Gyms or Coach.
+    key: 'coach',
+    label: 'Coach',
+    compactLabel: 'Coach',
+    Icon: SportsIcon,
+    path: '/coach',
+    permission: 'ai:use',
+    feature: 'ai',
     primary: true,
   },
   {
@@ -315,6 +357,40 @@ export const DESTINATIONS: readonly Destination[] = [
     feature: 'ai',
   },
 ];
+
+/**
+ * Is `destination` in the phone bottom bar for this user?
+ *
+ * `primary` destinations are, when visible. A `primaryWhenHidden` destination
+ * is, when visible AND the destination it stands in for is not. Every surface
+ * asks this rather than reading the flags: the bottom bar shows exactly these,
+ * and the user menu lists every visible destination that is not one of them.
+ */
+export function isPrimaryDestination(
+  destination: Destination,
+  hasPermission: (permission: string) => boolean,
+  features: SettingsFeatures = {},
+): boolean {
+  if (!isDestinationVisible(destination, hasPermission, features)) return false;
+  if (destination.primary) return true;
+  if (!destination.primaryWhenHidden) return false;
+  const owner = DESTINATIONS.find((d) => d.key === destination.primaryWhenHidden);
+  return !owner || !isDestinationVisible(owner, hasPermission, features);
+}
+
+/**
+ * The bottom bar's destinations for this user, in navigation order (E7.8,
+ * #248). Pure: the same permission predicate and feature map always give the
+ * same four.
+ */
+export function resolvePrimaryDestinations(
+  hasPermission: (permission: string) => boolean,
+  features: SettingsFeatures = {},
+): Destination[] {
+  return DESTINATIONS.filter((destination) =>
+    isPrimaryDestination(destination, hasPermission, features),
+  );
+}
 
 /**
  * Which destination, if any, owns `pathname`.
