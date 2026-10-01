@@ -683,6 +683,11 @@ Every consumer route sits behind `AiEnabledGuard` plus `ai:use`. Admin routes ar
 | `COACH_PAUSE_INVALID` | 400 | `pause_coach` with `days` outside 1 to 14. |
 | `AI_DISABLED`, `AI_RATE_LIMITED` | 403, 429 | Existing AI errors, unchanged. |
 
+Not every failure gets a coach-specific code:
+- Chat input over 2,000 characters, and any other schema failure, is an ordinary 400 validation error.
+- A voice preview or audio request when `coach.voice` has no resolvable model returns the existing unresolved-feature 409 from `AiFeatureModelResolver`.
+- The 18+ dialog sends `confirmAdult: true` on `PUT /api/coach/settings`, and the server stamps `adultConfirmedAt`; the client never writes the timestamp itself.
+
 ## 4. Extending it in a fork
 
 ### 4.1 Add a persona
