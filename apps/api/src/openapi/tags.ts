@@ -422,6 +422,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'Always answers 200: a failing check is a row, not a status code.',
       },
       {
+        name: 'Android App',
+        description:
+          'Trust for the Android app\'s Trusted Web Activity: the (package, signing certificate ' +
+          'fingerprint) pairs this deployment vouches for, gated on `system_settings:read`/`:write`, ' +
+          'the pairs paired devices report, and the public Digital Asset Links document served at ' +
+          '`/.well-known/assetlinks.json`.',
+      },
+      {
         name: 'Telemetry',
         description:
           'Observability: whether traces, logs and metrics are exported to the telemetry store ' +
