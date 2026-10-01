@@ -26,6 +26,7 @@ import {
   ListMeasurementsQueryDto,
   MeasurementDto,
   MeasurementEntryDto,
+  MeasurementRevisionsDto,
   MeasurementSeriesDto,
   MetricCatalogDto,
   SERIES_DEFAULT_DAYS,
@@ -42,7 +43,7 @@ import { catalogView } from './metric-registry';
 // =============================================================================
 //
 // Owner-scoped: every route acts on the JWT user's rows only, and a foreign or
-// unknown entry id is a 404, never a 403. Literal routes (`metrics`, `latest`,
+// unknown entry or measurement id is a 404, never a 403. Literal routes (`metrics`, `latest`,
 // `series`) are declared before the parameterised `entries/:entryId` ones.
 // =============================================================================
 
@@ -157,6 +158,25 @@ export class MeasurementsController {
   // ---------------------------------------------------------------------------
   // Parameterised routes. Nothing literal may be declared below this line.
   // ---------------------------------------------------------------------------
+
+  @Get(':id/revisions')
+  @Auth({ permissions: [PERMISSIONS.HEALTH_DATA_READ] })
+  @ApiOperation({
+    summary: 'Get the revision history of a reading',
+    description:
+      'Every revision of one reading (body, vital or lab), newest first: the current one and each ' +
+      'one an edit superseded, with `supersededAt` and `createdAt`. `id` may be any revision. ' +
+      'Values and reference limits are canonical.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiResponse({ status: 200, description: 'Revisions, newest first', type: MeasurementRevisionsDto })
+  @ApiResponse({ status: 400, description: 'id is not a UUID' })
+  @ApiResponse({ status: 401, description: 'Not authenticated' })
+  @ApiResponse({ status: 403, description: 'Missing health_data:read' })
+  @ApiResponse({ status: 404, description: 'No such reading for the caller, or it was deleted' })
+  revisions(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.measurements.revisions(userId, id);
+  }
 
   @Patch('entries/:entryId')
   @Auth({ permissions: [PERMISSIONS.HEALTH_DATA_WRITE] })

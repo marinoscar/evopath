@@ -19,6 +19,7 @@ import {
   type Measurement,
   type MeasurementFlag,
   type MeasurementEntry,
+  type MeasurementRevisions,
   type MeasurementSeries,
   type SeriesQuery,
   referenceRangeProblem,
@@ -449,6 +450,43 @@ export class MeasurementsService {
     };
   }
 
+  /**
+   * Every revision of one reading, newest first (H5, #189). `id` may name any
+   * revision of it, current or superseded. A reading's revisions share its
+   * `entryId` and `metricKey` (an edit supersedes in place, one row per
+   * metric per entry), so the chain is ONE owner-scoped query. 404 when the
+   * caller owns no such row or the reading was deleted.
+   */
+  async revisions(userId: string, id: string): Promise<MeasurementRevisions> {
+    const target = await this.prisma.measurement.findFirst({
+      where: { id, userId },
+      select: { entryId: true, metricKey: true },
+    });
+
+    if (!target) {
+      throw measurementNotFound();
+    }
+
+    const rows = await this.prisma.measurement.findMany({
+      where: { userId, entryId: target.entryId, metricKey: target.metricKey },
+      orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (rows.length === 0 || rows.some((row) => row.deletedAt !== null)) {
+      throw measurementNotFound();
+    }
+
+    const files = await fileStatesOf(this.prisma, userId, rows);
+
+    return {
+      items: rows.map((row) => ({
+        ...toMeasurement(row, files),
+        supersededAt: row.supersededAt ? row.supersededAt.toISOString() : null,
+        createdAt: row.createdAt.toISOString(),
+      })),
+    };
+  }
+
   // ---------------------------------------------------------------------------
 
   /** Best-effort: the delete has committed, so an audit failure must not fail it. */
@@ -486,6 +524,10 @@ function isProvenanceList(
 
 function entryNotFound(): NotFoundException {
   return new NotFoundException('Measurement entry not found');
+}
+
+function measurementNotFound(): NotFoundException {
+  return new NotFoundException('Measurement not found');
 }
 
 function entryConflict(): ConflictException {

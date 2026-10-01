@@ -576,6 +576,24 @@ export const measurementEntrySchema = z.object({
 export class MeasurementEntryDto extends createZodDto(measurementEntrySchema) {}
 export type MeasurementEntry = z.infer<typeof measurementEntrySchema>;
 
+// GET /api/measurements/:id/revisions (H5, #189)
+export const measurementRevisionsSchema = z.object({
+  items: z
+    .array(
+      measurementSchema.extend({
+        supersededAt: z.iso
+          .datetime()
+          .nullable()
+          .meta({ description: 'When a later revision replaced this one; null for the current revision.' }),
+        createdAt: z.iso.datetime().meta({ description: 'When this revision was written.' }),
+      }),
+    )
+    .meta({ description: 'Every revision of the reading, newest (current) first.' }),
+});
+
+export class MeasurementRevisionsDto extends createZodDto(measurementRevisionsSchema) {}
+export type MeasurementRevisions = z.infer<typeof measurementRevisionsSchema>;
+
 export const latestMeasurementsSchema = z.object({
   items: z.array(
     z.object({

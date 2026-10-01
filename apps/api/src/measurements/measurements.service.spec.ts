@@ -710,6 +710,53 @@ describe('MeasurementsService', () => {
     });
   });
 
+  describe('revisions (H5, #189)', () => {
+    const MEASUREMENT_ID = '44444444-4444-4444-8444-444444444444';
+
+    it('finds the reading owner-scoped, then lists its whole chain newest first', async () => {
+      const superseded = new Date('2026-09-29T09:00:00.000Z');
+      (prisma.measurement.findFirst as jest.Mock).mockResolvedValue({ entryId: ENTRY_ID, metricKey: 'ldl_cholesterol' });
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([
+        row({ metricKey: 'ldl_cholesterol', value: 128, revision: 2, flag: 'normal' }),
+        row({ metricKey: 'ldl_cholesterol', value: 130, revision: 1, flag: 'high', supersededAt: superseded }),
+      ]);
+
+      const result = await service.revisions(USER_ID, MEASUREMENT_ID);
+
+      expect(prisma.measurement.findFirst).toHaveBeenCalledWith({
+        where: { id: MEASUREMENT_ID, userId: USER_ID },
+        select: { entryId: true, metricKey: true },
+      });
+      expect(prisma.measurement.findMany).toHaveBeenCalledWith({
+        where: { userId: USER_ID, entryId: ENTRY_ID, metricKey: 'ldl_cholesterol' },
+        orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
+      });
+      expect(result.items.map(({ value, revision, edited, flag, supersededAt, createdAt }) => ({
+        value, revision, edited, flag, supersededAt, createdAt,
+      }))).toEqual([
+        { value: 128, revision: 2, edited: true, flag: 'normal', supersededAt: null, createdAt: CREATED_AT.toISOString() },
+        { value: 130, revision: 1, edited: false, flag: 'high', supersededAt: superseded.toISOString(), createdAt: CREATED_AT.toISOString() },
+      ]);
+    });
+
+    it('404s for a foreign or unknown id', async () => {
+      (prisma.measurement.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(service.revisions(USER_ID, MEASUREMENT_ID)).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.measurement.findMany).not.toHaveBeenCalled();
+    });
+
+    it('404s when the reading was deleted', async () => {
+      (prisma.measurement.findFirst as jest.Mock).mockResolvedValue({ entryId: ENTRY_ID, metricKey: 'weight' });
+      (prisma.measurement.findMany as jest.Mock).mockResolvedValue([
+        row({ revision: 2, deletedAt: new Date() }),
+        row({ revision: 1, supersededAt: new Date() }),
+      ]);
+
+      await expect(service.revisions(USER_ID, MEASUREMENT_ID)).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('fileDeleted (H1, #185)', () => {
     const KEPT = '77777777-7777-4777-8777-777777777771';
     const ERASED = '77777777-7777-4777-8777-777777777772';
