@@ -12,6 +12,10 @@ display name, the repository slug and the brand colours.
 | `REPO_SLUG` | `identity.json` → `repoSlug` | `owner/name`; published in the OpenAPI document |
 | `REPO_URL` | derived from `REPO_SLUG` | `https://github.com/<slug>` |
 | `APP_SLUG` | derived from `APP_NAME` | Lowercase, hyphenated |
+| `REPO_NAME` | derived from `REPO_SLUG` | The part after the slash, case preserved |
+| `ANDROID_PACKAGE_NAME` | derived from `REPO_NAME` | `com.<repo name, lowercased, alphanumerics only>.android` |
+| `ANDROID_DEEP_LINK_SCHEME` | derived from `REPO_NAME` | `<repo name, lowercased>-android` |
+| `ANDROID_APK_STEM` | derived from `REPO_NAME` | `<repo name>-android`; APKs are `<stem>-<versionName>.apk` |
 
 [`index.js`](./index.js) holds no literal values. It reads
 [`identity.json`](./identity.json) and derives the rest.
@@ -53,6 +57,7 @@ Keep this list current when you add one.
 | Brand icons, favicons and vector masters (generated) | `apps/web/public/icons/*.png`, `icons/source.svg`, `favicon.ico`, `favicon.svg` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR` (plate), `ACCENT_COLOR` (sun), `BACKGROUND_COLOR` (apple-touch corners) |
 | Web brand mark (inline SVG) | `apps/web/src/components/common/BrandMark.tsx` | `THEME_COLOR` (dark-mode plate), `ACCENT_COLOR` (sun) |
 | Login page brand panel | `apps/web/src/pages/LoginPage.tsx` | `APP_NAME`, `THEME_COLOR` (dark-mode panel) |
+| Android app identity: trusted-apps default, deep link, APK names, TWA storage keys | `apps/web/src/utils/androidIdentity.ts`, `apps/api/src/android-app/releases/android-release.constants.ts`, `apps/cli/src/android/{gradle,metadata}.ts` | `ANDROID_PACKAGE_NAME`, `ANDROID_DEEP_LINK_SCHEME`, `ANDROID_APK_STEM`, `APP_NAME`, `APP_SLUG` |
 | Email logo (generated PNG) | `apps/api/src/email/templates/brand-mark.generated.ts` via `generate-icons.py` | `THEME_COLOR`, `ACCENT_COLOR` (painted pixels) |
 
 ## Brand icons

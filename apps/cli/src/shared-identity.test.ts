@@ -4,7 +4,18 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { APP_NAME, APP_SLUG, REPO_SLUG, REPO_URL, THEME_COLOR, BACKGROUND_COLOR } from '@app/shared';
+import {
+  ANDROID_APK_STEM,
+  ANDROID_DEEP_LINK_SCHEME,
+  ANDROID_PACKAGE_NAME,
+  APP_NAME,
+  APP_SLUG,
+  BACKGROUND_COLOR,
+  REPO_NAME,
+  REPO_SLUG,
+  REPO_URL,
+  THEME_COLOR,
+} from '@app/shared';
 
 // =============================================================================
 // packages/shared: APP_SLUG, REPO_SLUG, REPO_URL (issue #343, epic #341)
@@ -82,6 +93,32 @@ describe('REPO_SLUG', () => {
 describe('REPO_URL', () => {
   it('equals https://github.com/${REPO_SLUG}, so the two cannot drift', () => {
     expect(REPO_URL).toBe(`https://github.com/${REPO_SLUG}`);
+  });
+});
+
+describe('REPO_NAME', () => {
+  it('is the part of REPO_SLUG after the slash, case preserved', () => {
+    expect(REPO_NAME).toBe(REPO_SLUG.split('/')[1]);
+  });
+});
+
+describe('the Android app identity (issue #276)', () => {
+  // Same derive-don't-list discipline as above: each assertion applies the
+  // rule to the live REPO_NAME, so a rename needs no edit here.
+  it('ANDROID_PACKAGE_NAME is com.<repo name, lowercased, alphanumerics only>.android', () => {
+    expect(ANDROID_PACKAGE_NAME).toBe(`com.${REPO_NAME.toLowerCase().replace(/[^a-z0-9]/g, '')}.android`);
+  });
+
+  it('ANDROID_PACKAGE_NAME is a valid Android application id', () => {
+    expect(ANDROID_PACKAGE_NAME).toMatch(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/);
+  });
+
+  it('ANDROID_DEEP_LINK_SCHEME is <repo name, lowercased>-android', () => {
+    expect(ANDROID_DEEP_LINK_SCHEME).toBe(`${REPO_NAME.toLowerCase()}-android`);
+  });
+
+  it('ANDROID_APK_STEM is <repo name>-android', () => {
+    expect(ANDROID_APK_STEM).toBe(`${REPO_NAME}-android`);
   });
 });
 
