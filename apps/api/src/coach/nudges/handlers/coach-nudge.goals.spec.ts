@@ -68,7 +68,7 @@ function promptOf(t: ReturnType<typeof setupNudge>): { instructions: string; tex
 
 describe('CoachNudgeHandler: activity goals', () => {
   it('goal_at_risk: the prompt names the goal (as data) with its counts, and the message records the goal', async () => {
-    const t = setupNudge({ goals: [progress()], answers: [{ ...GOOD, moment: 'goal_at_risk', body: 'Morning walks: 3 to go. One short walk today?' }] });
+    const t = setupNudge({ goals: [progress()], answers: [{ ...GOOD, moment: 'goal_at_risk' as const, body: 'Morning walks: 3 to go. One short walk today?' }] });
 
     const outcome = await t.handler.run('job-1', AT_RISK, NOW);
 
@@ -96,14 +96,14 @@ describe('CoachNudgeHandler: activity goals', () => {
   });
 
   it('goal_hit: celebration kind, the hit guidance', async () => {
-    const t = setupNudge({ goals: [progress({ done: 4 })], answers: [{ ...GOOD, moment: 'goal_hit', body: 'Morning walks: done, 4 of 4. Well earned.' }] });
+    const t = setupNudge({ goals: [progress({ done: 4 })], answers: [{ ...GOOD, moment: 'goal_hit' as const, body: 'Morning walks: done, 4 of 4. Well earned.' }] });
     await t.handler.run('job-1', HIT, NOW);
     expect(promptOf(t).instructions).toContain(GOAL_HIT_GUIDANCE);
     expect(t.prisma.coachMessage.create.mock.calls[0][0].data).toMatchObject({ moment: 'goal_hit', kind: 'celebration' });
   });
 
   it('the static fallback fills {n} with what is left of the goal', async () => {
-    const invented = { ...GOOD, moment: 'goal_at_risk', body: 'You have done 37 walks this month.' };
+    const invented = { ...GOOD, moment: 'goal_at_risk' as const, body: 'You have done 37 walks this month.' };
     const t = setupNudge({ goals: [progress()], answers: [invented, invented] });
 
     const outcome = await t.handler.run('job-1', AT_RISK, NOW);
