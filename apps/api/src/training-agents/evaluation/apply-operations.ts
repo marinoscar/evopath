@@ -1,5 +1,5 @@
 import type { StoredPlanChangeOperation } from '../../programs/contracts/plan-change.contract';
-import type { PlanExercise, PlanTree, PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanExercise, type PlanTree, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
 import { PROGRESSION_LIMITS } from '../guardrails/limits';
 import { floorHalf } from '../guardrails/tree';
 
@@ -61,9 +61,11 @@ function nextPosition(workout: PlanWorkout): number {
   return workout.exercises.reduce((max, exercise) => Math.max(max, exercise.position), -1) + 1;
 }
 
-/** The documented deload transform of one exercise row. */
+/** The documented deload transform of one exercise row (a cardio prescription keeps its target; only its intensity eases). */
 export function deloadExercise(exercise: PlanExercise): void {
-  exercise.targetSets = Math.max(DELOAD_TRANSFORM.minSets, Math.round(exercise.targetSets * DELOAD_TRANSFORM.setsFactor));
+  if (isRepsExercise(exercise)) {
+    exercise.targetSets = Math.max(DELOAD_TRANSFORM.minSets, Math.round(exercise.targetSets * DELOAD_TRANSFORM.setsFactor));
+  }
   if (exercise.targetLoadKg !== null && exercise.targetLoadKg !== undefined && exercise.targetLoadKg > 0) {
     exercise.targetLoadKg = floorHalf(exercise.targetLoadKg * DELOAD_TRANSFORM.loadFactor);
   } else if (exercise.targetRpe !== null && exercise.targetRpe !== undefined) {
@@ -107,6 +109,8 @@ export function applyOperations(tree: PlanTree, operations: readonly AcceptedOpe
     switch (op.op) {
       case 'set_prescription': {
         for (const { exercise } of exercisesOf(op.targets.exerciseRowIds)) {
+          // The envelope never targets a cardio prescription; a row that became one since is left alone.
+          if (!isRepsExercise(exercise)) continue;
           if (op.sets !== null) exercise.targetSets = op.sets;
           if (op.repMin !== null) exercise.repMin = op.repMin;
           if (op.repMax !== null) exercise.repMax = op.repMax;
@@ -151,6 +155,8 @@ export function applyOperations(tree: PlanTree, operations: readonly AcceptedOpe
             targetSets: op.sets,
             repMin: op.repMin,
             repMax: Math.max(op.repMin, op.repMax),
+            targetDurationSeconds: null,
+            targetDistanceMeters: null,
             targetLoadKg: null,
             targetRpe: op.targetRpe,
             restSeconds: op.restSeconds,

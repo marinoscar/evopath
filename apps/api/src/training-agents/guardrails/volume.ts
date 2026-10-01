@@ -1,4 +1,4 @@
-import type { PlanTree, PlanWeek } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanTree, type PlanWeek } from '../../programs/contracts/plan-tree.contract';
 import { reduceSessionSets } from './injury';
 import { DURATION_MODEL, GUARDRAIL_LIMITS, effectiveLimits } from './limits';
 import {
@@ -42,6 +42,12 @@ export function checkVolume(tree: PlanTree, ctx: GuardrailContext): Violation[] 
     for (const workout of week.workouts) {
       for (const exercise of workout.exercises) {
         const path = pathOf(ctx, week, workout, exercise);
+        if (exercise.targetRpe !== null && exercise.targetRpe > limits.rpeCap && !isRepsExercise(exercise)) {
+          f.add('repair', 'rpe_clamped', path, `RPE ${exercise.targetRpe} lowered to ${limits.rpeCap} for this level.`);
+          exercise.targetRpe = limits.rpeCap;
+        }
+        // A cardio prescription has no sets-and-reps to bound and no rest to clamp.
+        if (!isRepsExercise(exercise)) continue;
         if (exercise.targetSets > limits.setsPerExercise) {
           f.add('repair', 'exercise_sets_clamped', path, `${exercise.targetSets} sets lowered to ${limits.setsPerExercise}.`);
           exercise.targetSets = limits.setsPerExercise;
@@ -173,7 +179,7 @@ function clampWeeklyMuscles(f: Findings, ctx: GuardrailContext, week: PlanWeek, 
         .filter(({ exercise }) => countedMuscles(ctx.library.get(exercise.exerciseId), uncounted).includes(muscle)),
     );
     const reducible = contributing
-      .filter(({ exercise }) => exercise.targetSets > floor)
+      .flatMap(({ exercise, ...rest }) => (isRepsExercise(exercise) && exercise.targetSets > floor ? [{ ...rest, exercise }] : []))
       .sort(
         (a, b) =>
           b.exercise.targetSets - a.exercise.targetSets ||

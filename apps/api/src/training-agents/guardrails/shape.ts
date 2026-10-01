@@ -1,4 +1,5 @@
-import { planTreeSchema, type PlanTree, type PlanWeek } from '../../programs/contracts/plan-tree.contract';
+import { PLAN_LIMITS, isRepsExercise, planTreeSchema, type PlanExercise, type PlanTree, type PlanWeek } from '../../programs/contracts/plan-tree.contract';
+import { isCardioTrackingMode, prescriptionMismatch } from '../../programs/contracts/prescription';
 import { GUARDRAIL_LIMITS } from './limits';
 import { Findings, WEEKDAY_NAMES, allowedWeekdays, keyOf, pathOf, sortWeek, weeksOf, workoutLabel } from './tree';
 import type { GuardrailContext, Violation } from './types';
@@ -17,6 +18,13 @@ import type { GuardrailContext, Violation } from './types';
 // schema bounds. Blocks: a week left without workouts, a workout left with
 // fewer than 2 exercises by these drops, and anything the schema still
 // refuses.
+//
+// PRESCRIPTION SHAPE. Each exercise's prescription must fit its tracking
+// mode (`programs/contracts/prescription.ts`): sets and reps for
+// `weight_reps`/`bodyweight_reps`, a duration for `time`, a duration and/or
+// distance for `distance_time`. A mismatch (or no prescription at all)
+// blocks: the server does not guess minutes from reps or reps from minutes.
+// A cardio target outside the plan bounds is clamped (a repair).
 // =============================================================================
 
 const RPE = { min: 1, max: 10 };
@@ -84,7 +92,10 @@ export function checkShape(tree: PlanTree, ctx: GuardrailContext): Violation[] {
         );
       }
 
-      for (const exercise of workout.exercises) boundNumbers(f, ctx, week, workout, exercise);
+      for (const exercise of workout.exercises) {
+        checkPrescriptionShape(f, ctx, week, workout, exercise);
+        boundNumbers(f, ctx, week, workout, exercise);
+      }
     }
 
     for (const move of dedupeWeekdays(week, ctx)) {
@@ -114,17 +125,22 @@ function boundNumbers(
 ): void {
   const path = pathOf(ctx, week, workout, exercise);
   const minRest = GUARDRAIL_LIMITS_REST_MIN;
-  if (exercise.restSeconds < minRest) {
+  // A cardio prescription's rest only matters between its sets: 0 stays 0.
+  if (exercise.restSeconds < minRest && isRepsExercise(exercise)) {
     f.add('repair', 'rest_bounded', path, `Rest ${exercise.restSeconds} s raised to ${minRest} s.`);
     exercise.restSeconds = minRest;
   }
-  if (exercise.repMin < 1) {
-    f.add('repair', 'reps_bounded', path, `Minimum reps ${exercise.repMin} raised to 1.`);
-    exercise.repMin = 1;
-  }
-  if (exercise.repMin > exercise.repMax) {
-    f.add('repair', 'rep_range_swapped', path, `Rep range ${exercise.repMin}-${exercise.repMax} reordered.`);
-    [exercise.repMin, exercise.repMax] = [exercise.repMax, exercise.repMin];
+  if (isRepsExercise(exercise)) {
+    if (exercise.repMin < 1) {
+      f.add('repair', 'reps_bounded', path, `Minimum reps ${exercise.repMin} raised to 1.`);
+      exercise.repMin = 1;
+    }
+    if (exercise.repMin > exercise.repMax) {
+      f.add('repair', 'rep_range_swapped', path, `Rep range ${exercise.repMin}-${exercise.repMax} reordered.`);
+      [exercise.repMin, exercise.repMax] = [exercise.repMax, exercise.repMin];
+    }
+  } else {
+    boundCardioTargets(f, path, exercise);
   }
   if (exercise.targetRpe !== null) {
     const bounded = Math.min(RPE.max, Math.max(RPE.min, Math.round(exercise.targetRpe * 2) / 2));
@@ -136,6 +152,66 @@ function boundNumbers(
   if (exercise.targetLoadKg !== null && (exercise.targetLoadKg < 0 || exercise.targetLoadKg > 1000 || !Number.isFinite(exercise.targetLoadKg))) {
     f.add('repair', 'load_out_of_range', path, `Load ${exercise.targetLoadKg} kg is out of range and was removed.`);
     exercise.targetLoadKg = null;
+  }
+}
+
+/** The prescription's shape fits the exercise's tracking mode; a block otherwise. */
+function checkPrescriptionShape(
+  f: Findings,
+  ctx: GuardrailContext,
+  week: PlanWeek,
+  workout: PlanWeek['workouts'][number],
+  exercise: PlanExercise,
+): void {
+  const lib = ctx.library.get(exercise.exerciseId);
+  if (!lib) return;
+  const path = pathOf(ctx, week, workout, exercise);
+  let cardio = exercise.targetDurationSeconds !== null || exercise.targetDistanceMeters !== null;
+  const reps = exercise.repMin !== null || exercise.repMax !== null;
+  if (cardio && reps) {
+    // Both shapes at once: keep the one the tracking mode takes.
+    if (isCardioTrackingMode(lib.trackingMode)) {
+      f.add('repair', 'prescription_reps_cleared', path, `${lib.key} is tracked by time or distance: its reps were removed.`);
+      exercise.repMin = null;
+      exercise.repMax = null;
+    } else {
+      f.add('repair', 'prescription_targets_cleared', path, `${lib.key} is tracked in reps: its duration and distance targets were removed.`);
+      exercise.targetDurationSeconds = null;
+      exercise.targetDistanceMeters = null;
+      cardio = false;
+    }
+  }
+  if (!cardio && !isRepsExercise(exercise)) {
+    f.add('block', 'prescription_missing', path, `${lib.key} has neither sets and reps nor a duration or distance.`);
+    return;
+  }
+  const mismatch = prescriptionMismatch(lib.trackingMode, exercise);
+  if (mismatch) f.add('block', 'prescription_shape_mismatch', path, `${lib.key} (tracked as ${lib.trackingMode}): ${mismatch}.`);
+}
+
+/** A cardio target inside the plan bounds (duration 1 min .. 10 h, distance 100 m .. 100 km, 2 decimals). */
+function boundCardioTargets(f: Findings, path: string, exercise: PlanExercise): void {
+  const d = PLAN_LIMITS.targetDurationSeconds;
+  if (exercise.targetDurationSeconds !== null) {
+    const bounded = Math.min(d.max, Math.max(d.min, Math.round(exercise.targetDurationSeconds)));
+    if (bounded !== exercise.targetDurationSeconds) {
+      f.add('repair', 'duration_bounded', path, `Duration ${exercise.targetDurationSeconds} s set to ${bounded} s.`);
+      exercise.targetDurationSeconds = bounded;
+    }
+  }
+  const m = PLAN_LIMITS.targetDistanceMeters;
+  if (exercise.targetDistanceMeters !== null) {
+    const bounded = Math.min(m.max, Math.max(m.min, Math.round(exercise.targetDistanceMeters * 100) / 100));
+    if (bounded !== exercise.targetDistanceMeters) {
+      f.add('repair', 'distance_bounded', path, `Distance ${exercise.targetDistanceMeters} m set to ${bounded} m.`);
+      exercise.targetDistanceMeters = bounded;
+    }
+  }
+  const sets = PLAN_LIMITS.targetSets;
+  if (exercise.targetSets !== null && (exercise.targetSets < sets.min || exercise.targetSets > sets.max)) {
+    const bounded = Math.min(sets.max, Math.max(sets.min, Math.round(exercise.targetSets)));
+    f.add('repair', 'sets_bounded', path, `${exercise.targetSets} sets set to ${bounded}.`);
+    exercise.targetSets = bounded;
   }
 }
 

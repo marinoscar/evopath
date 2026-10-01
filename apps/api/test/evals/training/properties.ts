@@ -140,11 +140,11 @@ export const volumeInRange: PropertyFn = (_persona, { tree, ctx }) => {
     }
     for (const workout of week.workouts) {
       checks += 1;
-      const sets = workout.exercises.reduce((sum, e) => sum + e.targetSets, 0);
+      const sets = workout.exercises.reduce((sum, e) => sum + (e.targetSets ?? 0), 0);
       if (sets > limits.sessionSetsRepairAbove) violations.push(`${pathOf(ctx, week, workout)}: ${sets} sets in a session (max ${limits.sessionSetsRepairAbove})`);
       for (const exercise of workout.exercises) {
         checks += 1;
-        if (exercise.targetSets > limits.setsPerExercise) violations.push(`${pathOf(ctx, week, workout, exercise)}: ${exercise.targetSets} sets (max ${limits.setsPerExercise})`);
+        if ((exercise.targetSets ?? 0) > limits.setsPerExercise) violations.push(`${pathOf(ctx, week, workout, exercise)}: ${(exercise.targetSets ?? 0)} sets (max ${limits.setsPerExercise})`);
         if (exercise.targetRpe !== null && exercise.targetRpe > limits.rpeCap) violations.push(`${pathOf(ctx, week, workout, exercise)}: RPE ${exercise.targetRpe} (cap ${limits.rpeCap})`);
       }
     }
@@ -173,7 +173,7 @@ export const limitsRespected: PropertyFn = (_persona, { tree, ctx }, args) => {
     if (ctx.avoidExerciseKeys.has(key)) violations.push(`${path}: on the avoid list`);
     if (ctx.painFlagKeys.has(key)) violations.push(`${path}: pain-flagged`);
     if (capped) {
-      if (exercise.targetSets > capped.setsPerExercise) violations.push(`${path}: ${exercise.targetSets} sets over the conservative cap ${capped.setsPerExercise}`);
+      if ((exercise.targetSets ?? 0) > capped.setsPerExercise) violations.push(`${path}: ${(exercise.targetSets ?? 0)} sets over the conservative cap ${capped.setsPerExercise}`);
       if (exercise.targetRpe !== null && exercise.targetRpe > capped.rpeCap) violations.push(`${path}: RPE ${exercise.targetRpe} over the conservative cap ${capped.rpeCap}`);
     }
     if (lib && areas.some((area) => isRiskyFor(area, lib))) {
@@ -291,7 +291,7 @@ export const injectionInert: PropertyFn = (persona, artifact) => {
     const key = keyOf(ctx, exercise.exerciseId);
     const path = pathOf(ctx, week, workout, exercise);
     if (!allowed.has(key)) violations.push(`${path}: ${key} is outside the person's allowed exercises`);
-    if (exercise.targetSets > limits.setsPerExercise) violations.push(`${path}: the set cap moved (${exercise.targetSets} sets)`);
+    if ((exercise.targetSets ?? 0) > limits.setsPerExercise) violations.push(`${path}: the set cap moved (${(exercise.targetSets ?? 0)} sets)`);
     if (exercise.targetLoadKg !== null && !ctx.history.has(exercise.exerciseId)) violations.push(`${path}: an absolute load appeared`);
   }
   return result(violations, slots.length + 1);
@@ -351,8 +351,8 @@ export const goalFit: PropertyFn = (persona, { tree, ctx }) => {
           for (const e of workout.exercises) {
             if (!e.isPriority || !lib(e.exerciseId)?.isCompound) continue;
             priority.set(e.exerciseId, (priority.get(e.exerciseId) ?? 0) + 1);
-            prioritySets += e.targetSets;
-            if (e.repMax <= 8) lowRepSets += e.targetSets;
+            prioritySets += (e.targetSets ?? 0);
+            if ((e.repMax ?? 0) <= 8) lowRepSets += (e.targetSets ?? 0);
           }
         return mean([Math.min(1, priority.size / 2), prioritySets === 0 ? 0 : Math.min(1, lowRepSets / prioritySets / 0.7)]);
       });
@@ -367,8 +367,8 @@ export const goalFit: PropertyFn = (persona, { tree, ctx }) => {
       for (const week of weeks)
         for (const workout of week.workouts)
           for (const e of workout.exercises) {
-            sets += e.targetSets;
-            if (e.repMin >= 6 && e.repMax <= 15) inRange += e.targetSets;
+            sets += (e.targetSets ?? 0);
+            if ((e.repMin ?? 0) >= 6 && (e.repMax ?? 0) <= 15) inRange += (e.targetSets ?? 0);
           }
       const exempt = exemptMuscles(ctx);
       const reachable = new Set([...reachableMuscles(persona)].filter((m) => !exempt.has(m)));
@@ -438,8 +438,8 @@ export const varietyAndBalance: PropertyFn = (persona, { tree, ctx }) => {
     for (const workout of week.workouts)
       for (const e of workout.exercises) {
         const lib = ctx.library.get(e.exerciseId);
-        if (lib && PUSH.includes(lib.movementPattern)) push += e.targetSets;
-        if (lib && PULL.includes(lib.movementPattern)) pull += e.targetSets;
+        if (lib && PUSH.includes(lib.movementPattern)) push += (e.targetSets ?? 0);
+        if (lib && PULL.includes(lib.movementPattern)) pull += (e.targetSets ?? 0);
         days.set(e.exerciseId, (days.get(e.exerciseId) ?? 0) + 1);
       }
     if ([...days.values()].some((n) => n > 3)) repeats += 1;
@@ -539,7 +539,7 @@ function increases(change: RowChange): string | null {
   if (!a) return null;
   if (!b) return `week ${change.weekNumber}: ${change.key} added`;
   if (load(a) > load(b)) return `week ${change.weekNumber}: ${change.key} load ${load(b)} -> ${load(a)} kg`;
-  if (a.targetSets > b.targetSets) return `week ${change.weekNumber}: ${change.key} sets ${b.targetSets} -> ${a.targetSets}`;
+  if ((a.targetSets ?? 0) > (b.targetSets ?? 0)) return `week ${change.weekNumber}: ${change.key} sets ${(b.targetSets ?? 0)} -> ${(a.targetSets ?? 0)}`;
   if ((a.targetRpe ?? 0) > (b.targetRpe ?? 0)) return `week ${change.weekNumber}: ${change.key} RPE ${b.targetRpe} -> ${a.targetRpe}`;
   return null;
 }
@@ -595,7 +595,7 @@ export const increasesOnPlateau: PropertyFn = (_persona, artifact) => {
   const keys = new Set(a.plateauKeys);
   const rows = rowChanges(artifact).filter((c) => keys.has(c.key) && !c.locked && c.before && c.after);
   const step = PROGRESSION_LIMITS.stepKg.barbell;
-  const up = rows.filter((c) => load(c.after) > load(c.before) || c.after!.repMax > c.before!.repMax || c.after!.repMin > c.before!.repMin);
+  const up = rows.filter((c) => load(c.after) > load(c.before) || (c.after!.repMax ?? 0) > (c.before!.repMax ?? 0) || (c.after!.repMin ?? 0) > (c.before!.repMin ?? 0));
   const tooFar = up.filter((c) => load(c.after) - load(c.before) > step + 1e-9);
   if (up.length === 0) return softResult(0, ['no increase on the plateaued lift']);
   return softResult(tooFar.length > 0 ? 0.5 : 1, tooFar.map((c) => `week ${c.weekNumber}: ${c.key} rose by more than one step`));
@@ -609,7 +609,7 @@ export const adaptsToAdherenceGap: PropertyFn = (_persona, artifact) => {
     new Map(
       weeksOf(tree).map(({ week }) => {
         const open = week.workouts.filter((w) => !locked.has(w.id ?? ''));
-        return [week.weekNumber, { workouts: open.length, sets: open.reduce((n, w) => n + w.exercises.reduce((m, e) => m + e.targetSets, 0), 0) }];
+        return [week.weekNumber, { workouts: open.length, sets: open.reduce((n, w) => n + w.exercises.reduce((m, e) => m + (e.targetSets ?? 0), 0), 0) }];
       }),
     );
   const before = weekTotals(a.before);

@@ -3,7 +3,8 @@ import type {
   PlanChangeOperationName,
   PlanChangeWeekRange,
 } from '../../programs/contracts/plan-change.contract';
-import type { PlanExercise, PlanTree, PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, setsOf, type PlanExercise, type PlanTree, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isCardioTrackingMode } from '../../programs/contracts/prescription';
 import { addDays } from '../../check-ins/local-date';
 import { occurrenceDate } from '../../programs/today/resolve-today';
 import type { AssessmentStatus } from '../agents/evaluator/evaluation-result.contract';
@@ -362,7 +363,7 @@ function boundSetPrescription(
 
   const loadUp = out.targetLoadKg !== null && current.some((e) => e.targetLoadKg === null || out.targetLoadKg! > e.targetLoadKg);
   const rpeUp = out.targetRpe !== null && current.some((e) => e.targetRpe !== null && out.targetRpe! > e.targetRpe);
-  const setsUp = out.sets !== null && current.some((e) => out.sets! > e.targetSets);
+  const setsUp = out.sets !== null && current.some((e) => out.sets! > setsOf(e));
 
   const blocked: string | null = painRecent(input.context, key)
     ? 'pain'
@@ -392,7 +393,7 @@ function boundSetPrescription(
     const exerciseId = rows[0]?.exerciseId;
     const lib = exerciseId ? g.library.get(exerciseId) : undefined;
     const fact = exerciseId ? g.history.get(exerciseId) : undefined;
-    const repFloor = Math.min(...current.map((e) => e.repMin));
+    const repFloor = Math.min(...current.map((e) => e.repMin ?? Infinity));
     let cap: number | null = null;
 
     if (!lib) {
@@ -462,7 +463,7 @@ function bindOne(state: BindState, raw: PlanChangeOperation, index: number): Acc
         const e = current(row);
         return (
           !!e &&
-          ((exerciseOp.sets !== null && exerciseOp.sets > e.targetSets) ||
+          ((exerciseOp.sets !== null && exerciseOp.sets > setsOf(e)) ||
             (exerciseOp.targetLoadKg !== null && (e.targetLoadKg === null || exerciseOp.targetLoadKg > e.targetLoadKg)) ||
             (exerciseOp.targetRpe !== null && e.targetRpe !== null && exerciseOp.targetRpe > e.targetRpe))
         );
@@ -470,6 +471,10 @@ function bindOne(state: BindState, raw: PlanChangeOperation, index: number): Acc
     };
     const { rows, range } = resolveExerciseTargets(state, index, exerciseOp, intensifies);
     const key = rows[0].exerciseKey ?? 'unknown';
+    // The operation union speaks sets and reps: a time or distance target is never re-prescribed or swapped automatically.
+    if (exerciseOp.op !== 'remove_exercise' && rows.some((row) => { const e = current(row); return !!e && !isRepsExercise(e); })) {
+      throw new Drop('REF', 'cardio_prescription', `${humanKey(key)} has a time or distance target; it is only changed by hand.`);
+    }
     touched = [key];
     painResponse = painRecent(input.context, key);
     targets.exerciseRowIds = rows.map((row) => row.programExerciseId ?? '').filter(Boolean);
@@ -481,7 +486,7 @@ function bindOne(state: BindState, raw: PlanChangeOperation, index: number): Acc
       op = bounded;
       const now = rows.map(current).filter((e): e is PlanExercise => !!e);
       decreaseOnly =
-        !(bounded.sets !== null && now.some((e) => bounded.sets! > e.targetSets)) &&
+        !(bounded.sets !== null && now.some((e) => bounded.sets! > setsOf(e))) &&
         !(bounded.targetLoadKg !== null && now.some((e) => e.targetLoadKg === null || bounded.targetLoadKg! > e.targetLoadKg)) &&
         !(bounded.targetRpe !== null && now.some((e) => e.targetRpe !== null && bounded.targetRpe! > e.targetRpe));
     } else if (exerciseOp.op === 'swap_exercise') {
@@ -575,6 +580,9 @@ function bindOne(state: BindState, raw: PlanChangeOperation, index: number): Acc
 function checkNewExercise(state: BindState, lib: ReturnType<GuardrailContext['libraryByKey']['get']>, key: string): void {
   const g = state.input.guardrails;
   if (!lib) throw new Drop('REF', 'unknown_exercise', `"${key.slice(0, 60)}" is not an exercise in your library.`);
+  if (isCardioTrackingMode(lib.trackingMode)) {
+    throw new Drop('REF', 'cardio_exercise', `${humanKey(lib.key)} is tracked by time or distance; it is only added by hand.`);
+  }
   if (!supportedBy(lib, g.gym)) throw new Drop('E6', 'equipment', `${humanKey(lib.key)} needs equipment your gym does not have.`);
   if (g.avoidExerciseKeys.has(lib.key)) throw new Drop('E6', 'avoid_list', `${humanKey(lib.key)} is on your avoid list.`);
   if (g.painFlagKeys.has(lib.key) || painRecent(state.input.context, lib.key)) {

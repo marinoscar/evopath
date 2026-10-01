@@ -62,6 +62,8 @@ export const DURATION_MODEL = {
   setupSeconds: 60,
   secondsPerRep: 3,
   setWorkSeconds: { min: 20, max: 60 },
+  /** A cardio prescription with a distance and no duration: about 8 min/km. */
+  cardioSecondsPerMeter: 0.48,
   /** Used when a rest is 0 (unset). */
   defaultRestSeconds: { priority: 90, accessory: 60 },
   trim: { accessoryRestSeconds: 45, priorityRestSeconds: 75, setFloor: 2 },

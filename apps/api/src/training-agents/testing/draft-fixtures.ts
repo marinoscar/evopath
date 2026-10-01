@@ -1,17 +1,23 @@
+import { isCardioTrackingMode } from '../../programs/contracts/prescription';
 import type { PlanDraft, PlanDraftExercise, PlanDraftWorkout } from '../agents/planner/plan-draft.contract';
+import { LIB } from './context-fixtures';
 
 // =============================================================================
 // Planner drafts for compiler, guardrail and planner-node specs, over the
 // fixture library (`context-fixtures.ts`).
 // =============================================================================
 
+/** Time and distance exercises default to a cardio prescription (3 x 40 s), everything else to 3 x 8-12. */
 export function draftExercise(exerciseKey: string, over: Partial<PlanDraftExercise> = {}): PlanDraftExercise {
+  const cardio = LIB[exerciseKey] !== undefined && isCardioTrackingMode(LIB[exerciseKey].trackingMode);
   return {
     exerciseKey,
     isPriority: false,
     sets: 3,
-    repMin: 8,
-    repMax: 12,
+    repMin: cardio ? null : 8,
+    repMax: cardio ? null : 12,
+    targetDurationSeconds: cardio ? 120 : null,
+    targetDistanceMeters: null,
     targetRpe: 7,
     restSeconds: 90,
     loadGuidance: 'choose_start',

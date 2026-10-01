@@ -181,6 +181,8 @@ function exerciseOf(setup: Setup, lib: LibraryExercise, priority: boolean): Plan
     exerciseKey: lib.key,
     isPriority: priority,
     ...prescription(setup, priority),
+    targetDurationSeconds: null,
+    targetDistanceMeters: null,
     loadGuidance: fromHistory ? 'from_history' : 'choose_start',
     targetLoadKg: null,
     rationale: (priority ? 'Main lift for the goal.' : 'Accessory work for balance.') + (area ? ` Chosen to keep load off the ${area}.` : '') + (fromHistory ? ' Starts from recent history.' : ''),
@@ -191,7 +193,7 @@ function exerciseOf(setup: Setup, lib: LibraryExercise, priority: boolean): Plan
 /** A session inside the time budget and the level's session-set limit. */
 function fitsSession(setup: Setup, exercises: PlanDraftExercise[]): boolean {
   const limits = effectiveLimits(setup.experience, setup.conservative);
-  return estimateMinutes({ exercises: exercises.map(asPlanExercise) }) <= setup.minutes && exercises.reduce((sum, e) => sum + e.sets, 0) <= limits.sessionSetsRepairAbove;
+  return estimateMinutes({ exercises: exercises.map(asPlanExercise) }) <= setup.minutes && exercises.reduce((sum, e) => sum + (e.sets ?? 0), 0) <= limits.sessionSetsRepairAbove;
 }
 
 function buildWorkout(setup: Setup, kind: string, weekday: number, index: number): PlanDraftWorkout {
@@ -217,7 +219,7 @@ const PULL_PATTERNS = ['horizontal_pull', 'vertical_pull'];
 
 /** Drops the last accessory of the heavier side while push and pull sets differ by more than 25 percent. */
 function rebalance(exercises: PlanDraftExercise[]): void {
-  const sets = (patterns: string[]) => exercises.filter((e) => patterns.includes(seedExercise(e.exerciseKey).movementPattern)).reduce((sum, e) => sum + e.sets, 0);
+  const sets = (patterns: string[]) => exercises.filter((e) => patterns.includes(seedExercise(e.exerciseKey).movementPattern)).reduce((sum, e) => sum + (e.sets ?? 0), 0);
   for (let guard = 0; guard < 6 && exercises.length > 3; guard += 1) {
     const push = sets(PUSH_PATTERNS);
     const pull = sets(PULL_PATTERNS);
@@ -231,7 +233,7 @@ function rebalance(exercises: PlanDraftExercise[]): void {
 
 /** Just enough of a PlanExercise for the duration model. */
 function asPlanExercise(e: PlanDraftExercise) {
-  return { exerciseId: e.exerciseKey, position: 0, isPriority: e.isPriority, targetSets: e.sets, repMin: e.repMin, repMax: e.repMax, targetLoadKg: null, targetRpe: e.targetRpe, restSeconds: e.restSeconds, loadGuidance: e.loadGuidance, rationale: null, evidenceRefs: [], notes: null, equipmentTypeId: null } as never;
+  return { exerciseId: e.exerciseKey, position: 0, isPriority: e.isPriority, targetSets: e.sets, repMin: e.repMin, repMax: e.repMax, targetDurationSeconds: null, targetDistanceMeters: null, targetLoadKg: null, targetRpe: e.targetRpe, restSeconds: e.restSeconds, loadGuidance: e.loadGuidance, rationale: null, evidenceRefs: [], notes: null, equipmentTypeId: null } as never;
 }
 
 /** Brings weekly sets per primary muscle under the level's maximum. */
@@ -240,13 +242,13 @@ function trimVolume(setup: Setup, workouts: PlanDraftWorkout[]): void {
   const muscles = (e: PlanDraftExercise) => seedExercise(e.exerciseKey).primaryMuscles.filter((m) => !(GUARDRAIL_LIMITS.uncountedMuscles as readonly string[]).includes(m));
   for (let guard = 0; guard < 300; guard += 1) {
     const totals = new Map<string, number>();
-    for (const w of workouts) for (const e of w.exercises) for (const m of muscles(e)) totals.set(m, (totals.get(m) ?? 0) + e.sets);
+    for (const w of workouts) for (const e of w.exercises) for (const m of muscles(e)) totals.set(m, (totals.get(m) ?? 0) + (e.sets ?? 0));
     const over = [...totals].find(([, sets]) => sets > limits.weeklySetsMax);
     if (!over) return;
     const touching = workouts.flatMap((w) => w.exercises.map((e) => ({ w, e }))).filter(({ e }) => muscles(e).includes(over[0]));
-    const reducible = [...touching].reverse().find(({ e }) => e.sets > 2);
+    const reducible = [...touching].reverse().find(({ e }) => (e.sets ?? 0) > 2);
     if (reducible) {
-      reducible.e.sets -= 1;
+      reducible.e.sets = (reducible.e.sets ?? 1) - 1;
       continue;
     }
     const droppable = [...touching].reverse().find(({ w, e }) => !e.isPriority && w.exercises.length > 3);
@@ -262,12 +264,12 @@ function weekTypes(setup: Setup, base: PlanDraftWorkout[]): Record<'A' | 'B' | '
   for (const w of progress)
     for (const e of w.exercises) {
       if (e.targetRpe !== null && e.targetRpe + 0.5 <= limits.rpeCap) e.targetRpe += 0.5;
-      else if (e.repMin < e.repMax) e.repMin += 1;
+      else if (e.repMin !== null && e.repMax !== null && e.repMin < e.repMax) e.repMin += 1;
     }
   const deload = clone(base);
   for (const w of deload)
     for (const e of w.exercises) {
-      e.sets = Math.max(2, Math.round(e.sets * 0.6));
+      e.sets = e.sets === null ? null : Math.max(2, Math.round(e.sets * 0.6));
       e.targetRpe = e.targetRpe === null ? null : Math.max(5, e.targetRpe - 2);
     }
   return {
@@ -334,6 +336,8 @@ const ex = (key: string, over: Partial<PlanDraftExercise> = {}): PlanDraftExerci
   sets: 3,
   repMin: 8,
   repMax: 12,
+  targetDurationSeconds: null,
+  targetDistanceMeters: null,
   targetRpe: 7,
   restSeconds: 90,
   loadGuidance: 'choose_start',

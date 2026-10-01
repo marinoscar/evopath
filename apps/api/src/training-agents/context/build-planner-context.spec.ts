@@ -324,6 +324,8 @@ describe('buildTrainingRunContext', () => {
           targetSets: 3,
           repMin: 8,
           repMax: 12,
+          targetDurationSeconds: null,
+          targetDistanceMeters: null,
           targetLoadKg: null,
           targetRpe: 7,
           restSeconds: 90,

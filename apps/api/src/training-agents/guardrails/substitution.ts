@@ -1,3 +1,4 @@
+import { isCardioTrackingMode } from '../../programs/contracts/prescription';
 import { supportedBy } from '../context/build-planner-context';
 import type { ImplementClass, LibraryExercise } from '../context/planner-context.contract';
 import type { PlanExercise } from '../../programs/contracts/plan-tree.contract';
@@ -46,6 +47,14 @@ export function fallbackTier(original: ImplementClass, candidate: ImplementClass
   return index === -1 ? 99 : index + 1;
 }
 
+/**
+ * A substitute keeps the prescription, so it must take the same shape: reps
+ * modes swap among themselves, a time or distance mode only for the same mode.
+ */
+function sameTrackingFamily(original: string, candidate: string): boolean {
+  return isCardioTrackingMode(original) || isCardioTrackingMode(candidate) ? original === candidate : true;
+}
+
 /** Ranked substitutes for `original` (best first). `excludeIds` are ids already in the workout. */
 export function findSubstitutes(
   original: LibraryExercise,
@@ -60,6 +69,7 @@ export function findSubstitutes(
         candidate.id !== original.id &&
         !excludeIds.has(candidate.id) &&
         candidate.movementPattern === original.movementPattern &&
+        sameTrackingFamily(original.trackingMode, candidate.trackingMode) &&
         (muscle === undefined || candidate.primaryMuscles.includes(muscle)) &&
         !ctx.avoidExerciseKeys.has(candidate.key) &&
         !ctx.painFlagKeys.has(candidate.key) &&

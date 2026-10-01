@@ -19,7 +19,7 @@ import { loadScenario } from '../support/scenario-script';
 const URL_OR_MARKUP = /https?:\/\/|evil\.example|<[a-z]/i;
 
 /** The exercise rows of weeks `weeks` for `key`: `[week, sets, load]`. */
-function shape(tree: PlanTree, key: string, weeks: number[]): Array<[number, number, number | null]> {
+function shape(tree: PlanTree, key: string, weeks: number[]): Array<[number, number | null, number | null]> {
   return rowsOf(tree, key)
     .filter((r) => weeks.includes(r.weekNumber))
     .map((r) => [r.weekNumber, r.exercise.targetSets, r.exercise.targetLoadKg]);

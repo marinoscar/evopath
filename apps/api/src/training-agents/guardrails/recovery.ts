@@ -1,4 +1,4 @@
-import type { PlanTree, PlanWeek, PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanTree, type PlanWeek, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
 import { GUARDRAIL_LIMITS, PROGRESSION_LIMITS } from './limits';
 import { Findings, WEEKDAY_NAMES, allowedWeekdays, floorHalf, setsByMuscle, sortWeek, weeksOf } from './tree';
 import type { GuardrailContext, Violation } from './types';
@@ -21,7 +21,10 @@ export function applyDeloadTransform(week: PlanWeek): void {
   const d = PROGRESSION_LIMITS.deload;
   for (const workout of week.workouts) {
     for (const exercise of workout.exercises) {
-      exercise.targetSets = Math.min(exercise.targetSets, Math.max(d.minSets, Math.round(exercise.targetSets * d.setsFactor)));
+      // A cardio prescription keeps its target; only its intensity eases below.
+      if (isRepsExercise(exercise)) {
+        exercise.targetSets = Math.min(exercise.targetSets, Math.max(d.minSets, Math.round(exercise.targetSets * d.setsFactor)));
+      }
       if (exercise.targetLoadKg !== null) {
         exercise.targetLoadKg = floorHalf(exercise.targetLoadKg * d.loadFactor);
       } else if (exercise.targetRpe !== null) {

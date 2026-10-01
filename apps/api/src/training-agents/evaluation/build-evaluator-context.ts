@@ -1,5 +1,5 @@
 import { addDays } from '../../check-ins/local-date';
-import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanTree } from '../../programs/contracts/plan-tree.contract';
 import { compactSignals } from '../../programs/signals/compact-signals';
 import type { PlanSignals } from '../../programs/signals/plan-signals.contract';
 import { daysFrom, occurrenceDate } from '../../programs/today/resolve-today';
@@ -226,6 +226,9 @@ function renderPlan(
           sets: exercise.targetSets,
           repMin: exercise.repMin,
           repMax: exercise.repMax,
+          ...(isRepsExercise(exercise)
+            ? {}
+            : { targetDurationSeconds: exercise.targetDurationSeconds, targetDistanceMeters: exercise.targetDistanceMeters }),
           targetRpe: exercise.targetRpe ?? null,
           restSeconds: exercise.restSeconds,
           targetLoadKg: exercise.targetLoadKg ?? null,

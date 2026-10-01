@@ -1,4 +1,4 @@
-import type { PlanBlock, PlanExercise, PlanTree, PlanWeek, PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { setsOf, type PlanBlock, type PlanExercise, type PlanTree, type PlanWeek, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
 import type { LibraryExercise } from '../context/planner-context.contract';
 import type { GuardrailContext, GuardrailRule, Violation, ViolationSeverity } from './types';
 
@@ -92,7 +92,7 @@ export class Findings {
 }
 
 export function sessionSets(workout: PlanWorkout): number {
-  return workout.exercises.reduce((sum, e) => sum + e.targetSets, 0);
+  return workout.exercises.reduce((sum, e) => sum + setsOf(e), 0);
 }
 
 /** Counted primary muscles of an exercise (cardio and whole-body excluded). */
@@ -111,7 +111,7 @@ export function setsByMuscle(
   for (const workout of workouts)
     for (const exercise of workout.exercises)
       for (const muscle of countedMuscles(ctx.library.get(exercise.exerciseId), uncounted))
-        totals.set(muscle, (totals.get(muscle) ?? 0) + exercise.targetSets);
+        totals.set(muscle, (totals.get(muscle) ?? 0) + setsOf(exercise));
   return totals;
 }
 

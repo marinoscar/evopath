@@ -1,4 +1,4 @@
-import type { PlanExercise, PlanTree, PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanExercise, type PlanTree, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
 import { DURATION_MODEL, GUARDRAIL_LIMITS } from './limits';
 import { Findings, keyOf, pathOf, weeksOf, workoutLabel } from './tree';
 import type { GuardrailContext, Violation } from './types';
@@ -10,7 +10,10 @@ import type { GuardrailContext, Violation } from './types';
 // Estimated minutes = warm-up 5 + for each exercise: setup 60 s + the work of
 // each set `clamp(repMax x 3, 20, 60)` s + rest between sets (none after the
 // last), rounded up. A rest of 0 counts as unset: 90 s for a priority lift,
-// 60 s for an accessory.
+// 60 s for an accessory. A cardio prescription takes setup 60 s + its target
+// duration (else its distance at `cardioSecondsPerMeter`), plus rest between
+// its sets when it has more than one. The trim ladder never changes a cardio
+// prescription's sets (its target is the session total); it may drop it.
 //
 // A workout may take at most `minutesPerSession x 1.05`. Trim until it fits,
 // stopping at the first step that does, each change a recorded repair:
@@ -33,6 +36,11 @@ function restOf(exercise: PlanExercise): number {
 
 /** Seconds one exercise takes. */
 export function exerciseSeconds(exercise: PlanExercise): number {
+  if (!isRepsExercise(exercise)) {
+    const work = exercise.targetDurationSeconds ?? Math.round((exercise.targetDistanceMeters ?? 0) * M.cardioSecondsPerMeter);
+    const sets = exercise.targetSets ?? 1;
+    return M.setupSeconds + work + Math.max(0, sets - 1) * restOf(exercise);
+  }
   const work = Math.min(M.setWorkSeconds.max, Math.max(M.setWorkSeconds.min, exercise.repMax * M.secondsPerRep));
   return M.setupSeconds + exercise.targetSets * work + Math.max(0, exercise.targetSets - 1) * restOf(exercise);
 }
@@ -71,7 +79,7 @@ export function trimToFit(workout: PlanWorkout, budgetMinutes: number): { steps:
 
   // T2
   for (const exercise of reversed()) {
-    if (exercise.isPriority || exercise.targetSets <= floor) continue;
+    if (exercise.isPriority || !isRepsExercise(exercise) || exercise.targetSets <= floor) continue;
     exercise.targetSets -= 1;
     steps.push({ step: 'T2', exerciseId: exercise.exerciseId, action: `one set removed (${exercise.targetSets} left)` });
     if (fits()) return { steps, fits: true };
@@ -91,7 +99,7 @@ export function trimToFit(workout: PlanWorkout, budgetMinutes: number): { steps:
 
   // T4
   for (const exercise of reversed()) {
-    if (!exercise.isPriority || exercise.targetSets <= floor) continue;
+    if (!exercise.isPriority || !isRepsExercise(exercise) || exercise.targetSets <= floor) continue;
     exercise.targetSets -= 1;
     steps.push({ step: 'T4', exerciseId: exercise.exerciseId, action: `one set removed (${exercise.targetSets} left)` });
     if (fits()) return { steps, fits: true };
@@ -112,7 +120,7 @@ export function trimToFit(workout: PlanWorkout, budgetMinutes: number): { steps:
     steps.push({ step: 'T6', exerciseId: exercise.exerciseId, action: 'removed to fit the time' });
   }
   const [only] = workout.exercises;
-  if (!fits() && workout.exercises.length === 1 && only.targetSets > floor) {
+  if (!fits() && workout.exercises.length === 1 && isRepsExercise(only) && only.targetSets > floor) {
     steps.push({ step: 'T6', exerciseId: only.exerciseId, action: `sets ${only.targetSets} to ${floor}` });
     only.targetSets = floor;
   }

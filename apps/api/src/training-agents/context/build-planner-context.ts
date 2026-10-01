@@ -2,7 +2,7 @@ import { isAvailable } from '../../exercises/exercise-availability.service';
 import { buildResearcherContext, type EquipmentClass } from '../agents/researcher/researcher-context';
 import type { TrainingIntake } from '../contracts/training-intake.contract';
 import type { TrainingHealthSummary } from '../../health-summary/health-summary.reader';
-import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanTree } from '../../programs/contracts/plan-tree.contract';
 import { conservativeModeOf, screenFreeText, type ReadinessAverages } from '../guardrails/safety-screen';
 import { implementOfEquipment } from './implement';
 import type {
@@ -350,6 +350,9 @@ export function compactPlan(tree: PlanTree, library: ReadonlyMap<string, Library
               sets: exercise.targetSets,
               repMin: exercise.repMin,
               repMax: exercise.repMax,
+              ...(isRepsExercise(exercise)
+                ? {}
+                : { targetDurationSeconds: exercise.targetDurationSeconds, targetDistanceMeters: exercise.targetDistanceMeters }),
               targetRpe: exercise.targetRpe ?? null,
               restSeconds: exercise.restSeconds,
               targetLoadKg: exercise.targetLoadKg ?? null,
