@@ -155,7 +155,7 @@ Where to look, in order:
 | `coach.workout_finished` | After a finished workout: plans `comeback`, `pr` or `weekly_target_hit` for that user | 1 minute, 2 |
 | `ai.coach.nudge` | Writes, guards and persists one nudge | 2 minutes, 2 |
 | `ai.coach.weekly_review` | Writes one weekly review | 3 minutes, 2 |
-| `coach.message.deliver` | Sends one message's notification | 1 minute, 3 |
+| `coach.message.deliver` | Sends one message's notification | 3 minutes, 3 |
 | `coach.audio.settle` | Records a spoken message's result, then queues delivery | 30 seconds, 3 |
 | `coach.audio.purge` | Daily at 03:23 UTC: deletes audio older than the retention | 10 minutes, 2 |
 
