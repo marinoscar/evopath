@@ -66,6 +66,11 @@
 //                                     GymEquipmentPhoto)
 //   Workout                           userId (cascades WorkoutExercise, SetLog,
 //                                     WorkoutPhoto, ProgramSession)
+//   ActivityEntry                     userId — explicitly, BEFORE workouts so a
+//                                     workout-derived entry is counted rather
+//                                     than cascaded (manual and derived alike)
+//   ActivityGoal                      userId — explicitly (cascades only from
+//                                     the kept User row)
 //   Program                           userId (cascades blocks, weeks, workouts,
 //                                     exercises, versions, sessions, change log)
 //   ProgramChangeLog, ProgramSession  userId — leftovers, explicitly

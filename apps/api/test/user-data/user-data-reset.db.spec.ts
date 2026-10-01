@@ -215,6 +215,19 @@ describeWithDb('user.data_reset (real Postgres)', () => {
     await client.coachMessage.create({ data: { userId: a, role: 'user', kind: 'chat', body: 'On my way' } });
     await client.coachState.create({ data: { userId: a, weeklyStreak: 2, pausedUntil: new Date(Date.now() + 86_400_000) } });
 
+    // Activity goals and entries (epic #260): a goal, a manual entry and one
+    // derived from A's workout (counted, not just cascaded); B keeps theirs.
+    const goalShape = { title: 'Walk', activityKind: 'walk', metric: 'sessions', target: 3, period: 'week', startsOn: new Date('2026-09-01') } as const;
+    await client.activityGoal.create({ data: { userId: a, ...goalShape } });
+    await client.activityEntry.create({ data: { userId: a, occurredOn: new Date('2026-09-01'), activityKind: 'walk' } });
+    await client.activityEntry.create({
+      data: { userId: a, occurredOn: new Date('2026-09-01'), activityKind: 'workout_any', source: 'workout', workoutId: workoutA.id },
+    });
+    await client.activityGoal.create({ data: { userId: b, ...goalShape } });
+    await client.activityEntry.create({
+      data: { userId: b, occurredOn: new Date('2026-09-01'), activityKind: 'workout_any', source: 'workout', workoutId: workoutB.id },
+    });
+
     // --- B's data, which must be untouched ---------------------------------
     await client.gym.create({ data: { userId: b, name: 'B gym' } });
     const docObjectB = await storageObject(b, 'doc-b');
@@ -296,6 +309,8 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       ['coachMessages', await client.coachMessage.count({ where: { userId: a } })],
       ['audioObject', await client.storageObject.count({ where: { id: audioObject.id } })],
       ['coachState', await client.coachState.count({ where: { userId: a } })],
+      ['activityGoals', await client.activityGoal.count({ where: { userId: a } })],
+      ['activityEntries', await client.activityEntry.count({ where: { userId: a } })],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -319,6 +334,8 @@ describeWithDb('user.data_reset (real Postgres)', () => {
     expect(await client.storageObject.count({ where: { id: progressObjectB.id } })).toBe(1);
     expect(await client.coachMessage.count({ where: { userId: b } })).toBe(1);
     expect(await client.coachState.count({ where: { userId: b } })).toBe(1);
+    expect(await client.activityGoal.count({ where: { userId: b } })).toBe(1);
+    expect(await client.activityEntry.count({ where: { userId: b } })).toBe(1);
     // Both document files reached the provider, not just the database.
     expect(storage.delete).toHaveBeenCalledWith(keptDocObject.storageKey);
     expect(storage.delete).toHaveBeenCalledWith(purgeDocObject.storageKey);
@@ -348,6 +365,8 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       progressPhotos: 1,
       coachMessages: 2,
       coachStates: 1,
+      activityGoals: 1,
+      activityEntries: 2,
       cancelledJobs: 2,
       storageObjectsDeleted: 5,
       storageObjectsFailed: 1,

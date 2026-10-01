@@ -199,6 +199,13 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
     });
     await client.coachState.create({ data: { userId: b } });
     await client.coachState.create({ data: { userId: actorId, weeklyStreak: 3 } });
+    const goalShape = { title: 'Walk', activityKind: 'walk', metric: 'sessions', target: 3, period: 'week', startsOn: new Date('2026-09-01') } as const;
+    await client.activityGoal.create({ data: { userId: actorId, ...goalShape } });
+    await client.activityGoal.create({ data: { userId: b, ...goalShape } });
+    await client.activityEntry.create({ data: { userId: actorId, occurredOn: new Date('2026-09-01'), activityKind: 'walk' } });
+    await client.activityEntry.create({
+      data: { userId: b, occurredOn: new Date('2026-09-01'), activityKind: 'workout_any', source: 'workout', workoutId: bWorkout.id },
+    });
     const backupJob = await client.job.create({
       data: { type: 'db.backup.run', reason: 'rerun', status: 'succeeded' },
     });
@@ -258,6 +265,8 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       ['coach messages', await client.coachMessage.count()],
       ['coach audio file', await client.storageObject.count({ where: { id: audioObject.id } })],
       ['coach states', await client.coachState.count()],
+      ['activity goals', await client.activityGoal.count()],
+      ['activity entries', await client.activityEntry.count()],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
     }
@@ -302,6 +311,8 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       progressPhotos: 1,
       coachMessages: 1,
       coachStates: 2,
+      activityGoals: 2,
+      activityEntries: 2,
       broadcasts: 1,
       workerNodesReassigned: 1,
       nodeCredentialsReassigned: 1,

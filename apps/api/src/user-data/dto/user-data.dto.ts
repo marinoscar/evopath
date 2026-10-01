@@ -65,6 +65,9 @@ export const userDataResetResultSchema = z.object({
   progressPhotos: count.default(0),
   coachMessages: count.default(0),
   coachStates: count.default(0),
+  /** Activity goals and entries (epic #260): added after the first release, so an older result reads as 0. */
+  activityGoals: count.default(0),
+  activityEntries: count.default(0),
   programs: count,
   programChangeLogs: count,
   trainingRuns: count,

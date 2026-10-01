@@ -159,6 +159,8 @@ describe('toResetStatus', () => {
     progressPhotos: 3,
     coachMessages: 4,
     coachStates: 1,
+    activityGoals: 2,
+    activityEntries: 5,
     programs: 0,
     programChangeLogs: 0,
     trainingRuns: 0,
@@ -218,6 +220,13 @@ describe('toResetStatus', () => {
       status: 'succeeded',
       result: { ...older, progressPhotos: 0, coachMessages: 0, coachStates: 0 },
     });
+  });
+
+  it('reads a result written before activity goals existed as 0 goals and entries, not as malformed', () => {
+    const { activityGoals: _g, activityEntries: _e, ...older } = result;
+    expect(
+      toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
+    ).toEqual({ jobId: 'j', status: 'succeeded', result: { ...older, activityGoals: 0, activityEntries: 0 } });
   });
 
   it('omits a malformed result rather than returning it', () => {
