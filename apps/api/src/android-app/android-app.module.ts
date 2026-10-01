@@ -4,6 +4,7 @@ import { AndroidAppController } from './android-app.controller';
 import { AndroidAppService } from './android-app.service';
 import { AssetLinksController } from './asset-links.controller';
 import { AndroidAssetLinksDoctorCheck } from './doctor/android-assetlinks.doctor-check';
+import { AndroidReleasesDoctorCheck } from './doctor/android-releases.doctor-check';
 import { AndroidReleaseAdminController } from './releases/android-release-admin.controller';
 import { AndroidReleaseController } from './releases/android-release.controller';
 import { AndroidReleaseService } from './releases/android-release.service';
@@ -16,7 +17,8 @@ import { StorageProvidersModule } from '../storage/providers/storage-providers.m
 // Trust for the Android app's Trusted Web Activity: the admin list of trusted
 // (package, signing fingerprint) pairs under `system_settings:*`, the public
 // Digital Asset Links document the edge serves at
-// `/.well-known/assetlinks.json`, and the `android.assetlinks` doctor check.
+// `/.well-known/assetlinks.json`, and the `android.assetlinks` and
+// `android.releases` doctor checks.
 //
 // Reads `health_sync_devices` directly (one grouped SELECT) for the apps paired
 // devices report; it does not import the health-sync module, which owns the
@@ -31,7 +33,7 @@ import { StorageProvidersModule } from '../storage/providers/storage-providers.m
 @Module({
   imports: [StorageProvidersModule],
   controllers: [AndroidAppController, AssetLinksController, AndroidReleaseAdminController, AndroidReleaseController],
-  providers: [AndroidAppService, AndroidAssetLinksDoctorCheck, AndroidReleaseService],
+  providers: [AndroidAppService, AndroidAssetLinksDoctorCheck, AndroidReleasesDoctorCheck, AndroidReleaseService],
   exports: [AndroidAppService, AndroidReleaseService],
 })
 export class AndroidAppModule {}
