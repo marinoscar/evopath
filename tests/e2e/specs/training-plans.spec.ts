@@ -491,17 +491,22 @@ async function finishTodaysPlannedWorkout(page: Page): Promise<void> {
   await card.getByRole('button', { name: 'Start planned workout' }).click();
   await expect(page).toHaveURL(/\/train\/workouts\/[0-9a-f-]{36}$/);
 
-  // Log the first set: fill whatever the planned set leaves empty, then complete it.
-  const weight = page.getByLabel('Set 1 weight in lb', { exact: true });
+  // Log the first set of the first exercise (a planned workout has several, each with a "Set 1"): fill
+  // whatever the planned set leaves empty, then complete it.
+  const weight = page.getByLabel('Set 1 weight in lb', { exact: true }).first();
   if ((await weight.count()) > 0 && (await weight.inputValue()) === '') await weight.fill('20');
-  const reps = page.getByLabel('Set 1 reps', { exact: true });
+  const reps = page.getByLabel('Set 1 reps', { exact: true }).first();
   if ((await reps.inputValue()) === '') await reps.fill('10');
-  const complete = page.getByRole('button', { name: 'Complete set 1' });
+  const complete = page.getByRole('button', { name: 'Complete set 1' }).first();
   if ((await complete.getAttribute('aria-pressed')) !== 'true') await complete.click();
   await expect(complete).toHaveAttribute('aria-pressed', 'true');
 
   await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  // The other planned sets were prefilled and not touched: "Leave them" (the confirm appears only when some are).
+  const confirmFinish = page.getByRole('dialog', { name: 'Finish workout?' });
   const summary = page.getByRole('dialog', { name: 'Workout finished' });
+  await expect(confirmFinish.or(summary)).toBeVisible();
+  if (await confirmFinish.isVisible()) await confirmFinish.getByRole('button', { name: 'Leave them' }).click();
   await expect(summary).toBeVisible();
   await summary.getByRole('button', { name: 'Done' }).click();
 }
