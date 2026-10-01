@@ -7,6 +7,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { OAuthButton } from '../components/auth/OAuthButton';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { BrandMark } from '../components/common/BrandMark';
+import {
+  BRAND_MARK_GLYPH_STANDARD,
+  BRAND_MARK_VIEWBOX,
+} from '../components/common/brandMarkPaths.generated';
 
 interface LocationState {
   from?: { pathname: string; search: string };
@@ -19,13 +23,12 @@ const TAGLINE = 'Your path to better health, measured.';
 const BRAND_GLYPH_SIZE = 120;
 
 /**
- * Where the sun sits inside the glyph, as a fraction of its box. The glow
- * behind the glyph is centred here so the light appears to come from the sun.
- * Approximate on purpose (it is a soft gradient, not geometry): the exact sun
- * position lives in `brandMarkPaths.generated.ts`.
+ * Where the sun sits inside the glyph, as a fraction of its box, read from the
+ * generated geometry so the glow behind the glyph stays centred on the sun
+ * whenever the mark is regenerated.
  */
-const SUN_X = 0.73;
-const SUN_Y = 0.16;
+const SUN_X = BRAND_MARK_GLYPH_STANDARD.sun.cx / BRAND_MARK_VIEWBOX;
+const SUN_Y = BRAND_MARK_GLYPH_STANDARD.sun.cy / BRAND_MARK_VIEWBOX;
 
 /**
  * The sign-in page.

@@ -56,14 +56,21 @@ that path as a white road seen in perspective on the teal plate: wide at the
 bottom where the user stands, narrowing as it winds up through two bends (an
 S), and converging just below a warm yellow sun — the goal on the horizon.
 
-  - The road is a FILLED RIBBON, not a stroke. Its centreline is a chain of
-    cubic Beziers (`STANDARD.segments`); each cubic is sampled densely, and the
-    outline is the centreline offset by +/- half the local width along its
-    normals. The width tapers with "depth" (the centreline's height) from
-    `width_base` at the bottom to `width_top` at the top — never a hairline.
+  - The road is a FILLED RIBBON, not a stroke. Its centreline is drawn like a
+    turtle (`MarkSpec.path`): straight legs joined by TRUE circular arcs, so
+    every bend has a radius chosen in this file. Arcs become cubic Beziers,
+    the cubics are sampled by length, and the outline is the centreline
+    offset by +/- half the local width along its normals. The width tapers
+    with "depth" (the centreline's height) from `width_base` at the bottom to
+    `width_top` at the top — never a hairline.
+  - The outline is smooth by construction: each bend's radius is at least
+    ~1.45x the road's half-width there, so the inner edge is itself a round
+    arc. A safety clamp (`_inner_half`) would round off a bend drawn too tight
+    rather than let it crease, and the build fails outright if an edge ever
+    crosses itself.
   - The base sits on a flat horizontal baseline (the centreline leaves the
     baseline vertically and the outline is clamped to it), so the road starts
-    with a clean edge, not a spike.
+    with a clean cut, not a spike or a blob.
   - The sun is a true circle in `ACCENT_COLOR`, set slightly to the side of
     the road's top end with a clear gap, so the composition reads as a road
     reaching the horizon rather than as a lowercase "i" or a "$".
@@ -74,8 +81,8 @@ S), and converging just below a warm yellow sun — the goal on the horizon.
 A second, COMPACT geometry (`COMPACT`) is used where the mark is tiny: the
 favicon frames, `favicon.svg`, the notification badge, and `BrandMark` below
 32px. It keeps the same S and the sun but draws the road at a uniform width
-(0.16 of the box) with a larger gap, because perspective tapering turns into
-sub-pixel slivers at 16px.
+(about 0.16 of the box once fitted) with rounder bends and a larger gap,
+because perspective tapering turns into sub-pixel slivers at 16px.
 
 The accent colour is a LOGO-ONLY colour: the sun, nothing else. It is never a
 UI colour (see `ACCENT_COLOR` in `packages/shared/index.js`).
@@ -225,59 +232,86 @@ CORNER_RADIUS_RATIO = 0.22   # rounded-square plate radius, as a fraction of siz
 # fraction of the box.
 OPTICAL_LIFT = 0.015
 
-# How finely each cubic is sampled before the outline is offset. Dense enough
-# that the polygon's facets are far below one pixel at 512px.
-CURVE_SAMPLES = 40
+# How finely the centreline is sampled before the outline is offset: one
+# sample per CURVE_STEP of box length (about 2px on the 512 icon), at least
+# CURVE_MIN_SAMPLES per cubic. Far below visible faceting on these radii.
+CURVE_STEP = 0.006
+CURVE_MIN_SAMPLES = 4
 
 
 @dataclass(frozen=True)
 class MarkSpec:
-    """One version of the mark, in design coordinates (box-sized, y down)."""
+    """One version of the mark, in design coordinates (box-sized, y down).
 
-    # Road centreline: start point, then cubic segments (control1, control2, end).
-    start: tuple[float, float]
-    segments: tuple[tuple[tuple[float, float], tuple[float, float], tuple[float, float]], ...]
+    The road's centreline is drawn like a turtle: it leaves the baseline at
+    `start_x` heading straight up, then follows `path`, a sequence of
+    ("line", length) and ("arc", radius, turn_degrees) steps (positive turns
+    left, negative right). Straight legs joined by TRUE circular arcs give
+    every bend a radius chosen here, which is what keeps the inside of each
+    bend smooth: a bend tighter than the road's half-width cannot be offset
+    cleanly by any means (see `_inner_half`).
+    """
+
+    start_x: float
+    path: tuple[tuple, ...]
     # Road width at the base and at the top end, as fractions of the box.
     width_base: float
     width_top: float
-    # Taper curve: width follows depth**taper_power (1 = linear in height).
+    # Taper curve: width follows depth**taper_power (1 = linear in height;
+    # below 1 the road stays wider for longer, a gentler perspective).
     taper_power: float
-    # The sun: centre and radius.
-    sun: tuple[float, float, float]
+    # The sun: radius, the clear gap between it and the road's top end, and
+    # the direction (degrees, 0 = right, 90 = straight up) from that end.
+    sun_radius: float
+    sun_gap: float
+    sun_angle: float
     # Whether the top end of the road gets a round cap (else a square cut).
     round_top: bool
 
 
-# The standard mark: perspective road, two bends, sun up and to the right.
+# The standard mark: a road climbing from a flat baseline through a wide left
+# bend and a tighter right bend (perspective), converging up-left beneath a
+# sun set off to its right. The bend radii are >= ~1.45x the local half-width,
+# so the inner edges are smooth arcs with no help from the safety clamp.
 STANDARD = MarkSpec(
-    start=(0.60, 1.00),
-    segments=(
-        # Leaves the baseline vertically and sweeps out to the left bend.
-        ((0.60, 0.84), (0.10, 0.92), (0.14, 0.73)),
-        # Crosses back to the right bend.
-        ((0.17, 0.60), (0.80, 0.70), (0.80, 0.54)),
-        # Turns once more and converges beneath the sun's left edge.
-        ((0.80, 0.45), (0.64, 0.44), (0.54, 0.40)),
+    start_x=0.60,
+    path=(
+        ("line", 0.02),           # leaves the baseline straight up
+        ("arc", 0.18, 62),        # eases left into the first crossing
+        ("line", 0.06),           # first crossing, climbing left
+        ("arc", 0.135, -126),     # the left bend
+        ("line", 0.15),           # second crossing, climbing right
+        ("arc", 0.095, 112),      # the right bend
+        ("line", 0.09),           # the last climb toward the horizon
     ),
-    width_base=0.28,
-    width_top=0.075,
-    taper_power=1.1,
-    sun=(0.685, 0.185, 0.15),
+    width_base=0.22,
+    width_top=0.08,
+    taper_power=0.9,
+    sun_radius=0.13,
+    sun_gap=0.065,
+    sun_angle=40,
     round_top=True,
 )
 
-# The compact mark: the same S at a uniform width, with a larger gap.
+# The compact mark: the same S at a uniform width, with rounder bends and a
+# larger gap, for favicon and badge sizes.
 COMPACT = MarkSpec(
-    start=(0.54, 1.00),
-    segments=(
-        ((0.54, 0.86), (0.10, 0.92), (0.13, 0.75)),
-        ((0.16, 0.60), (0.84, 0.69), (0.82, 0.53)),
-        ((0.80, 0.45), (0.64, 0.47), (0.52, 0.46)),
+    start_x=0.60,
+    path=(
+        ("line", 0.01),
+        ("arc", 0.16, 60),
+        ("line", 0.03),
+        ("arc", 0.14, -124),
+        ("line", 0.11),
+        ("arc", 0.13, 110),
+        ("line", 0.05),
     ),
-    width_base=0.16,
-    width_top=0.16,
+    width_base=0.175,
+    width_top=0.175,
     taper_power=1.0,
-    sun=(0.74, 0.15, 0.16),
+    sun_radius=0.17,
+    sun_gap=0.10,
+    sun_angle=38,
     round_top=True,
 )
 
@@ -304,60 +338,217 @@ EMAIL_PNG_SIZE = EMAIL_DISPLAY_SIZE * 2
 Point = tuple[float, float]
 
 
-def _cubic(p0: Point, p1: Point, p2: Point, p3: Point, t: float) -> tuple[Point, Point]:
-    """Point and (unnormalised) tangent of a cubic Bezier at `t`."""
+def _cubic(
+    p0: Point, p1: Point, p2: Point, p3: Point, t: float
+) -> tuple[Point, Point, float]:
+    """Point, (unnormalised) tangent and signed curvature of a cubic at `t`.
+
+    The curvature `k = (x'y'' - y'x'') / |v|^3` is signed so that `k > 0` puts
+    the centre of curvature on the LEFT normal `(-ty, tx)`, `k < 0` on the right.
+    """
     u = 1.0 - t
     point = (
         u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
         u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
     )
-    tangent = (
+    d1 = (
         3 * u * u * (p1[0] - p0[0]) + 6 * u * t * (p2[0] - p1[0]) + 3 * t * t * (p3[0] - p2[0]),
         3 * u * u * (p1[1] - p0[1]) + 6 * u * t * (p2[1] - p1[1]) + 3 * t * t * (p3[1] - p2[1]),
     )
-    return point, tangent
+    d2 = (
+        6 * u * (p2[0] - 2 * p1[0] + p0[0]) + 6 * t * (p3[0] - 2 * p2[0] + p1[0]),
+        6 * u * (p2[1] - 2 * p1[1] + p0[1]) + 6 * t * (p3[1] - 2 * p2[1] + p1[1]),
+    )
+    speed = math.hypot(*d1) or 1e-12
+    curvature = (d1[0] * d2[1] - d1[1] * d2[0]) / speed**3
+    return point, d1, curvature
 
 
-def _centreline(spec: MarkSpec) -> list[tuple[Point, Point]]:
-    """The centreline as (point, unit tangent) samples, start to top end."""
-    samples: list[tuple[Point, Point]] = []
-    current = spec.start
-    for index, (c1, c2, end) in enumerate(spec.segments):
+Cubic = tuple[Point, Point, Point]
+
+
+def _segments(spec: MarkSpec) -> tuple[Point, list[Cubic], Point, Point]:
+    """The turtle path as cubic Beziers.
+
+    Returns (start, cubics, end point, end direction). Lines become cubics
+    with handles at thirds; arcs are split into pieces of at most 90 degrees,
+    each the standard cubic approximation of a circular arc (handle length
+    4/3 * tan(theta / 4) * radius), accurate far below a pixel.
+    """
+    x, y = spec.start_x, 1.0
+    heading = math.pi / 2  # straight up, with the angle measured y-UP
+    cubics: list[Cubic] = []
+    for step in spec.path:
+        dx, dy = math.cos(heading), -math.sin(heading)
+        if step[0] == "line":
+            length = step[1]
+            end = (x + dx * length, y + dy * length)
+            cubics.append(
+                ((x + dx * length / 3, y + dy * length / 3),
+                 (x + dx * 2 * length / 3, y + dy * 2 * length / 3),
+                 end)
+            )
+            x, y = end
+            continue
+        _, radius, turn_degrees = step
+        pieces = max(1, math.ceil(abs(turn_degrees) / 90))
+        piece = math.radians(turn_degrees) / pieces
+        side = 1 if piece > 0 else -1
+        for _ in range(pieces):
+            dx, dy = math.cos(heading), -math.sin(heading)
+            # Centre of the turning circle, on the side the road turns toward.
+            cx = x - side * radius * math.sin(heading)
+            cy = y - side * radius * math.cos(heading)
+            heading += piece
+            ex = cx + side * radius * math.sin(heading)
+            ey = cy + side * radius * math.cos(heading)
+            handle = 4 / 3 * math.tan(abs(piece) / 4) * radius
+            ux, uy = math.cos(heading), -math.sin(heading)
+            cubics.append(
+                ((x + dx * handle, y + dy * handle), (ex - ux * handle, ey - uy * handle), (ex, ey))
+            )
+            x, y = ex, ey
+    return (spec.start_x, 1.0), cubics, (x, y), (math.cos(heading), -math.sin(heading))
+
+
+def _sun(spec: MarkSpec) -> tuple[float, float, float]:
+    """The sun's centre and radius: `sun_gap` clear of the road's top end."""
+    _, _, (ex, ey), _ = _segments(spec)
+    distance = spec.sun_radius + spec.sun_gap + spec.width_top / 2
+    angle = math.radians(spec.sun_angle)
+    return (ex + math.cos(angle) * distance, ey - math.sin(angle) * distance, spec.sun_radius)
+
+
+def _centreline(spec: MarkSpec) -> list[tuple[Point, Point, float]]:
+    """The centreline as (point, unit tangent, signed curvature) samples."""
+    start, cubics, _, _ = _segments(spec)
+    samples: list[tuple[Point, Point, float]] = []
+    current = start
+    for index, (c1, c2, end) in enumerate(cubics):
         first = 0 if index == 0 else 1  # shared joints are sampled once
-        for step in range(first, CURVE_SAMPLES + 1):
-            point, (tx, ty) = _cubic(current, c1, c2, end, step / CURVE_SAMPLES)
+        hull = (
+            math.dist(current, c1) + math.dist(c1, c2) + math.dist(c2, end)
+        )  # control-polygon length: an upper bound on the arc length
+        count = max(CURVE_MIN_SAMPLES, math.ceil(hull / CURVE_STEP))
+        for step in range(first, count + 1):
+            point, (tx, ty), curvature = _cubic(current, c1, c2, end, step / count)
             length = math.hypot(tx, ty) or 1.0
-            samples.append((point, (tx / length, ty / length)))
+            samples.append((point, (tx / length, ty / length), curvature))
         current = end
     return samples
 
 
+# On the INSIDE of a bend, the inner half-width is limited to INNER_CLEARANCE
+# x the local radius of curvature. Past 1.0 the offset edge folds over itself
+# (a crease or a swallowtail); 0.8 leaves the inner edge a radius of at least
+# 0.2 R.
+#
+# The limit is a SAFETY NET, not a styling tool: the bends in `STANDARD` and
+# `COMPACT` are drawn with radii generous enough (R >= ~1.45 x half-width)
+# that it never engages. It is exactly the identity until the half-width
+# reaches INNER_KNEE of the limit and only then eases (C1, via tanh) toward
+# the limit, so a well-drawn bend is untouched and a too-tight one is rounded
+# rather than creased. The curvature it reads is dilated and blurred along
+# the centreline (CURVATURE_BLUR x half-width) so that, when it does engage,
+# it covers the whole bend and the width eases in and out instead of stepping.
+INNER_CLEARANCE = 0.8
+INNER_KNEE = 0.85
+CURVATURE_BLUR = 1.0
+
+
+def _inner_half(half: float, curvature: float) -> float:
+    """`half`, limited to INNER_CLEARANCE x the radius of curvature (see above)."""
+    if abs(curvature) < 1e-9:
+        return half
+    limit = INNER_CLEARANCE / abs(curvature)
+    knee = INNER_KNEE * limit
+    if half <= knee:
+        return half
+    span = limit - knee
+    return knee + span * math.tanh((half - knee) / span)
+
+
+def _smoothed_curvature(
+    samples: list[tuple[Point, Point, float]], halves: list[float]
+) -> list[float]:
+    """Signed curvature, dilated then Gaussian-blurred along arc length.
+
+    Dilated first (a running MAXIMUM of each side's curvature over +/- 2 sigma)
+    so the full limit covers the whole bend and a margin either side of it,
+    then blurred (sigma ~ half-width) so the inner width eases in and out
+    instead of stepping. Averaging alone would weaken the limit exactly at the
+    ends of an arc, where the inner offset starts to fold. Each side is
+    processed separately, so a left bend next to a right one is not averaged
+    into a straight; per sample, the side with the larger result wins.
+    """
+    arc = [0.0]
+    for (p0, _, _), (p1, _, _) in zip(samples, samples[1:]):
+        arc.append(arc[-1] + math.hypot(p1[0] - p0[0], p1[1] - p0[1]))
+    sigmas = [max(1e-6, CURVATURE_BLUR * half) for half in halves]
+    count = len(samples)
+
+    def window(i: int, reach: float) -> range:
+        lo = i
+        while lo > 0 and arc[i] - arc[lo - 1] <= reach:
+            lo -= 1
+        hi = i
+        while hi < count - 1 and arc[hi + 1] - arc[i] <= reach:
+            hi += 1
+        return range(lo, hi + 1)
+
+    positive = [max(k, 0.0) for _, _, k in samples]
+    negative = [max(-k, 0.0) for _, _, k in samples]
+    dilated = [
+        (
+            max(positive[j] for j in window(i, 2 * sigmas[i])),
+            max(negative[j] for j in window(i, 2 * sigmas[i])),
+        )
+        for i in range(count)
+    ]
+    result = []
+    for i in range(count):
+        pos = neg = total = 0.0
+        for j in window(i, 3 * sigmas[i]):
+            weight = math.exp(-0.5 * ((arc[j] - arc[i]) / sigmas[i]) ** 2)
+            total += weight
+            pos += weight * dilated[j][0]
+            neg += weight * dilated[j][1]
+        pos, neg = pos / total, neg / total
+        result.append(pos if pos >= neg else -neg)
+    return result
+
+
 def _ribbon(spec: MarkSpec) -> list[Point]:
-    """The road outline: the centreline offset by +/- half the local width."""
+    """The road outline: the centreline offset by +/- half the local width.
+
+    The outer side of every bend gets the full half-width; the inner side is
+    limited by the local radius of curvature (`_inner_half`), so the outline
+    is smooth by construction: no creases, teeth or self-intersections.
+    """
     samples = _centreline(spec)
-    y_base = spec.start[1]
+    y_base = 1.0
     y_top = samples[-1][0][1]
 
     def width_at(y: float) -> float:
         depth = min(1.0, max(0.0, (y - y_top) / (y_base - y_top)))
         return spec.width_top + (spec.width_base - spec.width_top) * depth ** spec.taper_power
 
+    halves = [width_at(y) / 2 for (_, y), _, _ in samples]
+    curvatures = _smoothed_curvature(samples, halves)
     left: list[Point] = []
     right: list[Point] = []
-    halves = [width_at(y) / 2 for (_, y), _ in samples]
-    for ((x, y), (tx, ty)), half in zip(samples, halves):
+    for ((x, y), (tx, ty), _), half, curvature in zip(samples, halves, curvatures):
+        # The centre of curvature is on the left when curvature > 0.
+        half_left = _inner_half(half, curvature) if curvature > 0 else half
+        half_right = _inner_half(half, curvature) if curvature < 0 else half
         nx, ny = -ty, tx  # left-hand normal (y down)
-        # Clamped to the baseline: the base is a flat, clean edge.
-        left.append((x + nx * half, min(y_base, y + ny * half)))
-        right.append((x - nx * half, min(y_base, y - ny * half)))
-
-    centres = [point for point, _ in samples]
-    left = _drop_buried(left, centres, halves)
-    right = _drop_buried(right, centres, halves)
+        # Clamped to the baseline: the base is a flat, clean cut.
+        left.append((x + nx * half_left, min(y_base, y + ny * half_left)))
+        right.append((x - nx * half_right, min(y_base, y - ny * half_right)))
 
     cap: list[Point] = []
     if spec.round_top:
-        (x, y), (tx, ty) = samples[-1]
+        (x, y), (tx, ty), _ = samples[-1]
         half = spec.width_top / 2
         nx, ny = -ty, tx
         # Sweep from the left edge, over the end (along the tangent), to the
@@ -368,28 +559,22 @@ def _ribbon(spec: MarkSpec) -> list[Point]:
             c, s = math.cos(theta), math.sin(theta)
             cap.append((x + (c * nx + s * tx) * half, y + (c * ny + s * ty) * half))
 
-    return _remove_loops(left) + cap + _remove_loops(right)[::-1]
+    for edge in (left, right):
+        if _self_intersects(edge):
+            raise SystemExit(
+                "generate-icons: the road outline crosses itself. A bend is too "
+                "tight for the road's width; loosen the bend in the MarkSpec."
+            )
+    return left + cap + right[::-1]
 
 
-def _drop_buried(edge: list[Point], centres: list[Point], halves: list[float]) -> list[Point]:
-    """Drop offset points that lie well INSIDE the road elsewhere.
-
-    At a bend whose radius is close to the road's half-width the inner offset
-    forms a cusp (or a swallowtail too small to cross itself between two
-    samples) that pokes a tooth out of the inside corner. Such a point is
-    deep inside the road around some other centreline sample, so it is
-    dropped. The 0.95 margin keeps the normal taper, where a neighbour's
-    width is a hair larger, from flagging honest edge points.
-    """
-    kept: list[Point] = []
-    for point in edge:
-        buried = any(
-            math.hypot(point[0] - cx, point[1] - cy) < half * 0.95
-            for (cx, cy), half in zip(centres, halves)
-        )
-        if not buried:
-            kept.append(point)
-    return kept
+def _self_intersects(edge: list[Point]) -> bool:
+    """Whether a polyline crosses itself (non-adjacent segments only)."""
+    for i in range(len(edge) - 1):
+        for j in range(i + 2, len(edge) - 1):
+            if _segment_intersection(edge[i], edge[i + 1], edge[j], edge[j + 1]) is not None:
+                return True
+    return False
 
 
 def _segment_intersection(a: Point, b: Point, c: Point, d: Point) -> Point | None:
@@ -407,39 +592,6 @@ def _segment_intersection(a: Point, b: Point, c: Point, d: Point) -> Point | Non
     return None
 
 
-def _remove_loops(edge: list[Point]) -> list[Point]:
-    """Cut the "swallowtail" loops out of one offset edge.
-
-    On the inside of a bend tighter than the road's half-width, the offset
-    edge doubles back over itself and forms a small loop. Filled, that loop is
-    a sliver of background inside the road. The fix is the standard one: where
-    the edge crosses itself, jump straight from the first crossing segment to
-    the second, through the crossing point, dropping the loop. The inside of a
-    tight bend then becomes a crisp corner, which is what a road drawn in
-    perspective looks like anyway.
-    """
-    result: list[Point] = []
-    index = 0
-    count = len(edge)
-    while index < count:
-        result.append(edge[index])
-        if index + 1 >= count:
-            break
-        jumped = False
-        a, b = edge[index], edge[index + 1]
-        # Search from the far end so the largest loop is removed in one go.
-        for later in range(count - 2, index + 1, -1):
-            hit = _segment_intersection(a, b, edge[later], edge[later + 1])
-            if hit is not None:
-                result.append(hit)
-                index = later + 1
-                jumped = True
-                break
-        if not jumped:
-            index += 1
-    return result
-
-
 @dataclass(frozen=True)
 class MarkGeometry:
     """The finished mark in box coordinates: road polygon and sun circle."""
@@ -451,7 +603,7 @@ class MarkGeometry:
 def build_geometry(spec: MarkSpec) -> MarkGeometry:
     """Ribbon + sun, fitted to the unit box and optically centred."""
     road = _ribbon(spec)
-    sx, sy, sr = spec.sun
+    sx, sy, sr = _sun(spec)
 
     xs = [p[0] for p in road] + [sx - sr, sx + sr]
     ys = [p[1] for p in road] + [sy - sr, sy + sr]
@@ -576,9 +728,40 @@ def _num(value: float) -> str:
     return "0" if text in ("-0", "") else text
 
 
+# Vector outputs drop polygon vertices that deviate from a straight run by
+# less than this fraction of the canvas (Ramer-Douglas-Peucker): far below a
+# pixel at any size the file is drawn at, and it keeps favicon.svg, which every
+# page load fetches, small. The rasters are painted from the full polygon.
+VECTOR_TOLERANCE = 0.0005
+
+
+def _simplify(points: list[Point], tolerance: float) -> list[Point]:
+    """Ramer-Douglas-Peucker polyline simplification (iterative)."""
+    if len(points) < 3:
+        return points
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        first, last = stack.pop()
+        (ax, ay), (bx, by) = points[first], points[last]
+        length = math.hypot(bx - ax, by - ay) or 1e-12
+        worst, index = 0.0, -1
+        for i in range(first + 1, last):
+            px, py = points[i]
+            distance = abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / length
+            if distance > worst:
+                worst, index = distance, i
+        if index != -1 and worst > tolerance:
+            keep[index] = True
+            stack.extend(((first, index), (index, last)))
+    return [point for point, kept in zip(points, keep) if kept]
+
+
 def path_data(geometry: MarkGeometry, size: float, mark_ratio: float) -> str:
     """The road polygon as SVG path data on a `size` canvas."""
     road, _ = _place(geometry, size, mark_ratio)
+    road = _simplify(road, size * VECTOR_TOLERANCE)
     points = []
     for x, y in road:
         point = f"{_num(x)} {_num(y)}"
