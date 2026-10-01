@@ -737,8 +737,28 @@ export interface CoachChatHandlers {
   onTool?: (frame: { name: string; status: string }) => void;
   onDelta?: (text: string) => void;
   onDone?: (frame: CoachChatDone) => void;
-  /** A failure AFTER streaming began (an `error` frame). */
-  onError?: (frame: { code: string; message: string }) => void;
+  /**
+   * A failure AFTER streaming began (an `error` frame). `userMessageId` is the
+   * user's stored turn when the server stored it before failing (a retry then
+   * sends `retryOf` instead of storing the text again), `null` when it did not.
+   */
+  onError?: (frame: CoachChatErrorFrame) => void;
+  /** Any frame at all (including unknown events): the stream did start. */
+  onAnyFrame?: (event: string) => void;
+}
+
+export interface CoachChatErrorFrame {
+  code: string;
+  message: string;
+  userMessageId: string | null;
+}
+
+export interface CoachChatStreamOptions {
+  /**
+   * Answer this already-stored user message again instead of storing a new
+   * user row. The `text` sent must equal the stored text.
+   */
+  retryOf?: string | null;
 }
 
 export function coachChatStreamUrl(): string {
@@ -750,10 +770,15 @@ export function coachChatStreamUrl(): string {
  * `ApiError` when a precondition refused it before the first byte
  * (`COACH_DISABLED`, `AI_FEATURE_UNAVAILABLE`, `429`): nothing was stored then.
  */
-export async function streamCoachChat(text: string, handlers: CoachChatHandlers, signal?: AbortSignal): Promise<void> {
+export async function streamCoachChat(
+  text: string,
+  handlers: CoachChatHandlers,
+  signal?: AbortSignal,
+  options: CoachChatStreamOptions = {},
+): Promise<void> {
   await postSse<Record<string, unknown>>({
     url: coachChatStreamUrl(),
-    body: { text },
+    body: options.retryOf ? { text, retryOf: options.retryOf } : { text },
     authorization: () => {
       const token = api.getAccessToken();
       return token ? `Bearer ${token}` : null;
@@ -762,6 +787,7 @@ export async function streamCoachChat(text: string, handlers: CoachChatHandlers,
     signal,
     onFrame: (event, raw) => {
       const data = typeof raw === 'object' && raw !== null ? raw : {};
+      handlers.onAnyFrame?.(event);
       switch (event) {
         case 'safety':
           handlers.onSafety?.({
@@ -791,6 +817,7 @@ export async function streamCoachChat(text: string, handlers: CoachChatHandlers,
           handlers.onError?.({
             code: typeof data.code === 'string' ? data.code : 'ERROR',
             message: typeof data.message === 'string' ? data.message : 'The coach could not reply.',
+            userMessageId: typeof data.userMessageId === 'string' && data.userMessageId ? data.userMessageId : null,
           });
           break;
         default:

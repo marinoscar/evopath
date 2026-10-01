@@ -31,6 +31,10 @@ const blink = keyframes`
   40% { opacity: 1; }
 `;
 
+/** A failed turn the server stored: the message arrived, the reply did not. */
+const NO_REPLY_YET = 'no reply yet — try again';
+const NO_REPLY_YET_SENTENCE = 'No reply yet — try again';
+
 export function TypingIndicator() {
   return (
     <Box role="status" aria-label="Coach is typing" sx={{ display: 'inline-flex', gap: 0.5, py: 0.5 }}>
@@ -89,12 +93,15 @@ function PendingTurn({
   const supportive = turn.safety?.level === 'blocked';
   const Icon = supportive ? VolunteerActivismOutlinedIcon : personaIcon(persona?.avatar ?? '');
   const failure = turn.failure;
+  // Stored but unanswered: the message reached the coach, the reply did not.
+  const unanswered = Boolean(failure && turn.storedUserMessageId);
+  const userLabel = !failure ? 'You' : unanswered ? `You, ${NO_REPLY_YET}` : 'You, not delivered';
   return (
     <>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', minWidth: 0 }} data-testid="coach-pending-user">
         <Paper
           elevation={0}
-          aria-label={failure ? 'You, not delivered' : 'You'}
+          aria-label={userLabel}
           sx={{
             px: 1.5,
             py: 1,
@@ -112,6 +119,16 @@ function PendingTurn({
           </Typography>
         </Paper>
       </Box>
+      {unanswered && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          data-testid="coach-pending-status"
+          sx={{ alignSelf: 'flex-end', textAlign: 'right' }}
+        >
+          {NO_REPLY_YET_SENTENCE}
+        </Typography>
+      )}
       {failure ? (
         <Alert
           severity={failure.kind === 'disabled' || failure.kind === 'unavailable' ? 'info' : 'error'}

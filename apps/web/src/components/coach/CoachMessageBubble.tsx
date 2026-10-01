@@ -42,6 +42,8 @@ import { WeeklyReviewCard } from './WeeklyReviewCard';
 export const COACH_TAKE_PHOTO_PATH = '/health/progress-photos?add=1';
 /** Screens whose reply is the fixed supportive text (no model, no persona). */
 const SUPPORTIVE_SCREENS = new Set(['distress', 'symptom']);
+/** How much of a bubble must be on screen before it counts as displayed. */
+const DISPLAYED_RATIO = 0.5;
 
 export interface CoachMessageBubbleProps {
   message: CoachTimelineItem;
@@ -49,7 +51,12 @@ export interface CoachMessageBubbleProps {
   highlighted?: boolean;
   autoPlay?: boolean;
   onFeedback?: (id: string, feedback: CoachFeedback | null) => void;
-  /** Called once when the message has been displayed. */
+  /**
+   * Called once when the message has been displayed: at least half of it
+   * visible (IntersectionObserver), or at once when it is the `highlighted`
+   * deep-link target. Never called where IntersectionObserver is unavailable,
+   * except for the highlighted message.
+   */
   onDisplayed?: (message: CoachTimelineItem) => void;
   /** A weekly review's **Plan my week**: pre-fill the composer with this prompt. */
   onPlanWeek?: (prompt: string) => void;
@@ -169,12 +176,42 @@ export function CoachMessageBubble({
 }: CoachMessageBubbleProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const reported = useRef(false);
-
+  const latest = useRef({ message, onDisplayed });
   useEffect(() => {
-    if (reported.current || !onDisplayed) return;
-    reported.current = true;
-    onDisplayed(message);
+    latest.current = { message, onDisplayed };
   }, [message, onDisplayed]);
+
+  // "Displayed" means actually seen: at least half the bubble on screen
+  // (IntersectionObserver), once per message. The deep-linked message
+  // (`highlighted`) was opened explicitly, so it counts at once. Without
+  // IntersectionObserver nothing else is reported: never mark a message
+  // opened that the reader may not have seen.
+  const hasOnDisplayed = Boolean(onDisplayed);
+  useEffect(() => {
+    if (reported.current || !hasOnDisplayed) return;
+    const report = () => {
+      if (reported.current) return;
+      reported.current = true;
+      latest.current.onDisplayed?.(latest.current.message);
+    };
+    if (highlighted) {
+      report();
+      return;
+    }
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= DISPLAYED_RATIO)) {
+          observer.disconnect();
+          report();
+        }
+      },
+      { threshold: DISPLAYED_RATIO },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [message.id, highlighted, hasOnDisplayed]);
 
   useEffect(() => {
     if (!highlighted || !ref.current) return;

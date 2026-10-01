@@ -11,6 +11,7 @@ import { http, HttpResponse } from 'msw';
 import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
 import { render } from '../utils/test-utils';
+import { installIntersectionObserver } from '../utils/intersectionObserver';
 import { server } from '../mocks/server';
 import CoachPage from '../../pages/CoachPage';
 import {
@@ -176,25 +177,57 @@ describe('CoachPage', () => {
       expect(await screen.findByText('Newest nudge')).toBeInTheDocument();
     });
 
-    it('marks each unread coach message opened exactly once, and never a read one or a user turn', async () => {
-      messagesPages({ first: { items: [nudge, reply, oldest], nextCursor: null } });
-      const opened = recordPosts('opened');
-      const user = userEvent.setup();
-      renderPage();
+    it('marks each unread coach message opened exactly once when seen, and never a read one or a user turn', async () => {
+      const io = installIntersectionObserver();
+      try {
+        messagesPages({ first: { items: [nudge, reply, oldest], nextCursor: null } });
+        const opened = recordPosts('opened');
+        const user = userEvent.setup();
+        renderPage();
 
-      await waitFor(() => expect(opened.map((c) => c.id)).toEqual([nudge.id]));
-      // Re-rendering the bubble (feedback) does not post again.
-      await user.click(screen.getAllByRole('button', { name: 'Helpful' })[0]);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(opened).toHaveLength(1);
+        await screen.findByText('Newest nudge');
+        io.intersectAll(1);
+        await waitFor(() => expect(opened.map((c) => c.id)).toEqual([nudge.id]));
+        // Re-rendering the bubble (feedback) or scrolling past again does not post again.
+        await user.click(screen.getAllByRole('button', { name: 'Helpful' })[0]);
+        io.intersectAll(1);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(opened).toHaveLength(1);
+      } finally {
+        io.restore();
+      }
+    });
+
+    it('does not mark an unread message opened just because the page loaded it', async () => {
+      const io = installIntersectionObserver();
+      try {
+        messagesPages({ first: { items: [nudge, reply, oldest], nextCursor: null } });
+        const opened = recordPosts('opened');
+        renderPage();
+        await screen.findByText('Newest nudge');
+        // Off screen, or less than half on screen.
+        io.intersectAll(0);
+        io.intersectAll(0.3);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(opened).toHaveLength(0);
+      } finally {
+        io.restore();
+      }
     });
 
     it('tolerates the opened route answering 404 (E7.5 not deployed) without any error on screen', async () => {
-      messagesPages({ first: { items: [nudge], nextCursor: null } });
-      const opened = recordPosts('opened', 404);
-      renderPage();
-      await waitFor(() => expect(opened).toHaveLength(1));
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      const io = installIntersectionObserver();
+      try {
+        messagesPages({ first: { items: [nudge], nextCursor: null } });
+        const opened = recordPosts('opened', 404);
+        renderPage();
+        await screen.findByText('Newest nudge');
+        io.intersectAll(1);
+        await waitFor(() => expect(opened).toHaveLength(1));
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      } finally {
+        io.restore();
+      }
     });
 
     it('shows the empty state introducing the coach, linking to its settings', async () => {
@@ -256,6 +289,8 @@ describe('CoachPage', () => {
       await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
       await waitFor(() => expect(opened.map((c) => c.id)).toContain(spoken.id));
       expect(opened.filter((c) => c.id === spoken.id)).toHaveLength(1);
+      // Only the deep-linked message: the other unread one was never seen.
+      expect(opened.map((c) => c.id)).not.toContain(nudge.id);
       expect(document.activeElement?.getAttribute('data-message-id')).toBe(spoken.id);
     });
 
@@ -428,6 +463,101 @@ describe('CoachPage', () => {
       expect(error).toHaveTextContent('The provider failed.');
       expect(within(error).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
       expect(screen.getByTestId('coach-pending-user')).toHaveTextContent('Motivate me');
+    });
+
+    it('retries a stored-but-unanswered turn with retryOf, labelled "No reply yet"', async () => {
+      const chat = controlledChat();
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Oldest read nudge');
+      await user.click(screen.getByRole('button', { name: 'Motivate me' }));
+      await waitFor(() => expect(chat.bodies).toHaveLength(1));
+      chat.push('error', { code: 'AI_PROVIDER_ERROR', message: 'The provider failed.', userMessageId: coachMessageId(600) });
+      chat.close();
+
+      const error = await screen.findByTestId('coach-chat-error');
+      expect(screen.getByLabelText('You, no reply yet — try again')).toHaveTextContent('Motivate me');
+      expect(screen.getByTestId('coach-pending-status')).toHaveTextContent('No reply yet — try again');
+      expect(screen.queryByLabelText('You, not delivered')).not.toBeInTheDocument();
+
+      await user.click(within(error).getByRole('button', { name: 'Retry' }));
+      await waitFor(() =>
+        expect(chat.bodies).toEqual([{ text: 'Motivate me' }, { text: 'Motivate me', retryOf: coachMessageId(600) }]),
+      );
+      chat.push('delta', { text: 'Go!' });
+      chat.push('done', { messageId: coachMessageId(601), userMessageId: coachMessageId(600), links: [], pausedUntil: null, fallback: false });
+      chat.close();
+      await waitFor(() => expect(screen.queryByTestId('coach-pending-user')).not.toBeInTheDocument());
+      expect(timelineTexts()).toEqual([oldest.id, coachMessageId(600), coachMessageId(601)]);
+    });
+
+    it('retries plainly when the error frame says nothing was stored', async () => {
+      const chat = controlledChat();
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Oldest read nudge');
+      await user.click(screen.getByRole('button', { name: 'Motivate me' }));
+      await waitFor(() => expect(chat.bodies).toHaveLength(1));
+      chat.push('error', { code: 'AI_PROVIDER_ERROR', message: 'The provider failed.', userMessageId: null });
+      chat.close();
+
+      const error = await screen.findByTestId('coach-chat-error');
+      expect(screen.getByLabelText('You, not delivered')).toBeInTheDocument();
+      expect(screen.queryByTestId('coach-pending-status')).not.toBeInTheDocument();
+      await user.click(within(error).getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(chat.bodies).toEqual([{ text: 'Motivate me' }, { text: 'Motivate me' }]));
+    });
+
+    it('after a cut-off stream, finds the stored turn on the latest page and retries it with retryOf', async () => {
+      const storedTurn = mockCoachMessage({
+        id: coachMessageId(650),
+        role: 'user',
+        kind: 'chat',
+        title: '',
+        body: 'Motivate me',
+        personaId: null,
+        createdAt: '2026-09-30T10:00:00.000Z',
+      });
+      const pageRequests = messagesPages({ first: { items: [oldest], nextCursor: null } });
+      const chat = controlledChat();
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Oldest read nudge');
+      // From now on the latest page carries the stored user row.
+      messagesPages({ first: { items: [storedTurn, oldest], nextCursor: null } });
+
+      await user.click(screen.getByRole('button', { name: 'Motivate me' }));
+      await waitFor(() => expect(chat.bodies).toHaveLength(1));
+      chat.push('delta', { text: 'Half a rep' });
+      chat.close();
+
+      const error = await screen.findByTestId('coach-chat-error');
+      expect(error).toHaveTextContent('The reply was cut off.');
+      expect(screen.getByLabelText('You, no reply yet — try again')).toBeInTheDocument();
+      expect(pageRequests).toEqual([null]);
+      // The refetch did not put the stored row on screen beside the pending bubble.
+      expect(timelineTexts()).toEqual([oldest.id]);
+
+      await user.click(within(error).getByRole('button', { name: 'Retry' }));
+      await waitFor(() =>
+        expect(chat.bodies).toEqual([{ text: 'Motivate me' }, { text: 'Motivate me', retryOf: coachMessageId(650) }]),
+      );
+    });
+
+    it('after a cut-off stream with no stored turn on the latest page, retries plainly', async () => {
+      const chat = controlledChat();
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Oldest read nudge');
+      await user.click(screen.getByRole('button', { name: 'Motivate me' }));
+      await waitFor(() => expect(chat.bodies).toHaveLength(1));
+      chat.push('delta', { text: 'Half a rep' });
+      chat.close();
+
+      const error = await screen.findByTestId('coach-chat-error');
+      expect(screen.getByLabelText('You, not delivered')).toBeInTheDocument();
+      await user.click(within(error).getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(chat.bodies).toEqual([{ text: 'Motivate me' }, { text: 'Motivate me' }]));
     });
   });
 

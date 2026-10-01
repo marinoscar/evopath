@@ -92,6 +92,28 @@ describe('coach page services', () => {
     ]);
   });
 
+  it('sends retryOf only when given, and reads the error frame\'s stored user message id', async () => {
+    const bodies: unknown[] = [];
+    let frames: Array<[string, unknown]> = [['error', { code: 'AI_PROVIDER_ERROR', message: 'Failed', userMessageId: 'u1' }]];
+    server.use(
+      http.post(`${API}/coach/chat/stream`, async ({ request }) => {
+        bodies.push(await request.json());
+        return new HttpResponse(coachSseBody(frames), { headers: { 'Content-Type': 'text/event-stream' } });
+      }),
+    );
+    const errors: unknown[] = [];
+    await streamCoachChat('hi', { onError: (f) => errors.push(f) });
+    await streamCoachChat('hi', { onError: (f) => errors.push(f) }, undefined, { retryOf: 'u1' });
+    frames = [['error', { code: 'AI_PROVIDER_ERROR', message: 'Failed' }]];
+    await streamCoachChat('hi', { onError: (f) => errors.push(f) }, undefined, { retryOf: null });
+    expect(bodies).toEqual([{ text: 'hi' }, { text: 'hi', retryOf: 'u1' }, { text: 'hi' }]);
+    expect(errors).toEqual([
+      { code: 'AI_PROVIDER_ERROR', message: 'Failed', userMessageId: 'u1' },
+      { code: 'AI_PROVIDER_ERROR', message: 'Failed', userMessageId: 'u1' },
+      { code: 'AI_PROVIDER_ERROR', message: 'Failed', userMessageId: null },
+    ]);
+  });
+
   it('rejects with ApiError on a refusal before the stream', async () => {
     server.use(
       http.post(`${API}/coach/chat/stream`, () =>

@@ -11,6 +11,8 @@
  *   swallowed: opening is a signal, never something to show an error for.
  * - `setFeedback` is optimistic and reverts when the post fails.
  * - A failed older-page load keeps everything already loaded on screen.
+ * - `findStoredUserTurn` re-reads the latest page (without changing what is on
+ *   screen) to tell whether a chat turn cut off mid-stream was stored.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -39,6 +41,13 @@ export interface UseCoachTimelineReturn {
   append: (items: CoachTimelineItem[]) => void;
   markOpened: (id: string) => void;
   setFeedback: (id: string, feedback: CoachFeedback | null) => Promise<boolean>;
+  /**
+   * Re-read the latest page and return the id of the newest user message when
+   * it carries exactly `text` and is not already on screen (a chat turn the
+   * server stored but never answered); otherwise `null`. Nothing on screen
+   * changes; a failed read answers `null`.
+   */
+  findStoredUserTurn: (text: string) => Promise<string | null>;
 }
 
 export function useCoachTimeline(options: { enabled?: boolean } = {}): UseCoachTimelineReturn {
@@ -146,6 +155,18 @@ export function useCoachTimeline(options: { enabled?: boolean } = {}): UseCoachT
     [isMounted],
   );
 
+  const findStoredUserTurn = useCallback(async (text: string): Promise<string | null> => {
+    try {
+      const page = await getCoachMessages();
+      const newestUser = page.items.find((item) => item.role === 'user');
+      if (!newestUser || newestUser.body.trim() !== text.trim()) return null;
+      if (latest.current.some((item) => item.id === newestUser.id)) return null;
+      return newestUser.id;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const items = useMemo(() => [...newestFirst].reverse(), [newestFirst]);
 
   return {
@@ -160,5 +181,6 @@ export function useCoachTimeline(options: { enabled?: boolean } = {}): UseCoachT
     append,
     markOpened,
     setFeedback,
+    findStoredUserTurn,
   };
 }

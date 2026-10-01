@@ -250,6 +250,20 @@ export const mockCoachChatFrames: Array<[string, unknown]> = [
   ],
 ];
 
+/**
+ * A turn the server stored and then failed to answer: the `error` frame names
+ * the stored user row, so a retry sends `retryOf` (never a second user row).
+ */
+export const mockCoachChatStoredErrorFrames: Array<[string, unknown]> = [
+  ['delta', { text: 'You are doing' }],
+  ['error', { code: 'AI_PROVIDER_ERROR', message: 'The provider failed.', userMessageId: coachMessageId(900) }],
+];
+
+/** A failure before the user's turn was stored: a retry re-sends the text. */
+export const mockCoachChatUnstoredErrorFrames: Array<[string, unknown]> = [
+  ['error', { code: 'AI_PROVIDER_ERROR', message: 'The provider failed.', userMessageId: null }],
+];
+
 // -----------------------------------------------------------------------------
 // A weekly review (E7.10): `CoachMessage.data` version 1, as
 // `apps/api/src/coach/review/weekly-review-data.ts` stores it.
