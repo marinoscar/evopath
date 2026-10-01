@@ -61,6 +61,10 @@ describe('formatGoalProgress', () => {
     expect(
       formatGoalProgress(p({ activityKind: 'run', metric: 'distance_m', period: 'week' }, 1609.344, 16093.44), 'mi'),
     ).toBe('1 / 10 mi · 3 days left');
+    // A sub-kilometre km target reads in metres, done included; miles are unchanged.
+    expect(formatGoalProgress(p({ activityKind: 'walk', metric: 'distance_m', period: 'day' }, 350, 800))).toBe('350 / 800 m');
+    expect(formatGoalTarget({ activityKind: 'walk', metric: 'distance_m', target: 800, period: 'day' })).toBe('800 m a day');
+    expect(formatGoalTarget({ activityKind: 'walk', metric: 'distance_m', target: 800, period: 'day' }, 'mi')).toBe('0.5 mi a day');
   });
 
   it('drops the days left once the target is met', () => {

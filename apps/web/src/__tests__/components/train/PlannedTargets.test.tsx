@@ -137,6 +137,19 @@ describe('PlannedTargetProgress', () => {
     expect(screen.getByText('2.5 km · 15:00 · 50%')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Outdoor run progress toward the target' })).toHaveAttribute('aria-valuenow', '50');
   });
+
+  it('reads a sub-kilometre target and what was logged in metres', () => {
+    render(
+      <PlannedTargetProgress
+        target={{ durationSeconds: null, distanceMeters: 800, sets: 2 }}
+        sets={[mockSet({ completed: true, distanceMeters: 400 })]}
+        unit="kg"
+        exerciseName="Track repeats"
+      />,
+    );
+    expect(screen.getByText('Target: 800 m')).toBeInTheDocument();
+    expect(screen.getByText('400 m · 50%')).toBeInTheDocument();
+  });
 });
 
 describe('usePlannedTargets', () => {

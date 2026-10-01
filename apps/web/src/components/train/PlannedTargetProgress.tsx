@@ -9,7 +9,7 @@ import { Box, LinearProgress, Typography } from '@mui/material';
 import type { PlannedTarget } from '../../hooks/usePlannedTargets';
 import type { SetLogView } from '../../services/workouts';
 import { formatCardioTarget, formatTargetDistance } from '../../utils/prescription';
-import { distanceUnitFor, formatClock, type DistanceUnit } from '../../utils/workoutFormat';
+import { distanceInputText, distanceUnitFor, formatClock, type DistanceUnit } from '../../utils/workoutFormat';
 import type { WeightUnit } from '../../utils/units';
 
 export interface CardioProgress {
@@ -41,7 +41,12 @@ export function cardioProgress(target: PlannedTarget, sets: ReadonlyArray<Pick<S
 
 function loggedText(p: CardioProgress, unit: DistanceUnit): string {
   const parts: string[] = [];
-  if (p.targetMeters !== null) parts.push(formatTargetDistance(p.loggedMeters, unit));
+  if (p.targetMeters !== null) {
+    // The logged distance reads in the target's unit: metres beside a sub-kilometre target, else km/mi.
+    parts.push(
+      unit === 'km' && p.targetMeters >= 1000 ? `${distanceInputText(p.loggedMeters, unit)} ${unit}` : formatTargetDistance(p.loggedMeters, unit),
+    );
+  }
   if (p.targetSeconds !== null) parts.push(formatClock(p.loggedSeconds));
   return parts.join(' · ');
 }

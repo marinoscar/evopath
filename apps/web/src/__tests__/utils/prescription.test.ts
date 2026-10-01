@@ -61,7 +61,7 @@ describe('formatPrescription', () => {
     });
 
     it('reads the target as the session total, with the set count after it', () => {
-      expect(formatPrescription({ ...cardio, sets: 4, targetDistanceMeters: 400 })).toBe('0.4 km · 4 sets');
+      expect(formatPrescription({ ...cardio, sets: 4, targetDistanceMeters: 400 })).toBe('400 m · 4 sets');
       expect(formatPrescription({ ...cardio, sets: 3, targetDurationSeconds: 1800 })).toBe('30 min · 3 sets');
       expect(formatPrescription({ ...cardio, sets: 2, targetDistanceMeters: 5000, targetDurationSeconds: 1800 })).toBe(
         '5 km · 30 min · 2 sets',
@@ -80,6 +80,11 @@ describe('formatPrescription', () => {
     expect(formatTargetDuration(5400)).toBe('90 min');
     expect(formatTargetDuration(90)).toBe('1:30 min');
     expect(formatTargetDistance(12340)).toBe('12.34 km');
+    // Under a kilometre, the km unit reads whole metres (as the API does); miles are unchanged.
+    expect(formatTargetDistance(400)).toBe('400 m');
+    expect(formatTargetDistance(999.6)).toBe('1000 m');
+    expect(formatTargetDistance(1000)).toBe('1 km');
+    expect(formatTargetDistance(402.34, 'mi')).toBe('0.25 mi');
     expect(formatCardioTarget({ targetDurationSeconds: null, targetDistanceMeters: null })).toBeNull();
     expect(isCardioPrescription({ targetDurationSeconds: 60 })).toBe(true);
     expect(isCardioPrescription({ targetDurationSeconds: null, targetDistanceMeters: undefined })).toBe(false);

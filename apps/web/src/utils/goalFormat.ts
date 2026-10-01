@@ -86,6 +86,15 @@ function formatDistance(meters: number, unit: DistanceUnit): string {
   return distanceFormat.format(metersToDisplay(meters, unit));
 }
 
+/**
+ * Display only: a km-unit TARGET under a kilometre reads in metres (as
+ * prescriptions do, `400 m`); `done` then reads in metres too, so the line
+ * keeps one unit. Miles and the goal's stored meters are unchanged.
+ */
+function inMetres(target: number, unit: DistanceUnit): boolean {
+  return unit === 'km' && target < 1000;
+}
+
 /** "4 walks a week", "150 min a week", "8,000 steps a day", "10 km a week". */
 export function formatGoalTarget(
   goal: Pick<Goal, 'activityKind' | 'metric' | 'target' | 'period'>,
@@ -100,6 +109,7 @@ export function formatGoalTarget(
     case 'steps':
       return `${formatCount(goal.target)} steps ${per}`;
     case 'distance_m':
+      if (inMetres(goal.target, unit)) return `${formatCount(Math.round(goal.target))} m ${per}`;
       return `${formatDistance(goal.target, unit)} ${unit} ${per}`;
   }
 }
@@ -125,6 +135,7 @@ export function formatGoalAmount(
     case 'steps':
       return `${formatCount(done)} / ${formatCount(target)} steps`;
     case 'distance_m':
+      if (inMetres(target, unit)) return `${formatCount(Math.round(done))} / ${formatCount(Math.round(target))} m`;
       return `${formatDistance(done, unit)} / ${formatDistance(target, unit)} ${unit}`;
   }
 }

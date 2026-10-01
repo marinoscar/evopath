@@ -143,6 +143,9 @@ describe('WeeklyReviewCard', () => {
     const goal = { title: 'Run', unit: 'meters' as const, done: 16093.44, target: 32186.88, hit: false, streakPeriods: 2 };
     const { rerender } = render(<WeeklyReviewCard review={review({ stats: { goals: [goal] } })} distanceUnit="mi" />);
     expect(screen.getByTestId('coach-review-goals')).toHaveTextContent('Run: 10 / 20 mi · Not hit · 2-week streak');
+    const short = { title: 'Stroll', unit: 'meters' as const, done: 650, target: 800, hit: false, streakPeriods: 0 };
+    rerender(<WeeklyReviewCard review={review({ stats: { goals: [short] } })} distanceUnit="km" />);
+    expect(screen.getByTestId('coach-review-goals')).toHaveTextContent('Stroll: 650 / 800 m · Not hit');
     rerender(<WeeklyReviewCard review={review()} />);
     expect(screen.queryByTestId('coach-review-goals')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Goals' })).toBeNull();

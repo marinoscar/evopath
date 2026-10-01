@@ -45,8 +45,13 @@ export function formatTargetDuration(seconds: number): string {
   return `${formatClock(seconds)} min`;
 }
 
-/** `5 km`, `3.11 mi`, `0.4 km`. */
+/**
+ * `5 km`, `3.11 mi`, `400 m`: in the km unit a distance under a kilometre
+ * reads in whole metres, as the API's `formatDistance` does. Miles are
+ * unchanged (`0.25 mi`). Display only; inputs stay in km/mi.
+ */
 export function formatTargetDistance(meters: number, unit: DistanceUnit = 'km'): string {
+  if (unit === 'km' && meters < 1000) return `${Math.round(meters)} m`;
   return `${distanceInputText(meters, unit)} ${unit}`;
 }
 

@@ -57,6 +57,8 @@ export function formatWeeklyReviewGoalAmount(goal: WeeklyReviewGoal, distanceUni
     case 'steps':
       return `${count.format(done)} / ${count.format(target)} steps`;
     case 'meters': {
+      // A km-unit target under a kilometre reads in metres, as prescriptions and goals do.
+      if (distanceUnit === 'km' && target < 1000) return `${count.format(Math.round(done))} / ${count.format(Math.round(target))} m`;
       const per = distanceUnit === 'mi' ? METERS_PER_MILE : 1000;
       return `${distance.format(done / per)} / ${distance.format(target / per)} ${distanceUnit}`;
     }
