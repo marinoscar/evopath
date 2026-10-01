@@ -34,6 +34,7 @@ import {
   GOAL_PERIODS,
   GOAL_TITLE_MAX,
   goalErrorMessage,
+  isGoalOutdated,
   isGoalStale,
   type CreateGoalInput,
   type Goal,
@@ -139,7 +140,7 @@ export function GoalFormDialog({
       await onSubmit(result.input);
     } catch (err) {
       setSubmitError(goalErrorMessage(err, editing ? 'Could not save the goal.' : 'Could not create the goal.'));
-      if (isGoalStale(err)) await onStale?.();
+      if (isGoalStale(err) || isGoalOutdated(err)) await onStale?.();
     } finally {
       setSaving(false);
     }

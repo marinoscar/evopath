@@ -9,7 +9,7 @@ import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
 import { render, screen, waitFor, within, mockUser } from '../../utils/test-utils';
 import GoalsPage from '../../../pages/Train/GoalsPage';
-import { GOAL_LIMIT_MESSAGE, GOAL_STALE_MESSAGE } from '../../../services/goals';
+import { GOAL_LIMIT_MESSAGE, GOAL_STALE_MESSAGE, GOAL_TRANSITION_MESSAGE } from '../../../services/goals';
 import { mockGoal, statefulGoalsApi } from '../../mocks/fixtures/goals';
 
 const writer = { ...mockUser, permissions: [...mockUser.permissions, 'goals:read', 'goals:write'] };
@@ -172,6 +172,18 @@ describe('GoalsPage', () => {
       `/goals/${api.goals[0].id}/pause`,
       `/goals/${api.goals[0].id}/archive`,
     ]);
+    expect(api.goals[0].status).toBe('archived');
+  });
+
+  it('explains a transition that no longer applies (409 GOAL_ILLEGAL_TRANSITION) and reloads the list', async () => {
+    const api = statefulGoalsApi([mockGoal({ title: 'Walk' })]);
+    renderPage();
+    const pause = await screen.findByRole('button', { name: 'Pause Walk' });
+    // Archived on another device after this page loaded.
+    api.goals[0].status = 'archived';
+    await userEvent.click(pause);
+    expect(await screen.findByText(GOAL_TRANSITION_MESSAGE)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Pause Walk' })).toBeNull());
     expect(api.goals[0].status).toBe('archived');
   });
 

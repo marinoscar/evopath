@@ -214,6 +214,34 @@ export function listActivityEntries(params: { from: string; to: string; kind?: A
 // Errors
 // -----------------------------------------------------------------------------
 
+/** `details.reason` values the goals and activity-entries API answers with. */
+export const GOAL_REFUSALS = {
+  /** 409: more than `MAX_ACTIVE_GOALS` active goals (create, resume). */
+  GOAL_LIMIT_REACHED: 'GOAL_LIMIT_REACHED',
+  /** 428: `PATCH` without `If-Match` (the envelope `code` is the generic `ERROR`). */
+  IF_MATCH_REQUIRED: 'IF_MATCH_REQUIRED',
+  /** 412: the goal changed since it was loaded; `details.currentVersion`. */
+  GOAL_VERSION_MISMATCH: 'GOAL_VERSION_MISMATCH',
+  /** 409: an archived goal cannot be edited. */
+  GOAL_ARCHIVED: 'GOAL_ARCHIVED',
+  /** 409: pause/resume/archive from a state that does not allow it. */
+  ILLEGAL_TRANSITION: 'GOAL_ILLEGAL_TRANSITION',
+  /** 400: a cross-field rule (`sessions` needs `week`, `custom` needs a label); `details.path`. */
+  INVALID_GOAL: 'INVALID_GOAL',
+  /** 400: `startsOn` more than a year from today. */
+  START_DATE_OUT_OF_RANGE: 'START_DATE_OUT_OF_RANGE',
+  /** 400: an entry's day outside [today-7, today] (local). */
+  ENTRY_DATE_OUT_OF_RANGE: 'ENTRY_DATE_OUT_OF_RANGE',
+  /** 409: a workout-derived or imported entry cannot be edited here. */
+  ENTRY_DERIVED: 'ENTRY_DERIVED',
+  INVALID_ENTRY: 'INVALID_ENTRY',
+  /** 400: `GET /activity-entries` over more than 400 days. */
+  RANGE_TOO_LARGE: 'RANGE_TOO_LARGE',
+  /** 400: `GET /goals/progress` or `/history` `date` out of range. */
+  DATE_OUT_OF_RANGE: 'DATE_OUT_OF_RANGE',
+} as const;
+export type GoalRefusal = (typeof GOAL_REFUSALS)[keyof typeof GOAL_REFUSALS];
+
 /** `details.reason`, else the envelope `code`. */
 export function goalErrorReason(err: unknown): string | null {
   if (!(err instanceof ApiError)) return null;
@@ -226,7 +254,7 @@ export function goalErrorReason(err: unknown): string | null {
 }
 
 export function isGoalLimitReached(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 409 && goalErrorReason(err) === 'GOAL_LIMIT_REACHED';
+  return err instanceof ApiError && err.status === 409 && goalErrorReason(err) === GOAL_REFUSALS.GOAL_LIMIT_REACHED;
 }
 
 /** The goal changed since it was loaded (`412`), or `If-Match` was missing (`428`). */
@@ -234,15 +262,51 @@ export function isGoalStale(err: unknown): boolean {
   return err instanceof ApiError && (err.status === 412 || err.status === 428);
 }
 
+/**
+ * The goal's state moved on elsewhere (`409 GOAL_ARCHIVED` on an edit,
+ * `409 GOAL_ILLEGAL_TRANSITION` on pause/resume/archive): reload the list.
+ */
+export function isGoalOutdated(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 409) return false;
+  const reason = goalErrorReason(err);
+  return reason === GOAL_REFUSALS.GOAL_ARCHIVED || reason === GOAL_REFUSALS.ILLEGAL_TRANSITION;
+}
+
 export const GOAL_LIMIT_MESSAGE = `You can have up to ${MAX_ACTIVE_GOALS} active goals. Pause or archive one first.`;
 export const GOAL_STALE_MESSAGE =
   'This goal was changed somewhere else, so your edit was not saved. The latest version is loaded; review it and save again.';
+
+export const GOAL_ARCHIVED_MESSAGE = 'This goal is archived, so it can no longer be changed. The list is up to date now.';
+export const GOAL_TRANSITION_MESSAGE =
+  'That no longer applies: the goal was changed somewhere else. The list is up to date now.';
+export const ENTRY_DATE_MESSAGE = `Check in for today or up to ${ENTRY_MAX_DAYS_BACK} days back.`;
 
 /** A sentence for an error from any goals or entries route. */
 export function goalErrorMessage(err: unknown, fallback: string): string {
   if (isGoalLimitReached(err)) return GOAL_LIMIT_MESSAGE;
   if (isGoalStale(err)) return GOAL_STALE_MESSAGE;
   if (err instanceof ApiError && err.status === 403) return GOALS_UNAVAILABLE;
+  if (err instanceof ApiError) {
+    const path = (err.details as { path?: unknown } | undefined)?.path;
+    switch (goalErrorReason(err)) {
+      case GOAL_REFUSALS.GOAL_ARCHIVED:
+        return GOAL_ARCHIVED_MESSAGE;
+      case GOAL_REFUSALS.ILLEGAL_TRANSITION:
+        return GOAL_TRANSITION_MESSAGE;
+      case GOAL_REFUSALS.ENTRY_DATE_OUT_OF_RANGE:
+        return ENTRY_DATE_MESSAGE;
+      case GOAL_REFUSALS.ENTRY_DERIVED:
+        return 'This entry comes from a workout or an import: change it there.';
+      case GOAL_REFUSALS.START_DATE_OUT_OF_RANGE:
+        return 'Pick a start date within a year of today.';
+      case GOAL_REFUSALS.DATE_OUT_OF_RANGE:
+        return 'That day is outside the range goal progress covers.';
+      case GOAL_REFUSALS.INVALID_GOAL:
+        if (path === 'period') return 'A sessions goal is counted per week.';
+        if (path === 'customLabel') return 'Say what the activity is, e.g. Yoga.';
+        break;
+    }
+  }
   if (err instanceof ApiError || err instanceof Error) return err.message || fallback;
   return fallback;
 }

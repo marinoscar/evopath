@@ -51,6 +51,7 @@ import {
   GOAL_STATUSES,
   createGoal,
   goalErrorMessage,
+  isGoalOutdated,
   transitionGoal,
   updateGoal,
   type CreateGoalInput,
@@ -237,6 +238,8 @@ export default function GoalsPage() {
       await refresh();
     } catch (err) {
       setActionError(goalErrorMessage(err, `Could not ${action} the goal.`));
+      // Paused, resumed or archived elsewhere: show where it is now.
+      if (isGoalOutdated(err)) await refresh();
     } finally {
       setBusyId(null);
     }

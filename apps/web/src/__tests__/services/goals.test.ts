@@ -4,8 +4,12 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { ApiError } from '../../services/api';
 import {
+  ENTRY_DATE_MESSAGE,
+  GOAL_ARCHIVED_MESSAGE,
   GOAL_LIMIT_MESSAGE,
   GOAL_STALE_MESSAGE,
+  GOAL_TRANSITION_MESSAGE,
+  isGoalOutdated,
   createActivityEntry,
   createGoal,
   getGoalHistory,
@@ -102,6 +106,34 @@ describe('goal errors', () => {
     const stale = new ApiError('Precondition failed', 412, 'PRECONDITION_FAILED');
     expect(isGoalStale(stale)).toBe(true);
     expect(goalErrorMessage(stale, 'f')).toBe(GOAL_STALE_MESSAGE);
+  });
+
+  it('treats the real 412 and 428 envelopes as stale', () => {
+    // As the API sends them: 412 GOAL_VERSION_MISMATCH, 428 IF_MATCH_REQUIRED (envelope code `ERROR`).
+    const mismatch = new ApiError('The goal changed', 412, 'PRECONDITION_FAILED', { reason: 'GOAL_VERSION_MISMATCH', currentVersion: 3 });
+    const missing = new ApiError('Send If-Match', 428, 'ERROR', { reason: 'IF_MATCH_REQUIRED' });
+    expect(isGoalStale(mismatch)).toBe(true);
+    expect(isGoalStale(missing)).toBe(true);
+    expect(goalErrorMessage(missing, 'f')).toBe(GOAL_STALE_MESSAGE);
+  });
+
+  it('explains the other refusals in plain words', () => {
+    const archived = new ApiError('An archived goal cannot be edited', 409, 'CONFLICT', { reason: 'GOAL_ARCHIVED' });
+    const illegal = new ApiError('A archived goal cannot be paused', 409, 'CONFLICT', { reason: 'GOAL_ILLEGAL_TRANSITION', status: 'archived' });
+    expect(goalErrorMessage(archived, 'f')).toBe(GOAL_ARCHIVED_MESSAGE);
+    expect(goalErrorMessage(illegal, 'f')).toBe(GOAL_TRANSITION_MESSAGE);
+    expect(isGoalOutdated(archived)).toBe(true);
+    expect(isGoalOutdated(illegal)).toBe(true);
+    expect(isGoalOutdated(new ApiError('x', 409, 'CONFLICT', { reason: 'GOAL_LIMIT_REACHED' }))).toBe(false);
+    expect(
+      goalErrorMessage(new ApiError('The day must be…', 400, 'BAD_REQUEST', { reason: 'ENTRY_DATE_OUT_OF_RANGE', path: 'occurredOn', today: '2026-09-30' }), 'f'),
+    ).toBe(ENTRY_DATE_MESSAGE);
+    expect(
+      goalErrorMessage(new ApiError('A sessions goal counts per week: use period `week`', 400, 'BAD_REQUEST', { reason: 'INVALID_GOAL', path: 'period' }), 'f'),
+    ).toBe('A sessions goal is counted per week.');
+    expect(goalErrorMessage(new ApiError('startsOn must be…', 400, 'BAD_REQUEST', { reason: 'START_DATE_OUT_OF_RANGE' }), 'f')).toBe(
+      'Pick a start date within a year of today.',
+    );
   });
 
   it('falls back to the message, then the fallback', () => {
