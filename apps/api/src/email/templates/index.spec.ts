@@ -223,14 +223,32 @@ describe.each(EMAIL_TEMPLATE_NAMES)('template contract: "%s"', (name) => {
     expect(rendered.text).not.toContain('&lt;script&gt;');
   });
 
-  it('html has no <link>, no <style> block, and no external src=', () => {
+  it('html has no <link>, at most one <style> block, and no src= other than cid:', () => {
     expect(rendered.html).not.toMatch(/<link\b/i);
-    expect(rendered.html).not.toMatch(/<style\b/i);
-    // Matches `src=` only inside an actual (unescaped) tag — e.g. `<img
-    // src=...>` — not the literal substring "src=" that can legitimately
-    // appear as ESCAPED text content (see the hostile sample payload above,
-    // which contains "src=x" as inert, HTML-escaped text).
-    expect(rendered.html).not.toMatch(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=/i);
+    // One progressive-enhancement block at most; layout.spec.ts checks what
+    // it may contain.
+    expect((rendered.html.match(/<style\b/gi) ?? []).length).toBeLessThanOrEqual(1);
+    // Matches `src=` only inside an actual (unescaped) tag — not the literal
+    // substring "src=" that legitimately appears as ESCAPED text content (the
+    // hostile sample payload above contains "src=x" as inert text). The only
+    // permitted source is an inline MIME part, referenced as `cid:`.
+    const sources = [
+      ...rendered.html.matchAll(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]*)/gi),
+    ].map((match) => match[1]);
+    for (const source of sources) {
+      expect(source).toMatch(/^cid:/);
+    }
+  });
+
+  it('returns an inline attachment for every cid: the html references', () => {
+    const cids = [...rendered.html.matchAll(/\bsrc="cid:([^"]+)"/g)].map((match) => match[1]);
+    expect(cids.length).toBeGreaterThan(0);
+    for (const cid of cids) {
+      const part = rendered.attachments.find((attachment) => attachment.contentId === cid);
+      expect(part).toBeDefined();
+      expect(part?.disposition).toBe('inline');
+      expect(part?.contentBase64.length).toBeGreaterThan(0);
+    }
   });
 
   it('html is table-based', () => {

@@ -1,4 +1,15 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  callout,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -71,19 +82,8 @@ function formatHeartbeat(value: Date | null): string {
     : formatTimestamp(value);
 }
 
-/** One row of the detail table. `value` is escaped by the `html` tag. */
-function detailRow(label: string, value: string): SafeHtml {
-  return html`<tr>
-    <td
-      style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#4b5563;white-space:nowrap;vertical-align:top;"
-    >
-      ${label}
-    </td>
-    <td style="padding:6px 0;font-size:14px;line-height:20px;color:#1f2937;vertical-align:top;">
-      <strong>${value}</strong>
-    </td>
-  </tr>`;
-}
+/** The recipient's own notification settings page, appended to `appUrl`. */
+const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
 
 /**
  * Render the node-offline message.
@@ -99,65 +99,60 @@ export function nodeOfflineEmail(data: NodeOfflineEmailData): RenderedEmail {
   // body and in the preheader, both of which go through the tag.
   const subject = `${APP_NAME}: a worker node stopped responding`;
 
+  const title = 'Worker node went offline';
+  const eyebrow = 'Operations';
   const ctaUrl = data.appUrl ? `${data.appUrl}${WORKERS_ADMIN_PATH}` : undefined;
+  const ctaLabel = ctaUrl ? 'Open worker nodes' : undefined;
+  const preferencesUrl = data.appUrl
+    ? `${data.appUrl}${NOTIFICATION_SETTINGS_PATH}`
+    : undefined;
+  const footerReason = `You received this because you can view worker nodes in ${APP_NAME}.`;
 
-  const rows: SafeHtml[] = [
-    detailRow('Node', data.nodeName),
-    detailRow('Node id', data.nodeId),
-    detailRow('Last heartbeat', heartbeat),
-    detailRow('Marked offline at', markedAt),
-    detailRow('Stale after', `${data.staleAfterMinutes} minute(s)`),
+  const intro =
+    `A worker node registered with ${APP_NAME} stopped sending heartbeats for longer than the configured stale window, ` +
+    'and has been marked offline. Nothing observed it fail — it simply stopped answering.';
+  const calloutTitle = 'The fleet is running with less capacity';
+  const calloutBody =
+    "Jobs it was holding are released by the queue's own lease sweep and will be retried elsewhere. Until this node comes back, the fleet has less capacity than it was sized for.";
+  const facts = [
+    { label: 'Node', value: data.nodeName },
+    { label: 'Node id', value: data.nodeId, mono: true },
+    { label: 'Last heartbeat', value: heartbeat },
+    { label: 'Marked offline at', value: markedAt },
+    { label: 'Stale after', value: `${data.staleAfterMinutes} minute(s)` },
   ];
 
   const bodyHtml = html`
-    <p style="margin:0 0 16px 0;">
-      A worker node registered with ${APP_NAME} stopped sending heartbeats for
-      longer than the configured stale window, and has been marked
-      <strong>offline</strong>. Nothing observed it fail — it simply stopped
-      answering.
-    </p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
-      ${rows}
-    </table>
-    <p style="margin:0 0 16px 0;">
-      Jobs it was holding are released by the queue's own lease sweep and will
-      be retried elsewhere. Until this node comes back, the fleet has less
-      capacity than it was sized for.
-    </p>
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      You are receiving this because you can view worker nodes in ${APP_NAME}.
-    </p>
+    ${paragraph(intro)}
+    ${callout({ tone: 'warning', title: calloutTitle, body: calloutBody })}
+    ${detailRows(facts)}
   `;
 
   const htmlDocument = renderLayout({
-    title: 'Worker node went offline',
+    title,
+    eyebrow,
     previewText: `${data.nodeName} last checked in at ${heartbeat}.`,
     bodyHtml,
-    ctaLabel: ctaUrl ? 'Open worker nodes' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   const text = plainText({
-    title: 'Worker node went offline',
+    eyebrow,
+    title,
     lines: [
-      `A worker node registered with ${APP_NAME} stopped sending heartbeats for longer`,
-      'than the configured stale window, and has been marked OFFLINE. Nothing observed',
-      'it fail - it simply stopped answering.',
+      intro,
       '',
-      `  Node:               ${data.nodeName}`,
-      `  Node id:            ${data.nodeId}`,
-      `  Last heartbeat:     ${heartbeat}`,
-      `  Marked offline at:  ${markedAt}`,
-      `  Stale after:        ${data.staleAfterMinutes} minute(s)`,
+      ...textCallout({ tone: 'warning', title: calloutTitle, body: calloutBody }),
       '',
-      "Jobs it was holding are released by the queue's own lease sweep and will be",
-      'retried elsewhere. Until this node comes back, the fleet has less capacity',
-      'than it was sized for.',
-      '',
-      `You are receiving this because you can view worker nodes in ${APP_NAME}.`,
+      ...textDetailLines(facts),
     ],
-    ctaLabel: ctaUrl ? 'Open worker nodes' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   return {
@@ -165,5 +160,6 @@ export function nodeOfflineEmail(data: NodeOfflineEmailData): RenderedEmail {
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

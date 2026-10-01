@@ -314,6 +314,58 @@ describe('SesEmailProvider', () => {
       });
     });
 
+    it('maps an inline attachment to Content.Simple.Attachments with its Content-ID', async () => {
+      const provider = new SesEmailProvider(
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
+      );
+      sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-att' });
+
+      await provider.send({
+        ...baseMessage,
+        attachments: [
+          {
+            filename: 'brand-mark.png',
+            contentType: 'image/png',
+            contentBase64: Buffer.from('png-bytes').toString('base64'),
+            contentId: 'brand-mark',
+            disposition: 'inline',
+          },
+        ],
+      });
+
+      const commandArg = sesSendMock.mock.calls[0][0] as {
+        input: { Content: { Simple: { Attachments: Array<Record<string, unknown>> } } };
+      };
+      const [part] = commandArg.input.Content.Simple.Attachments;
+      expect(part).toMatchObject({
+        FileName: 'brand-mark.png',
+        ContentType: 'image/png',
+        ContentId: 'brand-mark',
+        ContentDisposition: 'INLINE',
+        ContentTransferEncoding: 'BASE64',
+      });
+      // Decoded bytes: the SDK does the wire encoding itself.
+      expect(Buffer.from(part!.RawContent as Uint8Array).toString()).toBe('png-bytes');
+    });
+
+    it('omits the Attachments field when the message carries none', async () => {
+      const provider = new SesEmailProvider(
+        makeConfig({}),
+        makeEmailSettings(withAccessKeyId({ ...baseEmailSettings, sesRegion: 'us-east-1' })),
+        makeCredentials('super-secret-access-key-value'),
+      );
+      sesSendMock.mockResolvedValueOnce({ MessageId: 'ses-msg-noatt' });
+
+      await provider.send(baseMessage);
+
+      const commandArg = sesSendMock.mock.calls[0][0] as {
+        input: { Content: { Simple: Record<string, unknown> } };
+      };
+      expect(commandArg.input.Content.Simple.Attachments).toBeUndefined();
+    });
+
     it('omits the Headers field when the message carries none', async () => {
       const provider = new SesEmailProvider(
         makeConfig({}),

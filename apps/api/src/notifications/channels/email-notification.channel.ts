@@ -4,6 +4,7 @@ import {
   EmailSettingsService,
   SesEmailProvider,
   SmtpEmailProvider,
+  composeEmailMessage,
   findEmailTemplate,
   formatFromHeader,
 } from '../../email';
@@ -255,14 +256,13 @@ export class EmailNotificationChannel implements NotificationChannelSender {
       return { success: false, error: rendered.error };
     }
 
-    const message: EmailMessage = {
+    // `composeEmailMessage`, not a hand-copy of fields: it carries the inline
+    // brand-mark part the HTML references (`cid:brand-mark`), and any field a
+    // template gains later, without this call site having to remember it.
+    const message: EmailMessage = composeEmailMessage(rendered.email, {
       to,
       from: formatFromHeader(settings.fromAddress, settings.fromName),
-      subject: rendered.email.subject,
-      html: rendered.email.html,
-      text: rendered.email.text,
-      ...(rendered.email.headers ? { headers: rendered.email.headers } : {}),
-    };
+    });
 
     // No try/catch: `send` never throws, and that is implemented once in
     // `BaseEmailProvider` rather than promised. Adding one here would suggest

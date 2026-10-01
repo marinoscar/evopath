@@ -1,5 +1,5 @@
 import { html, SafeHtml } from './safe-html';
-import { plainText, renderLayout } from './layout';
+import { APP_NAME, plainText, renderLayout } from './layout';
 
 // =============================================================================
 // layout.ts — tests (issue #123, epic #109)
@@ -15,9 +15,10 @@ import { plainText, renderLayout } from './layout';
 //      causes the button to be DROPPED rather than rendered pointing
 //      somewhere useless, checked on the rendered output of BOTH the HTML
 //      and the text part.
-//   3. Structural invariants (no <link>, no external src, no <style>, table
+//   3. Structural invariants (no <link>, only cid: sources, at most one
+//      progressive-enhancement <style> block, inline baseline styling, table
 //      based, hidden preheader present) that guard email-client
-//      compatibility as future templates (#128) reuse this layout.
+//      compatibility as future templates reuse this layout (#123, #237).
 // =============================================================================
 
 const basicBody: SafeHtml = html`<p>Hello, world.</p>`;
@@ -174,14 +175,70 @@ describe('renderLayout — structural invariants', () => {
     expect(out).not.toMatch(/<link\b/i);
   });
 
-  it('contains no external src= (no remote image/asset)', () => {
-    // Matches `src=` only inside an actual (unescaped) tag, not the literal
-    // substring "src=" as escaped text content.
-    expect(out).not.toMatch(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=/i);
+  it('references assets only as cid: (inline MIME parts), never by a remote or data: URL', () => {
+    // Every `src=` inside an actual (unescaped) tag. The brand mark travels
+    // inside the message as an inline part and is referenced as
+    // `cid:brand-mark`; anything else — http(s), protocol-relative, data: —
+    // is either a remote fetch that clients block by default or a payload
+    // several clients refuse to render.
+    const sources = [
+      ...out.matchAll(/<[a-zA-Z][a-zA-Z0-9-]*\b[^>]*\bsrc\s*=\s*["']?([^"'\s>]*)/gi),
+    ].map((match) => match[1]);
+
+    expect(sources.length).toBeGreaterThan(0);
+    for (const source of sources) {
+      expect(source).toMatch(/^cid:/);
+    }
+    expect(sources).toContain('cid:brand-mark');
   });
 
-  it('contains no <style> block', () => {
-    expect(out).not.toMatch(/<style\b/i);
+  it('shows the brand mark with an empty alt and the product name as live text beside it', () => {
+    expect(out).toMatch(/<img\b[^>]*src="cid:brand-mark"[^>]*alt=""/);
+    expect(out).toContain(APP_NAME);
+  });
+
+  it('has at most one <style> block, holding only progressive enhancements (@media / [data-og*] rules)', () => {
+    const blocks = [...out.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map(
+      (match) => match[1] ?? '',
+    );
+    expect(blocks.length).toBeLessThanOrEqual(1);
+
+    for (const css of blocks) {
+      // Walk the TOP-LEVEL rules by brace depth and record each one's prelude.
+      const preludes: string[] = [];
+      let depth = 0;
+      let prelude = '';
+      for (const char of css.replace(/\/\*[\s\S]*?\*\//g, '')) {
+        if (char === '{') {
+          if (depth === 0) preludes.push(prelude.trim());
+          depth += 1;
+          prelude = '';
+        } else if (char === '}') {
+          depth -= 1;
+        } else if (depth === 0) {
+          prelude += char;
+        }
+      }
+      expect(depth).toBe(0);
+      expect(preludes.length).toBeGreaterThan(0);
+      for (const rule of preludes) {
+        expect(rule).toMatch(/^(@media\b|\[data-og(sc|sb)\])/);
+      }
+    }
+  });
+
+  it('keeps baseline styling inline on the main elements, so a stripped <style> block changes nothing essential', () => {
+    // Each element a dark-mode/mobile rule targets also carries its light
+    // appearance inline. Stripping the block must leave a styled message.
+    const withoutStyle = out.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+
+    expect(withoutStyle).toMatch(/<body\b[^>]*style="[^"]*background-color:#F2F7F6/i);
+    expect(withoutStyle).toMatch(/class="em-card"[^>]*bgcolor="#FFFFFF"[^>]*style="[^"]*border:1px solid/i);
+    expect(withoutStyle).toMatch(/<h1\b[^>]*style="[^"]*font-size:\d+px[^"]*color:#0E1F1D/i);
+    expect(withoutStyle).toMatch(/class="em-pad"[^>]*style="padding:32px;"/);
+    // The button: a bgcolor cell around a padded anchor, plus the VML version.
+    expect(withoutStyle).toMatch(/<td\b[^>]*bgcolor="#0F766E"[^>]*>\s*<a\b[^>]*style="[^"]*padding:14px 28px/i);
+    expect(withoutStyle).toContain('<v:roundrect');
   });
 
   it('is table-based (a future flexbox "cleanup" would break Outlook silently)', () => {

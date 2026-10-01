@@ -1,4 +1,16 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  callout,
+  codeBlock,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -81,19 +93,8 @@ function outcomeSentence(outcome: BackupFailureOutcome): string {
     : 'It reported an error and was recorded as failed.';
 }
 
-/** One row of the detail table. `value` is escaped by the `html` tag. */
-function detailRow(label: string, value: string): SafeHtml {
-  return html`<tr>
-    <td
-      style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#4b5563;white-space:nowrap;vertical-align:top;"
-    >
-      ${label}
-    </td>
-    <td style="padding:6px 0;font-size:14px;line-height:20px;color:#1f2937;vertical-align:top;">
-      <strong>${value}</strong>
-    </td>
-  </tr>`;
-}
+/** The recipient's own notification settings page, appended to `appUrl`. */
+const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
 
 /**
  * Render the backup-failure message.
@@ -108,72 +109,73 @@ export function backupFailedEmail(data: BackupFailedEmailData): RenderedEmail {
 
   const subject = `${APP_NAME}: database backup failed`;
 
+  const title = 'Database backup failed';
+  const eyebrow = 'Operations';
   const ctaUrl = data.appUrl ? `${data.appUrl}${DB_BACKUP_ADMIN_PATH}` : undefined;
+  const ctaLabel = ctaUrl ? 'Open database backup' : undefined;
+  const preferencesUrl = data.appUrl
+    ? `${data.appUrl}${NOTIFICATION_SETTINGS_PATH}`
+    : undefined;
+  const footerReason = `You received this because you can view database backups in ${APP_NAME}.`;
 
-  const rows: SafeHtml[] = [
-    detailRow('Run id', data.runId),
-    detailRow('Outcome', data.outcome),
-    detailRow('Triggered by', trigger),
-    detailRow('Started at', startedAt),
-    detailRow('Settled at', failedAt),
+  const intro = `A database backup of ${APP_NAME} did not complete. ${sentence}`;
+  const calloutTitle = 'You have one fewer recovery point';
+  const facts = [
+    { label: 'Run id', value: data.runId, mono: true },
+    { label: 'Outcome', value: data.outcome },
+    { label: 'Triggered by', value: trigger },
+    { label: 'Started at', value: startedAt },
+    { label: 'Settled at', value: failedAt },
   ];
+  const reasonLabel = 'Recorded reason';
 
+  // THE CONSEQUENCE LEADS, in the callout directly under the opening line:
+  // see the header block for why.
   const bodyHtml = html`
-    <p style="margin:0 0 16px 0;">
-      A database backup of ${APP_NAME} did not complete. ${sentence} This
-      deployment now has <strong>one fewer recovery point</strong> than its
-      retention policy assumes, and the run is
-      <strong>not retried automatically</strong> — the next scheduled backup is
-      the retry.
-    </p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
-      ${rows}
-    </table>
-    <p style="margin:0 0 8px 0;font-size:13px;line-height:20px;color:#4b5563;">
-      Recorded reason:
-    </p>
-    <p
-      style="margin:0 0 20px 0;padding:12px;background:#f3f4f6;border-radius:4px;font-family:monospace;font-size:13px;line-height:20px;color:#1f2937;word-break:break-word;"
-    >
-      ${error}
-    </p>
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      You are receiving this because you can view database backups in
-      ${APP_NAME}.
-    </p>
+    ${paragraph(intro)}
+    ${callout({
+      tone: 'critical',
+      title: calloutTitle,
+      body: html`This deployment now has <strong>one fewer recovery point</strong> than its retention policy assumes, and the run is <strong>not retried automatically</strong> — the next scheduled backup is the retry.`,
+    })}
+    ${detailRows(facts)}
+    ${codeBlock(error, { label: reasonLabel })}
   `;
 
   const htmlDocument = renderLayout({
-    title: 'Database backup failed',
+    title,
+    eyebrow,
     previewText: `Run ${data.runId} ended as ${data.outcome}: ${error}`,
     bodyHtml,
-    ctaLabel: ctaUrl ? 'Open database backup' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   const text = plainText({
-    title: 'Database backup failed',
+    eyebrow,
+    title,
     lines: [
-      `A database backup of ${APP_NAME} did not complete.`,
-      sentence,
+      intro,
       '',
-      'This deployment now has ONE FEWER RECOVERY POINT than its retention policy',
-      'assumes, and the run is NOT retried automatically - the next scheduled backup',
-      'is the retry.',
+      ...textCallout({
+        tone: 'critical',
+        title: calloutTitle,
+        body:
+          'This deployment now has ONE FEWER RECOVERY POINT than its retention policy assumes, ' +
+          'and the run is NOT retried automatically - the next scheduled backup is the retry.',
+      }),
       '',
-      `  Run id:        ${data.runId}`,
-      `  Outcome:       ${data.outcome}`,
-      `  Triggered by:  ${trigger}`,
-      `  Started at:    ${startedAt}`,
-      `  Settled at:    ${failedAt}`,
+      ...textDetailLines(facts),
       '',
-      'Recorded reason:',
+      `${reasonLabel}:`,
       `  ${error}`,
-      '',
-      `You are receiving this because you can view database backups in ${APP_NAME}.`,
     ],
-    ctaLabel: ctaUrl ? 'Open database backup' : undefined,
+    ctaLabel,
     ctaUrl,
+    footerReason,
+    preferencesUrl,
   });
 
   return {
@@ -181,5 +183,6 @@ export function backupFailedEmail(data: BackupFailedEmailData): RenderedEmail {
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }

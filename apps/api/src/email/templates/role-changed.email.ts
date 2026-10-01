@@ -1,4 +1,15 @@
-import { APP_NAME, SafeHtml, html, plainText, renderLayout } from './layout';
+import {
+  APP_NAME,
+  callout,
+  detailRows,
+  html,
+  layoutAttachments,
+  paragraph,
+  plainText,
+  renderLayout,
+  textCallout,
+  textDetailLines,
+} from './layout';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
   type RenderedEmail,
@@ -106,20 +117,6 @@ function formatTimestamp(value: Date): string {
   return value.toISOString();
 }
 
-/** One row of the before/after table. `value` is escaped by the `html` tag. */
-function changeRow(label: string, value: string): SafeHtml {
-  return html`<tr>
-    <td
-      style="padding:6px 16px 6px 0;font-size:14px;line-height:20px;color:#4b5563;white-space:nowrap;vertical-align:top;"
-    >
-      ${label}
-    </td>
-    <td style="padding:6px 0;font-size:14px;line-height:20px;color:#1f2937;vertical-align:top;">
-      <strong>${value}</strong>
-    </td>
-  </tr>`;
-}
-
 /**
  * Render the role-change message.
  */
@@ -130,62 +127,62 @@ export function roleChangedEmail(data: RoleChangedEmailData): RenderedEmail {
 
   const subject = `Your access to ${APP_NAME} has changed`;
 
-  const rows: SafeHtml[] = [
-    changeRow('Account', data.recipientEmail),
-    changeRow('Previously', previous),
-    changeRow('Now', current),
-    changeRow('Changed at', timestamp),
+  const title = 'Your roles changed';
+  const eyebrow = 'Security';
+  const ctaLabel = data.appUrl ? `Open ${APP_NAME}` : undefined;
+  // NO preferences link: this event is mandatory, and the footer says why
+  // rather than offering a switch that does not exist.
+  const footerReason =
+    `You received this because the roles on your ${APP_NAME} account changed. ` +
+    'This notification cannot be turned off, because a change to your access should never be silent.';
+
+  const intro = `An administrator changed the roles on your ${APP_NAME} account. Your roles decide what you can see and do, so this changes your access.`;
+  const facts = [
+    { label: 'Account', value: data.recipientEmail },
+    { label: 'Previously', value: previous },
+    { label: 'Now', value: current },
+    { label: 'Changed at', value: timestamp },
   ];
+  const calloutTitle = 'When it takes effect';
+  const calloutBody =
+    'If you are signed in, the change applies the next time your session refreshes. Sign out and back in to apply it straight away.';
+  const unexpected = 'If you were not expecting this, contact an administrator now.';
 
   const bodyHtml = html`
-    <p style="margin:0 0 16px 0;">
-      An administrator changed the roles on your ${APP_NAME} account. Your roles
-      decide what you can see and do, so this changes your access.
-    </p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
-      ${rows}
-    </table>
-    <p style="margin:0 0 16px 0;">
-      If you are signed in, the change applies the next time your session
-      refreshes. Sign out and back in to apply it straight away.
-    </p>
-    <p style="margin:0;font-size:13px;line-height:20px;color:#4b5563;">
-      If you were not expecting this, contact an administrator now. This
-      notification cannot be turned off, because a change to your access should
-      never be silent.
-    </p>
+    ${paragraph(intro)}
+    ${detailRows(facts)}
+    ${callout({ tone: 'info', title: calloutTitle, body: calloutBody })}
+    ${paragraph(unexpected, { tone: 'muted' })}
   `;
 
   const htmlDocument = renderLayout({
-    title: 'Your roles changed',
+    title,
+    eyebrow,
     // The preheader carries the delta itself. This is the one message whose
     // value can be entirely delivered in the inbox list: a reader who sees
     // "Admin, Viewer -> Viewer" already knows whether to open it.
     previewText: `${previous} → ${current}, changed at ${timestamp}.`,
     bodyHtml,
-    ctaLabel: data.appUrl ? `Open ${APP_NAME}` : undefined,
+    ctaLabel,
     ctaUrl: data.appUrl,
+    footerReason,
   });
 
   const text = plainText({
-    title: 'Your roles changed',
+    eyebrow,
+    title,
     lines: [
-      `An administrator changed the roles on your ${APP_NAME} account.`,
-      'Your roles decide what you can see and do, so this changes your access.',
+      intro,
       '',
-      `  Account:      ${data.recipientEmail}`,
-      `  Previously:   ${previous}`,
-      `  Now:          ${current}`,
-      `  Changed at:   ${timestamp}`,
+      ...textDetailLines(facts),
       '',
-      'If you are signed in, the change applies the next time your session refreshes.',
-      'Sign out and back in to apply it straight away.',
+      ...textCallout({ tone: 'info', title: calloutTitle, body: calloutBody }),
       '',
-      'If you were not expecting this, contact an administrator now. This notification',
-      'cannot be turned off, because a change to your access should never be silent.',
+      unexpected,
     ],
-    ctaLabel: data.appUrl ? `Open ${APP_NAME}` : undefined,
+    ctaLabel,
     ctaUrl: data.appUrl,
+    footerReason,
   });
 
   return {
@@ -193,5 +190,6 @@ export function roleChangedEmail(data: RoleChangedEmailData): RenderedEmail {
     html: htmlDocument,
     text,
     headers: { ...TRANSACTIONAL_EMAIL_HEADERS },
+    attachments: layoutAttachments(),
   };
 }
