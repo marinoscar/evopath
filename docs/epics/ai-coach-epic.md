@@ -1,6 +1,6 @@
 # Epic E7 — AI Coach: accountability, nudges, chat, voice and progress photos
 
-> **Status:** Proposed · **Design spec:** [docs/specs/ai-coach.md](../specs/ai-coach.md) · **Template:** [epic.yml](../../.github/ISSUE_TEMPLATE/epic.yml) · **Stories:** E7.1 to E7.13
+> **Status:** Proposed · **Epic issue:** #240 · **Design spec:** [docs/specs/ai-coach.md](../specs/ai-coach.md) · **Template:** [epic.yml](../../.github/ISSUE_TEMPLATE/epic.yml) · **Stories:** E7.1 to E7.13
 
 This file is the body of the GitHub epic plus the full definition of each of its 13 child stories.
 The design (data model, decision engine, personas, safety) lives in the spec and is not restated here; stories link to its sections.
@@ -78,19 +78,19 @@ Out of scope (see [spec §7 Out of scope and follow-ups](../specs/ai-coach.md#7-
 
 ### Sub-issues / Tasks
 
-- [ ] #TBD E7.1 — Foundations: models, settings, AI feature ids, reset wiring
-- [ ] #TBD E7.2 — Persona registry, content guard and settings API
-- [ ] #TBD E7.3 — Coach settings UI (user, admin) and Model Assignments section
-- [ ] #TBD E7.4 — Decision engine and sweep
-- [ ] #TBD E7.5 — Nudge generation, delivery and feedback
-- [ ] #TBD E7.6 — Voice: TTS, fallback, preview and retention
-- [ ] #TBD E7.7 — Coach chat API
-- [ ] #TBD E7.8 — Coach page, navigation and Today integration
-- [ ] #TBD E7.9 — Progress photos
-- [ ] #TBD E7.10 — Weekly review, email and weekly streak
-- [ ] #TBD E7.11 — Learning loop (angle bandit)
-- [ ] #TBD E7.12 — Onboarding meet_coach and kickoff
-- [ ] #TBD E7.13 — E2E, visual baselines, runbook and doc rows
+- [ ] #241 E7.1 — Foundations: models, settings, AI feature ids, reset wiring
+- [ ] #242 E7.2 — Persona registry, content guard and settings API
+- [ ] #243 E7.3 — Coach settings UI (user, admin) and Model Assignments section
+- [ ] #244 E7.4 — Decision engine and sweep
+- [ ] #245 E7.5 — Nudge generation, delivery and feedback
+- [ ] #246 E7.6 — Voice: TTS, fallback, preview and retention
+- [ ] #247 E7.7 — Coach chat API
+- [ ] #248 E7.8 — Coach page, navigation and Today integration
+- [ ] #249 E7.9 — Progress photos
+- [ ] #250 E7.10 — Weekly review, email and weekly streak
+- [ ] #251 E7.11 — Learning loop (angle bandit)
+- [ ] #252 E7.12 — Onboarding meet_coach and kickoff
+- [ ] #253 E7.13 — E2E, visual baselines, runbook and doc rows
 
 ### Affected Component(s)
 
@@ -187,7 +187,7 @@ Source: [CLAUDE.md](../../CLAUDE.md). A story is not done if it breaks one of th
 
 | Rule | What it means for every story |
 |---|---|
-| Issue per story | Each story has its own GitHub issue (feature template), filed before work starts. Commits and the PR reference it (`Relates to #<n>` / `Fixes #<n>`). Replace `#TBD` with the real number. |
+| Issue per story | Each story has its own GitHub issue (feature template), filed before work starts. Commits and the PR reference it (`Relates to #<n>` / `Fixes #<n>`). |
 | Branch | In a cloud session, work on the designated branch. Otherwise create `worktrees/<short-name>` with `git worktree add worktrees/<short-name> -b feat/<short-name>`; never develop in the main checkout. No PR unless asked. |
 | Commits | Small, one intent each, Conventional Commits `<type>(<scope>): <summary>`. Scopes: `api`, `web`, `db`, `ai`, `jobs`, `notifications`, `storage`, `ui`, `core`, `docs`, `tests`, `infra`. A behaviour change carries its tests in the same or the next commit. Cadence: scaffold, core, edge cases, tests, cleanup, docs. |
 | Settings UI pattern | Every new settings page is declared in `apps/web/src/config/userSettingsSections.tsx` or `apps/web/src/config/adminSections.tsx`. Append, never insert between existing cards. Never add a tab to an existing settings page. The card `permission` is the exact string the controller enforces. Reuse `SettingsHub.tsx`. The five breakpoint gates (`sm` = 600px) are never touched. |
@@ -331,7 +331,7 @@ Out:
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.1 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.1 (issue #241) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (section E7.1 and "Rules every story inherits"),
 docs/specs/ai-coach.md sections 2.2 Data model and 3 Configuration and permissions,
 CLAUDE.md, and docs/specs/user-data-reset.md section 4.
@@ -347,7 +347,7 @@ Follow the six-place pattern of docs/specs/onboarding.md section 4.4 for the new
 Rules: delegate to subagents in this order: database-dev (schema + migration), backend-dev (settings, feature ids, purge),
 testing-dev (tests below), docs-dev (docs/ARCHITECTURE.md table list). Do not hand-write code yourself.
 Do not use @@unique for partial indexes. Never add env vars.
-Commit cadence (Conventional Commits, scope per change, reference #TBD): feat(db) schema+migration; feat(core) settings schemas;
+Commit cadence (Conventional Commits, scope per change, reference #241): feat(db) schema+migration; feat(core) settings schemas;
 feat(ai) feature ids and group; feat(core) reset wiring; test(...) tests; docs(docs) ARCHITECTURE table list.
 
 Acceptance criteria (all must be proven by tests): migration creates 3 tables + index; deleting a user and a user-data reset
@@ -479,7 +479,7 @@ Error codes from [spec §3.7](../specs/ai-coach.md#37-error-codes): `COACH_PROFA
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.2 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.2 (issue #242) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.2 and "Rules every story inherits"); docs/specs/ai-coach.md sections 2.3 Personas, 2.4 Profanity unlock,
 2.6 Nudge generation and the content guard, 3 Configuration and permissions (3.1, 3.2, 3.6, 3.7); CLAUDE.md (AI Platform Rules).
 
@@ -492,7 +492,7 @@ profanity writes that fail an unlock condition => 403 COACH_PROFANITY_LOCKED wit
 Consumer routes: @Auth + AiEnabledGuard + ai:use. No AI calls, no jobs, no UI. Persona text must never name or quote real people/films and never allow body/weight shaming, slurs,
 protected traits, sexual content or self-harm themes. Uncensored L3 lines are served only to unlocked callers.
 
-Delegate: backend-dev, then testing-dev, then docs-dev (ARCHITECTURE API module list). Commits (Conventional, reference #TBD):
+Delegate: backend-dev, then testing-dev, then docs-dev (ARCHITECTURE API module list). Commits (Conventional, reference #242):
 feat(api) persona registry; feat(api) resolveRegister + guard; feat(api) settings + admin settings routes; test(tests) ...; docs(docs) ...
 
 Acceptance criteria (17 in the epic file, E7.2): registry completeness and guard-clean lines; unlock truth table; DOB over attestation; fail-closed rubric; profanity gate in every field;
@@ -604,7 +604,7 @@ No new endpoints in this story.
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.3 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.3 (issue #243) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.3 + shared rules); docs/specs/ai-coach.md sections 2.3, 2.4, 2.13 UX surfaces, 3;
 CLAUDE.md "MANDATORY: Settings UI Pattern" and AI rule 5; docs/specs/settings-ui.md.
 
@@ -617,7 +617,7 @@ audio section off by default with voice list from the resolved coach.voice model
 at the system ceiling, lock-screen-safe, photo cadence, "your why" (200 chars, rendered as text). Voice preview button is disabled
 until E7.6 ships its route (feature-detect or disable with tooltip). Admin page: system coach settings plus an empty-state stats panel.
 
-Delegate: frontend-dev, then testing-dev, then docs-dev (ARCHITECTURE settings-page inventory). Commits (reference #TBD):
+Delegate: frontend-dev, then testing-dev, then docs-dev (ARCHITECTURE settings-page inventory). Commits (reference #243):
 feat(ui) user page; feat(ui) admin page; feat(ui) assignments Coach section; test(tests) ...; docs(docs) ...
 
 Acceptance criteria: 1 card hidden when AI off; 2 persona select persists; 3 locked Unhinged shows missing reason, no uncensored lines;
@@ -744,7 +744,7 @@ Out:
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.4 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.4 (issue #244) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.4 + shared rules); docs/specs/ai-coach.md sections 2.1, 2.2, 2.5 Decision engine, 2.14 Safety;
 CLAUDE.md "Every Long-Running Activity Is a Queue Job"; apps/api/src/jobs/handlers/README.md;
 apps/api/src/training-agents/evaluation/tasks/training-evaluation.task.ts, evaluation-due.ts and apps/api/src/jobs/housekeeping.enqueue.ts (patterns).
@@ -758,7 +758,7 @@ cursor-paged by user; per-user failure isolation) reading TrainingSignalsService
 and HEALTH_DATA_CHANGED_EVENT (apps/api/src/measurements/health-data-events.ts); GET /api/coach/state (ai:use + AiEnabledGuard). Enqueue ai.coach.nudge and ai.coach.weekly_review through a thin port the
 later stories implement; test with it mocked. No AI calls, no env vars.
 
-Delegate: backend-dev, then testing-dev, then docs-dev (ARCHITECTURE job-type inventory). Commits (reference #TBD): feat(jobs) pure planner; feat(jobs) sweep task+handler;
+Delegate: backend-dev, then testing-dev, then docs-dev (ARCHITECTURE job-type inventory). Commits (reference #244): feat(jobs) pure planner; feat(jobs) sweep task+handler;
 feat(core) state service + listeners; feat(api) state route; test(tests) table tests; docs(docs).
 
 Acceptance criteria (16 in the epic file, E7.4): quiet hours across midnight; cap min(user, system) and weekly_review exempt; 3h spacing boundary; auto-silence exactly one back-off then silence until re-engagement;
@@ -894,7 +894,7 @@ Error codes: `COACH_MESSAGE_NOT_FOUND` (404; a message of another user is also 4
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.5 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.5 (issue #245) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.5 + shared rules); docs/specs/ai-coach.md sections 2.5, 2.6 Nudge generation and the content guard,
 2.7 Delivery and audio, 2.14 Safety; CLAUDE.md AI Platform Rules and queue rules; apps/api/src/ai/README.md;
 apps/api/src/health-summary/health-summary.handler.ts (reference AI job consumer); apps/api/src/notifications/README.md.
@@ -910,7 +910,7 @@ template arrives in E7.10); the push channel and apps/web/src/sw.ts have NO acti
 Routes: POST /api/coach/messages/:id/opened, POST /api/coach/messages/:id/feedback (ai:use + AiEnabledGuard; other users' ids -> 404).
 convertedAt per spec 2.8 (24h workout or check-in, 48h photo; celebrations and reviews excluded); opening a message clears silencedAt and resets consecutiveIgnored. Never log message bodies or prompts. No env vars.
 
-Delegate: backend-dev, frontend-dev (sw.ts only), testing-dev, docs-dev. Commits (reference #TBD): feat(ai) nudge handler; feat(notifications) coach events;
+Delegate: backend-dev, frontend-dev (sw.ts only), testing-dev, docs-dev. Commits (reference #245): feat(ai) nudge handler; feat(notifications) coach events;
 feat(api) deliver job; feat(api) opened/feedback/conversion; feat(web) sw action; test(tests); docs(docs).
 
 Acceptance criteria (14 in epic file E7.5): persisted with snapshots; send:false creates nothing and is counted model_declined; guard regen then static fallback (provider=static);
@@ -1040,7 +1040,7 @@ Error codes ([spec §3.7](../specs/ai-coach.md#37-error-codes)): `COACH_AUDIO_DI
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.6 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.6 (issue #246) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.6 + shared rules); docs/specs/ai-coach.md sections 2.7 Delivery and audio, 2.14 Safety, 3;
 apps/api/src/ai/README.md; apps/api/src/ai/runtime/ai.service.ts (speak); apps/web/src/components/ai/AiSpeechPlayer.tsx.
 
@@ -1051,7 +1051,7 @@ audio plays from the existing signed storage download URL (no new audio route); 
 via enqueueHousekeepingJob, deleting audio older than system audioRetentionDays but keeping text. Show the AI-generated disclosure on every audio surface.
 OpenAI TTS only. Keys never leave the server. No env vars. Enable the preview button on /settings/coach.
 
-Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #TBD): feat(ai) coach audio service; feat(jobs) settle listener; feat(api) preview route;
+Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #246): feat(ai) coach audio service; feat(jobs) settle listener; feat(api) preview route;
 feat(jobs) audio purge; feat(web) preview + player; test(tests); docs(docs).
 
 Acceptance criteria (12 in epic file E7.6): text+audio when enabled; no speak() when off; provider failure -> text only audioStatus=failed; refusal -> text only without retry;
@@ -1182,7 +1182,7 @@ Error codes: `COACH_PAUSE_INVALID` (400, `pause_coach` with `days` outside 1 to 
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.7 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.7 (issue #247) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.7 + shared rules); docs/specs/ai-coach.md sections 2.9 Chat, 2.14 Safety, 3;
 CLAUDE.md AI Platform Rules; apps/api/src/ai/http/ai-sse.ts (pipeAiSse); apps/api/test/ai/ai-stream-nginx.spec.ts;
 apps/api/src/training-agents/guardrails/safety-keywords.ts, safety-screen.ts, apps/api/src/training-agents/context/never-send.ts; apps/cli/src/deploy/proxy.test.ts.
@@ -1195,7 +1195,7 @@ Screen user input with screenFreeText plus a new apps/api/src/coach/safety/distr
 even for an unlocked drill_sergeant L3. Persona never overrides safety. Respect never-send.ts. Add the unbuffered SSE location block for /api/coach/chat/stream to BOTH
 infra/nginx/nginx.conf and apps/cli/src/deploy/proxy.ts. Numbers shown come from signals, never invented. Never log message text or tool arguments. No env vars.
 
-Delegate: backend-dev, ops-dev (validate nginx syntax), testing-dev, docs-dev. Commits (reference #TBD): feat(api) chat route + persistence; feat(api) tools + pause_coach;
+Delegate: backend-dev, ops-dev (validate nginx syntax), testing-dev, docs-dev. Commits (reference #247): feat(api) chat route + persistence; feat(api) tools + pause_coach;
 feat(api) safety screen; feat(infra) nginx + deploy proxy blocks; test(tests); docs(docs).
 
 Acceptance criteria (13 in epic file E7.7): unbuffered SSE ending with done; nginx block in both files; signals tool equals /api/training/signals; photo summary has no ids/bytes;
@@ -1315,7 +1315,7 @@ Consumes: `GET /api/coach/state` (E7.4), `GET /api/coach/messages`, `POST /api/c
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.8 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.8 (issue #248) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.8 + shared rules); docs/specs/ai-coach.md sections 2.9, 2.11, 2.13 UX surfaces; CLAUDE.md
 "MANDATORY: Settings UI Pattern" (the five breakpoint gates); apps/web/src/config/destinations.ts, config/todayCards.tsx, pages/TodayPage.tsx,
 components/ai/AiSpeechPlayer.tsx, services/sse.ts.
@@ -1328,7 +1328,7 @@ a pure resolver makes Coach the 4th primary tab when it is visible to the user a
 PRIMARY_DESTINATION_LIMIT stays 4; Gyms stays reachable from rail, user menu and a Train link; update route-ownership tests for both states. Today: CoachHero (components/today/CoachHero.tsx) above the
 card grid and a coach card appended to TODAY_CARDS plus the CARD_SIZE entry in TodayPage.tsx. Do NOT touch the five breakpoint gates (Layout.tsx showRail, BottomNav self-gate, <main> pb, SettingsHub and AppBar isCompactWindow).
 
-Delegate: frontend-dev, testing-dev, docs-dev. Commits (reference #TBD): feat(web) destinations resolver + coach destination; feat(web) coach page; feat(web) today hero + card; test(tests); docs(docs).
+Delegate: frontend-dev, testing-dev, docs-dev. Commits (reference #248): feat(web) destinations resolver + coach destination; feat(web) coach page; feat(web) today hero + card; test(tests); docs(docs).
 
 Acceptance criteria (15 in the epic file, E7.8): AI on => Today/Train/Health/Coach; AI off or no ai:use => Today/Train/Health/Gyms; limit 4 and route ownership in both states; rail and user menu reach Gyms and Coach;
 Train link to Gyms; /coach redirects with AI off; timeline order, paging, opened once; audio player vs text-only; autoplay graceful; quick replies streaming with retry; feedback toggle; Today hero + append-only card +
@@ -1452,7 +1452,7 @@ Error codes: `PROGRESS_PHOTO_NOT_IMAGE` (400), `PROGRESS_PHOTO_OBJECT_NOT_OWNED`
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.9 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.9 (issue #249) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.9 + shared rules); docs/specs/ai-coach.md sections 2.2, 2.12 Progress photos, 2.14 Safety;
 apps/api/src/gyms/intake/gym-photo-references.ts and workouts/intake/workout-photo-references.ts (StorageObjectReferences pattern);
 apps/web/src/components/intake/ImageIntake.tsx; apps/api/src/health-export/; docs/specs/user-data-reset.md section 4.
@@ -1463,7 +1463,7 @@ include photos in the health export; verify user-data reset and factory reset re
 gallery grouped by month, side-by-side and slider compare, ghost overlay of the last photo for the same pose, capture via ImageIntake downscale; link from HealthPage.
 Photos are NEVER sent to AI, NEVER in notification/push/email payloads (add a tripwire test). No AI body analysis. Provide cadence data for the photo_prompt moment.
 
-Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #TBD): feat(api) progress photos routes; feat(storage) references + prefix; feat(api) export + reset;
+Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #249): feat(api) progress photos routes; feat(storage) references + prefix; feat(api) export + reset;
 feat(web) gallery + compare; feat(web) ghost overlay; test(tests); docs(docs).
 
 Acceptance criteria (14 in epic file E7.9): references registered; non-image bytes 400; other user's object 403; RBAC; works with AI off; never to AI/notifications tripwire;
@@ -1586,7 +1586,7 @@ Out:
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.10 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.10 (issue #250) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.10 + shared rules); docs/specs/ai-coach.md sections 2.10 Weekly review and email, 2.11 Weekly streak and passes, 2.5;
 apps/api/src/email/templates/ (index.ts, layout.ts, safe-html.ts, an existing *.email.ts); apps/api/src/notifications/channels/email-notification.channel.ts.
 
@@ -1597,7 +1597,7 @@ Persist a weekly_review CoachMessage with the stats in data; email template apps
 (stats table, persona intro, CTA "Plan my week" -> /coach, preferences link -> /settings/notifications, transactional headers); pure weekly-streak logic with one pass per 4 weeks
 and rest days never breaking a streak; WeeklyReviewCard in /coach and the streak flame in CoachHeader. notify after commit outside $transaction. No env vars.
 
-Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #TBD): feat(core) stats + streak pure functions; feat(ai) weekly review job; feat(notifications) email template;
+Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #250): feat(core) stats + streak pure functions; feat(ai) weekly review job; feat(notifications) email template;
 feat(web) review card; test(tests); docs(docs).
 
 Acceptance criteria (13 in epic file E7.10): numbers equal /api/training/signals for that ISO week; model numbers rejected; Sunday 18:00 local incl. DST week, once;
@@ -1707,7 +1707,7 @@ Rates are computed server-side; the response never contains user ids or message 
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.11 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.11 (issue #251) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.11 + shared rules); docs/specs/ai-coach.md section 2.8 Learning loop (formula, angles, config), 2.3 (persona/angle compatibility), 3;
 Yancey and Settles KDD 2020 summary in the spec's research section.
 
@@ -1717,7 +1717,7 @@ code constants (not env vars); persona compatibility exclusion before scoring; d
 angle on CoachMessage. Add GET /api/admin/coach/stats (ai_config:read; NOT behind AiEnabledGuard; aggregates only: sent/open/convert/opt-out rates by angle and persona plus KPIs weekly
 adherence %, chat sessions per WAU, photo cadence adherence; bounded date range) and fill the stats panel on /admin/settings/coach.
 
-Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #TBD): feat(ai) pickAngle; feat(ai) wire into nudge; feat(api) admin stats; feat(web) stats panel; test(tests); docs(docs).
+Delegate: backend-dev, frontend-dev, testing-dev, docs-dev. Commits (reference #251): feat(ai) pickAngle; feat(ai) wire into nudge; feat(api) admin stats; feat(web) stats panel; test(tests); docs(docs).
 
 Acceptance criteria (12 in epic file E7.11): determinism with seed; exact penalty values; temperature extremes; single eligible angle; empty list handling with fallback; uniform with no history and
 cold start below the sample floor; reward definition on fixtures; persona and supportive-register filters; angle stored and in prompt; stats equal manual counts, RBAC 403, works with AI off; panel and empty state; aggregates only.
@@ -1825,7 +1825,7 @@ Out:
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.12 (issue #TBD) of Epic E7 "AI Coach".
+You are implementing story E7.12 (issue #252) of Epic E7 "AI Coach".
 Read first: docs/epics/ai-coach-epic.md (E7.12 + shared rules); docs/specs/onboarding.md (sections 2.1 to 2.3, 4.1: the checklist is capped at four steps); docs/specs/ai-coach.md sections 2.5, 2.6, 2.13;
 apps/api/src/onboarding/onboarding.service.ts; apps/api/src/programs/programs.service.ts.
 
@@ -1836,7 +1836,7 @@ ai.coach.nudge per program (dedup coach.nudge:<userId>:kickoff:<programId>), gat
 only from signals/plan; a kickoff card in /coach with chips; saving preferredTime and why (<=200) only after explicit user confirmation via PUT /api/coach/settings. Picking a persona never unlocks profanity.
 Kickoff failure falls back to a static persona line and never blocks activation. No env vars.
 
-Delegate: backend-dev, frontend-dev, testing-dev, docs-dev (docs/specs/onboarding.md). Commits (reference #TBD): feat(api) ai_plan step becomes Meet your coach; feat(jobs) kickoff listener;
+Delegate: backend-dev, frontend-dev, testing-dev, docs-dev (docs/specs/onboarding.md). Commits (reference #252): feat(api) ai_plan step becomes Meet your coach; feat(jobs) kickoff listener;
 feat(web) kickoff card; test(tests); docs(docs) onboarding amendment.
 
 Acceptance criteria (12 in the epic file, E7.12): unchanged before a plan; "Meet your coach" todo then done after settings are saved; omitted without AI/permissions; metrics funnel; one kickoff per program through gates with deferral;
@@ -1941,7 +1941,7 @@ No new endpoints. The e2e relies on the public API and the existing admin jobs A
 ### Claude Code prompt
 
 ```text
-You are implementing story E7.13 (issue #TBD) of Epic E7 "AI Coach": the closing story. All of E7.1 to E7.12 are merged.
+You are implementing story E7.13 (issue #253) of Epic E7 "AI Coach": the closing story. All of E7.1 to E7.12 are merged.
 Read first: docs/epics/ai-coach-epic.md (E7.13 + shared rules); docs/specs/ai-coach.md (all, especially 5 Guardrails and 8 Verification); docs/TESTING.md; docs/README.md;
 docs/runbooks/maintenance-mode.md (runbook skeleton example); .claude/agents/docs-dev.md (documentation rules).
 
@@ -1953,7 +1953,7 @@ Add visual baselines (tests/visual) for /coach, /settings/coach, /admin/settings
 audio, profane mode, caps/retention, stats, troubleshooting) and add rows to docs/README.md, docs/ARCHITECTURE.md (job inventory, tables, settings pages, API modules), README.md feature map (do NOT touch the strings
 scripts/rename.mjs rewrites), CLAUDE.md doc table (spec + runbook), docs/TESTING.md, and the spec History. Fix any defect the e2e finds in the owning area with a fix(...) commit.
 
-Delegate: testing-dev (e2e, visual, guardrail spec), docs-dev (runbook and rows), ops-dev (stack up, migrations, typecheck; no git state changes). Commits (reference #TBD): test(tests) e2e; test(tests) visual baselines;
+Delegate: testing-dev (e2e, visual, guardrail spec), docs-dev (runbook and rows), ops-dev (stack up, migrations, typecheck; no git state changes). Commits (reference #253): test(tests) e2e; test(tests) visual baselines;
 test(api) coach guardrails; docs(docs) runbook; docs(docs) index and inventories.
 
 Acceptance criteria (12 in epic file E7.13). Final gates, all must pass: npm test --workspace=api; npm run test:db --workspace=api; npm run test:run --workspace=web; npm run test:run --workspace=cli;
@@ -1964,4 +1964,4 @@ npm run typecheck --workspace=api|web|cli; npm run openapi:dump && npm run opena
 
 ## History
 
-Filled in when the GitHub issues are filed: the epic number and the 13 story numbers replace `#TBD` in the sub-issue list above and in each story prompt.
+Filled in when the GitHub issues are filed: the epic number and the 13 story numbers replace `#253` in the sub-issue list above and in each story prompt.

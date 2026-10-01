@@ -811,4 +811,4 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
 
 ## History
 
-- Proposed under epic E7 (issue TBD).
+- Proposed under epic E7 (issue 240), stories E7.1 to E7.13 (issues 241 to 253).
