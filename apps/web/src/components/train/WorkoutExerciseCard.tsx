@@ -41,6 +41,8 @@ import { muscleLabel } from '../../services/exercises';
 import { useEquipmentTypes } from '../../hooks/useEquipmentTypes';
 import type { WeightUnit } from '../../utils/units';
 import { SetRow } from './SetRow';
+import { PlannedTargetProgress } from './PlannedTargetProgress';
+import type { PlannedTarget } from '../../hooks/usePlannedTargets';
 
 export interface WorkoutExerciseCardProps {
   entry: WorkoutExerciseView;
@@ -50,6 +52,8 @@ export interface WorkoutExerciseCardProps {
   isLast: boolean;
   /** E4.4's "Last time" line (`ExerciseLastTime`); nothing renders when absent. */
   lastTime?: ReactNode;
+  /** #263: the plan's time or distance target; pre-fills sets and shows progress. */
+  target?: PlannedTarget | null;
   onMove: (weId: string, direction: -1 | 1) => void;
   onRemove: (entry: WorkoutExerciseView) => void;
   onUpdateEntry: (weId: string, input: UpdateWorkoutExerciseInput) => Promise<unknown>;
@@ -188,6 +192,7 @@ export function WorkoutExerciseCard({
   isFirst,
   isLast,
   lastTime,
+  target = null,
   onMove,
   onRemove,
   onUpdateEntry,
@@ -303,6 +308,7 @@ export function WorkoutExerciseCard({
           </Menu>
         </Box>
         {lastTime ? <Box sx={{ mt: 0.5 }}>{lastTime}</Box> : null}
+        {target && <PlannedTargetProgress target={target} sets={entry.sets} unit={unit} exerciseName={name} />}
         {entry.notes && (
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>
             {entry.notes}
@@ -317,6 +323,7 @@ export function WorkoutExerciseCard({
               trackingMode={entry.exercise.trackingMode}
               unit={unit}
               canWrite={canWrite}
+              target={target ? { durationSeconds: target.durationSeconds, distanceMeters: target.distanceMeters } : null}
               autoFocus={focusSetId === set.id}
               onAutoFocused={() => setFocusSetId(null)}
               onSave={onSaveSet}

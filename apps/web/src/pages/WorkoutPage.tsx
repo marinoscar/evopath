@@ -38,6 +38,7 @@ import {
 import { Add as AddIcon, ArrowBack as ArrowBackIcon, SearchOff as SearchOffIcon } from '@mui/icons-material';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWorkout } from '../hooks/useWorkout';
+import { usePlannedTargets } from '../hooks/usePlannedTargets';
 import { useWeightUnit } from '../hooks/useWeightUnit';
 import { useGyms } from '../hooks/useGyms';
 import {
@@ -133,6 +134,8 @@ export default function WorkoutPage() {
   const { gyms, save: saveGym } = useGyms({ enabled: canRead && hasPermission('gyms:read') });
   const w = useWorkout(canRead ? workoutId : undefined);
   const workout = w.workout;
+  // #263: a planned time or distance exercise's target (pre-fill and progress).
+  const plannedTargets = usePlannedTargets(workout, { enabled: canRead && hasPermission('programs:read') });
 
   const locationState = location.state as (WorkoutLocationState & { notice?: string }) | null;
   const initialNotice = locationState?.notice ?? null;
@@ -306,6 +309,7 @@ export default function WorkoutPage() {
           canWrite={canWrite}
           isFirst={i === 0}
           isLast={i === workout.exercises.length - 1}
+          target={plannedTargets[entry.exerciseId] ?? null}
           lastTime={
             <ExerciseLastTime
               entry={entry}

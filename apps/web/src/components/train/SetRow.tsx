@@ -76,6 +76,12 @@ export interface SetRowProps {
   trackingMode: TrackingMode;
   unit: WeightUnit;
   canWrite: boolean;
+  /**
+   * The plan's per-set target (#263): an empty duration or distance field of
+   * an uncompleted set starts with it, as a draft saved like typed text
+   * (on completion, blur or an edit). Ignored for completed sets.
+   */
+  target?: { durationSeconds: number | null; distanceMeters: number | null } | null;
   /** Focus the first field once mounted (a row just added). */
   autoFocus?: boolean;
   onAutoFocused?: () => void;
@@ -118,6 +124,7 @@ export function SetRow({
   trackingMode,
   unit,
   canWrite,
+  target = null,
   autoFocus = false,
   onAutoFocused,
   onSave,
@@ -276,6 +283,33 @@ export function SetRow({
     },
     [],
   );
+
+  // #263: pre-fill an empty time or distance field with the plan's target, once
+  // per field (a draft the user clears stays cleared).
+  const prefilled = useRef<Partial<Record<SetField, boolean>>>({});
+  const targetDuration = target?.durationSeconds ?? null;
+  const targetDistance = target?.distanceMeters ?? null;
+  useEffect(() => {
+    if (!canWrite || set.completed) return;
+    const next: Partial<Record<SetField, string>> = {};
+    if (fields.includes('duration') && targetDuration !== null && set.durationSeconds === null && !prefilled.current.duration) {
+      next.duration = formatClock(targetDuration);
+    }
+    if (fields.includes('distance') && targetDistance !== null && set.distanceMeters === null && !prefilled.current.distance) {
+      next.distance = distanceInputText(targetDistance, distanceUnit);
+    }
+    const keys = Object.keys(next) as SetField[];
+    if (keys.length === 0) return;
+    for (const key of keys) prefilled.current[key] = true;
+    setDrafts((prev) => {
+      const merged = { ...prev };
+      for (const key of keys) if (merged[key] === undefined) merged[key] = next[key];
+      draftsRef.current = merged;
+      return merged;
+    });
+    // `fields` is derived from the tracking mode; the targets and stored values decide.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canWrite, set.completed, set.durationSeconds, set.distanceMeters, targetDuration, targetDistance, distanceUnit]);
 
   useEffect(() => {
     if (!autoFocus) return;
