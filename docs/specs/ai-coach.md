@@ -133,7 +133,7 @@ A persona is a data file in a registry, served by `GET /api/coach/personas` so t
 
 - **Registry.** `apps/api/src/coach/personas/*.persona.ts`, one file per persona, collected by `apps/api/src/coach/personas/index.ts` into `COACH_PERSONAS`.
 - **Each persona carries:** `id`, `name`, `tagline`, `avatar` (icon key), a style card (lexicon, do and don't, an intensity rubric for levels 1 to 3), a default voice with TTS `instructions`, and static sample lines for every moment. Sample lines are served as-is, so a preview in `/settings/coach` costs nothing and calls no model.
-- **Moments with sample lines.** `COACH_MOMENTS` in `apps/api/src/coach/personas/persona.types.ts`: the planned moments of [§2.5](#25-decision-engine) (`missed_twice`, `streak_at_risk`, `comeback`, `pr`, `weekly_target_hit`, `missed_session`, `fresh_start`, `photo_prompt`, `win_back`), plus `back_off` (the auto-silence message), `kickoff` and `weekly_review`, so every message the coach can send has a static fallback. Sarge has a line per level; the other personas carry one line per moment that serves every level (their level changes the rubric the model receives, not the static sample).
+- **Moments with sample lines.** `COACH_MOMENTS` in `apps/api/src/coach/personas/persona.types.ts`: the planned moments of [§2.5](#25-decision-engine) (`missed_twice`, `streak_at_risk`, `comeback`, `pr`, `weekly_target_hit`, `missed_session`, `fresh_start`, `photo_prompt`, `win_back`), the activity-goal moments `goal_at_risk` and `goal_hit`, plus `back_off` (the auto-silence message), `kickoff` and `weekly_review`, so every message the coach can send has a static fallback. Sarge has a line per level; the other personas carry one line per moment that serves every level (their level changes the rubric the model receives, not the static sample).
 - **Lexicon figures.** A persona may declare `lexiconNumbers`, figures that are style rather than data (Sarge's "40 percent", Coach's "20-minute version"). The content guard's numbers rule admits them besides the context's figures.
 - **Serving L3.** `GET /api/coach/personas` returns Sarge's level-3 lines only to a caller whose register is profane; otherwise the level-2 lines stand in and the card's `censored` is `true`.
 - **Selection.** The user's `coach.personaId` and `coach.intensity` (1 to 3). The persona card goes into the model's system prompt; the registry is the only place persona text lives.
@@ -277,13 +277,16 @@ Priority 1 wins. A user receives at most one moment per sweep.
 |---|---|---|---|
 | 1 | `missed_twice` | `missedStreak >= 2` from signals. | Return-after-miss was the strongest megastudy intervention; one miss does not break a habit, two start a pattern (Milkman 2021; Lally 2010). |
 | 2 | `streak_at_risk` | A session is planned today, none logged, and `nowLocal >= usualWorkoutMinuteLocal - 30 min`. Without a usual time, `coach.preferredTime`, else 17:00 local. | Duolingo's reminder lands about 23.5 hours after the last session; loss framing beats gain framing (Patel 2016). |
+| 2 | `goal_at_risk` | An active [activity goal](activity-goals.md) is slipping, read from `GoalProgressService`. **Week goals**, from the morning anchor (`coach.preferredTime`, else 09:00 local): `sessions` when `remaining > daysLeft`, or `remaining == daysLeft` from Thursday on (Monday to Wednesday "exactly one a day" is still comfortable); volume metrics (`minutes`, `steps`, `distance_m`) when `done < 0.7 x target x elapsedFraction` with at least one day left. **Day goals**, only from the `streak_at_risk` evening anchor, with the pace measured against the share of today's clock already gone (`done < 0.7 x target x minuteOfDay/1440`; an open `sessions` goal needs no pace). A goal that is hit is never at risk. Sweep-driven. | The same loss framing as `streak_at_risk` (Patel 2016), but only when the goal is still reachable and the user still has the day to act. Ties with `streak_at_risk` at priority 2; a planned session at risk wins the tie because it is planned first. |
 | 3 | `comeback` | A workout was just completed after a miss (event-driven, [below](#event-listeners)). A micro-reward, not a lecture. | Micro-reward for returning after a miss (Milkman 2021). |
-| 4 | `pr`, `weekly_target_hit` | A personal record (`prInRange`) or the weekly session target reached; event-driven. | Reward consistency, not volume (Duolingo). |
+| 4 | `pr`, `weekly_target_hit`, `goal_hit` | A personal record (`prInRange`) or the weekly session target reached; event-driven. `goal_hit`: a goal check-in or a finished workout made an activity goal `hit` for the first time in its period. | Reward consistency, not volume (Duolingo). A goal the user chose is celebrated like the weekly target. |
 | 5 | `missed_session` | A planned session is `missed` yesterday; sent at `preferredTime`, else 09:00 local. | Implementation intentions: the message carries a concrete next slot (Gollwitzer and Sheeran). |
 | 6 | `fresh_start` | Local Monday, or the 1st of a month, after a lapse (no completed session in the last 7 days). | Fresh-start effect (Dai, Milkman, Riis 2014). |
 | 7 | `photo_prompt` | `coach.photoCadence` due, morning, on a planned training day. | Photos as evidence ([VISION.md §87](../../VISION.md)). |
 | 8 | `win_back` | No user activity for `inactiveStopDays` (default 7). The one final message says the coach will back off. | Duolingo stops after 7 inactive days to protect the channel. |
 | separate lane | `weekly_review` | Local Sunday 18:00, deduped by ISO week ([§2.10](#210-weekly-review-and-email)). Not subject to the daily cap; still obeys quiet hours, `pausedUntil` and notification preferences. | VISION §94. |
+
+**Goal moments are deduplicated per goal and period, not per day.** The candidate's `momentKey` is `<moment>:<goalId>:<periodStart>` (`goalMomentKey`), so a goal gets at most one `goal_at_risk` and one `goal_hit` per period, and a key already sent is skipped (the nudge job dedupes on it too). The usual per-day `already_sent` gate also holds, so at most one goal moment of each kind goes out per local day; with several at-risk goals the first unsent one in goal order is the candidate and the next waits for the following sweep. Combined daily caps, quiet hours, spacing, `paused`, auto-silence, `safety_supportive_only` and `pref_off` apply to goal moments like any other.
 
 #### Hard gates
 
@@ -301,13 +304,14 @@ All gates live in the pure function and are table-tested. A gate that fails remo
 | Preferences | The user turned the event off in `/settings/notifications`, or the admin disabled it. | `pref_off` |
 | Deduplication | The same moment was already sent for the same local day. | `already_sent` |
 
-**Auto-silence.** After `autoSilenceAfterIgnored` ignored nudges in a row (system default 3), the coach sends **exactly one** back-off message ("I'll step back until you reach out") and sets `silencedAt`. Opening the app, sending a chat message or logging a workout clears `silencedAt` and resets `consecutiveIgnored`. A `win_back` message at `inactiveStopDays` also ends in `silencedAt`.
+**Auto-silence.** After `autoSilenceAfterIgnored` ignored nudges in a row (system default 3), the coach sends **exactly one** back-off message ("I'll step back until you reach out") and sets `silencedAt`. Opening the app, sending a chat message, logging a workout or recording a goal check-in (a manual activity entry) clears `silencedAt` and resets `consecutiveIgnored`. A `win_back` message at `inactiveStopDays` also ends in `silencedAt`.
 
 #### Event listeners
 
 | Event | Source | Effect |
 |---|---|---|
-| `WORKOUT_FINISHED_EVENT` | `apps/api/src/workouts/workout-events.ts` | Plans `comeback`, `pr` or `weekly_target_hit` immediately, through the same gates. Marks conversion on a recent nudge ([§2.8](#28-learning-loop)). Clears `silencedAt`. |
+| `WORKOUT_FINISHED_EVENT` | `apps/api/src/workouts/workout-events.ts` | Plans `comeback`, `pr`, `weekly_target_hit` or `goal_hit` (a goal the workout's credit just reached) immediately, through the same gates. Marks conversion on a recent nudge ([§2.8](#28-learning-loop)). Clears `silencedAt`. |
+| `activity.entry.recorded` | `apps/api/src/activity/activity-events.ts`, emitted by `ActivityEntriesService` after a manual check-in committed (`create`, and `batch` when it wrote a row; an edit or delete emits nothing) | Enqueues the `coach.activity_recorded` job, which plans `goal_hit` through the same gates. The subject is the user, so a burst of check-ins collapses onto one pending job. A check-in counts as engagement: it moves `lastEngagementAt` and clears `silencedAt`. |
 | Program activation | The programs service | Plans a `kickoff` message that asks for an implementation intention: when, where and the fallback plan ([§2.13](#213-ux-surfaces)). |
 | `HEALTH_DATA_CHANGED_EVENT` | `apps/api/src/measurements/health-data-events.ts` | Refreshes the readiness view the safety gate reads; sends nothing itself. |
 
@@ -318,7 +322,7 @@ When a moment is eligible, the sweep or listener enqueues `ai.coach.nudge` with 
 `ai.coach.nudge` is server-only, profile `{ maxRuntimeMs: 120000, maxAttempts: 2 }`.
 
 1. Resolve `coach.decision` with `AiFeatureModelResolver.resolve` (`apps/api/src/ai/assignments/ai-feature-model-resolver.service.ts`). The reference consumer is `apps/api/src/health-summary/health-summary.handler.ts`.
-2. Build the context ([§2.9](#29-chat) shares the builder): the compact signals, `CoachState`, the last 10 coach messages (so the model does not repeat itself), the persona card at the user's intensity, the register from `resolveRegister`, the chosen angle ([§2.8](#28-learning-loop)) and the user's `why`.
+2. Build the context ([§2.9](#29-chat) shares the builder): the compact signals, `CoachState`, the last 10 coach messages (so the model does not repeat itself), the persona card at the user's intensity, the register from `resolveRegister`, the chosen angle ([§2.8](#28-learning-loop)) and the user's `why`. A compact summary of the user's active goals (title, metric, period, counts) goes in too, plus the one goal a goal moment is about; goal titles are the user's own labels and are marked as **data** in the prompt, and entry notes never reach it.
 3. Call `AiService.forUser(userId, { jobId }).respondStructured` with the schema below.
 4. Run the content guard. On pass, persist and deliver ([§2.7](#27-delivery-and-audio)).
 
@@ -335,6 +339,8 @@ const coachNudgeSchema = z.object({
   reason: z.string().max(200),              // why send or not; for learning, never shown
 });
 ```
+
+**`goal_resolved`.** A goal moment re-checks its goal before any model call. When the goal was paused, archived or deleted since the planner ran, or a `goal_at_risk` goal has caught up or been hit, the job ends with suppression reason `goal_resolved`: no model call and no message.
 
 **`send: false` is a real answer.** It means "the data allows a message but a message would not help now". The server records it as a `coach.nudge.suppressed{reason=model_declined}` event (the `reason` text is neither logged nor stored; only its length is), writes no `CoachMessage`, and counts nothing against the daily cap. The moment is eligible again at the next sweep, so a persistent decline cannot loop within one sweep. The model cannot turn a gate failure into a send, because the job is only enqueued for moments that passed the gates.
 
@@ -456,7 +462,7 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 - **Nginx.** The route needs an unbuffered location block in **both** `infra/nginx/nginx.conf` and `apps/cli/src/deploy/proxy.ts` (the CLI test `apps/cli/src/deploy/proxy.test.ts` asserts each streaming location). Model the block on `location /api/ai/responses/stream`. The existing guard `apps/api/test/ai/ai-stream-nginx.spec.ts` shows the pattern; `apps/api/test/coach/coach-stream-nginx.spec.ts` asserts the coach block.
 - **History window.** The persona system prompt plus the last 20 messages of the timeline. Older turns are not sent, and neither is any row of a safety-blocked turn (below).
 
-**Tools.** Read-only tools return minimised data. The two write tools are narrow.
+**Tools.** The seven read-only tools return minimised data. The two write tools are narrow.
 
 | Tool | Kind | Returns |
 |---|---|---|
@@ -466,6 +472,7 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 | `get_check_ins` | read | Recent readiness numbers, never notes |
 | `get_progress_photo_summary` | read | Dates and counts only, never an image |
 | `get_last_weekly_review` | read | The last review's stored stats and headline |
+| `get_goals` | read | The user's active goals in their current period: title (the user's label, data), metric, period, done, target, remaining, `daysLeft`, `hit`, `onTrack` and `streakPeriods`. No id, entry or note |
 | `pause_coach` | **write** | Sets `pausedUntil`. `days` is 1 to 14, `reason` is short text. For "I'm sick" or "on vacation". |
 | `save_commitment` | **write** | Saves the kickoff answer: `why` (at most 200 characters) and/or `preferredTime` (`HH:mm`), through `CoachSettingsService.update` (the `PUT /api/coach/settings` path). Called only after the user explicitly confirms the values; a bad value answers `COACH_COMMITMENT_INVALID` to the model. |
 
@@ -479,7 +486,7 @@ Plan changes are not tools. The coach proposes and links to the existing adjust 
 | `conservative` (pain, injury, strain) | The model is called in the supportive register, with the pushy angles removed and the prompt told not to advise training through pain. |
 | `ok` | Normal persona. |
 
-**Never-send.** `apps/api/src/coach/context/coach-never-send.ts` extends the list in `apps/api/src/training-agents/context/never-send.ts` with `progress_photos` and audio, and the canary test walks it. Name, email, date of birth, check-in and pain notes, medications, labs and storage keys never reach a prompt ([§5](#5-guardrails)).
+**Never-send.** `apps/api/src/coach/context/coach-never-send.ts` extends the list in `apps/api/src/training-agents/context/never-send.ts` with `progress_photos` and audio, and the canary test walks it. Name, email, date of birth, check-in and pain notes, medications, labs and storage keys never reach a prompt ([§5](#5-guardrails)). Activity goal titles are the one new user text a prompt receives, as marked data; activity entry notes never are.
 
 **Limits.** Rate limits come from `ai.limits` (`AiLimitsService`); a limited call answers `429 AI_RATE_LIMITED`. Chat turns are stored as `CoachMessage` rows (`kind = 'chat'`).
 
@@ -511,7 +518,7 @@ At local Sunday 18:00 the sweep enqueues `ai.coach.weekly_review`, deduped by IS
 
 | Part | Source |
 |---|---|
-| **Stats (deterministic)** | Planned and completed sessions, adherence percent, weekly streak, PRs, check-ins done, photos added, next week's planned sessions. Built by code from signals and stored in `CoachMessage.data`. |
+| **Stats (deterministic)** | Planned and completed sessions, adherence percent, weekly streak, PRs, check-ins done, photos added, next week's planned sessions, and `goals`: every active activity goal (title, metric, period, `unit`, `done`, `target`, `hit`, `streakPeriods`). Built by code from signals and `GoalProgressService` and stored in `CoachMessage.data`. A week goal reads as of the week's Sunday in its own unit; a **day** goal reads as days hit in the reviewed week out of 7 (`unit: 'days'`). |
 | **Prose (AI)** | `{ headline, intro, wins[], focus, nextWeekPlanPrompt }`, in persona, from `coach.decision`. Passes the same content guard. |
 
 The review is a `weekly_review` message, rendered as a rich card in `/coach`, with the deterministic block in a table and the prose around it. **The prose never carries a number the stats block does not carry**; the guard enforces this.
@@ -532,6 +539,7 @@ The event `coach.weekly_review` declares `email`, `browser` and `push`, so the u
 - **Preferences.** The planner does not apply the `pref_off` gate to the review lane: the review is an in-app card that also advances the streak, and the dispatcher sends it only on the channels the user left on. Quiet hours, `pausedUntil` and the coach switches still apply.
 - **Push.** `pushTitle` is "Your week in review"; with `lockScreenSafe` the body is "<persona> has your weekly review.", never stats.
 - **`CoachMessage.data`** (version 1): `{ version, isoWeek, stats, prose, emailProse, register, fallback }`. `stats` is `{ isoWeek, weekStart, weekEnd, planned, completed, missed, adherencePct, weeklyStreak, streakPassesLeft, streakChange, prs: [{ exercise, value, unit, reps }], checkIns, photosAdded, nextWeekSessions, nextWeek: [{ date, weekday, name }], noPlan, firstWeek }`; `prose` and `emailProse` are `{ headline, intro, wins[], focus, nextWeekPlanPrompt }`, `emailProse` always clean. `title` and `body` are `prose.headline` and `prose.intro`.
+- **Goals in the review.** `stats.goals` is absent on reviews written before goals existed. The prompt receives the goals with their titles marked as data (celebrate a hit goal by name, never scold a missed one), and the guard's numbers rule still draws every figure from `stats`. The static fallback adds one count-only win ("You reached 2 of your 3 activity goals."), never a title. The email lists one `Goal: <title>` row per goal beside the other stats, the title escaped and cut to 60 characters.
 - **Metrics.** `app.coach.weekly_review.sent{coach.source}`, `.skipped{coach.reason}`, `.fallback{coach.reason}`, `app.coach.weekly_streak.updated{coach.change}` and the histogram `app.coach.weekly_streak.length`; span `coach.weekly_review.generate`. Email delivery is recorded in `notification_deliveries`.
 
 ### 2.11 Weekly streak and passes
@@ -704,7 +712,8 @@ All coach jobs are server-only. The AI jobs implement neither `nodeResultSchema`
 |---|---|---|---|---|
 | `coach.sweep` | no | 5 min / 2 | `CoachSweepTask`, cron `17 * * * *` (only while AI and the coach are on), through `enqueueHousekeepingJob`; a pass that runs out of its 4-minute budget queues a continuation | Server-only: reads many tables mid-computation for every user. |
 | `coach.workout_finished` | no | 1 min / 2 | A finished workout; plans the event moments (`comeback`, `pr`, `weekly_target_hit`) for that one user through the planner's gates | Server-only: reads many tables mid-computation. |
-| `ai.coach.nudge` | yes | 2 min / 2 | The sweep or `coach.workout_finished`, one per planned moment | Server-only: AI rule; a user's key never goes to a node. |
+| `coach.activity_recorded` | no | 1 min / 2 | `CoachEventsListener` on `activity.entry.recorded` (a manual goal check-in); plans `goal_hit` for that one user through the planner's gates | Server-only: reads many tables mid-computation. |
+| `ai.coach.nudge` | yes | 2 min / 2 | The sweep, `coach.workout_finished` or `coach.activity_recorded`, one per planned moment | Server-only: AI rule; a user's key never goes to a node. |
 | `ai.coach.weekly_review` | yes | 3 min / 2 | The sweep, for the weekly-review lane (local Sunday 18:00, caught up until Monday 18:00) | Server-only: AI rule. |
 | `coach.message.deliver` | no | 3 min / 3 | `ai.coach.nudge`, `ai.coach.weekly_review`, `coach.audio.settle` | Server-only: sends a notification and writes rows as it goes. |
 | `coach.audio.settle` | no | 30 s / 3 | A settled `ai.audio.speech` run (listener), or a 2-minute wait-cap job scheduled with the speech request | Server-only: maps a settled speech run (or the wait cap) to its message and enqueues delivery. |
@@ -808,6 +817,7 @@ Tests that exist; "(existing, extended)" marks a suite the coach added cases to.
 | The guard rejects banned terms, body or weight insults, invented numbers, profane lock-screen text and over-length output; regenerates once; falls back to a static line. | `apps/api/src/coach/guard/coach-content-guard.spec.ts` |
 | `planCoachMoments` honours every gate and priority, deterministically, with no Nest or Prisma import. | `apps/api/src/coach/planning/plan-coach-moments.spec.ts` |
 | `pickAngle` is deterministic for a seed, applies the novelty penalty and cold-starts uniformly. | `apps/api/src/coach/learning/pick-angle.spec.ts` |
+| Goal moments: `goal_at_risk` rules by metric and period, once per goal per period, `goal_hit` on first hit only, the planner's gates on both, the `activity.entry.recorded` listener and `coach.activity_recorded` handler, `goal_resolved`, the `get_goals` tool, the weekly review's `goals`. | `apps/api/src/coach/planning/plan-coach-goal-moments.spec.ts`, `coach-events.listener.spec.ts`, `handlers/coach-activity-recorded.handler.spec.ts`, `apps/api/src/coach/nudges/handlers/coach-nudge.goals.spec.ts`, `chat/coach-chat-tools.spec.ts`, `review/weekly-review-stats.spec.ts` |
 | Data minimisation: a canary in each never-send source appears in no model request (chat, nudge, review). | `apps/api/test/coach/coach-never-send.spec.ts` |
 | Every persona has a sample line for every moment and intensity, all pass the guard in their register, and only Sarge L3 contains profanity. | `apps/api/src/coach/personas/persona-registry.spec.ts` |
 | Safety: a blocked or distress message makes no model call; a supportive register removes pushy angles. | `apps/api/test/coach/coach-safety.spec.ts` |
@@ -905,3 +915,4 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
   - E7.11 (issue 251): the learning loop and admin engagement stats.
   - E7.12 (issue 252): the `ai_plan` step's "Meet your coach" phase, the program-activation kickoff with deferral, and the `save_commitment` chat tool ([§2.13](#213-ux-surfaces)).
   - E7.13 (issue 253): end-to-end tests, visual baselines, the runbook and the doc rows.
+- Epic #260 (cardio and everyday activity): the goal moments `goal_at_risk` and `goal_hit`, the `get_goals` chat tool, goals in the weekly review and its email, and the `coach.activity_recorded` job: #269.
