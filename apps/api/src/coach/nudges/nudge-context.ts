@@ -3,6 +3,7 @@ import type { ResolvedCoachUserSettings } from '../../common/schemas/user-settin
 import type { PlanSignals } from '../../programs/signals/plan-signals.contract';
 import { LOW_READINESS_STREAK_MIN_DAYS, PAIN_STREAK_MIN_SESSIONS, nextSessionOf, weeklyTargetOf } from '../planning/coach-signals';
 import type { CoachMoment } from '../personas';
+import type { CoachGoalSummary } from '../planning/coach-goals';
 
 // =============================================================================
 // The nudge context builder (E7.5, #245; spec §2.6 step 2)
@@ -17,7 +18,11 @@ import type { CoachMoment } from '../personas';
 //                   (title and moment only) so the model does not repeat
 //                   itself. No ids, no dates (weekday names instead), no body
 //                   measurements, no free text except the user's `why`, which
-//                   travels separately and delimited (`nudge-prompt.ts`).
+//                   travels separately and delimited (`nudge-prompt.ts`), and
+//                   the titles of the user's own activity goals (F9): a
+//                   compact `goals` summary (title, metric, period, counts),
+//                   plus `goal`, the one a goal moment is about. The prompt
+//                   marks goal titles as data.
 //   allowedNumbers  every figure in `promptData`, for the content guard's
 //                   `invented_number` rule: a number the model writes that is
 //                   not here fails the guard.
@@ -66,6 +71,10 @@ export interface NudgeContextInput {
   settings: Pick<ResolvedCoachUserSettings, 'preferredTime' | 'lockScreenSafe'>;
   /** An active training safety stop (planner's `isSafetyStop`). */
   safetyStop: boolean;
+  /** Active activity goals, compact (F9); absent: none. */
+  goals?: readonly CoachGoalSummary[];
+  /** Goal moments: the goal the message is about (absent or null otherwise). */
+  goal?: CoachGoalSummary | null;
 }
 
 export interface NudgePromptData {
@@ -90,6 +99,10 @@ export interface NudgePromptData {
   personalRecords: Array<{ lift: string; bestKg: number | null; reps: number | null }>;
   safety: { supportive: boolean; reasons: string[]; avoidLifts: string[] };
   recentCoachMessages: Array<{ moment: string | null; kind: string; title: string; daysAgo: number }>;
+  /** The user's active activity goals in their current period (F9). */
+  goals: CoachGoalSummary[];
+  /** Goal moments: the goal this message is about; null otherwise. */
+  goal: CoachGoalSummary | null;
 }
 
 export interface NudgeFill {
@@ -164,11 +177,13 @@ export function buildNudgeContext(input: NudgeContextInput): NudgeContext {
       title: m.title,
       daysAgo: Math.max(0, Math.floor((input.now.getTime() - m.createdAt.getTime()) / DAY_MS)),
     })),
+    goals: [...(input.goals ?? [])],
+    goal: input.goal ?? null,
   };
 
   const time = usual ?? input.settings.preferredTime ?? DEFAULT_TIME;
   const fill: NudgeFill = {
-    n: week.done > 0 ? week.done : totals.completed,
+    n: goalFillNumber(input.moment, input.goal ?? null) ?? (week.done > 0 ? week.done : totals.completed),
     // "one session from a {streak}-week streak": the streak this week would make.
     streak: weeklyStreak + 1,
     lift: prs[0]?.lift ?? 'your top lift',
@@ -196,6 +211,14 @@ export function collectNumbers(value: unknown, out: Array<number | string> = [])
     }
   }
   return out;
+}
+
+/** `{n}` of a goal moment: what is still to do (`goal_at_risk`) or what was done (`goal_hit`). */
+function goalFillNumber(moment: CoachMoment, goal: CoachGoalSummary | null): number | null {
+  if (!goal) return null;
+  if (moment === 'goal_at_risk') return goal.remaining;
+  if (moment === 'goal_hit') return goal.done;
+  return null;
 }
 
 function roundKg(value: number | null): number | null {

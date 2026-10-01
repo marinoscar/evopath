@@ -24,7 +24,9 @@
 //   2. `coach.decision` through `AiFeatureModelResolver`; refused unless
 //      `ready`/`auto`.
 //   3. Context (`nudge-context.ts`): signals, `CoachState`, the last 10 coach
-//      titles, the persona card at the rendered intensity under
+//      titles, the active activity goals' compact summary (F9; a goal moment
+//      whose goal is gone, or a `goal_at_risk` whose goal is now on pace or
+//      hit, ends `goal_resolved` without a model call), the persona card at the rendered intensity under
 //      `resolveRegister`, the angle (`AnglePicker` seam, E7.11) and the
 //      user's `why`, delimited as data.
 //   4. `respondStructured` (strict). `send: false` -> nothing persisted,
@@ -64,6 +66,7 @@ import { SpanStatusCode, trace, type Span } from '@opentelemetry/api';
 import { Prisma, type Job } from '@prisma/client';
 import { z } from 'zod';
 
+import { GoalProgressService, type GoalProgressData } from '../../../activity/goal-progress.service';
 import { AiFeatureModelResolver } from '../../../ai/assignments/ai-feature-model-resolver.service';
 import { RUNNABLE_FEATURE_STATES } from '../../../ai/assignments/dto/ai-feature-resolution.dto';
 import { AiConfigService } from '../../../ai/config/ai-config.service';
@@ -95,6 +98,7 @@ import {
 import { recordCoachKickoff } from '../../coach-kickoff.metrics';
 import { CoachContentGuard } from '../../guard/coach-content-guard.service';
 import type { CoachGuardContext, CoachGuardReason } from '../../guard/coach-content-guard';
+import { coachGoalSummaries } from '../../planning/coach-goals';
 import { coachUserSettingsOf, isSafetyStop } from '../../planning/coach-planner.service';
 import { coachNow } from '../../planning/coach-time';
 import { kickoffGate } from '../../planning/plan-coach-moments';
@@ -135,6 +139,8 @@ export const coachNudgePayloadSchema = z
     trigger: z.string().max(40).optional(),
     /** Kickoff only: the activated program. */
     programId: z.uuid().optional(),
+    /** Goal moments only (F9): the activity goal the message is about. */
+    goalId: z.uuid().optional(),
     /** Kickoff only: how many times this kickoff was already deferred. */
     deferrals: z.number().int().min(0).optional(),
   })
@@ -181,6 +187,8 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     private readonly audio: CoachAudioService,
     @Inject(COACH_ANGLE_PICKER) private readonly anglePicker: AnglePicker,
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    // Optional so a fork without activity goals (or a test) writes nudges without them.
+    @Optional() private readonly goals?: GoalProgressService,
   ) {}
 
   onModuleInit(): void {
@@ -308,7 +316,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     const register = resolveRegister(settings, system, { dateOfBirth: dob ? fromDbDate(dob) : null }, now);
     const style = renderPersonaStyle(settings.personaId, clampIntensity(settings.intensity), register);
 
-    const [signals, history, program, lastRun] = await Promise.all([
+    const [signals, history, program, lastRun, goalProgress] = await Promise.all([
       this.signals.forUser(userId, { to: addDays(today, 7) }, now),
       this.prisma.coachMessage.findMany({
         where: { userId, role: 'coach' },
@@ -325,7 +333,15 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
         orderBy: { completedAt: 'desc' },
         select: { status: true, completedAt: true },
       }),
+      this.goalProgress(userId, now),
     ]);
+
+    // A goal moment re-checks its goal (F9): it may have been paused, archived,
+    // deleted or (for `goal_at_risk`) caught up since the planner ran.
+    const momentGoal = payload.goalId ? goalProgress.find((g) => g.goalId === payload.goalId) : undefined;
+    if ((moment === 'goal_at_risk' || moment === 'goal_hit') && (!momentGoal || (moment === 'goal_at_risk' && momentGoal.hit))) {
+      return this.suppress('goal_resolved', payload, jobId);
+    }
 
     const context = buildNudgeContext({
       moment,
@@ -344,6 +360,8 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
       history,
       settings,
       safetyStop: isSafetyStop(program, lastRun, now),
+      goals: coachGoalSummaries(goalProgress),
+      goal: momentGoal ? coachGoalSummaries([momentGoal])[0] : null,
     });
 
     const angleInput = {
@@ -480,6 +498,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
             ? { audioFailure: { reason: 'no_voice_model', code: null, at: now.toISOString() } }
             : {}),
           ...(isKickoff ? { programId: payload.programId ?? null, questions: [...KICKOFF_QUESTIONS] } : {}),
+          ...(payload.goalId ? { goalId: payload.goalId } : {}),
         } satisfies Prisma.InputJsonObject,
       },
       select: { id: true },
@@ -592,6 +611,17 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     }
 
     return result;
+  }
+
+  /** The active goals' progress; [] without goals or when the read fails (goals never block a nudge). */
+  private async goalProgress(userId: string, now: Date): Promise<GoalProgressData[]> {
+    if (!this.goals) return [];
+    try {
+      return await this.goals.progressForUser(userId, undefined, now);
+    } catch (error) {
+      this.logger.warn(`Coach nudge: goal progress unavailable for user ${userId} (${error instanceof Error ? error.name : 'error'})`);
+      return [];
+    }
   }
 
   private findByMomentKey(userId: string, momentKey: string) {
