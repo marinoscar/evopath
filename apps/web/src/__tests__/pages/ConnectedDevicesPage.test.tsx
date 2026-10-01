@@ -22,6 +22,7 @@ import {
   mockReport,
   mockReportSummary,
   mockRun,
+  mockRunWithTypes,
 } from '../mocks/fixtures/healthSync';
 import type { Device } from '../../services/healthSync';
 
@@ -108,6 +109,27 @@ describe('ConnectedDevicesPage', () => {
     expect(within(table).getAllByTestId('run-status-ok')).toHaveLength(1);
   });
 
+  it('expands a run to its per-type read and sent counts', async () => {
+    serveDevices([mockDevice()]);
+    server.use(
+      http.get(`*/api/health-sync/devices/${DEVICE_ID}/runs`, () =>
+        HttpResponse.json({ data: [mockRunWithTypes, mockRun()] }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Sync history' }));
+    const table = await screen.findByRole('table', { name: 'Sync history' });
+    // Only the run that carries per-type details offers the toggle.
+    const toggles = within(table).getAllByRole('button', { name: 'Show per-type counts' });
+    expect(toggles).toHaveLength(1);
+    await user.click(toggles[0]);
+    const perType = await screen.findByTestId(`run-per-type-${mockRunWithTypes.id}`);
+    expect(perType).toHaveTextContent('steps · read 7 · sent 7');
+    expect(perType).toHaveTextContent('sleep · permission denied · read 0 · sent 0');
+  });
+
   it('collapses the sync history into a list below sm', async () => {
     setViewportWidth(390);
     serveDevices([mockDevice()]);
@@ -151,6 +173,38 @@ describe('ConnectedDevicesPage', () => {
     expect(within(dialog).getByText(/Android 16/)).toBeInTheDocument();
     expect(within(dialog).getByLabelText('Log tail')).toHaveTextContent('12:00:02 sync ok');
     expect(within(dialog).getByRole('button', { name: 'Download JSON' })).toBeInTheDocument();
+  });
+
+  it('shows the Health Connect inventory, highlighting granted types with no data, and the sources', async () => {
+    serveDevices([mockDevice()]);
+    server.use(
+      http.get(`*/api/health-sync/devices/${DEVICE_ID}/diagnostics`, () =>
+        HttpResponse.json({ data: [mockReportSummary] }),
+      ),
+      http.get(`*/api/health-sync/devices/${DEVICE_ID}/diagnostics/${REPORT_ID}`, () =>
+        HttpResponse.json({ data: mockReport }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Diagnostics' }));
+    await user.click(await screen.findByRole('button', { name: /view report from/i }));
+    const dialog = await screen.findByRole('dialog', { name: 'Diagnostic report' });
+
+    const inventory = await within(dialog).findByRole('table', { name: 'Health Connect data' });
+    const steps = within(inventory).getByTestId('inventory-steps');
+    expect(steps).toHaveTextContent('1000+');
+    expect(steps).toHaveTextContent('Samsung Health');
+    expect(steps).not.toHaveAttribute('data-empty');
+    expect(within(inventory).getByTestId('inventory-sleep')).toHaveAttribute('data-empty', 'true');
+    // Denied is its own failure, not "granted but empty".
+    expect(within(inventory).getByTestId('inventory-weight')).not.toHaveAttribute('data-empty');
+    expect(within(inventory).getByTestId('inventory-weight')).toHaveTextContent('Denied');
+
+    const sources = within(dialog).getByRole('list', { name: 'Health Connect sources' });
+    expect(within(sources).getByText('Samsung Health')).toBeInTheDocument();
+    expect(within(sources).getByText(/steps, exercise/)).toBeInTheDocument();
   });
 
   it('unpairs with deleteEntries=true when the box is ticked', async () => {

@@ -11,6 +11,8 @@ import {
   getDevice,
   getDiagnostic,
   hasTimezoneMismatch,
+  isGrantedButEmpty,
+  runTypeStats,
   listDevices,
   listDiagnostics,
   listRuns,
@@ -26,6 +28,7 @@ import {
   mockReport,
   mockReportSummary,
   mockRun,
+  mockRunWithTypes,
 } from '../mocks/fixtures/healthSync';
 
 interface Seen {
@@ -141,5 +144,19 @@ describe('healthSync helpers', () => {
     expect(SHA256_FINGERPRINT_PATTERN.test(PIXEL_SHA)).toBe(true);
     expect(SHA256_FINGERPRINT_PATTERN.test(PIXEL_SHA.toLowerCase())).toBe(false);
     expect(SHA256_FINGERPRINT_PATTERN.test('AB:CD')).toBe(false);
+  });
+
+  it('reads per-type run stats, or none for a run without details', () => {
+    expect(runTypeStats(mockRun())).toEqual([]);
+    expect(runTypeStats(mockRunWithTypes)).toEqual([
+      { dataType: 'steps', permission: 'granted', read: 7, sent: 7 },
+      { dataType: 'sleep', permission: 'denied', read: 0, sent: 0 },
+    ]);
+  });
+
+  it('flags a granted type with no records, not a denied one', () => {
+    expect(isGrantedButEmpty({ permission: 'granted', recordCount30d: 0 })).toBe(true);
+    expect(isGrantedButEmpty({ permission: 'granted', recordCount30d: 3 })).toBe(false);
+    expect(isGrantedButEmpty({ permission: 'denied', recordCount30d: 0 })).toBe(false);
   });
 });

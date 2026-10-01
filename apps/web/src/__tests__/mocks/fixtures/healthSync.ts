@@ -75,6 +75,18 @@ export const mockFailedRun = mockRun({
   errorMessage: 'Health Connect permission was revoked',
 });
 
+/** A run whose details carry the phone's per-type counts. */
+export const mockRunWithTypes = mockRun({
+  id: 'run33333-0000-4000-8000-000000000003',
+  details: {
+    syncedTypes: ['steps', 'sleep'],
+    perType: {
+      steps: { permission: 'granted', read: 7, sent: 7 },
+      sleep: { permission: 'denied', read: 0, sent: 0 },
+    },
+  },
+});
+
 export const mockReportSummary: ReportSummary = {
   id: REPORT_ID,
   deviceId: DEVICE_ID,
@@ -90,7 +102,32 @@ export const mockReport: Report = {
     device: { manufacturer: 'Google', model: 'Pixel 9', androidVersion: '16', sdkInt: 36, timezone: 'America/Costa_Rica' },
     server: { url: 'https://evopath.example.com' },
     pairing: { deviceId: DEVICE_ID, tokenExpiresAt: '2026-12-29T12:00:00.000Z' },
-    healthConnect: { status: 'available', version: '1.1.0', grantedPermissions: ['READ_STEPS'] },
+    healthConnect: {
+      status: 'available',
+      version: '1.1.0',
+      grantedPermissions: ['READ_STEPS', 'READ_SLEEP'],
+      inventory: [
+        {
+          dataType: 'steps',
+          permission: 'granted',
+          recordCount30d: 1000,
+          capped: true,
+          latestRecordAt: '2026-09-30T11:00:00.000Z',
+          sources: [{ packageName: 'com.sec.android.app.shealth', appLabel: 'Samsung Health', recordCount: 1000 }],
+        },
+        { dataType: 'sleep', permission: 'granted', recordCount30d: 0, capped: false, latestRecordAt: null, sources: [] },
+        { dataType: 'weight', permission: 'denied', recordCount30d: 0, capped: false, latestRecordAt: null, sources: [] },
+      ],
+      sources: [
+        {
+          packageName: 'com.sec.android.app.shealth',
+          appLabel: 'Samsung Health',
+          dataTypes: ['steps', 'exercise'],
+          recordCount: 1040,
+          latestRecordAt: '2026-09-30T11:00:00.000Z',
+        },
+      ],
+    },
     work: { state: 'ENQUEUED', nextRunAt: '2026-09-30T13:00:00.000Z' },
     checks: [
       { id: 'server.reachable', status: 'pass', detail: 'GET /api/health/live answered 200', remedy: null },

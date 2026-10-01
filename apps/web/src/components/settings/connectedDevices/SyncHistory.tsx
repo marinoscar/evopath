@@ -3,10 +3,13 @@
  * (the same `sm` boundary every compact gate in the app uses) a list, so a
  * 390px phone never scrolls the page sideways.
  */
+import { Fragment, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
+  Collapse,
+  IconButton,
   List,
   ListItem,
   Skeleton,
@@ -20,7 +23,9 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
-import type { Run } from '../../../services/healthSync';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import { runTypeStats, type Run } from '../../../services/healthSync';
 import { useDeviceRuns } from '../../../hooks/useHealthSync';
 import { RunStatusChip } from './RunStatusChip';
 import { TRIGGER_LABELS, formatDateTime } from './format';
@@ -32,6 +37,40 @@ function counts(run: Run): string {
 function runError(run: Run): string | null {
   if (!run.errorMessage && !run.errorCode) return null;
   return [run.errorCode, run.errorMessage].filter(Boolean).join(': ');
+}
+
+/** `run.details.perType`: what the phone read and sent per data type. */
+function PerTypeStats({ run }: { run: Run }) {
+  const stats = runTypeStats(run);
+  return (
+    <List dense disablePadding aria-label="Per data type" data-testid={`run-per-type-${run.id}`}>
+      {stats.map((stat) => (
+        <ListItem key={stat.dataType} disableGutters sx={{ py: 0 }}>
+          <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+            <Box component="span" sx={{ fontWeight: 500 }}>
+              {stat.dataType}
+            </Box>
+            {stat.permission === 'denied' ? ' · permission denied' : ''} · read {stat.read ?? 0} ·
+            sent {stat.sent ?? 0}
+          </Typography>
+        </ListItem>
+      ))}
+    </List>
+  );
+}
+
+function PerTypeToggle({ run }: { run: Run }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Box>
+      <Button size="small" onClick={() => setOpen((v) => !v)} aria-expanded={open} sx={{ px: 0 }}>
+        {open ? 'Hide per-type counts' : 'Per-type counts'}
+      </Button>
+      <Collapse in={open} unmountOnExit>
+        <PerTypeStats run={run} />
+      </Collapse>
+    </Box>
+  );
 }
 
 function RunsList({ runs }: { runs: Run[] }) {
@@ -55,6 +94,7 @@ function RunsList({ runs }: { runs: Run[] }) {
                 {error}
               </Typography>
             )}
+            {runTypeStats(run).length > 0 && <PerTypeToggle run={run} />}
           </ListItem>
         );
       })}
@@ -68,6 +108,7 @@ function RunsTable({ runs }: { runs: Run[] }) {
       <Table size="small" aria-label="Sync history">
         <TableHead>
           <TableRow>
+            <TableCell padding="checkbox" />
             <TableCell>Time</TableCell>
             <TableCell>Trigger</TableCell>
             <TableCell>Status</TableCell>
@@ -80,22 +121,59 @@ function RunsTable({ runs }: { runs: Run[] }) {
         </TableHead>
         <TableBody>
           {runs.map((run) => (
-            <TableRow key={run.id}>
-              <TableCell>{formatDateTime(run.finishedAt)}</TableCell>
-              <TableCell>{TRIGGER_LABELS[run.trigger]}</TableCell>
-              <TableCell>
-                <RunStatusChip status={run.status} />
-              </TableCell>
-              <TableCell align="right">{run.recordsRead}</TableCell>
-              <TableCell align="right">{run.created}</TableCell>
-              <TableCell align="right">{run.updated}</TableCell>
-              <TableCell align="right">{run.deleted}</TableCell>
-              <TableCell sx={{ maxWidth: 280, overflowWrap: 'anywhere' }}>{runError(run) ?? '—'}</TableCell>
-            </TableRow>
+            <RunRow key={run.id} run={run} />
           ))}
         </TableBody>
       </Table>
     </TableContainer>
+  );
+}
+
+const COLUMN_COUNT = 9;
+
+function RunRow({ run }: { run: Run }) {
+  const [open, setOpen] = useState(false);
+  const hasStats = runTypeStats(run).length > 0;
+  return (
+    <Fragment>
+      <TableRow sx={hasStats && open ? { '& > td': { borderBottom: 'unset' } } : undefined}>
+        <TableCell padding="checkbox">
+          {hasStats && (
+            <IconButton
+              size="small"
+              aria-label={open ? 'Hide per-type counts' : 'Show per-type counts'}
+              aria-expanded={open}
+              onClick={() => setOpen((v) => !v)}
+            >
+              {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+            </IconButton>
+          )}
+        </TableCell>
+        <TableCell>{formatDateTime(run.finishedAt)}</TableCell>
+        <TableCell>{TRIGGER_LABELS[run.trigger]}</TableCell>
+        <TableCell>
+          <RunStatusChip status={run.status} />
+        </TableCell>
+        <TableCell align="right">{run.recordsRead}</TableCell>
+        <TableCell align="right">{run.created}</TableCell>
+        <TableCell align="right">{run.updated}</TableCell>
+        <TableCell align="right">{run.deleted}</TableCell>
+        <TableCell sx={{ maxWidth: 280, overflowWrap: 'anywhere' }}>
+          {runError(run) ?? '—'}
+        </TableCell>
+      </TableRow>
+      {hasStats && (
+        <TableRow>
+          <TableCell colSpan={COLUMN_COUNT} sx={{ py: 0 }}>
+            <Collapse in={open} unmountOnExit>
+              <Box sx={{ py: 1, pl: 6 }}>
+                <PerTypeStats run={run} />
+              </Box>
+            </Collapse>
+          </TableCell>
+        </TableRow>
+      )}
+    </Fragment>
   );
 }
 

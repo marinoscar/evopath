@@ -21,6 +21,7 @@ import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutlineOutl
 import DownloadIcon from '@mui/icons-material/Download';
 import type { DiagnosticCheckStatus, Report } from '../../../services/healthSync';
 import { CHECK_STATUS_LABELS, formatDateTime } from './format';
+import { InventoryTable, SourcesList } from './HealthConnectInventory';
 
 const LOG_TAIL_LINES = 100;
 
@@ -60,6 +61,8 @@ export function DiagnosticReportViewer({ report }: { report: Report }) {
   const body = report.report ?? {};
   const checks = Array.isArray(body.checks) ? body.checks : [];
   const log = Array.isArray(body.log) ? body.log.slice(-LOG_TAIL_LINES) : [];
+  const inventory = Array.isArray(body.healthConnect?.inventory) ? body.healthConnect.inventory : [];
+  const sources = Array.isArray(body.healthConnect?.sources) ? body.healthConnect.sources : [];
 
   const facts: Array<[string, string]> = [
     [
@@ -160,6 +163,30 @@ export function DiagnosticReportViewer({ report }: { report: Report }) {
             ))}
         </Box>
       </Box>
+
+      {inventory.length > 0 && (
+        <Box>
+          <Typography variant="subtitle1" component="h3">
+            Data in Health Connect
+          </Typography>
+          <InventoryTable rows={inventory} />
+        </Box>
+      )}
+
+      {body.healthConnect?.sources !== undefined && (
+        <Box>
+          <Typography variant="subtitle1" component="h3">
+            Sources
+          </Typography>
+          {sources.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No app wrote anything to Health Connect in the last 30 days.
+            </Typography>
+          ) : (
+            <SourcesList sources={sources} />
+          )}
+        </Box>
+      )}
 
       {log.length > 0 && (
         <Box>

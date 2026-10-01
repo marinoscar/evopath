@@ -80,8 +80,46 @@ export interface Run {
   deleted: number;
   errorCode: string | null;
   errorMessage: string | null;
-  details: Record<string, unknown> | null;
+  details: RunDetails | null;
   createdAt: string;
+}
+
+/** One data type's outcome in a run, as the phone reports it in `run.details.perType`. */
+export interface RunTypeStat {
+  permission?: 'granted' | 'denied' | string;
+  read?: number;
+  sent?: number;
+}
+
+/** A Health Connect writer (an app), as the phone reports it. */
+export interface HealthConnectSource {
+  packageName: string;
+  appLabel?: string | null;
+  dataTypes?: string[];
+  recordCount?: number;
+  latestRecordAt?: string | null;
+}
+
+/**
+ * `run.details` as the Android app writes it. Free-form on the server (a JSON
+ * column), so every field is optional and an older build may send none.
+ */
+export interface RunDetails {
+  syncedTypes?: string[];
+  perType?: Record<string, RunTypeStat>;
+  sources?: HealthConnectSource[];
+  timezone?: string;
+  [key: string]: unknown;
+}
+
+/** One row of the phone's Health Connect inventory (last 30 days, counts capped at 1000). */
+export interface HealthConnectInventoryRow {
+  dataType: string;
+  permission: 'granted' | 'denied' | string;
+  recordCount30d: number;
+  capped?: boolean;
+  latestRecordAt?: string | null;
+  sources?: Array<{ packageName: string; appLabel?: string | null; recordCount?: number; latestRecordAt?: string | null }>;
 }
 
 /** A diagnostic report as the list endpoint returns it (no body). */
@@ -116,7 +154,13 @@ export interface DiagnosticReportBody {
   };
   server?: { url?: string };
   pairing?: { deviceId?: string; tokenExpiresAt?: string | null };
-  healthConnect?: { status?: string; version?: string | null; grantedPermissions?: string[] };
+  healthConnect?: {
+    status?: string;
+    version?: string | null;
+    grantedPermissions?: string[];
+    inventory?: HealthConnectInventoryRow[];
+    sources?: HealthConnectSource[];
+  };
   work?: { state?: string; nextRunAt?: string | null };
   checks?: DiagnosticCheck[];
   recentRuns?: unknown[];
@@ -209,6 +253,18 @@ export function daysUntil(iso: string | null, now: Date = new Date()): number | 
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return null;
   return Math.floor((t - now.getTime()) / 86_400_000);
+}
+
+/** `run.details.perType` as rows, or `[]` when the run carries none. */
+export function runTypeStats(run: Pick<Run, 'details'>): Array<{ dataType: string } & RunTypeStat> {
+  const perType = run.details?.perType;
+  if (!perType || typeof perType !== 'object') return [];
+  return Object.entries(perType).map(([dataType, stat]) => ({ dataType, ...(stat ?? {}) }));
+}
+
+/** Granted but nothing in 30 days: the source app is probably not sharing into Health Connect. */
+export function isGrantedButEmpty(row: Pick<HealthConnectInventoryRow, 'permission' | 'recordCount30d'>): boolean {
+  return row.permission === 'granted' && row.recordCount30d === 0;
 }
 
 /** True when the phone's zone and the Health Profile zone are both set and differ. */
