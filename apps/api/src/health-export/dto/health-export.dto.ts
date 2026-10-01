@@ -146,7 +146,7 @@ export const healthExportSchema = z.object({
   createdAt: z.iso.datetime(),
   completedAt: z.iso.datetime().nullable(),
   expiresAt: z.iso.datetime().nullable().meta({ description: 'When the file is removed; null until ready.' }),
-  fileName: z.string().nullable().meta({ description: 'The download name, e.g. `evopath-health-2026-01-01-2026-09-30.pdf`.' }),
+  fileName: z.string().nullable().meta({ description: 'The download name, e.g. `<app>-health-2026-01-01-2026-09-30.pdf`, where `<app>` is the product name as a slug.' }),
   sizeBytes: z.number().int().nullable(),
   rowCounts: rowCountsSchema.nullable(),
   error: z.string().nullable().meta({ description: 'Why it failed, in general terms; null unless `failed`.' }),

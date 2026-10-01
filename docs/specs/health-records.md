@@ -367,7 +367,7 @@ It answers `202` with the export (`status: pending`). At most 3 exports per user
 
 `status` is derived: `pending` or `running` from the job; `ready` when `payload.result` is present, its storage object still exists and `expiresAt` is in the future; `expired` when the result is present but the file is gone or past its expiry; `failed` otherwise. A failed export reports a fixed message, never the job's `lastError`.
 
-While `ready`, `GET /api/health/exports/:id` mints `download: { url, expiresAt }`: a signed GET valid for 5 minutes (`HEALTH_EXPORT_DOWNLOAD_URL_TTL_SECONDS`), with `Content-Disposition: attachment; filename="<fileName>"`. Every call mints a fresh URL; the URL is never logged or stored. `fileName` is `<app>-health-<from>-<to>.<ext>`, where `<app>` is `APP_NAME` from `packages/shared` as a lowercase slug (`evopath-health-2026-01-01-2026-09-30.pdf`) and `<ext>` is `json`, `zip`, `xlsx` or `pdf`. The service checks the name against `^[a-z0-9-]+\.(json|zip|xlsx|pdf)$` before it goes into the header.
+While `ready`, `GET /api/health/exports/:id` mints `download: { url, expiresAt }`: a signed GET valid for 5 minutes (`HEALTH_EXPORT_DOWNLOAD_URL_TTL_SECONDS`), with `Content-Disposition: attachment; filename="<fileName>"`. Every call mints a fresh URL; the URL is never logged or stored. `fileName` is `<app>-health-<from>-<to>.<ext>`, where `<app>` is `APP_NAME` from `packages/shared` as a lowercase slug and `<ext>` is `json`, `zip`, `xlsx` or `pdf`. The service checks the name against `^[a-z0-9-]+\.(json|zip|xlsx|pdf)$` before it goes into the header.
 
 **What is exported.** `collectHealthExport` (`health-export-data.ts`) reads the owner's rows once, read-only:
 

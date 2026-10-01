@@ -81,7 +81,7 @@ export function healthExportKey(userId: string, exportId: string, ext: string): 
   return `${EXPORTS_KEY_PREFIX}${userId}/${exportId}.${ext}`;
 }
 
-/** `APP_NAME` as a filename-safe slug (`EvoPath` -> `evopath`), `app` when nothing survives. */
+/** `APP_NAME` as a filename-safe slug (`My App` -> `my-app`), `app` when nothing survives. */
 export function appSlug(name: string = APP_NAME): string {
   const slug = name
     .normalize('NFKD')
@@ -93,7 +93,7 @@ export function appSlug(name: string = APP_NAME): string {
 }
 
 /**
- * The download name: `evopath-health-<from>-<to>.<ext>`. `from` and `to` are
+ * The download name: `<app>-health-<from>-<to>.<ext>`. `from` and `to` are
  * validated `YYYY-MM-DD` dates, so the name never needs quoting or escaping.
  */
 export function healthExportFileName(from: string, to: string, format: HealthExportFormat): string {
