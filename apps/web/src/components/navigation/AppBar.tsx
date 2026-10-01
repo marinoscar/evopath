@@ -15,6 +15,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import { APP_NAME } from '@app/shared';
 import { useThemeContext } from '../../contexts/ThemeContext';
+import { BrandMark } from '../common/BrandMark';
 import { UserMenu } from './UserMenu';
 import { NotificationBell } from './NotificationBell';
 import {
@@ -207,20 +208,39 @@ export function AppBar() {
             </Typography>
           </>
         ) : (
-          /* Brand. `edge="start"` alignment now belongs to the title: the
-             hamburger that used to hold this slot was deleted with the drawer. */
-          <Typography
-            variant="h6"
-            component="div"
+          /* Brand: the mark, then the wordmark. `edge="start"` alignment now
+             belongs to this cluster: the hamburger that used to hold the slot
+             was deleted with the drawer.
+
+             One click target for both halves — a mark that did nothing when
+             tapped, an inch from a wordmark that goes home, would read as
+             broken. The `onClick` sits on the wrapper so a tap on either lands
+             on it; the wordmark keeps its own `cursor: pointer` so the text
+             itself still presents as the link it has always been. The mark is
+             `aria-hidden`: the wordmark already names the product, and a second
+             accessible name for the same thing is noise to a screen reader. */
+          <Box
+            onClick={() => navigate('/')}
             sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
               cursor: 'pointer',
-              fontWeight: 600,
               flexShrink: 0,
             }}
-            onClick={() => navigate('/')}
           >
-            {APP_NAME}
-          </Typography>
+            <BrandMark size={28} variant="plate" aria-hidden />
+            <Typography
+              variant="h6"
+              component="div"
+              sx={{
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {APP_NAME}
+            </Typography>
+          </Box>
         )}
 
         {/* The flexible spacer. Removing it without a replacement packs the

@@ -12,6 +12,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { OAuthButton } from '../components/auth/OAuthButton';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { BrandMark } from '../components/common/BrandMark';
 
 interface LocationState {
   from?: { pathname: string; search: string };
@@ -59,8 +60,13 @@ export default function LoginPage() {
         }}
       >
         <CardContent sx={{ p: 4 }}>
-          {/* Logo/Header */}
+          {/* Logo/Header. The mark is decorative here: the page title and the
+              document title already name the product, so it is hidden from
+              assistive technology rather than announced a third time. */}
           <Box sx={{ textAlign: 'center', mb: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+              <BrandMark size={56} variant="plate" aria-hidden />
+            </Box>
             <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
               Welcome
             </Typography>
