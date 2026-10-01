@@ -33,11 +33,17 @@ import type { PlannedMoment } from './plan-coach-moments';
 export interface CoachNudgeJobPayload {
   userId: string;
   moment: string;
-  /** `<moment>:<localDate>`: the same moment is never sent twice on one local day. */
+  /**
+   * `<moment>:<localDate>`: the same moment is never sent twice on one local
+   * day. A goal moment's is `<moment>:<goalId>:<periodStart>` instead: once
+   * per goal per period (F9).
+   */
   momentKey: string;
+  /** Goal moments only: the activity goal the message is about (an id). */
+  goalId?: string;
   /** Every eligible nudge-lane moment of this pass, ranked (the first is `moment`). */
   candidates: Array<{ moment: string; priority: number; reason: string }>;
-  trigger: 'sweep' | 'workout_finished';
+  trigger: 'sweep' | 'workout_finished' | 'activity_recorded';
 }
 
 /** `momentKey` of a program's kickoff: one kickoff message per program, ever (E7.12). */
@@ -88,10 +94,11 @@ export class CoachMomentEnqueuer {
     const payload: CoachNudgeJobPayload = {
       userId,
       moment: top.moment,
-      momentKey: `${top.moment}:${localDate}`,
+      momentKey: top.momentKey ?? `${top.moment}:${localDate}`,
       candidates: ranked.map((m) => ({ moment: m.moment, priority: m.priority, reason: m.reason })),
       trigger,
     };
+    if (top.goalId) payload.goalId = top.goalId;
     const job = await this.jobs.enqueue({
       type: AI_COACH_NUDGE_JOB_TYPE,
       reason: 'backfill',

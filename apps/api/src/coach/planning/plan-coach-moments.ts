@@ -41,6 +41,9 @@ export const COACH_MOMENTS = [
   'photo_prompt',
   'win_back',
   'weekly_review',
+  // Activity goals (F9, #269).
+  'goal_at_risk',
+  'goal_hit',
 ] as const;
 export type CoachMoment = (typeof COACH_MOMENTS)[number];
 
@@ -57,6 +60,12 @@ export const COACH_MOMENT_PRIORITY: Readonly<Record<CoachMoment, number>> = {
   photo_prompt: 7,
   win_back: 8,
   weekly_review: 9,
+  // Activity goals (F9, #269). `goal_at_risk` ranks with `streak_at_risk`
+  // (below `missed_twice`): both are "today still decides it" loss framing,
+  // and a planned session at risk wins a tie (it is planned first). `goal_hit`
+  // ranks with `weekly_target_hit`: both celebrate consistency the user chose.
+  goal_at_risk: 2,
+  goal_hit: 4,
 };
 
 /** Moments the safety gate removes: streak, challenge or guilt framing (spec §2.14). */
@@ -65,10 +74,14 @@ export const PUSHY_MOMENTS: ReadonlySet<CoachMoment> = new Set<CoachMoment>([
   'streak_at_risk',
   'missed_session',
   'win_back',
+  'goal_at_risk',
 ]);
 
 /** Moments raised only by a finished workout (event-driven), never by the hourly sweep. */
-export const EVENT_MOMENTS: ReadonlySet<CoachMoment> = new Set<CoachMoment>(['comeback', 'pr', 'weekly_target_hit']);
+export const EVENT_MOMENTS: ReadonlySet<CoachMoment> = new Set<CoachMoment>(['comeback', 'pr', 'weekly_target_hit', 'goal_hit']);
+
+/** Moments about one activity goal: deduplicated per goal and period by their `momentKey`, not per day. */
+export const GOAL_MOMENTS: ReadonlySet<CoachMoment> = new Set<CoachMoment>(['goal_at_risk', 'goal_hit']);
 
 /** Moments after which the caller sets `silencedAt`. */
 export const SILENCING_MOMENTS: ReadonlySet<CoachMoment> = new Set<CoachMoment>(['back_off', 'win_back']);
@@ -90,6 +103,8 @@ export const COACH_MOMENT_EVENT: Readonly<Record<CoachMoment, CoachEventKey>> = 
   photo_prompt: 'coach.photo_prompt',
   win_back: 'coach.nudge',
   weekly_review: 'coach.weekly_review',
+  goal_at_risk: 'coach.nudge',
+  goal_hit: 'coach.celebration',
 };
 
 export const COACH_SUPPRESSION_REASONS = [
@@ -119,6 +134,14 @@ export const COACH_PLANNING = {
   photoWindowMinMinutes: 3 * 60,
   /** `fresh_start` follows a lapse: no completed session in this many days. */
   freshStartLapseDays: 7,
+  /**
+   * `goal_at_risk`, volume metrics: behind when `done < paceShare * target * elapsed`
+   * (week: `elapsedFraction`, the share of whole days before today; day: the share
+   * of today's clock already gone).
+   */
+  goalPaceShare: 0.7,
+  /** `goal_at_risk`, sessions: `remaining == daysLeft` counts only from this ISO weekday (Thursday). */
+  goalTightFromWeekday: 4,
   /** Weekly review anchor: local Sunday 18:00 (the plan evaluator's anchor), caught up until Monday 18:00. */
   weeklyReviewMinute: 18 * 60,
   /** Days between progress photos, per `coach.photoCadence`. */
@@ -128,6 +151,38 @@ export const COACH_PLANNING = {
 // -----------------------------------------------------------------------------
 // Inputs
 // -----------------------------------------------------------------------------
+
+/**
+ * One active activity goal's current period, as the planner reads it
+ * (`GoalProgressService.progressForUser`, mapped by `coach-goals.ts`). Ids,
+ * enums and counts only: the title never reaches the planner.
+ */
+export interface CoachGoalSignal {
+  goalId: string;
+  metric: 'sessions' | 'minutes' | 'steps' | 'distance_m';
+  period: 'week' | 'day';
+  /** `YYYY-MM-DD`, the period's first local day (part of the dedup key). */
+  periodStart: string;
+  done: number;
+  target: number;
+  remaining: number;
+  /** Days left in the period, today included. */
+  daysLeft: number;
+  /** Share of the period's days fully before today, 0..1. */
+  elapsedFraction: number;
+  hit: boolean;
+}
+
+/** A goal an event (a check-in or a finished workout) made `hit` for the first time this period. */
+export interface CoachGoalHit {
+  goalId: string;
+  periodStart: string;
+}
+
+/** `<moment>:<goalId>:<periodStart>`: one goal moment per goal per period (the nudge job's `momentKey`). */
+export function goalMomentKey(moment: 'goal_at_risk' | 'goal_hit', goalId: string, periodStart: string): string {
+  return `${moment}:${goalId}:${periodStart}`;
+}
 
 /** What the planner needs from the signals service and a few cheap reads (`coach-signals.ts`). */
 export interface CoachPlanningSignals {
@@ -151,7 +206,9 @@ export interface CoachPlanningSignals {
    * Set when planning after a finished workout: only these event moments are
    * candidates then (the sweep plans the clock-driven ones). Null for the sweep.
    */
-  event: { comeback: boolean; pr: boolean; weeklyTargetHit: boolean } | null;
+  event: { comeback: boolean; pr: boolean; weeklyTargetHit: boolean; goalHits?: readonly CoachGoalHit[] } | null;
+  /** Active activity goals in their current period (sweep only; absent: none). */
+  goals?: readonly CoachGoalSignal[];
 }
 
 /** `CoachState` as the planner reads it, plus the moments already sent today. */
@@ -167,6 +224,8 @@ export interface CoachPlanningState {
   lastWeeklyReviewWeek: string | null;
   /** Moments of coach messages created on local today (the `already_sent` gate). */
   momentsSentToday: readonly CoachMoment[];
+  /** `momentKey`s of goal moments already sent (`goalMomentKey`); absent: none. Once per goal per period. */
+  goalMomentKeysSent?: readonly string[];
 }
 
 export interface CoachPlanningSettings {
@@ -194,6 +253,9 @@ export interface PlannedMoment {
   suppressedBy: CoachSuppressionReason | null;
   /** The ISO week a weekly review covers (`2026-W40`); weekly review only. */
   isoWeek?: string;
+  /** Goal moments only: the goal, and the per-goal-per-period `momentKey` the nudge job dedupes on. */
+  goalId?: string;
+  momentKey?: string;
 }
 
 /** The eligible nudge-lane moment to enqueue this pass (the highest priority), or null. */
@@ -242,6 +304,8 @@ interface Candidate {
   moment: CoachMoment;
   reason: string;
   isoWeek?: string;
+  goalId?: string;
+  momentKey?: string;
 }
 
 export function planCoachMoments(
@@ -265,6 +329,8 @@ export function planCoachMoments(
       suppressedBy: gate(candidate, lane, signals, state, settings, now),
     };
     if (candidate.isoWeek) moment.isoWeek = candidate.isoWeek;
+    if (candidate.goalId) moment.goalId = candidate.goalId;
+    if (candidate.momentKey) moment.momentKey = candidate.momentKey;
     return moment;
   });
 
@@ -288,6 +354,12 @@ function nudgeCandidates(
     if (signals.event.comeback) out.push({ moment: 'comeback', reason: 'workout_after_miss' });
     if (signals.event.pr) out.push({ moment: 'pr', reason: 'personal_record' });
     if (signals.event.weeklyTargetHit) out.push({ moment: 'weekly_target_hit', reason: 'weekly_target_reached' });
+    const hit = pickGoal(
+      (signals.event.goalHits ?? []).map((g) => ({ goalId: g.goalId, periodStart: g.periodStart, reason: 'goal_reached' })),
+      'goal_hit',
+      state,
+    );
+    if (hit) out.push(hit);
     return out;
   }
 
@@ -311,6 +383,16 @@ function nudgeCandidates(
     out.push({ moment: 'streak_at_risk', reason: state.usualWorkoutMinuteLocal !== null ? 'usual_time' : 'default_time' });
   }
 
+  const atRisk = pickGoal(
+    (signals.goals ?? []).flatMap((goal) => {
+      const reason = goalAtRiskReason(goal, state, preferred, now);
+      return reason ? [{ goalId: goal.goalId, periodStart: goal.periodStart, reason }] : [];
+    }),
+    'goal_at_risk',
+    state,
+  );
+  if (atRisk) out.push(atRisk);
+
   if (signals.missedYesterday && now.minuteOfDay >= morning) {
     out.push({ moment: 'missed_session', reason: 'missed_yesterday' });
   }
@@ -322,6 +404,75 @@ function nudgeCandidates(
   if (isPhotoDue(signals, settings, now, morning)) out.push({ moment: 'photo_prompt', reason: 'cadence_due' });
 
   return out;
+}
+
+// -----------------------------------------------------------------------------
+// Activity goals (F9, #269)
+// -----------------------------------------------------------------------------
+//
+// `goal_at_risk` (sweep):
+//   WEEK goals, from the morning anchor (`preferredTime`, else 09:00), so the
+//   user still has the day to act:
+//     sessions  remaining > daysLeft, or remaining == daysLeft (> 0) from
+//               Thursday on (Monday-to-Wednesday "exactly one a day" is
+//               still comfortable; later it is the last chance)
+//     volume    done < 0.7 * target * elapsedFraction, at least one day left
+//   DAY goals, only from the `streak_at_risk` anchor (usual workout time - 30
+//   min, else `preferredTime`, else 17:00), the same-day evening window: a
+//   day goal's own `elapsedFraction` is 0 all day, so the pace share is the
+//   share of today's clock already gone: done < 0.7 * target * minute/1440.
+//   A hit goal is never at risk.
+// `goal_hit` (event): a check-in or a finished workout made `hit` true for
+//   the first time in the period (the caller decides; `coach-goals.ts`).
+//
+// ONE PER GOAL PER PERIOD: the candidate's `momentKey` is
+// `<moment>:<goalId>:<periodStart>`, and a key in `goalMomentKeysSent` is
+// skipped (the nudge job also dedupes on it). The usual per-day
+// `already_sent` gate also holds, so at most one goal moment of each kind per
+// local day; with several at-risk goals the first unsent one (goal order) is
+// the candidate and the next waits for tomorrow's sweep.
+// -----------------------------------------------------------------------------
+
+/** Why `goal` is at risk now (a reason code), or null when it is not. */
+export function goalAtRiskReason(
+  goal: CoachGoalSignal,
+  state: Pick<CoachPlanningState, 'usualWorkoutMinuteLocal'>,
+  preferredTime: string | null,
+  now: CoachNow,
+): string | null {
+  if (goal.hit || goal.remaining <= 0) return null;
+
+  if (goal.period === 'day') {
+    if (now.minuteOfDay < streakAtRiskMinute(state, preferredTime)) return null;
+    if (goal.metric === 'sessions') return 'day_sessions_open';
+    const dayShare = now.minuteOfDay / MINUTES_PER_DAY;
+    return goal.done < COACH_PLANNING.goalPaceShare * goal.target * dayShare ? 'day_behind_pace' : null;
+  }
+
+  if (now.minuteOfDay < morningMinute(preferredTime)) return null;
+  if (goal.metric === 'sessions') {
+    if (goal.remaining > goal.daysLeft) return 'sessions_out_of_reach';
+    if (goal.remaining === goal.daysLeft && now.weekday >= COACH_PLANNING.goalTightFromWeekday) return 'sessions_last_chance';
+    return null;
+  }
+  if (goal.daysLeft < 1) return null;
+  return goal.done < COACH_PLANNING.goalPaceShare * goal.target * goal.elapsedFraction ? 'behind_pace' : null;
+}
+
+/**
+ * The goal moment's candidate: the first goal whose key was not sent yet;
+ * when every one was, the first (so the gate records `already_sent`).
+ */
+function pickGoal(
+  goals: ReadonlyArray<{ goalId: string; periodStart: string; reason: string }>,
+  moment: 'goal_at_risk' | 'goal_hit',
+  state: CoachPlanningState,
+): Candidate | null {
+  if (goals.length === 0) return null;
+  const sent = new Set(state.goalMomentKeysSent ?? []);
+  const keyed = goals.map((g) => ({ ...g, momentKey: goalMomentKey(moment, g.goalId, g.periodStart) }));
+  const chosen = keyed.find((g) => !sent.has(g.momentKey)) ?? keyed[0];
+  return { moment, reason: chosen.reason, goalId: chosen.goalId, momentKey: chosen.momentKey };
 }
 
 /** The weekly review lane: local Sunday from 18:00, caught up until Monday 18:00. */
@@ -393,6 +544,7 @@ function gate(
 
   if (settings.eventEnabled[COACH_MOMENT_EVENT[moment]] === false) return 'pref_off';
 
+  if (candidate.momentKey !== undefined && (state.goalMomentKeysSent ?? []).includes(candidate.momentKey)) return 'already_sent';
   if (state.momentsSentToday.includes(moment)) return 'already_sent';
 
   const sentToday = state.nudgeDayLocal === now.date ? state.nudgesToday : 0;
