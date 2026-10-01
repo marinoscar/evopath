@@ -382,7 +382,7 @@ const WEEK = '2026-09-28';
 interface EntrySpec {
   day: string;
   createdAt: Date;
-  source?: 'manual' | 'workout';
+  source?: 'manual' | 'workout' | 'integration';
   workoutId?: string | null;
   durationSeconds?: number | null;
 }
@@ -501,6 +501,16 @@ describe('CoachPlannerService.planUser: activity goals', () => {
       '2026-09-30',
       'activity_recorded',
     );
+  });
+
+  it('health sync: the imported entry that reaches the target queues goal_hit (#278)', async () => {
+    const entries = [1, 2, 3].map(() => entry({ day: '2026-09-29', createdAt: EARLIER }));
+    entries.push(entry({ day: '2026-09-30', createdAt: JUST_NOW, source: 'integration' }));
+    const t = setup({ goals: [goalProgress('sessions', 4, entries)] });
+
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'activity_recorded', recordedSince: RECORDED_SINCE }));
+
+    expect(outcome.queued).toBe('goal_hit');
   });
 
   it('check-in: a later check-in in an already-hit period queues nothing', async () => {
