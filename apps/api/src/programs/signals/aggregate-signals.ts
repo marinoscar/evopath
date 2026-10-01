@@ -40,6 +40,12 @@ import {
 //   Status     done (linked completed workout) | partial (done, below 60
 //              percent of planned sets) | in_progress (linked in-progress
 //              workout) | missed (before `asOf`, none of those) | upcoming.
+//              A session with CARDIO prescriptions (a duration and/or
+//              distance target) is done only when every cardio exercise
+//              reached 60 percent of its target (logged duration, resp.
+//              distance, over completed working sets / target; the better
+//              of the two ratios when both are set) and its rep exercises
+//              keep the sets rule above.
 //   Extra      Completed workouts in range linked to no plan at all.
 //   Frequency  Every completed workout per week, linked or not.
 //   Hard set   Completed, not a warm-up, reps >= 1 (a duration or distance for
@@ -81,7 +87,19 @@ export interface SignalsPlannedWorkout {
   position: number;
   /** Archived row (kept because a logged workout points at it). */
   archived: boolean;
-  exercises: ReadonlyArray<{ exerciseId: string; targetSets: number }>;
+  exercises: ReadonlyArray<SignalsPlannedExercise>;
+}
+
+/**
+ * One planned exercise. A reps prescription has `targetSets`; a cardio one
+ * has a duration and/or distance target (totals for the session) and an
+ * optional set count.
+ */
+export interface SignalsPlannedExercise {
+  exerciseId: string;
+  targetSets: number | null;
+  targetDurationSeconds?: number | null;
+  targetDistanceMeters?: number | null;
 }
 
 export interface SignalsSet {
@@ -107,6 +125,8 @@ export interface SignalsWorkout {
   programWorkoutId: string | null;
   /** Total planned sets from the session snapshot; null without a snapshot. */
   plannedSets: number | null;
+  /** The snapshot's planned exercises (what the session was started against); null/absent without one. */
+  plannedExercises?: ReadonlyArray<SignalsPlannedExercise> | null;
   exercises: ReadonlyArray<{ exerciseId: string; sets: readonly SignalsSet[] }>;
 }
 
@@ -327,7 +347,74 @@ export function occurrencesInRange(input: Pick<SignalsInput, 'program' | 'planne
 }
 
 function plannedSetsOf(planned: SignalsPlannedWorkout): number {
-  return planned.exercises.reduce((sum, exercise) => sum + Math.max(0, num(exercise.targetSets) ?? 0), 0);
+  return planned.exercises.reduce((sum, exercise) => sum + plannedSetsOfExercise(exercise), 0);
+}
+
+function isCardioPlanned(exercise: SignalsPlannedExercise): boolean {
+  return (num(exercise.targetDurationSeconds) ?? 0) > 0 || (num(exercise.targetDistanceMeters) ?? 0) > 0;
+}
+
+/** A cardio prescription without a set count plans one set. */
+function plannedSetsOfExercise(exercise: SignalsPlannedExercise): number {
+  const sets = num(exercise.targetSets);
+  if (sets === null) return isCardioPlanned(exercise) ? 1 : 0;
+  return Math.max(0, sets);
+}
+
+/**
+ * How much of a cardio prescription was done: logged duration (resp.
+ * distance) over the exercise's completed working sets in `workout`, divided
+ * by the target; the larger ratio when both targets are set. 0 when nothing
+ * was logged.
+ */
+export function cardioCompletionRatio(exercise: SignalsPlannedExercise, workout: Pick<SignalsWorkout, 'exercises'> | null): number {
+  const sets = (workout?.exercises ?? []).filter((entry) => entry.exerciseId === exercise.exerciseId).flatMap((entry) => entry.sets);
+  const done = sets.filter(isWorkingDone);
+  const ratios: number[] = [];
+  const duration = num(exercise.targetDurationSeconds);
+  if (duration !== null && duration > 0) {
+    ratios.push(done.reduce((sum, set) => sum + Math.max(0, num(set.durationSeconds) ?? 0), 0) / duration);
+  }
+  const distance = num(exercise.targetDistanceMeters);
+  if (distance !== null && distance > 0) {
+    ratios.push(done.reduce((sum, set) => sum + Math.max(0, num(set.distanceMeters) ?? 0), 0) / distance);
+  }
+  return ratios.length > 0 ? Math.max(...ratios) : 0;
+}
+
+/**
+ * Planned-versus-done of one session. Without a cardio prescription it is the
+ * historical sets rule (`setsDone / setsPlanned`, every exercise's working
+ * sets counted). With one, each cardio exercise has its own ratio and the
+ * rep exercises' sets ratio counts only the sets of exercises that are not
+ * planned as cardio; the session ratio is the smallest of them, so it reaches
+ * `PARTIAL_SESSION_RATIO` only when every part does.
+ */
+function sessionCompletion(
+  planned: SignalsPlannedWorkout,
+  workout: SignalsWorkout | null,
+): { setsPlanned: number; setsDone: number; ratio: number | null } {
+  const plan = workout?.plannedExercises ?? planned.exercises;
+  const setsPlanned = Math.max(0, Math.round(num(workout?.plannedSets) ?? plannedSetsOf({ ...planned, exercises: plan })));
+  const setsDone = workout ? workout.exercises.reduce((sum, entry) => sum + entry.sets.filter(isWorkingDone).length, 0) : 0;
+
+  const cardio = plan.filter(isCardioPlanned);
+  if (cardio.length === 0) {
+    return { setsPlanned, setsDone, ratio: setsPlanned > 0 ? setsDone / setsPlanned : null };
+  }
+
+  const cardioIds = new Set(cardio.map((exercise) => exercise.exerciseId));
+  const repSetsPlanned = plan
+    .filter((exercise) => !isCardioPlanned(exercise))
+    .reduce((sum, exercise) => sum + plannedSetsOfExercise(exercise), 0);
+  const repSetsDone = workout
+    ? workout.exercises
+        .filter((entry) => !cardioIds.has(entry.exerciseId))
+        .reduce((sum, entry) => sum + entry.sets.filter(isWorkingDone).length, 0)
+    : 0;
+  const ratios = cardio.map((exercise) => cardioCompletionRatio(exercise, workout));
+  if (repSetsPlanned > 0) ratios.push(repSetsDone / repSetsPlanned);
+  return { setsPlanned, setsDone, ratio: Math.min(...ratios) };
 }
 
 function sessionRpe(workout: SignalsWorkout): number | null {
@@ -376,11 +463,7 @@ export function aggregateSignals(input: SignalsInput): PlanSignals {
     const inProgress = linked.find((workout) => workout.status === 'in_progress') ?? null;
     const workout = completed.length > 0 ? completed[completed.length - 1] : inProgress;
 
-    const setsPlanned = Math.max(0, Math.round(num(workout?.plannedSets) ?? plannedSetsOf(planned)));
-    const setsDone = workout
-      ? workout.exercises.reduce((sum, entry) => sum + entry.sets.filter(isWorkingDone).length, 0)
-      : 0;
-    const ratio = setsPlanned > 0 ? setsDone / setsPlanned : null;
+    const { setsPlanned, setsDone, ratio } = sessionCompletion(planned, workout);
 
     let status: SessionStatus;
     if (completed.length > 0) status = ratio !== null && ratio < PARTIAL_SESSION_RATIO ? 'partial' : 'done';

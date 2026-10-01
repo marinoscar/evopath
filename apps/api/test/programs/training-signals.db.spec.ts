@@ -90,6 +90,8 @@ describeWithDb('training signals (real Postgres)', () => {
                 targetSets: 3,
                 repMin: 5,
                 repMax: 8,
+                targetDurationSeconds: null,
+                targetDistanceMeters: null,
                 targetLoadKg: null,
                 targetRpe: null,
                 restSeconds: 120,

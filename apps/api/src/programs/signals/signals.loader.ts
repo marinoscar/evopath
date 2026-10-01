@@ -13,6 +13,7 @@ import {
   type SignalsCheckIn,
   type SignalsInput,
   type SignalsPainSession,
+  type SignalsPlannedExercise,
   type SignalsPlannedWorkout,
   type SignalsReading,
   type SignalsWorkout,
@@ -164,10 +165,16 @@ export class SignalsLoader {
     const rows = await loadProgramRows(this.prisma, programId);
     const blocks = new Map(rows.blocks.map((block) => [block.id, block]));
     const weeks = new Map(rows.weeks.map((week) => [week.id, week]));
-    const exercises = new Map<string, Array<{ exerciseId: string; targetSets: number; position: number }>>();
+    const exercises = new Map<string, Array<SignalsPlannedExercise & { position: number }>>();
     for (const row of rows.exercises) {
       const list = exercises.get(row.programWorkoutId) ?? [];
-      list.push({ exerciseId: row.exerciseId, targetSets: row.targetSets ?? 1, position: row.position });
+      list.push({
+        exerciseId: row.exerciseId,
+        targetSets: row.targetSets,
+        targetDurationSeconds: row.targetDurationSeconds,
+        targetDistanceMeters: row.targetDistanceMeters,
+        position: row.position,
+      });
       exercises.set(row.programWorkoutId, list);
     }
 
@@ -185,7 +192,7 @@ export class SignalsLoader {
           archived: Boolean(workout.archivedAt || week.archivedAt || block?.archivedAt),
           exercises: (exercises.get(workout.id) ?? [])
             .sort((a, b) => a.position - b.position)
-            .map(({ exerciseId, targetSets }) => ({ exerciseId, targetSets })),
+            .map(({ position: _position, ...exercise }) => exercise),
         },
       ];
     });
@@ -248,6 +255,7 @@ export class SignalsLoader {
       linked: Boolean(row.programSession || row.programWorkoutId),
       programWorkoutId: row.programSession?.programWorkoutId ?? row.programWorkoutId ?? null,
       plannedSets: plannedSetsOf(row.programSession?.plannedSnapshot),
+      plannedExercises: plannedExercisesOf(row.programSession?.plannedSnapshot),
       exercises: row.exercises.map((entry) => ({
         exerciseId: entry.exerciseId,
         sets: entry.sets.map((set) => ({
@@ -357,13 +365,38 @@ export class SignalsLoader {
   }
 }
 
-/** Total planned sets of a `program_sessions.planned_snapshot`, or null when it is not the expected shape. */
+const finite = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/**
+ * Total planned sets of a `program_sessions.planned_snapshot`, or null when it
+ * is not the expected shape. A cardio entry without a set count plans one.
+ */
 function plannedSetsOf(snapshot: Prisma.JsonValue | undefined): number | null {
-  if (!Array.isArray(snapshot)) return null;
+  const entries = plannedExercisesOf(snapshot);
+  if (!entries) return null;
   let total = 0;
-  for (const entry of snapshot) {
-    const sets = entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as { sets?: unknown }).sets : undefined;
-    if (typeof sets === 'number' && Number.isFinite(sets) && sets > 0) total += sets;
+  for (const entry of entries) {
+    const sets = finite(entry.targetSets);
+    if (sets !== null && sets > 0) total += sets;
+    else if (sets === null && ((entry.targetDurationSeconds ?? 0) > 0 || (entry.targetDistanceMeters ?? 0) > 0)) total += 1;
   }
   return total;
+}
+
+/** The planned exercises of a `program_sessions.planned_snapshot` (older snapshots carry no cardio targets: read as null). */
+function plannedExercisesOf(snapshot: Prisma.JsonValue | undefined): SignalsPlannedExercise[] | null {
+  if (!Array.isArray(snapshot)) return null;
+  return snapshot.flatMap((entry): SignalsPlannedExercise[] => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const row = entry as Record<string, unknown>;
+    if (typeof row.exerciseId !== 'string') return [];
+    return [
+      {
+        exerciseId: row.exerciseId,
+        targetSets: finite(row.sets),
+        targetDurationSeconds: finite(row.targetDurationSeconds),
+        targetDistanceMeters: finite(row.targetDistanceMeters),
+      },
+    ];
+  });
 }
