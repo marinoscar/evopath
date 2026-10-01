@@ -8,6 +8,7 @@ import {
   evaluationSources,
   painRow,
 } from '../testing/evaluation-fixtures';
+import { HEALTH_SUMMARY_FIXTURE } from '../testing/context-fixtures';
 import { buildEvaluatorContext } from './build-evaluator-context';
 import { evaluateContextOf } from './evaluate-context';
 
@@ -215,6 +216,35 @@ describe('buildEvaluatorContext', () => {
       const text = JSON.stringify(summary);
       for (const canary of Object.values(CANARY)) expect(text).not.toContain(canary);
       expect(text).not.toMatch(UUID);
+    });
+  });
+
+  describe('the opt-in health summary in the profile digest (H8, #192)', () => {
+    it('absent: no key, and the sent input is unchanged', () => {
+      const without = build();
+      const withNull = build({ ...evaluationSources(), healthSummary: null });
+
+      expect('healthSummary' in without.sent.profile).toBe(false);
+      expect(JSON.stringify(withNull.sent)).toBe(JSON.stringify(without.sent));
+    });
+
+    it('present: the stored text verbatim in sent.profile, conservative from a flagged consideration, and shown in the panel', () => {
+      const plain = { ...HEALTH_SUMMARY_FIXTURE, trainingConsiderations: [{ text: 'Fine.', severity: 'info' as const, conservative: false }] };
+      expect(build({ ...evaluationSources(), healthSummary: plain }).sent.profile.healthSummary).toEqual(plain);
+
+      const context = build({ ...evaluationSources(), healthSummary: { ...HEALTH_SUMMARY_FIXTURE, inputsHash: 'CANARY-HASH' } as never });
+
+      expect(context.sent.profile.healthSummary).toEqual(HEALTH_SUMMARY_FIXTURE);
+      expect(context.sent.profile.conservative).toBe(true);
+      expect(JSON.stringify(context.sent)).not.toContain('CANARY-HASH');
+      const profile = summarizeEvaluatorContext(context.sent).sections.find((section) => section.key === 'profile')!;
+      expect(profile.items).toEqual(expect.arrayContaining([HEALTH_SUMMARY_FIXTURE.narrative]));
+    });
+
+    it('a summary naming an urgent symptom is not sent', () => {
+      const context = build({ ...evaluationSources(), healthSummary: { ...HEALTH_SUMMARY_FIXTURE, narrative: 'Fainting after sessions.' } });
+
+      expect(context.sent.profile.healthSummary).toBeUndefined();
     });
   });
 });

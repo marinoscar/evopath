@@ -5,6 +5,7 @@ import { AiConfigModule } from '../ai/config/ai-config.module';
 import { AiCoreModule } from '../ai/core/ai-core.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
 import { AiRuntimeModule } from '../ai/runtime/ai-runtime.module';
+import { HealthSummaryModule } from '../health-summary/health-summary.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ProgramsModule } from '../programs/programs.module';
@@ -52,7 +53,8 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  *   for `finalize`, and `NotificationsService` raises `training.plan_ready`;
  *   both are node ports bound by the run handler.
  * - `TRAINING_SAFETY_SCREEN`: the pre-run safety screen (guardrail G0,
- *   `FreeTextSafetyScreen`): urgent-symptom text stops a run before any job.
+ *   `FreeTextSafetyScreen`): urgent-symptom text stops a run before any job;
+ *   it also screens the opt-in health summary (H8).
  * - Continuous evaluation: `TrainingEvaluationScheduler` (the gates and
  *   per-user limits, one door for automatic evaluation runs),
  *   `TrainingEvaluationListener` (`workout.finished` and the follow-up rule on
@@ -60,7 +62,19 @@ import { TrainingRunsService } from './runtime/training-runs.service';
  *   hourly enqueue-only task.
  */
 @Module({
-  imports: [AiAssignmentsModule, AiConfigModule, AiCoreModule, AiKeysModule, AiRuntimeModule, JobsModule, ProgramsModule, NotificationsModule],
+  imports: [
+    AiAssignmentsModule,
+    AiConfigModule,
+    AiCoreModule,
+    AiKeysModule,
+    AiRuntimeModule,
+    JobsModule,
+    ProgramsModule,
+    NotificationsModule,
+    // H8 (#192): `HealthSummaryReader`, the one door through which the opt-in
+    // health summary (and nothing else of the health record) reaches a run.
+    HealthSummaryModule,
+  ],
   controllers: [TrainingModelsController, TrainingRunsController],
   providers: [
     GraphRuntimeInfo,

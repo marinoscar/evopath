@@ -1,4 +1,5 @@
 import type { ExerciseTrackingMode, MovementPattern } from '../../common/constants/training.constants';
+import type { TrainingHealthSummary } from '../../health-summary/health-summary.reader';
 import type { RequirementRow } from '../../exercises/exercise-availability.service';
 import type { EquipmentClass, ResearcherContext } from '../agents/researcher/researcher-context';
 import type { TrainingIntake } from '../contracts/training-intake.contract';
@@ -15,6 +16,8 @@ import type { ConservativeMode } from '../guardrails/safety-screen';
 //   planner's). Exercises appear by stable slug (`key`), never by uuid; no
 //   name, email, date of birth, note, lab, medication, gym name or storage
 //   key can be in them (`never-send.ts`, asserted by the canary test). The
+//   one health exception is `planner.healthSummary` (H8, #192): the user's
+//   stored AI health summary TEXT, present only while they opted in. The
 //   "what will be sent" summary renders these same objects.
 // - SERVER ONLY: `library`, `gym`, `history` and `mode`: what the guardrails
 //   need to check and repair a plan (ids, requirement groups, recent loads).
@@ -149,6 +152,12 @@ export interface PlannerContext {
     days: number;
   };
   bio?: string;
+  /**
+   * The opt-in AI health summary (H8, #192): the stored narrative and
+   * training considerations, verbatim. Present only while the user's consent
+   * is on and a ready summary exists; never a raw value.
+   */
+  healthSummary?: TrainingHealthSummary;
   currentPlan?: CompactPlan;
 }
 
@@ -173,6 +182,7 @@ export const PLANNER_CONTEXT_KEYS: readonly PlannerContextKey[] = [
   'candidateExercises',
   'history',
   'readiness',
+  'healthSummary',
   'bio',
   'currentPlan',
 ];

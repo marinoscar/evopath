@@ -187,6 +187,18 @@ export function contextSourceFixture(
   };
 }
 
+/** A stored, ready opt-in health summary as `HealthSummaryReader.forTraining` returns it (H8, #192). */
+export const HEALTH_SUMMARY_FIXTURE = {
+  narrative:
+    'Blood pressure has been above the usual range over the last month; a clinician follow-up is recommended. ' +
+    'Ferritin is below its reference range; recommend discussing it with a clinician. Wellness scores are steady.',
+  trainingConsiderations: [
+    { text: 'Keep intensity moderate and avoid maximal efforts while blood pressure is reviewed.', severity: 'caution' as const, conservative: true },
+    { text: 'Normal progression is otherwise supported.', severity: 'info' as const, conservative: false },
+  ],
+  dataAsOf: '2026-09-28',
+};
+
 /** A built run context from `contextSourceFixture(over)`. */
 export function runContextFixture(over: Parameters<typeof contextSourceFixture>[0] = {}): TrainingRunContext {
   return buildTrainingRunContext(contextSourceFixture(over));

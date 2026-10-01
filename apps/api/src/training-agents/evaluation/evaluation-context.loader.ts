@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 
 import { fromDbDate, localDateInZone, toDbDate } from '../../check-ins/local-date';
+import { HealthSummaryReader } from '../../health-summary/health-summary.reader';
 import { liveTreeOf } from '../../programs/plan-diff';
 import { loadProgramRows } from '../../programs/program-mapper';
 import {
@@ -38,6 +39,8 @@ export class EvaluationContextLoader implements EvaluationPort {
     private readonly signals: TrainingSignalsService,
     private readonly programs: ProgramsService,
     private readonly planner: PlannerContextLoader,
+    // H8 (#192): the opt-in health summary text, the only health input; optional so a hand-built loader reads none.
+    @Optional() private readonly healthSummaries?: HealthSummaryReader,
   ) {}
 
   async loadSources(userId: string, programId: string, now: Date): Promise<EvaluationSources | null> {
@@ -55,7 +58,7 @@ export class EvaluationContextLoader implements EvaluationPort {
     });
     if (!program) return null;
 
-    const [rows, signals, sessions, changeLog, versions] = await Promise.all([
+    const [rows, signals, sessions, changeLog, versions, healthSummary] = await Promise.all([
       loadProgramRows(this.prisma, programId),
       this.signals.forEvaluator(userId, programId, now),
       this.prisma.programSession.findMany({
@@ -74,6 +77,7 @@ export class EvaluationContextLoader implements EvaluationPort {
         take: EVIDENCE_VERSIONS,
         select: { evidence: true },
       }),
+      this.healthSummaries ? this.healthSummaries.forTraining(userId) : Promise.resolve(null),
     ]);
     const tree = liveTreeOf(rows);
 
@@ -102,6 +106,7 @@ export class EvaluationContextLoader implements EvaluationPort {
       signals,
       changeLog,
       evidence: versions.map((row) => row.evidence),
+      ...(healthSummary ? { healthSummary } : {}),
     };
   }
 
