@@ -11,7 +11,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '../services/api';
 import {
+  deleteRelease,
   getAndroidAppConfig,
+  getLatestRelease,
+  listReleases,
+  makeReleaseCurrent,
+  uploadRelease,
+  type AdminRelease,
+  type Release,
+  type UploadReleaseInput,
   listDevices,
   listDiagnostics,
   listRuns,
@@ -126,4 +134,93 @@ export function useAndroidAppConfig() {
     saveError,
     save,
   };
+}
+
+/**
+ * `GET /api/android-app/releases/latest` (#287) while `enabled`: the current
+ * APK, or `null` when none is published (the API's 404 `NO_RELEASE`).
+ */
+export function useLatestRelease(enabled = true) {
+  const fetcher = useCallback(() => getLatestRelease(), []);
+  const { data, ...rest } = useLoad<Release | null>(fetcher, null, 'Failed to load the Android app release', enabled);
+  return { release: data, ...rest };
+}
+
+/** What a failed release write answered: the message to show and the API's code. */
+export interface ReleaseWriteError {
+  message: string;
+  code: string | null;
+}
+
+function releaseWriteError(err: unknown, fallback: string): ReleaseWriteError {
+  return {
+    message: healthSyncErrorMessage(err, fallback),
+    code: err instanceof ApiError ? (err.code ?? null) : null,
+  };
+}
+
+const NO_RELEASES: AdminRelease[] = [];
+
+/**
+ * The admin release list (#287) and its writes. Every write re-reads the list
+ * afterwards: making one release current clears the flag on another, which
+ * only the server knows.
+ */
+export function useAndroidReleases() {
+  const fetcher = useCallback(() => listReleases(), []);
+  const { data, refresh, ...rest } = useLoad(fetcher, NO_RELEASES, 'Failed to load the Android app releases');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const isMounted = useIsMounted();
+
+  const run = useCallback(
+    async <T,>(work: () => Promise<T>, fallback: string): Promise<{ ok: true; value: T } | { ok: false; error: ReleaseWriteError }> => {
+      try {
+        const value = await work();
+        await refresh();
+        return { ok: true, value };
+      } catch (err) {
+        return { ok: false, error: releaseWriteError(err, fallback) };
+      }
+    },
+    [refresh],
+  );
+
+  const upload = useCallback(
+    async (input: UploadReleaseInput) => {
+      setIsUploading(true);
+      try {
+        return await run(() => uploadRelease(input), 'Failed to upload the release');
+      } finally {
+        if (isMounted()) setIsUploading(false);
+      }
+    },
+    [run, isMounted],
+  );
+
+  const makeCurrent = useCallback(
+    async (id: string) => {
+      setBusyId(id);
+      try {
+        return await run(() => makeReleaseCurrent(id), 'Failed to make the release current');
+      } finally {
+        if (isMounted()) setBusyId(null);
+      }
+    },
+    [run, isMounted],
+  );
+
+  const remove = useCallback(
+    async (id: string) => {
+      setBusyId(id);
+      try {
+        return await run(() => deleteRelease(id), 'Failed to delete the release');
+      } finally {
+        if (isMounted()) setBusyId(null);
+      }
+    },
+    [run, isMounted],
+  );
+
+  return { releases: data, refresh, ...rest, busyId, isUploading, upload, makeCurrent, remove };
 }
