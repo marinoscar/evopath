@@ -257,6 +257,22 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'when stale. At most one active program per user. Weights are kilograms. Gated on ' +
           '`programs:read`/`programs:write`; owner-scoped; works with AI switched off.',
       },
+      {
+        name: 'Goals',
+        description:
+          'Activity goals (walk, run, any cardio, any workout, custom) counted in sessions, minutes, steps ' +
+          'or meters per Monday..Sunday week or per day, with templates, pause/resume/archive and progress: ' +
+          'done, remaining, days left, on track, hit and streaks. PATCH requires `If-Match: <version>` ' +
+          '(`428` missing, `412` stale). At most 10 active goals. Gated on `goals:read`/`goals:write`; owner-scoped.',
+      },
+      {
+        name: 'Activity entries',
+        description:
+          'Check-ins toward goals ("I did it", minutes, steps) on a local day up to 7 days back, plus the ' +
+          'entries the server derives from completed workouts (`source: workout`, read-only here). Per day ' +
+          'the highest source counts: integration > workout > manual. Meters and seconds. Gated on ' +
+          '`goals:read`/`goals:write`; owner-scoped.',
+      },
     ],
   },
   {
