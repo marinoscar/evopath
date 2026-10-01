@@ -206,6 +206,8 @@ export const PERMISSIONS = [
   // Workout logging (E4.2): the caller's own workouts, self-service.
   { name: 'workouts:read', description: 'Read own workouts, exercises and sets' },
   { name: 'workouts:write', description: 'Create, edit and delete own workouts, exercises and sets' },
+  { name: 'goals:read', description: 'Read own activity goals, entries and progress' },
+  { name: 'goals:write', description: 'Create, edit and delete own activity goals and entries' },
   { name: 'programs:read', description: 'Read own training programs, versions and change log' },
   { name: 'programs:write', description: 'Create, edit, activate, revert and archive own training programs' },
 ] as const;
@@ -294,6 +296,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.2 — own workout logging, self-service; all three roles.
     'workouts:read',
     'workouts:write',
+    // Epic #260 — own activity goals and entries, self-service; all three roles.
+    'goals:read',
+    'goals:write',
     // E5.1 — own training programs, self-service; all three roles. Running
     // agents needs `ai:use` (Viewer lacks it).
     'programs:read',
@@ -327,6 +332,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.2 — own workout logging, self-service; all three roles.
     'workouts:read',
     'workouts:write',
+    // Epic #260 — own activity goals and entries, self-service; all three roles.
+    'goals:read',
+    'goals:write',
     // E5.1 — own training programs, self-service; all three roles. Running
     // agents needs `ai:use` (Viewer lacks it).
     'programs:read',
@@ -355,6 +363,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // E4.2 — own workout logging, self-service; all three roles.
     'workouts:read',
     'workouts:write',
+    // Epic #260 — own activity goals and entries, self-service; all three roles.
+    'goals:read',
+    'goals:write',
     // E5.1 — own training programs, self-service; all three roles. Running
     // agents needs `ai:use` (Viewer lacks it).
     'programs:read',
