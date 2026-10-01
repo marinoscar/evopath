@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Native (Compose) screens. Compose draws its own Material 3 surfaces on top. -->
+    <style name="Theme.EvoPath" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/evopath_primary</item>
+        <item name="android:colorAccent">@color/evopath_primary</item>
+        <item name="android:windowBackground">@color/evopath_background</item>
+        <item name="android:statusBarColor">@color/evopath_primary</item>
+        <item name="android:navigationBarColor">@color/evopath_background</item>
+    </style>
+
+    <!-- The TWA launcher only hands off to the browser (or the setup screen), so it draws nothing. -->
+    <style name="Theme.EvoPath.Launcher" parent="android:Theme.Translucent.NoTitleBar">
+        <item name="android:statusBarColor">@color/evopath_primary</item>
+        <item name="android:navigationBarColor">@color/evopath_background</item>
+    </style>
+</resources>
