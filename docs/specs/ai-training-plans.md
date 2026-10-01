@@ -709,3 +709,4 @@ Real-key smoke checklist (manual, never in CI; `openai.adapter.live.spec.ts` sho
 - #108: usage and cost by agent role, the token cap surfaced, graceful cap behaviour in adaptation runs.
 - #109: adaptation and travel workouts in this spec, the AI README recipe and the inventories.
 - #192: the opt-in health summary in the planner and evaluator context (H8).
+- Epic #260 (cardio and everyday activity): duration and distance prescriptions in the plan contract: #262; the planner prescribing them, the G1 shape checks, the envelope drops and the quick adaptation leaving cardio rows alone: #265. Everyday targets beside the plan are goals ([activity-goals.md](activity-goals.md)).

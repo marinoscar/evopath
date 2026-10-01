@@ -147,3 +147,4 @@ Observe: all suites pass; `GET /api/training/signals` appears in `/api/docs` und
 ## History
 
 - E5.9 (issue 102): the signals contract, pure aggregator, compact form, loader, service and `GET /api/training/signals`, under epic 92.
+- Epic #260 (cardio and everyday activity): grading a session with a duration or distance prescription by logged duration and distance: #263, on the prescriptions of #262.

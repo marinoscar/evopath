@@ -95,6 +95,7 @@ A completed workout materialises entries (source `workout`, `workoutId` set, `oc
 
 - Duration and distance of `walk`, `run` and `cardio_any` are the sums over the matching exercises' **completed** sets; a prefilled target the user never ticked is not activity. They are null when no completed set carries the value, and are clamped to the table's ranges.
 - A workout that is not completed credits nothing.
+- A workout logged through `POST /api/workouts/quick-cardio` is created completed and emits `workout.finished`, so it is credited the same way ([workouts.md](workouts.md#25-logging-semantics)).
 - **Three paths keep the rows equal to the workout** (`WorkoutActivitySyncService`):
   1. The `workout.finished` event, emitted after the finish commits, runs `syncWorkout` (`workout-activity.listener.ts`), so a goal is credited the moment a workout ends. A failure is logged with ids and swallowed: finishing a workout never depends on goals.
   2. Every progress read and every entry list first calls `reconcileRecent`, which re-derives the workouts of the last 14 local days (`DERIVED_RECONCILE_DAYS`). This catches an edit to a completed workout (sets, date), a workout created already completed without the event, and a workout that is no longer completed.

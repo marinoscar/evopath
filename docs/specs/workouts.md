@@ -67,7 +67,7 @@ At most one workout per user is `in_progress`. The database decides, not the ser
 ### 2.5 Logging semantics
 
 - **Ownership.** Every route filters by the caller's id. A workout, exercise entry, set or custom exercise of another user answers `404`. The gym must be the caller's; the exercise a library exercise or the caller's own active custom one.
-- **Start.** `POST /api/workouts` takes an optional name, date, gym and start time; `date` defaults to today in the Health Profile time zone (UTC when unset) and must be within 2 days of the server's today (`WORKOUT_DATE_OUT_OF_RANGE`); `gymId` defaults to the user's default gym. Times more than 5 minutes in the future are refused (`TIME_IN_FUTURE`).
+- **Start.** `POST /api/workouts` takes an optional name, date, gym and start time; `date` defaults to today in the Health Profile time zone (UTC when unset) and must be within 2 days of the server's today (`WORKOUT_DATE_OUT_OF_RANGE`); `gymId` defaults to the user's default gym when omitted, while an explicit `gymId: null` starts a workout with no gym and is never overridden by the default. Times more than 5 minutes in the future are refused (`TIME_IN_FUTURE`).
 - **Readiness snapshot.** At start the workout copies today's check-in by value from `CheckInsService` (null when there is none), so later edits of the check-in do not rewrite history. It never blocks starting.
 - **Per-workout lock.** Writes to a workout's exercises and sets first take `SELECT ... FOR UPDATE` on the workout row (`workout-lock.ts`). That serializes `setNumber` allocation, the limits (30 exercises per workout, 40 sets per exercise) and the dense renumbering after a delete or reorder.
 - **Dense numbering.** Exercise `position` is dense from 0 and `setNumber` dense from 1 per exercise. Adding appends; deleting or moving renumbers, so the numbers never have gaps.
@@ -76,6 +76,14 @@ At most one workout per user is `in_progress`. The database decides, not the ser
 - **Working set.** A completed, non-warm-up set. Totals (`setCount`, `volumeKg` = sum of weight x reps) count working sets only; warm-ups and uncompleted sets never count. The stricter rule the records use is in [section 2.7](#27-personal-records).
 - **Discomfort flag.** `painFlag` (with an optional `painNote`) marks a set. It informs the user and never excludes the set from totals or records.
 - **Finish.** `POST /api/workouts/:id/finish` is idempotent (a completed workout is returned unchanged). It sets `endedAt` (default now) and `durationSeconds`, deletes uncompleted sets that hold no value, and keeps uncompleted sets that do. The response carries the `summary` (totals and `summary.prs`). After the finish commits the `workout.finished` event credits the user's activity goals ([activity-goals.md](activity-goals.md#24-workout-auto-credit)).
+- **Quick cardio log.** `POST /api/workouts/quick-cardio` (`workouts:write`) logs a gym-free walk, run or hike in one call (`QuickCardioService`):
+  - Body (strict): `exerciseKey` (`outdoor_walk`, `outdoor_run` or `hike`), `durationSeconds` (integer, 60 to 36,000) and/or `distanceMeters` (above 0, at most 100,000, two decimals; at least one of the two is required), optional `performedAt` (ISO datetime with offset, default now) and optional `note` (at most 280 characters, stored as the workout notes).
+  - `performedAt` is when the activity ended and must not be in the future (5 minutes of clock skew tolerated, 400 `TIME_IN_FUTURE`) nor more than 7 days ago (400 `PERFORMED_AT_OUT_OF_RANGE`). `startedAt` is `performedAt` minus the duration; `date` is the local day of `performedAt` in the Health Profile time zone.
+  - One transaction creates a **completed** workout with `gymId` null, one exercise and one completed set carrying the duration and/or distance. It is created finished, so the one-in-progress index never sees it and it works while another workout is in progress.
+  - **Plan link.** When the active plan has a planned workout on that local day that holds the exercise, the workout points at it through `programWorkoutId` and the response's `linkedProgramWorkoutId` carries its id; otherwise it is an extra session and the field is null. The resolution is read-only (`plannedWorkoutContaining`, which reuses the `resolveToday` occurrence rule). No `program_sessions` row is written, because that row snapshots a prescription at start and this workout was never started from the plan; the signals then grade it against the live plan's targets.
+  - After commit it emits `workout.finished` exactly as a finish does, so activity goals are credited ([activity-goals.md](activity-goals.md#24-workout-auto-credit)) and the coach reacts.
+  - The response is `201 { workout, linkedProgramWorkoutId }`; the workout has the shape `GET /api/workouts/:id` returns.
+  - Web: the Today workout card's "Log a walk / run" opens `QuickCardioSheet` (a bottom sheet below `sm`, a dialog otherwise) with the activity, minutes and/or distance in the Health Profile unit, when, and a note.
 - **Editing afterwards.** A workout can be edited in progress or completed (`PATCH /api/workouts/:id`): name, notes, gym, date and times; `endedAt` and `durationSeconds` apply to a completed workout only (`WORKOUT_NOT_COMPLETED`); a changed `startedAt` or `endedAt` without `durationSeconds` recomputes the duration. Sets can be edited or deleted after finishing, and records recompute on the next read.
 - **Deleting.** `DELETE /api/workouts/:id` removes the workout and, after the delete commits, best effort, the storage objects of its photos that no other row holds (`WorkoutPhotoStorageService`, the same rule as gym photos).
 
@@ -215,6 +223,7 @@ The `workout_prefill` kind declares `requiredPermissions`, so the generic intake
 | `POST /api/exercises/:id/approve` | `exercises:write` |
 | `GET /api/exercises/:id/history` | `workouts:read` |
 | `POST`, `GET /api/workouts`; `GET /api/workouts/:id` | `workouts:write` (start), `workouts:read` |
+| `POST /api/workouts/quick-cardio` | `workouts:write` |
 | `GET /api/workouts/summary` (`?today=`) | `workouts:read` |
 | `PATCH`, `DELETE /api/workouts/:id`; `POST .../finish` | `workouts:write` |
 | `POST .../exercises`; `PATCH`, `DELETE .../exercises/:weId` | `workouts:write` |
@@ -244,6 +253,8 @@ Refusals carry `details.reason` (values in `WORKOUT_REFUSALS` and `EXERCISE_REFU
 - `apps/api/test/exercises/exercise-catalog.spec.ts`: the seeded catalog is well formed (unique slugs, known muscles, patterns and requirement slugs).
 - `apps/api/test/workouts/workouts.integration.spec.ts`: the workouts HTTP contract (permissions on every route, envelope, `200` versus `201` on start, owner scoping).
 - `apps/api/test/workouts/workouts.db.spec.ts`: the raw-SQL `workouts_user_in_progress_uniq_idx`, `CHECK` constraints, foreign keys, owner scoping, dense set and exercise ordering, the kilogram round trip, dates and the readiness snapshot, editing a completed workout.
+- `apps/api/test/workouts/quick-cardio.integration.spec.ts`, `quick-cardio.db.spec.ts`: the quick-log HTTP contract (permission, bounds, `TIME_IN_FUTURE`, `PERFORMED_AT_OUT_OF_RANGE`) and, on real Postgres, the completed gym-free workout, the plan link without a `program_sessions` row, and logging beside an in-progress workout.
+- `apps/web/src/__tests__/components/today/QuickCardioSheet.test.tsx`: the sheet's checks and refusals.
 - `apps/api/test/workouts/workout-rules.spec.ts`: pure mapper rules (totals, rest derivation, dense renumbering) and DTO bounds.
 - `apps/api/test/workouts/workout-records.spec.ts`: the record formulas and the working-set rule on raw sets.
 - `apps/api/test/workouts/workout-history.db.spec.ts`, `workout-history.integration.spec.ts`: the SQL aggregation agrees with the pure functions; last time, recent and all-time records; another user's sets never enter a comparison.
@@ -299,3 +310,4 @@ Then walk it in the app (`http://localhost:3535`, sign in at `/testing/login` as
 - AI Prefill from photo: `ai.workout.prefill`, the vision prompt, draft review and workout photos: #68.
 - Today page card and `GET /api/workouts/summary`: #69.
 - End-to-end tests and this spec: #70.
+- Epic #260 (cardio and everyday activity): outdoor walk and hike exercises: #261; duration and distance prescriptions on the plan contract and in Today: #262; cardio completion in the signals and the plan UI: #263; the quick "Log a walk / run" and explicit null gym on start: #264.

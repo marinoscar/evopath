@@ -369,10 +369,10 @@ The exercise library is the shared vocabulary workouts are built from: a seeded,
 
 ### 5.24 Workout logging
 
-A workout is one logged training session of exercises and sets, stored in kilograms and metres, with at most one in progress per user (the raw-SQL partial unique index `workouts_user_in_progress_uniq_idx`). Personal records are computed on read. "Prefill from photo" drafts exercises and sets from a photo through the `workout_prefill` intake kind and the server-only job `ai.workout.prefill`. Finishing a workout also credits the user's activity goals ([5.31](#531-activity-goals)). Data model, logging semantics, records, the training summary (`GET /api/workouts/summary`), the prefill design and guardrails: [specs/workouts.md](specs/workouts.md).
+A workout is one logged training session of exercises and sets, stored in kilograms and metres, with at most one in progress per user (the raw-SQL partial unique index `workouts_user_in_progress_uniq_idx`). Personal records are computed on read. "Prefill from photo" drafts exercises and sets from a photo through the `workout_prefill` intake kind and the server-only job `ai.workout.prefill`. `POST /api/workouts/quick-cardio` logs a finished gym-free walk, run or hike in one call (no gym, linked to that day's planned session when the plan holds the exercise, no `program_sessions` row). Finishing a workout, or logging one that way, also credits the user's activity goals ([5.31](#531-activity-goals)). Data model, logging semantics, records, the training summary (`GET /api/workouts/summary`), the prefill design and guardrails: [specs/workouts.md](specs/workouts.md).
 
-- **Code:** `apps/api/src/workouts/` (`WorkoutsModule`; limits and refusal reasons in `workouts.constants.ts`), `apps/web/src/pages/TrainPage.tsx`, `WorkoutPage.tsx`, `WorkoutPrefillPage.tsx`, `apps/web/src/components/train/`, `apps/web/src/components/today/TodayWorkout.tsx`
-- **Routes:** `/api/workouts` (including `/summary`, `/:id/finish`, `/:id/exercises` and `/:id/sets`); details in `/api/docs` (group "Training", tag "Workouts")
+- **Code:** `apps/api/src/workouts/` (`WorkoutsModule`; limits and refusal reasons in `workouts.constants.ts`), `apps/web/src/pages/TrainPage.tsx`, `WorkoutPage.tsx`, `WorkoutPrefillPage.tsx`, `apps/web/src/components/train/`, `apps/web/src/components/today/TodayWorkout.tsx`, `QuickCardioSheet.tsx`
+- **Routes:** `/api/workouts` (including `/summary`, `/quick-cardio`, `/:id/finish`, `/:id/exercises` and `/:id/sets`); details in `/api/docs` (group "Training", tag "Workouts")
 - **UI:** `/train`, `/train/workouts/:workoutId`, `/train/workouts/:workoutId/prefill`, and the Today card
 - **Permissions:** `workouts:read`, `workouts:write`; prefill also needs `exercises:write`
 
