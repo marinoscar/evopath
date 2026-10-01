@@ -5,20 +5,25 @@
 // Enqueued by `IntakeService` inside the transaction that applies or
 // discards a health intake, one job per `delete_after_processing` document,
 // so the intent commits with the apply (or discard) and no worker sees it
-// earlier. The measurements the apply wrote are never touched here: a purge
+// earlier. `HealthDocumentsService.remove` (H6, #190) enqueues it with
+// `reason: 'user_delete'` when the user deletes a document's file, inside
+// the same transaction that soft-deletes its values when asked. The measurements the apply wrote are never touched here: a purge
 // that fails is retried by the queue and the values stay.
 //
 // One attempt:
 //   1. read the document; nothing to do when it is gone (the user was
-//      deleted), already purged (`file_deleted_at`), or no longer marked
-//      `delete_after_processing`;
+//      deleted), already purged (`file_deleted_at`), or, for the default
+//      reason `delete_after_processing`, no longer marked so. A
+//      `user_delete` purge erases the file whatever the retention: the user
+//      asked for exactly that;
 //   2. hard-delete the storage object through `ObjectsService.delete` (the
 //      provider's bytes, then the row; the row's delete sets the document's
 //      `storage_object_id` to NULL). An object that is already gone counts as
 //      deleted;
 //   3. stamp `file_deleted_at` and null `storage_object_id`, conditional on
 //      `file_deleted_at IS NULL`, so a duplicate run changes nothing;
-//   4. audit `health:document:delete` (ids and counts only) and count it.
+//   4. audit `health:document:delete` (ids, counts and the reason only) and
+//      count it.
 // A throw in 2 or 3 counts a failure and is rethrown: the queue retries.
 //
 // SERVER-ONLY (no `nodeResultSchema`/`persistNodeResult`), deliberately:
@@ -43,11 +48,19 @@ import { ObjectsService } from '../../storage/objects/objects.service';
 import {
   HEALTH_DOCUMENT_DELETE_AUDIT_ACTION,
   HEALTH_DOCUMENT_PURGE_JOB_TYPE,
+  HEALTH_DOCUMENT_PURGE_REASONS,
+  type HealthDocumentPurgeReason,
   HEALTH_DOCUMENT_SUBJECT_TYPE,
   RETENTION_SPAN_ATTRIBUTE,
 } from '../health-document.constants';
 
-export const healthDocumentPurgePayloadSchema = z.object({ healthDocumentId: z.uuid() });
+export const healthDocumentPurgePayloadSchema = z.object({
+  healthDocumentId: z.uuid(),
+  /** Absent on every job enqueued before H6 (#190): those are `delete_after_processing`. */
+  reason: z.enum(HEALTH_DOCUMENT_PURGE_REASONS).default('delete_after_processing'),
+});
+
+export type HealthDocumentPurgePayload = z.input<typeof healthDocumentPurgePayloadSchema>;
 
 /** What one run did, for tests and the log line. */
 export type HealthDocumentPurgeResult = 'purged' | 'already_purged' | 'missing' | 'kept';
@@ -74,12 +87,15 @@ export class HealthDocumentPurgeHandler implements JobHandler, OnModuleInit {
   }
 
   async process(job: Job): Promise<void> {
-    const { healthDocumentId } = healthDocumentPurgePayloadSchema.parse(job.payload);
-    const result = await this.purge(healthDocumentId);
+    const { healthDocumentId, reason } = healthDocumentPurgePayloadSchema.parse(job.payload);
+    const result = await this.purge(healthDocumentId, reason);
     this.logger.log(`Health document ${healthDocumentId}: ${result} (job ${job.id})`);
   }
 
-  async purge(healthDocumentId: string): Promise<HealthDocumentPurgeResult> {
+  async purge(
+    healthDocumentId: string,
+    reason: HealthDocumentPurgeReason = 'delete_after_processing',
+  ): Promise<HealthDocumentPurgeResult> {
     const span = trace.getActiveSpan();
     span?.setAttribute('health.document.id', healthDocumentId);
 
@@ -93,7 +109,7 @@ export class HealthDocumentPurgeHandler implements JobHandler, OnModuleInit {
     span?.setAttribute(RETENTION_SPAN_ATTRIBUTE, document.retention);
 
     if (document.fileDeletedAt) return 'already_purged';
-    if (document.retention !== 'delete_after_processing') return 'kept';
+    if (reason === 'delete_after_processing' && document.retention !== 'delete_after_processing') return 'kept';
 
     try {
       if (document.storageObjectId) {
@@ -116,6 +132,7 @@ export class HealthDocumentPurgeHandler implements JobHandler, OnModuleInit {
       storageObjectId: document.storageObjectId,
       intakeId: document.intakeId,
       files: 1,
+      reason,
     });
 
     return 'purged';
@@ -140,7 +157,7 @@ export class HealthDocumentPurgeHandler implements JobHandler, OnModuleInit {
           action: HEALTH_DOCUMENT_DELETE_AUDIT_ACTION,
           targetType: HEALTH_DOCUMENT_SUBJECT_TYPE,
           targetId: healthDocumentId,
-          meta: { ...meta, reason: 'delete_after_processing' } as Prisma.InputJsonValue,
+          meta: meta as Prisma.InputJsonValue,
         },
       });
     } catch (error) {

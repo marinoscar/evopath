@@ -37,6 +37,16 @@ export function retainsFiles(retention: string): boolean {
 /** PERMANENT once jobs of this type exist. */
 export const HEALTH_DOCUMENT_PURGE_JOB_TYPE = 'health.document.purge';
 
+/**
+ * Why a purge erases a file, carried in the job payload and the audit row:
+ * `delete_after_processing` (the user's upload-time choice; the default for a
+ * payload without one, which is every job enqueued before H6) or
+ * `user_delete` (`DELETE /api/health/documents/:id`, H6 #190), which erases
+ * the file whatever its retention.
+ */
+export const HEALTH_DOCUMENT_PURGE_REASONS = ['delete_after_processing', 'user_delete'] as const;
+export type HealthDocumentPurgeReason = (typeof HEALTH_DOCUMENT_PURGE_REASONS)[number];
+
 /** `jobs.subject_type` of a purge job, and the audit target type. */
 export const HEALTH_DOCUMENT_SUBJECT_TYPE = 'health_document';
 

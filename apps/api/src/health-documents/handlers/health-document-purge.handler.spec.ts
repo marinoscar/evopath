@@ -124,6 +124,34 @@ describe('HealthDocumentPurgeHandler', () => {
     expect(metrics.healthDocumentPurge).not.toHaveBeenCalled();
   });
 
+  it('a user_delete purge erases a kept file too, and audits that reason (H6, #190)', async () => {
+    prisma.healthDocument.findUnique.mockResolvedValue(documentRow({ retention: 'keep' }));
+
+    await handler.process(job({ healthDocumentId: DOC, reason: 'user_delete' }));
+
+    expect(objects.delete).toHaveBeenCalledWith(OBJECT, USER);
+    expect(prisma.healthDocument.updateMany).toHaveBeenCalled();
+    expect(prisma.auditEvent.create.mock.calls[0][0].data.meta).toEqual({
+      storageObjectId: OBJECT,
+      intakeId: INTAKE,
+      files: 1,
+      reason: 'user_delete',
+    });
+    expect(metrics.healthDocumentPurge).toHaveBeenCalledWith('purged');
+  });
+
+  it('a user_delete purge of an already purged file is a no-op', async () => {
+    prisma.healthDocument.findUnique.mockResolvedValue(documentRow({ fileDeletedAt: new Date(), storageObjectId: null }));
+
+    await expect(handler.purge(DOC, 'user_delete')).resolves.toBe('already_purged');
+    expect(objects.delete).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown reason', async () => {
+    await expect(handler.process(job({ healthDocumentId: DOC, reason: 'because' }))).rejects.toThrow();
+    expect(prisma.healthDocument.findUnique).not.toHaveBeenCalled();
+  });
+
   it('an object that is already gone (row cascaded away, or 404) still stamps the document', async () => {
     objects.delete.mockRejectedValue(new NotFoundException('Object not found'));
 
