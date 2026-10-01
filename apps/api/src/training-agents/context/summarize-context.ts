@@ -12,7 +12,9 @@ import { PLANNER_CONTEXT_KEYS, type PlannerContext, type PlannerContextKey } fro
 // cannot drift from what the planner receives: a section with no data says
 // "None used". `dropped` names the sections the context budget left out;
 // `excluded` is `never-send.ts`. No ids, no storage keys: the items quote the
-// user's own intake text and name the kinds of data, nothing else.
+// user's own intake text and name the kinds of data, nothing else. The one
+// exception is the opt-in health summary (H8, #192), shown VERBATIM: its
+// narrative as one item, then each training consideration.
 // =============================================================================
 
 export interface SentDataSection {
@@ -50,6 +52,7 @@ const TITLES: Record<PlannerContextKey, string> = {
   candidateExercises: 'Candidate exercises',
   history: 'Training history (last 6 weeks)',
   readiness: 'Readiness (7-day averages)',
+  healthSummary: 'Health summary (opt-in)',
   bio: 'Bio',
   currentPlan: 'Current plan',
 };
@@ -139,12 +142,29 @@ function itemsFor(key: PlannerContextKey, context: PlannerContext): { items: str
     case 'readiness':
       if (!context.readiness) return { items: [NONE_USED] };
       return { items: ['Energy, sleep quality, soreness and stress scores only (no notes)'], count: context.readiness.days };
+    case 'healthSummary':
+      return context.healthSummary ? { items: healthSummaryItems(context.healthSummary) } : { items: [NONE_USED] };
     case 'bio':
       return { items: context.bio ? [`"${context.bio}"`] : [NONE_USED] };
     case 'currentPlan':
       if (!context.currentPlan) return { items: [NONE_USED] };
       return { items: ['The plan being revised (exercises by key, sets, reps, loads)'], count: context.currentPlan.weeks.length };
   }
+}
+
+/**
+ * The health summary as the panel shows it: the narrative verbatim, each
+ * consideration verbatim with its severity (and whether it turns on
+ * conservative mode), and the date of the newest data it covered.
+ */
+export function healthSummaryItems(summary: NonNullable<PlannerContext['healthSummary']>): string[] {
+  return [
+    summary.narrative,
+    ...summary.trainingConsiderations.map(
+      (c) => `${c.severity === 'caution' ? 'Caution' : 'Note'}: ${c.text}${c.conservative ? ' (turns on conservative mode)' : ''}`,
+    ),
+    ...(summary.dataAsOf ? [`Health data as of ${summary.dataAsOf}`] : []),
+  ];
 }
 
 /** The planner's context as the panel shows it: one section per context key, in order. */
@@ -301,6 +321,7 @@ export function summarizeEvaluatorContext(input: EvaluatorInput): SentDataSummar
         ...(profile.avoidExerciseKeys.length ? [`Exercises to avoid: ${profile.avoidExerciseKeys.join(', ')}`] : []),
         `Conservative mode: ${profile.conservative ? 'on' : 'off'}`,
         ...(profile.alreadyDecided.length ? [`Safety changes already decided: ${profile.alreadyDecided.length}`] : []),
+        ...(profile.healthSummary ? ['Your health summary (opt-in):', ...healthSummaryItems(profile.healthSummary)] : []),
       ],
     },
   };

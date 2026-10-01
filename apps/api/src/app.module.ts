@@ -39,11 +39,13 @@ import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
 import { HealthDocumentsModule } from './health-documents/health-documents.module';
+import { HealthExportModule } from './health-export/health-export.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
 import { ProgramsModule } from './programs/programs.module';
 import { TrainingAgentsModule } from './training-agents/training-agents.module';
+import { HealthSummaryModule } from './health-summary/health-summary.module';
 import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
 import { TrainingUsageModule } from './training-usage/training-usage.module';
 import { DoctorModule } from './doctor/doctor.module';
@@ -254,6 +256,11 @@ import configuration from './config/configuration';
     // the `health_documents` storage reference checker. No routes yet.
     HealthDocumentsModule,
 
+    // Health data export (H7, #191): `/api/health/exports` under
+    // `health_data:read`; the server-only `health.export` job and the daily
+    // `health.export.purge` (queued by a cron) that removes files after 7 days.
+    HealthExportModule,
+
     // Gyms (E3.3): `/api/gyms` (with equipment and photos), `/api/equipment-types`
     // and `/api/capabilities` under `gyms:*` (photo attach/remove also
     // `storage:write`). Manual only; no AI import.
@@ -270,6 +277,11 @@ import configuration from './config/configuration';
     // `ProgramsService` (its `applyChange` is the single content writer) for
     // the plan agents. Manual only; no AI import.
     ProgramsModule,
+
+    // AI health summary (H8, #192): the opt-in consent, the server-only
+    // `ai.health.summary` job and `/api/ai/training/health-summary`. The
+    // training agents read the stored summary through its exported reader.
+    HealthSummaryModule,
 
     // Training agents (E5): the orchestration layer above `AiService`. Loads
     // `@langchain/langgraph` at boot (`GraphRuntimeInfo` logs its version), so

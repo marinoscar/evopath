@@ -291,6 +291,88 @@ describe('AppMetricsService', () => {
         ]),
       );
     });
+
+    it('records AI health summary outcomes, duration, regenerations, rejections and tokens (H8, #192)', async () => {
+      const { service, reader } = setup();
+
+      service.healthSummaryGenerated('ready', 2_000, { regenerations: 1, rejections: 1, inputTokens: 900, outputTokens: 300 });
+      service.healthSummaryGenerated('rejected', 3_000, { regenerations: 1, rejections: 2, inputTokens: 1_000, outputTokens: 400 });
+      service.healthSummaryGenerated('skipped', 5);
+      service.healthSummaryGenerated('bogus' as never, null);
+
+      const all = await collect(reader);
+
+      expect(points(all, 'app.health.summary.generations')).toEqual(
+        expect.arrayContaining([
+          { attributes: { outcome: 'ready' }, value: 1 },
+          { attributes: { outcome: 'rejected' }, value: 1 },
+          { attributes: { outcome: 'skipped' }, value: 1 },
+          { attributes: { outcome: OTHER_LABEL }, value: 1 },
+        ]),
+      );
+      expect(metric(all, 'app.health.summary.duration').descriptor.unit).toBe('s');
+      expect(points(all, 'app.health.summary.regenerations')).toEqual([{ attributes: {}, value: 2 }]);
+      expect(points(all, 'app.health.summary.post_check_rejections')).toEqual([{ attributes: {}, value: 3 }]);
+      expect(points(all, 'app.health.summary.tokens')).toEqual(
+        expect.arrayContaining([
+          { attributes: { token_type: 'input' }, value: 1_900 },
+          { attributes: { token_type: 'output' }, value: 700 },
+        ]),
+      );
+    });
+
+    it('records health exports by format and outcome, with duration and size (H7, #191)', async () => {
+      const { service, reader } = setup();
+
+      service.healthExportSettled('pdf', 'completed', 2500, 48_000);
+      service.healthExportSettled('csv', 'failed', 100, 999);
+      service.healthExportSettled('docx', 'completed', 10, 10);
+
+      const all = await collect(reader);
+
+      expect(metric(all, 'app.health.exports').descriptor.unit).toBe('{export}');
+      expect(points(all, 'app.health.exports')).toEqual(
+        expect.arrayContaining([
+          { attributes: { format: 'pdf', outcome: 'completed' }, value: 1 },
+          { attributes: { format: 'csv', outcome: 'failed' }, value: 1 },
+          { attributes: { format: OTHER_LABEL, outcome: 'completed' }, value: 1 },
+        ]),
+      );
+      expect(metric(all, 'app.health.export.duration').descriptor.unit).toBe('s');
+      expect(metric(all, 'app.health.export.size').descriptor.unit).toBe('By');
+      // A failed attempt records no size.
+      const sizes = metric(all, 'app.health.export.size').dataPoints.map((p: { attributes: object }) => p.attributes);
+      expect(sizes).toEqual(expect.arrayContaining([{ format: 'pdf' }]));
+      expect(sizes).not.toEqual(expect.arrayContaining([{ format: 'csv' }]));
+    });
+
+    it('counts health document downloads and deletes (H6, #190)', async () => {
+      const { service, reader } = setup();
+
+      service.healthDocumentDownload('inline');
+      service.healthDocumentDownload('attachment');
+      service.healthDocumentDownload('attachment');
+      service.healthDocumentDelete('file', false);
+      service.healthDocumentDelete('file', true);
+      service.healthDocumentDelete('record', false);
+
+      const all = await collect(reader);
+
+      expect(metric(all, 'app.health.documents.downloads').descriptor.unit).toBe('{download}');
+      expect(points(all, 'app.health.documents.downloads')).toEqual(
+        expect.arrayContaining([
+          { attributes: { disposition: 'inline' }, value: 1 },
+          { attributes: { disposition: 'attachment' }, value: 2 },
+        ]),
+      );
+      expect(points(all, 'app.health.documents.deletes')).toEqual(
+        expect.arrayContaining([
+          { attributes: { scope: 'file', values: 'kept' }, value: 1 },
+          { attributes: { scope: 'file', values: 'deleted' }, value: 1 },
+          { attributes: { scope: 'record', values: 'kept' }, value: 1 },
+        ]),
+      );
+    });
   });
 
   describe('label bounding', () => {
@@ -351,6 +433,8 @@ describe('AppMetricsService', () => {
       ).not.toThrow();
       expect(() => service.notificationDelivery('email', 'sent')).not.toThrow();
       expect(() => service.healthDocumentPurge('purged')).not.toThrow();
+      expect(() => service.healthDocumentDownload('inline')).not.toThrow();
+      expect(() => service.healthDocumentDelete('file', true)).not.toThrow();
     });
 
     it('the fallback instance (no DI) works against the global no-op meter', () => {

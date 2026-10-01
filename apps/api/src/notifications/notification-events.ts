@@ -442,6 +442,28 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     defaultEnabled: true,
     mandatory: true,
   },
+  // ===========================================================================
+  // Health data export (H7, #191)
+  // ===========================================================================
+  //
+  // Raised by the `health.export` job after the file and its result are
+  // committed (ready), or when its last attempt fails. The payload is the
+  // export id and format only: never a value, a file name or a URL (the
+  // download URL is short-lived and minted on request).
+  {
+    key: 'health.export_ready',
+    label: 'Health export ready',
+    description: 'Sent when a health data export you asked for is ready to download. The file is kept for 7 days.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'health.export_failed',
+    label: 'Health export failed',
+    description: 'Sent when a health data export you asked for could not be created, so you can try again.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
 ];
 
 /**

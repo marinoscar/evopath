@@ -5,6 +5,8 @@ import type { PlanSignals } from '../../programs/signals/plan-signals.contract';
 import { daysFrom, occurrenceDate } from '../../programs/today/resolve-today';
 import { trainingIntakeSchema } from '../contracts/training-intake.contract';
 import { briefFromEvidence } from '../finalize/plan-evidence';
+import type { TrainingHealthSummary } from '../../health-summary/health-summary.reader';
+import { sendableHealthSummary } from '../context/build-planner-context';
 import { conservativeModeOf } from '../guardrails/safety-screen';
 import { suppressedFingerprints } from './fingerprints';
 import {
@@ -73,6 +75,8 @@ export interface EvaluationSources {
   }>;
   /** Stored version evidence of the plan's AI versions, newest first. */
   evidence: unknown[];
+  /** The opt-in AI health summary (H8, #192); null or absent unless the user opted in and one is ready. */
+  healthSummary?: TrainingHealthSummary | null;
 }
 
 export interface BuildEvaluatorContextOptions {
@@ -107,7 +111,7 @@ export function buildEvaluatorContext(sources: EvaluationSources, options: Build
       plan,
       history: sources.changeLog.slice(0, EVALUATOR_HISTORY_ENTRIES).map(historyEntry),
       evidence: evidenceClaims(sources.evidence),
-      profile: profileDigest(program, signals),
+      profile: profileDigest(program, signals, sources.healthSummary),
     },
     server: {
       programId: program.id,
@@ -305,12 +309,19 @@ function evidenceClaims(stored: readonly unknown[]): EvaluatorEvidenceClaim[] {
   return [];
 }
 
-function profileDigest(program: EvaluationSources['program'], signals: PlanSignals): EvaluatorProfile {
+function profileDigest(
+  program: EvaluationSources['program'],
+  signals: PlanSignals,
+  summary: TrainingHealthSummary | null | undefined,
+): EvaluatorProfile {
+  const health = sendableHealthSummary(summary);
+  const healthSummaryConservative = health?.trainingConsiderations.some((c) => c.conservative) ?? false;
+  const withHealth = (profile: EvaluatorProfile): EvaluatorProfile => (health ? { ...profile, healthSummary: health } : profile);
   const parsed = trainingIntakeSchema.safeParse(program.intake);
   const readiness = signals.readiness.avg;
 
   if (!parsed.success) {
-    return {
+    return withHealth({
       goal: { type: program.goal, description: '' },
       experience: null,
       daysPerWeek: null,
@@ -318,13 +329,13 @@ function profileDigest(program: EvaluationSources['program'], signals: PlanSigna
       minutesPerSession: null,
       limitations: [],
       avoidExerciseKeys: [],
-      conservative: conservativeModeOf({ texts: [], limitationCount: 0, readiness }).conservative,
+      conservative: conservativeModeOf({ texts: [], limitationCount: 0, readiness, healthSummaryConservative }).conservative,
       alreadyDecided: [],
-    };
+    });
   }
 
   const intake = parsed.data;
-  return {
+  return withHealth({
     goal: { type: intake.goal.type, description: intake.goal.description },
     experience: intake.experience,
     daysPerWeek: intake.daysPerWeek,
@@ -336,7 +347,8 @@ function profileDigest(program: EvaluationSources['program'], signals: PlanSigna
       texts: [intake.goal.description, ...intake.limitations.map((limitation) => limitation.description), intake.preferences],
       limitationCount: intake.limitations.length,
       readiness,
+      healthSummaryConservative,
     }).conservative,
     alreadyDecided: [],
-  };
+  });
 }

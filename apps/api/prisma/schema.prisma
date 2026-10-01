@@ -90,6 +90,10 @@ model User {
   healthProfile          HealthProfile?
   // Measurements (E2.2, #50). Cascade, like `healthProfile`.
   measurements           Measurement[]
+  // AI health summary (H8, #192). Cascade, like `healthProfile`: the consent
+  // and every generated summary are about this person only.
+  healthSummarySetting   HealthSummarySetting?
+  healthSummaries        HealthSummary[]
 
   @@map("users")
 }
@@ -2702,6 +2706,9 @@ model HealthDocument {
   intakeId        String?   @map("intake_id") @db.Uuid
   documentDate    DateTime? @map("document_date") @db.Date
   fileDeletedAt   DateTime? @map("file_deleted_at") @db.Timestamptz
+  // Optimistic concurrency for the documents API (H6, #190): every write
+  // increments it; `ETag` / `If-Match` carry it.
+  version         Int       @default(1)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -2714,6 +2721,62 @@ model HealthDocument {
   @@index([storageObjectId])
   @@index([intakeId])
   @@map("health_documents")
+}
+
+// AI health summary (H8, #192). The per-user consent ("Use my health data in
+// training plans"), OFF by default: no row = off. Its own table, not a key of
+// `user_settings.value`, because turning it on or off is audited and has side
+// effects (a summary is generated, or generation stops), which the generic
+// settings PATCH would bypass. Cascade: no meaning once the user is gone.
+model HealthSummarySetting {
+  userId      String    @id @map("user_id") @db.Uuid
+  enabled     Boolean   @default(false)
+  // When the user last turned it on; kept after turning it off (audit trail
+  // lives in `audit_events`).
+  consentedAt DateTime? @map("consented_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_summary_settings")
+}
+
+// AI health summary (H8, #192). One row per generation attempt of the
+// `ai.health.summary` job; a regeneration APPENDS (`version` + 1), so the
+// history is kept. `status` is a plain string validated by the API
+// (ready | failed). Only a `ready` row's `narrative` and
+// `trainingConsiderations` may reach a training agent, and only while the
+// user's consent is on. `inputsHash` is the hash of the server-built digest
+// the summary was made from (never the digest itself): a different hash for
+// today's digest means the summary is stale. No raw value, document, file
+// name or note is stored here. Cascade with the user.
+model HealthSummary {
+  id                     String    @id @default(uuid()) @db.Uuid
+  userId                 String    @map("user_id") @db.Uuid
+  version                Int
+  status                 String // ready | failed
+  narrative              String?
+  trainingConsiderations Json?     @map("training_considerations")
+  // The newest input the digest covered (a calendar date).
+  dataAsOf               DateTime? @map("data_as_of") @db.Date
+  // When the newest input row was recorded.
+  inputsAsOf             DateTime? @map("inputs_as_of") @db.Timestamptz
+  inputsHash             String    @map("inputs_hash")
+  provider               String?
+  model                  String?
+  // How many extra attempts the post-check forced (0 or 1).
+  regenerations          Int       @default(0)
+  errorCode              String?   @map("error_code")
+  jobId                  String?   @map("job_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version])
+  @@map("health_summaries")
 }
 
 model PhotoIntakePhoto {

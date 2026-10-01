@@ -301,6 +301,10 @@ export function registerDeployCommand(
       'Release version to deploy (default: a patch bump of the current one)',
     )
     .option('--no-version-bump', 'Deploy the current version: no write, no commit, no push')
+    .option(
+      '--maintenance',
+      'Serve a 503 from before the build until just after restart, instead of whatever the stop/migrate/restart window looks like underneath',
+    )
     .option('--json', 'Print a machine-readable result on stdout')
     .addHelpText(
       'after',
@@ -309,6 +313,7 @@ export function registerDeployCommand(
         'Examples:',
         `  ${CLI_NAME} deploy update`,
         `  ${CLI_NAME} deploy update --ref v1.4.0`,
+        `  ${CLI_NAME} deploy update --maintenance`,
         '',
         'Exits 0 without doing anything when the revision has not moved, so it',
         'is safe to run from cron. The one exception: every run checks that nginx',
@@ -322,6 +327,14 @@ export function registerDeployCommand(
         'There is no automatic roll-back: a partly-applied migration cannot be',
         'undone by checking out the old code. On failure the previous revision',
         'and the command to redeploy it are printed.',
+        '',
+        '--maintenance forces MAINTENANCE_MODE on in the deployment\'s .env from',
+        'just before the build until just after the restart, recreating the api',
+        'container each time so it takes effect — the environment break-glass is',
+        'the only layer this CLI can use without an admin session. A failure',
+        'before the window closes leaves the deployment in maintenance mode; the',
+        'next update (with or without this flag) clears a leftover window on its',
+        'own.',
       ].join('\n'),
     )
     .action(async (options: UpdateCommandOptions) => {
@@ -1505,6 +1518,7 @@ export interface UpdateCommandOptions {
    * one that never versions anything.
    */
   versionBump: boolean;
+  maintenance?: boolean | undefined;
   json?: boolean | undefined;
 }
 
@@ -1541,6 +1555,7 @@ export async function runUpdateCommand(
     ...(options.skipOauthCheck === undefined ? {} : { skipOAuthCheck: options.skipOauthCheck }),
     ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
     ...(options.versionBump === false ? { noVersionBump: true } : {}),
+    ...(options.maintenance === undefined ? {} : { maintenance: options.maintenance }),
     ...(answers === undefined ? {} : { answers }),
     ...(ctx?.runCommand === undefined ? {} : { runCommand: ctx.runCommand }),
     ...(json

@@ -880,6 +880,26 @@ rail caption or a card grid with the wrong column count.
 The web theme uses CSS variables, so styles emit `var(--mui-palette-…)` and `calc(n * var(--mui-spacing))` instead of resolved colours and pixels. jsdom does not resolve them, so a unit test asserts on the emitted declaration or on the theme object, never on a computed rgb or px value. Pixel-level colour and spacing belong to the visual suite above.
 `apps/web/src/__tests__/theme/theme.test.ts` is the token and contrast guard for the palettes in `apps/web/src/theme/`.
 
+### Visual specs assert layout, not registry content
+
+Appending a card to `ADMIN_SECTIONS`, `USER_SETTINGS_SECTIONS` or
+`TODAY_CARDS` must change no baseline (#222). The harness never draws the
+live registries: a resolve-time plugin in `apps/web/visual/vite.config.ts`
+swaps `config/adminSections.tsx`, `config/userSettingsSections.tsx` and
+`config/todayCards.tsx` for frozen copies in `apps/web/visual/fixtures/`, and
+fails the harness if a live registry is ever loaded. The fixtures still run
+the real filtering and title logic (`config/settingsRegistry.ts`) and the
+real Today card bodies, so the permission, search and feature-gate specs keep
+exercising their behaviour.
+
+- Adding a card to the app: touch nothing under `tests/visual/` or
+  `apps/web/visual/`. If a baseline moves anyway, that is a finding.
+- Do not sync the fixtures with the live registries. Edit a fixture only when
+  a spec needs a different shape, and regenerate the baselines that move in
+  the same change.
+- `src/__tests__/visual/registryFixtures.test.ts` fails if a fixture imports
+  a value from a live registry, or lacks a name a live registry exports.
+
 ### The pinned browser
 
 Pixel baselines depend on the exact browser build. `@playwright/test` is

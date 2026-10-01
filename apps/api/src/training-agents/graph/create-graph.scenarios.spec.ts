@@ -9,7 +9,15 @@ import { effectiveLimits } from '../guardrails/limits';
 import { sessionSets } from '../guardrails/tree';
 import { TrainingRunFailedError } from '../runtime/training-run-errors';
 import { criticScript, plannerScript, researcherScript } from '../testing/agent-scripts';
-import { CANARY, CANARY_GYM, CANARY_TOKENS, createCanaryPrisma } from '../testing/canary-prisma';
+import { HealthSummaryReader } from '../../health-summary/health-summary.reader';
+import {
+  CANARY,
+  CANARY_GYM,
+  CANARY_HEALTH_SUMMARY,
+  CANARY_RAW_VALUES,
+  CANARY_TOKENS,
+  createCanaryPrisma,
+} from '../testing/canary-prisma';
 import { DUMBBELL_GYM, LIB, contextSourceFixture } from '../testing/context-fixtures';
 import { draftExercise, draftFixture, draftWorkout, singleTypeDraft, weekTypeA } from '../testing/draft-fixtures';
 import { createFakeProgramsPort } from '../testing/fake-programs-port';
@@ -278,6 +286,37 @@ describe('data minimisation canary across every provider call of a full run', ()
     const planner = seen.filter((r) => r.metadata?.agent === 'planner').map((r) => String(r.input));
     expect(planner[0]).toContain('barbell_back_squat');
     expect(planner[0].includes(CANARY.bio)).toBe(includeBio);
+  });
+});
+
+describe('data minimisation canary with the opt-in health summary on (H8, #192)', () => {
+  it('no raw lab or blood-pressure value and no document field in any provider call; only the planner gets the summary text', async () => {
+    const seen: AiResponseRequest[] = [];
+    const record = (script: AgentScript): AgentScript => (req, ctx) => (seen.push(req), script(req, ctx));
+    const prisma = createCanaryPrisma({ userId: HARNESS_USER, healthSummaryConsent: true });
+    const intake = intakeFixture({ gymId: CANARY_GYM, includeBio: false });
+    const s = scenario({
+      researcher: record(researcherScript()),
+      planner: record(plannerScript([draftFixture()])),
+      critic: record(criticScript(() => stubVerdict('approve'))),
+      plannerContext: new PlannerContextLoader(prisma as never, new HealthSummaryReader(prisma as never)),
+      request: { kind: 'create', intake },
+    });
+
+    const result = await s.run();
+
+    expect(result.state.outcome?.status).toBe('completed');
+    expect(seen.map((r) => r.metadata?.agent)).toEqual(expect.arrayContaining(['researcher', 'planner', 'critic']));
+    for (const req of seen) {
+      const sent = JSON.stringify({ instructions: req.instructions, input: req.input, tools: req.tools });
+      for (const value of CANARY_RAW_VALUES) expect(sent).not.toContain(value);
+      for (const token of [...CANARY_TOKENS, CANARY.bio, CANARY_HEALTH_SUMMARY.inputsHash, CANARY_HEALTH_SUMMARY.documentName]) {
+        expect(sent).not.toContain(token);
+      }
+      expect(sent.includes('CANARY-SUMMARY-NARRATIVE')).toBe(req.metadata?.agent === 'planner');
+    }
+    // The flagged consideration switched the run to conservative mode.
+    expect((result.state.context as { mode: { reasons: string[] } }).mode.reasons).toContain('health_summary');
   });
 });
 

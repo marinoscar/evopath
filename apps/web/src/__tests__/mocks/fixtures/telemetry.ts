@@ -255,6 +255,7 @@ export const mockTelemetryConnectionTestResult: TelemetryConnectionTestResult = 
 /** Both services up and healthy, the last deploy long settled. */
 export const mockTelemetryStackRunning: TelemetryStack = {
   agent: 'available',
+  agentError: null,
   services: [
     { name: 'greptimedb', state: 'running', health: 'healthy' },
     { name: 'otel-collector', state: 'running', health: null },
@@ -272,6 +273,7 @@ export const mockTelemetryStackRunning: TelemetryStack = {
 /** The agent is reachable but nothing has been deployed yet. */
 export const mockTelemetryStackMissing: TelemetryStack = {
   agent: 'available',
+  agentError: null,
   services: [
     { name: 'greptimedb', state: 'missing', health: null },
     { name: 'otel-collector', state: 'missing', health: null },
@@ -282,6 +284,15 @@ export const mockTelemetryStackMissing: TelemetryStack = {
 /** No deployment agent (a development stack). */
 export const mockTelemetryStackUnavailable: TelemetryStack = {
   agent: 'not_configured',
+  agentError: null,
+  services: [],
+  deploy: null,
+};
+
+/** A server deployment whose agent is configured but not answering (#644). */
+export const mockTelemetryStackAgentDown: TelemetryStack = {
+  agent: 'unavailable',
+  agentError: 'connect ECONNREFUSED 172.18.0.5:8080',
   services: [],
   deploy: null,
 };

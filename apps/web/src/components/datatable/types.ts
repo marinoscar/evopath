@@ -258,6 +258,13 @@ export interface DataTableRowAction<Row> {
   onClick: (row: Row) => void;
   /** Per-row disabling, e.g. "can't retry a running job". */
   disabled?: (row: Row) => boolean;
+  /**
+   * Why the action is disabled for this row, shown with the disabled control:
+   * as the tooltip of a lone icon button, and as secondary text under a menu
+   * item (a disabled menu item cannot host a hover tooltip). Ignored while
+   * the action is enabled.
+   */
+  disabledReason?: (row: Row) => string | undefined;
   /** Renders in the error palette. Does NOT by itself add a confirmation step. */
   destructive?: boolean;
   /** `true` for default copy, or an object to customize the confirm dialog. */

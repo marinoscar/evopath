@@ -548,6 +548,34 @@ undone by checking out the old code, so on failure `update` prints the
 previous revision and the exact command to redeploy it —
 `evopathcli deploy update --ref <sha> --force` — and leaves that decision to you.
 
+`--app-version <version>` overrides the suggested patch-bump version for this
+release; it's rejected if it doesn't sort above the deployment's current
+version (`assertMovesForward` in `apps/cli/src/deploy/app-version.ts`). The
+interactive TUI's Update screen asks for this too, as a second question right
+after `ref`: it's prefilled with the suggested next patch version, and
+pressing Enter keeps the suggestion while typing a value overrides it,
+validated live against the same forward-only rule.
+
+`--maintenance` opts into a maintenance window for the riskiest part of an
+update. Right after the version step, before `build`, it forces
+`MAINTENANCE_MODE=true` into the deployment's `.env` and recreates the `api`
+container so it takes effect immediately — before `migrate`'s own `stop api`,
+so real traffic sees a controlled `503` instead of whatever the
+stop/migrate/restart window looks like underneath. Right after `restart`,
+before `health`/`verify` (which would otherwise time out against a `503`
+`/api/health/ready`), it clears `MAINTENANCE_MODE` from `.env` — removing the
+key entirely, never forcing it to `false`, so a window an administrator
+opened independently through `/admin/settings/maintenance` is never silently
+overridden — and recreates `api` again. This uses the environment-variable
+break-glass described in
+[`docs/specs/maintenance-mode.md` §2.3](../../docs/specs/maintenance-mode.md#23-the-environment-override),
+because the CLI holds no admin session to call the real
+`PUT /api/admin/maintenance` with. A failure between the on-step and the
+off-step leaves the deployment in maintenance mode, consistent with the
+no-automatic-rollback stance above — the *next* `update`, with or without
+`--maintenance`, always clears a leftover window on its own. The TUI offers
+the same behavior as a toggle on the Update screen's flags step.
+
 Other flags, from `evopathcli deploy update --help`:
 
 ```
@@ -569,8 +597,13 @@ Options:
   --skip-oauth-check       Do not run the post-deploy OAuth sign-in smoke
   --proxy-container <name> The proxy container's name (default: "proxy-nginx")
   --proxy-mode <mode>      "container" or "host"; skips runtime detection
+  --app-version <version>  Release version to deploy (default: a patch bump
+                           of the current one)
   --no-version-bump        Deploy the current version: no write, no commit,
                            no push
+  --maintenance            Serve a 503 from before the build until just after
+                           restart, instead of whatever the stop/migrate/
+                           restart window looks like underneath
   --json                   Print a machine-readable result on stdout
 ```
 

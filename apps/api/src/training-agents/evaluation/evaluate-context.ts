@@ -1,3 +1,4 @@
+import type { TrainingHealthSummary } from '../../health-summary/health-summary.reader';
 import type { CompactSignals } from '../../programs/signals/compact-signals';
 import type { RunState } from '../graph/run-state';
 
@@ -109,6 +110,11 @@ export interface EvaluatorProfile {
   conservative: boolean;
   /** Filled by `safety_gate`. */
   alreadyDecided: ForcedSafetyOperation[];
+  /**
+   * The opt-in AI health summary (H8, #192), verbatim: present only while the
+   * user's consent is on and a ready summary exists. Omitted otherwise.
+   */
+  healthSummary?: TrainingHealthSummary;
 }
 
 /** Compact signals with every uuid and name removed: exercises by key, planned sessions by workout ref. */

@@ -366,6 +366,11 @@ export interface TelemetryStackDeploy {
 /** `GET /admin/telemetry/stack`. */
 export interface TelemetryStack {
   agent: TelemetryStackAgent;
+  /**
+   * The deployment agent's own error message (secret-free) when `agent` is
+   * `unavailable` or `unauthorized`; otherwise `null`. Shown verbatim.
+   */
+  agentError: string | null;
   services: TelemetryStackService[];
   deploy: TelemetryStackDeploy | null;
 }

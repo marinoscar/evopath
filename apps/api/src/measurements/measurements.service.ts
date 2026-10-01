@@ -6,7 +6,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, type Measurement as MeasurementRow } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,12 +21,14 @@ import {
   type Measurement,
   type MeasurementFlag,
   type MeasurementEntry,
+  type MeasurementRevisions,
   type MeasurementSeries,
   type SeriesQuery,
   referenceRangeProblem,
   SERIES_MAX_POINTS,
   type UpdateMeasurementEntryInput,
 } from './dto/measurement.dto';
+import { emitHealthDataChanged } from './health-data-events';
 import { ACTIVE } from './measurement-active';
 import { healthDocumentIdOf, withRecomputedUserEdited } from './photo/photo-source-ref';
 import {
@@ -32,6 +36,7 @@ import {
   BP_SYSTOLIC,
   DEFAULT_METHOD,
   getMetric,
+  isLabMetric,
   MEASUREMENT_METRIC_KEYS,
   type MeasurementOrigin,
   METRICS,
@@ -92,7 +97,11 @@ const MANUAL: EntryProvenance = { origin: 'manual' };
 export class MeasurementsService {
   private readonly logger = new Logger(MeasurementsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so a hand-built service (tests) needs none; Nest always injects it.
+    @Optional() private readonly events?: EventEmitter2,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Writes
@@ -103,9 +112,11 @@ export class MeasurementsService {
     userId: string,
     input: CreateMeasurementEntryInput,
   ): Promise<MeasurementEntry> {
-    return this.prisma.$transaction((tx) =>
+    const entry = await this.prisma.$transaction((tx) =>
       this.createEntryInTransaction(tx, userId, input, MANUAL),
     );
+    this.changed(userId);
+    return entry;
   }
 
   /**
@@ -172,7 +183,7 @@ export class MeasurementsService {
     const now = new Date();
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const entry = await this.prisma.$transaction(async (tx) => {
         const old = sortByRegistry(
           await tx.measurement.findMany({ where: { userId, entryId, ...ACTIVE } }),
         );
@@ -298,6 +309,8 @@ export class MeasurementsService {
         const files = await fileStatesOf(tx, userId, rows);
         return { entryId, items: rows.map((row) => toMeasurement(row, files)) };
       });
+      this.changed(userId);
+      return entry;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         // Another edit inserted a row superseding the same old row first.
@@ -320,6 +333,12 @@ export class MeasurementsService {
     }
 
     await this.audit(userId, entryId, count);
+    this.changed(userId);
+  }
+
+  /** `health.data.changed` after a committed write (H8: the health summary's trigger). */
+  private changed(userId: string): void {
+    emitHealthDataChanged(this.events, this.logger, { userId, source: 'measurements' });
   }
 
   // ---------------------------------------------------------------------------
@@ -407,11 +426,24 @@ export class MeasurementsService {
       },
       orderBy: NEWEST_FIRST,
       take: SERIES_MAX_POINTS + 1,
-      select: { id: true, measuredAt: true, value: true, method: true, origin: true },
+      select: {
+        id: true,
+        measuredAt: true,
+        value: true,
+        method: true,
+        origin: true,
+        referenceLow: true,
+        referenceHigh: true,
+        referenceText: true,
+        flag: true,
+      },
     });
 
     const truncated = rows.length > SERIES_MAX_POINTS;
     const kept = rows.slice(0, SERIES_MAX_POINTS).reverse();
+    // Lab points carry their own range and flag (H5, #189); other metrics'
+    // points keep exactly their original shape.
+    const lab = isLabMetric(query.metricKey);
 
     return {
       metricKey: query.metricKey,
@@ -422,8 +454,53 @@ export class MeasurementsService {
         value: row.value,
         method: row.method,
         origin: row.origin,
+        ...(lab
+          ? {
+              referenceLow: row.referenceLow,
+              referenceHigh: row.referenceHigh,
+              referenceText: row.referenceText,
+              flag: row.flag as MeasurementFlag | null,
+            }
+          : {}),
       })),
       truncated,
+    };
+  }
+
+  /**
+   * Every revision of one reading, newest first (H5, #189). `id` may name any
+   * revision of it, current or superseded. A reading's revisions share its
+   * `entryId` and `metricKey` (an edit supersedes in place, one row per
+   * metric per entry), so the chain is ONE owner-scoped query. 404 when the
+   * caller owns no such row or the reading was deleted.
+   */
+  async revisions(userId: string, id: string): Promise<MeasurementRevisions> {
+    const target = await this.prisma.measurement.findFirst({
+      where: { id, userId },
+      select: { entryId: true, metricKey: true },
+    });
+
+    if (!target) {
+      throw measurementNotFound();
+    }
+
+    const rows = await this.prisma.measurement.findMany({
+      where: { userId, entryId: target.entryId, metricKey: target.metricKey },
+      orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    if (rows.length === 0 || rows.some((row) => row.deletedAt !== null)) {
+      throw measurementNotFound();
+    }
+
+    const files = await fileStatesOf(this.prisma, userId, rows);
+
+    return {
+      items: rows.map((row) => ({
+        ...toMeasurement(row, files),
+        supersededAt: row.supersededAt ? row.supersededAt.toISOString() : null,
+        createdAt: row.createdAt.toISOString(),
+      })),
     };
   }
 
@@ -464,6 +541,10 @@ function isProvenanceList(
 
 function entryNotFound(): NotFoundException {
   return new NotFoundException('Measurement entry not found');
+}
+
+function measurementNotFound(): NotFoundException {
+  return new NotFoundException('Measurement not found');
 }
 
 function entryConflict(): ConflictException {

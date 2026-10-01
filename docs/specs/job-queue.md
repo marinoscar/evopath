@@ -420,11 +420,14 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Daily cron | No (permanently) |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Weekly cron, catalog sync | No (permanently) |
 | `ai.health.lab_report` | `measurements/lab-report/lab-report.handler.ts` | `POST /api/intakes/:id/analyze` (`lab_report`) | No (permanently) |
+| `ai.health.summary` | `health-summary/health-summary.handler.ts` | `health.data.changed` (debounced 2 minutes, while the opt-in is on), `PUT /api/ai/training/health-summary/consent`, `POST /api/ai/training/health-summary/refresh` | No (permanently) |
 | `ai.training.plan.run` | `training-agents/runtime/training-plan-run.handler.ts` | `POST /api/ai/training/runs`, resume, decision | No (permanently) |
 | `ai.training.adapt.run` | `training-adaptation/handlers/adaptation-run.handler.ts` | `POST /api/ai/training/adaptations` | No (permanently) |
 | `training.adaptations.purge` | `training-adaptation/handlers/adaptations-purge.handler.ts` | Daily cron (03:20) | No |
 | `gyms.temporary.purge` | `gyms/handlers/temporary-gym-purge.handler.ts` | Daily cron (03:30) | No |
-| `health.document.purge` | `health-documents/handlers/health-document-purge.handler.ts` | Apply or discard of a health intake with `delete_after_processing` (enqueued in that transaction) | No |
+| `health.document.purge` | `health-documents/handlers/health-document-purge.handler.ts` | Apply or discard of a health intake with `delete_after_processing` (enqueued in that transaction); `DELETE /api/health/documents/:id` with `reason: user_delete` | No |
+| `health.export` | `health-export/handlers/health-export.handler.ts` | `POST /api/health/exports` | No |
+| `health.export.purge` | `health-export/handlers/health-export-purge.handler.ts` | Daily cron (03:00) | No |
 | `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Daily cron (05:30) | No |
 
 The three AI media handlers share `ai/runtime/ai-media-run.handler.ts`. The full cross-subsystem inventory also lives in [ARCHITECTURE.md](../ARCHITECTURE.md).

@@ -24,6 +24,7 @@ export const AI_FEATURE_IDS = [
   'training.planner',
   'training.critic',
   'training.evaluator',
+  'health_summary',
 ] as const;
 
 export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];

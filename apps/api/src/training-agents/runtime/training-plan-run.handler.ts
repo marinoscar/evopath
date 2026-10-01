@@ -100,6 +100,19 @@ import { TrainingRunsService } from './training-runs.service';
 
 export const trainingPlanRunPayloadSchema = z.object({ runId: z.string().uuid() });
 
+/** H8 (#192): the span attribute naming whether the opt-in health summary was in the agent's context (boolean only). */
+export const HEALTH_SUMMARY_PRESENT_ATTRIBUTE = 'healthSummary.present';
+const HEALTH_SUMMARY_SPAN_NODES = new Set(['plan', 'evaluate']);
+
+/** Whether a run's context carries the opt-in health summary (planner context or evaluator profile). Never its text. */
+export function healthSummaryPresent(state: { context?: unknown }): boolean {
+  const context = (state.context ?? null) as {
+    planner?: { healthSummary?: unknown };
+    sent?: { profile?: { healthSummary?: unknown } };
+  } | null;
+  return Boolean(context?.planner?.healthSummary ?? context?.sent?.profile?.healthSummary);
+}
+
 /** Root span of one job's execution of a run. */
 export const TRAINING_RUN_SPAN = 'training.run';
 /** Prefix of each node's span (`training.node.plan`). */
@@ -728,6 +741,7 @@ export class TrainingPlanRunHandler implements JobHandler, OnModuleInit, OnModul
           const model = roles.length === 1 ? roleModels[roles[0]] : undefined;
 
           entry.span.setAttributes({
+            ...(HEALTH_SUMMARY_SPAN_NODES.has(node) ? { [HEALTH_SUMMARY_PRESENT_ATTRIBUTE]: healthSummaryPresent(state) } : {}),
             status: outcome.status,
             input_tokens: after.total.inputTokens - entry.before.total.inputTokens,
             output_tokens: after.total.outputTokens - entry.before.total.outputTokens,

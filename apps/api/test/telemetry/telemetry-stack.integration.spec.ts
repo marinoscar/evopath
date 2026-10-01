@@ -196,6 +196,7 @@ describe('Telemetry stack integration', () => {
 
       expect(res.body.data).toEqual({
         agent: 'available',
+        agentError: null,
         services: [
           { name: 'greptimedb', state: 'running', health: 'healthy' },
           { name: 'otel-collector', state: 'running', health: null },
@@ -217,7 +218,17 @@ describe('Telemetry stack integration', () => {
 
       const res = await request(context.app.getHttpServer()).get(BASE).set(authHeader(admin.accessToken)).expect(200);
 
-      expect(res.body.data).toEqual({ agent: 'not_configured', services: [], deploy: null });
+      expect(res.body.data).toEqual({ agent: 'not_configured', agentError: null, services: [], deploy: null });
+    });
+
+    it('reports why the agent is unavailable', async () => {
+      const admin = await createMockAdminUser(context);
+      const message = 'stack-agent at http://stack-agent:8080 is unreachable: ECONNREFUSED (connect ECONNREFUSED)';
+      agent.telemetryStatus.mockResolvedValue({ ok: false, error: 'unreachable', message });
+
+      const res = await request(context.app.getHttpServer()).get(BASE).set(authHeader(admin.accessToken)).expect(200);
+
+      expect(res.body.data).toEqual({ agent: 'unavailable', agentError: message, services: [], deploy: null });
     });
   });
 

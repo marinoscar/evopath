@@ -128,6 +128,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Transcribes a lab report (PDF or page photos) into draft lab results the
   // user reviews (H4, #188) — `POST /api/intakes/:id/analyze`.
   'ai.health.lab_report': 'AI lab report reading',
+  // Writes the opt-in AI health summary the training planner reads (H8,
+  // #192): debounced after a health write, or on "Refresh summary".
+  'ai.health.summary': 'AI health summary',
   // One agentic training run's graph (planner, critic, evaluator, ...), from
   // `POST /api/ai/training/runs`, a resume or a decision.
   'ai.training.plan.run': 'Training plan run',
@@ -144,6 +147,11 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Erases one "delete after processing" health document's file once its
   // intake was applied or discarded (H1, #185).
   'health.document.purge': 'Health document file purge',
+  // Writes one user's health data export file (JSON, CSV zip, XLSX or PDF)
+  // to `exports/<userId>/<exportId>.<ext>` (H7, #191).
+  'health.export': 'Health data export',
+  // Daily deletion of health export files older than 7 days (H7, #191).
+  'health.export.purge': 'Health export purge',
   // Hourly: expires unanswered plan proposals and starts the weekly,
   // missed-sessions and deferred plan evaluations that are due.
   'training.evaluation.sweep': 'Training evaluation sweep',

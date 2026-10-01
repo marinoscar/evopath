@@ -48,6 +48,10 @@
 //                                     (check-ins are wellness measurements).
 //                                     `supersedesId` is cleared first: the
 //                                     self-FK is ON DELETE RESTRICT.
+//   HealthSummary,                    userId — every AI health summary version
+//   HealthSummarySetting              and the opt-in consent (H8, #192), so a
+//                                     reset turns the opt-in back off. Not
+//                                     counted in the result (derived data).
 //   PhotoIntake                       userId (cascades PhotoIntakePhoto, DraftItem)
 //   HealthDocument                    userId — explicitly (it cascades only from
 //                                     the User row, which is kept; the intake
@@ -85,7 +89,10 @@
 //   Job (pending, others')            a PENDING job whose subject is a deleted
 //                                     row is deleted (including a
 //                                     `health.document.purge` for a deleted
-//                                     document: step 3 deletes its file)
+//                                     document: step 3 deletes its file), and
+//                                     the user's own pending `health.export`
+//                                     jobs (subject = the user); an export
+//                                     FILE is a StorageObject the user owns
 //
 // KEPT:
 //   User, UserIdentity, UserRole      the account and its access

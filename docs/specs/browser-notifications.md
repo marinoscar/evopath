@@ -68,10 +68,13 @@ Registered events:
 | `training.plan_adapted` | browser, push | no |
 | `training.plan_proposal` | browser, push | no |
 | `training.plan_safety_stop` | browser, push | yes |
+| `health.export_ready` | browser, push | no |
+| `health.export_failed` | browser, push | no |
 
 The two broadcast events are specified in
 [notification-broadcasts.md](notification-broadcasts.md). The four
-operational events are in §2.9.
+operational events are in §2.9. The two health export events are in
+[health-records.md](health-records.md#213-export).
 
 ### 2.2 Dispatch and the delivery model
 

@@ -92,7 +92,7 @@ At `/admin/settings/ai/models`, refresh the catalog for each enabled provider an
 | Critic | `responses`, `structured_output` | Any |
 | Evaluator | `responses`, `structured_output` | Any |
 
-Users do not choose models. Under **AI Model Assignments** you assign a model, and optionally a reasoning effort, to each `training.<role>` feature. A role with no assignment uses the default model, else an automatic pick among the models the user can use and that are capable for the role. An assignment a user's key cannot reach is skipped for that user, not an error. `/settings/ai/agents` shows each user the model chosen for them, read-only. Without an effort the role default applies: `medium` for researcher and evaluator, `high` for planner and critic; an effort the model does not offer is clamped down.
+Users do not choose models. Under **AI Model Assignments** you assign a model, and optionally a reasoning effort, to each `training.<role>` feature. The same section lists **Health summary for training plans** (`health_summary`): the model that writes a user's opt-in health summary. It needs only `structured_output` and takes no effort; with nothing assigned it uses the default model or the automatic pick. A role with no assignment uses the default model, else an automatic pick among the models the user can use and that are capable for the role. An assignment a user's key cannot reach is skipped for that user, not an error. `/settings/ai/agents` shows each user the model chosen for them, read-only. Without an effort the role default applies: `medium` for researcher and evaluator, `high` for planner and critic; an effort the model does not offer is clamped down.
 
 ## 5. What users see when a role is blocked
 
@@ -122,6 +122,7 @@ The agents page and the wizard show each role's state. A run that needs a blocke
 | `ai.training.plan.run` | Executes one run; resume is a new job for the same run | 25 minutes, 1 attempt |
 | `training.evaluation.sweep` | Hourly (minute 7): expires old proposals, finds due weekly and missed-session reviews | 10 minutes, 3 attempts |
 | `training.runs.purge` | Daily 05:30: deletes finished runs' events and checkpoints after 30 days and run rows after 365 days | 30 minutes, 3 attempts |
+| `ai.health.summary` | Writes a user's opt-in health summary, about 2 minutes after a health change or at once on refresh; one per user at a time | 4 minutes, 1 attempt |
 
 A run ends `succeeded`, `failed`, `cancelled`, `blocked_safety`, or pauses as `awaiting_approval` (ask-first proposal, expires in 14 days) or `interrupted` (deadline, deploy or lost job). An interrupted run resumes by itself at most twice; after that it needs a manual resume (at most three in total) or a new run. A deploy during a run therefore costs at most the node that was running.
 
@@ -145,6 +146,8 @@ A run ends `succeeded`, `failed`, `cancelled`, `blocked_safety`, or pauses as `a
 | Plan shows automation paused | Urgent-symptom text in a recent pain note, or a repeated pain pattern; a mandatory notification was sent | The owner reviews with a qualified professional, then presses Resume in the banner on the plan viewer, which asks for confirmation and calls `POST /api/programs/:id/autonomy/resume` (the plan owner's call, `programs:write`). An administrator should not bypass it |
 | Ask-first proposal expired | No decision within 14 days; the sweep cancelled the run (`TRAINING_APPROVAL_EXPIRED`) | The next evaluation proposes again |
 | A run shows `blocked_safety` | The safety screen found urgent-symptom text in the request or a recent pain note | Expected; the user sees fixed guidance and no model was called |
+| A run is `blocked_safety` and the user typed nothing alarming | The user opted in to the health summary and its text names an urgent symptom | Expected; the user sees the fixed guidance. They can turn the opt-in off or refresh the summary after reviewing their data |
+| The health summary never appears, or the user sees "stale" | The opt-in is off; no model can serve `health_summary` (`sharing.modelState` in `GET /api/ai/training/health-summary`); AI is off; or the last attempt failed (`lastAttempt.errorCode`, for example `HEALTH_SUMMARY_POST_CHECK_REJECTED` after the model gave medical advice twice) | Assign a capable model (section 4); the user presses Refresh summary. A post-check rejection is expected now and then; a repeated one suggests a weaker model. The `app.health.summary.*` metrics show outcomes and rejections |
 | A user's plan was not adjusted after a workout | Thin data (fewer than 3 due sessions, nothing completed yet), or the evaluator found the plan on track | Expected; a `reviewed` entry appears in the plan history |
 
 ## 9. Purge and retention

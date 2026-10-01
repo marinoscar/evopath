@@ -149,14 +149,14 @@ Each agent receives the smallest object that lets it work, built field by field 
 | Role | Receives |
 |---|---|
 | Researcher | Goal type and sentence, experience, limitation areas with the short description the user typed, days and minutes, an equipment class, free-text preferences. An age band and sex at birth only when the user ticked "Tailor research to my age and sex" (default off). The search tool's `userLocation` is never set |
-| Planner and critic | The planner context: intake, health profile digest (whole-year age, not date of birth), latest weight and body-fat percent and an 8-week trend, 7-day readiness averages (scores only), the gym's capability set, candidate exercises by key, history summarised per exercise, time budget and the verified brief |
-| Evaluator | Signals, the remaining plan by short ref, the profile digest, recent change log entries with the person's feedback (including undone changes) and the stored brief's claims by id |
+| Planner and critic | The planner context: intake, health profile digest (whole-year age, not date of birth), latest weight and body-fat percent and an 8-week trend, 7-day readiness averages (scores only), the gym's capability set, candidate exercises by key, history summarised per exercise, time budget and the verified brief. The planner also receives `healthSummary` when the user opted in ([§2.14](#214-the-opt-in-health-summary)); the critic never does |
+| Evaluator | Signals, the remaining plan by short ref, the profile digest (with `healthSummary` when the user opted in), recent change log entries with the person's feedback (including undone changes) and the stored brief's claims by id |
 
-`context/never-send.ts` is the one list of what no agent receives: name, email, date of birth, exact age, check-in notes, pain notes on sets, other free text, medications, labs and blood pressure, documents and photos, storage keys, other gyms, the gym's name, notes and location, other users' data and internal ids. A test seeds a unique canary in each source column and asserts it appears in no provider request. `POST /api/ai/training/estimate` returns `sentData` per agent (the included sections, what the context budget dropped, and the excluded list) rendered from the same object that is sent, so the panel cannot drift from the request. The Sent data panel shows it before Start.
+`context/never-send.ts` is the one list of what no agent receives: name, email, date of birth, exact age, check-in notes, pain notes on sets, other free text, medications, raw lab results and blood pressure readings, documents and photos and their file names, storage keys, other gyms, the gym's name, notes and location, other users' data and internal ids. A test seeds a unique canary in each source column and asserts it appears in no provider request. Raw lab, blood pressure, document and photo sources stay on the list when the user opts in to the health summary: the only health content an agent may receive is the stored summary text ([§2.14](#214-the-opt-in-health-summary)), and the canary seeds distinctive raw lab and blood-pressure values to prove none of them reaches any planner, critic, researcher or evaluator request. `POST /api/ai/training/estimate` returns `sentData` per agent (the included sections, what the context budget dropped, and the excluded list) rendered from the same object that is sent, so the panel cannot drift from the request. The Sent data panel shows it before Start.
 
 Prompt injection containment: user text and web content are delimited data (`<context>`, `<evidence>`, `<review>`), and every agent prompt ends with the two fixed blocks in `agents/shared/prompt-blocks.ts` (`SAFETY_BLOCK`, `UNTRUSTED_DATA_BLOCK`), pinned character for character by a test. Every model-supplied id, key and URL is re-verified server-side.
 
-`ContextBudget` trims a too-large input in a fixed order (history rows per exercise 6 to 3, candidate exercises 150 to 80, older sessions to counts, evidence items beyond 8, optional profile fields), then drops optional sections, and throws `TRAINING_CONTEXT_TOO_LARGE` only when required sections alone exceed the limit (70 percent of the window).
+`ContextBudget` trims a too-large input in a fixed order (history rows per exercise 6 to 3, candidate exercises 150 to 80, older sessions to counts, evidence items beyond 8, optional profile fields), then drops optional sections last first (planner: bio, body metrics, profile, health summary, readiness, history), and throws `TRAINING_CONTEXT_TOO_LARGE` only when required sections alone exceed the limit (70 percent of the window).
 
 ### 2.5 One path to the model
 
@@ -479,6 +479,20 @@ Usage by node and role, the key-source labels, "tokens, not currency" and the ru
 - **Run and review.** `/train/adapt/:adaptationId` (`ai:use` and AI on, else back to `/train`) shows the stages (reading the plan, adapting, checking limits, reviewing), then the review: AI badge and "Draft, not medical advice", the diff against the planned workout (kept, swapped, dropped with reason, added; icons and words, never colour alone), estimated against requested minutes, rationale, assumptions, guardrail notes, the critic's verdict or "Not reviewed by the critic", and `AgentUsagePanel`. Actions: Use for today only, Update my plan (disabled with the reason when there was no base), Discard, Adjust again. Each 409 is explained with the step that resolves it; a safety stop shows only the guidance. A failed adaptation shows the failure copy for its error code with **Try again** (reopens the sheet with the last request), **Start the planned workout instead** (links to `/train`) and, for some codes, one extra action; a cancelled one offers **Adjust again**.
 - **AI off.** Both apply routes answer `403 AI_DISABLED`; the review offers "Copy exercises" and the planned workout still starts from Today.
 
+### 2.14 The opt-in health summary
+
+Issue #192 (H8). The planner and the evaluator can take the user's health status into account through one AI-written summary, never through raw values. The summary itself is specified in [health-records.md §2.14](health-records.md#214-ai-health-summary-for-the-training-planner); this section owns how the agents use it.
+
+- **Consent.** "Use my health data in training plans" is per user, off by default (`health_summary_settings`, no row is off). It is set with `PUT /api/ai/training/health-summary/consent` and audited (`health_summary:consent`).
+- **The one door.** `HealthSummaryReader.forTraining(userId)` (`apps/api/src/health-summary/health-summary.reader.ts`) returns the newest `ready` summary's narrative, training considerations and `dataAsOf`, and only while the consent is on. It reads no measurement. `PlannerContextLoader` and `EvaluationContextLoader` call it; nothing else in a run reads health data beyond what §2.4 already lists.
+- **Where it goes.** `PlannerContext.healthSummary` and `EvaluatorProfile.healthSummary`, each optional and omitted (never null) when absent. With the consent off, a request is byte-identical to one built without the feature (canary test). The critic and the researcher never receive it.
+- **G0.** `FreeTextSafetyScreen` screens the summary's narrative and every consideration with the urgent-symptom rules, for every run kind. A match records the run `blocked_safety` with no job and no provider call. The context builders screen it again and drop a summary that would block, for a summary written between the screen and the job.
+- **Untrusted data.** It sits inside the delimited `<context>` block, so `UNTRUSTED_DATA_BLOCK` applies. The planner and evaluator prompts are unchanged.
+- **What will be sent.** `summarizePlannerContext` shows a "Health summary (opt-in)" section with the narrative verbatim, then each consideration with its severity; `summarizeEvaluatorContext` lists the same items under the profile.
+- **Context budget.** An optional section of its own, dropped whole after bio, body metrics and profile.
+- **Conservative mode.** A consideration with `conservative: true` adds the reason `health_summary` and turns on conservative mode, like a reported limitation.
+- **Telemetry.** The `plan` and `evaluate` node spans carry `healthSummary.present` (a boolean, never the text).
+
 ## 3. Configuration and permissions
 
 **Settings.** No environment variable is added for any of it.
@@ -492,12 +506,14 @@ Usage by node and role, the key-source labels, "tokens, not currency" and the ru
 | `ai.limits` | `/admin/settings/ai` | Platform request and output caps; apply to every agent call |
 | `ai.training.maxRunTokens` in an adapt run | User settings | Lowers the adapt run's cap (`ADAPTATION_MAX_RUN_TOKENS`, 120,000) and never raises it |
 | `programs.autonomy` | Plan header column | `autonomous` (default) or `ask_first` |
+| `health_summary_settings.enabled` | `PUT /api/ai/training/health-summary/consent` | "Use my health data in training plans", per user, off by default ([§2.14](#214-the-opt-in-health-summary)) |
+| `ai.assignments.features.health_summary` | `/admin/settings/ai/assignments` | The model that writes the health summary; grouped with the training agents |
 
 Role resolution states (`GET /api/ai/training/models`, from the feature resolver): `ready`, `auto` (runnable), and the blocking `no_key`, `no_models`, `missing_capability`, `web_search_disabled`, `ai_disabled`. A run that needs a blocked role is refused at start with `409 TRAINING_ROLE_UNAVAILABLE`.
 
 **Cost and caps.** Protection is layered: `ai.limits` on every call; the per-run token cap frozen on the run at start and checked before each call by `RunBudget` (counting input, output and reasoning tokens; rebuilt from the run's usage on resume, so a resumed run spends against the same cap); the output cap of each call clamped to the remaining budget; and a pre-run estimate (`POST /api/ai/training/estimate`, a range, never a quote). One active run per user. Usage is shown as tokens per agent and key source ([§2.12](#212-usage-by-agent-role)); no currency is computed because the platform has no price catalog. A spent budget fails the run `TRAINING_RUN_BUDGET_EXCEEDED`, except that a critique or revision the budget cannot pay for ships the checked draft with `critic_skipped_budget` (create and revise) or `criticReport.skipped = 'token_cap'` and `revision_skipped_token_cap` (adapt).
 
-**Permissions.** `ai:use` for every `/api/ai/training/*` route, usage routes included (behind `AiEnabledGuard`); `programs:read` and `programs:write` for plans; `workouts:write` also for starting a planned workout and for `POST /api/ai/training/adaptations/:id/apply/workout`; `programs:write` also for `apply/plan`; `gyms:write` for saving a temporary gym ([gyms-and-equipment.md §2.13](gyms-and-equipment.md#213-temporary-gyms)); `ai_config:read` and `ai_config:write` for the admin switches. The permission matrix is in [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix).
+**Permissions.** `ai:use` for every `/api/ai/training/*` route, usage routes included (behind `AiEnabledGuard`); `programs:read` and `programs:write` for plans; `workouts:write` also for starting a planned workout and for `POST /api/ai/training/adaptations/:id/apply/workout`; `programs:write` also for `apply/plan`; `health_data:read` (view) and `health_data:write` (consent, refresh) also for `/api/ai/training/health-summary`; `gyms:write` for saving a temporary gym ([gyms-and-equipment.md §2.13](gyms-and-equipment.md#213-temporary-gyms)); `ai_config:read` and `ai_config:write` for the admin switches. The permission matrix is in [ARCHITECTURE.md §7.2](../ARCHITECTURE.md#72-permission-matrix).
 
 **Errors.** `details.reason` or `error_code` values: `TRAINING_RUN_ACTIVE` (409, `details.runId`), `TRAINING_ROLE_UNAVAILABLE` (409, `details.role`, `details.state`), `TRAINING_STALE_PLAN` (409, `details.currentVersion`), `TRAINING_EVALUATION_COOLDOWN` (409), `TRAINING_RUN_NOT_RESUMABLE` (409), `TRAINING_RUN_NOT_AWAITING_DECISION` (409), `TRAINING_NOT_IMPLEMENTED` (501, while a kind's graph is not ready), the adaptation codes in [§2.13](#213-quick-adaptation-and-travel-workouts), and on the run row `TRAINING_RESEARCH_INSUFFICIENT`, `TRAINING_PLAN_REJECTED`, `TRAINING_RUN_BUDGET_EXCEEDED`, `TRAINING_RUN_LOST`, `TRAINING_CONTEXT_TOO_LARGE`, `TRAINING_SAFETY_STOP`, `TRAINING_APPROVAL_EXPIRED`, plus shared `AI_*` codes.
 
@@ -518,6 +534,8 @@ Role resolution states (`GET /api/ai/training/models`, from the feature resolver
 | `/api/ai/training/adaptations` (context-preview, create, read, cancel, apply/workout, apply/plan, discard) | `ai:use` (+ `workouts:write` or `programs:write` to apply) | Quick adaptation; table in [§2.13](#213-quick-adaptation-and-travel-workouts) |
 | `GET /api/ai/training/runs/:runId/usage`, `GET /api/ai/training/usage` | `ai:use` | [§2.12](#212-usage-by-agent-role) |
 | `GET /api/training/today`, `GET /api/training/signals`, `POST /api/program-workouts/:id/start` | `programs:read` (+ `workouts:write` to start) | Today and signals |
+| `GET /api/ai/training/health-summary` | `ai:use` + `health_data:read` | The consent, what is shared, the summary verbatim, staleness ([health-records.md §2.14](health-records.md#214-ai-health-summary-for-the-training-planner)) |
+| `PUT /api/ai/training/health-summary/consent`, `POST /api/ai/training/health-summary/refresh` | `ai:use` + `health_data:write` | Turn the opt-in on or off (audited); queue a new summary (202) |
 
 nginx unbuffers `/api/ai/training/stream` ([ARCHITECTURE.md §10.3](../ARCHITECTURE.md#103-nginx-routing)).
 
@@ -532,6 +550,7 @@ nginx unbuffers `/api/ai/training/stream` ([ARCHITECTURE.md §10.3](../ARCHITECT
 | Change a prompt | Edit `training-adaptation/prompts/`, bump `ADAPTATION_PROMPT_VERSION`, keep the markers and schema names in `markers.ts` (pinned) |
 | Add an event type | `registerRunEventType` beside the emitting node, with a strict schema of identifiers, enums and counts |
 | Add a never-send entry | Add it to `context/never-send.ts`; the canary test picks it up |
+| Let an agent use more health data | Do not read it in a context loader. Add it to the summary's digest (`health-summary/health-digest.ts`) so it reaches agents only as summary text, behind the consent |
 | Allow another provider for the researcher | Needs a provider whose hosted web search the platform drives; extend `RESEARCHER_PROVIDERS` and the provider's adapter under `ai/providers/<provider>/`, with its own SDK boundary spec |
 | Add an AI provider | [ai-platform.md §4](ai-platform.md#4-extending-it-in-a-fork); agents work on it as soon as its models declare the needed capabilities |
 | Add a scenario | [TESTING.md](../TESTING.md#fake-responses-server-and-training-scenarios) |
@@ -546,6 +565,7 @@ Tests that enforce the invariants (paths under `apps/api/` unless noted):
 - `src/training-agents/guardrails/envelope.spec.ts`, `src/training-agents/evaluation/apply-operations.spec.ts`: G10 rules E1 to E10.
 - `src/training-agents/agents/shared/prompt-blocks.spec.ts`: the safety and untrusted-data blocks are pinned.
 - `src/training-agents/context/build-planner-context.spec.ts`, `src/training-agents/agents/researcher/researcher-context.spec.ts`, `src/training-agents/evaluation/build-evaluator-context.spec.ts`: the never-send canaries and allow-lists.
+- `src/training-agents/agents/planner/planner.spec.ts`, `src/training-agents/graph/create-graph.scenarios.spec.ts`: the health summary canary (opted out: byte-identical planner request; opted in: `healthSummary` inside `<context>`, no raw lab or blood-pressure value and no document field in any provider call) and its budget order. `src/training-agents/runtime/training-runs.service.spec.ts`: G0 over the summary.
 - `src/training-agents/runtime/run-events.registry.spec.ts`, `run-events.sse.spec.ts`: strict payloads, registration, replay and end frames.
 - `src/training-agents/runtime/agent-caller.spec.ts`, `run-budget.spec.ts`, `context-budget.spec.ts`: the one path to the model, caps and trimming.
 - `src/training-agents/graph/training-graphs.spec.ts`, `create-graph.scenarios.spec.ts`, `evaluate-graph.scenarios.spec.ts`: routing, ship rule and graph wiring.
@@ -673,3 +693,4 @@ Real-key smoke checklist (manual, never in CI; `openai.adapter.live.spec.ts` sho
 - #107: travel and hotel workouts: temporary gyms, save and purge, the equipment-unconfirmed refusal.
 - #108: usage and cost by agent role, the token cap surfaced, graceful cap behaviour in adaptation runs.
 - #109: adaptation and travel workouts in this spec, the AI README recipe and the inventories.
+- #192: the opt-in health summary in the planner and evaluator context (H8).

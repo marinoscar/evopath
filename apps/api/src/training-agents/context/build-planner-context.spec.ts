@@ -14,6 +14,7 @@ import {
   FIXTURE_NOW,
   FULL_GYM,
   LIB,
+  HEALTH_SUMMARY_FIXTURE,
   LIBRARY,
   contextSourceFixture,
   inventoryOf,
@@ -81,6 +82,7 @@ describe('buildTrainingRunContext', () => {
           },
         ],
         checkIns: [{ date: '2026-09-29', energy: 4, sleepQuality: 4, soreness: 2, stress: 2 }],
+        healthSummary: HEALTH_SUMMARY_FIXTURE,
       }),
     );
 
@@ -91,9 +93,63 @@ describe('buildTrainingRunContext', () => {
     expect(summary.excluded).toEqual([...NEVER_SEND_LABELS]);
 
     const empty = summarizePlannerContext(runContextFixture().planner);
-    for (const key of ['profile', 'bodyMetrics', 'history', 'readiness', 'bio', 'currentPlan']) {
+    for (const key of ['profile', 'bodyMetrics', 'history', 'readiness', 'healthSummary', 'bio', 'currentPlan']) {
       expect(empty.sections.find((s) => s.key === key)?.items).toEqual([NONE_USED]);
     }
+  });
+
+  describe('the opt-in health summary (H8, #192)', () => {
+    it('absent (consent off or no ready summary): no key at all, and the context is unchanged', () => {
+      const without = runContextFixture();
+      const withNull = runContextFixture({ healthSummary: null });
+
+      expect('healthSummary' in without.planner).toBe(false);
+      expect(JSON.stringify(withNull.planner)).toBe(JSON.stringify(without.planner));
+      expect(withNull.mode).toEqual(without.mode);
+    });
+
+    it('present: copied verbatim (narrative, considerations, date) and nothing else', () => {
+      const leaky = { ...HEALTH_SUMMARY_FIXTURE, inputsHash: 'CANARY-HASH', userId: 'CANARY-USER', provider: 'openai' };
+
+      const context = runContextFixture({ healthSummary: leaky as never });
+
+      expect(context.planner.healthSummary).toEqual(HEALTH_SUMMARY_FIXTURE);
+      expect(JSON.stringify(context.planner)).not.toContain('CANARY');
+    });
+
+    it('a consideration flagged conservative switches on conservative mode, like a reported limitation', () => {
+      const off = runContextFixture({
+        healthSummary: { ...HEALTH_SUMMARY_FIXTURE, trainingConsiderations: [{ text: 'Fine.', severity: 'info', conservative: false }] },
+      });
+      const on = runContextFixture({ healthSummary: HEALTH_SUMMARY_FIXTURE });
+
+      expect(off.mode).toEqual({ conservative: false, reasons: [] });
+      expect(on.mode).toEqual({ conservative: true, reasons: ['health_summary'] });
+      expect(on.planner.conservative).toBe(true);
+    });
+
+    it('a summary naming an urgent symptom is never sent (second line behind the pre-run screen)', () => {
+      const context = runContextFixture({
+        healthSummary: { ...HEALTH_SUMMARY_FIXTURE, narrative: 'Reports chest pain during exercise.' },
+      });
+
+      expect(context.planner.healthSummary).toBeUndefined();
+    });
+
+    it('"what will be sent" shows the narrative and every consideration verbatim', () => {
+      const section = summarizePlannerContext(runContextFixture({ healthSummary: HEALTH_SUMMARY_FIXTURE }).planner).sections.find(
+        (s) => s.key === 'healthSummary',
+      )!;
+
+      expect(section.title).toBe('Health summary (opt-in)');
+      expect(section.items[0]).toBe(HEALTH_SUMMARY_FIXTURE.narrative);
+      expect(section.items).toEqual([
+        HEALTH_SUMMARY_FIXTURE.narrative,
+        `Caution: ${HEALTH_SUMMARY_FIXTURE.trainingConsiderations[0].text} (turns on conservative mode)`,
+        `Note: ${HEALTH_SUMMARY_FIXTURE.trainingConsiderations[1].text}`,
+        'Health data as of 2026-09-28',
+      ]);
+    });
   });
 
   it('the summary names what the context budget dropped', () => {

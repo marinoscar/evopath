@@ -94,16 +94,20 @@ export interface ConservativeMode {
 
 /**
  * The run's conservative mode: any declared limitation, any conservative stem
- * in the free text, or low readiness. (A `blocked` screen never gets here.)
+ * in the free text, low readiness, or (H8, #192) a health summary
+ * consideration flagged `conservative`, which counts like a reported
+ * limitation (`health_summary`). (A `blocked` screen never gets here.)
  */
 export function conservativeModeOf(args: {
   texts: readonly (string | null | undefined)[];
   limitationCount: number;
   readiness?: ReadinessAverages | null;
+  healthSummaryConservative?: boolean;
 }): ConservativeMode {
   const screen = screenFreeText(args.texts);
   const reasons = new Set<string>(screen.level === 'ok' ? [] : screen.reasons.filter((r) => r.startsWith('stem:')));
   if (args.limitationCount > 0) reasons.add('limitation_declared');
+  if (args.healthSummaryConservative) reasons.add('health_summary');
   for (const reason of readinessReasons(args.readiness)) reasons.add(reason);
 
   const sorted = [...reasons].sort();

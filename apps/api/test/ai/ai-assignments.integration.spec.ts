@@ -97,9 +97,10 @@ describe('AI model assignments over HTTP (#173)', () => {
         'training.planner': null,
         'training.critic': null,
         'training.evaluator': null,
+        health_summary: null,
       },
     });
-    expect(data.features.map((f: { featureId: string }) => f.featureId)).toHaveLength(8);
+    expect(data.features.map((f: { featureId: string }) => f.featureId)).toHaveLength(9);
     expect(data.features[0]).toMatchObject({
       featureId: 'gym_scan',
       group: 'photo',

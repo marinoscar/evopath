@@ -245,15 +245,19 @@ describe('OpenAPI document', () => {
       expect(silent).toEqual([]);
     });
 
-    it('gates every /api/measurements operation on a health_data permission (E2.2)', () => {
-      const measurementOps = operations.filter(({ path }) => path.startsWith('/api/measurements'));
+    it('gates every /api/measurements and /api/health/biomarkers operation on a health_data permission (E2.2, H5)', () => {
+      const measurementOps = operations.filter(
+        ({ path }) => path.startsWith('/api/measurements') || path.startsWith('/api/health/biomarkers'),
+      );
       expect(measurementOps.map(({ method, path }) => `${method} ${path}`).sort()).toEqual([
         'delete /api/measurements/entries/{entryId}',
+        'get /api/health/biomarkers/summary',
         'get /api/measurements',
         'get /api/measurements/lab-reports/{intakeId}/duplicates',
         'get /api/measurements/latest',
         'get /api/measurements/metrics',
         'get /api/measurements/series',
+        'get /api/measurements/{id}/revisions',
         'patch /api/measurements/entries/{entryId}',
         'post /api/measurements',
       ]);
@@ -267,6 +271,23 @@ describe('OpenAPI document', () => {
           ...extra,
         ]);
         expect(operation.tags).toEqual(['Measurements']);
+      }
+    });
+
+    it('gates every /api/health/documents operation on a health_data permission (H6, #190)', () => {
+      const documentOps = operations.filter(({ path }) => path.startsWith('/api/health/documents'));
+      expect(documentOps.map(({ method, path }) => `${method} ${path}`).sort()).toEqual([
+        'delete /api/health/documents/{id}',
+        'get /api/health/documents',
+        'get /api/health/documents/{id}',
+        'get /api/health/documents/{id}/download',
+        'patch /api/health/documents/{id}',
+      ]);
+
+      for (const { method, operation } of documentOps) {
+        const rbac = operation[RBAC_EXTENSION_KEY] as { permissions: string[] } | undefined;
+        expect(rbac?.permissions).toEqual([method === 'get' ? 'health_data:read' : 'health_data:write']);
+        expect(operation.tags).toEqual(['Health Documents']);
       }
     });
 

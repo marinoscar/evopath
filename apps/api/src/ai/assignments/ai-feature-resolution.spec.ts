@@ -86,6 +86,18 @@ describe('AI feature registry', () => {
     expect(AI_FEATURES['training.researcher']).toMatchObject({ providers: ['openai'], requiresWebSearch: true });
   });
 
+  it('the health summary (H8) is a text-only structured feature in the training group, with no role and no effort', () => {
+    expect(AI_FEATURES.health_summary).toMatchObject({
+      group: 'training',
+      needs: ['structured_output'],
+      inputModalities: [],
+      providers: null,
+      requiresWebSearch: false,
+      defaultEffort: null,
+      trainingRole: null,
+    });
+  });
+
   it('featureShortfall names capabilities, modalities and provider restrictions', () => {
     const supports = () => true;
     expect(featureShortfall(AI_FEATURES.gym_scan, { provider: 'openai', capabilities: ['responses'], inputModalities: ['text'] }, supports)).toEqual([

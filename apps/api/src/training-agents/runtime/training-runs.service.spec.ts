@@ -272,6 +272,55 @@ describe('TrainingRunsService.create: the urgent-symptom screen (G0)', () => {
   });
 });
 
+describe('TrainingRunsService.create: G0 over the opt-in health summary (H8, #192)', () => {
+  const summary = (narrative: string) => ({
+    narrative,
+    trainingConsiderations: [{ text: 'Keep it moderate.', severity: 'caution' as const, conservative: true }],
+    dataAsOf: '2026-09-28',
+  });
+
+  function service(forTraining: jest.Mock) {
+    const db = createInMemoryTrainingPrisma();
+    const jobs = { enqueueWithin: jest.fn() };
+    const resolver = { resolveForRun: jest.fn() };
+    const screen = new FreeTextSafetyScreen({ forTraining } as never);
+    return { db, jobs, resolver, service: new TrainingRunsService(db.prisma as never, jobs as never, resolver as never, new InMemoryRunEventLog() as never, screen) };
+  }
+
+  it.each([
+    ['create', createRunBody()],
+    ['revise', { kind: 'revise' as const, programId: randomUUID(), basedOnVersion: 1, instruction: 'Swap Friday for Saturday.' }],
+  ])('%s: a summary naming an urgent symptom blocks the run with blocked_safety, no job and no provider call', async (_kind, body) => {
+    const forTraining = jest.fn(async () => summary('Reports chest pain and fainting after hard sessions.'));
+    const t = service(forTraining);
+
+    const started = await t.service.create(USER, body);
+
+    expect(forTraining).toHaveBeenCalledWith(USER);
+    expect(started).toEqual({ runId: expect.any(String), jobId: null, status: 'blocked_safety', guidance: SAFETY_STOP_GUIDANCE });
+    expect(t.db.get(started.runId)).toMatchObject({ status: 'blocked_safety', input: {} });
+    expect(t.jobs.enqueueWithin).not.toHaveBeenCalled();
+    expect(t.resolver.resolveForRun).not.toHaveBeenCalled();
+  });
+
+  it('an urgent symptom in a consideration blocks too, for an evaluate run as well', async () => {
+    const forTraining = jest.fn(async () => ({ ...summary('Steady.'), trainingConsiderations: [{ text: 'Shortness of breath at rest was reported.', severity: 'caution' as const, conservative: true }] }));
+    const screen = new FreeTextSafetyScreen({ forTraining } as never);
+
+    expect(await screen.screen({ userId: USER, kind: 'evaluate', input: { trigger: 'weekly' } })).toEqual({
+      stop: true,
+      guidance: SAFETY_STOP_GUIDANCE,
+    });
+  });
+
+  it('a calm summary, or none (consent off), lets the run through the screen', async () => {
+    for (const value of [summary('Blood pressure above the usual range; clinician follow-up recommended.'), null]) {
+      const screen = new FreeTextSafetyScreen({ forTraining: jest.fn(async () => value) } as never);
+      expect(await screen.screen({ userId: USER, kind: 'create', input: { kind: 'create', intake: createRunBody().intake } })).toEqual({ stop: false });
+    }
+  });
+});
+
 describe('TrainingRunsService: cancel, resume, decide', () => {
   it('cancels a queued, paused or interrupted run at once; a running run only gets the request', async () => {
     const t = setup();
