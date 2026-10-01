@@ -16,6 +16,8 @@ data class RegisterDeviceRequest(
     val androidVersion: String? = null,
     val sdkInt: Int? = null,
     val appVersion: String? = null,
+    /** The installed versionCode; the server compares it with its current release. */
+    val appVersionCode: Int? = null,
     val healthConnectVersion: String? = null,
     val packageName: String? = null,
     val signingSha256: String? = null,
@@ -35,6 +37,10 @@ data class HealthSyncDevice(
     val lastSyncStatus: String? = null,
     val lastError: String? = null,
     val tokenExpiresAt: String? = null,
+    val appVersionCode: Int? = null,
+    /** The server's current release versionCode for this package, or null without one. */
+    val latestVersionCode: Int? = null,
+    val updateAvailable: Boolean? = null,
 )
 
 @Serializable

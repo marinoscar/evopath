@@ -45,6 +45,7 @@ object DeviceInfo {
             androidVersion = Build.VERSION.RELEASE?.take(MAX),
             sdkInt = Build.VERSION.SDK_INT,
             appVersion = app.versionName.take(MAX),
+            appVersionCode = app.versionCode.toInt().takeIf { it >= 1 },
             healthConnectVersion = healthConnectVersion(context),
             packageName = app.packageName.take(MAX),
             signingSha256 = app.signingSha256?.takeIf { SHA256.matches(it) },
