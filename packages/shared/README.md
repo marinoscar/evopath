@@ -14,8 +14,8 @@ display name, the repository slug and the brand colours.
 | `APP_SLUG` | derived from `APP_NAME` | Lowercase, hyphenated |
 | `REPO_NAME` | derived from `REPO_SLUG` | The part after the slash, case preserved |
 | `ANDROID_PACKAGE_NAME` | derived from `REPO_NAME` | `com.<repo name, lowercased, alphanumerics only>.android` |
-| `ANDROID_DEEP_LINK_SCHEME` | derived from `REPO_NAME` | `<repo name, lowercased>-android` |
-| `ANDROID_APK_STEM` | derived from `REPO_NAME` | `<repo name>-android`; APKs are `<stem>-<versionName>.apk` |
+| `ANDROID_DEEP_LINK_SCHEME` | derived from `REPO_NAME` | `<repo name, lowercased>-android` (scheme characters only) |
+| `ANDROID_APK_STEM` | derived from `APP_SLUG` | `<app slug>-android`; APKs are `<stem>-<versionName>.apk`, the GitHub release asset `<stem>.apk` |
 
 [`index.js`](./index.js) holds no literal values. It reads
 [`identity.json`](./identity.json) and derives the rest.

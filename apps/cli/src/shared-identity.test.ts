@@ -106,19 +106,21 @@ describe('the Android app identity (issue #276)', () => {
   // Same derive-don't-list discipline as above: each assertion applies the
   // rule to the live REPO_NAME, so a rename needs no edit here.
   it('ANDROID_PACKAGE_NAME is com.<repo name, lowercased, alphanumerics only>.android', () => {
-    expect(ANDROID_PACKAGE_NAME).toBe(`com.${REPO_NAME.toLowerCase().replace(/[^a-z0-9]/g, '')}.android`);
+    const token = REPO_NAME.toLowerCase().replace(/[^a-z0-9]/g, '') || 'app';
+    expect(ANDROID_PACKAGE_NAME).toBe(`com.${/^[0-9]/.test(token) ? `app${token}` : token}.android`);
   });
 
   it('ANDROID_PACKAGE_NAME is a valid Android application id', () => {
     expect(ANDROID_PACKAGE_NAME).toMatch(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/);
   });
 
-  it('ANDROID_DEEP_LINK_SCHEME is <repo name, lowercased>-android', () => {
-    expect(ANDROID_DEEP_LINK_SCHEME).toBe(`${REPO_NAME.toLowerCase()}-android`);
+  it('ANDROID_DEEP_LINK_SCHEME is <repo name, lowercased>-android, a valid URI scheme', () => {
+    expect(ANDROID_DEEP_LINK_SCHEME).toMatch(/^[a-z][a-z0-9+.-]*-android$/);
+    expect(ANDROID_DEEP_LINK_SCHEME.startsWith(REPO_NAME.toLowerCase().replace(/[^a-z0-9+.-]/g, '').replace(/^[+.-]+/, '') || 'app')).toBe(true);
   });
 
-  it('ANDROID_APK_STEM is <repo name>-android', () => {
-    expect(ANDROID_APK_STEM).toBe(`${REPO_NAME}-android`);
+  it('ANDROID_APK_STEM is <app slug>-android, as the CLI and the CI workflow name APKs', () => {
+    expect(ANDROID_APK_STEM).toBe(`${APP_SLUG}-android`);
   });
 });
 

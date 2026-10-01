@@ -8,7 +8,7 @@ import { PreconditionError } from '../errors.js';
 import type { ExecFn } from './exec.js';
 
 // =============================================================================
-// Build metadata: dist/android/<repo>-android-<versionName>.json  (issue #286)
+// Build metadata: dist/android/<slug>-android-<versionName>.json  (issue #286)
 // =============================================================================
 //
 // Written next to every APK `android build` produces, and read back by

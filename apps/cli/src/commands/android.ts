@@ -290,7 +290,7 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
   android
     .command('publish')
     .description('Upload a built APK to the configured server')
-    .argument('[apk]', 'APK path (default: dist/android/<repo>-android-<versionName>.apk)')
+    .argument('[apk]', 'APK path (default: dist/android/<app>-android-<versionName>.apk)')
     .option('--notes <text>', 'Release notes')
     .option('--no-current', 'Upload without making it the current release')
     .option('--force', 'Make it current even if its versionCode is not newer')

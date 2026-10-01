@@ -9,9 +9,9 @@
  *   - applicationId      `com.<repo name, lowercased, alphanumerics only>.android`
  *   - deep-link scheme   `<repo name, lowercased>-android`
  *   - app label          the product name
- *   - APK file names     `<repo name>-android-<versionName>.apk` (plus the
+ *   - APK file names     `<app slug>-android-<versionName>.apk` (plus the
  *                        `.json` metadata the CLI writes beside it), and
- *                        `<repo name>-android.apk` on the GitHub release
+ *                        `<app slug>-android.apk` on the GitHub release
  *
  * Browser storage keys for the Android surfaces are prefixed with the app slug
  * so two apps built from this template on one origin never share them.

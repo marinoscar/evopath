@@ -58,7 +58,8 @@ export declare const REPO_URL: string;
 export declare const REPO_NAME: string;
 
 /**
- * The Android app's applicationId, `com.<repo name, lowercased, alphanumerics only>.android`.
+ * The Android app's applicationId, `com.<repo name, lowercased, alphanumerics only>.android`
+ * (the same rule as `apps/android/app/build.gradle.kts`).
  *
  * Typed `string`, not a literal — see the note on `APP_NAME`.
  */
@@ -72,7 +73,7 @@ export declare const ANDROID_PACKAGE_NAME: string;
 export declare const ANDROID_DEEP_LINK_SCHEME: string;
 
 /**
- * The stem of the Android APK file names, `<repo name>-android`
+ * The stem of the Android APK file names, `<app slug>-android`
  * (`<stem>-<versionName>.apk`, `<stem>.apk` for the GitHub release asset).
  *
  * Typed `string`, not a literal — see the note on `APP_NAME`.

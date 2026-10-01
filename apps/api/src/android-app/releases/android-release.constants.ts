@@ -78,7 +78,7 @@ export function androidReleaseKey(releaseId: string): string {
 export const DEFAULT_ANDROID_PACKAGE_NAME = ANDROID_PACKAGE_NAME;
 
 /**
- * The download's file name, `<repo>-android-<versionName>.apk` (the stem comes
+ * The download's file name, `<app slug>-android-<versionName>.apk` (the stem comes
  * from `@app/shared`, so a renamed fork serves its own name). `versionName` is
  * validated to `[0-9A-Za-z._+-]`.
  */

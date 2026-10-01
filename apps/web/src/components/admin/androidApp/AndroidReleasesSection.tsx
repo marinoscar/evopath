@@ -4,7 +4,7 @@
  * The APKs this server hosts for its users: which one is current, make
  * another current (a rollback asks first), delete one that is not current,
  * and upload a new one for an administrator without the CLI. Dropping the
- * `<repo>-android-<version>.json` the CLI writes next to the APK fills the
+ * `<app slug>-android-<version>.json` the CLI writes next to the APK fills the
  * form in (names derived from the identity in `utils/androidIdentity.ts`).
  *
  * Every write control is disabled without `system_settings:write` (passed in

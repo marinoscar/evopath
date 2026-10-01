@@ -249,28 +249,40 @@ exports.REPO_URL = `https://github.com/${exports.REPO_SLUG}`;
  */
 exports.REPO_NAME = exports.REPO_SLUG.split('/')[1] || exports.APP_SLUG;
 
+/** The repository name as a Java package segment: lowercase letters and digits only. */
+const androidToken = (() => {
+  const token = exports.REPO_NAME.toLowerCase().replace(/[^a-z0-9]/g, '') || 'app';
+  return /^[0-9]/.test(token) ? `app${token}` : token;
+})();
+
 /**
  * The Android app's applicationId: `com.<repo name, lowercased, letters and
- * digits only>.android`.
+ * digits only>.android` (`app` when nothing is left, prefixed with `app` when
+ * it would start with a digit).
  *
  * The same rule `apps/android/app/build.gradle.kts` applies to
  * `identity.json`, so the web app (the trusted-apps default, the admin
  * release form), the API (OpenAPI examples) and the CLI (its fallback when it
  * cannot read the Gradle file) name the package the build actually produces.
- * Note that an installed app's id is permanent for that install: a fork that
- * renames after shipping publishes a NEW app, not an update.
+ * An installed app's id is permanent for that install: a fork that renames
+ * after shipping publishes a NEW app, not an update.
  */
-exports.ANDROID_PACKAGE_NAME = `com.${exports.REPO_NAME.toLowerCase().replace(/[^a-z0-9]/g, '')}.android`;
+exports.ANDROID_PACKAGE_NAME = `com.${androidToken}.android`;
 
 /**
  * The URI scheme the Android app's Health sync screen answers on:
- * `<repo name, lowercased>-android` (the deep link is `<scheme>://health-sync`).
+ * `<repo name, lowercased>-android`, keeping only the characters a scheme may
+ * hold (the deep link is `<scheme>://health-sync`). Same rule as the Gradle
+ * build.
  */
-exports.ANDROID_DEEP_LINK_SCHEME = `${exports.REPO_NAME.toLowerCase()}-android`;
+exports.ANDROID_DEEP_LINK_SCHEME = `${
+  exports.REPO_NAME.toLowerCase().replace(/[^a-z0-9+.-]/g, '').replace(/^[+.-]+/, '') || 'app'
+}-android`;
 
 /**
- * The stem of every Android APK file name: `<repo name>-android`. A versioned
- * build is `<stem>-<versionName>.apk` (with its `<stem>-<versionName>.json`
- * metadata beside it); the rolling GitHub release asset is `<stem>.apk`.
+ * The stem of every Android APK file name: `<app slug>-android`, as the CLI
+ * and the Android CI workflow name them. A versioned build is
+ * `<stem>-<versionName>.apk` (with its `<stem>-<versionName>.json` metadata
+ * beside it); the rolling GitHub release asset is `<stem>.apk`.
  */
-exports.ANDROID_APK_STEM = `${exports.REPO_NAME}-android`;
+exports.ANDROID_APK_STEM = `${exports.APP_SLUG}-android`;
