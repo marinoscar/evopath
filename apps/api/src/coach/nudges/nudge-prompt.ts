@@ -125,7 +125,18 @@ export function nudgeUserText(data: NudgePromptData, why: string | null, retryRe
   return parts.join('\n');
 }
 
-/** The `why` with the markers removed, so it cannot close its own delimiter. */
-function sanitiseWhy(why: string): string {
-  return why.split(WHY_OPEN).join('').split(WHY_CLOSE).join('').trim();
+/**
+ * The `why` with every delimiter it could be wrapped in removed, so it cannot
+ * close its own block: the nudge markers (`WHY_OPEN`, `WHY_CLOSE`) and the
+ * chat's `<why>` / `</why>` tags, case-insensitively. Shared by the nudge
+ * prompt and the chat prompt (`coach-chat-prompt.ts`).
+ */
+export function sanitiseWhy(why: string): string {
+  return why
+    .split(WHY_OPEN)
+    .join('')
+    .split(WHY_CLOSE)
+    .join('')
+    .replace(/<\s*\/?\s*why\s*>/gi, '')
+    .trim();
 }

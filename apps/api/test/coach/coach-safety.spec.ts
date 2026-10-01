@@ -149,7 +149,7 @@ describe('coach chat safety (E7.7)', () => {
 
     it.each(COACH_PERSONA_IDS)('%s: the supportive prompt drops the persona, profanity and pushy framing', (personaId) => {
       const style = renderPersonaStyle(personaId, 3, unlocked);
-      const prompt = buildCoachChatInstructions({ style, supportive: true, today: '2026-10-01', why: null });
+      const prompt = buildCoachChatInstructions({ style, supportive: true, today: '2026-10-01' });
       expect(prompt).toContain('REGISTER: SUPPORTIVE');
       expect(prompt).not.toContain('PERSONA:');
       expect(prompt).not.toContain('adult language is allowed');

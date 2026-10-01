@@ -68,7 +68,8 @@ export class CoachChatController {
       '`/train` ("Adjust today\'s workout"). Both turns are stored as timeline messages (`kind: chat`).\n\n' +
       '**Safety.** A message that mentions an urgent physical symptom, self-harm, suicidal thoughts or ' +
       'disordered eating gets a fixed supportive reply with a seek-help line and no model call; pain or an ' +
-      'injury switches the coach to a calm supportive register.\n\n' +
+      'injury switches the coach to a calm supportive register, and so does any message within 24 hours of a ' +
+      'safety-blocked one. A safety-blocked message and its fixed reply are never sent to the model as history.\n\n' +
       '**Frames.** `event: <type>` with the frame as JSON in `data:` (the JSON repeats `type`):\n' +
       '- `safety` — `{ level: "blocked" | "conservative", screen: "distress" | "symptom" | "pain" }`, first, ' +
       'when a safety screen matched;\n' +
@@ -77,11 +78,15 @@ export class CoachChatController {
       '- `delta` — `{ text }`, the reply in order (already checked by the content guard);\n' +
       '- `done` — `{ messageId, userMessageId, links: [{ label, href }], pausedUntil: string | null, fallback }`, ' +
       'last: the stored reply\'s id; `fallback` is true when the guard replaced the model\'s reply;\n' +
-      '- `error` — `{ code, message }` (an `AI_*` code or `INTERNAL_ERROR`), last, when the turn failed after ' +
-      'streaming began; no reply is stored.\n' +
+      '- `error` — `{ code, message, userMessageId }` (an `AI_*` code or `INTERNAL_ERROR`), last, when the turn ' +
+      'failed after streaming began or after your message was stored; no reply is stored. `userMessageId` is the ' +
+      'stored message (null when none was stored): send it back as `retryOf` with the same `text` to retry without ' +
+      'storing the message twice.\n' +
       `A \`: ping\` comment is sent every ${AI_SSE_HEARTBEAT_MS / 1000} seconds.\n\n` +
       '**Errors before streaming** are ordinary JSON errors with `details.reason`: a validation 400 (empty or over ' +
-      `${COACH_CHAT_TEXT_MAX} characters); 403 \`AI_DISABLED\`, missing \`ai:use\` or \`programs:read\`, or ` +
+      `${COACH_CHAT_TEXT_MAX} characters), or 400 \`COACH_RETRY_INVALID\` (a \`retryOf\` that is not your latest ` +
+      'chat message, already has a reply, or whose text differs); 403 `AI_DISABLED`, missing `ai:use` or ' +
+      '`programs:read`, or ' +
       '`COACH_DISABLED` (`details.code`); 409 `AI_FEATURE_UNAVAILABLE` (no usable model for `coach.chat`); 429 ' +
       '`AI_RATE_LIMITED` (`ai.limits`, with `Retry-After`); and the AI errors of the first model call. Nothing ' +
       'is stored then.\n\n' +
@@ -104,7 +109,7 @@ export class CoachChatController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Validation error', type: ErrorDto })
+  @ApiResponse({ status: 400, description: 'Validation error, or `COACH_RETRY_INVALID`', type: ErrorDto })
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse({
     status: 403,
@@ -126,7 +131,10 @@ export class CoachChatController {
     try {
       // Eager: the preconditions AND the first event (the first model call).
       // Any rejection here is answered as JSON by the global filter.
-      const events = await this.chat.startTurn(userId, dto.text, { signal: disconnect.signal });
+      const events = await this.chat.startTurn(userId, dto.text, {
+        signal: disconnect.signal,
+        ...(dto.retryOf ? { retryOf: dto.retryOf } : {}),
+      });
       iterator = events[Symbol.asyncIterator]();
       first = await iterator.next();
     } catch (err) {
