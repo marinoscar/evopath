@@ -33,6 +33,10 @@ export interface UserDataSummary {
   notifications?: number;
   progressPhotos?: number;
   coachMessages?: number;
+  /** Activity goals, archived ones included (epic #260). */
+  activityGoals?: number;
+  /** Activity entries: manual check-ins and workout-derived entries (epic #260). */
+  activityEntries?: number;
   [key: string]: number | undefined;
 }
 

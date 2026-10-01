@@ -25,6 +25,8 @@ function setup() {
     healthDocument: { count: jest.fn().mockResolvedValue(7) },
     progressPhoto: { count: jest.fn().mockResolvedValue(8) },
     coachMessage: { count: jest.fn().mockResolvedValue(10) },
+    activityGoal: { count: jest.fn().mockResolvedValue(11) },
+    activityEntry: { count: jest.fn().mockResolvedValue(12) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
     job: { findFirst: jest.fn().mockResolvedValue(null) },
   };
@@ -73,7 +75,11 @@ describe('UserDataService', () => {
         healthDocuments: 7,
         progressPhotos: 8,
         coachMessages: 10,
+        activityGoals: 11,
+        activityEntries: 12,
       });
+      expect(prisma.activityGoal.count).toHaveBeenCalledWith({ where: { userId: USER } });
+      expect(prisma.activityEntry.count).toHaveBeenCalledWith({ where: { userId: USER } });
 
       expect(prisma.workout.count).toHaveBeenCalledWith({ where: { userId: USER } });
       expect(prisma.measurement.count).toHaveBeenCalledWith({
@@ -159,6 +165,8 @@ describe('toResetStatus', () => {
     progressPhotos: 3,
     coachMessages: 4,
     coachStates: 1,
+    activityGoals: 2,
+    activityEntries: 5,
     programs: 0,
     programChangeLogs: 0,
     trainingRuns: 0,
@@ -218,6 +226,13 @@ describe('toResetStatus', () => {
       status: 'succeeded',
       result: { ...older, progressPhotos: 0, coachMessages: 0, coachStates: 0 },
     });
+  });
+
+  it('reads a result written before activity goals existed as 0 goals and entries, not as malformed', () => {
+    const { activityGoals: _g, activityEntries: _e, ...older } = result;
+    expect(
+      toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
+    ).toEqual({ jobId: 'j', status: 'succeeded', result: { ...older, activityGoals: 0, activityEntries: 0 } });
   });
 
   it('omits a malformed result rather than returning it', () => {

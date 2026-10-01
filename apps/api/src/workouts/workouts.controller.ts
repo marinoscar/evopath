@@ -36,7 +36,9 @@ import {
   WorkoutListItemView,
   WorkoutView,
 } from './dto/workout.dto';
+import { QuickCardioDto, QuickCardioResultView } from './dto/quick-cardio.dto';
 import { WorkoutSummaryQueryDto, WorkoutSummaryView } from './dto/workout-summary.dto';
+import { QuickCardioService } from './quick-cardio.service';
 import { WorkoutEntriesService } from './workout-entries.service';
 import {
   MAX_EXERCISES_PER_WORKOUT,
@@ -87,6 +89,7 @@ export class WorkoutsController {
   constructor(
     private readonly workouts: WorkoutsService,
     private readonly entries: WorkoutEntriesService,
+    private readonly quickCardio: QuickCardioService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -100,8 +103,9 @@ export class WorkoutsController {
     description:
       'Starts an ad-hoc workout (201). When the caller already has a workout in progress, nothing is ' +
       'created and that workout is returned with status 200 and `existing: true`. `date` defaults to ' +
-      'today in the Health Profile time zone (UTC when unset); `gymId` defaults to the caller\'s default ' +
-      'gym. `readinessSnapshot` copies today\'s readiness check-in, when there is one.',
+      'today in the Health Profile time zone (UTC when unset); an omitted `gymId` defaults to the caller\'s ' +
+      'default gym, while an explicit `gymId: null` starts a session with no gym. ' +
+      '`readinessSnapshot` copies today\'s readiness check-in, when there is one.',
   })
   @ApiBody({ type: StartWorkoutDto, required: false })
   @ApiDataResponse(StartWorkoutResultView, { status: 201, description: 'The new workout (`existing: false`)' })
@@ -125,6 +129,37 @@ export class WorkoutsController {
     const result = await this.workouts.start(userId, dto);
     reply.status(result.existing ? HttpStatus.OK : HttpStatus.CREATED);
     return result;
+  }
+
+  // Declared before the `:id` routes so `quick-cardio` is never parsed as a workout id.
+  @Post('quick-cardio')
+  @HttpCode(HttpStatus.CREATED)
+  @Auth({ permissions: [PERMISSIONS.WORKOUTS_WRITE] })
+  @ApiOperation({
+    summary: 'Log a walk, run or hike',
+    description:
+      'Logs a gym-free outdoor walk, run or hike in one call: a COMPLETED workout with no gym, one exercise ' +
+      'and one completed set carrying `durationSeconds` and/or `distanceMeters` (at least one is required). ' +
+      '`performedAt` (default now) is when it ended: `startedAt` is `performedAt` minus the duration, and ' +
+      '`date` is the local day of `performedAt` in the Health Profile time zone. It never conflicts with a ' +
+      'workout in progress. When the active plan has a planned workout on that local day that holds the ' +
+      'exercise, the workout is linked to it (`linkedProgramWorkoutId`, and the workout\'s ' +
+      '`programWorkoutId`); otherwise it is an extra session. Emits `workout.finished` like a finish.',
+  })
+  @ApiBody({ type: QuickCardioDto })
+  @ApiDataResponse(QuickCardioResultView, { status: 201, description: 'The completed workout and its plan link' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Validation error (unknown `exerciseKey`, neither `durationSeconds` nor `distanceMeters`, a value out of ' +
+      'range), or `details.reason`: `TIME_IN_FUTURE`, `PERFORMED_AT_OUT_OF_RANGE` (more than 7 days ago)',
+    type: ErrorDto,
+  })
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse(NO_WRITE)
+  @ApiResponse({ status: 404, description: 'The exercise is not in the library (database not seeded)', type: ErrorDto })
+  logQuickCardio(@CurrentUser('id') userId: string, @Body() dto: QuickCardioDto) {
+    return this.quickCardio.log(userId, dto);
   }
 
   @Get()

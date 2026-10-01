@@ -137,6 +137,12 @@ const MIGRATIONS_AT_288 = [
   // #241 (epic #240): the AI Coach tables (coach_messages, coach_states,
   // progress_photos). About coaching, not notifications.
   '20261001120000_ai_coach_foundations',
+  // #262 (epic #260): `program_exercises` duration/distance targets and the
+  // shape CHECK. About training plans, not notifications.
+  '20261002100000_program_exercise_cardio_targets',
+  // #266, #267 (epic #260): `activity_goals` and `activity_entries`. About
+  // activity goals, not notifications.
+  '20261002110000_add_activity_goals_and_entries',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

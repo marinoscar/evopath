@@ -183,6 +183,10 @@ export type TrainingLimitationArea = (typeof TRAINING_LIMITATION_AREAS)[number];
 export const TRAINING_AUTONOMY = ['autonomous', 'ask_first'] as const;
 export type TrainingAutonomy = (typeof TRAINING_AUTONOMY)[number];
 
+/** Walking (outdoor walk, hike), running (outdoor run), or either (#265). */
+export const TRAINING_CARDIO_ACTIVITIES = ['walk', 'run', 'any'] as const;
+export type TrainingCardioActivity = (typeof TRAINING_CARDIO_ACTIVITIES)[number];
+
 export const TRAINING_INTAKE_LIMITS = {
   goalChars: 300,
   limitationChars: 200,
@@ -194,7 +198,17 @@ export const TRAINING_INTAKE_LIMITS = {
   minutesPerSession: { min: 20, max: 180 },
   durationWeeks: { min: 4, max: 24, default: 8 },
   instructionChars: 500,
+  cardioDaysPerWeek: { min: 1, max: 7 },
+  cardioMinutesPerSession: { min: 10, max: 120 },
 } as const;
+
+/** Walking or jogging sessions on top of the strength days (#265). */
+export interface TrainingCardio {
+  include: boolean;
+  activity: TrainingCardioActivity;
+  daysPerWeek?: number;
+  minutesPerSession?: number;
+}
 
 export interface TrainingIntake {
   goal: { type: TrainingGoalType; description: string };
@@ -213,6 +227,8 @@ export interface TrainingIntake {
   includeBio: boolean;
   tailorResearch: boolean;
   autonomy: TrainingAutonomy;
+  /** Absent: the planner decides about cardio inside `daysPerWeek`. */
+  cardio?: TrainingCardio;
 }
 
 // -----------------------------------------------------------------------------

@@ -29,6 +29,7 @@ export function kindForMoment(moment: CoachMoment): CoachMessageKind {
   switch (moment) {
     case 'pr':
     case 'weekly_target_hit':
+    case 'goal_hit':
       return 'celebration';
     case 'comeback':
       return 'comeback';

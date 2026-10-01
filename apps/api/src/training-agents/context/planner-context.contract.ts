@@ -92,9 +92,14 @@ export interface HistoryExerciseRow {
 export interface CompactPlanExercise {
   key: string;
   isPriority: boolean;
-  sets: number;
-  repMin: number;
-  repMax: number;
+  /** Null only for a cardio prescription without a set count. */
+  sets: number | null;
+  /** Null for a cardio prescription. */
+  repMin: number | null;
+  repMax: number | null;
+  /** Present only on a cardio prescription: total seconds and/or meters. */
+  targetDurationSeconds?: number | null;
+  targetDistanceMeters?: number | null;
   targetRpe: number | null;
   restSeconds: number;
   targetLoadKg: number | null;
@@ -110,6 +115,30 @@ export interface CompactPlanWorkout {
 export interface CompactPlan {
   weekTypes: Array<{ key: string; workouts: CompactPlanWorkout[] }>;
   weeks: Array<{ weekNumber: number; weekType: string; isDeload: boolean; block: string }>;
+}
+
+/**
+ * Walking and jogging (#265): what the user asked for, the equipment-free
+ * cardio exercises they may be prescribed, their recent cardio volume and the
+ * server's placement and progression guidance. Present when the intake asks
+ * for cardio or the goal is endurance, fat loss or general fitness.
+ */
+export interface PlannerCardioContext {
+  /** The user asked for cardio sessions: the plan must include them. */
+  requested: boolean;
+  activity: 'walk' | 'run' | 'any' | null;
+  /** Cardio sessions a week the user asked for, when given. */
+  daysPerWeek: number | null;
+  /** Minutes per cardio session the user asked for, when given. */
+  minutesPerSession: number | null;
+  /** The most weekly cardio minutes the server lets ship (`daysPerWeek x minutesPerSession x 1.25`), when both are given. */
+  weeklyMinutesCap: number | null;
+  /** Equipment-free cardio exercises (outdoor walk, hike, outdoor run) by key, tracked by duration and distance. */
+  exerciseKeys: string[];
+  /** Completed cardio minutes per week over the last 4 weeks, oldest first. */
+  recentWeeklyMinutes: number[];
+  /** Server-authored placement and progression rules for the cardio sessions. */
+  guidance: string[];
 }
 
 /** Exactly what the planner receives (inside `<context>`). Optional sections are omitted, never null. */
@@ -138,6 +167,7 @@ export interface PlannerContext {
   };
   equipment: { hasGym: boolean; equipmentClass: EquipmentClass; capabilityKeys: string[] };
   candidateExercises: CandidateExercise[];
+  cardio?: PlannerCardioContext;
   history?: {
     /** Completed sessions per week, oldest of the 6 weeks first. */
     sessionsPerWeek: number[];
@@ -180,6 +210,7 @@ export const PLANNER_CONTEXT_KEYS: readonly PlannerContextKey[] = [
   'bodyMetrics',
   'equipment',
   'candidateExercises',
+  'cardio',
   'history',
   'readiness',
   'healthSummary',

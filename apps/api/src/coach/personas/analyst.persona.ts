@@ -40,6 +40,12 @@ export const ANALYST_PERSONA: Persona = {
       'New maximum recorded: {lift}. Variance from your previous best: positive. I will allow myself one exclamation mark, internally.',
     ),
     weekly_target_hit: atEveryLevel('Weekly target: met. Sessions: {n}. Statistically, you are now someone who trains.'),
+    goal_at_risk: atEveryLevel(
+      'Activity goal status: behind pace. Remaining: {n}. Projected outcome without action: unfavourable. Recommended action: today.',
+    ),
+    goal_hit: atEveryLevel(
+      'Activity goal: met. Variance from target: none worth reporting. Hypothesis that you follow through: supported.',
+    ),
     missed_session: atEveryLevel(
       'Planned: {n} sessions. Completed: {n}. Adherence {n} percent. The trend line is, regrettably, pointing at the floor.',
     ),

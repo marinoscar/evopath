@@ -83,6 +83,8 @@ export interface CoachMessageBubbleProps {
   onDisplayed?: (message: CoachTimelineItem) => void;
   /** A weekly review's **Plan my week**: pre-fill the composer with this prompt. */
   onPlanWeek?: (prompt: string) => void;
+  /** How a weekly review's distance goals read. Default `km`. */
+  distanceUnit?: 'km' | 'mi';
   /**
    * Speech is on for the caller (their audio toggle and the deployment's
    * policy). Shows **Listen** on coach messages; false while unknown.
@@ -242,6 +244,7 @@ export function CoachMessageBubble({
   onFeedback,
   onDisplayed,
   onPlanWeek,
+  distanceUnit,
   speechEnabled = false,
   onSpeechDisabled,
 }: CoachMessageBubbleProps) {
@@ -413,7 +416,7 @@ export function CoachMessageBubble({
             </Box>
           )}
           {review ? (
-            <WeeklyReviewCard review={review} onPlanWeek={onPlanWeek} />
+            <WeeklyReviewCard review={review} onPlanWeek={onPlanWeek} distanceUnit={distanceUnit} />
           ) : kind === 'weekly_review' ? (
             <WeeklyReviewContent message={message} />
           ) : (

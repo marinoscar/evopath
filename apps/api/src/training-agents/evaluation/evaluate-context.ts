@@ -34,9 +34,14 @@ export interface EvaluatorPlanExercise {
   ref: string;
   key: string;
   isPriority: boolean;
-  sets: number;
-  repMin: number;
-  repMax: number;
+  /** Null only for a cardio prescription without a set count. */
+  sets: number | null;
+  /** Null for a cardio prescription. */
+  repMin: number | null;
+  repMax: number | null;
+  /** Present only on a cardio prescription (seconds, meters); the evaluator cannot change it. */
+  targetDurationSeconds?: number | null;
+  targetDistanceMeters?: number | null;
   targetRpe: number | null;
   restSeconds: number;
   targetLoadKg: number | null;

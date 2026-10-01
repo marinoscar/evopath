@@ -281,6 +281,17 @@ export const mockPermissions = {
     name: 'workouts:write',
     description: 'Create, edit and delete own workouts, exercises and sets',
   },
+  // Epic #260 — own activity goals and entries; seeded to all three roles.
+  goalsRead: {
+    id: randomUUID(),
+    name: 'goals:read',
+    description: 'Read own activity goals, entries and progress',
+  },
+  goalsWrite: {
+    id: randomUUID(),
+    name: 'goals:write',
+    description: 'Create, edit and delete own activity goals and entries',
+  },
   // E5.1 — own training programs; seeded to all three roles.
   programsRead: {
     id: randomUUID(),
@@ -627,6 +638,8 @@ export const rolePermissionsMap = {
     mockPermissions.exercisesWrite,
     mockPermissions.workoutsRead,
     mockPermissions.workoutsWrite,
+    mockPermissions.goalsRead,
+    mockPermissions.goalsWrite,
     mockPermissions.programsRead,
     mockPermissions.programsWrite,
   ],
@@ -647,6 +660,8 @@ export const rolePermissionsMap = {
     mockPermissions.exercisesWrite,
     mockPermissions.workoutsRead,
     mockPermissions.workoutsWrite,
+    mockPermissions.goalsRead,
+    mockPermissions.goalsWrite,
     mockPermissions.programsRead,
     mockPermissions.programsWrite,
   ],
@@ -674,6 +689,8 @@ export const rolePermissionsMap = {
     mockPermissions.exercisesWrite,
     mockPermissions.workoutsRead,
     mockPermissions.workoutsWrite,
+    mockPermissions.goalsRead,
+    mockPermissions.goalsWrite,
     mockPermissions.programsRead,
     mockPermissions.programsWrite,
   ],

@@ -12,9 +12,12 @@ import { prescription } from './adaptationCopy';
 export interface PlannedExercise {
   slug: string;
   name: string;
-  sets: number;
-  repMin: number;
-  repMax: number;
+  sets: number | null;
+  repMin: number | null;
+  repMax: number | null;
+  /** Cardio prescriptions (#262). */
+  targetDurationSeconds?: number | null;
+  targetDistanceMeters?: number | null;
   targetRpe: number | null;
 }
 

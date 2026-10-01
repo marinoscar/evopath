@@ -113,7 +113,7 @@ describe('G6 injury and pain', () => {
     const violations = checkInjury(tree, ctx);
     const workout = tree.blocks[0].weeks[0].workouts[0];
 
-    expect(workout.exercises.every((e) => e.targetRpe! <= 7 && e.targetSets <= 4)).toBe(true);
+    expect(workout.exercises.every((e) => e.targetRpe! <= 7 && e.targetSets! <= 4)).toBe(true);
     expect(sessionSets(workout)).toBeLessThanOrEqual(22);
     expect(codes(violations)).toEqual(expect.arrayContaining(['repair:conservative_rpe', 'repair:conservative_sets', 'repair:conservative_session_sets']));
   });

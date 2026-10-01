@@ -304,6 +304,8 @@ export const COACH_NUDGE_SUPPRESSION_REASONS = [
   'guard_rejected',
   'already_sent',
   'deferral_limit',
+  // A goal moment whose goal is no longer active, or no longer at risk, by the time the job runs (F9).
+  'goal_resolved',
 ] as const;
 export type CoachNudgeSuppressionReason = (typeof COACH_NUDGE_SUPPRESSION_REASONS)[number];
 const COACH_NUDGE_SUPPRESSION_SET = new Set<string>(COACH_NUDGE_SUPPRESSION_REASONS);
@@ -322,6 +324,8 @@ const COACH_MOMENT_LABELS = new Set<string>([
   'back_off',
   'kickoff',
   'weekly_review',
+  'goal_at_risk',
+  'goal_hit',
 ]);
 const COACH_FEEDBACK_VALUES = new Set<string>(['up', 'down', 'cleared']);
 /** The learning-loop angles (E7.11, spec §2.8), mirrored as a label set so this file does not import the coach. */

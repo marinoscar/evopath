@@ -2,8 +2,9 @@
  * The weekly review card on the `/coach` timeline (E7.10/E7.13, #253;
  * docs/specs/ai-coach.md). Renders a `weekly_review` message whose `data` is
  * the version-1 contract (`parseWeeklyReviewData`): headline, intro, stat
- * tiles (sessions, adherence, weekly streak, check-ins, photos), PRs, wins,
- * focus and next week's sessions, plus **Plan my week**, which pre-fills the
+ * tiles (sessions, adherence, weekly streak, check-ins, photos), PRs, the
+ * activity goals (`stats.goals`, #269, when present), wins, focus and next
+ * week's sessions, plus **Plan my week**, which pre-fills the
  * composer with `prose.nextWeekPlanPrompt` (it never sends on its own).
  *
  * Every number is the server's (`stats`); nothing is computed here beyond
@@ -16,6 +17,7 @@ import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import {
   coachDisplayText,
   type WeeklyReviewData,
+  type WeeklyReviewGoal,
   type WeeklyReviewPr,
   type WeeklyStreakChange,
 } from '../../services/coach';
@@ -34,6 +36,40 @@ export interface WeeklyReviewCardProps {
   review: WeeklyReviewData;
   /** Pre-fills the composer with the plan prompt; the button is hidden without it. */
   onPlanWeek?: (prompt: string) => void;
+  /** How a distance goal reads (the API speaks meters). Default `km`. */
+  distanceUnit?: 'km' | 'mi';
+}
+
+const METERS_PER_MILE = 1609.344;
+const count = new Intl.NumberFormat('en-US');
+const distance = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+
+/** "3 of 4 sessions", "120 / 150 min", "52,000 / 56,000 steps", "8.2 / 10 km", "5 of 7 days". */
+export function formatWeeklyReviewGoalAmount(goal: WeeklyReviewGoal, distanceUnit: 'km' | 'mi' = 'km'): string {
+  const { done, target } = goal;
+  switch (goal.unit) {
+    case 'sessions':
+      return `${count.format(done)} of ${count.format(target)} ${target === 1 ? 'session' : 'sessions'}`;
+    case 'days':
+      return `${count.format(done)} of ${count.format(target)} ${target === 1 ? 'day' : 'days'}`;
+    case 'minutes':
+      return `${count.format(done)} / ${count.format(target)} min`;
+    case 'steps':
+      return `${count.format(done)} / ${count.format(target)} steps`;
+    case 'meters': {
+      // A km-unit target under a kilometre reads in metres, as prescriptions and goals do.
+      if (distanceUnit === 'km' && target < 1000) return `${count.format(Math.round(done))} / ${count.format(Math.round(target))} m`;
+      const per = distanceUnit === 'mi' ? METERS_PER_MILE : 1000;
+      return `${distance.format(done / per)} / ${distance.format(target / per)} ${distanceUnit}`;
+    }
+  }
+}
+
+/** "3-week streak", "5-day streak"; "" for none. */
+export function formatWeeklyReviewGoalStreak(goal: WeeklyReviewGoal): string {
+  if (goal.streakPeriods <= 0) return '';
+  const period = goal.period ?? (goal.unit === 'days' ? 'day' : 'week');
+  return `${goal.streakPeriods}-${period} streak`;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -88,7 +124,7 @@ function SectionHeading({ id, children }: { id: string; children: ReactNode }) {
   );
 }
 
-export function WeeklyReviewCard({ review, onPlanWeek }: WeeklyReviewCardProps) {
+export function WeeklyReviewCard({ review, onPlanWeek, distanceUnit = 'km' }: WeeklyReviewCardProps) {
   const { stats, prose } = review;
   const idBase = `weekly-review-${review.isoWeek}`;
   const noPlan = stats.noPlan || stats.adherencePct === null;
@@ -163,6 +199,26 @@ export function WeeklyReviewCard({ review, onPlanWeek }: WeeklyReviewCardProps) 
                 {formatWeeklyReviewPr(pr)}
               </Typography>
             ))}
+          </Box>
+        </section>
+      )}
+
+      {stats.goals && stats.goals.length > 0 && (
+        <section aria-labelledby={`${idBase}-goals`}>
+          <SectionHeading id={`${idBase}-goals`}>Goals</SectionHeading>
+          <Box component="ul" sx={{ m: 0, pl: 2.5 }} data-testid="coach-review-goals">
+            {stats.goals.map((goal, i) => {
+              const streak = formatWeeklyReviewGoalStreak(goal);
+              return (
+                <Typography component="li" variant="body2" key={`${goal.title}-${i}`} sx={{ overflowWrap: 'anywhere' }}>
+                  <Box component="span" sx={{ fontWeight: 600 }}>
+                    {goal.title}
+                  </Box>
+                  {`: ${formatWeeklyReviewGoalAmount(goal, distanceUnit)} · ${goal.hit ? 'Hit' : 'Not hit'}`}
+                  {streak && ` · ${streak}`}
+                </Typography>
+              );
+            })}
           </Box>
         </section>
       )}

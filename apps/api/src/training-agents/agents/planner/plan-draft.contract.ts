@@ -12,7 +12,13 @@ import { z } from 'zod';
 // check and repair the expanded tree.
 //
 // Strict-mode compatible (every property required, no records): the schema
-// is sent to the provider as the structured output format. Cross-field rules
+// is sent to the provider as the structured output format.
+//
+// PRESCRIPTION SHAPE. An exercise is either sets and reps (`sets`, `repMin`,
+// `repMax`; both targets null) or cardio (`targetDurationSeconds` and/or
+// `targetDistanceMeters`; reps null; `sets` optional), matching the
+// candidate's `trackingMode`. The field descriptions tell the model; the
+// guardrails (G1) block a draft whose shape does not fit. Cross-field rules
 // (a sequence as long as its block, keys that exist) are not expressible
 // there; `draftIssues` lists them and the compiler repairs them
 // deterministically.
@@ -47,9 +53,28 @@ export const planDraftExerciseSchema = z.object({
   /** A candidate exercise's `key`. */
   exerciseKey: z.string().max(80),
   isPriority: z.boolean(),
-  sets: z.number().int().min(1).max(8),
-  repMin: z.number().int().min(1).max(30),
-  repMax: z.number().int().min(1).max(30),
+  sets: z
+    .number()
+    .int()
+    .min(1)
+    .max(8)
+    .nullable()
+    .describe('Sets. Required for weight_reps and bodyweight_reps exercises; null or a count for time and distance_time.'),
+  repMin: z.number().int().min(1).max(30).nullable().describe('Null for time and distance_time exercises.'),
+  repMax: z.number().int().min(1).max(30).nullable().describe('Null for time and distance_time exercises.'),
+  targetDurationSeconds: z
+    .number()
+    .int()
+    .min(60)
+    .max(36000)
+    .nullable()
+    .describe('Total seconds for a time or distance_time exercise (required for time); null for reps exercises.'),
+  targetDistanceMeters: z
+    .number()
+    .min(100)
+    .max(100000)
+    .nullable()
+    .describe('Total meters for a distance_time exercise (with or instead of a duration); null otherwise.'),
   targetRpe: z.number().nullable(),
   restSeconds: z.number().int().min(30).max(300),
   loadGuidance: z.enum(['choose_start', 'from_history', 'fixed']),

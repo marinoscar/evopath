@@ -36,6 +36,8 @@ The definitions live here; `aggregate-signals.ts` implements them and its header
 | Planned | Every program workout whose occurrence date (`occurrenceDate` in `today/resolve-today.ts`) lies in the range, using the current plan structure plus archived rows a logged workout points at. A session is **due** when its date is before `asOf` or it was already started; only due sessions count as planned, so today's session never lowers adherence until it is done or the day is over. |
 | Status | `done` (linked completed workout), `partial` (done, below 60 percent of planned sets), `in_progress` (linked in-progress workout), `missed` (before `asOf` with none of those), `upcoming` (never missed). |
 | Partial | Completed with `setsDone / setsPlanned` below 0.6 (`PARTIAL_SESSION_RATIO`). Planned sets come from the session snapshot, else the current plan. |
+| Cardio completion | For a planned exercise with a duration and/or distance target (a cardio prescription), the logged duration (or distance) summed over that exercise's completed non-warm-up sets, divided by the target. With both targets the better of the two ratios counts; with nothing logged it is 0. A cardio prescription without a set count plans one set. |
+| Session completion | A session without a cardio prescription keeps the sets rule above. With one, each cardio exercise has its own ratio, the rep exercises share their sets ratio (cardio exercises excluded), and the session ratio is the **lowest** of them: the session is `done` only when every cardio exercise reached 60 percent of its target and the rep exercises meet the sets rule, else `partial`. `completionPct` is that lowest ratio in percent (capped at 100). Targets come from the session snapshot (`plannedExercises`) when the workout was started from the plan, else the current plan, so a later edit of the target does not regrade a logged session. |
 | Extra | Completed workouts in the range linked to no plan at all. |
 | `adherencePct` | `completed / planned` in percent (one decimal); `null` when planned is 0. A partial session counts as completed. |
 | Streaks | `missedStreak` and `completedStreak` count planned sessions in a row, from the most recent due one. |
@@ -116,6 +118,7 @@ A caller with no program gets `200` with `programId: null`, empty adherence and 
 ## 5. Guardrails
 
 - `apps/api/src/programs/signals/aggregate-signals.spec.ts`: fixture weeks for every definition, thresholds, streaks, and degenerate input without `NaN` or `Infinity`.
+- `apps/api/src/programs/signals/aggregate-signals.cardio.spec.ts`: cardio completion by duration and by distance, the better of two ratios, warm-up and uncompleted sets excluded, the 60 percent rule across cardio and rep exercises, snapshot targets, and a reps-only session unchanged.
 - `apps/api/src/programs/signals/compact-signals.spec.ts`: caps, flagged lifts kept, drops reported, token budget for a 26-week fixture.
 - `apps/api/src/programs/signals/signals-boundaries.spec.ts`: no Nest or Prisma reachable from the aggregator, compactor and contract.
 - `apps/api/test/programs/training-signals.integration.spec.ts`: auth, validation, range and `asOf` limits, ownership, empty state.
@@ -144,3 +147,4 @@ Observe: all suites pass; `GET /api/training/signals` appears in `/api/docs` und
 ## History
 
 - E5.9 (issue 102): the signals contract, pure aggregator, compact form, loader, service and `GET /api/training/signals`, under epic 92.
+- Epic #260 (cardio and everyday activity): grading a session with a duration or distance prescription by logged duration and distance: #263, on the prescriptions of #262.

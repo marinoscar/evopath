@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ActivityModule } from '../../activity/activity.module';
 import { AiAssignmentsModule } from '../../ai/assignments/ai-assignments.module';
 import { AiConfigModule } from '../../ai/config/ai-config.module';
 import { AiRuntimeModule } from '../../ai/runtime/ai-runtime.module';
@@ -25,6 +26,7 @@ import { CoachTimelineService } from './coach-timeline.service';
 
 @Module({
   imports: [
+    ActivityModule,
     AiAssignmentsModule,
     AiConfigModule,
     AiRuntimeModule,

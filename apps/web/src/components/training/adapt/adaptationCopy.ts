@@ -8,6 +8,7 @@ import {
   adaptationRefusalOf,
   type AdaptedExercise,
 } from '../../../services/trainingAdaptation';
+import { formatPrescription, type PrescriptionFields } from '../../../utils/prescription';
 
 const FAILURE_COPY: Record<string, RunErrorCopy> = {
   ADAPTATION_CANNOT_FIT: {
@@ -87,11 +88,12 @@ export function applyProblemOf(err: unknown): ApplyProblem {
   }
 }
 
-/** "3 × 8–10 @ RPE 7". */
-export function prescription(e: Pick<AdaptedExercise, 'sets' | 'repMin' | 'repMax' | 'targetRpe'>): string {
-  const reps = e.repMin === e.repMax ? String(e.repMin) : `${e.repMin}–${e.repMax}`;
-  const base = `${e.sets} × ${reps}`;
-  return e.targetRpe === null ? base : `${base} @ RPE ${e.targetRpe}`;
+/** "3 × 8–10 @ RPE 7"; a planned cardio row reads "30 min" (#263). */
+export function prescription(
+  e: Pick<PrescriptionFields, 'sets' | 'repMin' | 'repMax' | 'targetDurationSeconds' | 'targetDistanceMeters'> &
+    Pick<AdaptedExercise, 'targetRpe'>,
+): string {
+  return formatPrescription(e);
 }
 
 /** The exercise list as plain text, for "Copy exercises". */

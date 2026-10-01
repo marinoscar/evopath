@@ -65,6 +65,8 @@ describeWithDb('ProgramsService chokepoint (real Postgres)', () => {
           targetSets: 3,
           repMin: 5,
           repMax: 8,
+          targetDurationSeconds: null,
+          targetDistanceMeters: null,
           targetLoadKg: 62.5,
           targetRpe: 7.5,
           restSeconds: 150,

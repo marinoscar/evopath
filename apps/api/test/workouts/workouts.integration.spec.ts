@@ -173,6 +173,12 @@ describe('Workouts (integration)', () => {
     body?: unknown;
   }> = [
     { method: 'post', path: '/api/workouts', permission: 'workouts:write', body: {} },
+    {
+      method: 'post',
+      path: '/api/workouts/quick-cardio',
+      permission: 'workouts:write',
+      body: { exerciseKey: 'outdoor_walk', durationSeconds: 1800 },
+    },
     { method: 'get', path: '/api/workouts', permission: 'workouts:read' },
     { method: 'get', path: `/api/workouts/${WORKOUT}`, permission: 'workouts:read' },
     { method: 'patch', path: `/api/workouts/${WORKOUT}`, permission: 'workouts:write', body: { name: 'X' } },
@@ -281,6 +287,22 @@ describe('Workouts (integration)', () => {
 
       expect(prisma.gym.findFirst.mock.calls[0][0].where).toEqual({ userId: user.id, isDefault: true });
       expect(prisma.workout.create.mock.calls[0][0].data.gymId).toBe(GYM);
+    });
+
+    it('starts with no gym on an explicit gymId: null, even when a default gym exists', async () => {
+      const user = await createMockContributorUser(context);
+      prisma.gym.findFirst.mockResolvedValue({ id: GYM });
+      prisma.workout.create.mockImplementation(async ({ data }: any) => workoutRow(user.id, { gymId: data.gymId }));
+
+      const response = await request(server())
+        .post('/api/workouts')
+        .set(authHeader(user.accessToken))
+        .send({ gymId: null })
+        .expect(201);
+
+      expect(prisma.workout.create.mock.calls[0][0].data.gymId).toBeNull();
+      expect(prisma.gym.findFirst).not.toHaveBeenCalled();
+      expect(response.body.data.gymId).toBeNull();
     });
 
     it('copies today\'s check-in into readinessSnapshot by value', async () => {

@@ -12,7 +12,8 @@
 
 /**
  * Every moment the coach can speak at (spec §2.5 Moments, plus the auto-silence
- * back-off message, the program kickoff of §2.13 and the weekly review lane).
+ * back-off message, the program kickoff of §2.13, the weekly review lane and the
+ * activity-goal moments `goal_at_risk` and `goal_hit`).
  * Every persona carries a sample line for every moment at every intensity; the
  * registry completeness test fails until it does (spec §4.2).
  */
@@ -29,6 +30,9 @@ export const COACH_MOMENTS = [
   'back_off',
   'kickoff',
   'weekly_review',
+  // Activity goals (F9, #269): appended, the order above is unchanged.
+  'goal_at_risk',
+  'goal_hit',
 ] as const;
 
 export type CoachMoment = (typeof COACH_MOMENTS)[number];

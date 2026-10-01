@@ -33,6 +33,7 @@ import { useCoachState } from '../hooks/useCoachState';
 import { useCoachTimeline } from '../hooks/useCoachTimeline';
 import { useCoachChat } from '../hooks/useCoachChat';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useDistanceUnit } from '../hooks/useDistanceUnit';
 import { coachSpeechEnabled, isCoachMessageId, type CoachTimelineItem } from '../services/coach';
 
 /** How many older pages a deep link may load while looking for its message. */
@@ -92,6 +93,8 @@ export default function CoachPage() {
   // A weekly review's Plan my week: put its prompt in the composer (not sent).
   const [prefill, setPrefill] = useState<CoachComposerPrefill | null>(null);
   const onPlanWeek = useCallback((text: string) => setPrefill((prev) => ({ text, key: (prev?.key ?? 0) + 1 })), []);
+  // Weekly reviews' distance goals read in the Health Profile's unit.
+  const distanceUnit = useDistanceUnit();
 
   const onDisplayed = useCallback(
     (message: CoachTimelineItem) => {
@@ -162,6 +165,7 @@ export default function CoachPage() {
               onRetry={chat.retry}
               onDismissFailure={chat.dismiss}
               onPlanWeek={onPlanWeek}
+              distanceUnit={distanceUnit}
               empty={timeline.error ? null : <CoachEmptyState />}
               speechEnabled={speechEnabled}
               onSpeechDisabled={onSpeechDisabled}

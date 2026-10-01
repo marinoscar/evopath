@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
   TRAINING_AUTONOMY,
+  TRAINING_CARDIO_ACTIVITIES,
   TRAINING_EXPERIENCE_LEVELS,
   TRAINING_GOAL_TYPES,
   TRAINING_INTAKE_LIMITS,
@@ -34,6 +35,7 @@ describe('TrainingIntake contract', () => {
     expect([...TRAINING_EXPERIENCE_LEVELS]).toEqual(arrayConst(researcher, 'RESEARCH_EXPERIENCE_LEVELS'));
     expect([...TRAINING_LIMITATION_AREAS]).toEqual(arrayConst(researcher, 'RESEARCH_LIMITATION_AREAS'));
     expect([...TRAINING_AUTONOMY]).toEqual(arrayConst(intake, 'TRAINING_AUTONOMY'));
+    expect([...TRAINING_CARDIO_ACTIVITIES]).toEqual(arrayConst(intake, 'TRAINING_CARDIO_ACTIVITIES'));
   });
 
   it('mirrors every bound of TRAINING_INTAKE_LIMITS', () => {

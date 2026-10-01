@@ -10,6 +10,8 @@
  * The API decides what a version IS; this only describes the difference.
  */
 import type { PlanBlock, PlanExercise, PlanTree, PlanWeek, PlanWorkout } from '../services/programs';
+import { formatPrescription } from './prescription';
+import type { DistanceUnit } from './workoutFormat';
 
 export type PlanChangeKind =
   | 'exercise_added'
@@ -47,11 +49,12 @@ export function weekdayName(day: number | null | undefined): string {
   return day ? (WEEKDAY_NAMES[day] ?? 'unscheduled') : 'unscheduled';
 }
 
-/** `3 x 8-10 @ RPE 8`. */
-export function prescription(exercise: Pick<PlanExercise, 'targetSets' | 'repMin' | 'repMax' | 'targetRpe'>): string {
-  const reps = exercise.repMin === exercise.repMax ? `${exercise.repMin}` : `${exercise.repMin}-${exercise.repMax}`;
-  const rpe = exercise.targetRpe !== null && exercise.targetRpe !== undefined ? ` @ RPE ${exercise.targetRpe}` : '';
-  return `${exercise.targetSets} x ${reps}${rpe}`;
+/** `3 x 8-10 @ RPE 8`; a cardio row reads `5 km · 30 min` (#263). */
+export function prescription(
+  exercise: Pick<PlanExercise, 'targetSets' | 'repMin' | 'repMax' | 'targetRpe' | 'targetDurationSeconds' | 'targetDistanceMeters'>,
+  distanceUnit: DistanceUnit = 'km',
+): string {
+  return formatPrescription({ ...exercise, sets: exercise.targetSets }, { ascii: true, distanceUnit });
 }
 
 interface Located<T> {

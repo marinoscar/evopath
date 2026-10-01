@@ -55,8 +55,24 @@ export const WORKOUT_REFUSALS = {
   EXERCISE_PENDING_REVIEW: 'EXERCISE_PENDING_REVIEW',
   /** `GET /api/workouts/summary?today=` more than 2 days from the server's today. */
   TODAY_OUT_OF_RANGE: 'TODAY_OUT_OF_RANGE',
+  /** `POST /api/workouts/quick-cardio` `performedAt` more than 7 days ago. */
+  PERFORMED_AT_OUT_OF_RANGE: 'PERFORMED_AT_OUT_OF_RANGE',
 } as const;
 
 /** `GET /api/exercises/:id/history` `limit` (recent workouts). */
 export const EXERCISE_HISTORY_LIMIT_DEFAULT = 3;
 export const EXERCISE_HISTORY_LIMIT_MAX = 10;
+
+// -----------------------------------------------------------------------------
+// Quick cardio log (E8 F4, #264): a gym-free walk, run or hike in one call
+// -----------------------------------------------------------------------------
+
+/** The seeded `distance_time` exercises `POST /api/workouts/quick-cardio` accepts, by slug. */
+export const QUICK_CARDIO_EXERCISE_KEYS = ['outdoor_walk', 'outdoor_run', 'hike'] as const;
+export type QuickCardioExerciseKey = (typeof QUICK_CARDIO_EXERCISE_KEYS)[number];
+
+export const QUICK_CARDIO_DURATION_SECONDS = { min: 60, max: 36_000 } as const;
+export const QUICK_CARDIO_DISTANCE_METERS_MAX = 100_000;
+/** `performedAt` may be at most this many days in the past. */
+export const QUICK_CARDIO_BACKDATE_DAYS = 7;
+export const QUICK_CARDIO_NOTE_MAX = 280;

@@ -97,6 +97,8 @@ describeWithDb('quick workout adaptation: context and apply (real Postgres)', ()
       targetSets: 4,
       repMin: 6,
       repMax: 10,
+      targetDurationSeconds: null,
+      targetDistanceMeters: null,
       targetLoadKg: i === 0 ? 60 : null,
       targetRpe: 8,
       restSeconds: 120,

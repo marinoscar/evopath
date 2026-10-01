@@ -75,6 +75,8 @@ export interface CoachTimelineProps {
   onDismissFailure: () => void;
   /** A weekly review's **Plan my week** (pre-fills the composer). */
   onPlanWeek?: (prompt: string) => void;
+  /** How weekly reviews' distance goals read. Default `km`. */
+  distanceUnit?: 'km' | 'mi';
   /** Rendered in the box when there is nothing else (the empty state). */
   empty?: ReactNode;
   /** Speech is on for the caller: coach messages offer **Listen** (#259). */
@@ -230,6 +232,7 @@ export function CoachTimeline({
   onRetry,
   onDismissFailure,
   onPlanWeek,
+  distanceUnit,
   empty,
   speechEnabled = false,
   onSpeechDisabled,
@@ -317,6 +320,7 @@ export function CoachTimeline({
             onFeedback={message.role === 'coach' ? onFeedback : undefined}
             onDisplayed={onDisplayed}
             onPlanWeek={onPlanWeek}
+            distanceUnit={distanceUnit}
             speechEnabled={speechEnabled && message.role === 'coach'}
             onSpeechDisabled={onSpeechDisabled}
           />

@@ -48,6 +48,12 @@ export const COACH_PERSONA: Persona = {
     weekly_target_hit: atEveryLevel(
       "That's {n} sessions this week. Target hit. Enjoy it, then pick the day for next week's first session.",
     ),
+    goal_at_risk: atEveryLevel(
+      'Your activity goal has {n} to go and the period is running short. One short session today keeps it within reach.',
+    ),
+    goal_hit: atEveryLevel(
+      'Activity goal reached. You said you would, and you did. Well earned. Note what made it work while it is fresh.',
+    ),
     missed_session: atEveryLevel(
       "Wednesday's session slipped by. It happens. Want a 20-minute version tonight, or shall we move it to tomorrow?",
     ),

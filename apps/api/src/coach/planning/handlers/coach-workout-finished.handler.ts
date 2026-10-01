@@ -89,7 +89,8 @@ export class CoachWorkoutFinishedHandler implements JobHandler, OnModuleInit {
   }
 }
 
-function coachEnabledIn(value: unknown): boolean {
+/** The stored `coach.enabled` flag (absent or malformed: off). */
+export function coachEnabledIn(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const coach = (value as Record<string, unknown>).coach;
   return typeof coach === 'object' && coach !== null && (coach as Record<string, unknown>).enabled === true;

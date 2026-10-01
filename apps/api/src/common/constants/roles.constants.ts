@@ -218,6 +218,10 @@ export const PERMISSIONS = {
   WORKOUTS_READ: 'workouts:read',
   WORKOUTS_WRITE: 'workouts:write',
 
+  // Activity goals and entries (epic #260): the caller's own, self-service.
+  GOALS_READ: 'goals:read',
+  GOALS_WRITE: 'goals:write',
+
   // Training programs (E5.1): the caller's own plans, self-service. Running
   // agents additionally needs `ai:use`.
   PROGRAMS_READ: 'programs:read',

@@ -29,6 +29,7 @@ function makeDeps() {
     photos: { summarize: jest.fn() },
     now: () => NOW,
     commitments: { update: jest.fn().mockResolvedValue({}) },
+    goals: { progressForUser: jest.fn().mockResolvedValue([]) },
   };
   return { deps, signals };
 }
@@ -239,6 +240,61 @@ describe('coach chat tools (E7.7)', () => {
         headline: 'Week 40: 3 of 3',
         stats: { done: 3, planned: 3 },
       });
+    });
+  });
+
+  describe('get_goals (F9)', () => {
+    const GOAL = '00000000-0000-4000-8000-00000000090a';
+
+    it('returns the active goals compact for the caller: no id, no entries', async () => {
+      const { deps } = makeDeps();
+      deps.goals.progressForUser.mockResolvedValue([
+        {
+          goalId: GOAL,
+          goal: { id: GOAL, title: 'Morning walks', metric: 'sessions', period: 'week' },
+          periodStart: '2026-09-28',
+          periodEnd: '2026-10-04',
+          done: 2,
+          target: 4,
+          remaining: 2,
+          daysLeft: 4,
+          onTrack: true,
+          hit: false,
+          streakPeriods: 1,
+          elapsedFraction: 3 / 7,
+          entries: [{ id: '00000000-0000-4000-8000-0000000000e1', note: 'CANARY-NOTE' }],
+        },
+      ]);
+
+      const result = await run(deps, 'get_goals');
+
+      expect(deps.goals.progressForUser).toHaveBeenCalledWith(USER, undefined, NOW);
+      expect(result).toEqual({
+        goals: [
+          {
+            title: 'Morning walks',
+            metric: 'sessions',
+            period: 'week',
+            done: 2,
+            target: 4,
+            remaining: 2,
+            daysLeft: 4,
+            hit: false,
+            onTrack: true,
+            streakPeriods: 1,
+          },
+        ],
+      });
+      expect(JSON.stringify(result)).not.toMatch(UUID);
+      expect(JSON.stringify(result)).not.toContain('CANARY-NOTE');
+    });
+
+    it('answers unavailable without a goals source or on a failure', async () => {
+      const { deps } = makeDeps();
+      deps.goals.progressForUser.mockRejectedValue(new Error('db down'));
+      expect(await run(deps, 'get_goals')).toMatchObject({ error: 'unavailable' });
+      const { goals: _none, ...without } = makeDeps().deps;
+      expect(await run(without, 'get_goals')).toMatchObject({ error: 'unavailable' });
     });
   });
 

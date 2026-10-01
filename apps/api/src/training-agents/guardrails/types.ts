@@ -1,7 +1,7 @@
 import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
 import type { VerifiedEvidenceBrief } from '../agents/researcher/evidence-brief.contract';
 import type { ExerciseHistoryFacts, GymInventoryIds, LibraryExercise, TrainingRunContext } from '../context/planner-context.contract';
-import type { TrainingExperience, TrainingGoalType } from '../contracts/training-intake.contract';
+import type { TrainingCardio, TrainingExperience, TrainingGoalType } from '../contracts/training-intake.contract';
 
 // =============================================================================
 // Guardrail vocabulary: rules, violations, the report and the context
@@ -60,6 +60,8 @@ export interface GuardrailContext {
   brief: VerifiedEvidenceBrief | null;
   /** The reference instant for gaps (the context's build time, so reruns agree). */
   now: Date;
+  /** The intake's cardio request (#265); absent or `null` when it has none. */
+  cardio?: TrainingCardio | null;
 }
 
 export function guardrailContextOf(context: TrainingRunContext, brief: VerifiedEvidenceBrief | null): GuardrailContext {
@@ -82,6 +84,7 @@ export function guardrailContextOf(context: TrainingRunContext, brief: VerifiedE
     history: new Map(context.history.map((h) => [h.exerciseId, h])),
     brief,
     now: new Date(context.builtAt),
+    cardio: context.intake.cardio ?? null,
   };
 }
 

@@ -1,4 +1,4 @@
-import type { PlanExercise, PlanTree } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanExercise, type PlanTree } from '../../programs/contracts/plan-tree.contract';
 import type { ExerciseHistoryFacts, LibraryExercise } from '../context/planner-context.contract';
 import { GUARDRAIL_LIMITS, PROGRESSION_LIMITS } from './limits';
 import { Findings, floorHalf, pathOf, setsByMuscle, slotsOf, weeksOf } from './tree';
@@ -46,6 +46,7 @@ export function nextLoadCap(lib: LibraryExercise, previousKg: number, painFlagge
  * when history gives no bound). Shared by G7 and G9 so they agree.
  */
 export function firstExposureCap(lib: LibraryExercise, exercise: Pick<PlanExercise, 'repMin'>, fact: ExerciseHistoryFacts | undefined, now: Date): number | null {
+  if (exercise.repMin === null) return null;
   if (!fact || fact.lastLoadKg === null || fact.lastLoadKg <= 0) return null;
   const last = fact.lastLoadKg;
   let cap = nextLoadCap(lib, last, fact.painFlagged);
@@ -72,8 +73,8 @@ export function checkProgression(tree: PlanTree, ctx: GuardrailContext): Violati
     if (week.isDeload) {
       const ref = reference.get(exercise.exerciseId);
       if (!ref) continue;
-      const setCap = Math.max(d.minSets, Math.round(ref.targetSets * d.setsFactor));
-      if (exercise.targetSets > setCap && exercise.targetSets > d.minSets) {
+      const setCap = isRepsExercise(ref) ? Math.max(d.minSets, Math.round(ref.targetSets * d.setsFactor)) : null;
+      if (setCap !== null && isRepsExercise(exercise) && exercise.targetSets > setCap && exercise.targetSets > d.minSets) {
         f.add('repair', 'deload_sets', path, `Deload week: ${exercise.targetSets} sets lowered to ${setCap}.`);
         exercise.targetSets = setCap;
       }

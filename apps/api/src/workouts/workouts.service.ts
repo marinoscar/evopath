@@ -115,9 +115,13 @@ export class WorkoutsService {
     const startedAt = input.startedAt ? new Date(input.startedAt) : now;
     assertNotInFuture(startedAt, now, 'startedAt');
 
-    const gymId = input.gymId
-      ? (await this.gyms.findOwned(userId, input.gymId)).id
-      : ((await this.prisma.gym.findFirst({ where: { userId, isDefault: true }, select: { id: true } }))?.id ?? null);
+    // Omitted -> the default gym; explicit null -> no gym, never overridden.
+    const gymId =
+      input.gymId === null
+        ? null
+        : input.gymId !== undefined
+          ? (await this.gyms.findOwned(userId, input.gymId)).id
+          : ((await this.prisma.gym.findFirst({ where: { userId, isDefault: true }, select: { id: true } }))?.id ?? null);
 
     const readinessSnapshot = await this.readinessSnapshot(userId);
 
@@ -377,8 +381,12 @@ export class WorkoutsService {
     return this.get(userId, workoutId);
   }
 
-  /** `workout.finished` for its listeners. A listener's failure never fails the finish. */
-  private emitFinished(event: WorkoutFinishedEvent): void {
+  /**
+   * `workout.finished` for its listeners. A listener's failure never fails the
+   * finish. Call it after the write committed, only for a workout that became
+   * `completed` (also used by `QuickCardioService`, which creates one finished).
+   */
+  emitFinished(event: WorkoutFinishedEvent): void {
     try {
       this.events?.emit(WORKOUT_FINISHED_EVENT, event);
     } catch (error) {

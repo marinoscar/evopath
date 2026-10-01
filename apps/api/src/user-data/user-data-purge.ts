@@ -41,6 +41,8 @@ export const ZERO_ROW_COUNTS: Readonly<DeletedRowCounts> = Object.freeze({
   progressPhotos: 0,
   coachMessages: 0,
   coachStates: 0,
+  activityGoals: 0,
+  activityEntries: 0,
   programs: 0,
   programChangeLogs: 0,
   trainingRuns: 0,
@@ -216,6 +218,10 @@ export async function deleteUserOwnedRows(
   // Workouts before programs is not required (ProgramSession cascades from
   // both); both before custom exercises (WorkoutExercise/ProgramExercise
   // RESTRICT the exercise).
+  // Activity entries before workouts: a workout-derived entry would cascade
+  // with its workout and go uncounted. Goals have no dependants.
+  counts.activityEntries = (await tx.activityEntry.deleteMany({ where: { userId } })).count;
+  counts.activityGoals = (await tx.activityGoal.deleteMany({ where: { userId } })).count;
   await tx.programSession.deleteMany({ where: { userId } });
   counts.workouts = (await tx.workout.deleteMany({ where: { userId } })).count;
   counts.programChangeLogs = (await tx.programChangeLog.deleteMany({ where: { userId } })).count;

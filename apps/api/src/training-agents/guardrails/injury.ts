@@ -1,4 +1,4 @@
-import type { PlanTree, PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanTree, type PlanWorkout } from '../../programs/contracts/plan-tree.contract';
 import { DURATION_MODEL, GUARDRAIL_LIMITS, LIMITATION_PATTERN_MAP } from './limits';
 import { findSubstitutes, substituteInPlace } from './substitution';
 import { Findings, keyOf, pathOf, sessionSets, weeksOf, workoutLabel } from './tree';
@@ -34,7 +34,7 @@ export function reduceSessionSets(workout: PlanWorkout, max: number): string[] {
       changed = false;
       for (const exercise of [...workout.exercises].reverse()) {
         if (!over()) break;
-        if (exercise.isPriority !== priority || exercise.targetSets <= floor) continue;
+        if (exercise.isPriority !== priority || !isRepsExercise(exercise) || exercise.targetSets <= floor) continue;
         exercise.targetSets -= 1;
         done.push(`set:${exercise.exerciseId}`);
         changed = true;
@@ -110,7 +110,7 @@ function applyConservativeCaps(f: Findings, ctx: GuardrailContext, week: PlanTre
       f.add('repair', 'conservative_rpe', path, `RPE ${exercise.targetRpe} lowered to ${caps.rpeCap} (conservative mode).`);
       exercise.targetRpe = caps.rpeCap;
     }
-    if (exercise.targetSets > caps.setsPerExercise) {
+    if (isRepsExercise(exercise) && exercise.targetSets > caps.setsPerExercise) {
       f.add('repair', 'conservative_sets', path, `${exercise.targetSets} sets lowered to ${caps.setsPerExercise} (conservative mode).`);
       exercise.targetSets = caps.setsPerExercise;
     }

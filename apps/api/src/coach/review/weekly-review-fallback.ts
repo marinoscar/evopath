@@ -13,7 +13,9 @@ import type { WeeklyReviewStats } from './weekly-review-stats';
 // the user still gets the stats block, the persona's registry `weekly_review`
 // line (rendered intensity, `{n}` = sessions completed) and code-written wins
 // and focus. Every figure comes from `stats`. Persisted with
-// `provider = 'static'`.
+// `provider = 'static'`. Activity goals (F9) add one count-only win ("You
+// reached 2 of your 3 activity goals."): never a goal title, which is user
+// text the guard's numbers rule could trip on.
 //
 // Under the supportive register the persona line is replaced by the calm
 // `SUPPORTIVE_FALLBACK_LINE`; a first week gets a welcome instead.
@@ -40,6 +42,8 @@ export function staticWeeklyReview(
         : `You completed ${stats.completed} sessions.`,
     );
   }
+  const goalWin = goalsWin(stats);
+  if (goalWin) wins.push(goalWin);
   if (stats.prs.length > 0) wins.push(`New personal best on ${stats.prs[0].exercise}.`);
   // No streak framing under the supportive register (spec §2.14).
   if (!supportive && stats.streakChange === 'advanced' && stats.weeklyStreak > 1) wins.push(`Your weekly streak is now ${stats.weeklyStreak} weeks.`);
@@ -58,6 +62,15 @@ export function staticWeeklyReview(
     focus,
     nextWeekPlanPrompt: DEFAULT_PLAN_PROMPT,
   };
+}
+
+/** The count-only goals win, or null when no goal was reached. */
+export function goalsWin(stats: Pick<WeeklyReviewStats, 'goals'>): string | null {
+  const goals = stats.goals ?? [];
+  const hit = goals.filter((g) => g.hit).length;
+  if (hit === 0) return null;
+  if (goals.length === 1) return 'You reached your activity goal.';
+  return hit === goals.length ? `You reached all ${hit} of your activity goals.` : `You reached ${hit} of your ${goals.length} activity goals.`;
 }
 
 function truncate(value: string, max: number): string {

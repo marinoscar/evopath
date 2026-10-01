@@ -53,6 +53,8 @@ const LINES = {
   kickoff:
     ['Your plan is live', 'Welcome to your new plan. Three quick questions so it sticks: when will you train, where will you train, and what is your fallback if the day goes sideways?'],
   weekly_review: ['Your week in review', 'Here is your week. Have a look at the numbers and pick one thing to carry forward.'],
+  goal_at_risk: ['Your goal needs you today', 'Your activity goal is a little behind. A short walk today keeps it within reach.'],
+  goal_hit: ['Goal reached', 'You reached your activity goal. You said you would, and you did. Enjoy it.'],
 };
 
 /** The JSON the coach put after the context marker of a user message, or null. */

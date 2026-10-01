@@ -25,6 +25,8 @@ export function planExercise(overrides: Partial<PlanExerciseView> = {}): PlanExe
     targetSets: 3,
     repMin: 8,
     repMax: 10,
+    targetDurationSeconds: null,
+    targetDistanceMeters: null,
     targetLoadKg: null,
     targetRpe: 8,
     restSeconds: 120,

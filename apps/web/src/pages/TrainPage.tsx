@@ -35,6 +35,7 @@ import {
   MenuBook as MenuBookIcon,
   Place as PlaceIcon,
   PlayArrow as PlayArrowIcon,
+  TrackChanges as GoalsIcon,
 } from '@mui/icons-material';
 import { usePermissions } from '../hooks/usePermissions';
 import { useWorkouts } from '../hooks/useWorkouts';
@@ -58,6 +59,7 @@ export default function TrainPage() {
   const canWrite = hasPermission('workouts:write');
   const canBrowseExercises = hasPermission('exercises:read');
   const canReadPrograms = hasPermission('programs:read');
+  const canReadGoals = hasPermission('goals:read');
   const navigate = useNavigate();
   const unit = useWeightUnit();
   const history = useWorkouts({ enabled: canRead });
@@ -83,9 +85,17 @@ export default function TrainPage() {
         </Typography>
         <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
           <WeightUnitLabel unit={unit} />
-          <Button component={RouterLink} to="/gyms" size="small" startIcon={<PlaceIcon />} sx={{ minHeight: 44 }}>
-            Your gyms
-          </Button>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {/* #268: activity goals, gated on the string `GET /api/goals` enforces. */}
+            {canReadGoals && (
+              <Button component={RouterLink} to="/train/goals" size="small" startIcon={<GoalsIcon />} sx={{ minHeight: 44 }}>
+                Goals
+              </Button>
+            )}
+            <Button component={RouterLink} to="/gyms" size="small" startIcon={<PlaceIcon />} sx={{ minHeight: 44 }}>
+              Your gyms
+            </Button>
+          </Box>
         </Box>
 
         {canReadPrograms && (

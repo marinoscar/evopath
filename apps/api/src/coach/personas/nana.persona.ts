@@ -42,6 +42,12 @@ export const NANA_PERSONA: Persona = {
     weekly_target_hit: atEveryLevel(
       "{n} sessions this week, just like you said. That's my sweetheart. Put your feet up tonight, you've earned it.",
     ),
+    goal_at_risk: atEveryLevel(
+      "Your little goal still needs {n}, dear, and the week won't wait. A nice walk today would do you good.",
+    ),
+    goal_hit: atEveryLevel(
+      "You reached your goal, sweetheart, just like you said you would. I'm so proud of you.",
+    ),
     missed_session: atEveryLevel(
       "Oh, sweetheart. Wednesday came and went and the gym sat there waiting. I'm not upset. I'm just a little bit sad. Go on, twenty minutes.",
     ),

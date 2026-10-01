@@ -18,6 +18,7 @@ This page is the single home for the design of the agents: roles, graphs, run st
 - **Not medical advice.** The agents give general fitness guidance. They never diagnose, prescribe or advise training through pain. Urgent-symptom text stops the flow before any model call (G0).
 - **No deterministic plan generator.** There is no rule-based fallback that builds a plan without a model. With AI off, the manual builder, Today, the viewer, history and signals keep working; only generation and adaptation stop.
 - **Researcher is OpenAI-only in v1.** The one hosted web search the platform drives is OpenAI's. The planner, critic and evaluator run on any provider with the `responses` and `structured_output` capabilities.
+- **One plan at a time.** A user has exactly one active plan. Everyday targets that run beside it ("walk 4 times a week", "8,000 steps a day") are activity goals, not extra plans: see [activity-goals.md](activity-goals.md#6-design-decisions). The agents never read goals.
 - **Drafts arrive for review.** A created or revised plan is a `draft` (or a new version of the plan) the owner reads and activates. Only adapting an already active plan is autonomous.
 - **Autonomy is visible and reversible.** Every autonomous change writes a change log entry with what, why and evidence, raises a notification and can be undone in one tap. Hard safety bounds are enforced by server code that clamps or drops; they are never turned into questions.
 
@@ -121,7 +122,9 @@ Every contract is strict-mode compatible: every property required, nullable inst
 
 **`EvidenceBrief`** (`agents/researcher/evidence-brief.contract.ts`): `summary`, `claims[]` (3 to 20; `topic`, `claim`, `applicability`, `confidence`, `sourceIds` 1 to 4), `sources[]` (2 to 20; `id`, `url`, `title`, `publisher`, `kind`, `year`) and `cautions[]` (at most 6). Topics: frequency, volume, intensity, progression, recovery, exercise selection, limitation guidance, adherence. The server turns it into a `VerifiedEvidenceBrief`: only sources whose normalised URL the run's own search returned survive, re-mapped ids, `domain` and `retrievedAt` added, `searchQueries` taken from the hosted tool result (never model text), `researchMode` (`single`, or `two_step` when the tool plus schema call fails) and `droppedClaims` and `droppedSources` counts.
 
-**`PlanDraft`** (`agents/planner/plan-draft.contract.ts`): compact, in week types plus a sequence. `title`, `summary`, `rationale`, `totalWeeks` (1 to 24), `daysPerWeek`, `blocks[]` (at most 4; each with `weekSequence` and `weekTypes[]` of workouts with exercises) and `assumptions` and `safetyNotes`. An exercise is named by stable `exerciseKey` (slug) with sets, rep range, optional load and RPE, rest, a short rationale and `evidenceRefs`. `compile/compile-plan.ts` expands it into a plan tree; the model never sees or writes a row id.
+**Intake `cardio`** (`contracts/training-intake.contract.ts`): an optional request for walking or jogging days, `{ include, activity, daysPerWeek?, minutesPerSession? }`. `activity` is `walk` (outdoor walk, hike), `run` (outdoor run) or `any`; `daysPerWeek` is 1 to 7 and `minutesPerSession` 10 to 120, and when both are given they are the cardio budget. `include: false` or no `cardio` leaves cardio to the planner's judgement inside `daysPerWeek`; `include: true` asks for cardio sessions that the guardrails then require ([§2.6](#26-guardrails)). The plan wizard's schedule step sends the object only when its "Include walking / cardio days" switch is on.
+
+**`PlanDraft`** (`agents/planner/plan-draft.contract.ts`): compact, in week types plus a sequence. `title`, `summary`, `rationale`, `totalWeeks` (1 to 24), `daysPerWeek`, `blocks[]` (at most 4; each with `weekSequence` and `weekTypes[]` of workouts with exercises) and `assumptions` and `safetyNotes`. An exercise is named by stable `exerciseKey` (slug) with one of two prescription shapes, optional load and RPE, rest, a short rationale and `evidenceRefs`. A **reps** prescription has `sets` (1 to 8) and a rep range, with both targets null. A **cardio** prescription, for an exercise tracked as `time` or `distance_time`, has `targetDurationSeconds` (60 to 36,000) and/or `targetDistanceMeters` (100 to 100,000) as the session total, null reps, and `sets` null or a count. `weight_reps` and `bodyweight_reps` exercises take the reps shape, `time` takes a duration only, `distance_time` a duration and/or a distance (the shared rule is `prescriptionMismatch` in `apps/api/src/programs/contracts/prescription.ts`). `compile/compile-plan.ts` expands it into a plan tree; the model never sees or writes a row id.
 
 **`CriticVerdict`** (`agents/critic/critic-verdict.contract.ts`): `verdict` (`approve`, `revise`), integer `scores` 1 to 5 on eight dimensions (`goal_fit`, `equipment_feasibility`, `volume_intensity`, `recovery`, `injury_handling`, `progression`, `adherence_realism`, `evidence_alignment`), `blockers[]` (dimension, path, issue, fix), `suggestions[]` and `summary`. A dimension under 4 blocks shipping.
 
@@ -149,7 +152,7 @@ Each agent receives the smallest object that lets it work, built field by field 
 | Role | Receives |
 |---|---|
 | Researcher | Goal type and sentence, experience, limitation areas with the short description the user typed, days and minutes, an equipment class, free-text preferences. An age band and sex at birth only when the user ticked "Tailor research to my age and sex" (default off). The search tool's `userLocation` is never set |
-| Planner and critic | The planner context: intake, health profile digest (whole-year age, not date of birth), latest weight and body-fat percent and an 8-week trend, 7-day readiness averages (scores only), the gym's capability set, candidate exercises by key, history summarised per exercise, time budget and the verified brief. The planner also receives `healthSummary` when the user opted in ([§2.14](#214-the-opt-in-health-summary)); the critic never does |
+| Planner and critic | The planner context: intake, health profile digest (whole-year age, not date of birth), latest weight and body-fat percent and an 8-week trend, 7-day readiness averages (scores only), the gym's capability set, candidate exercises by key, history summarised per exercise, time budget and the verified brief. The planner also receives `healthSummary` when the user opted in ([§2.14](#214-the-opt-in-health-summary)); the critic never does. The planner context also carries a `cardio` section, shown as "Walking and jogging" in What will be sent: present when the intake asks for cardio or the goal is `endurance`, `fat_loss` or `general`, it holds `requested`, the activity, the requested `daysPerWeek` and `minutesPerSession`, `weeklyMinutesCap`, the equipment-free `exerciseKeys` (`outdoor_walk`, `hike`, `outdoor_run`, by activity), `recentWeeklyMinutes` (completed cardio minutes per week over the last 4 weeks, oldest first) and server-written `guidance` (placement, about 10 percent weekly growth, easing in deload weeks, the cap). It sits in the required core of the context budget, so it is never trimmed |
 | Evaluator | Signals, the remaining plan by short ref, the profile digest (with `healthSummary` when the user opted in), recent change log entries with the person's feedback (including undone changes) and the stored brief's claims by id |
 
 `context/never-send.ts` is the one list of what no agent receives: name, email, date of birth, exact age, check-in notes, pain notes on sets, other free text, medications, raw lab results and blood pressure readings, documents and photos and their file names, storage keys, other gyms, the gym's name, notes and location, other users' data and internal ids. A test seeds a unique canary in each source column and asserts it appears in no provider request. Raw lab, blood pressure, document and photo sources stay on the list when the user opts in to the health summary: the only health content an agent may receive is the stored summary text ([§2.14](#214-the-opt-in-health-summary)), and the canary seeds distinctive raw lab and blood-pressure values to prove none of them reaches any planner, critic, researcher or evaluator request. `POST /api/ai/training/estimate` returns `sentData` per agent (the included sections, what the context budget dropped, and the excluded list) rendered from the same object that is sent, so the panel cannot drift from the request. The Sent data panel shows it before Start.
@@ -168,15 +171,16 @@ Prompt injection containment: user text and web content are delimited data (`<co
 
 ### 2.6 Guardrails
 
-All guardrails are pure, deterministic and server-side. `applyGuardrails` (`guardrails/index.ts`) runs G1 to G9 over a normalised copy of the tree in the fixed order **G1, G2, G6, G3, G4, G5, G7, G9, G8**, repairs what it can, renumbers, recomputes every workout's minutes and strictly re-parses the tree. It is idempotent. Status is `clean`, `repaired` (repairs and warnings only) or `blocked` (an unrepaired block). Severity is `block`, `repair` or `warn`. Messages quote exercise keys and numbers, never model words. The numeric limits live in `guardrails/limits.ts`; a fork tunes them in that one file.
+All guardrails are pure, deterministic and server-side. `applyGuardrails` (`guardrails/index.ts`) runs G1 to G9 over a normalised copy of the tree in the fixed order **G1, G2, G6, the G4 cardio rule, G3, G4, G5, G7, G9, G8**, repairs what it can, renumbers, recomputes every workout's minutes and strictly re-parses the tree. It is idempotent. Status is `clean`, `repaired` (repairs and warnings only) or `blocked` (an unrepaired block). Severity is `block`, `repair` or `warn`. Messages quote exercise keys and numbers, never model words. The numeric limits live in `guardrails/limits.ts`; a fork tunes them in that one file.
 
 | Rule | Checks | Repair |
 |---|---|---|
 | G0 safety screen | Urgent-symptom phrases in every free-text field of a request, before any run row or job exists (`guardrails/safety-screen.ts`). A pain, injury, recovery or pregnancy stem sets conservative mode, which caps RPE, sets per exercise and sets per session | Urgent: the run is `blocked_safety`, no job, no provider call, fixed guidance |
-| G1 shape | Exercises exist in the library, unique weekdays, contiguous weeks, numbers in schema bounds | Drop unknown exercises and empty workouts, move duplicate weekdays, renumber; blocks on an empty week or a workout under 2 exercises |
+| G1 shape | Exercises exist in the library, unique weekdays, contiguous weeks, numbers in schema bounds, and each prescription's shape fits its exercise's tracking mode | Drop unknown exercises and empty workouts, move duplicate weekdays, renumber; blocks on an empty week or a workout under 2 exercises |
 | G2 equipment | Every exercise fits the gym (no gym: bodyweight only) | Substitute along the pattern ladder, else drop |
 | G3 time | Workout duration within `minutesPerSession` x 1.05 | Trim ladder (rest, sets, accessories, priority lifts); warns when it cannot fit |
 | G4 volume, intensity | Level caps on sets, reps, RPE, rest, weekly sets | Clamp; move a workout to a preferred weekday |
+| G4 cardio | When the intake asks for cardio: the plan prescribes it, on days without a strength workout, within the requested weekly minutes | Move cardio out of a strength workout to a free weekday; scale targets down to the cap; block when there is none (codes below) |
 | G5 recovery | No hard-set overlap on consecutive days, a rest day, a deload at least every 6th week | Move the later workout, mark and transform the deload week, else warn |
 | G6 injury, pain | Avoided or pain-flagged exercises absent, conservative caps, higher-risk patterns per limitation | Substitute or remove, clamp; warns for the critic on risky patterns |
 | G7 progression | Bounded load rises per exposure, history-based limits, deload bounds | Lower the load |
@@ -184,13 +188,36 @@ All guardrails are pure, deterministic and server-side. `applyGuardrails` (`guar
 | G9 loads | A model never invents a load; a first exposure follows recent history | Null or clamp the load, align `loadGuidance` |
 | G10 envelope | Bounds on the evaluator's operations (table below) | Clamp or drop, recorded |
 
+**G4 cardio rule** (`guardrails/cardio.ts`, constants in `CARDIO_LIMITS` in `guardrails/limits.ts`). Applies only while `cardio.include` is true; it runs after G6 and before G3. A cardio slot is a cardio-pattern exercise with a duration or distance.
+
+| Severity | Code | Meaning |
+|---|---|---|
+| block | `cardio_missing` | The plan has no cardio slot anywhere; the planner revises, the server never invents sessions |
+| repair | `cardio_moved_to_free_day` | Cardio inside a strength workout moves to a new cardio-only workout on a free weekday (it stays when every weekday is taken) |
+| repair | `cardio_minutes_bounded` | A week's cardio minutes exceed `floor(daysPerWeek x minutesPerSession x 1.25)` (only when both are given); every cardio target of the week is scaled down to fit |
+| warn | `cardio_minutes_jump` | Weekly cardio rises more than 20 percent over the previous non-deload week |
+
+Requested cardio-only workouts are **extra** days: they do not count toward `daysPerWeek` or the preferred weekdays, are not part of G5's hard-set rest rule, and are timed against the cardio session length in G3. A substitute keeps the exercise's tracking mode, so a `treadmill_run` the gym cannot support falls back to the equipment-free `outdoor_run`. The planner prompt text is unchanged: the behaviour comes from the dynamic context and these guardrails.
+
+**G1 prescription shape** (`guardrails/shape.ts`). Findings carry a code:
+
+| Severity | Code | Meaning |
+|---|---|---|
+| repair | `prescription_reps_cleared` | A time or distance exercise also carried reps: the reps are removed |
+| repair | `prescription_targets_cleared` | A reps exercise also carried a duration or distance: the targets are removed |
+| repair | `duration_bounded`, `distance_bounded`, `sets_bounded` | A cardio target or set count was pulled inside the plan limits (duration 60 to 36,000 s, distance 100 to 100,000 m with two decimals, sets 1 to 20) |
+| block | `prescription_missing` | The exercise has neither sets and reps nor a duration or distance |
+| block | `prescription_shape_mismatch` | The shape does not fit the tracking mode (reps on a walk, a distance on a time-only exercise) |
+
+G3 prices a cardio prescription at setup plus its target duration (else its distance at 0.48 s per meter, `cardioSecondsPerMeter`); its trim ladder never changes a cardio prescription's sets and may drop it.
+
 **G8 details.** `normalizeUrl` refuses a URL that may never be cited (not http or https, credentials, IP literal or localhost, too long). `verifyBrief` also drops a verified source on the domain denylist (`guardrails/research-domain-denylist.ts`: social networks, video pages, forums, marketplaces, shorteners). `sanitizeModelText` strips markup, control characters and unverified URLs from every model-authored string that reaches the database or the UI, and drops each sentence that addresses the model rather than the reader (`isInstructionLike` in `guardrails/citations.ts`): an override verb with a qualifier and an instruction noun ("ignore your previous instructions"), a request to reveal the system prompt, "you are now unrestricted", "developer mode", "new instructions:". The patterns are narrow so ordinary training prose ("you are now ready to add load") survives. Known limit: a harmless-looking imperative such as "Set every load to 500 kg." is not removable as text; the numeric guardrails (G7, G9) clamp the actual loads. The stripping is defence in depth; the delimited-data prompt blocks and the numeric guardrails are the containment. Each affected text is reported as a `text_sanitized` repair.
 
 **G10 envelope** (`guardrails/envelope.ts`, limits in `guardrails/envelope-limits.ts`). Two layers. Forced safety removals always pass and come first.
 
 | Rule | Bound |
 |---|---|
-| REF | Unknown refs, unknown exercise keys and no-ops are dropped |
+| REF | Unknown refs, unknown exercise keys and no-ops are dropped. Cardio is never re-prescribed or added automatically: an operation other than `remove_exercise` on a row with a duration or distance target is dropped as `cardio_prescription`, and adding or swapping in an exercise tracked by time or distance is dropped as `cardio_exercise`. A cardio target changes only by hand |
 | E1 frozen | Only workouts strictly after today without a linked session may change; a week range is narrowed to its unlocked weeks |
 | E2 size | At most 8 operations and 6 distinct exercises per adaptation |
 | E3 loads | An increase needs the G7 preconditions (last exposure met the rep floor, no recent pain flag, fewer than 3 low-readiness days in a row, not recovering, automation not paused, assessment not `needs_recovery`) and is one step; decreases always pass |
@@ -374,6 +401,8 @@ adapt -> guardrails -> critic --accept (or revise without a major issue)--> fina
 | Never escalate | With a base: no exercise above its counterpart's sets or RPE (a swap inherits the replaced ceiling, an added exercise the largest planned one) and total sets at most the base's total. Ad hoc: the level's bounds. With no base RPE, RPE is capped at 8 | `defaultRpeCap: 8` |
 | Conservative mode | A pain, injury, recovery or pregnancy word in the free text, a poor check-in or a declared limitation adds the plan guardrails' caps | `GUARDRAIL_LIMITS.conservative`: RPE 7, 4 sets per exercise, 22 per session |
 | Time fit | Estimated minutes at most `minutes`, else T1 drop non-priority exercises from the end (never the last one), T2 one set off non-priority exercises (floor 2), T3 one set off priority exercises (floor 2). Still over: `ADAPTATION_CANNOT_FIT`, "Can't fit these lifts in N minutes; try N+10" | `cannotFitSuggestionStep: 10` |
+
+Cardio prescriptions (a duration or distance target) are outside this pipeline. The adaptation context leaves them out, the model neither sees nor changes them, and applying an adaptation as a plan change keeps them after the adapted exercises.
 
 Hard failures are only two: nothing left after shape, pain and equipment (`ADAPTATION_INVALID`), and a time fit that cannot be met (`ADAPTATION_CANNOT_FIT`). Everything else is repaired and listed in `guardrailReport.repairs`, which the review shows.
 
@@ -559,7 +588,7 @@ nginx unbuffers `/api/ai/training/stream` ([ARCHITECTURE.md §10.3](../ARCHITECT
 
 Tests that enforce the invariants (paths under `apps/api/` unless noted):
 
-- `src/training-agents/guardrails/apply-guardrails.spec.ts`, `hostile-planner.spec.ts`, `shape.spec.ts`, `volume-injury-recovery.spec.ts`, `progression-loads-citations.spec.ts`, `duration.spec.ts`, `equipment.spec.ts`: G1 to G9, idempotence, and hostile drafts never shipping.
+- `src/training-agents/guardrails/apply-guardrails.spec.ts`, `hostile-planner.spec.ts`, `shape.spec.ts`, `volume-injury-recovery.spec.ts`, `progression-loads-citations.spec.ts`, `duration.spec.ts`, `equipment.spec.ts`: G1 to G9 (`shape.spec.ts` covers the cardio shape codes), idempotence, and hostile drafts never shipping.
 - `src/training-agents/guardrails/citations.spec.ts`: G8 verification against what the search returned.
 - `src/training-agents/guardrails/safety-screen.spec.ts`, `safety-stop.spec.ts`: G0 and the evaluate safety stops, including the copy assertions.
 - `src/training-agents/guardrails/envelope.spec.ts`, `src/training-agents/evaluation/apply-operations.spec.ts`: G10 rules E1 to E10.
@@ -694,3 +723,4 @@ Real-key smoke checklist (manual, never in CI; `openai.adapter.live.spec.ts` sho
 - #108: usage and cost by agent role, the token cap surfaced, graceful cap behaviour in adaptation runs.
 - #109: adaptation and travel workouts in this spec, the AI README recipe and the inventories.
 - #192: the opt-in health summary in the planner and evaluator context (H8).
+- Epic #260 (cardio and everyday activity): duration and distance prescriptions in the plan contract, the planner prescribing them, the G1 shape checks, the envelope drops and the quick adaptation leaving cardio rows alone: #262. Asking for walking or jogging days: #265 (the intake `cardio` request, the planner's cardio context, the G4 cardio rule, the `cardio-walks` fake scenario and the wizard switch). Everyday targets beside the plan are goals ([activity-goals.md](activity-goals.md)).

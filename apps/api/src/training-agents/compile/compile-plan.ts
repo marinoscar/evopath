@@ -121,6 +121,8 @@ export function compileDraft(draft: PlanDraft, context: CompileContext): Compile
           targetSets: exercise.sets,
           repMin: exercise.repMin,
           repMax: exercise.repMax,
+          targetDurationSeconds: exercise.targetDurationSeconds,
+          targetDistanceMeters: exercise.targetDistanceMeters,
           targetLoadKg: exercise.targetLoadKg,
           targetRpe: exercise.targetRpe,
           restSeconds: exercise.restSeconds,

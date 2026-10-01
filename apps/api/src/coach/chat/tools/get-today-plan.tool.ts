@@ -41,6 +41,8 @@ export function minimiseToday(today: TrainingTodayData) {
           sets: exercise.sets,
           repMin: exercise.repMin,
           repMax: exercise.repMax,
+          targetDurationSeconds: exercise.targetDurationSeconds,
+          targetDistanceMeters: exercise.targetDistanceMeters,
           targetRpe: exercise.targetRpe,
           restSeconds: exercise.restSeconds,
         })),
@@ -54,7 +56,8 @@ export function createGetTodayPlanTool(deps: CoachChatToolDeps) {
     name: 'get_today_plan',
     description:
       "Today's planned session from the user's active program: whether it is a workout or a rest day, the workout " +
-      'name, its exercises with sets, rep range, target RPE and rest, whether it is done, and the next session on a ' +
+      'name, its exercises with sets, rep range (or, for cardio, a duration in seconds and/or a distance in ' +
+      'meters), target RPE and rest, whether it is done, and the next session on a ' +
       'rest day.',
     parameters: z.object({}),
     execute: (_args, ctx) =>

@@ -10,6 +10,7 @@ import { WorkoutPhotoObjectReferences } from './intake/workout-photo-references'
 import { WorkoutPrefillIntakeKind } from './intake/workout-prefill.intake-kind';
 import { ExerciseVocabularyService } from './prefill/exercise-vocabulary';
 import { WorkoutPrefillHandler } from './prefill/workout-prefill.handler';
+import { QuickCardioService } from './quick-cardio.service';
 import { WorkoutEntriesService } from './workout-entries.service';
 import { WorkoutHistoryService } from './workout-history.service';
 import { WorkoutPhotoStorageService } from './workout-photo-storage.service';
@@ -37,6 +38,12 @@ import { WorkoutsService } from './workouts.service';
  * `StorageObjectReferences` checker so discarding an intake never deletes an
  * object that is a workout photo. The manual routes never touch AI and work
  * with AI off.
+ *
+ * Quick cardio (E8 F4): `QuickCardioService` logs a finished gym-free walk,
+ * run or hike and links it to the active plan's planned workout of that day.
+ * It reads the plan with the pure helpers of `programs/` (rows, live tree,
+ * `resolveToday`) and never injects a programs provider, so this module still
+ * does not import `ProgramsModule` (which imports this one).
  */
 @Module({
   imports: [CheckInsModule, GymsModule, StorageModule, AiModule, JobsModule, IntakeModule],
@@ -46,6 +53,7 @@ import { WorkoutsService } from './workouts.service';
     WorkoutEntriesService,
     WorkoutHistoryService,
     WorkoutPhotoStorageService,
+    QuickCardioService,
     ExerciseVocabularyService,
     WorkoutPrefillIntakeKind,
     WorkoutPhotoObjectReferences,

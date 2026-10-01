@@ -1,4 +1,5 @@
 import type { PlanExercise, PlanTree, PlanWorkout } from '../../programs/contracts/plan-tree.contract';
+import { isCardioTrackingMode } from '../../programs/contracts/prescription';
 import { guardrailContextOf, type GuardrailContext } from '../guardrails/types';
 import type { VerifiedEvidenceBrief } from '../agents/researcher/evidence-brief.contract';
 import { LIB, runContextFixture } from './context-fixtures';
@@ -31,15 +32,19 @@ export interface WeekSpec {
   workouts: WorkoutSpec[];
 }
 
+/** Time and distance exercises default to a cardio prescription (`sets` x 40 s), everything else to `sets` x 8-12. */
 function exerciseOf(spec: ExerciseSpec, position: number): PlanExercise {
   const { key, sets, ...rest } = spec;
+  const cardio = LIB[key] !== undefined && isCardioTrackingMode(LIB[key].trackingMode);
   return {
     exerciseId: LIB[key]?.id ?? `unknown:${key}`,
     position,
     isPriority: false,
     targetSets: sets ?? 3,
-    repMin: 8,
-    repMax: 12,
+    repMin: cardio ? null : 8,
+    repMax: cardio ? null : 12,
+    targetDurationSeconds: cardio ? (sets ?? 3) * 40 : null,
+    targetDistanceMeters: null,
     targetLoadKg: null,
     targetRpe: 7,
     restSeconds: 90,

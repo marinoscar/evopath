@@ -873,6 +873,28 @@ describe('replaceWorkout', () => {
     expect(workout.weekday).toBe(3);
   });
 
+  it('keeps a cardio prescription the adaptation never saw, after the adapted exercises', () => {
+    const before = planTreeFixture();
+    const walk = {
+      ...before.blocks[0].weeks[0].workouts[0].exercises[0],
+      id: randomUUID(),
+      exerciseId: LIB.treadmill_run.id,
+      position: 9,
+      targetSets: null,
+      repMin: null,
+      repMax: null,
+      targetDurationSeconds: 1200,
+      targetDistanceMeters: null,
+      targetLoadKg: null,
+    };
+    before.blocks[0].weeks[0].workouts[0].exercises.push(walk);
+
+    const workout = replaceWorkout(before, ADAPT_PROGRAM_WORKOUT_ID, proposal()).blocks[0].weeks[0].workouts[0];
+
+    expect(workout.exercises.map((e) => e.exerciseId)).toEqual([LIB.dumbbell_bench_press.id, LIB.barbell_row.id, LIB.treadmill_run.id]);
+    expect(workout.exercises[2]).toEqual({ ...walk, position: 2 });
+  });
+
   it('a workout that is not in the plan throws (the service turns it into ADAPTATION_STALE)', () => {
     expect(() => replaceWorkout(planTreeFixture(), randomUUID(), proposal())).toThrow(/no longer in the plan/);
   });

@@ -16,3 +16,15 @@ export function scenarioContextSource(): PlannerContextSource {
     gym: { name: 'Garage Gym', equipment: ['adjustable_dumbbells', 'adjustable_bench'] },
   });
 }
+
+/**
+ * The `cardio-walks` scenario's context (#265): the same person, three
+ * strength days, asking for four 30-minute walks a week.
+ */
+export function scenarioCardioContextSource(): PlannerContextSource {
+  const source = scenarioContextSource();
+  return {
+    ...source,
+    intake: { ...source.intake, daysPerWeek: 3, cardio: { include: true, activity: 'walk', daysPerWeek: 4, minutesPerSession: 30 } },
+  };
+}

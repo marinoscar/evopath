@@ -19,8 +19,10 @@ import {
   exerciseIdsOf,
   planTreeSchema,
   stripIds,
+  type PlanExercise,
   type PlanTree,
 } from './contracts/plan-tree.contract';
+import { prescriptionMismatch } from './contracts/prescription';
 import type {
   ChangeLogEntryData,
   ChangeLogQuery,
@@ -32,7 +34,8 @@ import type {
   VersionSummaryData,
   VersionViewData,
 } from './dto/program.dto';
-import { assignIds, diffTree, liveTreeOf, type ProgramRows, type TreeWrites } from './plan-diff';
+import { assignIds, diffTree, liveTreeOf, type ExerciseRow, type ProgramRows, type TreeWrites } from './plan-diff';
+import { prescriptionChangeOperations } from './plan-change-lines';
 import { hasLoggedHistory, programHasLoggedHistory } from './program-history';
 import {
   PROGRAM_HEADER_SELECT,
@@ -149,6 +152,11 @@ export interface CreateWithTreeInput {
   evidence?: Evidence[];
   runId?: string;
   meta?: Record<string, unknown>;
+  /**
+   * Duplicate only: the source plan's rows. A prescription identical to one
+   * of them is grandfathered like an unchanged row (see `validateTree`).
+   */
+  copiedFrom?: ProgramRows;
 }
 
 export interface CreateWithTreeResult extends ApplyChangeResult {
@@ -267,7 +275,12 @@ export class ProgramsService {
     this.checkChangeMeta(input);
     return this.prisma.$transaction(
       async (tx) => {
-        const { tree, warnings } = await this.validateTree(tx, input.userId, input.tree);
+        const { tree, warnings } = await this.validateTree(
+          tx,
+          input.userId,
+          input.tree,
+          input.copiedFrom ? copiedFrom(input.copiedFrom) : undefined,
+        );
         assignIds(tree);
 
         const program = await tx.program.create({
@@ -449,9 +462,16 @@ export class ProgramsService {
 
     // 2. Load the live tree, mutate, validate.
     const rows = await loadProgramRows(tx, programId);
-    const mutated = input.mutate(structuredClone(liveTreeOf(rows)));
-    const { tree, warnings } = await this.validateTree(tx, userId, mutated);
+    const live = liveTreeOf(rows);
+    const mutated = input.mutate(structuredClone(live));
+    const { tree, warnings, names } = await this.validateTree(tx, userId, mutated, unchangedFrom(rows));
     assignIds(tree);
+    // A manual edit or a revert carries no typed operations: it lists its prescription changes instead.
+    const operations =
+      input.operations ??
+      (input.kind === 'edited' || input.kind === 'reverted'
+        ? prescriptionChangeOperations(live, tree, (id) => names.get(id))
+        : undefined);
 
     // 3. Diff by row id and write (history-preserving deletes).
     await this.writeTree(tx, programId, rows, tree);
@@ -485,7 +505,7 @@ export class ProgramsService {
           decidedAt: new Date(),
           summary: input.summary,
           rationale: input.rationale ?? null,
-          operations: (input.operations ?? []) as Prisma.InputJsonValue,
+          operations: (operations ?? []) as Prisma.InputJsonValue,
           citations: (input.citations ?? []) as Prisma.InputJsonValue,
         },
       });
@@ -507,7 +527,7 @@ export class ProgramsService {
         runId: input.runId ?? null,
         summary: input.summary,
         rationale: input.rationale ?? null,
-        operations: (input.operations ?? []) as Prisma.InputJsonValue,
+        operations: (operations ?? []) as Prisma.InputJsonValue,
         citations: (input.citations ?? []) as Prisma.InputJsonValue,
         revertsLogId: input.revertsLogId ?? null,
       },
@@ -534,9 +554,22 @@ export class ProgramsService {
 
   /**
    * The contract plus the checks that need the database: every `exerciseId`
-   * exists and is the caller's to use (one `findMany` for the whole tree).
+   * exists and is the caller's to use (one `findMany` for the whole tree),
+   * and every prescription's shape fits its exercise's tracking mode
+   * (`contracts/prescription.ts`).
+   *
+   * GRANDFATHERING. Plans written before cardio prescriptions existed may
+   * hold a reps prescription on a `time` or `distance_time` exercise. A row
+   * that `isUnchanged` (same id, exercise and prescription as stored) is not
+   * re-checked, so an unrelated edit or a revert of such a plan still saves;
+   * any new or changed prescription must fit.
    */
-  private async validateTree(tx: Tx, userId: string, candidate: unknown): Promise<{ tree: PlanTree; warnings: string[] }> {
+  private async validateTree(
+    tx: Tx,
+    userId: string,
+    candidate: unknown,
+    isUnchanged: (exercise: PlanExercise) => boolean = () => false,
+  ): Promise<{ tree: PlanTree; warnings: string[]; names: Map<string, string> }> {
     const parsed = planTreeSchema.safeParse(candidate);
     if (!parsed.success) {
       throw badPlan(PROGRAM_REASONS.INVALID_PLAN, 'The plan is not valid', {
@@ -549,7 +582,7 @@ export class ProgramsService {
     const found = ids.length
       ? await tx.exercise.findMany({
           where: { id: { in: ids }, OR: [{ ownerUserId: null }, { ownerUserId: userId }] },
-          select: { id: true, name: true, status: true },
+          select: { id: true, name: true, status: true, trackingMode: true },
         })
       : [];
     const known = new Set(found.map((exercise) => exercise.id));
@@ -561,10 +594,18 @@ export class ProgramsService {
       });
     }
 
+    const trackingModes = new Map(found.map((exercise) => [exercise.id, exercise.trackingMode]));
+    const mismatches = prescriptionMismatches(tree, trackingModes, isUnchanged);
+    if (mismatches.length > 0) {
+      throw badPlan(PROGRAM_REASONS.PRESCRIPTION_SHAPE_MISMATCH, "A prescription does not fit its exercise's tracking mode", {
+        issues: mismatches,
+      });
+    }
+
     const warnings = found
       .filter((exercise) => exercise.status !== 'active')
       .map((exercise) => `"${exercise.name}" is awaiting review and will not show in the plan until approved.`);
-    return { tree, warnings };
+    return { tree, warnings, names: new Map(found.map((exercise) => [exercise.id, exercise.name])) };
   }
 
   /** Executes the diff from `rows` to `tree` (every id assigned). */
@@ -1015,6 +1056,7 @@ export class ProgramsService {
         rationale: source.rationale,
       },
       tree: stripIds(liveTreeOf(rows)),
+      copiedFrom: rows,
       origin: 'duplicate',
       actor: 'user',
       summary: `Duplicated from "${source.name}"`.slice(0, CHANGE_SUMMARY_MAX),
@@ -1081,4 +1123,52 @@ export class ProgramsService {
     }
     return this.get(userId, programId);
   }
+}
+
+/** The stored row with the same id holds the same exercise and prescription (grandfathering, see `validateTree`). */
+function unchangedFrom(rows: ProgramRows): (exercise: PlanExercise) => boolean {
+  const byId = new Map(rows.exercises.map((row) => [row.id, row]));
+  return (exercise) => {
+    const row = exercise.id ? byId.get(exercise.id) : undefined;
+    return (
+      row !== undefined &&
+      row.exerciseId === exercise.exerciseId &&
+      row.targetSets === exercise.targetSets &&
+      row.repMin === exercise.repMin &&
+      row.repMax === exercise.repMax &&
+      row.targetDurationSeconds === exercise.targetDurationSeconds &&
+      row.targetDistanceMeters === exercise.targetDistanceMeters
+    );
+  };
+}
+
+const prescriptionKey = (row: Omit<ExerciseRow, 'id' | 'programWorkoutId' | 'position'> | PlanExercise): string =>
+  [row.exerciseId, row.targetSets, row.repMin, row.repMax, row.targetDurationSeconds, row.targetDistanceMeters].join('|');
+
+/** The same exercise and prescription appears in the source plan (grandfathering a duplicate). */
+function copiedFrom(rows: ProgramRows): (exercise: PlanExercise) => boolean {
+  const keys = new Set(rows.exercises.map(prescriptionKey));
+  return (exercise) => keys.has(prescriptionKey(exercise));
+}
+
+/** Every prescription whose shape does not fit its exercise's tracking mode, as `details.issues`. */
+export function prescriptionMismatches(
+  tree: PlanTree,
+  trackingModes: ReadonlyMap<string, string>,
+  isUnchanged: (exercise: PlanExercise) => boolean = () => false,
+): Array<{ path: string; message: string }> {
+  const issues: Array<{ path: string; message: string }> = [];
+  tree.blocks.forEach((block, b) =>
+    block.weeks.forEach((week, w) =>
+      week.workouts.forEach((workout, o) =>
+        workout.exercises.forEach((exercise, e) => {
+          const mode = trackingModes.get(exercise.exerciseId);
+          if (mode === undefined || isUnchanged(exercise)) return;
+          const message = prescriptionMismatch(mode, exercise);
+          if (message) issues.push({ path: `blocks.${b}.weeks.${w}.workouts.${o}.exercises.${e}`, message });
+        }),
+      ),
+    ),
+  );
+  return issues;
 }

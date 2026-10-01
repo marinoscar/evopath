@@ -154,9 +154,18 @@ const planExerciseViewSchema = z.object({
   exerciseUnavailable: z.boolean().meta({ description: 'True when the exercise is not (or no longer) available.' }),
   position: z.number().int(),
   isPriority: z.boolean(),
-  targetSets: z.number().int(),
-  repMin: z.number().int(),
-  repMax: z.number().int(),
+  targetSets: z.number().int().nullable().meta({ description: 'Sets; always set for a reps prescription, optional for a cardio one.' }),
+  repMin: z.number().int().nullable().meta({ description: 'Null for a cardio (duration/distance) prescription.' }),
+  repMax: z.number().int().nullable().meta({ description: 'Null for a cardio (duration/distance) prescription.' }),
+  targetDurationSeconds: z
+    .number()
+    .int()
+    .nullable()
+    .meta({ description: 'Cardio prescription: total time in seconds; null for a reps prescription.' }),
+  targetDistanceMeters: z
+    .number()
+    .nullable()
+    .meta({ description: 'Cardio prescription: total distance in meters; null for a reps prescription.' }),
   targetLoadKg: z.number().nullable(),
   targetRpe: z.number().nullable(),
   restSeconds: z.number().int(),

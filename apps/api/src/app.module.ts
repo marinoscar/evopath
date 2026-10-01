@@ -44,6 +44,7 @@ import { HealthExportModule } from './health-export/health-export.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
 import { WorkoutsModule } from './workouts/workouts.module';
+import { ActivityModule } from './activity/activity.module';
 import { ProgramsModule } from './programs/programs.module';
 import { TrainingAgentsModule } from './training-agents/training-agents.module';
 import { HealthSummaryModule } from './health-summary/health-summary.module';
@@ -279,6 +280,11 @@ import configuration from './config/configuration';
     // `ExercisesService` and `ExerciseAvailabilityService` for E4.2+ and E5.
     ExercisesModule,
     WorkoutsModule,
+
+    // Activity goals, entries and progress (epic #260): `/api/goals` and
+    // `/api/activity-entries` under `goals:*`; materialises workout-derived
+    // entries on `workout.finished`. Exports `GoalProgressService` for the coach.
+    ActivityModule,
 
     // Training programs (E5.1): `/api/programs` under `programs:*`: the plan
     // tree, immutable versions, change log and revert. Exports

@@ -10,7 +10,7 @@
  * own Resume; a start refused because another workout is in progress offers
  * Resume for that one. Errors are quiet and local, with Retry.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { Alert, Box, Button, Chip, Link, Skeleton, Stack, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -20,6 +20,7 @@ import { useTrainingToday } from '../../hooks/useTrainingToday';
 import { PlanAdjustedBanner } from './PlanAdjustedBanner';
 import {
   duplicateProgram,
+  prescriptionShapeFor,
   startProgramWorkout,
   todayRefusalOf,
   TODAY_REFUSALS,
@@ -30,6 +31,8 @@ import {
 import { ApiError } from '../../services/api';
 import { formatLongDate } from '../../utils/localDates';
 import { formatWeight, type WeightUnit } from '../../utils/units';
+import { formatPrescription, isCardioPrescription } from '../../utils/prescription';
+import { distanceUnitFor, type DistanceUnit } from '../../utils/workoutFormat';
 
 export const PLAN_UPDATED_NOTICE = 'Your plan was just updated; this session follows the latest version.';
 export const PLAN_RESUME_NOTICE = 'You already have a workout in progress.';
@@ -39,6 +42,8 @@ export interface TodayPlanCardProps {
   canStart: boolean;
   /** `programs:write`: Duplicate plan is offered when the plan is complete. */
   canWritePrograms?: boolean;
+  /** Bumped by the host after a write elsewhere (#264: a quick walk or run); each change refetches. */
+  refreshKey?: number;
 }
 
 interface StartProblem {
@@ -52,18 +57,14 @@ function yearOf(date: string | null): number | undefined {
   return Number.isFinite(year) ? year : undefined;
 }
 
-function repsText(e: Pick<TodaySessionExercise, 'repMin' | 'repMax'>): string {
-  return e.repMin === e.repMax ? String(e.repMin) : `${e.repMin}–${e.repMax}`;
+/** "3 × 8–10 @ RPE 8"; a cardio prescription reads "5 km · 30 min" (#263). */
+export function prescriptionText(e: TodaySessionExercise, distanceUnit: DistanceUnit = 'km'): string {
+  return formatPrescription(e, { distanceUnit });
 }
 
-/** "3 × 8–10 @ RPE 8". */
-export function prescriptionText(e: TodaySessionExercise): string {
-  const base = `${e.sets} × ${repsText(e)}`;
-  return e.targetRpe === null ? base : `${base} @ RPE ${e.targetRpe}`;
-}
-
-/** The load to show, per `loadGuidance`, in the user's unit. */
+/** The load to show, per `loadGuidance`, in the user's unit; none for time or distance work. */
 export function loadText(e: TodaySessionExercise, unit: WeightUnit): string | null {
+  if (prescriptionShapeFor(e.exercise.trackingMode) !== 'reps' || isCardioPrescription(e)) return null;
   if (e.exercise.isBodyweight && e.suggestedLoadKg === null) return null;
   if (e.loadGuidance === 'choose_start' || e.suggestedLoadKg === null) return 'Choose a starting load';
   return formatWeight(e.suggestedLoadKg, unit);
@@ -75,7 +76,9 @@ function ExerciseRow({ e, unit }: { e: TodaySessionExercise; unit: WeightUnit })
   return (
     <Box component="li" sx={{ mb: 1 }}>
       <Typography sx={{ fontWeight: 500, overflowWrap: 'anywhere' }}>{e.exercise.name}</Typography>
-      <Typography variant="body2">{[prescriptionText(e), load].filter(Boolean).join(' · ')}</Typography>
+      <Typography variant="body2">
+        {[prescriptionText(e, distanceUnitFor(unit)), load].filter(Boolean).join(' · ')}
+      </Typography>
       {top && (
         <Typography variant="body2" color="text.secondary">
           Last time: {formatWeight(top.weightKg, unit)} × {top.reps}
@@ -149,8 +152,13 @@ function ProgramLine({ name }: { name: string }) {
   );
 }
 
-export function TodayPlanCard({ canStart, canWritePrograms = false }: TodayPlanCardProps) {
+export function TodayPlanCard({ canStart, canWritePrograms = false, refreshKey = 0 }: TodayPlanCardProps) {
   const { today, date, isLoading, error, forbidden, weightUnit, localDate, refresh } = useTrainingToday();
+  useEffect(() => {
+    if (refreshKey > 0) void refresh();
+    // Only a change of key refetches; `refresh` changes with the profile.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
   const navigate = useNavigate();
   const [starting, setStarting] = useState(false);
   const [problem, setProblem] = useState<StartProblem | null>(null);

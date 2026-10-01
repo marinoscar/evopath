@@ -8,7 +8,8 @@ import { HARNESS_USER } from '../../../src/ai/testing/ai-runtime-harness';
 import { createFakeProgramsPort } from '../../../src/training-agents/testing/fake-programs-port';
 import { createNodeContextHarness } from '../../../src/training-agents/testing/node-context-harness';
 import { contextSourceOf, loadPersonas } from '../../evals/training/personas';
-import { scenarioContextSource } from '../support/scenario-context';
+import { SEED_LIBRARY } from '../../evals/support/seed-library';
+import { scenarioCardioContextSource, scenarioContextSource } from '../support/scenario-context';
 import { scenarioScripts } from '../support/scenario-script';
 import type { AgentScript } from '../../../src/training-agents/testing/node-context-harness';
 import type { TrainingAgentRole } from '../../../src/common/schemas/settings.schema';
@@ -21,8 +22,11 @@ import type { TrainingAgentRole } from '../../../src/common/schemas/settings.sch
 
 const SEEDED = new Set(EXERCISE_CATALOG.map((e) => e.slug));
 
-function scenario(name: string, opts: { tokenCap?: number; wrap?: (script: AgentScript, role: TrainingAgentRole) => AgentScript } = {}) {
-  const source = scenarioContextSource();
+function scenario(
+  name: string,
+  opts: { tokenCap?: number; wrap?: (script: AgentScript, role: TrainingAgentRole) => AgentScript; source?: ReturnType<typeof scenarioContextSource> } = {},
+) {
+  const source = opts.source ?? scenarioContextSource();
   const fake = createFakeProgramsPort();
   const scripts = scenarioScripts(name);
   const wrapped = opts.wrap
@@ -77,6 +81,41 @@ describe('create-flow scenarios', () => {
     // Usage is what the scenario reports: researcher 9000 in, 4200 out, 1500 reasoning.
     expect(s.h.usage.find((u) => u.role === 'researcher')?.usage).toMatchObject({ inputTokens: 9000, outputTokens: 4200, reasoningTokens: 1500 });
     expect(s.h.usage).toHaveLength(4);
+  });
+
+  it('cardio-walks (#265): 3 strength days plus 4 requested walks compile to 4 outdoor_walk sessions of 30 minutes on the non-strength days', async () => {
+    const s = scenario('cardio-walks', { source: scenarioCardioContextSource() });
+
+    const result = await s.run();
+
+    expect(result.state.outcome).toMatchObject({ status: 'completed', versionNumber: 1, verdict: 'approved' });
+    // The planner saw the request, the walking exercises and the weekly cap.
+    const input = String(s.calls('planner')[0].request?.input);
+    expect(input).toContain('"cardio"');
+    expect(input).toContain('"exerciseKeys":["hike","outdoor_walk"]');
+    expect(input).toContain('"weeklyMinutesCap":150');
+
+    const report = s.events('guardrail.report')[0] as { status: string; repairs?: Array<{ code?: string }> };
+    expect(report.status).not.toBe('blocked');
+    expect(JSON.stringify(report)).not.toMatch(/cardio_|surplus_workout_removed|weekday_moved|no_rest_day/);
+
+    const keyOf = new Map(SEED_LIBRARY.map((e) => [e.id, e.key]));
+    const program = s.program();
+    expect(program.name).toBe('Eight-week dumbbell base with walks');
+    const tree = program.versions[0].tree as PlanTree;
+    const weeks = tree.blocks.flatMap((b) => b.weeks);
+    expect(weeks).toHaveLength(8);
+    for (const week of weeks) {
+      const walks = week.workouts.filter((w) => w.exercises.some((e) => keyOf.get(e.exerciseId) === 'outdoor_walk'));
+      const strength = week.workouts.filter((w) => !walks.includes(w));
+      expect(walks.map((w) => w.weekday)).toEqual([2, 4, 6, 7]);
+      expect(strength.map((w) => w.weekday)).toEqual([1, 3, 5]);
+      for (const workout of walks) {
+        expect(workout.exercises).toHaveLength(1);
+        expect(workout.exercises[0]).toMatchObject({ targetDurationSeconds: 1800, targetDistanceMeters: null, repMin: null, repMax: null });
+      }
+      for (const workout of strength) expect(workout.exercises.every((e) => e.targetDurationSeconds === null)).toBe(true);
+    }
   });
 
   it('critic-reject-once: two critique rounds, the planner revises with the review, the second draft ships', async () => {

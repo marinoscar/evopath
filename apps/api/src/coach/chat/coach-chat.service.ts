@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { SpanStatusCode, trace, type Span } from '@opentelemetry/api';
 
+import { GoalProgressService } from '../../activity/goal-progress.service';
 import { AiFeatureModelResolver } from '../../ai/assignments/ai-feature-model-resolver.service';
 import { RUNNABLE_FEATURE_STATES } from '../../ai/assignments/dto/ai-feature-resolution.dto';
 import { AiError } from '../../ai/core/ai-error';
@@ -176,6 +177,8 @@ export class CoachChatService {
     @Optional() private readonly appMetrics: AppMetricsService = fallbackAppMetrics(),
     // `save_commitment`'s writer (E7.12). Optional: without it the tool answers `unavailable`.
     @Optional() private readonly coachSettings?: CoachSettingsService,
+    // `get_goals`' source (F9). Optional: without it the tool answers `unavailable`.
+    @Optional() private readonly goals?: GoalProgressService,
   ) {}
 
   /**
@@ -493,6 +496,7 @@ export class CoachChatService {
       photos: this.photos,
       now: () => new Date(),
       ...(this.coachSettings ? { commitments: this.coachSettings } : {}),
+      ...(this.goals ? { goals: this.goals } : {}),
     };
   }
 

@@ -51,9 +51,12 @@ export interface ExerciseRow {
   exerciseId: string;
   position: number;
   isPriority: boolean;
-  targetSets: number;
-  repMin: number;
-  repMax: number;
+  // Reps shape: targetSets/repMin/repMax set. Cardio shape: repMin/repMax null and a duration and/or distance target.
+  targetSets: number | null;
+  repMin: number | null;
+  repMax: number | null;
+  targetDurationSeconds: number | null;
+  targetDistanceMeters: number | null;
   targetLoadKg: number | null;
   targetRpe: number | null;
   restSeconds: number;
@@ -140,6 +143,8 @@ export function rowsOf(tree: PlanTree): Omit<ProgramRows, 'blocks' | 'weeks' | '
             targetSets: exercise.targetSets,
             repMin: exercise.repMin,
             repMax: exercise.repMax,
+            targetDurationSeconds: exercise.targetDurationSeconds,
+            targetDistanceMeters: exercise.targetDistanceMeters,
             targetLoadKg: exercise.targetLoadKg,
             targetRpe: exercise.targetRpe,
             restSeconds: exercise.restSeconds,

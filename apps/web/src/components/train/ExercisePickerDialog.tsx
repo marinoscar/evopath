@@ -40,6 +40,7 @@ import {
   type Exercise,
   type ExerciseDetail,
   type ExerciseInput,
+  type TrackingMode,
 } from '../../services/exercises';
 import type { GymRef } from '../../services/workouts';
 import { useExercises } from '../../hooks/useExercises';
@@ -52,8 +53,12 @@ export interface ExercisePickerDialogProps {
   onClose: () => void;
   /** The workout's gym; null offers everything. */
   gym: GymRef | null;
-  /** Resolves once added; rejects to show the API error in place. `names` maps each picked id to its name. */
-  onAdd: (exerciseIds: string[], names: Record<string, string>) => Promise<unknown>;
+  /**
+   * Resolves once added; rejects to show the API error in place. `names` maps
+   * each picked id to its name, `modes` to its `trackingMode` (the plan editor
+   * shapes a new row's prescription by it).
+   */
+  onAdd: (exerciseIds: string[], names: Record<string, string>, modes: Record<string, TrackingMode>) => Promise<unknown>;
   /** `exercises:write`: offer "Create custom exercise". */
   canCreate: boolean;
 }
@@ -71,6 +76,7 @@ export function ExercisePickerDialog({ open, onClose, gym, onAdd, canCreate }: E
   const [atGym, setAtGym] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [modes, setModes] = useState<Record<string, TrackingMode>>({});
   const [createOpen, setCreateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +98,7 @@ export function ExercisePickerDialog({ open, onClose, gym, onAdd, canCreate }: E
       setAtGym(true);
       setSelected([]);
       setNames({});
+      setModes({});
       setError(null);
       setBusy(false);
     }
@@ -103,8 +110,9 @@ export function ExercisePickerDialog({ open, onClose, gym, onAdd, canCreate }: E
     [q, muscle, recent, byId],
   );
 
-  const toggle = (exercise: Pick<Exercise, 'id' | 'name'>) => {
+  const toggle = (exercise: Pick<Exercise, 'id' | 'name' | 'trackingMode'>) => {
     setNames((prev) => ({ ...prev, [exercise.id]: exercise.name }));
+    setModes((prev) => ({ ...prev, [exercise.id]: exercise.trackingMode }));
     setSelected((prev) => (prev.includes(exercise.id) ? prev.filter((id) => id !== exercise.id) : [...prev, exercise.id]));
   };
 
@@ -113,7 +121,7 @@ export function ExercisePickerDialog({ open, onClose, gym, onAdd, canCreate }: E
     setBusy(true);
     setError(null);
     try {
-      await onAdd(selected, names);
+      await onAdd(selected, names, modes);
       onClose();
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : 'Could not add the exercises');

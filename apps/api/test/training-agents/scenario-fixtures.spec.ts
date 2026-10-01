@@ -36,6 +36,7 @@ describe('training scenario fixtures', () => {
         'budget-tight',
         'rate-limit-once',
         'slow',
+        'cardio-walks',
       ]),
     );
   });

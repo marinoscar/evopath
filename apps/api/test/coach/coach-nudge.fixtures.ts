@@ -91,6 +91,8 @@ export interface SetupOptions {
   /** Extra fields merged into the user row and the history rows (canaries). */
   userExtras?: Record<string, unknown>;
   historyExtras?: Record<string, unknown>;
+  /** `GoalProgressService.progressForUser` (F9); [] by default. */
+  goals?: unknown[];
 }
 
 export function setupNudge(options: SetupOptions = {}) {
@@ -172,6 +174,7 @@ export function setupNudge(options: SetupOptions = {}) {
       return Reflect.get(target, prop, receiver);
     },
   });
+  const goals = { progressForUser: jest.fn(async () => options.goals ?? []) };
   const handler = new CoachNudgeHandler(
     registry as never,
     trackedPrisma as never,
@@ -184,8 +187,9 @@ export function setupNudge(options: SetupOptions = {}) {
     jobs as never,
     new DefaultAnglePicker(),
     metrics as never,
+    goals as never,
   );
-  return { handler, prisma, respondStructured, forUser, speak, jobs, metrics, registry, features, accessedModels };
+  return { handler, prisma, respondStructured, forUser, speak, jobs, metrics, registry, features, accessedModels, goals };
 }
 
 /** The `instructions` and user text of the n-th model request. */

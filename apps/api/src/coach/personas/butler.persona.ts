@@ -42,6 +42,12 @@ export const BUTLER_PERSONA: Persona = {
     weekly_target_hit: atEveryLevel(
       '{n} sessions this week, precisely as planned. One is almost tempted to applaud. One will settle for a nod.',
     ),
+    goal_at_risk: atEveryLevel(
+      'If I may, your activity goal still wants {n} before the period closes. A brief outing today would set matters right.',
+    ),
+    goal_hit: atEveryLevel(
+      'Your activity goal is met, precisely as intended. One has taken the liberty of feeling rather proud.',
+    ),
     missed_session: atEveryLevel(
       'I took the liberty of laying out your kit on Wednesday. It remains, I regret to say, entirely unworn.',
     ),

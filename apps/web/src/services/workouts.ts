@@ -56,6 +56,8 @@ export const WORKOUT_REFUSALS = {
   WORKOUT_EXERCISE_LIMIT: 'WORKOUT_EXERCISE_LIMIT',
   WORKOUT_SET_LIMIT: 'WORKOUT_SET_LIMIT',
   EXERCISE_PENDING_REVIEW: 'EXERCISE_PENDING_REVIEW',
+  /** `POST /workouts/quick-cardio`: `performedAt` more than 7 days ago. */
+  PERFORMED_AT_OUT_OF_RANGE: 'PERFORMED_AT_OUT_OF_RANGE',
 } as const;
 export type WorkoutRefusal = (typeof WORKOUT_REFUSALS)[keyof typeof WORKOUT_REFUSALS];
 
@@ -379,6 +381,62 @@ export function updateWorkout(id: string, input: UpdateWorkoutInput): Promise<Wo
 /** `POST /workouts/:id/finish` (`workouts:write`); idempotent. `summary` carries the totals. */
 export function finishWorkout(id: string, input: FinishWorkoutInput = {}): Promise<Workout> {
   return api.post<Workout>(`${workoutPath(id)}/finish`, input);
+}
+
+// -----------------------------------------------------------------------------
+// Quick cardio (#264): log a walk, run or hike in one call
+// -----------------------------------------------------------------------------
+
+/** The library exercises `POST /workouts/quick-cardio` accepts, by key (slug). */
+export const QUICK_CARDIO_EXERCISES = ['outdoor_walk', 'outdoor_run', 'hike'] as const;
+export type QuickCardioExercise = (typeof QUICK_CARDIO_EXERCISES)[number];
+
+/** Mirrors the API's quick-cardio schema; the API decides. */
+export const QUICK_CARDIO_BOUNDS = {
+  durationSeconds: { min: 60, max: 36_000 },
+  /** Metres; `min` is EXCLUSIVE (the API requires a distance greater than 0). */
+  distanceMeters: { min: 0, max: 100_000 },
+  noteMax: 280,
+  /** `performedAt` may be at most this many days back (and never in the future). */
+  daysBack: 7,
+} as const;
+
+/** At least one of `durationSeconds` / `distanceMeters`. */
+export interface QuickCardioInput {
+  exerciseKey: QuickCardioExercise;
+  durationSeconds?: number;
+  distanceMeters?: number;
+  /** ISO instant; default now. */
+  performedAt?: string;
+  note?: string;
+}
+
+export interface QuickCardioResult {
+  /** The completed workout (no gym, one exercise, one set). */
+  workout: Workout;
+  /** The planned session it counted toward, when today's plan had that exercise. */
+  linkedProgramWorkoutId: string | null;
+}
+
+/**
+ * `POST /workouts/quick-cardio` (`workouts:write`): a finished workout,
+ * answered `201 { data: { workout, linkedProgramWorkoutId } }`; the shared
+ * client unwraps `data`.
+ */
+export function logQuickCardio(input: QuickCardioInput): Promise<QuickCardioResult> {
+  return api.post<QuickCardioResult>('/workouts/quick-cardio', input);
+}
+
+/** A quick-cardio refusal in plain words; anything else via `workoutErrorMessage`. */
+export function quickCardioErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const reason = (err.details as { reason?: unknown } | undefined)?.reason;
+    if (reason === WORKOUT_REFUSALS.TIME_IN_FUTURE) return 'That time is in the future. Pick when you finished.';
+    if (reason === WORKOUT_REFUSALS.PERFORMED_AT_OUT_OF_RANGE) {
+      return `That is more than ${QUICK_CARDIO_BOUNDS.daysBack} days ago. Log activities from the last week only.`;
+    }
+  }
+  return workoutErrorMessage(err, fallback);
 }
 
 /** `DELETE /workouts/:id` (`workouts:write`): the workout with its exercises and sets. */

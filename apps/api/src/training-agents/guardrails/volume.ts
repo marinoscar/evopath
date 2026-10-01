@@ -1,4 +1,5 @@
-import type { PlanTree, PlanWeek } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanTree, type PlanWeek } from '../../programs/contracts/plan-tree.contract';
+import { isExtraCardioWorkout } from './cardio';
 import { reduceSessionSets } from './injury';
 import { DURATION_MODEL, GUARDRAIL_LIMITS, effectiveLimits } from './limits';
 import {
@@ -25,7 +26,9 @@ import type { GuardrailContext, Violation } from './types';
 // workouts at most `daysPerWeek` (surplus removed from the end of the week),
 // weekdays inside the preferred weekdays (moved to a free preferred day),
 // weekly hard sets per primary muscle clamped down to the level range.
-// Per session: above the level's repair number trimmed.
+// Per session: above the level's repair number trimmed. While the intake asks
+// for cardio (#265), cardio-only workouts are extra: they neither count
+// against `daysPerWeek` nor move to a preferred weekday.
 //
 // Blocks: a session still above the level's block number, or a muscle still
 // above 25 weekly sets (both times 0.75 in conservative mode), after repair.
@@ -42,6 +45,12 @@ export function checkVolume(tree: PlanTree, ctx: GuardrailContext): Violation[] 
     for (const workout of week.workouts) {
       for (const exercise of workout.exercises) {
         const path = pathOf(ctx, week, workout, exercise);
+        if (exercise.targetRpe !== null && exercise.targetRpe > limits.rpeCap && !isRepsExercise(exercise)) {
+          f.add('repair', 'rpe_clamped', path, `RPE ${exercise.targetRpe} lowered to ${limits.rpeCap} for this level.`);
+          exercise.targetRpe = limits.rpeCap;
+        }
+        // A cardio prescription has no sets-and-reps to bound and no rest to clamp.
+        if (!isRepsExercise(exercise)) continue;
         if (exercise.targetSets > limits.setsPerExercise) {
           f.add('repair', 'exercise_sets_clamped', path, `${exercise.targetSets} sets lowered to ${limits.setsPerExercise}.`);
           exercise.targetSets = limits.setsPerExercise;
@@ -110,11 +119,12 @@ export function checkVolume(tree: PlanTree, ctx: GuardrailContext): Violation[] 
   return f.list;
 }
 
-/** Workouts beyond `daysPerWeek` are removed from the end of the week. */
+/** Workouts beyond `daysPerWeek` are removed from the end of the week (requested cardio-only workouts are extra). */
 function trimWorkoutsPerWeek(f: Findings, ctx: GuardrailContext, week: PlanWeek): void {
-  while (week.workouts.length > ctx.daysPerWeek) {
-    const last = week.workouts[week.workouts.length - 1];
-    week.workouts = week.workouts.slice(0, -1);
+  const counted = () => week.workouts.filter((w) => !isExtraCardioWorkout(ctx, w));
+  while (counted().length > ctx.daysPerWeek) {
+    const last = counted()[counted().length - 1];
+    week.workouts = week.workouts.filter((w) => w !== last);
     f.add(
       'repair',
       'surplus_workout_removed',
@@ -132,6 +142,7 @@ function moveToPreferredDays(f: Findings, ctx: GuardrailContext, week: PlanWeek)
 
   for (const workout of week.workouts) {
     if (workout.weekday != null && allowed.includes(workout.weekday)) continue;
+    if (workout.weekday != null && isExtraCardioWorkout(ctx, workout)) continue;
     const used = new Set(week.workouts.map((w) => w.weekday).filter((d): d is number => d != null));
     const free = allowed.find((day) => !used.has(day));
     const from = workout.weekday ? WEEKDAY_NAMES[workout.weekday] : 'unscheduled';
@@ -173,7 +184,7 @@ function clampWeeklyMuscles(f: Findings, ctx: GuardrailContext, week: PlanWeek, 
         .filter(({ exercise }) => countedMuscles(ctx.library.get(exercise.exerciseId), uncounted).includes(muscle)),
     );
     const reducible = contributing
-      .filter(({ exercise }) => exercise.targetSets > floor)
+      .flatMap(({ exercise, ...rest }) => (isRepsExercise(exercise) && exercise.targetSets > floor ? [{ ...rest, exercise }] : []))
       .sort(
         (a, b) =>
           b.exercise.targetSets - a.exercise.targetSets ||

@@ -141,6 +141,17 @@ At the user's local Sunday 18:00 (caught up until Monday 18:00) the sweep queues
 - A user mutes a channel in `/settings/notifications`. The planner does not apply that mute to the review itself (the card also advances the streak); the dispatcher just skips the muted channels.
 - If the model is unavailable, the guard rejects its text, or the last attempt fails, the review is written from static persona prose and still ships. Count those with `app.coach.weekly_review.fallback`.
 
+### Goal messages (nudges and the review)
+
+The coach also speaks about a user's [activity goals](../specs/activity-goals.md). There is no setting to turn this on or off: it follows **Coach enabled**, the user's own coach switch and the notification preferences.
+
+- `goal_at_risk` comes from the hourly sweep. Week goals are checked from the user's morning time (their preferred time, else 09:00 local); day goals from the evening time (usual workout time minus 30 minutes, else their preferred time, else 17:00). A goal that is already hit is never at risk.
+- `goal_hit` comes right after a goal check-in or a finished workout that first reaches a goal (the `coach.activity_recorded` or `coach.workout_finished` job).
+- Each goal gets at most one of each message per period (week or day), and at most one of each kind per local day. The daily cap, quiet hours, 3-hour spacing, pause and back-off apply as to every nudge.
+- A goal paused, archived, deleted or caught up before the message is written ends the job with suppression reason `goal_resolved`: expected, nothing to fix.
+- The weekly review lists each goal and the email carries one `Goal:` row per goal. Day goals show days hit out of 7.
+- A user who checks in after the coach backed off re-engages it, like logging a workout.
+
 ## 9. Monitor and troubleshoot
 
 Where to look, in order:
@@ -153,7 +164,8 @@ Where to look, in order:
 | Job type | What it does | Profile (max runtime, attempts) |
 |---|---|---|
 | `coach.sweep` | Hourly at minute 17, only while AI and the coach are on: plans each enabled user's next moment | 5 minutes, 2 |
-| `coach.workout_finished` | After a finished workout: plans `comeback`, `pr` or `weekly_target_hit` for that user | 1 minute, 2 |
+| `coach.workout_finished` | After a finished workout: plans `comeback`, `pr`, `weekly_target_hit` or `goal_hit` for that user | 1 minute, 2 |
+| `coach.activity_recorded` | After a manual goal check-in: plans `goal_hit` for that user | 1 minute, 2 |
 | `ai.coach.nudge` | Writes, guards and persists one nudge | 2 minutes, 2 |
 | `ai.coach.weekly_review` | Writes one weekly review | 3 minutes, 2 |
 | `coach.message.deliver` | Sends one message's notification | 3 minutes, 3 |
@@ -176,9 +188,10 @@ Work down this list.
    | `daily_cap` | The user's cap for the day is spent. | Raise the user's own cap or the ceiling. |
    | `spacing` | Less than 3 hours since the last nudge. | Expected. |
    | `paused` | The user asked the coach to pause (1 to 14 days, from chat). | Wait, or the user can say so in chat. |
-   | `silenced` | The back-off message was sent after ignored nudges. | Clears when the user opens the app, chats or logs a workout. |
+   | `silenced` | The back-off message was sent after ignored nudges. | Clears when the user opens the app, chats, logs a workout or records a goal check-in. |
    | `pref_off` | The user turned that notification event off. | The user's choice, in `/settings/notifications`. |
-   | `already_sent` | The same moment was already sent that local day. | Expected. |
+   | `already_sent` | The same moment was already sent that local day (a goal moment: that goal and period). | Expected. |
+   | `goal_resolved` | The goal was paused, archived, deleted or caught up before the message was written. | Expected. |
    | `safety_supportive_only` | An active safety stop or pain streak allows only supportive messages. | Expected. |
    | `coach_off` | A switch is off for the user. | See step 1. |
    | `handler_missing` | The nudge job handler is not registered in this process. | Check the API started cleanly and the build is current; restart. |

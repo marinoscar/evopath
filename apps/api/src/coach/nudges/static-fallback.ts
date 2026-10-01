@@ -33,6 +33,8 @@ export const FALLBACK_TITLES: Readonly<Record<CoachMoment, string>> = {
   back_off: 'Stepping back for now',
   kickoff: 'Your plan is live',
   weekly_review: 'Your week in review',
+  goal_at_risk: 'Your goal needs you today',
+  goal_hit: 'Goal reached',
 };
 
 /** The calm line every persona falls back to under the supportive register. */

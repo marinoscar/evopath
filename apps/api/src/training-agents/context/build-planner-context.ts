@@ -1,8 +1,11 @@
+import { RUN_EXERCISE_SLUGS, WALK_EXERCISE_SLUGS } from '../../activity/activity.constants';
 import { isAvailable } from '../../exercises/exercise-availability.service';
 import { buildResearcherContext, type EquipmentClass } from '../agents/researcher/researcher-context';
 import type { TrainingIntake } from '../contracts/training-intake.contract';
 import type { TrainingHealthSummary } from '../../health-summary/health-summary.reader';
-import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
+import { isRepsExercise, type PlanTree } from '../../programs/contracts/plan-tree.contract';
+import { weeklyCardioCapMinutes } from '../guardrails/cardio';
+import { CARDIO_LIMITS, DURATION_MODEL } from '../guardrails/limits';
 import { conservativeModeOf, screenFreeText, type ReadinessAverages } from '../guardrails/safety-screen';
 import { implementOfEquipment } from './implement';
 import type {
@@ -12,6 +15,7 @@ import type {
   GymInventoryIds,
   HistoryExerciseRow,
   LibraryExercise,
+  PlannerCardioContext,
   PlannerContext,
   TrainingRunContext,
 } from './planner-context.contract';
@@ -48,6 +52,10 @@ export interface SourceSet {
   completed: boolean;
   isWarmup: boolean;
   painFlag: boolean;
+  /** A time or distance set's logged seconds (cardio history, #265). */
+  durationSeconds?: number | null;
+  /** A distance set's logged meters. */
+  distanceMeters?: number | null;
 }
 
 export interface SourceWorkout {
@@ -299,6 +307,95 @@ export function summarizeHistory(
   return { sessionsPerWeek, rows: sortedRows, facts: sortedFacts, painFlagKeys: [...painKeys].sort() };
 }
 
+// ---- cardio (#265) ---------------------------------------------------------------
+
+/** The equipment-free cardio exercises per requested activity. */
+export const OUTDOOR_CARDIO_KEYS: Readonly<Record<'walk' | 'run' | 'any', readonly string[]>> = {
+  walk: WALK_EXERCISE_SLUGS,
+  run: RUN_EXERCISE_SLUGS,
+  any: [...WALK_EXERCISE_SLUGS, ...RUN_EXERCISE_SLUGS],
+};
+
+/** Completed cardio minutes per week over the last 4 weeks, oldest first (cardio-pattern exercises, working sets). */
+export function recentCardioMinutes(
+  source: Pick<PlannerContextSource, 'workouts' | 'now'>,
+  library: ReadonlyMap<string, LibraryExercise>,
+): number[] {
+  const weeks = CARDIO_LIMITS.historyWeeks;
+  const seconds = Array.from({ length: weeks }, () => 0);
+  const now = source.now.getTime();
+  for (const workout of source.workouts) {
+    if (!workout.completed) continue;
+    const weeksAgo = Math.floor((now - workout.startedAt.getTime()) / (7 * DAY_MS));
+    if (weeksAgo < 0 || weeksAgo >= weeks) continue;
+    for (const exercise of workout.exercises) {
+      if (library.get(exercise.exerciseId)?.movementPattern !== 'cardio') continue;
+      for (const set of exercise.sets) {
+        if (!set.completed || set.isWarmup) continue;
+        const work = set.durationSeconds ?? (set.distanceMeters ? set.distanceMeters * DURATION_MODEL.cardioSecondsPerMeter : 0);
+        if (work > 0) seconds[weeks - 1 - weeksAgo] += work;
+      }
+    }
+  }
+  return seconds.map((s) => Math.round(s / 60));
+}
+
+const CARDIO_ACTIVITY_WORDS = { walk: 'walking', run: 'running', any: 'walking or running' } as const;
+
+/**
+ * The planner's cardio section: present when the intake asks for cardio, or
+ * when the goal is endurance, fat loss or general fitness. Guidance is the
+ * server's own text (numbers and keys only), not the user's.
+ */
+export function cardioContext(args: {
+  intake: TrainingIntake;
+  library: readonly LibraryExercise[];
+  libraryById: ReadonlyMap<string, LibraryExercise>;
+  source: Pick<PlannerContextSource, 'workouts' | 'now'>;
+  exclude: ReadonlySet<string>;
+}): PlannerCardioContext | null {
+  const { intake } = args;
+  const requested = intake.cardio?.include === true;
+  if (!requested && !CARDIO_LIMITS.goals.includes(intake.goal.type)) return null;
+
+  const activity = requested ? intake.cardio!.activity : null;
+  const wanted = new Set(OUTDOOR_CARDIO_KEYS[activity ?? 'any']);
+  const exerciseKeys = args.library
+    .filter((e) => wanted.has(e.key) && e.requirements.length === 0 && !args.exclude.has(e.key))
+    .map((e) => e.key)
+    .sort();
+  const daysPerWeek = requested ? (intake.cardio!.daysPerWeek ?? null) : null;
+  const minutesPerSession = requested ? (intake.cardio!.minutesPerSession ?? null) : null;
+  const weeklyMinutesCap = weeklyCardioCapMinutes(intake.cardio);
+  const growth = Math.round(CARDIO_LIMITS.weeklyGrowthFraction * 100);
+
+  const guidance: string[] = requested
+    ? [
+        `The user asked for ${CARDIO_ACTIVITY_WORDS[activity!]} sessions: the plan must include them.` +
+          (daysPerWeek !== null ? ` Plan ${daysPerWeek} cardio sessions a week` : ' Plan cardio sessions each week') +
+          (minutesPerSession !== null ? ` of about ${minutesPerSession} minutes.` : '.'),
+        'daysPerWeek counts the strength workouts; cardio-only workouts come on top of it.',
+        'Put each cardio session in its own workout on a weekday without a strength workout; add a cardio exercise to a strength workout only when no weekday is free (one workout per weekday).',
+      ]
+    : ['Cardio is optional for this goal: any cardio sits inside the daysPerWeek workouts.'];
+  guidance.push(
+    'Prescribe cardio with targetDurationSeconds (and optionally targetDistanceMeters), repMin and repMax null, from exerciseKeys or another cardio candidate.',
+    `Build the weekly cardio minutes up from recentWeeklyMinutes by about ${growth}% a week (with no recent cardio, start at a comfortable session length), and ease them in deload weeks.`,
+  );
+  if (weeklyMinutesCap !== null) guidance.push(`Keep the weekly cardio minutes at or below ${weeklyMinutesCap}.`);
+
+  return {
+    requested,
+    activity,
+    daysPerWeek,
+    minutesPerSession,
+    weeklyMinutesCap,
+    exerciseKeys,
+    recentWeeklyMinutes: recentCardioMinutes(args.source, args.libraryById),
+    guidance,
+  };
+}
+
 /** Whether a gym (or no gym: needs nothing) supports an exercise. */
 export function supportedBy(exercise: LibraryExercise, gym: GymInventoryIds | null): boolean {
   if (!gym) return exercise.requirements.length === 0;
@@ -350,6 +447,9 @@ export function compactPlan(tree: PlanTree, library: ReadonlyMap<string, Library
               sets: exercise.targetSets,
               repMin: exercise.repMin,
               repMax: exercise.repMax,
+              ...(isRepsExercise(exercise)
+                ? {}
+                : { targetDurationSeconds: exercise.targetDurationSeconds, targetDistanceMeters: exercise.targetDistanceMeters }),
               targetRpe: exercise.targetRpe ?? null,
               restSeconds: exercise.restSeconds,
               targetLoadKg: exercise.targetLoadKg ?? null,
@@ -417,6 +517,9 @@ export function buildTrainingRunContext(source: PlannerContextSource): TrainingR
     },
     candidateExercises: candidateExercises({ library: source.library, gym, goal: intake.goal.type, exclude }),
   };
+
+  const cardio = cardioContext({ intake, library: source.library, libraryById, source, exclude });
+  if (cardio) planner.cardio = cardio;
 
   if (source.profile) {
     planner.profile = {

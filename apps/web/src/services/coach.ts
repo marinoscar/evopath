@@ -49,6 +49,9 @@ export const COACH_MOMENTS = [
   'back_off',
   'kickoff',
   'weekly_review',
+  // Activity goals (#269): appended, as on the API.
+  'goal_at_risk',
+  'goal_hit',
 ] as const;
 
 export type CoachMoment = (typeof COACH_MOMENTS)[number];
@@ -66,6 +69,8 @@ export const COACH_MOMENT_LABELS: Record<CoachMoment, string> = {
   back_off: 'Backing off',
   kickoff: 'Program kickoff',
   weekly_review: 'Weekly review',
+  goal_at_risk: 'Goal at risk',
+  goal_hit: 'Goal reached',
 };
 
 /** Mirrors `COACH_REGISTER_REASONS` (`resolve-register.ts`). */
@@ -653,6 +658,25 @@ export interface WeeklyReviewNextSession {
   name: string;
 }
 
+/**
+ * One active activity goal in the review (#269), as of the week's Sunday.
+ * A day goal reads as days hit in the week (`unit: 'days'`, `target` 7).
+ */
+export interface WeeklyReviewGoal {
+  /** The user's own label. */
+  title: string;
+  metric?: 'sessions' | 'minutes' | 'steps' | 'distance_m';
+  period?: 'week' | 'day';
+  unit: 'sessions' | 'minutes' | 'steps' | 'meters' | 'days';
+  done: number;
+  target: number;
+  hit: boolean;
+  /** Consecutive hit periods, the reviewed one included when hit. */
+  streakPeriods: number;
+}
+
+export const WEEKLY_REVIEW_GOAL_UNITS = ['sessions', 'minutes', 'steps', 'meters', 'days'] as const;
+
 export interface WeeklyReviewStats {
   isoWeek: string;
   weekStart: string;
@@ -672,6 +696,8 @@ export interface WeeklyReviewStats {
   nextWeek: WeeklyReviewNextSession[];
   noPlan: boolean;
   firstWeek: boolean;
+  /** Absent on reviews written before activity goals, and when there are none. */
+  goals?: WeeklyReviewGoal[];
 }
 
 export interface WeeklyReviewProse {
@@ -717,6 +743,23 @@ function parseNextSession(v: unknown): WeeklyReviewNextSession | null {
   return { date: v.date, weekday: v.weekday, name: v.name };
 }
 
+function parseGoal(v: unknown): WeeklyReviewGoal | null {
+  if (!isRec(v)) return null;
+  const { title, metric, period, unit, done, target, hit, streakPeriods } = v;
+  if (!isStr(title) || !(WEEKLY_REVIEW_GOAL_UNITS as readonly unknown[]).includes(unit)) return null;
+  if (!isNum(done) || !isNum(target) || !isBool(hit) || !isNum(streakPeriods)) return null;
+  const goal: WeeklyReviewGoal = { title, unit: unit as WeeklyReviewGoal['unit'], done, target, hit, streakPeriods };
+  if (metric === 'sessions' || metric === 'minutes' || metric === 'steps' || metric === 'distance_m') goal.metric = metric;
+  if (period === 'week' || period === 'day') goal.period = period;
+  return goal;
+}
+
+/** `stats.goals`: optional; a malformed row is dropped rather than hiding the whole review. */
+function parseGoals(v: unknown): WeeklyReviewGoal[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.map(parseGoal).filter((g): g is WeeklyReviewGoal => g !== null);
+}
+
 function parseStats(v: unknown): WeeklyReviewStats | null {
   if (!isRec(v)) return null;
   const nums = ['planned', 'completed', 'missed', 'weeklyStreak', 'streakPassesLeft', 'checkIns', 'photosAdded', 'nextWeekSessions'] as const;
@@ -729,7 +772,9 @@ function parseStats(v: unknown): WeeklyReviewStats | null {
   const prs = v.prs.map(parsePr);
   const nextWeek = v.nextWeek.map(parseNextSession);
   if (prs.some((p) => p === null) || nextWeek.some((s) => s === null)) return null;
+  const goals = parseGoals(v.goals);
   return {
+    ...(goals ? { goals } : {}),
     isoWeek: v.isoWeek,
     weekStart: v.weekStart,
     weekEnd: v.weekEnd,

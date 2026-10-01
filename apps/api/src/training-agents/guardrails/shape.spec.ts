@@ -78,6 +78,60 @@ describe('G1 shape', () => {
     expect(checkSchema(copy)).toEqual([]);
   });
 
+  describe('prescription shape against the tracking mode', () => {
+    const cardio = { targetSets: null, repMin: null, repMax: null };
+    const run = (exercises: ReturnType<typeof ex>[]) => {
+      const tree = normalizeTree(planTree([{ workouts: [{ weekday: 1, exercises: [ex('goblet_squat'), ...exercises] }] }]));
+      return { tree, found: checkShape(tree, ctx).map((v) => [v.severity, v.code]) };
+    };
+
+    it.each([
+      ['a duration on a time exercise', ex('plank', { ...cardio, targetDurationSeconds: 180 })],
+      ['a duration on a distance_time exercise', ex('treadmill_run', { ...cardio, targetDurationSeconds: 1800 })],
+      ['a distance on a distance_time exercise', ex('treadmill_run', { ...cardio, targetDurationSeconds: null, targetDistanceMeters: 5000 })],
+      ['sets and reps on a weight_reps exercise', ex('barbell_bench_press')],
+    ])('accepts %s', (_label, exercise) => {
+      const { tree, found } = run([exercise]);
+      expect(found).toEqual([]);
+      expect(checkSchema(tree)).toEqual([]);
+    });
+
+    it.each([
+      ['reps on a time exercise', ex('plank', { repMin: 8, repMax: 12, targetDurationSeconds: null })],
+      ['reps on a distance_time exercise', ex('treadmill_run', { repMin: 8, repMax: 12, targetDurationSeconds: null })],
+      ['a distance on a time exercise', ex('plank', { ...cardio, targetDurationSeconds: null, targetDistanceMeters: 500 })],
+      ['a duration on a weight_reps exercise', ex('barbell_bench_press', { ...cardio, targetDurationSeconds: 600 })],
+    ])('blocks %s', (_label, exercise) => {
+      expect(run([exercise]).found).toEqual([['block', 'prescription_shape_mismatch']]);
+    });
+
+    it('blocks an exercise with no prescription at all', () => {
+      expect(run([ex('push_up', { ...cardio })]).found).toEqual([['block', 'prescription_missing']]);
+    });
+
+    it('keeps the shape the tracking mode takes when both are given', () => {
+      const both = run([ex('treadmill_run', { targetSets: 1, repMin: 8, repMax: 12, targetDurationSeconds: 1200 }), ex('push_up', { targetDurationSeconds: 300 })]);
+      expect(both.found).toEqual([
+        ['repair', 'prescription_reps_cleared'],
+        ['repair', 'prescription_targets_cleared'],
+      ]);
+      const [, run1, pushUp] = both.tree.blocks[0].weeks[0].workouts[0].exercises;
+      expect([run1.repMin, run1.repMax, run1.targetDurationSeconds]).toEqual([null, null, 1200]);
+      expect([pushUp.repMin, pushUp.targetDurationSeconds]).toEqual([8, null]);
+      expect(checkSchema(both.tree)).toEqual([]);
+    });
+
+    it('brings cardio targets into the plan bounds and leaves their rest alone', () => {
+      const { tree, found } = run([ex('treadmill_run', { ...cardio, targetDurationSeconds: 40000, targetDistanceMeters: 50.555, restSeconds: 0 })]);
+      expect(found).toEqual([
+        ['repair', 'duration_bounded'],
+        ['repair', 'distance_bounded'],
+      ]);
+      const walk = tree.blocks[0].weeks[0].workouts[0].exercises[1];
+      expect([walk.targetDurationSeconds, walk.targetDistanceMeters, walk.restSeconds]).toEqual([36000, 100, 0]);
+    });
+  });
+
   it('checkSchema blocks what the strict plan schema refuses', () => {
     const tree = planTree([{ workouts: [{ weekday: 1, exercises: [ex('goblet_squat', { targetSets: 99 })] }] }]);
     expect(checkSchema(tree)).toEqual([expect.objectContaining({ rule: 'G1', severity: 'block', code: 'invalid_plan' })]);

@@ -128,7 +128,9 @@ export class PlannerContextLoader implements PlannerContextPort {
           exercises: {
             select: {
               exerciseId: true,
-              sets: { select: { weightKg: true, reps: true, completed: true, isWarmup: true, painFlag: true } },
+              sets: {
+                select: { weightKg: true, reps: true, durationSeconds: true, distanceMeters: true, completed: true, isWarmup: true, painFlag: true },
+              },
             },
           },
         },
@@ -179,6 +181,8 @@ export class PlannerContextLoader implements PlannerContextPort {
           sets: e.sets.map((s) => ({
             weightKg: s.weightKg === null ? null : Number(s.weightKg),
             reps: s.reps,
+            durationSeconds: s.durationSeconds ?? null,
+            distanceMeters: s.distanceMeters == null ? null : Number(s.distanceMeters),
             completed: s.completed,
             isWarmup: s.isWarmup,
             painFlag: s.painFlag,

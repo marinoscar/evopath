@@ -6,6 +6,8 @@ import {
   addWeek,
   addWorkout,
   allWeeks,
+  describePlanIssue,
+  plainIssueMessage,
   copyWeek,
   freeWeekday,
   makeDeload,
@@ -91,5 +93,37 @@ describe('planEdits', () => {
     });
     expect(planErrors(tree())).toEqual({});
     expect(freeWeekday(allWeeks(tree())[0].week)).toBe(2);
+  });
+});
+
+describe('describePlanIssue', () => {
+  const names = { 'ex-bench': 'Bench press', 'ex-row': 'Cable row' };
+
+  it('locates an exercise issue in the saved draft and drops wire field names', () => {
+    const saved = toSaveTree(tree());
+    expect(
+      describePlanIssue(
+        saved,
+        { path: 'blocks.0.weeks.0.workouts.0.exercises.1', message: 'This exercise is tracked in time: prescribe a duration (targetDurationSeconds), not reps' },
+        names,
+      ),
+    ).toBe('Week 1 · Upper A · Cable row: This exercise is tracked in time: prescribe a duration, not reps');
+  });
+
+  it('locates a field path and a workout path; keeps the bare message when the path does not resolve', () => {
+    const saved = toSaveTree(tree());
+    expect(describePlanIssue(saved, { path: 'blocks.0.weeks.0.workouts.0.exercises.0.repMax', message: 'repMax must be at least repMin' }, names)).toBe(
+      'Week 1 · Upper A · Bench press: max reps must be at least min reps',
+    );
+    expect(describePlanIssue(saved, { path: 'blocks.0.weeks.0.workouts.0.weekday', message: 'Clash' })).toBe('Week 1 · Upper A: Clash');
+    expect(describePlanIssue(saved, { path: 'exerciseId', message: 'Unknown exercises: x' })).toBe('Unknown exercises: x');
+    expect(describePlanIssue(saved, { path: 'blocks.9.weeks.0', message: 'Nope' })).toBe('Nope');
+  });
+
+  it('plainIssueMessage rewrites the field names', () => {
+    expect(plainIssueMessage('This exercise is tracked in time: a duration (targetDurationSeconds) is required')).toBe(
+      'This exercise is tracked in time: a duration is required',
+    );
+    expect(plainIssueMessage('Required for a sets-and-reps prescription')).toBe('Required for a sets-and-reps prescription');
   });
 });

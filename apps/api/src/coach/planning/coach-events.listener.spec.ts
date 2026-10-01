@@ -21,6 +21,26 @@ describe('CoachEventsListener', () => {
     });
   });
 
+  it('enqueues coach.activity_recorded for the user on activity.entry.recorded (F9)', async () => {
+    const jobs = { enqueue: jest.fn(async () => ({ id: 'job-2' })) };
+    const recordedSince = '2026-09-30T11:59:58.000Z';
+    await new CoachEventsListener(jobs as never).onActivityRecorded({ userId: USER, recordedSince });
+    expect(jobs.enqueue).toHaveBeenCalledWith({
+      type: 'coach.activity_recorded',
+      reason: 'upload',
+      subjectType: 'user',
+      subjectId: USER,
+      payload: { userId: USER, recordedSince },
+    });
+  });
+
+  it('never throws on a check-in either', async () => {
+    const jobs = { enqueue: jest.fn(async () => Promise.reject(new Error('db down'))) };
+    await expect(
+      new CoachEventsListener(jobs as never).onActivityRecorded({ userId: USER, recordedSince: '2026-09-30T11:59:58.000Z' }),
+    ).resolves.toBeUndefined();
+  });
+
   it('never throws: a failed enqueue costs a log line', async () => {
     const jobs = { enqueue: jest.fn(async () => Promise.reject(new Error('db down'))) };
     await expect(new CoachEventsListener(jobs as never).onWorkoutFinished({ userId: USER, workoutId: WORKOUT })).resolves.toBeUndefined();

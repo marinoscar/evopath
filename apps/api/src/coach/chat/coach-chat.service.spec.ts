@@ -209,6 +209,7 @@ describe('CoachChatService (E7.7)', () => {
       'get_check_ins',
       'get_progress_photo_summary',
       'get_last_weekly_review',
+      'get_goals',
       'pause_coach',
       'save_commitment',
     ]);

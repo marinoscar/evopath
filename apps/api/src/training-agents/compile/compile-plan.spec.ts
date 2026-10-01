@@ -41,6 +41,27 @@ describe('compilePlan', () => {
     expect(planTreeSchema.safeParse(tree).success).toBe(true);
   });
 
+  it('copies a cardio prescription (duration and/or distance, no reps) and times it by its duration', () => {
+    const type = weekTypeA();
+    type.workouts[0].exercises = [
+      draftExercise('goblet_squat'),
+      draftExercise('treadmill_run', { sets: null, targetDurationSeconds: 1800, targetDistanceMeters: 5000, restSeconds: 30 }),
+    ];
+    const tree = compilePlan(singleTypeDraft(type, 1), ctx);
+    const workout = tree.blocks[0].weeks[0].workouts[0];
+    expect(workout.exercises[1]).toMatchObject({
+      exerciseId: LIB.treadmill_run.id,
+      targetSets: null,
+      repMin: null,
+      repMax: null,
+      targetDurationSeconds: 1800,
+      targetDistanceMeters: 5000,
+    });
+    // warm-up 5 min + squat (60 + 3 x 36 + 2 x 90 = 348 s) + run (60 + 1800 s) = 2508 s.
+    expect(workout.estimatedMinutes).toBe(42);
+    expect(planTreeSchema.safeParse(tree).success).toBe(true);
+  });
+
   it('derives the same ids from the same draft and seed, new ones for another seed, all unique', () => {
     const a = compilePlan(draftFixture(), ctx);
     const b = compilePlan(draftFixture(), ctx);

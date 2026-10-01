@@ -27,12 +27,15 @@ import { Add as AddIcon } from '@mui/icons-material';
 import { ApiError } from '../../services/api';
 import { PLAN_LIMITS, PROGRAM_REFUSALS, programRefusalOf, type PlanTree, type Program } from '../../services/programs';
 import type { WeightUnit } from '../../utils/units';
+import { distanceUnitFor } from '../../utils/workoutFormat';
 import { ExercisePickerDialog } from '../train/ExercisePickerDialog';
 import { StickyActionBar } from './StickyActionBar';
 import { WeekEditor } from './WeekEditor';
 import { WeekSelector } from './WeekSelector';
 import { weekOptions } from './PlanViewer';
 import {
+  describePlanIssue,
+  type PlanIssue,
   addBlock,
   addExercises,
   addWeek,
@@ -47,6 +50,7 @@ import {
   removeWorkout,
   setDeload,
   toEditTree,
+  type TrackingModes,
   toSaveTree,
   updateExercise,
   updateWorkout,
@@ -76,10 +80,24 @@ function namesOf(program: Program): Record<string, string> {
   return names;
 }
 
-function issuesOf(error: ApiError): string[] {
-  const issues = (error.details as { issues?: Array<{ path?: string; message?: string }> } | undefined)?.issues;
-  return Array.isArray(issues) ? issues.map((i) => i.message ?? '').filter(Boolean) : [];
+/** Exercise id -> `trackingMode`, from the loaded plan (#263: it shapes each row's prescription). */
+function modesOf(program: Program): TrackingModes {
+  const modes: TrackingModes = {};
+  for (const block of program.tree.blocks)
+    for (const week of block.weeks)
+      for (const workout of week.workouts)
+        for (const exercise of workout.exercises) if (exercise.exercise) modes[exercise.exerciseId] = exercise.exercise.trackingMode;
+  return modes;
 }
+
+/** A 400's `details.issues`, each located in the saved draft and in plain words. */
+function issuesOf(error: ApiError, saved: PlanTree, names: Record<string, string>): string[] {
+  const issues = (error.details as { issues?: PlanIssue[] } | undefined)?.issues;
+  return Array.isArray(issues) ? issues.filter((i) => i?.message).map((i) => describePlanIssue(saved, i, names)) : [];
+}
+
+export const SHAPE_MISMATCH_MESSAGE =
+  "Some exercises don't match how they are tracked: a timed or distance exercise takes minutes and/or a distance, a lifting exercise takes sets and reps. Fix these and save again.";
 
 export function PlanEditor({
   program,
@@ -96,6 +114,7 @@ export function PlanEditor({
   const [tree, setTree] = useState<PlanTree>(initial);
   const [name, setName] = useState(program.name);
   const [names, setNames] = useState<Record<string, string>>(() => namesOf(program));
+  const [modes, setModes] = useState<TrackingModes>(() => modesOf(program));
   const [weekNumber, setWeekNumber] = useState(() => allWeeks(initial)[0]?.week.weekNumber ?? 1);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [copyTo, setCopyTo] = useState<number | ''>('');
@@ -110,7 +129,7 @@ export function PlanEditor({
   );
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 
-  const errors = useMemo(() => planErrors(tree), [tree]);
+  const errors = useMemo(() => planErrors(tree, { modes, distanceUnit: distanceUnitFor(unit) }), [tree, modes, unit]);
   const errorList = Object.values(errors);
   const nameError = !name.trim() ? 'Name the plan.' : name.length > PLAN_LIMITS.nameMax ? `At most ${PLAN_LIMITS.nameMax} characters.` : null;
   const weeks = weekOptions(tree);
@@ -119,16 +138,21 @@ export function PlanEditor({
   const save = async () => {
     setSaving(true);
     setSaveError(null);
+    const sent = toSaveTree(tree);
     try {
       // Content first (If-Match guards it); the name is a header field.
-      let saved = await saveStructure(toSaveTree(tree));
+      let saved = await saveStructure(sent);
       if (name.trim() !== saved.name) saved = await updateName(name.trim());
       onSaved(saved);
     } catch (err) {
       if (programRefusalOf(err) === PROGRAM_REFUSALS.STALE_PLAN) {
         setStaleOpen(true);
       } else if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
-        setSaveError({ message: err.message || 'The plan could not be saved.', issues: issuesOf(err), retry: false });
+        const message =
+          programRefusalOf(err) === PROGRAM_REFUSALS.PRESCRIPTION_SHAPE_MISMATCH
+            ? SHAPE_MISMATCH_MESSAGE
+            : err.message || 'The plan could not be saved.';
+        setSaveError({ message, issues: issuesOf(err, sent, names), retry: false });
       } else {
         setSaveError({
           message: 'The plan could not be saved. Your edits are kept here; check your connection and try again.',
@@ -224,6 +248,7 @@ export function PlanEditor({
           <WeekEditor
             week={week}
             names={names}
+            modes={modes}
             unit={unit}
             errors={errors}
             onExerciseChange={(wid, eid, patch) => setTree((t) => updateExercise(t, week.weekNumber, wid, eid, patch))}
@@ -287,10 +312,11 @@ export function PlanEditor({
         onClose={() => setPickerFor(null)}
         gym={program.gym}
         canCreate={canCreateExercise}
-        onAdd={async (ids, picked) => {
+        onAdd={async (ids, picked, pickedModes) => {
           if (pickerFor && week) {
             setNames((n) => ({ ...n, ...picked }));
-            setTree((t) => addExercises(t, week.weekNumber, pickerFor, ids));
+            setModes((m) => ({ ...m, ...pickedModes }));
+            setTree((t) => addExercises(t, week.weekNumber, pickerFor, ids, pickedModes));
           }
         }}
       />
@@ -330,6 +356,7 @@ export function PlanEditor({
                 setTree(toEditTree(fresh.tree));
                 setName(fresh.name);
                 setNames(namesOf(fresh));
+                setModes(modesOf(fresh));
                 setSaveError(null);
               }
             }}

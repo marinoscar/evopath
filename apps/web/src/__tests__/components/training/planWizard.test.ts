@@ -52,6 +52,24 @@ describe('planWizard', () => {
     expect(toIntake({ ...initialWizardForm(), experience: 'beginner', gymId: 'g1' }).preferredWeekdays).toBeNull();
   });
 
+  it('validates and maps the cardio request only when it is switched on (#265)', () => {
+    const form = { ...initialWizardForm(), experience: 'beginner' as const, gymId: NO_GYM };
+    expect(validateStep(1, { ...form, cardioDaysPerWeek: 0, cardioMinutesPerSession: 200 })).toEqual({});
+    expect(validateStep(1, { ...form, cardioInclude: true, cardioDaysPerWeek: 0, cardioMinutesPerSession: 200 })).toEqual({
+      'cardio.daysPerWeek': 'Choose 1 to 7 cardio days.',
+      'cardio.minutesPerSession': 'Choose 10 to 120 minutes.',
+    });
+    expect(stepOfField('intake.cardio.daysPerWeek')).toBe(1);
+
+    expect('cardio' in toIntake(form)).toBe(false);
+    expect(toIntake({ ...form, cardioInclude: true, cardioActivity: 'run', cardioDaysPerWeek: 4, cardioMinutesPerSession: 30 }).cardio).toEqual({
+      include: true,
+      activity: 'run',
+      daysPerWeek: 4,
+      minutesPerSession: 30,
+    });
+  });
+
   it('maps server issues to fields and steps', () => {
     const errors = errorsFromIssues({ issues: [{ path: 'intake.preferredWeekdays', message: 'Too few' }, { path: 'intake.limitations.0.description', message: 'Long' }] });
     expect(errors).toEqual({ preferredWeekdays: 'Too few', 'limitations.0.description': 'Long' });

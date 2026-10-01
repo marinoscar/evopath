@@ -67,7 +67,8 @@ export class ProgramWorkoutsController {
       'Starts the planned workout of the caller\'s ACTIVE program into the workout logger (201): one ' +
       'workout with `programWorkoutId` set, an exercise per planned exercise and `sets` uncompleted sets ' +
       'prefilled with `reps = repMin` and the suggested load (`fixed`: the target load, `from_history`: the ' +
-      'last top set, `choose_start`: none). A `program_sessions` row records the plan version and a snapshot ' +
+      'last top set, `choose_start`: none). A cardio prescription (`targetDurationSeconds` and/or ' +
+      '`targetDistanceMeters`, no reps) starts as `sets` (default 1) empty sets. A `program_sessions` row records the plan version and a snapshot ' +
       'of the prescription, in the same transaction. When the caller\'s in-progress workout is already this ' +
       'planned workout it is returned with status 200 and `existing: true`. `gymId` defaults to the plan\'s gym.',
   })
