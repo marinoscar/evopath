@@ -12,11 +12,16 @@
  * quick-entry dialog) when AI and the needed permissions allow it
  * (`useCanReadFromPhoto`); it opens `PhotoReadDialog`, which saves one entry
  * through the photo-intake apply and refreshes the tiles and History.
+ *
+ * H7 (#191): "Export health data" sits with the header actions for anyone who
+ * can read health data, whatever the AI state; it opens
+ * `ExportHealthDataDialog` (format, range, datasets, progress, download).
  */
 
 import { useState } from 'react';
 import { Alert, Box, Button, Container, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import { HEALTH_DATA_UNAVAILABLE, type MetricKey } from '../services/health';
 import { usePermissions } from '../hooks/usePermissions';
 import { useHealthProfile } from '../hooks/useHealthProfile';
@@ -32,6 +37,7 @@ import { CheckInSection } from '../components/health/CheckInSection';
 import { HealthHistorySections } from '../components/health/HealthHistorySections';
 import { PhotoReadButton } from '../components/health/PhotoReadButton';
 import { PhotoReadDialog } from '../components/health/PhotoReadDialog';
+import { ExportHealthDataDialog } from '../components/health/ExportHealthDataDialog';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -46,6 +52,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
   const [dialog, setDialog] = useState<{ open: boolean; focusMetric?: MetricKey }>({ open: false });
   // E2.6 (#64): the photo-read dialog, opened from the header or over the quick-entry dialog.
   const [photoOpen, setPhotoOpen] = useState(false);
+  // H7 (#191): the export dialog. Reading is enough: exporting changes nothing.
+  const [exportOpen, setExportOpen] = useState(false);
   // Bumped after every change to readings: the Trend chart and History refetch.
   const [readingsVersion, setReadingsVersion] = useState(0);
   const readingsChanged = () => {
@@ -80,6 +88,9 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         </Box>
         {!forbidden && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            <Button variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => setExportOpen(true)}>
+              Export health data
+            </Button>
             <PhotoReadButton onClick={() => setPhotoOpen(true)} showUnavailable />
             <LogMeasurementButton variant="contained" startIcon={<AddIcon />} canLog={canLog} onClick={() => openDialog()}>
               Log measurement
@@ -148,6 +159,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         onEnterManually={enterManually}
         onSaved={readingsChanged}
       />
+
+      <ExportHealthDataDialog open={exportOpen && !forbidden} onClose={() => setExportOpen(false)} />
     </>
   );
 }
