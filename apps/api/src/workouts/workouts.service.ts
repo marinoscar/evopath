@@ -381,8 +381,12 @@ export class WorkoutsService {
     return this.get(userId, workoutId);
   }
 
-  /** `workout.finished` for its listeners. A listener's failure never fails the finish. */
-  private emitFinished(event: WorkoutFinishedEvent): void {
+  /**
+   * `workout.finished` for its listeners. A listener's failure never fails the
+   * finish. Call it after the write committed, only for a workout that became
+   * `completed` (also used by `QuickCardioService`, which creates one finished).
+   */
+  emitFinished(event: WorkoutFinishedEvent): void {
     try {
       this.events?.emit(WORKOUT_FINISHED_EVENT, event);
     } catch (error) {
