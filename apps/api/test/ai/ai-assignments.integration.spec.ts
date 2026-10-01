@@ -98,9 +98,18 @@ describe('AI model assignments over HTTP (#173)', () => {
         'training.critic': null,
         'training.evaluator': null,
         health_summary: null,
+        'coach.decision': null,
+        'coach.chat': null,
+        'coach.voice': null,
       },
     });
-    expect(data.features.map((f: { featureId: string }) => f.featureId)).toHaveLength(9);
+    expect(data.features.map((f: { featureId: string }) => f.featureId)).toHaveLength(12);
+    // E7.1 (#241): the coach features, in their own group, with their needs.
+    expect(data.features.find((f: { featureId: string }) => f.featureId === 'coach.voice')).toMatchObject({
+      group: 'coach',
+      needs: ['audio_speech'],
+      inputModalities: [],
+    });
     expect(data.features[0]).toMatchObject({
       featureId: 'gym_scan',
       group: 'photo',

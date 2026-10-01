@@ -29,9 +29,14 @@ import {
 // The photo rows need exactly what the intake analyze route has always
 // required (`vision_input` + `structured_output`) plus an `image` input
 // modality — the same filter the web's `visionModels` applied.
+//
+// The coach rows (E7.1, #241) are the AI Coach's three calls: the structured
+// decision behind nudges and the weekly review, the streamed tool-using chat,
+// and the spoken nudge (`audio_speech`, resolved and passed explicitly to
+// `speak()`). See docs/specs/ai-coach.md §3.3.
 // =============================================================================
 
-export type AiFeatureGroup = 'photo' | 'training';
+export type AiFeatureGroup = 'photo' | 'training' | 'coach';
 
 export interface AiFeatureDefinition {
   readonly id: AiFeatureId;
@@ -108,6 +113,29 @@ function healthSummary(): AiFeatureDefinition {
   };
 }
 
+/**
+ * The AI Coach features (E7.1, #241). Not restricted to a provider: the
+ * provider-port half of `featureShortfall` already refuses a provider whose
+ * adapter lacks the capability (no `audio_speech` port, no voice).
+ */
+function coach(
+  id: Extract<AiFeatureId, `coach.${string}`>,
+  label: string,
+  needs: readonly AiCapability[],
+): AiFeatureDefinition {
+  return {
+    id,
+    group: 'coach',
+    label,
+    needs,
+    inputModalities: [],
+    providers: null,
+    requiresWebSearch: false,
+    defaultEffort: null,
+    trainingRole: null,
+  };
+}
+
 /** The feature id of a training role. */
 export function trainingFeatureId(role: TrainingAgentRole): AiFeatureId {
   return `training.${role}`;
@@ -123,6 +151,12 @@ export const AI_FEATURES: Readonly<Record<AiFeatureId, AiFeatureDefinition>> = {
   'training.critic': training('critic'),
   'training.evaluator': training('evaluator'),
   health_summary: healthSummary(),
+  'coach.decision': coach('coach.decision', 'Coach decisions and weekly review', [
+    'responses',
+    'structured_output',
+  ]),
+  'coach.chat': coach('coach.chat', 'Coach chat', ['responses', 'tools', 'streaming']),
+  'coach.voice': coach('coach.voice', 'Coach voice', ['audio_speech']),
 };
 
 /** Every feature, in `AI_FEATURE_IDS` order. */
