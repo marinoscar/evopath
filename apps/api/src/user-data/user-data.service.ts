@@ -67,6 +67,7 @@ export class UserDataService {
       healthSyncDevices,
       healthSyncRuns,
       healthSyncDiagnosticReports,
+      sleepSessions,
     ] = await Promise.all([
       this.prisma.workout.count({ where: { userId } }),
       this.prisma.gym.count({ where: { userId } }),
@@ -90,6 +91,7 @@ export class UserDataService {
       this.prisma.healthSyncDevice.count({ where: { userId } }),
       this.prisma.healthSyncRun.count({ where: { userId } }),
       this.prisma.healthSyncDiagnosticReport.count({ where: { userId } }),
+      this.prisma.sleepSession.count({ where: { userId } }),
     ]);
 
     return {
@@ -115,6 +117,7 @@ export class UserDataService {
       healthSyncDevices,
       healthSyncRuns,
       healthSyncDiagnosticReports,
+      sleepSessions,
     };
   }
 

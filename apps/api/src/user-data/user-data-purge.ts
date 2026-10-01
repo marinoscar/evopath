@@ -46,6 +46,7 @@ export const ZERO_ROW_COUNTS: Readonly<DeletedRowCounts> = Object.freeze({
   healthSyncDevices: 0,
   healthSyncRuns: 0,
   healthSyncDiagnosticReports: 0,
+  sleepSessions: 0,
   programs: 0,
   programChangeLogs: 0,
   trainingRuns: 0,
@@ -265,6 +266,7 @@ export async function deleteUserOwnedRows(
     data: { supersedesId: null },
   });
   counts.measurements = (await tx.measurement.deleteMany({ where: { userId } })).count;
+  counts.sleepSessions = (await tx.sleepSession.deleteMany({ where: { userId } })).count;
   counts.healthProfiles = (await tx.healthProfile.deleteMany({ where: { userId } })).count;
   // The AI health summary (H8, #192): every summary version and the consent
   // (so a reset also turns the opt-in back off). Derived data, not counted.

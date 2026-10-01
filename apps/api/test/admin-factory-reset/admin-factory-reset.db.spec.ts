@@ -213,6 +213,9 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
         data: { deviceId: device.id, userId: uid, trigger: 'manual', status: 'ok', startedAt: now, finishedAt: now },
       });
       await client.healthSyncDiagnosticReport.create({ data: { deviceId: device.id, userId: uid, report: { ok: true } } });
+      await client.sleepSession.create({
+        data: { userId: uid, startAt: new Date('2026-09-01T22:00:00Z'), endAt: new Date('2026-09-02T06:00:00Z'), localDate: new Date('2026-09-02'), durationMinutes: 480 },
+      });
     }
     const backupJob = await client.job.create({
       data: { type: 'db.backup.run', reason: 'rerun', status: 'succeeded' },
@@ -277,6 +280,7 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       ['activity entries', await client.activityEntry.count()],
       ['health sync devices', await client.healthSyncDevice.count()],
       ['health sync runs', await client.healthSyncRun.count()],
+      ['sleep sessions', await client.sleepSession.count()],
       ['health sync reports', await client.healthSyncDiagnosticReport.count()],
     ] as const) {
       expect({ label, count }).toEqual({ label, count: 0 });
@@ -327,6 +331,7 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       healthSyncDevices: 2,
       healthSyncRuns: 2,
       healthSyncDiagnosticReports: 2,
+      sleepSessions: 2,
       broadcasts: 1,
       workerNodesReassigned: 1,
       nodeCredentialsReassigned: 1,

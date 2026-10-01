@@ -42,6 +42,8 @@ export const userDataSummarySchema = z.object({
   healthSyncDevices: count,
   healthSyncRuns: count,
   healthSyncDiagnosticReports: count,
+  /** Sleep sessions, manual and device-synced (epic #276). */
+  sleepSessions: count,
 });
 
 /** `POST /api/user-data/reset` body. Anything but the exact phrase is a 400. */
@@ -80,6 +82,7 @@ export const userDataResetResultSchema = z.object({
   healthSyncDevices: count.default(0),
   healthSyncRuns: count.default(0),
   healthSyncDiagnosticReports: count.default(0),
+  sleepSessions: count.default(0),
   programs: count,
   programChangeLogs: count,
   trainingRuns: count,

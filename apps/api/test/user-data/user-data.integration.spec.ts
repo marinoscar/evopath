@@ -113,6 +113,7 @@ describe('User data integration', () => {
         'healthSyncDevice',
         'healthSyncRun',
         'healthSyncDiagnosticReport',
+        'sleepSession',
       ] as const) {
         (context.prismaMock as any)[model].count.mockResolvedValue(2);
       }
@@ -145,6 +146,7 @@ describe('User data integration', () => {
         healthSyncDevices: 2,
         healthSyncRuns: 2,
         healthSyncDiagnosticReports: 2,
+        sleepSessions: 2,
       });
       expect(context.prismaMock.workout.count).toHaveBeenCalledWith({ where: { userId: user.id } });
     });

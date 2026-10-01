@@ -30,6 +30,7 @@ function setup() {
     healthSyncDevice: { count: jest.fn().mockResolvedValue(13) },
     healthSyncRun: { count: jest.fn().mockResolvedValue(14) },
     healthSyncDiagnosticReport: { count: jest.fn().mockResolvedValue(15) },
+    sleepSession: { count: jest.fn().mockResolvedValue(16) },
     auditEvent: { create: jest.fn().mockResolvedValue({}) },
     job: { findFirst: jest.fn().mockResolvedValue(null) },
   };
@@ -83,6 +84,7 @@ describe('UserDataService', () => {
         healthSyncDevices: 13,
         healthSyncRuns: 14,
         healthSyncDiagnosticReports: 15,
+        sleepSessions: 16,
       });
       expect(prisma.activityGoal.count).toHaveBeenCalledWith({ where: { userId: USER } });
       expect(prisma.activityEntry.count).toHaveBeenCalledWith({ where: { userId: USER } });
@@ -176,6 +178,7 @@ describe('toResetStatus', () => {
     healthSyncDevices: 1,
     healthSyncRuns: 3,
     healthSyncDiagnosticReports: 1,
+    sleepSessions: 4,
     programs: 0,
     programChangeLogs: 0,
     trainingRuns: 0,
@@ -245,13 +248,13 @@ describe('toResetStatus', () => {
   });
 
   it('reads a result written before health sync existed as 0 devices, runs and reports', () => {
-    const { healthSyncDevices: _d, healthSyncRuns: _r, healthSyncDiagnosticReports: _p, ...older } = result;
+    const { healthSyncDevices: _d, healthSyncRuns: _r, healthSyncDiagnosticReports: _p, sleepSessions: _s, ...older } = result;
     expect(
       toResetStatus({ id: 'j', status: 'succeeded', lastError: null, payload: { result: older } }),
     ).toEqual({
       jobId: 'j',
       status: 'succeeded',
-      result: { ...older, healthSyncDevices: 0, healthSyncRuns: 0, healthSyncDiagnosticReports: 0 },
+      result: { ...older, healthSyncDevices: 0, healthSyncRuns: 0, healthSyncDiagnosticReports: 0, sleepSessions: 0 },
     });
   });
 

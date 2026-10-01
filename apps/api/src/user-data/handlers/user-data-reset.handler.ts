@@ -83,6 +83,9 @@
 //                                     `healthSyncDiagnosticReports`,
 //                                     `healthSyncDevices`). The device's PAT
 //                                     is removed with the other access tokens.
+//   SleepSession                      userId — explicitly (cascades only from
+//                                     the kept User row). Counted up front by
+//                                     the summary (`sleepSessions`).
 //   Program                           userId (cascades blocks, weeks, workouts,
 //                                     exercises, versions, sessions, change log)
 //   ProgramChangeLog, ProgramSession  userId — leftovers, explicitly
