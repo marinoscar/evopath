@@ -3,8 +3,8 @@
 // =============================================================================
 //
 // docs/specs/ai-coach.md §2.7. Enqueued by `ai.coach.nudge` right after the
-// `CoachMessage` row is written (and, from E7.6, when a message's speech job
-// settles). Payload `{ messageId }`, subject (`coach_message`, messageId), so
+// `CoachMessage` row is written (and by `coach.audio.settle` only for a
+// message left `pending` by the pre-#259 automatic audio path). Payload `{ messageId }`, subject (`coach_message`, messageId), so
 // two enqueues for one message collapse onto one pending job.
 //
 // SERVER-ONLY: it sends a notification and writes rows as it goes (spec
@@ -16,8 +16,7 @@
 //   1. Load the message. Gone, not a coach message, ALREADY DELIVERED or
 //      already SUPPRESSED (`data.suppressed`) -> nothing.
 //   2. RE-CHECK the state that may have changed since `ai.coach.nudge` (or
-//      `ai.coach.weekly_review`) wrote the row, up to the 2-minute audio wait
-//      cap earlier: AI on, the system coach on, the account active, the
+//      `ai.coach.weekly_review`) wrote the row: AI on, the system coach on, the account active, the
 //      user's `coach.enabled`, and not paused (`pausedUntil` in the future).
 //      Any of the first four -> `coach_off`; a pause -> `paused`. Then NO
 //      notification: `data.suppressed = { reason, at }` is written (guarded on
@@ -27,12 +26,12 @@
 //      pause too (spec §2.10). A `kickoff` does NOT re-check the pause: the
 //      nudge job's `kickoffGate` already deferred it past any pause it saw,
 //      and a kickoff is never dropped (spec §2.5, E7.12).
-//   3. Audio (E7.6): normally settled before this job is enqueued
-//      (`coach.audio.settle`). A message somehow still `pending` is NOT
-//      waited on: its audio is recorded `failed` (`reason = 'timeout'`) and
-//      it goes out as text. `hasAudio` is true only for `ready` audio with
-//      its object, so the push carries the "Hear Coach" action exactly then.
-//      The message ALWAYS carries its text.
+//   3. Audio is ON DEMAND (#259): delivery never waits for it and never
+//      touches `audioStatus` (a `pending` one belongs to a Listen request in
+//      flight). `hasAudio` means "audio can be heard": the user's
+//      `audio.enabled` AND the system `allowAudio`. It adds the "Hear Coach"
+//      action (`/coach?m=<id>&autoplay=1`), whose click opens the message and
+//      requests its audio. The message ALWAYS carries its text.
 //   4. CLAIM, then send. `deliveredAt` is stamped FIRST with a guarded update
 //      (`deliveredAt: null`); a count of 0 means another run claimed it ->
 //      skip. Only the claimant calls `notifyNow('coach.<kind>')`, awaited,
@@ -70,7 +69,6 @@ import type { CoachNotificationData } from '../../../notifications/channels/brow
 import { NotificationsService } from '../../../notifications/notifications.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
-import { CoachAudioService } from '../../audio/coach-audio.service';
 import { COACH_MESSAGE_DELIVER_JOB_TYPE } from '../../coach-job-types';
 import { findCoachPersona } from '../../personas';
 import { coachUserSettingsOf } from '../../planning/coach-planner.service';
@@ -104,7 +102,6 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly coachState: CoachStateService,
-    private readonly audio: CoachAudioService,
     private readonly aiConfig: AiConfigService,
     private readonly systemSettings: SystemSettingsService,
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
@@ -153,8 +150,6 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
         title: true,
         pushTitle: true,
         pushBody: true,
-        audioStatus: true,
-        audioStorageObjectId: true,
         deliveredAt: true,
         personaId: true,
         data: true,
@@ -176,22 +171,15 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     }
 
     const gate = await this.deliveryGate(message.userId, message.kind, now);
-    if (gate) return this.suppress(message, gate, now);
-
-    let audioReady = message.audioStatus === 'ready' && Boolean(message.audioStorageObjectId);
-    if (message.audioStatus === 'pending') {
-      // Never wait here and never send audio-only: the text goes now.
-      await this.audio.markFailed(message.id, 'timeout', null, now);
-      audioReady = false;
-    }
+    if ('suppress' in gate) return this.suppress(message, gate.suppress, now);
 
     const eventKey = eventForKind(message.kind);
     const push: CoachNotificationData = {
       messageId: message.id,
       pushTitle: message.pushTitle ?? message.title,
       pushBody: message.pushBody ?? '',
-      // Ready audio adds the "Hear Coach" action (`/coach?m=<id>&autoplay=1`).
-      hasAudio: audioReady,
+      // Audio available on demand adds the "Hear Coach" action (`/coach?m=<id>&autoplay=1`).
+      hasAudio: gate.audioAvailable,
     };
     // A weekly review also carries what its email renders (E7.10): the stats
     // block and the CLEAN-register prose. The browser and push templates read
@@ -240,12 +228,17 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
   }
 
   /**
-   * The state re-checked at send time (step 2): null when the message may go
-   * out, else why not. Reads only flags and ids.
+   * The state re-checked at send time (step 2): why the message may not go
+   * out, or whether its audio can be heard on demand (step 3). Reads only
+   * flags and ids.
    */
-  private async deliveryGate(userId: string, kind: string, now: Date): Promise<CoachDeliverSuppressionReason | null> {
+  private async deliveryGate(
+    userId: string,
+    kind: string,
+    now: Date,
+  ): Promise<{ suppress: CoachDeliverSuppressionReason } | { audioAvailable: boolean }> {
     const [aiEnabled, system] = await Promise.all([this.aiConfig.isEnabled(), this.systemSettings.getCoachPolicy()]);
-    if (!aiEnabled || !system.enabled) return 'coach_off';
+    if (!aiEnabled || !system.enabled) return { suppress: 'coach_off' };
 
     const [row, state] = await Promise.all([
       this.prisma.userSettings.findUnique({
@@ -254,11 +247,12 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
       }),
       this.prisma.coachState.findUnique({ where: { userId }, select: { pausedUntil: true } }),
     ]);
-    if (!row || !row.user.isActive || !coachUserSettingsOf(row.value).enabled) return 'coach_off';
+    const settings = row ? coachUserSettingsOf(row.value) : null;
+    if (!row || !settings || !row.user.isActive || !settings.enabled) return { suppress: 'coach_off' };
 
     // A kickoff was already deferred past any pause by the nudge job's `kickoffGate`; it is never dropped.
-    if (kind !== 'kickoff' && state?.pausedUntil && state.pausedUntil.getTime() > now.getTime()) return 'paused';
-    return null;
+    if (kind !== 'kickoff' && state?.pausedUntil && state.pausedUntil.getTime() > now.getTime()) return { suppress: 'paused' };
+    return { audioAvailable: Boolean(system.allowAudio) && settings.audio.enabled };
   }
 
   /**

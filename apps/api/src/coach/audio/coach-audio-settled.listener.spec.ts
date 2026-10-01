@@ -38,13 +38,13 @@ describe('CoachAudioSettledListener', () => {
       where: { audioRunId: RUN },
       select: { id: true, audioStatus: true },
     });
-    expect(t.audio.enqueueSettle).toHaveBeenCalledWith(MESSAGE, 'settled', undefined, true);
+    expect(t.audio.enqueueSettle).toHaveBeenCalledWith(MESSAGE, 'settled', undefined, true, RUN);
   });
 
   it('passes a failed job through so an active run is not waited on', async () => {
     const t = setupListener({ id: MESSAGE, audioStatus: 'pending' });
     await t.listener.onJobSettled(settled({ status: 'failed' }));
-    expect(t.audio.enqueueSettle).toHaveBeenCalledWith(MESSAGE, 'settled', undefined, false);
+    expect(t.audio.enqueueSettle).toHaveBeenCalledWith(MESSAGE, 'settled', undefined, false, RUN);
   });
 
   it.each([
@@ -101,13 +101,29 @@ describe('CoachAudioSettleHandler', () => {
     ]);
     await t.handler.process({ id: 'j1', payload: { messageId: MESSAGE, cause: 'settled', jobSucceeded: true } } as never);
     await t.handler.process({ id: 'j2', payload: { messageId: MESSAGE, cause: 'timeout' } } as never);
-    expect(t.audio.settle).toHaveBeenNthCalledWith(1, MESSAGE, 'settled', expect.any(Date), true);
-    expect(t.audio.settle).toHaveBeenNthCalledWith(2, MESSAGE, 'timeout', expect.any(Date), null);
+    expect(t.audio.settle).toHaveBeenNthCalledWith(1, MESSAGE, 'settled', expect.any(Date), true, null);
+    expect(t.audio.settle).toHaveBeenNthCalledWith(2, MESSAGE, 'timeout', expect.any(Date), null, null);
     expect(t.audio.enqueueDelivery).toHaveBeenCalledTimes(1);
     expect(t.audio.enqueueDelivery).toHaveBeenCalledWith(MESSAGE);
   });
 
-  it('a timeout delivers text when the run never settled', async () => {
+  it('passes the pinned speech run id through (#259)', async () => {
+    const t = setupHandler([{ status: 'not_pending', deliver: false }]);
+    await t.handler.process({ id: 'j', payload: { messageId: MESSAGE, cause: 'timeout', runId: RUN } } as never);
+    expect(t.audio.settle).toHaveBeenCalledWith(MESSAGE, 'timeout', expect.any(Date), null, RUN);
+  });
+
+  it('an on-demand settle (deliver false) never enqueues delivery (#259)', async () => {
+    const t = setupHandler([
+      { status: 'ready', deliver: false },
+      { status: 'failed', deliver: false },
+    ]);
+    await t.handler.run(MESSAGE, 'settled', new Date(), true);
+    await t.handler.run(MESSAGE, 'timeout', new Date());
+    expect(t.audio.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it('a legacy (pre-#259) automatic message still delivers its text on a timeout', async () => {
     const t = setupHandler([{ status: 'failed', deliver: true }]);
     await t.handler.run(MESSAGE, 'timeout', new Date());
     expect(t.audio.enqueueDelivery).toHaveBeenCalledWith(MESSAGE);
