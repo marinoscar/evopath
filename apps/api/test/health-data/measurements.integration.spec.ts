@@ -196,7 +196,7 @@ describe('Measurements (integration)', () => {
   // ---------------------------------------------------------------------------
 
   describe('GET /api/measurements/metrics', () => {
-    it('returns the ten-metric catalog and the lab analytes in the envelope', async () => {
+    it('returns the twelve-metric catalog and the lab analytes in the envelope', async () => {
       const viewer = await createMockViewerUser(context);
 
       const response = await request(server())
@@ -205,7 +205,7 @@ describe('Measurements (integration)', () => {
         .expect(200);
 
       const metrics = response.body.data.metrics as Array<{ category: string }>;
-      expect(metrics.filter((metric) => metric.category !== 'lab')).toHaveLength(10);
+      expect(metrics.filter((metric) => metric.category !== 'lab')).toHaveLength(12);
       expect(metrics.filter((metric) => metric.category === 'lab')).toHaveLength(LAB_METRIC_KEYS.length);
       expect(response.body.data.metrics[0]).toMatchObject({
         key: 'weight',
@@ -234,7 +234,7 @@ describe('Measurements (integration)', () => {
   });
 
   describe('GET /api/measurements/latest', () => {
-    it('returns the six body/vital metrics in order, null where absent', async () => {
+    it('returns the body/vital metrics in order, null where absent', async () => {
       const viewer = await createMockViewerUser(context);
       prisma.measurement.findMany.mockImplementation(async ({ where }: any) =>
         where.metricKey === 'weight'
@@ -254,6 +254,8 @@ describe('Measurements (integration)', () => {
         'bp_systolic',
         'bp_diastolic',
         'resting_hr',
+        'heart_rate_avg',
+        'hrv_rmssd',
       ]);
       expect(response.body.data.items[0].latest).toMatchObject({ value: 81, edited: false });
       expect(response.body.data.items[0].previous).toMatchObject({ value: 80 });

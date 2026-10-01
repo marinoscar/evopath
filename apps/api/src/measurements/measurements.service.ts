@@ -77,7 +77,7 @@ const NEWEST_FIRST = [
   { id: 'desc' as const },
 ];
 
-/** The six body/vital metrics `latest` reports, in registry order. */
+/** The body/vital metrics `latest` reports, in registry order. */
 const LATEST_METRIC_KEYS = MEASUREMENT_METRIC_KEYS;
 
 /**

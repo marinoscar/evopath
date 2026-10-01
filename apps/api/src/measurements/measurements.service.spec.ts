@@ -572,7 +572,10 @@ describe('MeasurementsService', () => {
             userId: USER_ID,
             ...ACTIVE_PREDICATE,
             metricKey: {
-              in: ['weight', 'body_fat_pct', 'waist_circumference', 'bp_systolic', 'bp_diastolic', 'resting_hr'],
+              in: [
+                'weight', 'body_fat_pct', 'waist_circumference', 'bp_systolic', 'bp_diastolic', 'resting_hr',
+                'heart_rate_avg', 'hrv_rmssd',
+              ],
             },
           }),
           orderBy: [{ measuredAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
@@ -606,7 +609,7 @@ describe('MeasurementsService', () => {
       );
     });
 
-    it('latest: six metrics in registry order, two rows each', async () => {
+    it('latest: the body/vital metrics in registry order, two rows each', async () => {
       (prisma.measurement.findMany as jest.Mock).mockImplementation(async ({ where }: any) =>
         where.metricKey === 'weight'
           ? [row({ value: 81 }), row({ value: 80 })]
@@ -624,6 +627,8 @@ describe('MeasurementsService', () => {
         'bp_systolic',
         'bp_diastolic',
         'resting_hr',
+        'heart_rate_avg',
+        'hrv_rmssd',
       ]);
       expect(result.items[0].latest?.value).toBe(81);
       expect(result.items[0].previous?.value).toBe(80);
