@@ -128,6 +128,14 @@ runs, broadcasts, notifications, the AI model catalog) use the **flat** shape:
 { "data": { "items": [], "meta": { "page": 1, "pageSize": 20, "totalItems": 42, "totalPages": 3 } } }
 ```
 
+Some lists are **keyset-paginated** instead: they take `limit` and return a
+`nextCursor` to pass back, and never a `page` or `total`. The cursor name
+differs by route. `GET /api/progress-photos` and
+`GET /api/programs/:id/change-log` take `cursor`; the coach timeline,
+`GET /api/coach/messages`, takes `before` (the previous page's `nextCursor`, a
+message id; `limit` 1 to 50, default 30), and a `before` that is not one of the
+caller's own messages is a `400`. Each operation's schema says which it uses.
+
 `GET /api/auth/device/sessions` is older and differs: it takes `page` and
 `limit` (default 10) and returns `{ sessions, total, page, limit }`. Each
 operation's schema in `/api/docs` says which shape it returns.
@@ -163,13 +171,14 @@ back as `cursor` instead of `page`.
 
 ## Server-Sent Events
 
-Three routes stream `text/event-stream`:
+Four routes stream `text/event-stream` (the training run stream, `GET /api/ai/training/stream/:runId`, is covered in [ai-training-plans](specs/ai-training-plans.md)):
 
 | Route | Frames | Keep-alive |
 |-------|--------|-----------|
 | `POST /api/ai/responses/stream` | `event: <type>` with JSON `data:`; starts with `response.created`, ends with exactly one `response.completed` or `error` | `: ping` every 15 s |
 | `GET /api/notifications/stream` | `event: notification` with JSON `data:` | `: heartbeat` about every 25 s |
 | `POST /api/admin/telemetry/assistant/stream` | `event: step\|answer\|error\|done` with JSON `data:`; always ends with `done` | `: ping` every 15 s |
+| `POST /api/coach/chat/stream` | `event: safety\|tool\|delta\|done\|error` with JSON `data:` (the JSON repeats `type`); ends with exactly one `done` or `error` | `: ping` every 15 s |
 
 - **AI stream**: send `Accept: text/event-stream` and the same body as
   `POST /api/ai/responses` (there is no `stream` flag). A refusal **before** the
@@ -184,7 +193,18 @@ Three routes stream `text/event-stream`:
   `details.reason` (`AI_DISABLED`, or a `TELEMETRY_*` reason — see
   [telemetry.md](specs/telemetry.md#5-explorer)). Closing the connection
   cancels the AI call and any in-flight query.
-- **All three**: the native `EventSource` cannot send `Authorization`, and
+- **Coach chat stream**: body `{ "text": "…" }` (at most 2,000 characters);
+  requires `ai:use` and `programs:read`. Frames: `safety` (first, only when a
+  safety screen matched), `tool` (one per tool call: name and status, never
+  arguments), `delta` (the reply text in order, already checked by the content
+  guard), then `done` (`messageId`, `userMessageId`, `links`, `pausedUntil`,
+  `fallback`) or `error` (`code`, `message`; no reply is stored). A refusal
+  before the first frame is an ordinary JSON error: `409` with
+  `details.reason: AI_FEATURE_UNAVAILABLE` when `coach.chat` has no usable
+  model, `403` `AI_DISABLED` or `COACH_DISABLED`, `429` `AI_RATE_LIMITED`.
+  Closing the connection cancels the provider call and discards the partial
+  reply. See [ai-coach.md §2.9](specs/ai-coach.md#29-chat).
+- **All of them**: the native `EventSource` cannot send `Authorization`, and
   tokens in the query string are not accepted, so use a fetch-based SSE
   client. Nginx serves each stream from a dedicated unbuffered location.
 
@@ -291,6 +311,9 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `capabilities` | Movement capabilities equipment can enable (tag "Capabilities") | `gyms:read` | [ARCHITECTURE §5.22](ARCHITECTURE.md#522-gyms-and-equipment) |
 | `exercises` | The exercise library (seeded plus the caller's custom exercises) and per-exercise history (tag "Exercises") | `exercises:read/write` (`/:id/history` needs `workouts:read`) | [workouts](specs/workouts.md#24-the-exercise-library) |
 | `workouts` | The caller's own workouts, exercises, sets and the Today summary (tag "Workouts") | `workouts:read/write` | [workouts](specs/workouts.md) |
+| `coach` | AI Coach: personas, the caller's coach settings, voice preview, timeline (`/messages`), message opened and feedback, chat stream, header state | `ai:use` (chat also `programs:read`), behind `AiEnabledGuard` | [ai-coach](specs/ai-coach.md#36-routes) |
+| `admin/coach` | Coach policy (system setting) and engagement stats | `ai_config:read/write` (not behind `AiEnabledGuard`) | [ai-coach](specs/ai-coach.md#36-routes) |
+| `progress-photos` | The caller's own progress photos: list, add, delete (tag "Progress Photos") | `health_data:read/write` (no `AiEnabledGuard`) | [ai-coach](specs/ai-coach.md#212-progress-photos) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 
 Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with

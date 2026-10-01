@@ -1,10 +1,10 @@
 # AI Coach
 
-> **Status:** Proposed — not yet implemented · **Code:** `apps/api/src/coach/` (new), `apps/web/src/pages/CoachPage.tsx` and `apps/web/src/components/coach/` (new) · **API:** `/api/coach/*`, `/api/progress-photos/*`, `/api/admin/coach/*` (new; see `/api/docs` once built) · **User UI:** `/coach`, `/settings/coach`, Health → Progress photos · **Admin UI:** `/admin/settings/coach` · **Runbook:** none yet (planned `docs/runbooks/ai-coach.md`) · **Recipe:** [§4](#4-extending-it-in-a-fork)
+> **Status:** Implemented · **Code:** `apps/api/src/coach/`, `apps/api/src/progress-photos/`, `apps/web/src/pages/CoachPage.tsx` and `apps/web/src/components/coach/` · **API:** `/api/coach/*`, `/api/progress-photos/*`, `/api/admin/coach/*` (see `/api/docs`) · **User UI:** `/coach`, `/settings/coach`, Health → Progress photos (`/health/progress-photos`) · **Admin UI:** `/admin/settings/coach` · **Runbook:** [ai-coach.md](../runbooks/ai-coach.md) · **Recipe:** [§4](#4-extending-it-in-a-fork)
 
 The AI Coach turns adherence data into accountability. A deterministic scheduler decides when the coach is allowed to speak. A model decides whether it should and what to say, in the voice of a persona the user picked. The coach nudges by push, browser notification and optional audio, chats with the user, sends a weekly progress email, tracks a weekly streak and asks for progress photos. Every number it quotes comes from [training signals](training-signals.md), never from the model. Every model call goes through `AiService.forUser`. Admins choose the models on the AI Model Assignments page; users choose the persona, intensity and, for one persona, an opt-in profane mode.
 
-This page is the single home for the design. It is written ahead of the code: every path marked **(new)** does not exist yet, and every unmarked path exists today. Epic E7 carries the stories (E7.1 to E7.13) that build it.
+This page is the single home for the design. Epic E7 carries the stories (E7.1 to E7.13) that built it; the operator procedures are in the [runbook](../runbooks/ai-coach.md).
 
 ## 1. Purpose
 
@@ -62,12 +62,12 @@ cron 17 * * * *  ──►  coach.sweep job  ──►  planCoachMoments(signals
 ```
 
 - **Numbers.** Adherence, streaks and counts are read from `TrainingSignalsService.forEvaluator` and `compactForEvaluator` (`apps/api/src/programs/signals/signals.service.ts`, `compact-signals.ts`). The model receives them as context and may restate them, but the guard rejects a message whose digits do not appear in the context ([§2.6](#26-nudge-generation-and-the-content-guard)). A review's stats table is built by code and the model never writes it ([§2.10](#210-weekly-review-and-email)).
-- **Module.** `apps/api/src/coach/` **(new)**. It imports no `@langchain/*` package, so the orchestration boundary in [ai-platform.md §5](ai-platform.md#5-guardrails) does not apply. It never imports a provider SDK ([AI platform rule 1](../../CLAUDE.md)).
+- **Module.** `apps/api/src/coach/`. It imports no `@langchain/*` package, so the orchestration boundary in [ai-platform.md §5](ai-platform.md#5-guardrails) does not apply. It never imports a provider SDK ([AI platform rule 1](../../CLAUDE.md)).
 - **Server-only jobs.** Every `ai.coach.*` job is server-only: a user's key is never brokered to a worker node ([§3.4](#34-jobs)).
 
 ### 2.2 Data model
 
-Three new models in a new Prisma migration **(new)**. Each carries `userId` with `onDelete: Cascade`. Table names are snake case via `@@map`.
+Three models. Each carries `userId` with `onDelete: Cascade`. Table names are snake case via `@@map`.
 
 #### `CoachMessage` (`coach_messages`)
 
@@ -131,7 +131,7 @@ One row per user, created lazily by the sweep or on first settings write.
 
 A persona is a data file in a registry, served by `GET /api/coach/personas` so the web never carries a second copy.
 
-- **Registry.** `apps/api/src/coach/personas/*.persona.ts` **(new)**, one file per persona, collected by `apps/api/src/coach/personas/index.ts` **(new)** into `COACH_PERSONAS`.
+- **Registry.** `apps/api/src/coach/personas/*.persona.ts`, one file per persona, collected by `apps/api/src/coach/personas/index.ts` into `COACH_PERSONAS`.
 - **Each persona carries:** `id`, `name`, `tagline`, `avatar` (icon key), a style card (lexicon, do and don't, an intensity rubric for levels 1 to 3), a default voice with TTS `instructions`, and static sample lines for every moment. Sample lines are served as-is, so a preview in `/settings/coach` costs nothing and calls no model.
 - **Moments with sample lines.** `COACH_MOMENTS` in `apps/api/src/coach/personas/persona.types.ts`: the planned moments of [§2.5](#25-decision-engine) (`missed_twice`, `streak_at_risk`, `comeback`, `pr`, `weekly_target_hit`, `missed_session`, `fresh_start`, `photo_prompt`, `win_back`), plus `back_off` (the auto-silence message), `kickoff` and `weekly_review`, so every message the coach can send has a static fallback. Sarge has a line per level; the other personas carry one line per moment that serves every level (their level changes the rubric the model receives, not the static sample).
 - **Lexicon figures.** A persona may declare `lexiconNumbers`, figures that are style rather than data (Sarge's "40 percent", Coach's "20-minute version"). The content guard's numbers rule admits them besides the context's figures.
@@ -252,14 +252,14 @@ Profanity is possible for exactly one combination. It requires **all four** cond
 | 3 | The user explicitly opted in. | `coach.profanity` is `true`, set through a dialog that states the content is adult language and records `adultConfirmedAt`. |
 | 4 | The persona and level are the profane combination. | `personaId === 'drill_sergeant'` and `intensity === 3`. No other persona or level is ever profane. |
 
-- **Single evaluator.** `resolveRegister(userSettings, systemSettings, profile)` in `apps/api/src/coach/personas/resolve-register.ts` **(new)** returns `{ profane: boolean, reason: string | null }`. It is the only function that answers the question; the prompt builder, the content guard, the preview route and the settings route all call it.
+- **Single evaluator.** `resolveRegister(userSettings, systemSettings, profile)` in `apps/api/src/coach/personas/resolve-register.ts` returns `{ profane: boolean, reason: string | null }`. It is the only function that answers the question; the prompt builder, the content guard, the preview route and the settings route all call it.
 - **Failing closed.** If any condition fails, Sarge L3 is rendered as Sarge L2 (clean). The settings write that sets `profanity: true` while condition 1, 2 or 4 fails answers `403 COACH_PROFANITY_LOCKED` with `details.reason` naming the failed condition. A setting saved earlier does not survive a later failure: turning the system switch off silences profanity on the next message.
 - **Lock-screen-safe variant.** `coach.lockScreenSafe` defaults to `true`. While it is on, `pushTitle` and `pushBody` are always clean: no profanity, no health terms, no figures. The in-app `title` and `body` and the audio script may carry the profane text. A message to a locked phone therefore reads "Recruit. {time} is your hour." while the full uncensored line sits in the timeline. With `lockScreenSafe` off and profanity unlocked, `pushBody` may be profane.
 - **Profanity is a style, not a licence.** An unlocked L3 message is still subject to every guard rule in [§2.6](#26-nudge-generation-and-the-content-guard): insults must target effort; the banned categories stay banned.
 
 ### 2.5 Decision engine
 
-**Entry.** `apps/api/src/coach/tasks/coach-sweep.task.ts` **(new)** carries `@Cron('17 * * * *')` and only enqueues the `coach.sweep` job through `enqueueHousekeepingJob` (`apps/api/src/jobs/housekeeping.enqueue.ts`), and only while AI and coach are enabled. The shape is the same as `training-evaluation.task.ts` (`apps/api/src/training-agents/evaluation/tasks/training-evaluation.task.ts`). `apps/api/test/jobs/cron-enqueue-only.spec.ts` covers it, with no new exemption.
+**Entry.** `apps/api/src/coach/planning/tasks/coach-sweep.task.ts` carries `@Cron('17 * * * *')` and only enqueues the `coach.sweep` job through `enqueueHousekeepingJob` (`apps/api/src/jobs/housekeeping.enqueue.ts`), and only while AI and coach are enabled. The shape is the same as `training-evaluation.task.ts` (`apps/api/src/training-agents/evaluation/tasks/training-evaluation.task.ts`). `apps/api/test/jobs/cron-enqueue-only.spec.ts` covers it, with no new exemption.
 
 **Sweep.** `coach.sweep` pages users with `coach.enabled`. For each user it loads signals, `CoachState`, settings and the user's local clock, then calls the pure function:
 
@@ -338,11 +338,11 @@ const coachNudgeSchema = z.object({
 
 **`send: false` is a real answer.** It means "the data allows a message but a message would not help now". The server records it as a `coach.nudge.suppressed{reason=model_declined}` event with the `reason` text, writes no `CoachMessage`, and counts nothing against the daily cap. The moment is eligible again at the next sweep, so a persistent decline cannot loop within one sweep. The model cannot turn a gate failure into a send, because the job is only enqueued for moments that passed the gates.
 
-**Content guard.** `apps/api/src/coach/guard/coach-content-guard.ts` **(new)** is a pure function over the structured result and the context:
+**Content guard.** `apps/api/src/coach/guard/coach-content-guard.ts` is a pure function over the structured result and the context:
 
 | Rule | Behaviour |
 |---|---|
-| Banned terms and topics | Slurs, protected-trait insults, sexual content, self-harm, diet-restriction and extreme-exercise framing, medical claims, body or weight shaming. Lists live in `coach/guard/banned-terms.ts` **(new)**. |
+| Banned terms and topics | Slurs, protected-trait insults, sexual content, self-harm, diet-restriction and extreme-exercise framing, medical claims, body or weight shaming. Lists live in `coach/guard/banned-terms.ts`. |
 | Profanity | Allowed only when `resolveRegister(...).profane` is true. A profane word in any field of a clean register fails. |
 | Insult target | In the profane register, an insult must attach to effort, excuses or inaction. A body- or weight-referencing insult fails. |
 | Lock-screen | While `lockScreenSafe` is on, `pushTitle` and `pushBody` must be profanity-free and free of health terms and digits. |
@@ -368,7 +368,7 @@ const coachNudgeSchema = z.object({
 
 **Notification events.** Appended to `NOTIFICATION_EVENTS` ([§3.5](#35-notification-events)). The link is `/coach?m=<id>`. A message with ready audio adds the action **"▶ Hear Coach"**, which deep-links to `/coach?m=<id>&autoplay=1`.
 
-**Why the push cannot play the audio.** No browser supports the Notification `sound` option ([MDN: showNotification](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/showNotification)), and a service worker has no audio output. The push therefore carries text plus the action. The click is a user gesture, which satisfies autoplay rules, so the opened page can play the audio. Today's push channel (`apps/api/src/notifications/channels/push-notification.channel.ts`) and `apps/web/src/sw.ts` carry no action; the work to add one (a payload `actions` field, a `notificationclick` branch that opens the `autoplay=1` URL) belongs to E7.5.
+**Why the push cannot play the audio.** No browser supports the Notification `sound` option ([MDN: showNotification](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/showNotification)), and a service worker has no audio output. The push therefore carries text plus the action. The click is a user gesture, which satisfies autoplay rules, so the opened page can play the audio. The push channel (`apps/api/src/notifications/channels/push-notification.channel.ts`) and `apps/web/src/sw.ts` carry the action: a payload `actions` field and a `notificationclick` branch that opens the action's link ([browser-notifications.md](browser-notifications.md#27-web-push)).
 
 **Playback and disclosure.** The `/coach` page plays audio with `AiSpeechPlayer` (`apps/web/src/components/ai/AiSpeechPlayer.tsx`), which renders the label "AI-generated audio" (`AI_GENERATED_AUDIO_LABEL`). OpenAI requires the synthetic voice to be disclosed ([OpenAI text to speech](https://developers.openai.com/api/docs/guides/text-to-speech)).
 
@@ -378,7 +378,7 @@ const coachNudgeSchema = z.object({
 - `convertedAt` is set by the attribution rules in [§2.8](#28-learning-loop).
 - `POST /api/coach/messages/:id/feedback` stores thumbs up or down on any coach message.
 
-**As built (E7.5, #245).** Where the implementation settles a detail this section leaves open:
+**As built (E7.5).** Where the implementation settles a detail this section leaves open:
 
 - **Layout.** Everything lives in `apps/api/src/coach/nudges/` (`CoachNudgesModule`, imported by `CoachModule`): `handlers/coach-nudge.handler.ts`, `handlers/coach-message-deliver.handler.ts`, `nudge-context.ts`, `nudge-prompt.ts`, `nudge-schema.ts`, `static-fallback.ts`, `angle-picker.ts`, `coach-messages.controller.ts` and `.service.ts`, `coach-conversion.ts` and `.listener.ts`. The never-send list is `apps/api/src/coach/context/coach-never-send.ts`.
 - **`aiRunId` is null for nudges.** `respondStructured` is a synchronous call and writes no `ai_runs` row (its `ai_usage_events` row is the record). The column stays for E7.6's `speak()` run and for any later background call.
@@ -393,7 +393,7 @@ const coachNudgeSchema = z.object({
 - **Metrics.** `app.coach.nudge.sent{moment}`, `app.coach.nudge.suppressed{reason, moment}` (job reasons: `model_declined`, `coach_off`, `paused`, `no_model`, `ai_error`, `guard_rejected`, `already_sent`), `app.coach.nudge.fallback{moment}`, `app.coach.nudge.opened{moment}`, `app.coach.nudge.converted{moment, target}`, `app.coach.feedback{value}`. The planner's own `coach.nudge.suppressed{coach.reason}` (E7.4) keeps the sweep's gate reasons. Spans: `coach.nudge.generate`, `coach.message.deliver`.
 - **Photo conversion.** The listener subscribes to `progress_photo.created` (`PROGRESS_PHOTO_CREATED_EVENT`, payload `{ userId, photoId }`); E7.9 emits it after the photo row commits.
 
-**As built (E7.6, #246).** Where the voice implementation settles a detail this section leaves open:
+**As built (E7.6).** Where the voice implementation settles a detail this section leaves open:
 
 - **Layout.** `apps/api/src/coach/audio/` (`CoachAudioModule`, imported by `CoachNudgesModule`): `coach-audio.service.ts`, `tts-refusal.ts`, `coach-audio-settled.listener.ts`, `handlers/coach-audio-settle.handler.ts`, `handlers/coach-audio-purge.handler.ts`, `tasks/coach-audio-purge.task.ts`, `coach-voice.controller.ts` with `coach-voice-preview.service.ts` and `coach-preview-rate-limiter.ts`.
 - **When audio is attempted.** Only when the user's `audio.enabled` and the system `allowAudio` are both on. The message is then written `pending`; if `coach.voice` does not resolve it is written `failed` instead, with `data.audioFailure.reason = 'no_voice_model'`, and delivered as text at once.
@@ -419,12 +419,12 @@ const coachNudgeSchema = z.object({
 | `future_self` | A message from the user's own "why" |
 | `social_proof_self` | Beating your past self ("last month's best") |
 
-**Selection.** `pickAngle(history, eligibleAngles, rng)` in `apps/api/src/coach/learning/pick-angle.ts` **(new)** is pure; `rng` is injected so tests are deterministic. It implements the recovering-difference softmax from Duolingo's "sleeping, recovering" bandit ([Yancey and Settles, KDD 2020](https://research.duolingo.com/papers/yancey.kdd20.pdf)):
+**Selection.** `pickAngle(history, eligibleAngles, rng)` in `apps/api/src/coach/learning/pick-angle.ts` is pure; `rng` is injected so tests are deterministic. It implements the recovering-difference softmax from Duolingo's "sleeping, recovering" bandit ([Yancey and Settles, KDD 2020](https://research.duolingo.com/papers/yancey.kdd20.pdf)):
 
 - **Reward per angle** `r(a)` = the global conversion rate when angle `a` was **sent**, minus the rate when `a` was **eligible but not sent** (the recovering difference), over the last 90 days. Below a minimum sample count the difference is zero, which yields uniform choice (cold start).
 - **Per-user novelty penalty** `γ · 0.5^(d/h)`, where `d` is the days since this user last got angle `a` and `h` is the half-life. A fresh angle pays no penalty; a repeated one pays most. This fights novelty decay.
 - **Score** `s(a) = r(a) - penalty(a)`; **probability** `p(a) = softmax(s / τ)` over `eligibleAngles`.
-- **Constants** `γ`, `h`, `τ`, the sample floor and the window live in `apps/api/src/coach/learning/learning.constants.ts` **(new)**. They are code constants, never settings or env vars.
+- **Constants** `γ`, `h`, `τ`, the sample floor and the window live in `apps/api/src/coach/learning/learning.constants.ts`. They are code constants, never settings or env vars.
 - **Eligible angles** are filtered by persona and by register: a supportive register allows only `identity` and `future_self`. `future_self` needs a `why`. A persona that cannot voice an angle lists it in `PERSONA_ANGLE_EXCLUSIONS` (empty today); a persona's **favoured** angle (the Analyst's `data`) gets a score bonus from `PERSONA_ANGLE_BONUS`, in reward units, rather than an exclusion of the others.
 
 **Implementation notes (E7.11).**
@@ -452,7 +452,7 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 **Routes.** `POST /api/coach/chat/stream` streams server-sent events; `GET /api/coach/messages?before=&limit=` returns the cursor-paged timeline.
 
 - **Streaming.** The handler uses `pipeAiSse` (`apps/api/src/ai/http/ai-sse.ts`) and `AiService.forUser(...).runTools`, model resolved through `coach.chat`. Web side: `postSse` in `apps/web/src/services/sse.ts` and a thread like `apps/web/src/components/ai/AiChatThread.tsx`.
-- **Nginx.** The route needs an unbuffered location block in **both** `infra/nginx/nginx.conf` and `apps/cli/src/deploy/proxy.ts` (the CLI test `apps/cli/src/deploy/proxy.test.ts` asserts each streaming location). Model the block on `location /api/ai/responses/stream`. The existing guard `apps/api/test/ai/ai-stream-nginx.spec.ts` shows the pattern; a new `coach-stream-nginx.spec.ts` **(new)** asserts the coach block.
+- **Nginx.** The route needs an unbuffered location block in **both** `infra/nginx/nginx.conf` and `apps/cli/src/deploy/proxy.ts` (the CLI test `apps/cli/src/deploy/proxy.test.ts` asserts each streaming location). Model the block on `location /api/ai/responses/stream`. The existing guard `apps/api/test/ai/ai-stream-nginx.spec.ts` shows the pattern; `apps/api/test/coach/coach-stream-nginx.spec.ts` asserts the coach block.
 - **History window.** The persona system prompt plus the last 20 messages of the timeline. Older turns are not sent.
 
 **Tools.** Read-only tools return minimised data. The one write tool is narrow.
@@ -469,7 +469,7 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 
 Plan changes are not tools. The coach proposes and links to the existing adjust flow, so the user stays in control.
 
-**Safety screen.** Every user message passes `screenFreeText` (`apps/api/src/training-agents/guardrails/safety-screen.ts`) and a coach-specific distress screen `apps/api/src/coach/safety/distress-screen.ts` **(new)**. The existing screen covers urgent physical symptoms and pain stems; it has no self-harm or eating-disorder rules, so the coach adds them.
+**Safety screen.** Every user message passes `screenFreeText` (`apps/api/src/training-agents/guardrails/safety-screen.ts`) and a coach-specific distress screen `apps/api/src/coach/safety/distress-screen.ts`. The existing screen covers urgent physical symptoms and pain stems; it has no self-harm or eating-disorder rules, so the coach adds them.
 
 | Outcome | Behaviour |
 |---|---|
@@ -477,7 +477,7 @@ Plan changes are not tools. The coach proposes and links to the existing adjust 
 | `conservative` (pain, injury, strain) | The model is called in the supportive register, with the pushy angles removed and the prompt told not to advise training through pain. |
 | `ok` | Normal persona. |
 
-**Never-send.** `apps/api/src/coach/context/coach-never-send.ts` **(new)** extends the list in `apps/api/src/training-agents/context/never-send.ts` with `progress_photos` and audio, and the canary test walks it. Name, email, date of birth, check-in and pain notes, medications, labs and storage keys never reach a prompt ([§5](#5-guardrails)).
+**Never-send.** `apps/api/src/coach/context/coach-never-send.ts` extends the list in `apps/api/src/training-agents/context/never-send.ts` with `progress_photos` and audio, and the canary test walks it. Name, email, date of birth, check-in and pain notes, medications, labs and storage keys never reach a prompt ([§5](#5-guardrails)).
 
 **Limits.** Rate limits come from `ai.limits` (`AiLimitsService`); a limited call answers `429 AI_RATE_LIMITED`. Chat turns are stored as `CoachMessage` rows (`kind = 'chat'`).
 
@@ -509,7 +509,7 @@ At local Sunday 18:00 the sweep enqueues `ai.coach.weekly_review`, deduped by IS
 
 The review is a `weekly_review` message, rendered as a rich card in `/coach`, with the deterministic block in a table and the prose around it. **The prose never carries a number the stats block does not carry**; the guard enforces this.
 
-**Email.** Template `apps/api/src/email/templates/coach-weekly-review.email.ts` **(new)**, registered in `apps/api/src/email/templates/index.ts` (`EVENT_EMAIL_TEMPLATES`):
+**Email.** Template `apps/api/src/email/templates/coach-weekly-review.email.ts`, registered in `apps/api/src/email/templates/index.ts` (`EVENT_EMAIL_TEMPLATES`):
 
 - Stats table, persona intro, wins and one focus.
 - Call to action "Plan my week" linking to `/coach`.
@@ -550,7 +550,7 @@ The streak counts **consecutive weeks** in which the user reached the week's ses
 - A photo prompt notification never includes an image or a body-related phrase.
 - Delete removes the row and the stored object; erasure follows [§2.2](#22-data-model).
 
-**Web.** A new Health page, **Progress photos** (`apps/web/src/pages/ProgressPhotosPage.tsx` **(new)**):
+**Web.** A new Health page, **Progress photos** (`apps/web/src/pages/ProgressPhotosPage.tsx`):
 
 - Gallery grouped by month.
 - **Compare**: pick two dates, view side by side or with a slider.
@@ -574,7 +574,7 @@ The streak counts **consecutive weeks** in which the user reached the week's ses
 
 #### `/coach` timeline
 
-A messaging-style page, `apps/web/src/pages/CoachPage.tsx` **(new)**.
+A messaging-style page, `apps/web/src/pages/CoachPage.tsx`.
 
 | Region | Contents |
 |---|---|
@@ -585,7 +585,7 @@ A messaging-style page, `apps/web/src/pages/CoachPage.tsx` **(new)**.
 
 #### Today
 
-- A `CoachHero` strip (`apps/web/src/components/today/CoachHero.tsx` **(new)**) above the card grid: the latest unread coach line and a reply button.
+- A `CoachHero` strip (`apps/web/src/components/today/CoachHero.tsx`) above the card grid: the latest unread coach line and a reply button.
 - A `coach` entry **appended** to `TODAY_CARDS` (`apps/web/src/config/todayCards.tsx`). Append, never insert, and update the `CARD_SIZE` map in `apps/web/src/pages/TodayPage.tsx`.
 
 #### User settings `/settings/coach`
@@ -620,7 +620,7 @@ A get-started step `meet_coach` ([onboarding.md §4.1](onboarding.md#41-add-a-us
 | Pain pattern | Signals pain block (`consecutiveFlaggedSessions`) | Supportive only. Never nudges a session of the flagged exercise. |
 | Low readiness streak | Signals readiness `lowStreak` | Supportive; the nudge offers rest or a lighter session. |
 | Urgent symptom in chat | `screenFreeText` returns `blocked` | No model call; deterministic message with seek-help guidance. |
-| Distress, self-harm or disordered-eating cue | `distress-screen.ts` **(new)** | No model call; supportive message with a seek-help line. The coach does not continue in persona. |
+| Distress, self-harm or disordered-eating cue | `distress-screen.ts` | No model call; supportive message with a seek-help line. The coach does not continue in persona. |
 | User says they are ill | Chat | The coach offers `pause_coach`. |
 
 The supportive register is calm and warm for every persona, including Sarge at L3: no profanity, no insults, no pushy angle. Persona flavour returns only when the trigger clears.
@@ -689,17 +689,18 @@ Then add a **Coach** section to `apps/web/src/pages/Admin/AiAssignmentsPage.tsx`
 
 ### 3.4 Jobs
 
-All coach jobs are server-only. The AI jobs implement neither `nodeResultSchema` nor `persistNodeResult` (AI rule 3). The two non-AI jobs are also server-only, with a reason each.
+All coach jobs are server-only. The AI jobs implement neither `nodeResultSchema` nor `persistNodeResult` (AI rule 3). The non-AI jobs are also server-only, with a reason each. The `type` strings live in `apps/api/src/coach/coach-job-types.ts`.
 
-| Type | AI | Profile `maxRuntimeMs / maxAttempts` | Node posture and why |
-|---|---|---|---|
-| `coach.sweep` | no | 5 min / 2 | Server-only: reads many tables mid-computation for every user. |
-| `ai.coach.nudge` | yes | 2 min / 2 | Server-only: AI rule; a user's key never goes to a node. |
-| `ai.coach.weekly_review` | yes | 3 min / 2 | Server-only: AI rule. |
-| `coach.message.deliver` | no | 1 min / 3 | Server-only: sends a notification and writes rows as it goes. |
-| `coach.audio.settle` | no | 30 s / 3 | Server-only: maps a settled speech run (or the 2-minute wait cap) to its message and enqueues delivery (E7.6). |
-| `coach.audio.purge` | no | 10 min / 2 | Server-only: deletes stored objects; enqueued daily through `enqueueHousekeepingJob`. |
-| `ai.audio.speech` (existing) | yes | existing | Reused unchanged. |
+| Type | AI | Profile `maxRuntimeMs / maxAttempts` | Enqueued by | Node posture and why |
+|---|---|---|---|---|
+| `coach.sweep` | no | 5 min / 2 | `CoachSweepTask`, cron `17 * * * *` (only while AI and the coach are on), through `enqueueHousekeepingJob`; a pass that runs out of its 4-minute budget queues a continuation | Server-only: reads many tables mid-computation for every user. |
+| `coach.workout_finished` | no | 1 min / 2 | A finished workout; plans the event moments (`comeback`, `pr`, `weekly_target_hit`) for that one user through the planner's gates | Server-only: reads many tables mid-computation. |
+| `ai.coach.nudge` | yes | 2 min / 2 | The sweep or `coach.workout_finished`, one per planned moment | Server-only: AI rule; a user's key never goes to a node. |
+| `ai.coach.weekly_review` | yes | 3 min / 2 | The sweep, for the weekly-review lane (local Sunday 18:00, caught up until Monday 18:00) | Server-only: AI rule. |
+| `coach.message.deliver` | no | 1 min / 3 | `ai.coach.nudge`, `ai.coach.weekly_review`, `coach.audio.settle` | Server-only: sends a notification and writes rows as it goes. |
+| `coach.audio.settle` | no | 30 s / 3 | A settled `ai.audio.speech` run (listener), or a 2-minute wait-cap job scheduled with the speech request | Server-only: maps a settled speech run (or the wait cap) to its message and enqueues delivery. |
+| `coach.audio.purge` | no | 10 min / 2 | `CoachAudioPurgeTask`, cron `23 3 * * *`, through `enqueueHousekeepingJob` | Server-only: deletes stored objects. |
+| `ai.audio.speech` (existing) | yes | existing | `coach.*` speech requests and voice previews | Reused unchanged. |
 
 A job `type` string is permanent once rows of it exist.
 
@@ -716,7 +717,7 @@ Appended to `NOTIFICATION_EVENTS` (`apps/api/src/notifications/notification-even
 
 ### 3.6 Routes
 
-Details in `/api/docs` once built.
+Details in `/api/docs`.
 
 | Method and path | Permission | Guards |
 |---|---|---|
@@ -724,10 +725,10 @@ Details in `/api/docs` once built.
 | `GET /api/coach/settings`, `PUT /api/coach/settings` | `ai:use` | `@Auth`, `AiEnabledGuard` |
 | `POST /api/coach/voice-preview` | `ai:use` | `@Auth`, `AiEnabledGuard`, rate limit (10 per 10 minutes per user, per API process) |
 | `GET /api/coach/messages` | `ai:use` | `@Auth`, `AiEnabledGuard` |
-| `POST /api/coach/messages/:id/opened` | `ai:use` | `@Auth`, `AiEnabledGuard` |
-| `POST /api/coach/messages/:id/feedback` | `ai:use` | `@Auth`, `AiEnabledGuard` |
+| `POST /api/coach/messages/:id/opened` | `ai:use` | `@Auth`, `AiEnabledGuard`; answers 204 |
+| `POST /api/coach/messages/:id/feedback` | `ai:use` | `@Auth`, `AiEnabledGuard`; answers 204 |
 | `POST /api/coach/chat/stream` | `ai:use` and `programs:read` | `@Auth`, `AiEnabledGuard` |
-| `GET /api/coach/state` | `ai:use` | `@Auth`, `AiEnabledGuard`; header ring and streak |
+| `GET /api/coach/state` | `ai:use` and `programs:read` | `@Auth`, `AiEnabledGuard`; header ring and streak |
 | `GET /api/progress-photos`, `POST /api/progress-photos`, `DELETE /api/progress-photos/:id` | `health_data:read` / `health_data:write` | `@Auth`; **no** `AiEnabledGuard` |
 | `GET /api/admin/coach/settings`, `PUT /api/admin/coach/settings` | `ai_config:read` / `ai_config:write` | `@Auth`; **not** behind `AiEnabledGuard` |
 | `GET /api/admin/coach/stats` | `ai_config:read` | `@Auth`; **not** behind `AiEnabledGuard` |
@@ -789,7 +790,7 @@ Voice output goes through `AiService.speak`, so a new provider is an AI-platform
 
 ## 5. Guardrails
 
-Tests to be added by the epic **(new)** unless marked existing.
+Tests that exist; "(existing, extended)" marks a suite the coach added cases to.
 
 | Rule | Test |
 |---|---|
@@ -880,6 +881,17 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
 
 ## History
 
-- Proposed under epic E7 (issue 240), stories E7.1 to E7.13 (issues 241 to 253).
-- E7.5 (issue 245): nudge generation, delivery, push action and feedback; the as-built notes are at the end of [§2.7](#27-delivery-and-audio).
-- E7.10 (issue 250): the weekly review job, its email and the weekly streak; the as-built notes are at the end of [§2.10](#210-weekly-review-and-email).
+- Epic E7 (issue 240), stories E7.1 to E7.13 (issues 241 to 253), shipped in this order:
+  - E7.1 (issue 241): foundations (models, settings, AI feature ids, reset wiring).
+  - E7.2 (issue 242): persona registry, content guard and settings API.
+  - E7.3 (issue 243): coach settings UI (user, admin, Model Assignments).
+  - E7.4 (issue 244): decision engine and the hourly sweep.
+  - E7.5 (issue 245): nudge generation, delivery, push action and feedback; the as-built notes are at the end of [§2.7](#27-delivery-and-audio).
+  - E7.6 (issue 246): voice, TTS fallback, preview and retention.
+  - E7.7 (issue 247): the chat API.
+  - E7.8 (issue 248): the Coach page, navigation and Today integration.
+  - E7.9 (issue 249): progress photos.
+  - E7.10 (issue 250): the weekly review job, its email and the weekly streak; the as-built notes are at the end of [§2.10](#210-weekly-review-and-email).
+  - E7.11 (issue 251): the learning loop and admin engagement stats.
+  - E7.12 (issue 252): onboarding "Meet your coach" and the kickoff message.
+  - E7.13 (issue 253): end-to-end tests, visual baselines, the runbook and the doc rows.

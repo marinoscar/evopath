@@ -440,9 +440,15 @@ A one-time welcome dialog leads into a short checklist: a Setup guide for admini
 
 The AI Coach (`apps/api/src/coach/`, module `CoachModule`) is an accountability coach with a chosen persona. Seven personas live in an in-code registry (`coach/personas/`), each with a style card, an intensity rubric for levels 1 to 3, a default voice and static sample lines for every moment; `GET /api/coach/personas` serves it. `resolveRegister` (`coach/personas/resolve-register.ts`) is the single answer to whether profanity is allowed: only Sarge at level 3, with the deployment's `allowProfanePersonas`, an adult user (a health-profile date of birth under 18 always refuses) and the user's opt-in. Every coach-written string passes the pure content guard `coach/guard/coach-content-guard.ts`, whose lists live in code. `GET/PUT /api/coach/settings` reads and writes the `coach` user-settings namespace with the unlock rules applied; `GET/PUT /api/admin/coach/settings` reads and writes the `coach` system setting.
 
-- **Code:** `apps/api/src/coach/`
-- **Permissions:** `ai:use` behind `AiEnabledGuard` (`/api/coach/*`); `ai_config:read`/`ai_config:write`, not behind it (`/api/admin/coach/*`)
-- **Read more:** [specs/ai-coach.md](specs/ai-coach.md)
+The rest of the module is split by concern. A pure decision engine (`coach/planning/plan-coach-moments.ts`, no Nest or Prisma import) decides when the coach may speak; the hourly `coach.sweep` (a cron that only enqueues) and `coach.workout_finished` (a finished workout) run it, and `coach_states` holds each user's scheduling state (caps, pause, silence, weekly streak). `ai.coach.nudge` asks the `coach.decision` model whether to speak and what to say, runs the content guard, persists a `coach_messages` row and queues `coach.message.deliver`, which raises the notification after the write commits. A spoken nudge asks the existing `ai.audio.speech` job for audio first; `coach.audio.settle` records the result and `coach.audio.purge` deletes audio past the retention. A learning loop (`coach/learning/`) picks each nudge's angle. `POST /api/coach/chat/stream` streams a persona-voiced chat with read-only tools plus one pause tool, `ai.coach.weekly_review` writes the weekly review and its email, and `GET /api/admin/coach/stats` serves aggregate engagement. Progress photos are a separate module, `apps/api/src/progress-photos/` (`progress_photos`, `/api/progress-photos`, permissions `health_data:read/write`, no `AiEnabledGuard`), because the gallery works with AI off. Every number a coach message quotes comes from the training signals; the model never supplies one. Every coach job is server-only (inventory in [§8.1](#81-job-type-inventory)).
+
+On the web, `/coach` is the timeline (nudges, chat, reviews, photo prompts), Today carries a coach hero and card, Coach is the fourth primary destination while it is visible to the user (AI on and `ai:use`) and Gyms keeps that slot otherwise (`primaryWhenHidden` in `apps/web/src/config/destinations.ts`, see [§9.3](#93-layout-and-breakpoint)), `/settings/coach` and `/admin/settings/coach` are the settings pages ([§9.2](#92-settings-pages)), and the Coach section of the AI Model Assignments page assigns the three coach features. Notifications use four events, `coach.nudge`, `coach.celebration`, `coach.photo_prompt` and `coach.weekly_review` (the review also by email), none mandatory. A push may carry one action button, "Hear Coach", plus `data.messageId`; the service worker opens the action's link ([specs/browser-notifications.md](specs/browser-notifications.md#27-web-push)). A user's "Delete all my data" and the factory reset remove the three models and their audio and photo objects. The onboarding `ai_plan` step becomes "Meet your coach" once a plan exists, and activating a plan triggers a kickoff message ([specs/onboarding.md](specs/onboarding.md)).
+
+- **Code:** `apps/api/src/coach/`, `apps/api/src/progress-photos/`, `apps/web/src/pages/CoachPage.tsx`, `apps/web/src/components/coach/`
+- **Routes:** `/api/coach/*`, `/api/admin/coach/*`, `/api/progress-photos` (reference in `/api/docs`)
+- **UI:** `/coach`, `/settings/coach`, `/health/progress-photos`; admin `/admin/settings/coach`
+- **Permissions:** `ai:use` behind `AiEnabledGuard` (`/api/coach/*`; chat and `GET /api/coach/state` also need `programs:read`); `ai_config:read`/`ai_config:write`, not behind it (`/api/admin/coach/*`); `health_data:read`/`health_data:write` (`/api/progress-photos`)
+- **Read more:** [specs/ai-coach.md](specs/ai-coach.md), [runbooks/ai-coach.md](runbooks/ai-coach.md)
 
 ---
 
@@ -450,7 +456,7 @@ The AI Coach (`apps/api/src/coach/`, module `CoachModule`) is an accountability 
 
 ### 6.1 Prisma models
 
-The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 44 models, grouped by subsystem:
+The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 68 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|
@@ -519,6 +525,9 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 | Training | `ProgramChangeLog` | `program_change_log` | One change to a program: `kind` (`created`, `adapted`, `edited`, `reverted`, `reviewed`; a `reviewed` row records an evaluation that changed nothing or a safety stop, with equal from and to version and no version bump), `actor` (`ai`, `user`, `system`), `status` (`applied`, `reverted`, ...), from and to version, `operations`, `citations`, `revertsLogId`, `seenAt`; indexed by `(programId, createdAt DESC)` |
 | Training | `ProgramSession` | `program_sessions` | Link between a planned workout and the logged workout started from it: unique `workoutId` (cascade with the workout), `programWorkoutId` (set null on delete), the plan `versionNumber`, the `plannedSnapshot` JSON of the prescription taken at start, and `plannedFor` |
 | Training | `WorkoutAdaptation` | `workout_adaptations` | One quick "adjust today's workout" request and its result: `status` (`queued`, `running`, and terminal states), `request`, optional `gymId` (set null when the gym is deleted), `baseRef`, `proposal`, `guardrailReport`, `criticReport`, `safety`, `models`, `runId` and `jobId` as plain columns, `errorCode`, the `applied*` columns and `expiresAt` (30 days); cascade on the user; at most one `queued` or `running` row per user, enforced by the raw-SQL partial unique index `workout_adaptations_active_per_user_uniq_idx` |
+| Coach | `CoachMessage` | `coach_messages` | One timeline message, every kind in one table: `role` (`coach`, `user`), `kind` (`nudge`, `chat`, `weekly_review`, `celebration`, `photo_prompt`, `comeback`, `kickoff`, `system`), `moment`, bandit `angle`, persona and intensity, title and body, lock-screen `pushTitle`/`pushBody`, `audioStatus` (`none`, `pending`, `ready`, `failed`) with the audio `StorageObject` (set null so retention can purge the file and keep the text), plain `audioRunId`, `aiRunId` and `notificationId` columns, `data` JSON, `deliveredAt`, `openedAt`, `convertedAt`, `feedback` (`up`, `down`); cascade from the user |
+| Coach | `CoachState` | `coach_states` | One row per user (unique `userId`): `lastNudgeAt`, `nudgesToday` with its local day, `consecutiveIgnored`, `pausedUntil`, `silencedAt`, `lastSweepAt`, `usualWorkoutMinuteLocal`, `weeklyStreak`, `streakPassesLeft`, `lastWeeklyReviewWeek` (ISO week key) |
+| Coach | `ProgressPhoto` | `progress_photos` | One progress photo: `localDate`, `pose` (`front`, `side`, `back`, `other`), a note of at most 200 characters no model reads, and the image `StorageObject` (cascade) |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -626,7 +635,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 34 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
+All 47 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
 
 | Type | Handler | What it does | Node-eligible |
 |---|---|---|:-:|
@@ -644,6 +653,13 @@ All 34 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `ai.workout.prefill` | `workouts/prefill/workout-prefill.handler.ts` | "Prefill from photo": sends a `workout_prefill` photo intake's photos (machine placard, notebook, whiteboard) to the user's vision model in chunks of 16 and stores one exercise draft per line, with the written sets converted to kg | No |
 | `ai.training.plan.run` | `training-agents/runtime/training-plan-run.handler.ts` | Executes one training agent graph run with checkpoints; profile 25 minutes, 1 attempt; a resume is a new job for the same run | No |
 | `ai.training.adapt.run` | `training-adaptation/handlers/adaptation-run.handler.ts` | Executes one quick workout adaptation (planner, light critic, at most one revise) on a `training_plan_runs` row of kind `adapt`; profile 5 minutes, 1 attempt; server-only | No |
+| `coach.sweep` | `coach/planning/handlers/coach-sweep.handler.ts` | Plans every coach-enabled user's next moment through the pure decision engine, in pages with a cursor continuation; enqueued hourly (minute 17) by a cron that only enqueues, only while AI and the coach are on; profile 5 minutes, 2 attempts; server-only | No |
+| `coach.workout_finished` | `coach/planning/handlers/coach-workout-finished.handler.ts` | Plans the event moments (`comeback`, `pr`, `weekly_target_hit`) for one user after a finished workout, through the same gates; profile 1 minute, 2 attempts; server-only | No |
+| `ai.coach.nudge` | `coach/nudges/handlers/coach-nudge.handler.ts` | Asks the `coach.decision` model whether to speak and what to say, runs the content guard (one regeneration, then a static persona line), persists the `coach_messages` row and queues delivery; profile 2 minutes, 2 attempts | No |
+| `ai.coach.weekly_review` | `coach/review/handlers/coach-weekly-review.handler.ts` | Writes the weekly review (server-built stats, model prose, static fallback), updates the weekly streak and queues delivery; one per user per ISO week; profile 3 minutes, 2 attempts | No |
+| `coach.message.deliver` | `coach/nudges/handlers/coach-message-deliver.handler.ts` | Raises the `coach.*` notification for one persisted message after its write committed; skips a message already delivered; profile 1 minute, 3 attempts; server-only | No |
+| `coach.audio.settle` | `coach/audio/handlers/coach-audio-settle.handler.ts` | Maps a settled `ai.audio.speech` run (or the 2-minute wait cap) to its message as `ready` or `failed` and queues delivery; profile 30 seconds, 3 attempts; server-only | No |
+| `coach.audio.purge` | `coach/audio/handlers/coach-audio-purge.handler.ts` | Deletes coach audio older than `coach.audioRetentionDays`, keeping the message text; enqueued daily at 03:23 UTC by a cron that only enqueues; profile 10 minutes, 2 attempts; server-only | No |
 | `gyms.temporary.purge` | `gyms/handlers/temporary-gym-purge.handler.ts` | Deletes temporary gyms unchanged for 30 days that no workout, live adaptation, holding program or scanning intake references, and their storage objects; enqueued by a daily 03:30 cron that only enqueues; server-only, default profile | No |
 | `health.document.purge` | `health-documents/handlers/health-document-purge.handler.ts` | Erases one `delete_after_processing` health document's file through `ObjectsService.delete`, stamps `file_deleted_at`, audits `health:document:delete`; enqueued inside the transaction that applies or discards a health intake, or with `reason: user_delete` (any retention) by `DELETE /api/health/documents/:id`; server-only (it deletes storage objects), profile 5 minutes, 8 attempts | No |
 | `health.export` | `health-export/handlers/health-export.handler.ts` | Writes one user's health data export (JSON, CSV zip, XLSX or PDF) for a date range to `exports/<userId>/<exportId>.<ext>` as a storage object the user owns, records the result on its own `payload.result`, audits `health:export:create` and notifies the user; enqueued by `POST /api/health/exports` (the export id is the job id); server-only (reads several tables mid-computation, and the input is a health record), profile 15 minutes, 2 attempts | No |
@@ -706,7 +722,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Access | Routes |
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
-| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/train/exercises` and `/train/workouts/:workoutId` (workout logging and the exercise library; see [§5.23](#523-exercise-library) and [§5.24](#524-workout-logging)), `/train/plans`, `/train/plans/:programId` and `/train/plans/:programId/history` (`programs:read`; see [§5.25](#525-training-programs)), `/train/plans/new` and `/train/plans/runs/:runId` (`ai:use`, AI enabled, else a redirect to `/train/plans`; see [§5.10](#510-ai-platform)), `/train/adapt/:adaptationId` (a quick workout adaptation, `ai:use` and AI enabled, else a redirect to `/train`; see [§5.10](#510-ai-platform)), `/gyms` (see [§5.22](#522-gyms-and-equipment)), `/activate` (device approval), `/settings` hub and its pages |
+| Signed in | `/` (Today), `/health` (latest body and vital values with quick entry; see [specs/health-data.md](specs/health-data.md#214-quick-entry-and-the-health-page)), `/train`, `/train/exercises` and `/train/workouts/:workoutId` (workout logging and the exercise library; see [§5.23](#523-exercise-library) and [§5.24](#524-workout-logging)), `/train/plans`, `/train/plans/:programId` and `/train/plans/:programId/history` (`programs:read`; see [§5.25](#525-training-programs)), `/train/plans/new` and `/train/plans/runs/:runId` (`ai:use`, AI enabled, else a redirect to `/train/plans`; see [§5.10](#510-ai-platform)), `/train/adapt/:adaptationId` (a quick workout adaptation, `ai:use` and AI enabled, else a redirect to `/train`; see [§5.10](#510-ai-platform)), `/gyms` (see [§5.22](#522-gyms-and-equipment)), `/health/progress-photos` (the progress-photo gallery, compare and ghost overlay; `health_data:read`, else a redirect to `/health`; see [§5.30](#530-ai-coach)), `/coach` (the AI Coach timeline; `ai:use` and AI enabled, else a redirect to `/`; see [§5.30](#530-ai-coach)), `/activate` (device approval), `/settings` hub and its pages |
 | Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
@@ -735,6 +751,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/ai/models` | AI Models | AI | `ai_config:read` | `ai` |
 | `/admin/settings/ai/assignments` | AI Model Assignments | AI | `ai_config:read` | `ai` |
 | `/admin/settings/ai/usage` | AI Usage | AI | `ai_config:read` | `ai` |
+| `/admin/settings/coach` | Coach (system policy, engagement stats; the coach models are on AI Model Assignments) | AI | `ai_config:read` | `ai` |
 | `/admin/settings/telemetry` | Telemetry | Observability | `telemetry:read` | none (the page that turns telemetry on) |
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
@@ -746,9 +763,12 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/ai/agents` | Training agents (read-only model view) | AI | `ai:use` | `ai` |
+| `/settings/coach` | Coach (persona, intensity, adult-language opt-in, audio, quiet hours, daily cap, photo cadence) | AI | `ai:use` | `ai` |
 | `/settings/health-profile` | Health Profile | Health | `health_data:read` | |
 | `/settings/health-documents` | Health Documents (view, download, rename, delete uploaded files) | Health | `health_data:read` | |
 | `/settings/danger-zone` | Delete all my data | Danger Zone | | none (stays reachable while AI is off) |
+
+`/health/progress-photos` is not a settings card: it is a Health sub-page reached from the Health page and from the coach's photo prompts.
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
 
@@ -756,7 +776,7 @@ Cards gate reachability; pages gate their own write controls (for example, a `jo
 
 The layout switches between a phone treatment (bottom navigation, compact AppBar, drill-down settings list) and a wider treatment (navigation rail, card grid) at MUI's `sm` breakpoint, 600px. Five gates move together: `showRail` in `apps/web/src/components/common/Layout.tsx`, the self-gate in `components/navigation/BottomNav.tsx`, `<main>`'s bottom padding in `Layout.tsx`, and `isCompactWindow` in both `components/settings/SettingsHub.tsx` and `components/navigation/AppBar.tsx`. Change one only after checking all five. See [specs/settings-ui.md](specs/settings-ui.md).
 
-Destinations are declared once, in `apps/web/src/config/destinations.ts`; the rail, the bottom bar and the user menu all read that list. Four are `primary`: Today, Train, Health and Gyms. They make up the phone bottom bar, and `PRIMARY_DESTINATION_LIMIT` (4) caps how many may be, because more labelled tabs do not fit at 360px; a test enforces the ceiling. The other destinations (Settings, Console, AI) are not in the bottom bar. On phones they are entries in the user menu; at `sm` and up they sit in the rail, with Console pinned at its foot.
+Destinations are declared once, in `apps/web/src/config/destinations.ts`; the rail, the bottom bar and the user menu all read that list. Four are `primary` for any one user: Today, Train, Health and a fourth that is Coach while it is visible to the user (`ai:use` and AI on) and Gyms otherwise (`gyms` carries `primaryWhenHidden: 'coach'`, so the pair are mutually exclusive and the bar never has three tabs). Gyms stays reachable from the rail and the user menu. They make up the phone bottom bar, and `PRIMARY_DESTINATION_LIMIT` (4) caps how many may be, because more labelled tabs do not fit at 360px; a test enforces the ceiling. The other destinations (Settings, Console, AI, and whichever of Coach or Gyms is not primary) are not in the bottom bar. On phones they are entries in the user menu; at `sm` and up they sit in the rail, with Console pinned at its foot.
 
 ### 9.4 Contexts and API client
 
