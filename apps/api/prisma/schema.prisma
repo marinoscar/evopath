@@ -103,6 +103,9 @@ model User {
   // and every generated summary are about this person only.
   healthSummarySetting        HealthSummarySetting?
   healthSummaries             HealthSummary[]
+  // Android APK releases (#285, epic #276). SetNull: a release is a
+  // deployment artifact that outlives whoever uploaded it.
+  androidAppReleasesUploaded  AndroidAppRelease[]          @relation("AndroidAppReleaseUploader")
 
   @@map("users")
 }
@@ -3705,6 +3708,7 @@ model HealthSyncDevice {
   androidVersion       String?                @map("android_version")
   sdkInt               Int?                   @map("sdk_int")
   appVersion           String?                @map("app_version")
+  appVersionCode       Int?                   @map("app_version_code")
   healthConnectVersion String?                @map("health_connect_version")
   packageName          String?                @map("package_name")
   signingSha256        String?                @map("signing_sha256")
@@ -3802,4 +3806,34 @@ model SleepSession {
   @@index([userId, localDate])
   @@index([healthSyncDeviceId])
   @@map("sleep_sessions")
+}
+
+/// An Android APK this deployment hosts (#285, epic #276). Uploaded by an
+/// administrator (or `evopathcli android publish`), stored in object storage
+/// under `android-releases/`, downloaded by users through a short-lived signed
+/// link. At most ONE release is current deployment-wide: the raw-SQL partial
+/// unique index `android_app_releases_one_current_uniq_idx` (migration SQL
+/// only; Prisma cannot express it, never declare it as @@unique and never
+/// replace it with a findFirst pre-check). A deployment artifact: kept by user
+/// data reset (uploader SetNull) and by factory reset.
+model AndroidAppRelease {
+  id            String   @id @default(uuid()) @db.Uuid
+  packageName   String   @map("package_name")
+  versionName   String   @map("version_name") @db.VarChar(50)
+  versionCode   Int      @map("version_code")
+  signingSha256 String   @map("signing_sha256")
+  fileSha256    String   @map("file_sha256") @db.Char(64)
+  sizeBytes     Int      @map("size_bytes")
+  storageKey    String   @map("storage_key")
+  notes         String?  @db.VarChar(2000)
+  isCurrent     Boolean  @default(false) @map("is_current")
+  uploadedById  String?  @map("uploaded_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  uploadedBy User? @relation("AndroidAppReleaseUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@unique([packageName, versionCode])
+  @@index([createdAt])
+  @@index([uploadedById])
+  @@map("android_app_releases")
 }
