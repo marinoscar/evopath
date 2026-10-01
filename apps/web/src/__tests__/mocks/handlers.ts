@@ -158,6 +158,11 @@ export const handlers = [
     return HttpResponse.json({ data: mockAndroidAppConfig });
   }),
 
+  // Sleep (#283 scope update): no nights recorded.
+  http.get(`${API_BASE}/sleep`, () => {
+    return HttpResponse.json({ data: [] });
+  }),
+
   // Measurements (#53, E2.3): the catalog, a user with nothing logged, and a
   // POST that echoes each reading back with the value as sent (no unit
   // conversion; a test that cares about canonical values overrides it).
