@@ -66,6 +66,13 @@ export const registerDeviceSchema = z
     androidVersion: deviceString.optional(),
     sdkInt: z.number().int().min(0).max(10_000).optional(),
     appVersion: deviceString.optional(),
+    appVersionCode: z
+      .number()
+      .int()
+      .min(1)
+      .max(2_100_000_000)
+      .optional()
+      .meta({ description: "The installed app's Android `versionCode` (#285); compared with the server's current release." }),
     healthConnectVersion: deviceString.optional(),
     packageName: deviceString.optional(),
     signingSha256: z
@@ -248,6 +255,15 @@ export const deviceViewSchema = z.object({
   androidVersion: z.string().nullable(),
   sdkInt: z.number().int().nullable(),
   appVersion: z.string().nullable(),
+  appVersionCode: z.number().int().nullable().meta({ description: 'The versionCode the phone last registered with.' }),
+  latestVersionCode: z
+    .number()
+    .int()
+    .nullable()
+    .meta({ description: "The current server release's versionCode for this device's package; null when there is none." }),
+  updateAvailable: z
+    .boolean()
+    .meta({ description: 'True when the current server release is newer than the installed app (same package).' }),
   healthConnectVersion: z.string().nullable(),
   packageName: z.string().nullable(),
   signingSha256: z.string().nullable(),

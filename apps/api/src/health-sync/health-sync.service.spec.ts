@@ -6,7 +6,7 @@ import type { HealthProfileService } from '../health-profile/health-profile.serv
 import { HEALTH_DATA_CHANGED_EVENT } from '../measurements/health-data-events';
 import type { PrismaService } from '../prisma/prisma.service';
 import { syncSchema } from './dto/health-sync.dto';
-import { HealthSyncService } from './health-sync.service';
+import { HealthSyncService, updateStatus } from './health-sync.service';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const DEVICE = '22222222-2222-4222-8222-222222222222';
@@ -25,6 +25,7 @@ function deviceRow(overrides: Record<string, unknown> = {}) {
     androidVersion: '16',
     sdkInt: 36,
     appVersion: '0.1.0',
+    appVersionCode: 1,
     healthConnectVersion: null,
     packageName: 'com.evopath.android',
     signingSha256: null,
@@ -71,6 +72,46 @@ describe('HealthSyncService', () => {
     events = { emit: jest.fn() };
     const healthProfile = { getTimeZone: jest.fn().mockResolvedValue(null) } as unknown as HealthProfileService;
     service = new HealthSyncService(prisma as unknown as PrismaService, healthProfile, events as never);
+  });
+
+  describe('app updates (#285)', () => {
+    it('stores the registered appVersionCode and reports the current release as an update', async () => {
+      (prisma.healthSyncDevice.upsert as jest.Mock).mockResolvedValue(deviceRow({ appVersionCode: 3 }));
+      (prisma.androidAppRelease.findFirst as jest.Mock).mockResolvedValue({ packageName: 'com.evopath.android', versionCode: 4 });
+
+      const view = await service.register(
+        USER,
+        { installationId: deviceRow().installationId, name: 'Pixel 9', appVersionCode: 3 },
+        null,
+        NOW,
+      );
+
+      expect((prisma.healthSyncDevice.upsert as jest.Mock).mock.calls[0][0].update).toMatchObject({ appVersionCode: 3 });
+      expect(view).toMatchObject({ appVersionCode: 3, latestVersionCode: 4, updateAvailable: true });
+    });
+
+    it('lists devices against one read of the current release', async () => {
+      (prisma.healthSyncDevice.findMany as jest.Mock).mockResolvedValue([deviceRow(), deviceRow({ id: 'other', appVersionCode: 9 })]);
+      (prisma.androidAppRelease.findFirst as jest.Mock).mockResolvedValue({ packageName: 'com.evopath.android', versionCode: 9 });
+
+      const views = await service.list(USER);
+
+      expect(prisma.androidAppRelease.findFirst).toHaveBeenCalledTimes(1);
+      expect(views.map((view) => view.updateAvailable)).toEqual([true, false]);
+    });
+
+    it.each([
+      ['no current release', { packageName: 'com.evopath.android', appVersionCode: 1 }, null, null, false],
+      ['an older install', { packageName: 'com.evopath.android', appVersionCode: 1 }, 2, 2, true],
+      ['the same version', { packageName: 'com.evopath.android', appVersionCode: 2 }, 2, 2, false],
+      ['a newer install', { packageName: 'com.evopath.android', appVersionCode: 3 }, 2, 2, false],
+      ['an unknown installed version', { packageName: 'com.evopath.android', appVersionCode: null }, 2, 2, false],
+      ['another package', { packageName: 'com.evopath.android.debug', appVersionCode: 1 }, 2, null, false],
+      ['no reported package', { packageName: null, appVersionCode: 1 }, 2, 2, true],
+    ])('updateStatus: %s', (_label, device, releaseCode, latestVersionCode, updateAvailable) => {
+      const release = releaseCode === null ? null : { packageName: 'com.evopath.android', versionCode: releaseCode };
+      expect(updateStatus(device, release)).toEqual({ latestVersionCode, updateAvailable });
+    });
   });
 
   describe('register', () => {

@@ -50,6 +50,7 @@ function deviceRow(userId: string, overrides: Record<string, unknown> = {}) {
     androidVersion: null,
     sdkInt: null,
     appVersion: null,
+    appVersionCode: null,
     healthConnectVersion: null,
     packageName: null,
     signingSha256: null,

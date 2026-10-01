@@ -95,6 +95,27 @@ type DeviceWithPat = HealthSyncDevice & { pat: { expiresAt: Date; revokedAt: Dat
 
 const WITH_PAT = { pat: { select: { expiresAt: true, revokedAt: true } } } as const;
 
+type CurrentRelease = { packageName: string; versionCode: number } | null;
+
+/**
+ * Whether the server's current release is an update for this device (#285).
+ * It applies when the device reports no package (an older app) or the same
+ * package; `updateAvailable` needs the installed versionCode to be known and
+ * lower.
+ */
+export function updateStatus(
+  device: { packageName: string | null; appVersionCode: number | null },
+  release: CurrentRelease,
+): { latestVersionCode: number | null; updateAvailable: boolean } {
+  if (!release || (device.packageName && device.packageName !== release.packageName)) {
+    return { latestVersionCode: null, updateAvailable: false };
+  }
+  return {
+    latestVersionCode: release.versionCode,
+    updateAvailable: device.appVersionCode !== null && device.appVersionCode < release.versionCode,
+  };
+}
+
 @Injectable()
 export class HealthSyncService {
   private readonly logger = new Logger(HealthSyncService.name);
@@ -129,6 +150,7 @@ export class HealthSyncService {
       androidVersion: input.androidVersion ?? null,
       sdkInt: input.sdkInt ?? null,
       appVersion: input.appVersion ?? null,
+      appVersionCode: input.appVersionCode ?? null,
       healthConnectVersion: input.healthConnectVersion ?? null,
       packageName: input.packageName ?? null,
       signingSha256: input.signingSha256 ?? null,
@@ -159,24 +181,25 @@ export class HealthSyncService {
         include: WITH_PAT,
       });
     });
-    return this.toDeviceView(device, await this.healthProfile.getTimeZone(userId));
+    return this.toDeviceView(device, await this.healthProfile.getTimeZone(userId), await this.currentRelease());
   }
 
   async list(userId: string): Promise<DeviceView[]> {
-    const [devices, timeZone] = await Promise.all([
+    const [devices, timeZone, release] = await Promise.all([
       this.prisma.healthSyncDevice.findMany({
         where: { userId },
         include: WITH_PAT,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
       this.healthProfile.getTimeZone(userId),
+      this.currentRelease(),
     ]);
-    return devices.map((device) => this.toDeviceView(device, timeZone));
+    return devices.map((device) => this.toDeviceView(device, timeZone, release));
   }
 
   async get(userId: string, deviceId: string): Promise<DeviceView> {
     const device = await this.findOwned(userId, deviceId);
-    return this.toDeviceView(device, await this.healthProfile.getTimeZone(userId));
+    return this.toDeviceView(device, await this.healthProfile.getTimeZone(userId), await this.currentRelease());
   }
 
   /**
@@ -416,7 +439,21 @@ export class HealthSyncService {
     return device;
   }
 
-  private toDeviceView(device: DeviceWithPat, userTimezone: string | null): DeviceView {
+  /**
+   * The server's current Android release (#285), read directly: one indexed
+   * row, and the android-app module that owns the writes is not imported.
+   */
+  private async currentRelease(): Promise<CurrentRelease> {
+    return (
+      (await this.prisma.androidAppRelease.findFirst({
+        where: { isCurrent: true },
+        select: { packageName: true, versionCode: true },
+      })) ?? null
+    );
+  }
+
+  private toDeviceView(device: DeviceWithPat, userTimezone: string | null, release: CurrentRelease = null): DeviceView {
+    const update = updateStatus(device, release);
     return {
       id: device.id,
       name: device.name,
@@ -425,6 +462,9 @@ export class HealthSyncService {
       androidVersion: device.androidVersion,
       sdkInt: device.sdkInt,
       appVersion: device.appVersion,
+      appVersionCode: device.appVersionCode,
+      latestVersionCode: update.latestVersionCode,
+      updateAvailable: update.updateAvailable,
       healthConnectVersion: device.healthConnectVersion,
       packageName: device.packageName,
       signingSha256: device.signingSha256,
