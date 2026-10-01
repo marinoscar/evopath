@@ -75,6 +75,8 @@ export interface CoachTimelineProps {
   onDismissFailure: () => void;
   /** A weekly review's **Plan my week** (pre-fills the composer). */
   onPlanWeek?: (prompt: string) => void;
+  /** How weekly reviews' distance goals read. Default `km`. */
+  distanceUnit?: 'km' | 'mi';
   /** Rendered in the box when there is nothing else (the empty state). */
   empty?: ReactNode;
 }
@@ -226,6 +228,7 @@ export function CoachTimeline({
   onRetry,
   onDismissFailure,
   onPlanWeek,
+  distanceUnit,
   empty,
 }: CoachTimelineProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -311,6 +314,7 @@ export function CoachTimeline({
             onFeedback={message.role === 'coach' ? onFeedback : undefined}
             onDisplayed={onDisplayed}
             onPlanWeek={onPlanWeek}
+            distanceUnit={distanceUnit}
           />
         ))}
         {pending && <PendingTurn turn={pending} persona={persona} onRetry={onRetry} onDismiss={onDismissFailure} />}

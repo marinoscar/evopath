@@ -122,6 +122,32 @@ describe('WeeklyReviewCard', () => {
     expect(screen.getByText('and 2 more')).toBeInTheDocument();
   });
 
+  it('renders the activity goals compactly when stats.goals is present (#269)', () => {
+    const goals = [
+      { title: 'Walk 4x', metric: 'sessions' as const, period: 'week' as const, unit: 'sessions' as const, done: 4, target: 4, hit: true, streakPeriods: 3 },
+      { title: '8k steps', metric: 'steps' as const, period: 'day' as const, unit: 'days' as const, done: 5, target: 7, hit: false, streakPeriods: 0 },
+      { title: 'Run 10 km', metric: 'distance_m' as const, period: 'week' as const, unit: 'meters' as const, done: 8240, target: 10000, hit: false, streakPeriods: 0 },
+    ];
+    render(<WeeklyReviewCard review={review({ stats: { goals } })} distanceUnit="km" />);
+    const list = screen.getByTestId('coach-review-goals');
+    expect(screen.getByRole('heading', { name: 'Goals' })).toBeInTheDocument();
+    const items = within(list).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual([
+      'Walk 4x: 4 of 4 sessions · Hit · 3-week streak',
+      '8k steps: 5 of 7 days · Not hit',
+      'Run 10 km: 8.2 / 10 km · Not hit',
+    ]);
+  });
+
+  it('reads a distance goal in miles and omits the section without goals', () => {
+    const goal = { title: 'Run', unit: 'meters' as const, done: 16093.44, target: 32186.88, hit: false, streakPeriods: 2 };
+    const { rerender } = render(<WeeklyReviewCard review={review({ stats: { goals: [goal] } })} distanceUnit="mi" />);
+    expect(screen.getByTestId('coach-review-goals')).toHaveTextContent('Run: 10 / 20 mi · Not hit · 2-week streak');
+    rerender(<WeeklyReviewCard review={review()} />);
+    expect(screen.queryByTestId('coach-review-goals')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Goals' })).toBeNull();
+  });
+
   it('has no axe violations', async () => {
     const { container } = render(<WeeklyReviewCard review={review()} onPlanWeek={vi.fn()} />);
     expect(await axe(container)).toHaveNoViolations();
@@ -132,6 +158,23 @@ describe('parseWeeklyReviewData', () => {
   it('accepts the version-1 contract and ignores extra keys', () => {
     const data = { ...mockWeeklyReviewData(), extra: true };
     expect(parseWeeklyReviewData(data)?.prose.headline).toBe('Three of four, and a squat PR');
+  });
+
+  it('reads stats.goals when present, drops a malformed goal row, and leaves goals undefined on older reviews', () => {
+    expect(parseWeeklyReviewData(mockWeeklyReviewData())?.stats.goals).toBeUndefined();
+    const parsed = parseWeeklyReviewData(
+      mockWeeklyReviewData({
+        stats: {
+          goals: [
+            { title: 'Walk', metric: 'sessions', period: 'week', unit: 'sessions', done: 2, target: 4, hit: false, streakPeriods: 0 },
+            { title: 'Bad', unit: 'parsecs', done: 1, target: 2, hit: false, streakPeriods: 0 } as never,
+          ],
+        },
+      }),
+    );
+    expect(parsed?.stats.goals).toEqual([
+      { title: 'Walk', metric: 'sessions', period: 'week', unit: 'sessions', done: 2, target: 4, hit: false, streakPeriods: 0 },
+    ]);
   });
 
   it.each([

@@ -60,6 +60,8 @@ export interface CoachMessageBubbleProps {
   onDisplayed?: (message: CoachTimelineItem) => void;
   /** A weekly review's **Plan my week**: pre-fill the composer with this prompt. */
   onPlanWeek?: (prompt: string) => void;
+  /** How a weekly review's distance goals read. Default `km`. */
+  distanceUnit?: 'km' | 'mi';
 }
 
 function formatTime(iso: string): string {
@@ -173,6 +175,7 @@ export function CoachMessageBubble({
   onFeedback,
   onDisplayed,
   onPlanWeek,
+  distanceUnit,
 }: CoachMessageBubbleProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const reported = useRef(false);
@@ -321,7 +324,7 @@ export function CoachMessageBubble({
             </Box>
           )}
           {review ? (
-            <WeeklyReviewCard review={review} onPlanWeek={onPlanWeek} />
+            <WeeklyReviewCard review={review} onPlanWeek={onPlanWeek} distanceUnit={distanceUnit} />
           ) : kind === 'weekly_review' ? (
             <WeeklyReviewContent message={message} />
           ) : (
