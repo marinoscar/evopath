@@ -198,7 +198,10 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
         workouts: [
           draftWorkout('Full A', day(0), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
           draftWorkout('Full B', day(2), [draftExercise(keys.lunge, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
-          draftWorkout('Full C', day(4), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.row, { sets }), draftExercise(keys.push, { sets })]),
+          // Same push-then-row order as the other workouts: guardrails sort the week by
+          // weekday, so whichever workout sorts first must carry the refs the evaluator
+          // fixtures name (W5-1-2 the push, W5-1-3 the row).
+          draftWorkout('Full C', day(4), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
         ],
       };
     };
