@@ -24,13 +24,24 @@
 // profile is not ranged.
 //
 // Values are exported in the metric's canonical unit (the unit in the column
-// key and header), whatever the user's display preference.
+// key and header), whatever the user's display preference. The one exception
+// is the labs dataset (#234): its values and reference limits are shown in
+// the export's `labUnits` (US conventional = canonical, or SI), rounded to
+// that unit's display precision, and each row's `unit` names the unit used
+// ({@link convertLabRow}). The PDF converts its lab readings the same way.
 // =============================================================================
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 import { addDays, fromDbDate, toDbDate } from '../check-ins/local-date';
-import { getMetric, METRICS, type MetricDef } from '../measurements/metric-registry';
+import {
+  getMetric,
+  labDisplayUnit,
+  type LabUnits,
+  METRICS,
+  type MetricDef,
+  toDisplayUnit,
+} from '../measurements/metric-registry';
 import {
   HEALTH_EXPORT_DATASET_TITLES,
   HEALTH_EXPORT_DATASETS,
@@ -86,12 +97,16 @@ export interface HealthExportRequest {
   to: string;
   datasets: readonly HealthExportDataset[];
   includeHistory: boolean;
+  /** The unit convention lab values are shown in (#234). */
+  labUnits: LabUnits;
 }
 
 export interface HealthExportData {
   exportedAt: Date;
   range: { from: string; to: string };
   includeHistory: boolean;
+  /** The unit convention of the labs dataset and the PDF's lab values (#234). */
+  labUnits: LabUnits;
   /** The selected datasets, in canonical order. */
   datasets: HealthExportDataset[];
   /** The account's display name, for the PDF header (never logged). */
@@ -262,7 +277,7 @@ export async function collectHealthExport(
 ): Promise<HealthExportData> {
   const datasets = orderDatasets(request.datasets);
   const selected = new Set(datasets);
-  const { userId, from, to, includeHistory } = request;
+  const { userId, from, to, includeHistory, labUnits } = request;
 
   const fromInstant = toDbDate(from);
   const toExclusive = toDbDate(addDays(to, 1));
@@ -337,7 +352,7 @@ export async function collectHealthExport(
     dataset,
     title: HEALTH_EXPORT_DATASET_TITLES[dataset],
     columns: datasetColumns(dataset),
-    rows: datasetRows(dataset, { profile, rows, documents: documentRows }),
+    rows: datasetRows(dataset, { profile, rows, documents: documentRows, labUnits }),
   }));
 
   const rowCounts = Object.fromEntries(HEALTH_EXPORT_DATASETS.map((dataset) => [dataset, 0])) as Record<
@@ -363,6 +378,7 @@ export async function collectHealthExport(
     exportedAt: now,
     range: { from, to },
     includeHistory,
+    labUnits,
     datasets,
     userName,
     profile,
@@ -393,6 +409,7 @@ async function withoutDeletedHistory(db: Db, userId: string, rows: MeasurementRo
 }
 
 interface RowSources {
+  labUnits: LabUnits;
   profile: HealthExportProfile | null;
   rows: MeasurementRow[];
   documents: Array<{
@@ -428,7 +445,7 @@ function datasetRows(dataset: HealthExportDataset, sources: RowSources): ExportR
     case 'wellness':
       return wideRows(dataset, sources.rows);
     case 'labs':
-      return labRows(sources.rows);
+      return labRows(sources.rows).map((row) => convertLabRow(row, sources.labUnits));
     case 'documents':
       return sources.documents.map((doc) => ({
         id: doc.id,
@@ -513,7 +530,7 @@ function labRows(all: MeasurementRow[]): ExportRow[] {
         analyte_key: row.metricKey,
         analyte: metric.label,
         value: row.value,
-        unit: row.unit,
+        unit: metric.canonicalUnit,
         reference_low: row.referenceLow,
         reference_high: row.referenceHigh,
         reference_text: row.referenceText,
@@ -526,4 +543,28 @@ function labRows(all: MeasurementRow[]): ExportRow[] {
         entry_id: row.entryId,
       };
     });
+}
+
+/**
+ * A labs-dataset row (canonical values) shown in `labUnits` (#234): `value`
+ * and the reference limits converted and rounded to the target unit's display
+ * precision, `unit` naming that unit. A row already in the target unit is
+ * returned unchanged (stored precision kept). Display only.
+ */
+export function convertLabRow(row: ExportRow, labUnits: LabUnits): ExportRow {
+  const key = String(row.analyte_key);
+  const metric = getMetric(key);
+  if (!metric || metric.category !== 'lab') return row;
+
+  const unit = labDisplayUnit(metric, labUnits);
+  if (unit === metric.canonicalUnit) return { ...row, unit };
+
+  const convert = (cell: ExportCell): ExportCell => (typeof cell === 'number' ? toDisplayUnit(key, cell, unit) : cell);
+  return {
+    ...row,
+    value: convert(row.value),
+    unit,
+    reference_low: convert(row.reference_low),
+    reference_high: convert(row.reference_high),
+  };
 }
