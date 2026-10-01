@@ -12,6 +12,9 @@ import {
   buildDistinctServices,
   buildFailingRoutes,
   buildHealthOverview,
+  buildHttpStatuses,
+  buildUnknownRoutePaths,
+  buildUnknownRoutes,
   buildLogSeverities,
   buildServiceLatency,
   buildServiceStats,
@@ -49,6 +52,9 @@ const FULL_TRACES_COLUMNS: ColumnSet = new Set([
   'span_attributes.http.response.status_code',
   'span_attributes.db.statement',
   'span_attributes.db.query.text',
+  'span_attributes.url.path',
+  'span_attributes.app.route.matched',
+  'span_attributes.app.request.bearer',
 ]);
 
 const FULL_LOGS_COLUMNS: ColumnSet = new Set([
@@ -264,6 +270,69 @@ describe('trace id validation (defence in depth — the tool schema already enfo
     expect(TRACE_ID_PATTERN.test('a'.repeat(33))).toBe(false);
     expect(TRACE_ID_PATTERN.test('zzzzzzzzzzzzzzzz')).toBe(false);
     expect(TRACE_ID_PATTERN.test("'; DROP TABLE x; --")).toBe(false);
+  });
+});
+
+describe('HTTP statuses and unknown API routes (#258)', () => {
+  const sqlOf = (plan: SectionPlan): string => {
+    if (isSkipped(plan)) throw new Error(`skipped: ${plan.skipped}`);
+    return plan.sql;
+  };
+
+  it('counts requests by status code on server spans, 4xx included', () => {
+    const sql = sqlOf(buildHttpStatuses(FULL_TRACES_COLUMNS, '1 hour'));
+    expect(sql).toBe(
+      `SELECT "span_attributes.http.response.status_code" AS http_status, count(*) AS requests FROM "opentelemetry_traces" ` +
+        `WHERE timestamp > now() - INTERVAL '1 hour' AND span_kind = 'SPAN_KIND_SERVER' ` +
+        `AND "span_attributes.http.response.status_code" IS NOT NULL ` +
+        `GROUP BY "span_attributes.http.response.status_code" ORDER BY requests DESC LIMIT 20`,
+    );
+  });
+
+  it('counts unknown-route requests with and without a bearer: a not-found-handler 404, never a 404 alone', () => {
+    const sql = sqlOf(buildUnknownRoutes(FULL_TRACES_COLUMNS, '1 hour'));
+    expect(sql).toContain(`"span_attributes.http.response.status_code" = 404 AND "span_attributes.app.route.matched" = false`);
+    expect(sql).toContain(`sum(CASE WHEN "span_attributes.app.request.bearer" = true THEN 1 ELSE 0 END) AS bearer_requests`);
+    expect(sql).toContain('AS anonymous_requests');
+  });
+
+  it('lists unknown method + normalized path, bearer first, bounded', () => {
+    const sql = sqlOf(buildUnknownRoutePaths(FULL_TRACES_COLUMNS, '1 hour'));
+    expect(sql).toContain(`regexp_replace("span_attributes.url.path", `);
+    expect(sql).toMatch(/GROUP BY http_method, route ORDER BY bearer_requests DESC, requests DESC LIMIT 10$/);
+  });
+
+  it('withholds the method and the path when sharing is off (an outsider chooses them)', () => {
+    const plan = buildUnknownRoutePaths(FULL_TRACES_COLUMNS, '1 hour');
+    if (isSkipped(plan)) throw new Error('skipped');
+    expect(plan.shareable).toEqual(['requests', 'bearer_requests', 'last_seen']);
+  });
+
+  it('counts bearer requests as 0 without the bearer column', () => {
+    const noBearer = new Set([...(FULL_TRACES_COLUMNS as Set<string>)].filter((c) => c !== 'span_attributes.app.request.bearer'));
+    const sql = sqlOf(buildUnknownRoutes(noBearer, '1 hour'));
+    expect(sql).toContain('0 AS bearer_requests');
+    expect(sql).not.toContain('app.request.bearer');
+    expect(analyzeStatement(sql).kind).toBe('select');
+  });
+
+  it('skips, saying the store cannot tell yet, without the matched column', () => {
+    const old = new Set([...(FULL_TRACES_COLUMNS as Set<string>)].filter((c) => c !== 'span_attributes.app.route.matched'));
+    for (const plan of [buildUnknownRoutes(old, '1 hour'), buildUnknownRoutePaths(old, '1 hour')]) {
+      expect(isSkipped(plan)).toBe(true);
+      if (isSkipped(plan)) expect(plan.skipped).toMatch(/span_attributes\.app\.route\.matched yet.*not the same as zero/);
+    }
+    expect(isSkipped(buildHttpStatuses(old, '1 hour'))).toBe(false);
+  });
+
+  it('sits in health_overview after the failing routes', () => {
+    const names = buildHealthOverview('1h', FULL_TRACES_COLUMNS, FULL_LOGS_COLUMNS).map((p) => p.name);
+    expect(names.slice(names.indexOf('failingRoutes'), names.indexOf('failingRoutes') + 4)).toEqual([
+      'failingRoutes',
+      'httpStatuses',
+      'unknownRoutes',
+      'unknownRoutePaths',
+    ]);
   });
 });
 
