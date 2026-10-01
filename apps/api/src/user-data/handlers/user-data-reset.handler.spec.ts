@@ -211,6 +211,8 @@ describe('UserDataResetHandler', () => {
         'gym',
         'measurement',
         'healthProfile',
+        'healthSummary',
+        'healthSummarySetting',
         'aiRun',
         'aiUsageEvent',
         'userAiKey',

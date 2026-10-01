@@ -48,6 +48,10 @@
 //                                     (check-ins are wellness measurements).
 //                                     `supersedesId` is cleared first: the
 //                                     self-FK is ON DELETE RESTRICT.
+//   HealthSummary,                    userId — every AI health summary version
+//   HealthSummarySetting              and the opt-in consent (H8, #192), so a
+//                                     reset turns the opt-in back off. Not
+//                                     counted in the result (derived data).
 //   PhotoIntake                       userId (cascades PhotoIntakePhoto, DraftItem)
 //   HealthDocument                    userId — explicitly (it cascades only from
 //                                     the User row, which is kept; the intake
