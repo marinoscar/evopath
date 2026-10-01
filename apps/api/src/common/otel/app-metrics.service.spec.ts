@@ -291,6 +291,35 @@ describe('AppMetricsService', () => {
         ]),
       );
     });
+
+    it('records AI health summary outcomes, duration, regenerations, rejections and tokens (H8, #192)', async () => {
+      const { service, reader } = setup();
+
+      service.healthSummaryGenerated('ready', 2_000, { regenerations: 1, rejections: 1, inputTokens: 900, outputTokens: 300 });
+      service.healthSummaryGenerated('rejected', 3_000, { regenerations: 1, rejections: 2, inputTokens: 1_000, outputTokens: 400 });
+      service.healthSummaryGenerated('skipped', 5);
+      service.healthSummaryGenerated('bogus' as never, null);
+
+      const all = await collect(reader);
+
+      expect(points(all, 'app.health.summary.generations')).toEqual(
+        expect.arrayContaining([
+          { attributes: { outcome: 'ready' }, value: 1 },
+          { attributes: { outcome: 'rejected' }, value: 1 },
+          { attributes: { outcome: 'skipped' }, value: 1 },
+          { attributes: { outcome: OTHER_LABEL }, value: 1 },
+        ]),
+      );
+      expect(metric(all, 'app.health.summary.duration').descriptor.unit).toBe('s');
+      expect(points(all, 'app.health.summary.regenerations')).toEqual([{ attributes: {}, value: 2 }]);
+      expect(points(all, 'app.health.summary.post_check_rejections')).toEqual([{ attributes: {}, value: 3 }]);
+      expect(points(all, 'app.health.summary.tokens')).toEqual(
+        expect.arrayContaining([
+          { attributes: { token_type: 'input' }, value: 1_900 },
+          { attributes: { token_type: 'output' }, value: 700 },
+        ]),
+      );
+    });
   });
 
   describe('label bounding', () => {

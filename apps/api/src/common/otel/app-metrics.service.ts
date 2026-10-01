@@ -124,6 +124,12 @@ export const APP_METRIC_NAMES = {
   aiDuration: 'app.ai.request.duration',
   notificationDeliveries: 'app.notifications.deliveries',
   healthDocumentPurges: 'app.health.documents.purges',
+  // AI health summary (H8, #192): the `ai.health.summary` job.
+  healthSummaryGenerations: 'app.health.summary.generations',
+  healthSummaryDuration: 'app.health.summary.duration',
+  healthSummaryRegenerations: 'app.health.summary.regenerations',
+  healthSummaryPostCheckRejections: 'app.health.summary.post_check_rejections',
+  healthSummaryTokens: 'app.health.summary.tokens',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -211,6 +217,24 @@ export type NotificationDeliveryOutcome = 'sent' | 'failed' | 'rate_limited' | '
 /** How one `health.document.purge` attempt ended (H1, #185). */
 export type HealthDocumentPurgeOutcome = 'purged' | 'failed';
 const HEALTH_DOCUMENT_PURGE_OUTCOMES = new Set<string>(['purged', 'failed']);
+
+/**
+ * How one `ai.health.summary` job ended (H8, #192): a summary stored
+ * (`ready`), rejected twice by the post-check (`rejected`), failed
+ * (`failed`), nothing to do (`skipped`: consent off, no data, unchanged) or
+ * deferred by a provider throttle (`deferred`).
+ */
+export type HealthSummaryOutcome = 'ready' | 'rejected' | 'failed' | 'skipped' | 'deferred';
+const HEALTH_SUMMARY_OUTCOMES = new Set<string>(['ready', 'rejected', 'failed', 'skipped', 'deferred']);
+const HEALTH_SUMMARY_DURATION_BUCKETS_S = [0.05, 0.25, 1, 2.5, 5, 10, 20, 30, 60, 120, 240];
+
+/** The counts one summary job reports besides its outcome. */
+export interface HealthSummaryCounts {
+  regenerations: number;
+  rejections: number;
+  inputTokens: number;
+  outputTokens: number;
+}
 const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
 
 export interface AiUsageMetric {
@@ -292,6 +316,11 @@ export class AppMetricsService implements OnModuleInit {
   private readonly aiDuration: Histogram;
   private readonly notificationDeliveries: Counter;
   private readonly healthDocumentPurges: Counter;
+  private readonly healthSummaryGenerations: Counter;
+  private readonly healthSummaryDuration: Histogram;
+  private readonly healthSummaryRegenerations: Counter;
+  private readonly healthSummaryPostCheckRejections: Counter;
+  private readonly healthSummaryTokens: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -379,6 +408,27 @@ export class AppMetricsService implements OnModuleInit {
     this.healthDocumentPurges = m.createCounter(N.healthDocumentPurges, {
       description: 'Health document file purges (delete after processing), by outcome.',
       unit: '{document}',
+    });
+    this.healthSummaryGenerations = m.createCounter(N.healthSummaryGenerations, {
+      description: 'AI health summary jobs, by outcome.',
+      unit: '{summary}',
+    });
+    this.healthSummaryDuration = m.createHistogram(N.healthSummaryDuration, {
+      description: 'Wall time of one AI health summary job, by outcome.',
+      unit: 's',
+      advice: { explicitBucketBoundaries: HEALTH_SUMMARY_DURATION_BUCKETS_S },
+    });
+    this.healthSummaryRegenerations = m.createCounter(N.healthSummaryRegenerations, {
+      description: 'AI health summary answers asked for again after a post-check rejection.',
+      unit: '{regeneration}',
+    });
+    this.healthSummaryPostCheckRejections = m.createCounter(N.healthSummaryPostCheckRejections, {
+      description: 'AI health summary answers rejected by the post-check.',
+      unit: '{answer}',
+    });
+    this.healthSummaryTokens = m.createCounter(N.healthSummaryTokens, {
+      description: 'Tokens the AI health summary used, by token_type (input|output).',
+      unit: '{token}',
     });
   }
 
@@ -537,6 +587,29 @@ export class AppMetricsService implements OnModuleInit {
     this.safely(() =>
       this.healthDocumentPurges.add(1, { outcome: enumLabel(outcome, HEALTH_DOCUMENT_PURGE_OUTCOMES) }),
     );
+  }
+
+  // ===========================================================================
+  // AI health summary
+  // ===========================================================================
+
+  /** One `ai.health.summary` job ended; `counts` when a model was called. */
+  healthSummaryGenerated(outcome: HealthSummaryOutcome, durationMs: number | null, counts?: HealthSummaryCounts): void {
+    this.safely(() => {
+      const attrs: Attributes = { outcome: enumLabel(outcome, HEALTH_SUMMARY_OUTCOMES) };
+      this.healthSummaryGenerations.add(1, attrs);
+      const ms = nonNegative(durationMs);
+      if (ms !== null) this.healthSummaryDuration.record(ms / 1000, attrs);
+      if (!counts) return;
+      const regenerations = nonNegative(counts.regenerations);
+      if (regenerations) this.healthSummaryRegenerations.add(Math.round(regenerations));
+      const rejections = nonNegative(counts.rejections);
+      if (rejections) this.healthSummaryPostCheckRejections.add(Math.round(rejections));
+      const input = nonNegative(counts.inputTokens);
+      if (input) this.healthSummaryTokens.add(Math.round(input), { token_type: 'input' });
+      const output = nonNegative(counts.outputTokens);
+      if (output) this.healthSummaryTokens.add(Math.round(output), { token_type: 'output' });
+    });
   }
 
   // ===========================================================================
