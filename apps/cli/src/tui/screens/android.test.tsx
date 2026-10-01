@@ -179,7 +179,8 @@ describe('AndroidScreen', () => {
       expect(screen.frame()).toContain('Release notes');
       await screen.press(ENTER); // no notes → confirm
       expect(screen.frame()).toContain(`Publish v1.0.6 (code 6) to ${SERVER}?`);
-      expect(screen.frame()).toContain('> No, go back');
+      // ink-select-input draws figures.pointer: '>' on a Linux console (TERM=linux), '❯' elsewhere.
+      expect(screen.frame()).toMatch(/[>❯] No, go back/);
       expect(uploads).toEqual([]);
 
       await screen.press(ENTER); // "No" is selected by default
