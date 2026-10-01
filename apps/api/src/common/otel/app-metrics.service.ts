@@ -124,6 +124,9 @@ export const APP_METRIC_NAMES = {
   aiDuration: 'app.ai.request.duration',
   notificationDeliveries: 'app.notifications.deliveries',
   healthDocumentPurges: 'app.health.documents.purges',
+  healthExports: 'app.health.exports',
+  healthExportDuration: 'app.health.export.duration',
+  healthExportSize: 'app.health.export.size',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -211,6 +214,13 @@ export type NotificationDeliveryOutcome = 'sent' | 'failed' | 'rate_limited' | '
 /** How one `health.document.purge` attempt ended (H1, #185). */
 export type HealthDocumentPurgeOutcome = 'purged' | 'failed';
 const HEALTH_DOCUMENT_PURGE_OUTCOMES = new Set<string>(['purged', 'failed']);
+
+/** How one `health.export` attempt ended, and the formats it can write (H7, #191). */
+export type HealthExportOutcome = 'completed' | 'failed';
+const HEALTH_EXPORT_OUTCOMES = new Set<string>(['completed', 'failed']);
+const HEALTH_EXPORT_FORMATS = new Set<string>(['json', 'csv', 'xlsx', 'pdf']);
+const HEALTH_EXPORT_DURATION_BUCKETS_S = [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600];
+const HEALTH_EXPORT_SIZE_BUCKETS_BY = [1e3, 1e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8];
 const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
 
 export interface AiUsageMetric {
@@ -292,6 +302,9 @@ export class AppMetricsService implements OnModuleInit {
   private readonly aiDuration: Histogram;
   private readonly notificationDeliveries: Counter;
   private readonly healthDocumentPurges: Counter;
+  private readonly healthExports: Counter;
+  private readonly healthExportDuration: Histogram;
+  private readonly healthExportSize: Histogram;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -379,6 +392,20 @@ export class AppMetricsService implements OnModuleInit {
     this.healthDocumentPurges = m.createCounter(N.healthDocumentPurges, {
       description: 'Health document file purges (delete after processing), by outcome.',
       unit: '{document}',
+    });
+    this.healthExports = m.createCounter(N.healthExports, {
+      description: 'Health data export attempts settled, by format and outcome.',
+      unit: '{export}',
+    });
+    this.healthExportDuration = m.createHistogram(N.healthExportDuration, {
+      description: 'Wall time of one health data export attempt, by format and outcome.',
+      unit: 's',
+      advice: { explicitBucketBoundaries: HEALTH_EXPORT_DURATION_BUCKETS_S },
+    });
+    this.healthExportSize = m.createHistogram(N.healthExportSize, {
+      description: 'Size of a completed health data export file, by format.',
+      unit: 'By',
+      advice: { explicitBucketBoundaries: HEALTH_EXPORT_SIZE_BUCKETS_BY },
     });
   }
 
@@ -538,6 +565,23 @@ export class AppMetricsService implements OnModuleInit {
       this.healthDocumentPurges.add(1, { outcome: enumLabel(outcome, HEALTH_DOCUMENT_PURGE_OUTCOMES) }),
     );
   }
+  /** One `health.export` attempt settled. Size only for a completed file. */
+  healthExportSettled(format: string, outcome: HealthExportOutcome, durationMs: number | null, sizeBytes?: number | null): void {
+    this.safely(() => {
+      const attrs: Attributes = {
+        format: enumLabel(format, HEALTH_EXPORT_FORMATS),
+        outcome: enumLabel(outcome, HEALTH_EXPORT_OUTCOMES),
+      };
+      this.healthExports.add(1, attrs);
+      const ms = nonNegative(durationMs);
+      if (ms !== null) this.healthExportDuration.record(ms / 1000, attrs);
+      if (outcome === 'completed') {
+        const size = nonNegative(sizeBytes);
+        if (size !== null) this.healthExportSize.record(size, { format: attrs.format });
+      }
+    });
+  }
+
 
   // ===========================================================================
   // Label bounding

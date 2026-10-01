@@ -291,6 +291,30 @@ describe('AppMetricsService', () => {
         ]),
       );
     });
+    it('records health exports by format and outcome, with duration and size (H7, #191)', async () => {
+      const { service, reader } = setup();
+
+      service.healthExportSettled('pdf', 'completed', 2500, 48_000);
+      service.healthExportSettled('csv', 'failed', 100, 999);
+      service.healthExportSettled('docx', 'completed', 10, 10);
+
+      const all = await collect(reader);
+
+      expect(metric(all, 'app.health.exports').descriptor.unit).toBe('{export}');
+      expect(points(all, 'app.health.exports')).toEqual(
+        expect.arrayContaining([
+          { attributes: { format: 'pdf', outcome: 'completed' }, value: 1 },
+          { attributes: { format: 'csv', outcome: 'failed' }, value: 1 },
+          { attributes: { format: OTHER_LABEL, outcome: 'completed' }, value: 1 },
+        ]),
+      );
+      expect(metric(all, 'app.health.export.duration').descriptor.unit).toBe('s');
+      expect(metric(all, 'app.health.export.size').descriptor.unit).toBe('By');
+      // A failed attempt records no size.
+      const sizes = metric(all, 'app.health.export.size').dataPoints.map((p: { attributes: object }) => p.attributes);
+      expect(sizes).toEqual(expect.arrayContaining([{ format: 'pdf' }]));
+      expect(sizes).not.toEqual(expect.arrayContaining([{ format: 'csv' }]));
+    });
   });
 
   describe('label bounding', () => {
