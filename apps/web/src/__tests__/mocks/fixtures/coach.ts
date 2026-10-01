@@ -5,6 +5,8 @@
  */
 import {
   COACH_MOMENTS,
+  type CoachMessageAudioRequest,
+  type CoachMessageAudioView,
   type CoachPersonaCard,
   type CoachSettingsView,
   type CoachStats,
@@ -227,6 +229,20 @@ export function mockCoachMessage(overrides: Partial<CoachTimelineItem> = {}): Co
     createdAt: '2026-09-29T09:00:00.000Z',
     ...overrides,
   };
+}
+
+/** On-demand Listen (#259): the storage object the default handlers report ready. */
+export const COACH_AUDIO_OBJECT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+export const COACH_AUDIO_RUN_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
+/** `POST /api/coach/messages/:id/audio` → 202: generation started. */
+export function mockCoachAudioPending(): CoachMessageAudioRequest {
+  return { status: 'pending', runId: COACH_AUDIO_RUN_ID };
+}
+
+/** `POST` → 200 or `GET /api/coach/messages/:id/audio` once the audio exists. */
+export function mockCoachAudioReady(storageObjectId = COACH_AUDIO_OBJECT_ID, voice = 'coral') {
+  return { status: 'ready' as const, storageObjectId, voice } satisfies CoachMessageAudioRequest & CoachMessageAudioView;
 }
 
 /** One SSE frame per entry, `event: <type>` with the JSON payload. */
