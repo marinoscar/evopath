@@ -39,6 +39,9 @@ worktrees
 infra
 .github
 
+# Native Android app (built by .github/workflows/android.yml, never in an image)
+apps/android
+
 # Documentation
 docs
 *.md

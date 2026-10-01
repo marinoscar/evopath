@@ -1,0 +1,193 @@
+name: Android
+
+# Builds the EvoPath Android app (apps/android): a Trusted Web Activity shell
+# around the PWA plus native Health Connect sync. See apps/android/README.md.
+#
+# - test:    every PR / push touching the app: unit tests + debug APK artifact.
+# - release: push to main (or manual dispatch on main): signed release APK,
+#            published to the rolling prerelease `android-latest` as
+#            `evopath-android.apk`. Without the signing secrets it only warns;
+#            the debug APK from `test` stays available as an artifact.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Keep Gradle within a standard runner's memory and avoid a lingering daemon.
+  GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2
+
+defaults:
+  run:
+    working-directory: apps/android
+
+jobs:
+  test:
+    name: Unit tests & debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/*.gradle.kts
+            apps/android/app/*.gradle.kts
+            apps/android/gradle/libs.versions.toml
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Unit tests and debug build
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: apps/android/app/build/reports/tests/
+          retention-days: 7
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: evopath-android-debug
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+  release:
+    name: Signed release (android-latest)
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    concurrency:
+      group: android-release
+      cancel-in-progress: false
+    steps:
+      - name: Check signing secrets
+        id: signing
+        working-directory: .
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=""
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning title=Android release skipped::Missing secret(s):$missing. No signed APK was published; download the debug APK artifact (evopath-android-debug) from the test job instead."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.signing.outputs.enabled == 'true'
+
+      - uses: actions/setup-java@v5
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/*.gradle.kts
+            apps/android/app/*.gradle.kts
+            apps/android/gradle/libs.versions.toml
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+
+      - uses: android-actions/setup-android@v3
+        if: steps.signing.outputs.enabled == 'true'
+
+      - name: Decode keystore
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/evopath-release.jks"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/evopath-release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease \
+            -Pevopath.versionName=0.1.${{ github.run_number }} \
+            -Pevopath.versionCode=${{ github.run_number }}
+          apk=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$apk" ]; then
+            echo "::error::Signed release APK not produced (signing config not applied?)"
+            ls -la app/build/outputs/apk/release/ || true
+            exit 1
+          fi
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)apksigner"
+          "$apksigner" verify --print-certs "$apk" | grep -E 'Signer #1 certificate (DN|SHA-256)'
+          cp "$apk" "$RUNNER_TEMP/evopath-android.apk"
+
+      - name: Remove keystore
+        if: always() && steps.signing.outputs.enabled == 'true'
+        run: rm -f "$RUNNER_TEMP/evopath-release.jks"
+
+      - name: Upload release APK artifact
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: evopath-android-release
+          path: ${{ runner.temp }}/evopath-android.apk
+          retention-days: 30
+
+      - name: Publish android-latest prerelease
+        if: steps.signing.outputs.enabled == 'true'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: 0.1.${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          apk="$RUNNER_TEMP/evopath-android.apk"
+          notes="EvoPath Android ${VERSION} (versionCode ${GITHUB_RUN_NUMBER}), built from ${GITHUB_SHA}.
+
+          Rolling prerelease: this release and its asset are replaced on every build of main.
+          Download evopath-android.apk on your phone and install it (allow installs from this source)."
+
+          # Move the tag to this commit (only this tag is force-pushed).
+          git tag -f android-latest "$GITHUB_SHA"
+          git push --force origin refs/tags/android-latest
+
+          if gh release view android-latest >/dev/null 2>&1; then
+            gh release upload android-latest "$apk" --clobber
+            gh release edit android-latest --prerelease --title "EvoPath Android (latest)" --notes "$notes"
+          else
+            gh release create android-latest "$apk" --prerelease --latest=false \
+              --target "$GITHUB_SHA" --title "EvoPath Android (latest)" --notes "$notes"
+          fi

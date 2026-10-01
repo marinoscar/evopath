@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors the PWA manifest: theme_color #0f766e, background_color #f2f7f6. -->
+    <color name="evopath_primary">#FF0F766E</color>
+    <color name="evopath_background">#FFF2F7F6</color>
+    <color name="ic_launcher_background">#FF0F766E</color>
+</resources>
