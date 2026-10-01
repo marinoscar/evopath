@@ -269,8 +269,9 @@ describe('USER_SETTINGS_SECTIONS - Connected devices card (#283)', () => {
   const health = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Health');
   const card = health?.cards.find((c) => c.path === '/settings/connected-devices');
 
-  it('is the last card of the Health group, after Health Documents', () => {
-    expect(health?.cards.map((c) => c.title)).toEqual([
+  it('is appended after Health Documents in the Health group', () => {
+    // `Android app` (#287) is appended after it.
+    expect(health?.cards.map((c) => c.title).slice(0, 3)).toEqual([
       'Health Profile',
       'Health Documents',
       'Connected devices',
@@ -301,5 +302,48 @@ describe('USER_SETTINGS_SECTIONS - Connected devices card (#283)', () => {
     expect(app).toMatch(
       /path="\/settings\/connected-devices"\s+element=\{\s+<RequirePermission\s+permission="goals:read"/,
     );
+  });
+});
+
+/**
+ * Issue #287, epic #276. Android app is APPENDED to the `Health` group after
+ * Connected devices with NO permission: the latest-release and download-link
+ * routes are `@Auth()` with no permission string, so every signed-in user may
+ * install the app. Not behind any feature flag.
+ */
+describe('USER_SETTINGS_SECTIONS - Android app card (#287)', () => {
+  const health = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Health');
+  const card = health?.cards.find((c) => c.path === '/settings/android-app');
+
+  it('is the last card of the Health group, after Connected devices', () => {
+    expect(health?.cards.map((c) => c.title)).toEqual([
+      'Health Profile',
+      'Health Documents',
+      'Connected devices',
+      'Android app',
+    ]);
+  });
+
+  it('declares no permission, no feature gate and no alwaysShow', () => {
+    expect(card).toMatchObject({ title: 'Android app' });
+    expect(card?.permission).toBeUndefined();
+    expect(card?.feature).toBeUndefined();
+    expect(card?.alwaysShow).toBeUndefined();
+    expect(card?.disabled).toBeUndefined();
+  });
+
+  it('is visible with no grant at all and titles its route', () => {
+    const titles = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false).flatMap((s) =>
+      s.cards.map((c) => c.title),
+    );
+    expect(titles).toContain('Android app');
+    expect(
+      settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/android-app'),
+    ).toBe('Android app');
+  });
+
+  it('is routed in App.tsx without a permission gate', () => {
+    const app = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'), 'utf8');
+    expect(app).toMatch(/<Route path="\/settings\/android-app" element=\{<AndroidAppDownloadPage \/>\} \/>/);
   });
 });

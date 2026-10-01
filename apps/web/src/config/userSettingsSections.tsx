@@ -30,6 +30,7 @@ import PsychologyIcon from '@mui/icons-material/Psychology';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import SportsOutlinedIcon from '@mui/icons-material/SportsOutlined';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
+import AndroidIcon from '@mui/icons-material/Android';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -159,6 +160,18 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         Icon: PhoneAndroidIcon,
         path: '/settings/connected-devices',
         permission: 'goals:read',
+      },
+      {
+        // Issue #287, epic #276. APPENDED after Connected devices. Download
+        // the APK this server hosts and see whether the installed build is
+        // current. NO permission, deliberately: the latest-release and
+        // download-link routes are `@Auth()` with no permission string, so
+        // every signed-in user may install the app. Under `Health` next to
+        // Connected devices because the app exists to sync health activity.
+        title: 'Android app',
+        description: 'Download and install the Android app, check for updates and verify the file.',
+        Icon: AndroidIcon,
+        path: '/settings/android-app',
       },
     ],
   },

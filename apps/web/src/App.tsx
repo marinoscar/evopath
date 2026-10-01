@@ -145,6 +145,8 @@ const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage')
 const UserHealthDocumentsPage = lazy(() => import('./pages/UserHealthDocumentsPage'));
 // Connected devices (#283, epic #276): phones syncing Health Connect.
 const ConnectedDevicesPage = lazy(() => import('./pages/ConnectedDevicesPage'));
+// Android app download (#287, epic #276): the APK this server hosts.
+const AndroidAppDownloadPage = lazy(() => import('./pages/AndroidAppDownloadPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // E7.8 (#248): the AI Coach timeline.
 const CoachPage = lazy(() => import('./pages/CoachPage'));
@@ -497,6 +499,11 @@ function AppRoutes() {
                       </RequirePermission>
                     }
                   />
+                  {/* Issue #287, epic #276. Ungated like the caller's own
+                      preferences: the latest-release and download-link routes
+                      are `@Auth()` with no permission, and the `Android app`
+                      card declares none. */}
+                  <Route path="/settings/android-app" element={<AndroidAppDownloadPage />} />
                   {/* Issue #425, epic #419 — the `ai` destination. Gated
                       exactly as the destination is: `ai:use` AND
                       `ai_config:read` (#593 — the Playground is an operator
