@@ -34,6 +34,8 @@ import { WeekEditor } from './WeekEditor';
 import { WeekSelector } from './WeekSelector';
 import { weekOptions } from './PlanViewer';
 import {
+  describePlanIssue,
+  type PlanIssue,
   addBlock,
   addExercises,
   addWeek,
@@ -88,10 +90,14 @@ function modesOf(program: Program): TrackingModes {
   return modes;
 }
 
-function issuesOf(error: ApiError): string[] {
-  const issues = (error.details as { issues?: Array<{ path?: string; message?: string }> } | undefined)?.issues;
-  return Array.isArray(issues) ? issues.map((i) => i.message ?? '').filter(Boolean) : [];
+/** A 400's `details.issues`, each located in the saved draft and in plain words. */
+function issuesOf(error: ApiError, saved: PlanTree, names: Record<string, string>): string[] {
+  const issues = (error.details as { issues?: PlanIssue[] } | undefined)?.issues;
+  return Array.isArray(issues) ? issues.filter((i) => i?.message).map((i) => describePlanIssue(saved, i, names)) : [];
 }
+
+export const SHAPE_MISMATCH_MESSAGE =
+  "Some exercises don't match how they are tracked: a timed or distance exercise takes minutes and/or a distance, a lifting exercise takes sets and reps. Fix these and save again.";
 
 export function PlanEditor({
   program,
@@ -132,16 +138,21 @@ export function PlanEditor({
   const save = async () => {
     setSaving(true);
     setSaveError(null);
+    const sent = toSaveTree(tree);
     try {
       // Content first (If-Match guards it); the name is a header field.
-      let saved = await saveStructure(toSaveTree(tree));
+      let saved = await saveStructure(sent);
       if (name.trim() !== saved.name) saved = await updateName(name.trim());
       onSaved(saved);
     } catch (err) {
       if (programRefusalOf(err) === PROGRAM_REFUSALS.STALE_PLAN) {
         setStaleOpen(true);
       } else if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
-        setSaveError({ message: err.message || 'The plan could not be saved.', issues: issuesOf(err), retry: false });
+        const message =
+          programRefusalOf(err) === PROGRAM_REFUSALS.PRESCRIPTION_SHAPE_MISMATCH
+            ? SHAPE_MISMATCH_MESSAGE
+            : err.message || 'The plan could not be saved.';
+        setSaveError({ message, issues: issuesOf(err, sent, names), retry: false });
       } else {
         setSaveError({
           message: 'The plan could not be saved. Your edits are kept here; check your connection and try again.',

@@ -167,6 +167,44 @@ describe('plan editor', () => {
     expect(await screen.findByText('Saved as version 3 (edited by you).')).toBeInTheDocument();
   });
 
+  it('explains a prescription that does not fit the tracking mode (400 PRESCRIPTION_SHAPE_MISMATCH)', async () => {
+    servePlan();
+    server.use(
+      http.put(`*/api/programs/${PROGRAM_ID}/structure`, () =>
+        HttpResponse.json(
+          {
+            statusCode: 400,
+            code: 'BAD_REQUEST',
+            message: "A prescription does not fit its exercise's tracking mode",
+            details: {
+              reason: 'PRESCRIPTION_SHAPE_MISMATCH',
+              issues: [
+                {
+                  path: 'blocks.0.weeks.0.workouts.0.exercises.1',
+                  message: 'This exercise is tracked in time: prescribe a duration (targetDurationSeconds), not reps',
+                },
+              ],
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    renderEditor();
+    await openEditor();
+    const sets = screen.getByRole('spinbutton', { name: 'Sets, Bench press' });
+    await userEvent.clear(sets);
+    await userEvent.type(sets, '4');
+    await userEvent.click(screen.getByTestId('plan-save'));
+    expect(await screen.findByText(/don't match how they are tracked/)).toBeInTheDocument();
+    expect(
+      screen.getByText('Week 1 · Upper A · Cable row: This exercise is tracked in time: prescribe a duration, not reps'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/targetDurationSeconds/)).toBeNull();
+    // The edits are kept.
+    expect(screen.getByRole('spinbutton', { name: 'Sets, Bench press' })).toHaveValue(4);
+  });
+
   it('asks before discarding unsaved edits', async () => {
     servePlan();
     renderEditor();

@@ -71,7 +71,8 @@ export const PLAN_LIMITS = {
  * Which prescription shape an exercise's `trackingMode` takes (#262):
  * `weight_reps` / `bodyweight_reps` -> sets and reps; `time` -> a duration;
  * `distance_time` -> a duration and/or a distance. The API rejects a
- * mismatch with `400 VALIDATION_ERROR`.
+ * mismatch with a 400 whose `details.reason` is `PRESCRIPTION_SHAPE_MISMATCH`
+ * and `details.issues` locates each row.
  */
 export type PrescriptionShape = 'reps' | 'duration' | 'distance_duration';
 
@@ -95,8 +96,11 @@ export const PROGRAM_REFUSALS = {
   PROGRAM_ARCHIVED: 'PROGRAM_ARCHIVED',
   HAS_HISTORY: 'PROGRAM_HAS_HISTORY',
   UNKNOWN_EXERCISES: 'UNKNOWN_EXERCISES',
+  /** A prescription's shape does not fit its exercise's `trackingMode` (400, with `details.issues[{ path, message }]`). */
+  PRESCRIPTION_SHAPE_MISMATCH: 'PRESCRIPTION_SHAPE_MISMATCH',
   ROW_ID_CONFLICT: 'ROW_ID_CONFLICT',
   INVALID_PLAN: 'INVALID_PLAN',
+  NOT_PROPOSED: 'NOT_PROPOSED',
 } as const;
 export type ProgramRefusal = (typeof PROGRAM_REFUSALS)[keyof typeof PROGRAM_REFUSALS];
 

@@ -425,3 +425,56 @@ export function planErrors(tree: PlanTree, options: PlanErrorOptions = {}): Reco
   }
   return errors;
 }
+
+// -----------------------------------------------------------------------------
+// Server refusals, located in the draft
+// -----------------------------------------------------------------------------
+
+/** One entry of a `PUT /structure` 400's `details.issues`. */
+export interface PlanIssue {
+  /** Dotted, against the body sent: `blocks.0.weeks.1.workouts.0.exercises.2[.field]`. */
+  path?: string;
+  message?: string;
+}
+
+const FIELD_WORDS: Record<string, string> = {
+  targetDurationSeconds: 'duration',
+  targetDistanceMeters: 'distance',
+  targetSets: 'sets',
+  repMin: 'min reps',
+  repMax: 'max reps',
+};
+
+/** The API's message without its wire field names: `a duration (targetDurationSeconds)` -> `a duration`. */
+export function plainIssueMessage(message: string): string {
+  return message
+    .replace(/\s*\((targetDurationSeconds|targetDistanceMeters|targetSets|repMin|repMax)\)/g, '')
+    .replace(/\b(targetDurationSeconds|targetDistanceMeters|targetSets|repMin|repMax)\b/g, (field) => FIELD_WORDS[field] ?? field);
+}
+
+/**
+ * A server issue as the person reads it: where it is in the draft (`Week 2 ·
+ * Upper A · Rowing`) then the message without wire field names. `tree` must
+ * be the draft that was saved: `toSaveTree` keeps every index, so the issue's
+ * path resolves against it. An unresolvable path keeps the bare message.
+ */
+export function describePlanIssue(tree: PlanTree, issue: PlanIssue, names: Record<string, string> = {}): string {
+  const message = plainIssueMessage(issue.message ?? '');
+  const at = (issue.path ?? '').split('.');
+  const index = (key: string) => {
+    const i = at.indexOf(key);
+    const n = i >= 0 ? Number(at[i + 1]) : NaN;
+    return Number.isInteger(n) ? n : null;
+  };
+  const [b, w, o, e] = [index('blocks'), index('weeks'), index('workouts'), index('exercises')];
+  const week = b !== null && w !== null ? tree.blocks[b]?.weeks[w] : undefined;
+  if (!week) return message;
+  const parts = [`Week ${week.weekNumber}`];
+  const workout = o !== null ? week.workouts[o] : undefined;
+  if (workout) {
+    parts.push(workout.name.trim() || `Workout ${o! + 1}`);
+    const exercise = e !== null ? workout.exercises[e] : undefined;
+    if (exercise) parts.push(names[exercise.exerciseId] ?? `Exercise ${e! + 1}`);
+  }
+  return `${parts.join(' · ')}: ${message}`;
+}
