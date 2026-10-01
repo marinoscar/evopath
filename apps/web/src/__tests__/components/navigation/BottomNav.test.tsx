@@ -180,4 +180,54 @@ describe('BottomNav', () => {
       }
     });
   });
+
+  /**
+   * E7.8 (#248). Coach holds the fourth tab only while the user can see it
+   * (AI on AND `ai:use`); otherwise Gyms keeps it. Four tabs in every state.
+   */
+  describe('Coach or Gyms in the fourth slot (E7.8)', () => {
+    function renderPhoneWith(aiEnabled: boolean, route = '/') {
+      const result = render(<BottomNav />, { wrapperOptions: { route, user: mockAdminUser, aiEnabled } });
+      act(() => setViewportWidth(PHONE));
+      return result;
+    }
+
+    function tabNames(): string[] {
+      return screen.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? '');
+    }
+
+    it('shows Today, Train, Health, Coach with AI on and ai:use; Gyms is absent', () => {
+      setPermissions(['ai:use']);
+      renderPhoneWith(true);
+      expect(tabNames()).toEqual(['Today', 'Train', 'Health', 'Coach']);
+      expect(screen.queryByRole('button', { name: 'Gyms' })).not.toBeInTheDocument();
+    });
+
+    it('shows Today, Train, Health, Gyms with AI off, even to an ai:use holder', () => {
+      setPermissions(['ai:use']);
+      renderPhoneWith(false);
+      expect(tabNames()).toEqual(['Today', 'Train', 'Health', 'Gyms']);
+      expect(screen.queryByRole('button', { name: 'Coach' })).not.toBeInTheDocument();
+    });
+
+    it('shows Today, Train, Health, Gyms with AI on but without ai:use', () => {
+      setPermissions([]);
+      renderPhoneWith(true);
+      expect(tabNames()).toEqual(['Today', 'Train', 'Health', 'Gyms']);
+    });
+
+    it('selects Coach on /coach and navigates to it', async () => {
+      setPermissions(['ai:use']);
+      renderPhoneWith(true, '/coach');
+      expect(screen.getByRole('button', { name: 'Coach' })).toHaveClass('Mui-selected');
+    });
+
+    it('selects nothing on /gyms while Coach holds the slot', () => {
+      setPermissions(['ai:use']);
+      renderPhoneWith(true, '/gyms');
+      for (const button of screen.getAllByRole('button')) {
+        expect(button).not.toHaveClass('Mui-selected');
+      }
+    });
+  });
 });

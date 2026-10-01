@@ -6,6 +6,7 @@ import MonitorWeightIcon from '@mui/icons-material/MonitorWeight';
 import PlaceIcon from '@mui/icons-material/Place';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import RocketLaunchOutlinedIcon from '@mui/icons-material/RocketLaunchOutlined';
+import SportsIcon from '@mui/icons-material/Sports';
 import type { RoadmapArea } from './roadmap';
 import { TodayBodySnapshot } from '../components/today/TodayBodySnapshot';
 import { TodayReadiness } from '../components/today/TodayReadiness';
@@ -17,9 +18,11 @@ import {
   TodayAdminSetup,
   TodayGetStarted,
 } from '../components/today/TodayOnboarding';
+import { CoachGate, TodayCoach } from '../components/today/TodayCoach';
 
 /**
- * Cards on the Today page. Append-only order: workout, readiness, body, gym.
+ * Cards on the Today page. Append-only order: workout, readiness, body, gym,
+ * coach (E7.8, #248).
  * The epic that builds a card sets its `Content`; the page itself never changes.
  *
  * Issue #203 put the two onboarding cards (`adminSetup`, `getStarted`) at the
@@ -29,7 +32,7 @@ import {
  * not apply.
  */
 export interface TodayCardDef {
-  key: 'adminSetup' | 'getStarted' | 'workout' | 'readiness' | 'body' | 'gym';
+  key: 'adminSetup' | 'getStarted' | 'workout' | 'readiness' | 'body' | 'gym' | 'coach';
   title: string;
   description: string;
   Icon: SvgIconComponent;
@@ -116,5 +119,18 @@ export const TODAY_CARDS: readonly TodayCardDef[] = [
     area: 'gyms',
     // E3.3: the default gym's name and equipment count, or "Add your gym".
     Content: TodayGym,
+  },
+  {
+    // E7.8 (#248): appended. This week's target and the streak, shown only
+    // while the coach is visible to the user (`ai:use` AND AI on).
+    key: 'coach',
+    title: 'Coach',
+    description: 'Your accountability coach: nudges, cheers and a weekly review.',
+    Icon: SportsIcon,
+    to: '/coach',
+    linkLabel: 'Open Coach',
+    area: 'programs',
+    Content: TodayCoach,
+    Gate: CoachGate,
   },
 ];

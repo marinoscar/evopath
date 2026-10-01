@@ -142,6 +142,8 @@ const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage')
 // Issue #190 (H6) — the caller's own uploaded health documents.
 const UserHealthDocumentsPage = lazy(() => import('./pages/UserHealthDocumentsPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
+// E7.8 (#248): the AI Coach timeline.
+const CoachPage = lazy(() => import('./pages/CoachPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
 // editor, so neither weighs on the entry chunk.
@@ -330,6 +332,20 @@ function AppRoutes() {
                     element={
                       <RequirePermission permission="health_data:read" fallback={<Navigate to="/health" replace />}>
                         <ProgressPhotosPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E7.8 (#248): the AI Coach timeline. Gated exactly as the
+                      `coach` destination is: `ai:use` (the string the coach
+                      controllers enforce) plus AI being on; with AI off it
+                      redirects to Today. */}
+                  <Route
+                    path="/coach"
+                    element={
+                      <RequirePermission permission="ai:use" fallback={<Navigate to="/" replace />}>
+                        <RequireAiEnabled>
+                          <CoachPage />
+                        </RequireAiEnabled>
                       </RequirePermission>
                     }
                   />

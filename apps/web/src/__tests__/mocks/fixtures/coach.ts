@@ -8,6 +8,8 @@ import {
   type CoachPersonaCard,
   type CoachSettingsView,
   type CoachStats,
+  type CoachStateView,
+  type CoachTimelineItem,
   type SystemCoachSettings,
 } from '../../../services/coach';
 
@@ -181,3 +183,68 @@ export const mockCoachStats: CoachStats = {
     optOutRate: 0.1,
   },
 };
+// -----------------------------------------------------------------------------
+// The /coach page (E7.8, #248): `GET /api/coach/state`, `GET /api/coach/messages`
+// and the chat stream's SSE body.
+// -----------------------------------------------------------------------------
+
+export function mockCoachState(overrides: Partial<CoachStateView> = {}): CoachStateView {
+  return {
+    enabled: true,
+    pausedUntil: null,
+    silencedAt: null,
+    weeklyTarget: { done: 2, planned: 3 },
+    weeklyStreak: 4,
+    streakPassesLeft: 1,
+    nextSession: { date: '2026-10-02', name: 'Upper body A', programWorkoutId: '00000000-0000-4000-8000-0000000000aa' },
+    unreadCount: 1,
+    ...overrides,
+  };
+}
+
+/** A UUID-shaped message id from a small integer (the deep link validates the shape). */
+export function coachMessageId(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+}
+
+export function mockCoachMessage(overrides: Partial<CoachTimelineItem> = {}): CoachTimelineItem {
+  return {
+    id: coachMessageId(1),
+    role: 'coach',
+    kind: 'nudge',
+    moment: 'missed_session',
+    personaId: 'coach',
+    intensity: 2,
+    title: 'Missed yesterday',
+    body: 'No stress. Ten minutes today keeps the habit alive.',
+    audioStatus: 'none',
+    audioStorageObjectId: null,
+    voice: null,
+    feedback: null,
+    openedAt: '2026-09-29T10:00:00.000Z',
+    data: null,
+    createdAt: '2026-09-29T09:00:00.000Z',
+    ...overrides,
+  };
+}
+
+/** One SSE frame per entry, `event: <type>` with the JSON payload. */
+export function coachSseBody(frames: Array<[string, unknown]>): string {
+  return frames.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join('');
+}
+
+export const mockCoachChatFrames: Array<[string, unknown]> = [
+  ['tool', { name: 'get_training_signals', status: 'ok' }],
+  ['delta', { text: 'You are doing great. ' }],
+  ['delta', { text: 'Keep the streak going.' }],
+  [
+    'done',
+    {
+      messageId: coachMessageId(901),
+      userMessageId: coachMessageId(900),
+      links: [],
+      pausedUntil: null,
+      fallback: false,
+    },
+  ],
+];

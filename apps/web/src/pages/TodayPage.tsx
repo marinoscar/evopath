@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { Box, Container, Grid, Typography } from '@mui/material';
 import { TodayCard } from '../components/today/TodayCard';
+import { CoachHero } from '../components/today/CoachHero';
 import { TODAY_CARDS, type TodayCardDef } from '../config/todayCards';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -11,6 +12,7 @@ const CARD_SIZE: Record<TodayCardDef['key'], { xs: number; md: number }> = {
   readiness: { xs: 12, md: 4 },
   body: { xs: 12, md: 6 },
   gym: { xs: 12, md: 6 },
+  coach: { xs: 12, md: 6 },
 };
 
 export default function TodayPage() {
@@ -33,6 +35,9 @@ export default function TodayPage() {
         <Typography color="text.secondary" sx={{ mb: 3 }}>
           {subtitle}
         </Typography>
+
+        {/* E7.8 (#248): the latest unread coach line; renders nothing otherwise. */}
+        <CoachHero />
 
         <Grid container spacing={3}>
           {TODAY_CARDS.map((def) => {

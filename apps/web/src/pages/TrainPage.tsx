@@ -13,6 +13,9 @@
  *
  * E6.2: a "Save {name}?" chip keeps the latest unsaved temporary gym (the
  * hotel flow's) one tap from being saved.
+ *
+ * E7.8 (#248): a "Your gyms" link, because Gyms leaves the bottom bar
+ * whenever Coach holds the fourth tab.
  */
 import { useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
@@ -30,6 +33,7 @@ import {
 import {
   EventNote as PlansIcon,
   MenuBook as MenuBookIcon,
+  Place as PlaceIcon,
   PlayArrow as PlayArrowIcon,
 } from '@mui/icons-material';
 import { usePermissions } from '../hooks/usePermissions';
@@ -77,8 +81,11 @@ export default function TrainPage() {
         <Typography color="text.secondary" sx={{ mb: 0.5 }}>
           {TRAIN_SUBTITLE}
         </Typography>
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 3, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
           <WeightUnitLabel unit={unit} />
+          <Button component={RouterLink} to="/gyms" size="small" startIcon={<PlaceIcon />} sx={{ minHeight: 44 }}>
+            Your gyms
+          </Button>
         </Box>
 
         {canReadPrograms && (

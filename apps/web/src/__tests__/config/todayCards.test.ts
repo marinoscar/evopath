@@ -13,7 +13,16 @@ describe('TODAY_CARDS', () => {
       'readiness',
       'body',
       'gym',
+      'coach',
     ]);
+  });
+
+  it('appends the coach card last (E7.8), gated, linking to /coach', () => {
+    const last = TODAY_CARDS[TODAY_CARDS.length - 1];
+    expect(last.key).toBe('coach');
+    expect(last.to).toBe('/coach');
+    expect(last.Gate).toBeDefined();
+    expect(last.Content).toBeDefined();
   });
 
   it('has unique keys', () => {

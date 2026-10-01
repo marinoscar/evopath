@@ -7,8 +7,8 @@
  * size, which is why the answer is a bottom bar and nothing else.
  *
  * FOUR ACTIONS IS THE CEILING, which is what lets `showLabels` stay on. Five
- * labelled tabs do not fit at 360px. The bar renders only `primary`
- * destinations, and `PRIMARY_DESTINATION_LIMIT` (asserted in
+ * labelled tabs do not fit at 360px. The bar renders only the primary
+ * destinations (`resolvePrimaryDestinations`), and `PRIMARY_DESTINATION_LIMIT` (asserted in
  * `destinations.test.ts`) enforces the ceiling. Every other destination is
  * reached from the user menu.
  *
@@ -30,8 +30,8 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import {
   DESTINATIONS,
-  isDestinationVisible,
   resolveActiveDestination,
+  resolvePrimaryDestinations,
 } from '../../config/destinations';
 import type { DestinationKey } from '../../config/destinations';
 
@@ -50,10 +50,9 @@ export function BottomNav() {
 
   if (!isCompactWindow) return null;
 
-  const visibleDestinations = DESTINATIONS.filter(
-    (destination) =>
-      destination.primary && isDestinationVisible(destination, hasPermission, features),
-  );
+  // The resolver, never `destination.primary`: the fourth slot is Coach or
+  // Gyms depending on what this user can see (E7.8, #248).
+  const visibleDestinations = resolvePrimaryDestinations(hasPermission, features);
 
   const resolved = resolveActiveDestination(location.pathname);
   // `false` — NOT `null` — is what MUI's BottomNavigation wants for "nothing

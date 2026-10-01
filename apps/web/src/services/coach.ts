@@ -15,11 +15,20 @@
  * browser never stamps `adultConfirmedAt`: the 18+ dialog sends
  * `confirmAdult: true` and the server records the time.
  *
+ * E7.8 (#248) adds the `/coach` page's calls, below the settings section:
+ *
+ *   GET  /api/coach/state                    ai:use + programs:read  the header
+ *   GET  /api/coach/messages?before=&limit=  ai:use                  the timeline, newest first
+ *   POST /api/coach/messages/:id/opened      ai:use                  mark a message seen (E7.5)
+ *   POST /api/coach/messages/:id/feedback    ai:use                  thumbs up/down/clear (E7.5)
+ *   POST /api/coach/chat/stream              ai:use + programs:read  one chat turn, as SSE
+ *
  * Coach refusals carry their code in `details.code` (the envelope's `code` is
  * status-derived); `COACH_PROFANITY_LOCKED` names the failed unlock condition
  * in `details.reason`.
  */
-import { api, ApiError } from './api';
+import { api, API_BASE_URL, ApiError } from './api';
+import { postSse } from './sse';
 import type { CoachPhotoCadence } from '../types';
 
 // -----------------------------------------------------------------------------
@@ -387,4 +396,306 @@ export function coachSaveErrorMessage(info: CoachErrorInfo): string {
       }
       return info.message;
   }
+}
+
+
+// =============================================================================
+// The /coach page (E7.8, #248; docs/specs/ai-coach.md §2.9, §2.13)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// GET /api/coach/state
+// -----------------------------------------------------------------------------
+
+/** Mirrors `coachStateViewSchema` (`apps/api/src/coach/planning/dto/coach-state.dto.ts`). */
+export interface CoachStateView {
+  enabled: boolean;
+  pausedUntil: string | null;
+  silencedAt: string | null;
+  weeklyTarget: { done: number; planned: number };
+  weeklyStreak: number;
+  streakPassesLeft: number;
+  nextSession: { date: string; name: string; programWorkoutId: string } | null;
+  unreadCount: number;
+}
+
+export function getCoachState(): Promise<CoachStateView> {
+  return api.get<CoachStateView>('/coach/state');
+}
+
+// -----------------------------------------------------------------------------
+// GET /api/coach/messages
+// -----------------------------------------------------------------------------
+
+export type CoachMessageRole = 'coach' | 'user';
+export type CoachAudioStatus = 'none' | 'pending' | 'ready' | 'failed';
+export type CoachFeedback = 'up' | 'down';
+
+/** Mirrors `coachTimelineItemSchema` (`apps/api/src/coach/chat/dto/coach-chat.dto.ts`). */
+export interface CoachTimelineItem {
+  id: string;
+  role: CoachMessageRole;
+  /** `nudge`, `chat`, `weekly_review`, `celebration`, `photo_prompt`, `comeback`, `kickoff` or `system`. */
+  kind: string;
+  moment: string | null;
+  /** Null for user turns and safety replies. */
+  personaId: string | null;
+  intensity: number | null;
+  title: string;
+  body: string;
+  audioStatus: CoachAudioStatus;
+  /** Only while `audioStatus` is `ready`. */
+  audioStorageObjectId: string | null;
+  voice: string | null;
+  feedback: CoachFeedback | null;
+  openedAt: string | null;
+  /** Kind-specific; read defensively (`coachMessageData`). */
+  data: unknown;
+  createdAt: string;
+}
+
+export interface CoachTimelinePage {
+  /** Newest first. */
+  items: CoachTimelineItem[];
+  /** Pass as `before` for the next (older) page; null on the last page. */
+  nextCursor: string | null;
+}
+
+export const COACH_TIMELINE_PAGE_SIZE = 30;
+
+export function getCoachMessages(params: { before?: string; limit?: number } = {}): Promise<CoachTimelinePage> {
+  const query = new URLSearchParams();
+  if (params.before) query.set('before', params.before);
+  query.set('limit', String(params.limit ?? COACH_TIMELINE_PAGE_SIZE));
+  return api.get<CoachTimelinePage>(`/coach/messages?${query.toString()}`);
+}
+
+/** A message id as the API mints them; the `?m=` deep link is validated against it. */
+const COACH_MESSAGE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isCoachMessageId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && COACH_MESSAGE_ID_PATTERN.test(value);
+}
+
+// -----------------------------------------------------------------------------
+// POST /api/coach/messages/:id/opened and /feedback (E7.5)
+// -----------------------------------------------------------------------------
+
+export function markCoachMessageOpened(id: string): Promise<void> {
+  return api.post<void>(`/coach/messages/${encodeURIComponent(id)}/opened`);
+}
+
+export function setCoachMessageFeedback(id: string, feedback: CoachFeedback | null): Promise<void> {
+  return api.post<void>(`/coach/messages/${encodeURIComponent(id)}/feedback`, { feedback });
+}
+
+// -----------------------------------------------------------------------------
+// Kind-specific `data`, read defensively
+// -----------------------------------------------------------------------------
+
+export interface CoachChatLink {
+  label: string;
+  href: string;
+}
+
+/** The parts of `data` the page renders; every field optional, junk dropped. */
+export interface CoachMessageData {
+  links: CoachChatLink[];
+  /** A safety reply (`distress`, `symptom`) or the supportive register (`pain`). */
+  safety: string | null;
+  fallback: boolean;
+  /** Weekly review (E7.10): any of these may be absent. */
+  headline: string | null;
+  adherence: { done: number; planned: number } | null;
+  wins: string[];
+  focus: string | null;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '') : [];
+}
+
+/** Only app-internal links (`/train`), never an absolute or protocol-relative URL. */
+export function isInternalHref(href: unknown): href is string {
+  return typeof href === 'string' && href.startsWith('/') && !href.startsWith('//');
+}
+
+export function coachLinksOf(value: unknown): CoachChatLink[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((link) => {
+    if (typeof link !== 'object' || link === null) return [];
+    const { label, href } = link as { label?: unknown; href?: unknown };
+    return typeof label === 'string' && label.trim() && isInternalHref(href) ? [{ label, href }] : [];
+  });
+}
+
+export function coachMessageData(data: unknown): CoachMessageData {
+  const d = typeof data === 'object' && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+  const stats = typeof d.stats === 'object' && d.stats !== null ? (d.stats as Record<string, unknown>) : d;
+  const adherenceSource = stats.adherence ?? stats.weeklyTarget;
+  let adherence: CoachMessageData['adherence'] = null;
+  if (typeof adherenceSource === 'object' && adherenceSource !== null) {
+    const { done, planned } = adherenceSource as { done?: unknown; planned?: unknown };
+    if (typeof done === 'number' && typeof planned === 'number') adherence = { done, planned };
+  }
+  const focusValue = stats.focus ?? d.focus;
+  return {
+    links: coachLinksOf(d.links),
+    safety: typeof d.safety === 'string' ? d.safety : null,
+    fallback: d.fallback === true,
+    headline: typeof (stats.headline ?? d.headline) === 'string' ? ((stats.headline ?? d.headline) as string) : null,
+    adherence,
+    wins: stringList(stats.wins ?? d.wins),
+    focus: typeof focusValue === 'string' ? focusValue : Array.isArray(focusValue) ? stringList(focusValue)[0] ?? null : null,
+  };
+}
+
+/**
+ * The reply as display text. Bodies are plain text; the one Markdown construct
+ * the chat produces is an app link (`[Adjust today's workout](/train)`), which
+ * `done.links` also carries as a button, so the brackets are reduced to the
+ * label here. Nothing is ever interpreted as HTML (React escapes it).
+ */
+export function coachDisplayText(body: string): string {
+  return body.replace(/\[([^\]\n]+)\]\((\/[^)\s]*)\)/g, '$1');
+}
+
+// -----------------------------------------------------------------------------
+// POST /api/coach/chat/stream
+// -----------------------------------------------------------------------------
+
+/** Mirrors `COACH_CHAT_TEXT_MAX`. */
+export const COACH_CHAT_TEXT_MAX = 2000;
+
+/** The composer's quick replies (spec §2.13), sent as typed text. */
+export const COACH_QUICK_REPLIES = [
+  'Motivate me',
+  'I missed — now what?',
+  'Adjust this week',
+  "I'm sick",
+  'How am I doing?',
+] as const;
+
+export type CoachSafetyLevel = 'blocked' | 'conservative';
+
+export interface CoachChatDone {
+  messageId: string;
+  userMessageId: string;
+  links: CoachChatLink[];
+  pausedUntil: string | null;
+  fallback: boolean;
+}
+
+export interface CoachChatHandlers {
+  onSafety?: (frame: { level: CoachSafetyLevel; screen: string }) => void;
+  onTool?: (frame: { name: string; status: string }) => void;
+  onDelta?: (text: string) => void;
+  onDone?: (frame: CoachChatDone) => void;
+  /** A failure AFTER streaming began (an `error` frame). */
+  onError?: (frame: { code: string; message: string }) => void;
+}
+
+export function coachChatStreamUrl(): string {
+  return `${API_BASE_URL}/coach/chat/stream`;
+}
+
+/**
+ * One chat turn. Resolves when the stream ends (or is aborted); REJECTS with
+ * `ApiError` when a precondition refused it before the first byte
+ * (`COACH_DISABLED`, `AI_FEATURE_UNAVAILABLE`, `429`): nothing was stored then.
+ */
+export async function streamCoachChat(text: string, handlers: CoachChatHandlers, signal?: AbortSignal): Promise<void> {
+  await postSse<Record<string, unknown>>({
+    url: coachChatStreamUrl(),
+    body: { text },
+    authorization: () => {
+      const token = api.getAccessToken();
+      return token ? `Bearer ${token}` : null;
+    },
+    reauthenticate: () => api.refreshToken(),
+    signal,
+    onFrame: (event, raw) => {
+      const data = typeof raw === 'object' && raw !== null ? raw : {};
+      switch (event) {
+        case 'safety':
+          handlers.onSafety?.({
+            level: data.level === 'blocked' ? 'blocked' : 'conservative',
+            screen: typeof data.screen === 'string' ? data.screen : 'pain',
+          });
+          break;
+        case 'tool':
+          handlers.onTool?.({
+            name: typeof data.name === 'string' ? data.name : 'tool',
+            status: typeof data.status === 'string' ? data.status : '',
+          });
+          break;
+        case 'delta':
+          if (typeof data.text === 'string') handlers.onDelta?.(data.text);
+          break;
+        case 'done':
+          handlers.onDone?.({
+            messageId: typeof data.messageId === 'string' ? data.messageId : '',
+            userMessageId: typeof data.userMessageId === 'string' ? data.userMessageId : '',
+            links: coachLinksOf(data.links),
+            pausedUntil: typeof data.pausedUntil === 'string' ? data.pausedUntil : null,
+            fallback: data.fallback === true,
+          });
+          break;
+        case 'error':
+          handlers.onError?.({
+            code: typeof data.code === 'string' ? data.code : 'ERROR',
+            message: typeof data.message === 'string' ? data.message : 'The coach could not reply.',
+          });
+          break;
+        default:
+          break;
+      }
+    },
+  });
+}
+
+/** Friendly labels for the chat's tools (`tool` frames carry only the name). */
+export const COACH_TOOL_LABELS: Record<string, string> = {
+  get_training_signals: 'Checking your training',
+  get_today_plan: "Looking at today's plan",
+  get_recent_workouts: 'Reviewing recent workouts',
+  get_check_ins: 'Reading your check-ins',
+  get_progress_photo_summary: 'Checking progress photos',
+  get_last_weekly_review: 'Reading your last weekly review',
+  pause_coach: 'Pausing the coach',
+};
+
+export function coachToolLabel(name: string): string {
+  return COACH_TOOL_LABELS[name] ?? 'Working on it';
+}
+
+export type CoachChatFailureKind = 'disabled' | 'unavailable' | 'rate_limited' | 'offline' | 'other';
+
+export interface CoachChatFailure {
+  kind: CoachChatFailureKind;
+  message: string;
+}
+
+/** Classify a chat refusal or failure into what the page shows. */
+export function coachChatFailureOf(error: unknown): CoachChatFailure {
+  if (error instanceof ApiError) {
+    const details = (error.details ?? {}) as { code?: unknown; reason?: unknown };
+    if (details.code === COACH_ERRORS.DISABLED || error.code === COACH_ERRORS.DISABLED) {
+      return { kind: 'disabled', message: 'The coach is switched off. Turn it on in your coach settings to chat.' };
+    }
+    if (error.status === 409 || details.reason === 'AI_FEATURE_UNAVAILABLE') {
+      return {
+        kind: 'unavailable',
+        message: 'Coach chat is not available right now: no AI model is set up for it. Ask your administrator.',
+      };
+    }
+    if (error.status === 429) {
+      return { kind: 'rate_limited', message: "You've reached the chat limit for now. Try again later." };
+    }
+    return { kind: 'other', message: error.message || 'The coach could not reply. Try again.' };
+  }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { kind: 'offline', message: 'You are offline. Reconnect to chat with your coach.' };
+  }
+  return { kind: 'other', message: 'The coach could not reply. Try again.' };
 }
