@@ -132,6 +132,12 @@ export interface DashboardUnknownRoutes {
   topRoutes: DashboardUnknownRoute[];
   /** More unknown routes exist than `topRoutes` lists. */
   truncated: boolean;
+  /**
+   * The exact statements run for this block, per-route list first, then the
+   * window totals — for "Open in Explorer". Optional only so a web build
+   * ahead of its API renders (the action is then disabled).
+   */
+  sql?: string[];
 }
 
 export interface DashboardSummary extends DashboardEnvelope {

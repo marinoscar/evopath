@@ -350,7 +350,7 @@ export default function TelemetryDashboardPage() {
   );
   // Unknown API routes (#258): its panel shows only when the summary counted one.
   const unknownRoutes = hasUnknownRoutes(summary.data?.unknownRoutes) ? summary.data.unknownRoutes : null;
-  const unknownSql = unknownRoutesSql(summary.data?.sql);
+  const unknownSql = unknownRoutesSql(unknownRoutes);
 
   /** A verdict reason about an infrastructure section (or unknown routes) links to it — when it is on screen. */
   const reasonLink = (reason: string) => {

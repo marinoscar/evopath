@@ -9,19 +9,14 @@ import { sqlList, type DashboardUnknownRoutes } from '../../../services/telemetr
 /** DOM id of the panel's region: the verdict reason about unknown routes scrolls here. */
 export const UNKNOWN_ROUTES_ANCHOR = 'telemetry-unknown-routes';
 
-/** The column only the API's unknown-route statements read (`app.route.matched`). */
-const ROUTE_MATCHED_COLUMN = 'app.route.matched';
-
 /**
- * The statements of the summary's `sql` that computed `unknownRoutes`, for
- * "Open in Explorer": the per-route list first, then the totals. Selected from
- * what the API reported it ran, never rebuilt. Empty when the summary ran
- * none (an older store), which disables the action.
+ * The statements the API reports it ran for `unknownRoutes`, for "Open in
+ * Explorer": `unknownRoutes.sql` as sent (per-route list first, then the
+ * totals), never rebuilt or picked out of the summary's `sql`. Empty when an
+ * older API omits the field, which disables the action.
  */
-export function unknownRoutesSql(sql: string | string[] | null | undefined): string[] {
-  const statements = sqlList(sql ?? undefined).filter((statement) => statement.includes(ROUTE_MATCHED_COLUMN));
-  const perRoute = (statement: string) => /GROUP BY\s+method\s*,\s*route/i.test(statement);
-  return [...statements.filter(perRoute), ...statements.filter((statement) => !perRoute(statement))];
+export function unknownRoutesSql(block: DashboardUnknownRoutes | null | undefined): string[] {
+  return sqlList(block?.sql);
 }
 
 /** Whether the panel has anything to show: the block is present and counted at least one request. */
