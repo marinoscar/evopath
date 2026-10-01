@@ -61,12 +61,20 @@ function isPermissionDenied(res: request.Response): boolean {
 const ROLES = ['admin', 'contributor', 'viewer'] as const;
 
 /**
- * Feature write permissions an `/api/ai/*` route may declare AFTER `ai:use`,
- * when it writes that feature's data: the quick adaptation's apply routes
- * (`POST /api/ai/training/adaptations/{id}/apply/workout` and `/apply/plan`).
- * A fixed list, so a new one is a reviewed change here.
+ * Feature permissions an `/api/ai/*` route may declare AFTER `ai:use`, when
+ * it writes (or reads) that feature's data: the quick adaptation's apply
+ * routes (`POST /api/ai/training/adaptations/{id}/apply/workout` and
+ * `/apply/plan`), and the opt-in health summary (H8, #192:
+ * `/api/ai/training/health-summary`, `health_data:read` to view it,
+ * `health_data:write` for the consent and a refresh). A fixed list, so a new
+ * one is a reviewed change here.
  */
-const FEATURE_WRITE_PERMISSIONS_ON_AI_ROUTES: readonly string[] = ['workouts:write', 'programs:write'];
+const FEATURE_WRITE_PERMISSIONS_ON_AI_ROUTES: readonly string[] = [
+  'workouts:write',
+  'programs:write',
+  'health_data:read',
+  'health_data:write',
+];
 
 describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every role (#435)', () => {
   let app: AiHttpTestApp;
