@@ -7,6 +7,11 @@ import { mockWorkoutsApi } from '../support/workouts';
 /**
  * The Today page: the app's landing screen and its four cards.
  *
+ * Which cards exist comes from the harness's FROZEN list
+ * (`apps/web/visual/fixtures/todayCards.tsx`, #222), not the live
+ * `TODAY_CARDS`, so adding a Today card to the app moves neither baseline. The
+ * cards' bodies are the real components, fed by the mocks below.
+ *
  * Two treatments:
  *   - desktop 1440x900, dark (the harness default): the `main` region, the
  *     card grid without the rail;

@@ -11,7 +11,9 @@ import { harnessUrl, waitForInter } from '../support/harness';
  * `consoleMode` branch, before the `consoleSections.map(...)` group loop, with
  * no permission gate of its own (getting into Console mode at all already
  * required one). The group headers ("General", "Access", "Operations") come
- * from `ADMIN_SECTIONS`' three section labels.
+ * from the harness's FROZEN registry (`apps/web/visual/fixtures/adminSections.tsx`,
+ * issue #222), so a card added to the live `ADMIN_SECTIONS` does not move this
+ * baseline.
  *
  * The `Operations` assertions below are the point of this spec catching #266
  * at all: a card registered with `disabled: true` and no `path` must NOT appear
@@ -55,11 +57,9 @@ test('Console rail: Back to library + General/Access/Operations groups @ lg', as
   // card.disabled` rather than on a second list: flipping two fields in the
   // registry is what makes the rail draw it.
   await expect(rail.getByRole('link', { name: 'Database Backup' })).toBeVisible();
-  // Live since #401 (epic #397). Appended to the Operations group, so it is the
-  // LAST row in this rail — which is why this baseline had to be regenerated
-  // with that change: an added row lengthens the `nav` element this screenshot
-  // is scoped to. It gates on `system_settings:read`, which the harness's
-  // `DEFAULT_PERMISSIONS` already grants, so no `?perms=` change was needed.
+  // #401 (epic #397), the last Operations row in the fixture registry. An added
+  // row lengthens the `nav` this screenshot is scoped to, which is why the
+  // rail draws the frozen fixture (#222) rather than the live registry.
   await expect(rail.getByRole('link', { name: 'About' })).toBeVisible();
 
   await expect(rail).toHaveScreenshot('console-rail-lg-expanded.png');

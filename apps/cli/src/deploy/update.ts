@@ -18,7 +18,7 @@ import { genuinelyNewKeys } from './env-absence.js';
 import { effectiveGroups } from './compose-files.js';
 import { adoptDeployment } from './adopt.js';
 import { describeEvidence } from './deployment-evidence.js';
-import { writeEnvFile } from './env-file.js';
+import { readEnvFile, writeEnvFile } from './env-file.js';
 import {
   generateValue,
   metadataFor,
@@ -141,6 +141,16 @@ export interface UpdateOptions {
   skipRenewal?: boolean | undefined;
   /** `--skip-oauth-check`: no post-deploy OAuth smoke. */
   skipOAuthCheck?: boolean | undefined;
+  /**
+   * Opt in to a maintenance window for the risky part of this update (issue
+   * #226): `MAINTENANCE_MODE=true` from immediately before `build` until
+   * right after `restart`, so real traffic sees a controlled 503 rather than
+   * whatever the stop/migrate/restart window looks like underneath. Off by
+   * default -- it costs two extra `api` container recreates, and a failure
+   * before the off-step runs leaves the deployment in maintenance mode (see
+   * this file's own "no automatic rollback" stance).
+   */
+  maintenance?: boolean | undefined;
   /** The HTTP client for the health/OAuth smoke. Test seam. */
   fetch?: FetchLike | undefined;
   /** Replaces the terminal yes/no question for the consent gates. Test seam. */
@@ -281,6 +291,89 @@ async function compose(
  * alone; `--no-deps` so api and web are not recreated along with it.
  */
 const RECREATE_NGINX = ['up', '-d', '--no-deps', '--force-recreate', 'nginx'] as const;
+
+/** Recreates the api container, and only it. See `RECREATE_NGINX`. */
+const RECREATE_API = ['up', '-d', '--no-deps', '--force-recreate', 'api'] as const;
+
+/**
+ * Forces `MAINTENANCE_MODE=true` into the deployment's `.env` and recreates
+ * `api` so it takes effect immediately -- `MAINTENANCE_MODE` is read from
+ * `process.env`, which an already-running container does not re-read
+ * (`docs/specs/maintenance-mode.md` §2.3). The environment layer is the only
+ * one the CLI can use at all: it holds no admin session to call
+ * `PUT /api/admin/maintenance` with, and the doc names this layer exactly
+ * this kind of break-glass.
+ *
+ * ⚠ CALLED BEFORE `build`, NOT BEFORE `migrate`'s OWN `stop api`. Setting it
+ * any later would leave the live, pre-update api answering real traffic for
+ * the whole build -- several minutes a real user could hit mid-migration-prep
+ * for nothing this step could have prevented.
+ *
+ * Never fails the update: a protective measure that could not be applied is
+ * a loud warning, not a reason to abandon an otherwise-working release. See
+ * `scheduleRenewal`'s identical stance.
+ */
+async function enableMaintenanceMode(context: UpdateContext): Promise<void> {
+  const envPath = envFilePath(context.options.deployRoot);
+  const templatePath = join(composeCwd(context.options.deployRoot), '.env.example');
+  if (!existsSync(envPath) || !existsSync(templatePath)) {
+    context.journal.line('No environment file yet; maintenance mode was not set.');
+    return;
+  }
+
+  const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
+  const values = readEnvFile(envPath);
+  values.set('MAINTENANCE_MODE', 'true');
+  writeEnvFile(envPath, values, specs);
+
+  try {
+    await compose(context, [...RECREATE_API], { timeoutMs: 5 * 60_000 });
+    context.journal.line('Maintenance mode is on: real traffic sees a 503 until it is turned off.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    context.journal.line(`warning: could not restart api into maintenance mode: ${message}`);
+    context.hooks?.onProgress?.(
+      `warning: maintenance mode may not be in effect (${message})`,
+    );
+  }
+}
+
+/**
+ * Clears the environment override this run set, and recreates `api` so real
+ * requests reach it again.
+ *
+ * ⚠ DELETES THE KEY. NEVER WRITES `false`. The environment layer resolves
+ * with `??` ahead of the persisted one (§2.1): writing `false` here would
+ * silently force shut a window an admin opened through `/admin/settings/
+ * maintenance` for reasons of their own, the moment this update happened to
+ * run concurrently with it. Deleting the key returns resolution to whatever
+ * that other layer already says, which is correct whether or not it was ever
+ * touched.
+ *
+ * ⚠ RUNS BEFORE `health`/`verify`, NOT AFTER. Those read `/api/health/ready`,
+ * which a maintenance window deliberately drains to `503` (§2.6) -- running
+ * them first would make every maintenance update time out waiting for a
+ * readiness that is never coming while the window stays open.
+ *
+ * Unlike `enableMaintenanceMode`, this is allowed to throw: if the recreate
+ * does not actually take, the very next step (`health`) would time out
+ * waiting on a still-drained `/ready` anyway, for the real reason, not an
+ * invented one -- so there is nothing this needs to swallow.
+ */
+async function disableMaintenanceMode(context: UpdateContext): Promise<void> {
+  const envPath = envFilePath(context.options.deployRoot);
+  const templatePath = join(composeCwd(context.options.deployRoot), '.env.example');
+  if (!existsSync(envPath) || !existsSync(templatePath)) return;
+
+  const specs = parseEnvExample(readFileSync(templatePath, 'utf8'));
+  const values = readEnvFile(envPath);
+  if (!values.has('MAINTENANCE_MODE')) return;
+
+  values.delete('MAINTENANCE_MODE');
+  writeEnvFile(envPath, values, specs);
+  await compose(context, [...RECREATE_API], { timeoutMs: 5 * 60_000 });
+  context.journal.line('Maintenance mode is off.');
+}
 
 /** What the container reads; see edge-config.ts. */
 async function readRunningEdgeConfig(context: UpdateContext): Promise<RunningRead> {
@@ -718,6 +811,18 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'maintenance-on',
+      title: 'Enter maintenance mode',
+      skip: (context) =>
+        skipWhenUnchanged(context) ??
+        (context.options.maintenance === true
+          ? undefined
+          : 'not requested; pass --maintenance to use it'),
+      async run(context) {
+        await enableMaintenanceMode(context);
+      },
+    },
+    {
       id: 'build',
       title: 'Build images',
       skip: skipWhenUnchanged,
@@ -784,6 +889,20 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         // a config change in the release never reached the running site.
         // Recreating re-binds the mounts as well as re-resolving the api.
         await compose(context, [...RECREATE_NGINX], { timeoutMs: 5 * 60_000 });
+      },
+    },
+    {
+      id: 'maintenance-off',
+      title: 'Exit maintenance mode',
+      // ⚠ NO GATE ON `--maintenance`, unlike `maintenance-on`. This also
+      // self-heals a window a PREVIOUS run's `maintenance-on` set and never
+      // got to clear (a failure in `build`/`migrate`/`seed` before this step
+      // runs) -- the next update, flag or no flag, finds the leftover key and
+      // clears it, rather than leaving the deployment stuck until someone
+      // notices by hand.
+      skip: skipWhenUnchanged,
+      async run(context) {
+        await disableMaintenanceMode(context);
       },
     },
     {

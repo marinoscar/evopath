@@ -11,20 +11,11 @@ import { harnessUrl, waitForInter } from '../support/harness';
  * The hub has no network fetch, so both screenshots are safe as full-page
  * captures.
  *
- * ⚠ BOTH CAPTURES ARE `fullPage`, WHICH INCLUDES THE CONSOLE RAIL. That makes
- * these two baselines sensitive to something they do not test: ADDING AN ADMIN
- * SETTINGS CARD moves them, because the rail grows a row, even though neither
- * spec's own subject — the search filter — has changed at all.
- *
- * This was got wrong once, in exactly the way that matters: adding the About
- * card (#401) was predicted to leave `hub-search` alone, on the reasonable
- * grounds that its filter matches "Maintenance" and a nonsense string, so the
- * new card is not in either result. Both baselines moved anyway, by the same
- * 222 pixels as `console-rail` — the rail, not the results.
- *
- * So when you add a card, expect SIX baselines to move, not four: the three
- * `admin-hub` widths, `console-rail`, and both of these. A regeneration that
- * touches only four has missed something.
+ * Both captures are `fullPage`, so they include the Console rail. Before #222
+ * that made them move whenever an admin card was added (the rail grew a row,
+ * #401 moved both by 222 pixels). The harness now draws a frozen registry
+ * (`apps/web/visual/fixtures/adminSections.tsx`), so adding a card to the app
+ * moves neither.
  */
 
 const VIEWPORT = { width: 1440, height: 900 };

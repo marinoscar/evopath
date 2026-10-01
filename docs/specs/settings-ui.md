@@ -139,7 +139,7 @@ To add a settings page:
 3. Set `permission` to the exact read permission the page's controller enforces, copied from `roles.constants.ts`. Gate writes inside the page.
 4. If the page depends on a deployment feature, set `feature`. Do not put `feature` on the page that turns that feature on (the admin `AI` card carries none, or the switch would be unreachable in the state it exists to change).
 5. Nest a sub-page's path under its parent (`/admin/settings/ai/models`) so `settingsPageTitle`'s longest-prefix rule titles it correctly.
-6. If the card introduces a permission string new to either registry, add it to `DEFAULT_PERMISSIONS` in `apps/web/visual/main.tsx` in the same change (see §5).
+6. Do not touch the visual harness or its baselines: the harness draws frozen fixture registries, not the live ones (see §5).
 7. Do not add a new tab to an existing settings page. Add a tab only for parallel content inside one destination (§2, Cards vs. tabs).
 8. A new settings **surface** (a third hub) is another binding over `SettingsHub.tsx`, never a copy of it.
 
@@ -153,7 +153,7 @@ To add a settings page:
 | `apps/web/src/__tests__/config/destinations.test.ts` | `/admin/settings`'s route gate matches `console`'s `anyPermission` in `destinations.ts`; no `App.tsx` route is claimed by two destinations; every admin and user card path is routed under the card's own permission; every `/settings/*` route has a `USER_SETTINGS_SECTIONS` card |
 | `apps/web/src/__tests__/components/settings/SettingsHub.test.tsx` | Correct cards for a permission-limited user, click navigation, grid vs. drill-down at the right width, independent scroll offsets per hub |
 
-The Playwright visual-regression harness has one manual coupling. `apps/web/visual/main.tsx`'s `DEFAULT_PERMISSIONS` is a hand-maintained list of permission strings that seeds the harness's fake user. It is not derived from the registries. A card whose permission is missing from that list is filtered out for the fake user, so the baselines pass green over a grid with one card fewer than the one that ships.
+The Playwright visual-regression harness draws frozen fixture registries (`apps/web/visual/fixtures/`), swapped in for `config/adminSections.tsx`, `config/userSettingsSections.tsx` and `config/todayCards.tsx` by `apps/web/visual/vite.config.ts` (#222). Its baselines assert layout, theme and breakpoints, so adding a card moves none of them. `apps/web/src/__tests__/visual/registryFixtures.test.ts` fails if a fixture imports a value from a live registry. `DEFAULT_PERMISSIONS` in `apps/web/visual/main.tsx` seeds the harness user and is matched to the fixtures, not to the live registries; see [TESTING.md](../TESTING.md#visual-specs-assert-layout-not-registry-content).
 
 ## 6. Design decisions
 

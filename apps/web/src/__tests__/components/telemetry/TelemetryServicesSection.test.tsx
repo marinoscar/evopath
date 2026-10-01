@@ -11,12 +11,14 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../../mocks/server';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import {
+  mockTelemetryStackAgentDown,
   mockTelemetryStackMissing,
   mockTelemetryStackRunning,
   mockTelemetryStackUnavailable,
 } from '../../mocks/fixtures/telemetry';
 import type { TelemetryStack, TelemetryStackDeploy } from '../../../services/telemetry';
 import {
+  AGENT_DOWN_MESSAGE,
   TelemetryServicesSection,
   UNAVAILABLE_MESSAGE,
   serviceChip,
@@ -127,12 +129,40 @@ describe('TelemetryServicesSection', () => {
     expect(screen.queryByRole('button', { name: /deploy/i })).not.toBeInTheDocument();
   });
 
-  it('treats agent "unavailable" like "not_configured"', async () => {
-    serveStack({ ...mockTelemetryStackUnavailable, agent: 'unavailable' });
+  it('explains an unresponsive agent on a server deployment, with its reason', async () => {
+    serveStack(mockTelemetryStackAgentDown);
+    renderSection();
+
+    const alert = await screen.findByTestId('telemetry-services-agent-down');
+    expect(alert).toHaveTextContent(AGENT_DOWN_MESSAGE);
+    expect(alert).toHaveTextContent(/Telemetry collection is unaffected\./);
+    expect(within(alert).getByTestId('telemetry-services-agent-error')).toHaveTextContent(
+      'connect ECONNREFUSED 172.18.0.5:8080',
+    );
+    // Not the development-stack message.
+    expect(screen.queryByTestId('telemetry-services-unavailable')).not.toBeInTheDocument();
+    expect(alert.textContent).not.toMatch(/server deployments|in development/i);
+    expect(screen.queryByRole('button', { name: /deploy/i })).not.toBeInTheDocument();
+  });
+
+  it('omits the reason line when an unresponsive agent reports no error', async () => {
+    serveStack({ ...mockTelemetryStackAgentDown, agentError: null });
+    renderSection();
+
+    const alert = await screen.findByTestId('telemetry-services-agent-down');
+    expect(alert).toHaveTextContent(AGENT_DOWN_MESSAGE);
+    expect(screen.queryByTestId('telemetry-services-agent-error')).not.toBeInTheDocument();
+  });
+
+  it('keeps the development message for "not_configured", without the agent-down alert', async () => {
+    serveStack(mockTelemetryStackUnavailable);
     renderSection();
 
     const alert = await screen.findByTestId('telemetry-services-unavailable');
     expect(alert.textContent).not.toMatch(/evopathcli|compose|\.yml|\.env/i);
+    expect(alert).toHaveTextContent(UNAVAILABLE_MESSAGE);
+    expect(screen.queryByTestId('telemetry-services-agent-down')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('telemetry-services-agent-error')).not.toBeInTheDocument();
   });
 
   it('reports mismatched internal credentials as an error', async () => {
@@ -142,6 +172,14 @@ describe('TelemetryServicesSection', () => {
     const alert = await screen.findByTestId('telemetry-services-unauthorized');
     expect(alert).toHaveTextContent(/internal service credentials don.t match/);
     expect(alert).toHaveTextContent(/update the application/i);
+  });
+
+  it('shows the agent\'s reason under a refused deployment', async () => {
+    serveStack({ ...mockTelemetryStackUnavailable, agent: 'unauthorized', agentError: 'HTTP 401' });
+    renderSection();
+
+    const alert = await screen.findByTestId('telemetry-services-unauthorized');
+    expect(within(alert).getByTestId('telemetry-services-agent-error')).toHaveTextContent('HTTP 401');
   });
 
   it('disables the button without system_settings:write', async () => {
