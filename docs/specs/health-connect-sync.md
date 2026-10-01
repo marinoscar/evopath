@@ -1,6 +1,6 @@
 # Health Connect Sync (Android app)
 
-> **Status:** shipped · **Code:** `apps/api/src/health-sync/`, `apps/api/src/sleep/`, `apps/api/src/android-app/`, `apps/android/` · **API:** `/api/health-sync/*`, `/api/sleep`, `/api/admin/android-app`, `/api/well-known/assetlinks.json` (see `/api/docs`) · **UI:** `/settings/connected-devices`, `/admin/settings/android`, Health page "Sleep" section · **Runbook:** [android-app.md](../runbooks/android-app.md)
+> **Status:** shipped · **Code:** `apps/api/src/health-sync/`, `apps/api/src/sleep/`, `apps/api/src/android-app/`, `apps/android/` · **API:** `/api/health-sync/*`, `/api/sleep`, `/api/admin/android-app`, `/api/well-known/assetlinks.json` (see `/api/docs`) · **UI:** `/settings/connected-devices`, `/settings/android-app` (download and update), `/admin/settings/android` (trust and Releases), Health page "Sleep" section · **Runbook:** [android-app.md](../runbooks/android-app.md)
 
 An optional Android app imports steps, exercise sessions, heart rate, weight, body fat, blood pressure and sleep from Android Health Connect into the app. The app is a Trusted Web Activity (TWA) around the web app plus a native Kotlin module that reads Health Connect and posts to `/api/health-sync`. A phone pairs once through the device flow, gets a personal access token (PAT), registers itself as a device, then uploads idempotent syncs. Imported rows carry the provider `health_connect:<deviceId>`, so a re-sent day replaces its earlier row and one phone never touches another's data.
 
@@ -157,10 +157,11 @@ The phone runs a self-test and can upload the result. Reports are stored per dev
 
 | Check id | What it verifies |
 |---|---|
-| `app.version` | App version name and code. |
+| `app.version` | App version name and code, package and signing SHA-256. Warns only when the signing certificate cannot be read. |
+| `app.update` | Compares the installed `versionCode` with the server's current release (`GET /api/android-app/releases/latest`, section 2.12). `pass` up to date; `warn` an update is available (download it from the app's Health sync screen or Settings, then Android app on the web); `skip` when the server has no release (`404 NO_RELEASE`) or one for another package, the phone is not paired, or the check fails. Data: `latestVersionCode`, `latestVersionName`, `updateAvailable`. |
 | `server.configured` | A server URL is set. |
-| `server.reachable` | `GET /api/health/live` answers; latency recorded. |
-| `api.connection` | Reachability plus an authenticated `GET /api/health-sync/devices/:id`; latency recorded. |
+| `server.reachable` | `GET /api/health/live` answers; latency recorded; warns when slower than 3 s. |
+| `api.connection` | Combines `server.reachable` and `auth.valid` (the authenticated `GET /api/health-sync/devices/:id`): fails when either fails, warns when slow, `skip` without a server. Data: both verdicts and both latencies (`liveLatencyMs`, `authLatencyMs`). |
 | `pairing.token` | A token exists; warns under 14 days to expiry. |
 | `auth.valid` | The token is accepted (`401` means re-pair). |
 | `hc.availability` | Health Connect is installed and up to date. |
@@ -168,18 +169,22 @@ The phone runs a self-test and can upload the result. Reports are stored per dev
 | `hc.permissions` | Which read permissions are granted. |
 | `hc.background` | The background-read permission is granted. |
 | `hc.sources` | Which apps wrote into Health Connect in the last 30 days (labels resolved from the manifest `<queries>` list, else the package name). Warns when none did. |
-| `hc.data.<type>` | One check per synced type: `fail` if its permission is denied; `warn` if granted but no records in 30 days (the source app is probably not sharing); otherwise `pass` with count, latest record time and sources. |
+| `hc.data.<type>` | One check per synced type: `skip` if the type is switched off on the phone; `fail` if its permission is denied; `warn` if granted but no records in 30 days (the source app is probably not sharing) or the count failed; otherwise `pass` with count, latest record time and sources. |
 | `battery.optimization` | The app is not battery-restricted. |
 | `notifications.permission` | The notification permission is granted. |
-| `work.scheduled` | The periodic worker is scheduled. |
-| `sync.last` | The last sync is under 3 hours old and did not fail. |
+| `work.scheduled` | The periodic worker is scheduled (`ENQUEUED` or `RUNNING`). Warns while it waits for its network constraint (`BLOCKED`); fails when it is not scheduled; `skip` when not paired. |
+| `sync.last` | The last sync is under 3 hours old and was `ok`. Warns when it failed or was not recorded by the server, when it was `partial` or `skipped` (including a background skip, `BACKGROUND_PERMISSION_MISSING`, whose remedy is to allow background access), or when it is stale. |
 | `sync.delivery` | The last run's per-type `read`, `sent` and server-accepted counts agree; warns on a mismatch. |
 | `timezone.match` | The phone's time zone equals the Health Profile time zone (`userTimezone`). |
-| `twa.verification` | `<server>/.well-known/assetlinks.json` lists this package and signing SHA-256. |
+| `twa.verification` | `<server>/.well-known/assetlinks.json` lists this package and signing SHA-256. Never fails: an unfetchable or invalid document, a missing package or another fingerprint is a `warn` (the app still works, with an address bar). |
 
-Each check is `{ id, status: pass | warn | fail | skip, detail, remedy }`. Fixes for each: [runbook troubleshooting](../runbooks/android-app.md#10-troubleshooting).
+`sync.delivery` likewise only warns. Each check is `{ id, label, status: pass | warn | fail | skip, detail, remedy?, data? }`: `label` is the human name the phone shows, `data` an optional object of check-specific facts (latencies, counts, the missing permissions). Fixes for each: [runbook troubleshooting](../runbooks/android-app.md#10-troubleshooting).
 
-**Report shape.** `{ generatedAt, app, device, server, pairing, healthConnect, work, checks[], recentRuns[], log[] }`. `healthConnect` carries `status`, `version`, `grantedPermissions`, an `inventory` (per data type: permission, 30-day record count capped at 1,000, latest record time, sources) and `sources`. The log is the app's rolling local log (at most 300 lines in a report) and never contains the token.
+**Background skip.** A periodic (worker) run without the Health Connect background-read permission reads nothing. It is still reported, as `status: skipped` with `errorCode: BACKGROUND_PERMISSION_MISSING`, no window and empty `syncedTypes`, so it reconciles nothing (section 2.6). The phone posts the notification "Allow background access so `<product>` can sync while closed" at most once every 24 hours. Manual and app-open syncs run in the foreground and read normally.
+
+**Automatic upload.** After a `failed` or `partial` sync (or one the server never recorded), the phone runs the self-test and uploads a report on its own, at most once every 6 hours, only while it is paired and `GET /api/health/live` answers. The throttle counts from the attempt, so a failing upload does not rerun the self-test every hour.
+
+**Report shape.** `{ generatedAt, summary, app, device, server, pairing, healthConnect, work, checks[], recentRuns[], log[] }`. `summary` is `"N fail, M warn: <first failing check label>"` or `"All checks pass"` (also sent as the upload's `summary`). `app` carries `versionName`, `versionCode`, `packageName`, `signingSha256` and, when the server's current release could be read, `latestVersionCode`, `latestVersionName` and `updateAvailable`. `pairing` carries `deviceId`, `tokenExpiresAt` and `expired`. `healthConnect` carries `status`, `version`, `grantedPermissions`, `backgroundAvailable` (whether this Health Connect supports background reads), an `inventory` (per data type: `label`, permission, 30-day record count capped at 1,000, latest record time, sources, and `error` when the count failed) and `sources`. The log is the app's rolling local log (at most 300 lines in a report, halved until the report fits under 200 KB) and never contains the token.
 
 **Upload and viewing.** `POST /api/health-sync/devices/:id/diagnostics` (`goals:write`, report at most 256 KB serialized, summary at most 500 characters) answers `201 { id, createdAt }` and also works for a revoked device. The list endpoint omits the `report` body; the detail endpoint returns it. The web viewer shows the checks with status icons and remedies, the inventory table, the sources list and a Download JSON button; the runs table shows per-type read and sent counts when the run carries them.
 
@@ -267,7 +272,7 @@ The deployment hosts the Android app's APK itself, so users install and update f
 - `apps/api/test/android-app/android-release-nginx.spec.ts`: the upload body limit and the unbuffered download in `infra/nginx/nginx.conf`.
 - `apps/api/test/health-data/measurements.db.spec.ts`: the measurements partial index is the one expected drift.
 - `apps/api/test/docs-links.spec.ts`: this spec's links.
-- Android JVM unit tests (`apps/android`, `./gradlew testDebugUnitTest`): mapping, window computation, payload building, server URL rules, token store, API client errors.
+- Android JVM unit tests (`apps/android`, `./gradlew testDebugUnitTest`): mapping, window computation, payload building, server URL rules, token store, API client errors; diagnostics in `diagnostics/ChecksTest.kt` (every check's verdicts), `SelfTestTest.kt` (the runner, timeouts and the report), `AutoDiagnosticsTest.kt` (when a report is uploaded on its own and the 6-hour throttle) and `AppLogTest.kt` (redaction, rotation, concurrency).
 
 ## 6. Design decisions
 
