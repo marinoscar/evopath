@@ -1,0 +1,2319 @@
+{
+  "title": "Eight-week dumbbell base with walks",
+  "summary": "3 strength sessions a week of about 40 minutes and 4 walks of 30 minutes for 8 weeks.",
+  "rationale": "Frequency and weekly volume follow the evidence for this level (E1, E2), with gradual progression and a planned deload (E3). Walks sit on the days between strength sessions.",
+  "totalWeeks": 8,
+  "daysPerWeek": 3,
+  "blocks": [
+    {
+      "name": "Block 1",
+      "focus": "Build the base",
+      "rationale": "Progress load or effort across weeks, then recover before the next block (E3).",
+      "weekStart": 1,
+      "weekEnd": 4,
+      "weekSequence": [
+        "A",
+        "B",
+        "B",
+        "D"
+      ],
+      "weekTypes": [
+        {
+          "key": "A",
+          "isDeload": false,
+          "workouts": [
+            {
+              "name": "Full body",
+              "weekday": 1,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "bicycle_crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 2,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 3,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "glute_bridge",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 4,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 5,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dead_bug",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 6,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 7,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "B",
+          "isDeload": false,
+          "workouts": [
+            {
+              "name": "Full body",
+              "weekday": 1,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "bicycle_crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 2,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 3,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "glute_bridge",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 4,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 5,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dead_bug",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 6,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 7,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "D",
+          "isDeload": true,
+          "workouts": [
+            {
+              "name": "Full body",
+              "weekday": 1,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "bicycle_crunch",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 2,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 3,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "glute_bridge",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "crunch",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 4,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 5,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dead_bug",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 6,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 7,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Block 2",
+      "focus": "Progress and consolidate",
+      "rationale": "Progress load or effort across weeks, then recover before the next block (E3).",
+      "weekStart": 5,
+      "weekEnd": 8,
+      "weekSequence": [
+        "A",
+        "B",
+        "B",
+        "D"
+      ],
+      "weekTypes": [
+        {
+          "key": "A",
+          "isDeload": false,
+          "workouts": [
+            {
+              "name": "Full body",
+              "weekday": 1,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "bicycle_crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 2,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 3,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "glute_bridge",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 4,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 5,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dead_bug",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 6,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 7,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "B",
+          "isDeload": false,
+          "workouts": [
+            {
+              "name": "Full body",
+              "weekday": 1,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "bicycle_crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 2,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 3,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "glute_bridge",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "crunch",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 4,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 5,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 3,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dead_bug",
+                  "isPriority": false,
+                  "sets": 3,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 7.5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 6,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 7,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "D",
+          "isDeload": true,
+          "workouts": [
+            {
+              "name": "Full body",
+              "weekday": 1,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "bicycle_crunch",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 2,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 3,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "glute_bridge",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "crunch",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 4,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Full body",
+              "weekday": 5,
+              "rationale": "Full body session covering the patterns the goal needs.",
+              "exercises": [
+                {
+                  "exerciseKey": "dumbbell_lunge",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_bench_press",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_row",
+                  "isPriority": true,
+                  "sets": 2,
+                  "repMin": 8,
+                  "repMax": 12,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 60,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Main lift for the goal.",
+                  "evidenceRefs": [
+                    "E1",
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dumbbell_romanian_deadlift",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                },
+                {
+                  "exerciseKey": "dead_bug",
+                  "isPriority": false,
+                  "sets": 2,
+                  "repMin": 10,
+                  "repMax": 15,
+                  "targetDurationSeconds": null,
+                  "targetDistanceMeters": null,
+                  "targetRpe": 5,
+                  "restSeconds": 45,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Accessory work for balance.",
+                  "evidenceRefs": [
+                    "E2"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 6,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            },
+            {
+              "name": "Walk",
+              "weekday": 7,
+              "rationale": "An easy outdoor walk on a day without strength training.",
+              "exercises": [
+                {
+                  "exerciseKey": "outdoor_walk",
+                  "isPriority": false,
+                  "sets": null,
+                  "repMin": null,
+                  "repMax": null,
+                  "targetDurationSeconds": 1800,
+                  "targetDistanceMeters": null,
+                  "targetRpe": null,
+                  "restSeconds": 30,
+                  "loadGuidance": "choose_start",
+                  "targetLoadKg": null,
+                  "rationale": "Thirty minutes of brisk walking, as requested.",
+                  "evidenceRefs": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "assumptions": [
+    "You can train 3 days a week and walk on 4 other days."
+  ],
+  "safetyNotes": [
+    "Stop a set if you feel sharp pain."
+  ]
+}
