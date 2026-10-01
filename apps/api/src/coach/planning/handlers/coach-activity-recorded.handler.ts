@@ -9,30 +9,33 @@ import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
 import { DEFAULT_NOTIFICATION_POLICY, type NotificationPolicy } from '../../../notifications/notification-policy';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
-import { COACH_WORKOUT_FINISHED_JOB_TYPE } from '../../coach-job-types';
+import { COACH_ACTIVITY_RECORDED_JOB_TYPE } from '../../coach-job-types';
 import { type CoachPlanOutcome, CoachPlannerService } from '../coach-planner.service';
+import { coachEnabledIn } from './coach-workout-finished.handler';
 
 // =============================================================================
-// `coach.workout_finished`: plan right after a finished workout (E7.4)
+// `coach.activity_recorded`: plan right after a manual check-in (F9, #269)
 // =============================================================================
 //
-// Enqueued by `CoachEventsListener` on `workout.finished` (subject = the user,
-// so a burst of finished workouts collapses onto one pending job). Plans only
-// the event moments (`comeback`, `pr`, `weekly_target_hit`) through the same
-// gates as the sweep; logging the workout also clears `silencedAt` and the
-// ignored run (the planner's re-engagement rule). Server-only, profile 1
-// minute, 2 attempts. A coach that is off for the user does nothing.
+// Enqueued by `CoachEventsListener` on `activity.entry.recorded` (subject =
+// the user, so a burst of check-ins collapses onto one pending job; the
+// FIRST event's `recordedSince` then covers every later check-in). Plans only
+// `goal_hit`, through the same gates, caps and spacing as every other moment
+// (`CoachPlannerService.planUser`, trigger `activity_recorded`). A check-in
+// also counts as engagement (clears `silencedAt`, like a workout).
+// Server-only (it reads many tables mid-computation; no node offload),
+// profile 1 minute, 2 attempts. A coach that is off for the user does nothing.
 // =============================================================================
 
-const payloadSchema = z.object({ userId: z.uuid(), workoutId: z.uuid() });
+const payloadSchema = z.object({ userId: z.uuid(), recordedSince: z.iso.datetime({ offset: true }) });
 
-export type CoachWorkoutFinishedPayload = z.infer<typeof payloadSchema>;
+export type CoachActivityRecordedPayload = z.infer<typeof payloadSchema>;
 
 @Injectable()
-export class CoachWorkoutFinishedHandler implements JobHandler, OnModuleInit {
-  private readonly logger = new Logger(CoachWorkoutFinishedHandler.name);
+export class CoachActivityRecordedHandler implements JobHandler, OnModuleInit {
+  private readonly logger = new Logger(CoachActivityRecordedHandler.name);
 
-  readonly type = COACH_WORKOUT_FINISHED_JOB_TYPE;
+  readonly type = COACH_ACTIVITY_RECORDED_JOB_TYPE;
 
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 60_000, maxAttempts: 2 };
 
@@ -51,14 +54,14 @@ export class CoachWorkoutFinishedHandler implements JobHandler, OnModuleInit {
   async process(job: Job): Promise<void> {
     const parsed = payloadSchema.safeParse(job.payload);
     if (!parsed.success) {
-      this.logger.warn(`Coach workout job ${job.id} carries no valid payload; nothing to plan`);
+      this.logger.warn(`Coach activity job ${job.id} carries no valid payload; nothing to plan`);
       return;
     }
     await this.plan(parsed.data, new Date());
   }
 
-  /** Plans the event moments for one finished workout; null when the coach is off. */
-  async plan(payload: CoachWorkoutFinishedPayload, now: Date): Promise<CoachPlanOutcome | null> {
+  /** Plans `goal_hit` for one check-in; null when the coach is off. */
+  async plan(payload: CoachActivityRecordedPayload, now: Date): Promise<CoachPlanOutcome | null> {
     const [aiEnabled, system] = await Promise.all([this.aiConfig.isEnabled(), this.systemSettings.getCoachPolicy()]);
     if (!aiEnabled || !system.enabled) return null;
 
@@ -70,8 +73,8 @@ export class CoachWorkoutFinishedHandler implements JobHandler, OnModuleInit {
 
     return this.planner.planUser(payload.userId, {
       now,
-      trigger: 'workout_finished',
-      workoutId: payload.workoutId,
+      trigger: 'activity_recorded',
+      recordedSince: new Date(payload.recordedSince),
       timeZone: row.user.healthProfile?.timeZone ?? null,
       settingsValue: row.value,
       aiEnabled,
@@ -87,11 +90,4 @@ export class CoachWorkoutFinishedHandler implements JobHandler, OnModuleInit {
       return DEFAULT_NOTIFICATION_POLICY;
     }
   }
-}
-
-/** The stored `coach.enabled` flag (absent or malformed: off). */
-export function coachEnabledIn(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const coach = (value as Record<string, unknown>).coach;
-  return typeof coach === 'object' && coach !== null && (coach as Record<string, unknown>).enabled === true;
 }

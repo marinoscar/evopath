@@ -1,3 +1,5 @@
+import type { GoalProgressData } from '../../activity/goal-progress.service';
+import { evaluateGoal } from '../../activity/goal-progress';
 import type { PlanSignals } from '../../programs/signals/plan-signals.contract';
 import { coachEventEnabled, coachUserSettingsOf, CoachPlannerService, type CoachPlanContext } from './coach-planner.service';
 
@@ -56,6 +58,12 @@ interface Setup {
   finishedWorkout?: { date: Date } | null;
   /** `ProgressPhotoSummaryService.summarize(...).lastLocalDate`; null (no photos) by default. */
   lastPhotoLocalDate?: string | null;
+  /** `GoalProgressService.progressForUser`; [] by default, an Error to make the read fail. */
+  goals?: GoalProgressData[] | Error;
+  /** `momentKey`s of goal messages already sent. */
+  goalKeysSent?: string[];
+  /** The newest manual activity entry's `createdAt`. */
+  lastCheckInAt?: Date | null;
 }
 
 function setup(options: Setup = {}) {
@@ -85,7 +93,12 @@ function setup(options: Setup = {}) {
         args.where.id ? (options.finishedWorkout === undefined ? { date: new Date('2026-09-30T00:00:00Z') } : options.finishedWorkout) : (options.lastWorkout ?? null),
       ),
     },
-    coachMessage: { findMany: jest.fn(async () => options.messages ?? []) },
+    coachMessage: {
+      findMany: jest.fn(async (args: { where: { moment?: unknown } }) =>
+        args.where.moment ? (options.goalKeysSent ?? []).map((momentKey) => ({ data: { momentKey } })) : (options.messages ?? []),
+      ),
+    },
+    activityEntry: { findFirst: jest.fn(async () => (options.lastCheckInAt ? { createdAt: options.lastCheckInAt } : null)) },
     program: { findFirst: jest.fn(async () => null) },
     trainingPlanRun: { findFirst: jest.fn(async () => null) },
   };
@@ -103,14 +116,21 @@ function setup(options: Setup = {}) {
       byPose: { front: lastLocalDate ? 1 : 0, side: 0, back: 0, other: 0 },
     })),
   };
+  const goals = {
+    progressForUser: jest.fn(async () => {
+      if (options.goals instanceof Error) throw options.goals;
+      return options.goals ?? [];
+    }),
+  };
   const service = new CoachPlannerService(
     prisma as never,
     signals as never,
     enqueuer as never,
     metrics as never,
     photoSummary as never,
+    goals as never,
   );
-  return { service, prisma, signals, enqueuer, metrics, photoSummary };
+  return { service, prisma, signals, enqueuer, metrics, photoSummary, goals };
 }
 
 function ctx(overrides: Partial<CoachPlanContext> = {}): CoachPlanContext {
@@ -349,5 +369,206 @@ describe('coachUserSettingsOf / coachEventEnabled', () => {
       'coach.photo_prompt': true,
       'coach.weekly_review': true,
     });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Activity goals (F9, #269)
+// -----------------------------------------------------------------------------
+
+const GOAL = '00000000-0000-4000-8000-00000000090a';
+const WEEK = '2026-09-28';
+
+interface EntrySpec {
+  day: string;
+  createdAt: Date;
+  source?: 'manual' | 'workout';
+  workoutId?: string | null;
+  durationSeconds?: number | null;
+}
+
+let entrySeq = 0;
+function entry(spec: EntrySpec) {
+  entrySeq += 1;
+  return {
+    id: `00000000-0000-4000-8000-${String(entrySeq).padStart(12, '0')}`,
+    occurredOn: spec.day,
+    occurredAt: null,
+    activityKind: 'walk' as const,
+    completed: true,
+    durationSeconds: spec.durationSeconds ?? null,
+    steps: null,
+    distanceMeters: null,
+    source: spec.source ?? ('manual' as const),
+    workoutId: spec.workoutId ?? null,
+    provider: null,
+    note: null,
+    createdAt: spec.createdAt.toISOString(),
+    updatedAt: spec.createdAt.toISOString(),
+  };
+}
+
+/** A goal's progress on Wednesday 2026-09-30, counted by the real activity rules. */
+function goalProgress(metric: 'sessions' | 'minutes', target: number, entries: ReturnType<typeof entry>[]): GoalProgressData {
+  const goal = { id: GOAL, activityKind: 'walk' as const, metric, target, period: 'week' as const, startsOn: '2026-09-01' };
+  const evaluation = evaluateGoal(goal, entries, '2026-09-30');
+  return {
+    goalId: GOAL,
+    goal: {
+      id: GOAL,
+      title: 'Walk four times',
+      activityKind: 'walk',
+      customLabel: null,
+      metric,
+      target,
+      period: 'week',
+      status: 'active',
+      startsOn: '2026-09-01',
+      version: 1,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    },
+    periodStart: evaluation.periodStart,
+    periodEnd: evaluation.periodEnd,
+    done: evaluation.done,
+    target: evaluation.target,
+    remaining: evaluation.remaining,
+    daysLeft: evaluation.daysLeft,
+    onTrack: evaluation.onTrack,
+    hit: evaluation.hit,
+    streakPeriods: evaluation.streakPeriods,
+    elapsedFraction: evaluation.elapsedFraction,
+    entries: evaluation.entries,
+  };
+}
+
+const EARLIER = new Date(NOW.getTime() - DAY);
+const JUST_NOW = new Date(NOW.getTime() - 1_000);
+const RECORDED_SINCE = new Date(NOW.getTime() - 2_000);
+
+describe('CoachPlannerService.planUser: activity goals', () => {
+  it('sweep: a goal behind pace queues goal_at_risk with its per-period momentKey', async () => {
+    // Wednesday: 2/7 of the week elapsed; 150 minutes -> threshold 30.
+    const t = setup({ goals: [goalProgress('minutes', 150, [])] });
+
+    const outcome = await t.service.planUser(USER, ctx());
+
+    expect(t.goals.progressForUser).toHaveBeenCalledWith(USER, undefined, NOW);
+    expect(outcome.queued).toBe('goal_at_risk');
+    expect(t.enqueuer.enqueueNudge).toHaveBeenCalledWith(
+      USER,
+      expect.objectContaining({ moment: 'goal_at_risk', goalId: GOAL, momentKey: `goal_at_risk:${GOAL}:${WEEK}` }),
+      expect.any(Array),
+      '2026-09-30',
+      'sweep',
+    );
+  });
+
+  it('sweep: once per goal per period (the sent key is read back from the coach messages)', async () => {
+    const t = setup({ goals: [goalProgress('minutes', 150, [])], goalKeysSent: [`goal_at_risk:${GOAL}:${WEEK}`] });
+
+    const outcome = await t.service.planUser(USER, ctx());
+
+    expect(outcome.queued).toBeNull();
+    expect(t.metrics.suppressed).toHaveBeenCalledWith('already_sent', 'goal_at_risk');
+  });
+
+  it('sweep: the plan moment outranks the goal and only one nudge is queued', async () => {
+    const t = setup({ signals: MISSED_TWICE, goals: [goalProgress('minutes', 150, [])] });
+    const outcome = await t.service.planUser(USER, ctx());
+    expect(outcome.queued).toBe('missed_twice');
+    expect(t.enqueuer.enqueueNudge).toHaveBeenCalledTimes(1);
+  });
+
+  it('sweep: a failing goal read is logged and the plan moments still go out', async () => {
+    const t = setup({ signals: MISSED_TWICE, goals: new Error('db down') });
+    const outcome = await t.service.planUser(USER, ctx());
+    expect(outcome.queued).toBe('missed_twice');
+  });
+
+  it('check-in: the one that reaches the target queues goal_hit', async () => {
+    const entries = [1, 2, 3].map(() => entry({ day: '2026-09-29', createdAt: EARLIER }));
+    entries.push(entry({ day: '2026-09-30', createdAt: JUST_NOW }));
+    const t = setup({ goals: [goalProgress('sessions', 4, entries)] });
+
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'activity_recorded', recordedSince: RECORDED_SINCE }));
+
+    expect(outcome.queued).toBe('goal_hit');
+    expect(t.enqueuer.enqueueNudge).toHaveBeenCalledWith(
+      USER,
+      expect.objectContaining({ moment: 'goal_hit', goalId: GOAL, momentKey: `goal_hit:${GOAL}:${WEEK}` }),
+      expect.any(Array),
+      '2026-09-30',
+      'activity_recorded',
+    );
+  });
+
+  it('check-in: a later check-in in an already-hit period queues nothing', async () => {
+    const entries = [1, 2, 3, 4].map(() => entry({ day: '2026-09-29', createdAt: EARLIER }));
+    entries.push(entry({ day: '2026-09-30', createdAt: JUST_NOW }));
+    const t = setup({ goals: [goalProgress('sessions', 4, entries)] });
+
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'activity_recorded', recordedSince: RECORDED_SINCE }));
+
+    expect(outcome.queued).toBeNull();
+    expect(t.enqueuer.enqueueNudge).not.toHaveBeenCalled();
+  });
+
+  it('check-in: a check-in short of the target queues nothing, and no clock-driven moment either', async () => {
+    const t = setup({
+      signals: MISSED_TWICE,
+      goals: [goalProgress('sessions', 4, [entry({ day: '2026-09-30', createdAt: JUST_NOW })])],
+    });
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'activity_recorded', recordedSince: RECORDED_SINCE }));
+    expect(outcome.queued).toBeNull();
+  });
+
+  it('check-in: a goal_hit already sent this period is not sent again', async () => {
+    const entries = [1, 2, 3].map(() => entry({ day: '2026-09-29', createdAt: EARLIER }));
+    entries.push(entry({ day: '2026-09-30', createdAt: JUST_NOW }));
+    const t = setup({ goals: [goalProgress('sessions', 4, entries)], goalKeysSent: [`goal_hit:${GOAL}:${WEEK}`] });
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'activity_recorded', recordedSince: RECORDED_SINCE }));
+    expect(outcome.queued).toBeNull();
+    expect(t.metrics.suppressed).toHaveBeenCalledWith('already_sent', 'goal_hit');
+  });
+
+  it('check-in: shares the daily cap with the plan moments', async () => {
+    const entries = [1, 2, 3].map(() => entry({ day: '2026-09-29', createdAt: EARLIER }));
+    entries.push(entry({ day: '2026-09-30', createdAt: JUST_NOW }));
+    const t = setup({
+      goals: [goalProgress('sessions', 4, entries)],
+      state: { nudgesToday: 2, nudgeDayLocal: new Date('2026-09-30T00:00:00Z') },
+    });
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'activity_recorded', recordedSince: RECORDED_SINCE }));
+    expect(outcome.queued).toBeNull();
+    expect(t.metrics.suppressed).toHaveBeenCalledWith('daily_cap', 'goal_hit');
+  });
+
+  it('check-in: counts as engagement and clears the silence', async () => {
+    const t = setup({
+      state: { silencedAt: new Date(NOW.getTime() - 3 * DAY) },
+      lastCheckInAt: JUST_NOW,
+    });
+    await t.service.planUser(USER, ctx({ trigger: 'activity_recorded', recordedSince: RECORDED_SINCE }));
+    expect(updateData(t)).toMatchObject({ silencedAt: null });
+  });
+
+  it('finished workout: the workout whose derived entry reaches the target queues goal_hit', async () => {
+    const entries = [1, 2, 3].map(() => entry({ day: '2026-09-29', createdAt: EARLIER }));
+    entries.push(entry({ day: '2026-09-30', createdAt: EARLIER, source: 'workout', workoutId: WORKOUT }));
+    const t = setup({ goals: [goalProgress('sessions', 4, entries)] });
+
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'workout_finished', workoutId: WORKOUT }));
+
+    expect(outcome.queued).toBe('goal_hit');
+  });
+
+  it('finished workout: another workout\'s entry crossing earlier is not this workout\'s goal_hit', async () => {
+    const other = '00000000-0000-4000-8000-0000000000bb';
+    const entries = [1, 2, 3].map(() => entry({ day: '2026-09-29', createdAt: EARLIER }));
+    entries.push(entry({ day: '2026-09-30', createdAt: EARLIER, source: 'workout', workoutId: other }));
+    const t = setup({ goals: [goalProgress('sessions', 4, entries)] });
+    const outcome = await t.service.planUser(USER, ctx({ trigger: 'workout_finished', workoutId: WORKOUT }));
+    expect(outcome.queued).toBeNull();
   });
 });

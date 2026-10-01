@@ -17,6 +17,12 @@ export const COACH_SWEEP_JOB_TYPE = 'coach.sweep';
 /** One user's immediate planning after a finished workout (E7.4). */
 export const COACH_WORKOUT_FINISHED_JOB_TYPE = 'coach.workout_finished';
 
+/**
+ * One user's immediate planning after a manual activity check-in (F9, #269):
+ * plans `goal_hit`. Server-only, like every coach job.
+ */
+export const COACH_ACTIVITY_RECORDED_JOB_TYPE = 'coach.activity_recorded';
+
 /** Generates, guards and delivers one nudge (E7.5). */
 export const AI_COACH_NUDGE_JOB_TYPE = 'ai.coach.nudge';
 

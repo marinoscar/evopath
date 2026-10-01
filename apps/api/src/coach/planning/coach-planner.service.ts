@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
+import { GoalProgressService, type GoalProgressData } from '../../activity/goal-progress.service';
 import { addDays, fromDbDate, toDbDate } from '../../check-ins/local-date';
 import type { SystemCoachValue } from '../../common/schemas/settings.schema';
 import {
@@ -20,12 +21,14 @@ import {
   toCoachPlanningSignals,
   workoutEventOf,
 } from './coach-signals';
+import { fromWorkoutPredicate, goalsHitBy, recordedSincePredicate, toCoachGoalSignals } from './coach-goals';
 import { CoachMomentEnqueuer } from './coach-moment-enqueuer';
 import { CoachPlanningMetrics } from './coach-planning.metrics';
 import { coachNow, localDateOf } from './coach-time';
 import {
   COACH_EVENT_KEYS,
   COACH_MOMENTS,
+  GOAL_MOMENTS,
   type CoachEventKey,
   type CoachMoment,
   type CoachPlanningSettings,
@@ -57,6 +60,13 @@ import { USUAL_WORKOUT_WINDOW_DAYS, usualWorkoutMinuteLocal } from './usual-work
 //      message, chatted, logged a workout), `usualWorkoutMinuteLocal` is the
 //      4-week median and, for the sweep, `lastSweepAt` is stamped.
 //   3. PLANS with the pure `planCoachMoments` and counts every suppression.
+//   ACTIVITY GOALS (F9, #269): the sweep reads every active goal's progress
+//      (`GoalProgressService`) for `goal_at_risk`; the event passes
+//      (`workout_finished`, `activity_recorded`) for `goal_hit`. The
+//      `momentKey`s of goal messages of the last `GOAL_KEY_WINDOW_DAYS` make
+//      them once per goal per period. A manual check-in counts as
+//      engagement (like a workout). A goal read that fails is logged and
+//      planned without goals: goals never block the plan's moments.
 //   4. ENQUEUES the top nudge-lane moment and the weekly review through
 //      `CoachMomentEnqueuer`; a silencing moment (`back_off`, `win_back`)
 //      sets `silencedAt` once it is queued.
@@ -72,8 +82,10 @@ const SAFETY_STOP_WINDOW_DAYS = 7;
 /** `programs.autonomy_paused_reason` values that are a safety stop (not a user pause). */
 const SAFETY_PAUSE_REASONS: ReadonlySet<string> = new Set(['safety_text', 'pain_pattern']);
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Goal moment keys are read this far back: a week period plus a day of margin. */
+const GOAL_KEY_WINDOW_DAYS = 8;
 
-export type CoachPlanTrigger = 'sweep' | 'workout_finished';
+export type CoachPlanTrigger = 'sweep' | 'workout_finished' | 'activity_recorded';
 
 /** What one pass needs besides the user id; the sweep reads it once per page. */
 export interface CoachPlanContext {
@@ -88,6 +100,8 @@ export interface CoachPlanContext {
   notificationPolicy: NotificationPolicy;
   /** `workout_finished` only: the workout that finished. */
   workoutId?: string;
+  /** `activity_recorded` only: the instant read just before the check-in was written. */
+  recordedSince?: Date;
 }
 
 export interface CoachPlanOutcome {
@@ -107,6 +121,8 @@ export class CoachPlannerService {
     private readonly enqueuer: CoachMomentEnqueuer,
     private readonly metrics: CoachPlanningMetrics,
     private readonly photoSummary: ProgressPhotoSummaryService,
+    // Optional so a fork without activity goals (or a test) plans without them.
+    @Optional() private readonly goals?: GoalProgressService,
   ) {}
 
   async planUser(userId: string, ctx: CoachPlanContext): Promise<CoachPlanOutcome> {
@@ -123,7 +139,7 @@ export class CoachPlannerService {
 
     const state = await this.prisma.coachState.upsert({ where: { userId }, create: { userId }, update: {} });
 
-    const [signals, recentWorkouts, lastWorkout, messages, photo, program, lastRun] = await Promise.all([
+    const [signals, recentWorkouts, lastWorkout, messages, photo, program, lastRun, lastCheckIn, goalProgress] = await Promise.all([
       this.signals.forUser(userId, { to: addDays(today, 7) }, now),
       this.prisma.workout.findMany({
         where: { userId, status: 'completed', startedAt: { gte: new Date(now.getTime() - USUAL_WORKOUT_WINDOW_DAYS * DAY_MS) } },
@@ -150,6 +166,12 @@ export class CoachPlannerService {
         orderBy: { completedAt: 'desc' },
         select: { status: true, completedAt: true },
       }),
+      this.prisma.activityEntry.findFirst({
+        where: { userId, source: 'manual' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+      this.goalProgress(userId, now),
     ]);
 
     // ---- bookkeeping --------------------------------------------------------
@@ -157,7 +179,7 @@ export class CoachPlannerService {
     const lastUserChatAt = messages.find((m) => m.role === 'user')?.createdAt ?? null;
     const lastOpenedAt = latestOf(...messages.map((m) => m.openedAt));
     const lastWorkoutAt = lastWorkout ? (lastWorkout.endedAt ?? lastWorkout.startedAt) : null;
-    const lastEngagementAt = latestOf(lastOpenedAt, lastUserChatAt, lastWorkoutAt);
+    const lastEngagementAt = latestOf(lastOpenedAt, lastUserChatAt, lastWorkoutAt, lastCheckIn?.createdAt ?? null);
 
     const reengaged = state.silencedAt !== null && lastEngagementAt !== null && lastEngagementAt > state.silencedAt;
     let silencedAt = reengaged ? null : state.silencedAt;
@@ -175,7 +197,21 @@ export class CoachPlannerService {
       lastProgressPhotoDate: photo.lastLocalDate,
       safetyStop: isSafetyStop(program, lastRun, now),
     });
-    if (workoutDate) planningSignals.event = workoutEventOf(signals, workoutDate);
+    if (workoutDate) {
+      planningSignals.event = {
+        ...workoutEventOf(signals, workoutDate),
+        goalHits: ctx.workoutId ? goalsHitBy(goalProgress, fromWorkoutPredicate(ctx.workoutId)) : [],
+      };
+    } else if (ctx.trigger === 'activity_recorded') {
+      planningSignals.event = {
+        comeback: false,
+        pr: false,
+        weeklyTargetHit: false,
+        goalHits: ctx.recordedSince ? goalsHitBy(goalProgress, recordedSincePredicate(ctx.recordedSince)) : [],
+      };
+    } else {
+      planningSignals.goals = toCoachGoalSignals(goalProgress);
+    }
 
     const planningState: CoachPlanningState = {
       lastNudgeAt: state.lastNudgeAt,
@@ -190,6 +226,7 @@ export class CoachPlannerService {
         .filter((m) => m.moment && localDateOf(m.createdAt, zone) === today)
         .map((m) => m.moment as string)
         .filter(isCoachMoment),
+      goalMomentKeysSent: goalProgress.length > 0 ? await this.goalMomentKeysSent(userId, now) : [],
     };
     const user = coachUserSettingsOf(ctx.settingsValue);
     const settings: CoachPlanningSettings = {
@@ -239,6 +276,34 @@ export class CoachPlannerService {
         `review ${weeklyReviewQueued ? 'queued' : 'none'}, ${suppressed.length} suppressed`,
     );
     return { queued, weeklyReviewQueued, suppressed: suppressed.length };
+  }
+
+  /** Every active goal's progress; [] without goals, or when the read fails (logged, never thrown). */
+  private async goalProgress(userId: string, now: Date): Promise<GoalProgressData[]> {
+    if (!this.goals) return [];
+    try {
+      return await this.goals.progressForUser(userId, undefined, now);
+    } catch (error) {
+      this.logger.warn(`Coach could not read goal progress for user ${userId}: ${error instanceof Error ? error.name : 'error'}`);
+      return [];
+    }
+  }
+
+  /** `momentKey`s of the goal messages of the last `GOAL_KEY_WINDOW_DAYS` (one goal moment per goal per period). */
+  private async goalMomentKeysSent(userId: string, now: Date): Promise<string[]> {
+    const rows = await this.prisma.coachMessage.findMany({
+      where: {
+        userId,
+        role: 'coach',
+        moment: { in: [...GOAL_MOMENTS] },
+        createdAt: { gte: new Date(now.getTime() - GOAL_KEY_WINDOW_DAYS * DAY_MS) },
+      },
+      select: { data: true },
+    });
+    return rows.flatMap((row) => {
+      const key = isRecord(row.data) ? row.data.momentKey : undefined;
+      return typeof key === 'string' ? [key] : [];
+    });
   }
 
   /** The local day of the caller's completed workout; null when it is not theirs or not completed. */

@@ -3,6 +3,8 @@
 // =============================================================================
 //
 //   workout.finished  (WorkoutsService.finish, after commit) -> coach.workout_finished job
+//   activity.entry.recorded (ActivityEntriesService, after commit)
+//                                                -> coach.activity_recorded job (F9, `goal_hit`)
 //
 // THE BODY ONLY ENQUEUES (the queue rule; `apps/api/test/jobs/on-event-no-io.spec.ts`
 // scans it): no read, no state write, no planning. The job plans the
@@ -20,9 +22,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { ACTIVITY_ENTRY_RECORDED_EVENT, type ActivityEntryRecordedEvent } from '../../activity/activity-events';
 import { JobsService } from '../../jobs/jobs.service';
 import { WORKOUT_FINISHED_EVENT, type WorkoutFinishedEvent } from '../../workouts/workout-events';
-import { COACH_USER_SUBJECT_TYPE, COACH_WORKOUT_FINISHED_JOB_TYPE } from '../coach-job-types';
+import {
+  COACH_ACTIVITY_RECORDED_JOB_TYPE,
+  COACH_USER_SUBJECT_TYPE,
+  COACH_WORKOUT_FINISHED_JOB_TYPE,
+} from '../coach-job-types';
 
 @Injectable()
 export class CoachEventsListener {
@@ -43,6 +50,23 @@ export class CoachEventsListener {
     } catch (error) {
       this.logger.warn(
         `Could not queue coach planning after workout ${event.workoutId}: ${error instanceof Error ? error.name : 'error'}`,
+      );
+    }
+  }
+
+  @OnEvent(ACTIVITY_ENTRY_RECORDED_EVENT, { async: true })
+  async onActivityRecorded(event: ActivityEntryRecordedEvent): Promise<void> {
+    try {
+      await this.jobs.enqueue({
+        type: COACH_ACTIVITY_RECORDED_JOB_TYPE,
+        reason: 'upload',
+        subjectType: COACH_USER_SUBJECT_TYPE,
+        subjectId: event.userId,
+        payload: { userId: event.userId, recordedSince: event.recordedSince },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not queue coach planning after a check-in of user ${event.userId}: ${error instanceof Error ? error.name : 'error'}`,
       );
     }
   }
