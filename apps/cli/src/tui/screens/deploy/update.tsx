@@ -1,10 +1,12 @@
 import { useState, type ReactNode } from 'react';
 
+import { assertMovesForward, currentVersion, suggestNext } from '../../../deploy/app-version.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
 import { runUpdate } from '../../../deploy/update.js';
+import { checkoutPathFor } from '../../../deploy/version-step.js';
 import {
   advancedDefaults,
   advancedFields,
@@ -119,7 +121,7 @@ export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode 
           setStep({
             kind: 'questions',
             target: { name: step.name, settings, state },
-            fields: updateFields(state),
+            fields: updateFields(state, settings.deployRoot),
           });
         }}
       />
@@ -204,15 +206,26 @@ function recordFor(deployRoot: string): DeployState | undefined {
 }
 
 /**
- * The one text-valued flag update takes.
+ * The text-valued flags update takes.
  *
- * ⚠ The placeholder is the RECORDED ref, so pressing Enter through it keeps
- * the branch this deployment is actually following. An empty placeholder
- * stores `''`, which the call below reads as "not given" and leaves off
- * entirely - `runUpdate` then follows whatever the state records, rather than
- * being told to move to a ref the operator never typed.
+ * ⚠ `__ref`'s placeholder is the RECORDED ref, so pressing Enter through it
+ * keeps the branch this deployment is actually following. An empty
+ * placeholder stores `''`, which the call below reads as "not given" and
+ * leaves off entirely - `runUpdate` then follows whatever the state records,
+ * rather than being told to move to a ref the operator never typed.
+ *
+ * ⚠ `__app_version`'s placeholder is a COMPUTED SUGGESTION, not a fact on
+ * disk like every other prefilled field here - which is exactly why its
+ * value never reaches the printed rerun command (`rerunCommand` only emits a
+ * flag it finds in the values map it is given, and update.tsx's `onYes`
+ * deliberately does not add this field to that map): a suggestion computed
+ * now and replayed verbatim later, after the real "current version" has
+ * moved, would pin the wrong number rather than re-suggest a fresh one.
  */
-function updateFields(state: DeployState | undefined): FieldSpec[] {
+export function updateFields(state: DeployState | undefined, deployRoot: string): FieldSpec[] {
+  const current = currentVersion(checkoutPathFor(deployRoot));
+  const suggested = suggestNext(current);
+
   return [
     {
       key: '__ref',
@@ -222,10 +235,27 @@ function updateFields(state: DeployState | undefined): FieldSpec[] {
       secret: false,
       prefilled: state?.ref !== undefined,
     },
+    {
+      key: '__app_version',
+      label: 'version',
+      help: `Release version this deploy is recorded as. Must sort above the current one (${current}).`,
+      placeholder: suggested,
+      secret: false,
+      prefilled: true,
+      validate: (value) => {
+        if (value === '') return undefined;
+        try {
+          assertMovesForward(value, current);
+          return undefined;
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error);
+        }
+      },
+    },
   ];
 }
 
-async function performUpdate(
+export async function performUpdate(
   target: Target,
   answers: ReadonlyMap<string, string>,
   chosen: ReadonlySet<string>,
@@ -233,6 +263,7 @@ async function performUpdate(
   hooks: DeployHooks,
 ): Promise<string[]> {
   const ref = answers.get('__ref') ?? '';
+  const appVersion = answers.get('__app_version') ?? '';
 
   const result = await runUpdate({
     deployRoot: target.settings.deployRoot,
@@ -244,6 +275,10 @@ async function performUpdate(
     // values were collected above and the wizard runs with nothing left to ask.
     nonInteractive: true,
     ...(ref === '' ? {} : { ref }),
+    // Empty means "the suggestion was fine", exactly like `ref` above -- the
+    // version step then suggests its own patch bump, computed fresh rather
+    // than reusing what this screen prefilled minutes ago.
+    ...(appVersion === '' ? {} : { appVersion }),
     // `--no-version-bump` and every other toggle land here as their real
     // option keys; `flags-model.test.ts` asserts the list against the
     // subcommand's own Commander definitions, so a toggle for a flag the CLI

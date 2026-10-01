@@ -348,6 +348,28 @@ moving to is technically older than what's currently checked out — without
 it, `update` would see the ref hasn't "moved forward" in the way it expects
 and do nothing.
 
+**For a planned update window, pass `--maintenance`.** It wraps the riskiest
+part of the update — version, build, migrate, seed, restart — in a
+maintenance window: `MAINTENANCE_MODE=true` goes into the deployment's `.env`
+before `build` (recreating the `api` container so it takes effect right
+away), and comes back out again right after `restart`, once more recreating
+`api`. What this buys you: real requests get a controlled `503` for the whole
+window instead of whatever the underlying stop/migrate/restart sequence
+happens to look like. What it does **not** buy you: the containers
+themselves are still briefly down during `migrate`'s own `stop api` and
+`restart`'s recreate — that gap exists with or without this flag, and nothing
+in the CLI removes it. If the update fails between turning the window on and
+turning it back off (a failed build, migration or seed), the deployment is
+left in maintenance mode — the same no-automatic-rollback stance as the rest
+of this command. You don't have to chase that down by hand: the *next*
+`update`, with or without `--maintenance`, always clears a leftover window it
+finds, so a stuck window self-heals on the next scheduled run; to clear it
+sooner, use `/admin/settings/maintenance` or edit `.env` directly. This uses
+the environment-variable break-glass, not the real admin API, because the CLI
+has no admin session to call it with — see
+[`docs/specs/maintenance-mode.md`](../specs/maintenance-mode.md) for how the
+two layers resolve against each other.
+
 Full flag reference: [`apps/cli/README.md`, "Deploying to a
 server"](../../apps/cli/README.md#deploying-to-a-server).
 
