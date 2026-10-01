@@ -80,8 +80,12 @@ describe('prescription labels', () => {
     expect(prescriptionLabel(reps({ repMin: 10, repMax: 10 }))).toBe('3 x 10');
     expect(prescriptionLabel(cardio())).toBe('30 min');
     expect(prescriptionLabel(cardio({ targetDurationSeconds: null, targetDistanceMeters: 5000 }))).toBe('5 km');
-    expect(prescriptionLabel(cardio({ targetDistanceMeters: 5000 }))).toBe('30 min, 5 km');
-    expect(prescriptionLabel(cardio({ targetSets: 4, targetDurationSeconds: 300 }))).toBe('4 x 5 min');
+    expect(prescriptionLabel(cardio({ targetDistanceMeters: 5000 }))).toBe('5 km · 30 min');
+    // A cardio target is the session total: the set count follows it, never prefixes it.
+    expect(prescriptionLabel(cardio({ targetSets: 4, targetDurationSeconds: null, targetDistanceMeters: 400 }))).toBe('400 m · 4 sets');
+    expect(prescriptionLabel(cardio({ targetSets: 3 }))).toBe('30 min · 3 sets');
+    expect(prescriptionLabel(cardio({ targetSets: 2, targetDistanceMeters: 5000 }))).toBe('5 km · 30 min · 2 sets');
+    expect(prescriptionLabel(cardio({ targetSets: 1 }))).toBe('30 min');
   });
 
   it.each<[string, PrescriptionFields, PrescriptionFields, string | null]>([
@@ -91,6 +95,8 @@ describe('prescription labels', () => {
     ['more sets', reps(), reps({ targetSets: 4 }), '3 x 8-12 → 4 x 8-12'],
     ['across an hour', cardio({ targetDurationSeconds: 3000 }), cardio({ targetDurationSeconds: 5400 }), '50 min → 1 h 30 min'],
     ['nothing a person reads', cardio(), cardio({ targetDurationSeconds: 1810 }), null],
+    ['split into sets', cardio(), cardio({ targetSets: 3 }), '30 min → 30 min · 3 sets'],
+    ['a longer interval total', cardio({ targetSets: 4, targetDurationSeconds: null, targetDistanceMeters: 1600 }), cardio({ targetSets: 4, targetDurationSeconds: null, targetDistanceMeters: 2000 }), '1.6 km · 4 sets → 2 km · 4 sets'],
   ])('describes %s', (_label, before, after, text) => {
     expect(describePrescriptionChange(before, after)).toBe(text);
   });

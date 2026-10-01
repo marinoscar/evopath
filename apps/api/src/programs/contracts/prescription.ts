@@ -89,14 +89,21 @@ export function formatDistance(meters: number): string {
   return `${Number((meters / 1000).toFixed(2))} km`;
 }
 
-/** `3 x 8-12`, `3 x 10`, `30 min`, `5 km`, `30 min, 5 km`, `4 x 5 min`. */
+/**
+ * `3 x 8-12`, `3 x 10`, `30 min`, `5 km`, `5 km · 30 min`, `400 m · 4 sets`.
+ *
+ * A cardio target is the exercise's TOTAL for the session, so it reads as
+ * given (distance first, then time), with the set count after it when there
+ * is more than one: never `4 x 400 m`, which would read as per-interval.
+ * Mirrors the web's `formatPrescription` (`apps/web/src/utils/prescription.ts`).
+ */
 export function prescriptionLabel(fields: PrescriptionFields): string {
   if (isCardioPrescription(fields)) {
     const parts: string[] = [];
-    if (fields.targetDurationSeconds !== null) parts.push(formatDuration(fields.targetDurationSeconds));
     if (fields.targetDistanceMeters !== null) parts.push(formatDistance(fields.targetDistanceMeters));
-    const label = parts.join(', ');
-    return fields.targetSets !== null && fields.targetSets > 1 ? `${fields.targetSets} x ${label}` : label;
+    if (fields.targetDurationSeconds !== null) parts.push(formatDuration(fields.targetDurationSeconds));
+    if (fields.targetSets !== null && fields.targetSets > 1) parts.push(`${fields.targetSets} sets`);
+    return parts.join(' · ');
   }
   const reps = fields.repMin === fields.repMax ? `${fields.repMin}` : `${fields.repMin}-${fields.repMax}`;
   return `${fields.targetSets} x ${reps}`;
@@ -106,7 +113,8 @@ export function prescriptionLabel(fields: PrescriptionFields): string {
  * What changed between two prescriptions of one exercise, as one short
  * phrase, or null when nothing a person reads changed:
  *
- *   `20 → 30 min`, `5 → 7.5 km`, `3 x 8-12 → 4 x 8-12`, `30 min → 5 km`
+ *   `20 → 30 min`, `5 → 7.5 km`, `3 x 8-12 → 4 x 8-12`, `30 min → 5 km`,
+ *   `30 min → 30 min · 3 sets`
  *
  * A same-unit change shows the unit once; anything else shows both labels.
  */
