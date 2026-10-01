@@ -101,7 +101,7 @@ export default function LoginPage() {
       <Card
         sx={{
           width: '100%',
-          maxWidth: { xs: 400, md: 880 },
+          maxWidth: { xs: 400, md: 920 },
           display: 'flex',
           overflow: 'hidden',
           boxShadow: 10,
@@ -116,7 +116,8 @@ export default function LoginPage() {
             justifyContent: 'center',
             position: 'relative',
             overflow: 'hidden',
-            p: 6,
+            px: 5,
+            py: 6,
             minHeight: 480,
             color: 'common.white',
             bgcolor: 'primary.main',
@@ -158,6 +159,7 @@ export default function LoginPage() {
               position: 'relative',
               mt: 1.5,
               maxWidth: 360,
+              textWrap: 'balance',
               fontSize: '1.125rem',
               color: alpha(theme.palette.common.white, 0.85),
             })}
