@@ -53,6 +53,18 @@ describe('buildManifest', () => {
     expect(manifest.background_color).toBe(BACKGROUND_COLOR);
   });
 
+  it('derives a 6-digit hex background_color from BACKGROUND_COLOR', () => {
+    // The rule is the DERIVATION and the shape, not a particular colour: the
+    // value lives in `packages/shared/identity.json` and a fork changes it
+    // there. Platforms reject a malformed splash colour silently, and
+    // `scripts/generate-icons.py` paints the same value into the PNGs, so it
+    // must stay a plain `#rrggbb` both can read.
+    const { background_color } = buildManifest();
+
+    expect(background_color).toBe(BACKGROUND_COLOR);
+    expect(background_color).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+
   it('scopes the app to the site root and marks installed launches', () => {
     const manifest = buildManifest();
 

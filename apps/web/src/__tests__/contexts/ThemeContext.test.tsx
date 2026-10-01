@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { ThemeContextProvider, useThemeContext } from '../../contexts/ThemeContext';
+import { theme } from '../../theme';
+
+const themeColorMeta = () =>
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
 
 describe('ThemeContext', () => {
   beforeEach(() => {
     localStorage.clear();
+    // The sync owns this tag; start every test with none so "created if absent"
+    // is observable and a previous test's value cannot satisfy an assertion.
+    themeColorMeta()?.remove();
     // Reset matchMedia mock to default (light mode)
     vi.mocked(window.matchMedia).mockReturnValue({
       matches: false,
@@ -45,6 +52,25 @@ describe('ThemeContext', () => {
       });
 
       expect(result.current.mode).toBe('system');
+    });
+
+    it('should drop an invalid saved value from storage rather than keep re-reading it', () => {
+      localStorage.setItem('theme_mode', 'invalid');
+
+      renderHook(() => useThemeContext(), { wrapper: ThemeContextProvider });
+
+      expect(localStorage.getItem('theme_mode')).not.toBe('invalid');
+    });
+
+    it('should keep a valid saved value untouched', () => {
+      localStorage.setItem('theme_mode', 'light');
+
+      const { result } = renderHook(() => useThemeContext(), {
+        wrapper: ThemeContextProvider,
+      });
+
+      expect(result.current.mode).toBe('light');
+      expect(localStorage.getItem('theme_mode')).toBe('light');
     });
   });
 
@@ -176,6 +202,92 @@ describe('ThemeContext', () => {
       expect(result.current.mode).toBe('system');
       expect(result.current.isDarkMode).toBe(false);
       expect(result.current.theme.palette.mode).toBe('light');
+    });
+  });
+
+  describe('Browser chrome colour (<meta name="theme-color">)', () => {
+    // The tag tracks the ACTIVE scheme's `background.paper`, which is what the
+    // app bar paints, so the browser / installed-PWA chrome matches it.
+    const LIGHT_PAPER = '#FFFFFF';
+    const DARK_PAPER = '#122020';
+
+    it('pins the scheme values these assertions expect', () => {
+      expect(theme.colorSchemes.light!.palette.background.paper).toBe(LIGHT_PAPER);
+      expect(theme.colorSchemes.dark!.palette.background.paper).toBe(DARK_PAPER);
+    });
+
+    it('sets the dark paper colour when the mode is dark', () => {
+      const { result } = renderHook(() => useThemeContext(), { wrapper: ThemeContextProvider });
+
+      act(() => {
+        result.current.setMode('dark');
+      });
+
+      expect(themeColorMeta()?.content).toBe(DARK_PAPER);
+    });
+
+    it('sets the light paper colour when the mode is light', () => {
+      const { result } = renderHook(() => useThemeContext(), { wrapper: ThemeContextProvider });
+
+      act(() => {
+        result.current.setMode('dark');
+      });
+      act(() => {
+        result.current.setMode('light');
+      });
+
+      expect(themeColorMeta()?.content).toBe(LIGHT_PAPER);
+    });
+
+    it('creates the tag when the document has none', () => {
+      expect(themeColorMeta()).toBeNull();
+
+      renderHook(() => useThemeContext(), { wrapper: ThemeContextProvider });
+
+      const meta = themeColorMeta();
+      expect(meta).not.toBeNull();
+      expect(meta!.parentElement).toBe(document.head);
+      expect(meta!.content).toBe(LIGHT_PAPER);
+    });
+
+    it('updates the existing tag in place instead of adding a second one', () => {
+      const existing = document.createElement('meta');
+      existing.name = 'theme-color';
+      existing.content = '#0f766e';
+      document.head.appendChild(existing);
+
+      const { result } = renderHook(() => useThemeContext(), { wrapper: ThemeContextProvider });
+      act(() => {
+        result.current.setMode('dark');
+      });
+
+      expect(document.querySelectorAll('meta[name="theme-color"]')).toHaveLength(1);
+      expect(existing.content).toBe(DARK_PAPER);
+    });
+
+    it('follows the saved mode on first render', () => {
+      localStorage.setItem('theme_mode', 'dark');
+
+      renderHook(() => useThemeContext(), { wrapper: ThemeContextProvider });
+
+      expect(themeColorMeta()?.content).toBe(DARK_PAPER);
+    });
+
+    it('follows the system preference in system mode', () => {
+      vi.mocked(window.matchMedia).mockReturnValue({
+        matches: true,
+        media: '(prefers-color-scheme: dark)',
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      } as any);
+
+      renderHook(() => useThemeContext(), { wrapper: ThemeContextProvider });
+
+      expect(themeColorMeta()?.content).toBe(DARK_PAPER);
     });
   });
 

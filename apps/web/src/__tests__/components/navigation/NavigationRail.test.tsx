@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { setViewportWidth } from '../../setup';
 import { NavigationRail, RAIL_WIDTH_COLLAPSED } from '../../../components/navigation/NavigationRail';
+import { spacingDeclaration, spacingPx } from '../../utils/cssVarSpacing';
 
 /**
  * Coverage migrated from the deleted `Sidebar.test.tsx` — four items, admin
@@ -606,12 +607,17 @@ describe('NavigationRail', () => {
     // an ellipsis — only the underlying chrome, asserted here via
     // getComputedStyle, can catch a regression back to the old spacing.
     function horizontalChrome(el: Element): number {
+      // The row's `mx` / `px` are `theme.spacing(n)`, which the CSS-variables
+      // theme emits as `calc(n * var(--mui-spacing))`; jsdom cannot resolve
+      // that to pixels, so each side is read as its emitted declaration and
+      // converted at the theme's 8px unit (`spacingPx` throws on anything it
+      // does not recognise rather than summing NaN).
       const style = getComputedStyle(el);
       return (
-        parseFloat(style.marginLeft) +
-        parseFloat(style.marginRight) +
-        parseFloat(style.paddingLeft) +
-        parseFloat(style.paddingRight)
+        spacingPx(style.marginLeft) +
+        spacingPx(style.marginRight) +
+        spacingPx(style.paddingLeft) +
+        spacingPx(style.paddingRight)
       );
     }
 
@@ -629,6 +635,15 @@ describe('NavigationRail', () => {
       // caption is aria-hidden, so it cannot be found by accessible name.
       const settingsRow = screen.getByRole('link', { name: 'User Settings' });
       const consoleRow = screen.getByRole('link', { name: 'Console' });
+
+      // `mx: 0.25` and `px: 0.25`, unchanged in the component: four sides of
+      // 0.25 spacing units each, emitted as calc(0.25 * var(--mui-spacing)).
+      for (const row of [settingsRow, consoleRow]) {
+        const style = getComputedStyle(row);
+        for (const side of [style.marginLeft, style.marginRight, style.paddingLeft, style.paddingRight]) {
+          expect(side).toBe(spacingDeclaration(0.25));
+        }
+      }
 
       expect(horizontalChrome(settingsRow)).toBeCloseTo(8, 5);
       expect(horizontalChrome(consoleRow)).toBeCloseTo(8, 5);

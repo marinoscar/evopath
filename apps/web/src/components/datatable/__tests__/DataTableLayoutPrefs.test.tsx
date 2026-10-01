@@ -31,6 +31,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { useState } from 'react';
 import { act, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { render } from '../../../__tests__/utils/test-utils';
+import { spacingUnits } from '../../../__tests__/utils/cssVarSpacing';
 import { DataTable } from '../DataTable';
 import { api } from '../../../services/api';
 import type { DataTableColumn, DataTableSortState } from '../types';
@@ -235,10 +236,13 @@ async function renderHydrated(width: number, overrides: Partial<TableProps> = {}
 const wrapper = () => screen.getByTestId('datatable');
 const gridRow = () => document.querySelector('.MuiDataGrid-row') as HTMLElement;
 const gridRowMinHeight = () => Number.parseFloat(getComputedStyle(gridRow()).minHeight || '0');
+// The card's `px` is `theme.spacing(n)`, which the CSS-variables theme emits as
+// `calc(n * var(--mui-spacing))`; jsdom cannot resolve that to pixels (setting
+// `--mui-spacing` on <html> does not change what getComputedStyle returns). The
+// helper therefore reads the EMITTED declaration back as a number of spacing
+// units, which is exactly what the density metrics state.
 const cardHeaderPadding = () =>
-  Number.parseFloat(
-    getComputedStyle(screen.getAllByTestId('datatable-card-header')[0]).paddingLeft || '0',
-  );
+  spacingUnits(getComputedStyle(screen.getAllByTestId('datatable-card-header')[0]).paddingLeft);
 
 function openColumnsMenu() {
   fireEvent.click(screen.getByTestId('datatable-columns-button'));
