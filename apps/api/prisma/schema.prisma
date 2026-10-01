@@ -46,6 +46,9 @@ model User {
   programChanges         ProgramChangeLog[]
   programSessions        ProgramSession[]
   trainingPlanRuns       TrainingPlanRun[]
+  coachMessages          CoachMessage[]
+  coachState             CoachState?
+  progressPhotos         ProgressPhoto[]
   workoutAdaptations     WorkoutAdaptation[]
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
@@ -405,6 +408,8 @@ model StorageObject {
   gymPhotos       GymPhoto[]
   workoutPhotos   WorkoutPhoto[]
   healthDocuments HealthDocument[]
+  coachAudio      CoachMessage[]     @relation("CoachMessageAudio")
+  progressPhotos  ProgressPhoto[]
 
   @@index([uploadedById])
   @@index([status])
@@ -3455,4 +3460,90 @@ model ProgramSession {
   @@index([programWorkoutId])
   @@index([userId])
   @@map("program_sessions")
+}
+
+// AI Coach timeline: one row per coach message or user chat turn (spec
+// docs/specs/ai-coach.md §2.2). Enum-like columns are plain strings validated
+// in code (role: coach|user; kind: nudge|chat|weekly_review|celebration|
+// photo_prompt|comeback|kickoff|system; audioStatus: none|pending|ready|failed;
+// feedback: up|down). `audioRunId`, `aiRunId` and `notificationId` are plain
+// columns (polymorphic or settled-later references, no FK). The audio object is
+// SetNull so retention can purge the mp3 and keep the text.
+model CoachMessage {
+  id                   String    @id @default(uuid()) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  role                 String // coach | user
+  kind                 String // nudge | chat | weekly_review | celebration | photo_prompt | comeback | kickoff | system
+  moment               String? // trigger; null for chat
+  angle                String? // bandit arm
+  personaId            String?   @map("persona_id")
+  intensity            Int?
+  title                String    @default("") @db.Text
+  body                 String    @db.Text
+  pushTitle            String?   @map("push_title") @db.Text
+  pushBody             String?   @map("push_body") @db.Text
+  audioStatus          String    @default("none") @map("audio_status") // none | pending | ready | failed
+  audioStorageObjectId String?   @map("audio_storage_object_id") @db.Uuid
+  audioRunId           String?   @map("audio_run_id") @db.Uuid
+  aiRunId              String?   @map("ai_run_id") @db.Uuid
+  provider             String?
+  model                String?
+  notificationId       String?   @map("notification_id") @db.Uuid
+  data                 Json?
+  deliveredAt          DateTime? @map("delivered_at") @db.Timestamptz
+  openedAt             DateTime? @map("opened_at") @db.Timestamptz
+  convertedAt          DateTime? @map("converted_at") @db.Timestamptz
+  feedback             String? // up | down
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  audioStorage StorageObject? @relation("CoachMessageAudio", fields: [audioStorageObjectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([audioStorageObjectId])
+  @@index([audioRunId])
+  @@map("coach_messages")
+}
+
+// AI Coach per-user scheduling state: one row per user (userId unique).
+model CoachState {
+  id                      String    @id @default(uuid()) @db.Uuid
+  userId                  String    @unique @map("user_id") @db.Uuid
+  lastNudgeAt             DateTime? @map("last_nudge_at") @db.Timestamptz
+  nudgesToday             Int       @default(0) @map("nudges_today")
+  nudgeDayLocal           DateTime? @map("nudge_day_local") @db.Date
+  consecutiveIgnored      Int       @default(0) @map("consecutive_ignored")
+  pausedUntil             DateTime? @map("paused_until") @db.Timestamptz
+  silencedAt              DateTime? @map("silenced_at") @db.Timestamptz
+  lastSweepAt             DateTime? @map("last_sweep_at") @db.Timestamptz
+  usualWorkoutMinuteLocal Int?      @map("usual_workout_minute_local")
+  weeklyStreak            Int       @default(0) @map("weekly_streak")
+  streakPassesLeft        Int       @default(0) @map("streak_passes_left")
+  lastWeeklyReviewWeek    String?   @map("last_weekly_review_week") // ISO week key, e.g. 2026-W40
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("coach_states")
+}
+
+// A user's progress photo (pose: front | side | back | other). `note` is never
+// read by any model. The image is a StorageObject; Cascade matches the other
+// photo tables.
+model ProgressPhoto {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  storageObjectId String   @map("storage_object_id") @db.Uuid
+  localDate       DateTime @map("local_date") @db.Date
+  pose            String   @default("front") // front | side | back | other
+  note            String?  @db.VarChar(200)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storageObject StorageObject @relation(fields: [storageObjectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, localDate])
+  @@index([storageObjectId])
+  @@map("progress_photos")
 }
