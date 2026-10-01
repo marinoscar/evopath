@@ -18,6 +18,8 @@
 //   wellness    "Wellness / mood": 7- and 30-day averages of the check-in
 //               scores, the windows ending on the range's last day
 //   documents   an index of kept documents (metadata only)
+//   progress photos  an index of progress photos (day, pose, note; never the
+//               image: the report is shared with a doctor, the photos are not)
 //
 // Every page carries the footer `PDF_FOOTER_TEXT` and a page number. The
 // standard Helvetica font covers Latin-1; any other character in user text
@@ -51,6 +53,7 @@ export const PDF_SECTIONS = {
   summary: 'Vitals and body summary',
   wellness: HEALTH_EXPORT_DATASET_TITLES.wellness,
   documents: 'Documents',
+  progressPhotos: HEALTH_EXPORT_DATASET_TITLES.progress_photos,
 } as const;
 
 const PANEL_LABELS: Record<LabPanel, string> = {
@@ -448,6 +451,23 @@ function writeDocuments(report: Report, data: HealthExportData): void {
   );
 }
 
+function writeProgressPhotos(report: Report, data: HealthExportData): void {
+  report.heading(PDF_SECTIONS.progressPhotos);
+  const table = data.tables.find((candidate) => candidate.dataset === 'progress_photos');
+  if (!table || table.rows.length === 0) {
+    report.empty('No progress photos in this period.');
+    return;
+  }
+  report.table(
+    [
+      { header: 'Date', width: 85 },
+      { header: 'Pose', width: 80 },
+      { header: 'Note', width: 330 },
+    ],
+    table.rows.map((row) => [String(row.date ?? ''), capitalise(String(row.pose ?? '')), String(row.note ?? '')]),
+  );
+}
+
 function writeFooters(doc: PDFKit.PDFDocument): void {
   const range = doc.bufferedPageRange();
   for (let index = range.start; index < range.start + range.count; index += 1) {
@@ -493,6 +513,7 @@ export function renderPdfReport(doc: PDFKit.PDFDocument, data: HealthExportData)
 
   if (selected.has('wellness')) writeWellness(report, readings, data.range.to);
   if (selected.has('documents')) writeDocuments(report, data);
+  if (selected.has('progress_photos')) writeProgressPhotos(report, data);
 
   writeFooters(doc);
   doc.end();

@@ -9,6 +9,8 @@ import {
   notificationsPatchSchema,
   onboardingSettingsSchema,
   onboardingPatchSchema,
+  coachSettingsSchema,
+  coachSettingsPatchSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import {
   userProfileSettingsSchema,
@@ -35,6 +37,9 @@ export const updateUserSettingsSchema = z.object({
   ai: userAiSettingsSchema.optional(),
   // First-run onboarding UI state (#203). Omit to store nothing.
   onboarding: onboardingSettingsSchema.optional(),
+  // AI Coach preferences (E7.1, #241). Omit to store nothing. Strict: an
+  // unknown key inside `coach` is a 400.
+  coach: coachSettingsSchema.optional(),
 });
 
 export class UpdateUserSettingsDto extends createZodDto(
@@ -65,6 +70,10 @@ export const patchUserSettingsSchema = z.object({
   // `onboarding: null` clears the namespace; `onboarding: { welcomeSeenAt:
   // null }` clears one field; other fields are left as stored (#203).
   onboarding: onboardingPatchSchema.nullable().optional(),
+  // `coach: null` clears the namespace; `coach: { why: null }` clears one
+  // field; `coach: { audio: { speed: 1.25 } }` merges into the stored
+  // `audio` (E7.1, #241).
+  coach: coachSettingsPatchSchema.nullable().optional(),
 });
 
 export class PatchUserSettingsDto extends createZodDto(

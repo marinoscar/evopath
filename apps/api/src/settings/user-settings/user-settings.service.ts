@@ -25,6 +25,8 @@ import {
   NotificationsValue,
   OnboardingPatchValue,
   OnboardingValue,
+  CoachSettingsPatchValue,
+  CoachSettingsValue,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import type {
   UserAiSettingsPatchValue,
@@ -73,6 +75,7 @@ export class UserSettingsService {
       ...(value.onboarding !== undefined
         ? { onboarding: value.onboarding }
         : {}),
+      ...(value.coach !== undefined ? { coach: value.coach } : {}),
       updatedAt,
       version,
     };
@@ -251,6 +254,11 @@ export class UserSettingsService {
       merged.onboarding = mergedOnboarding;
     }
 
+    const mergedCoach = this.mergeCoach(current.coach, dto.coach);
+    if (mergedCoach !== undefined) {
+      merged.coach = mergedCoach;
+    }
+
     // Enforce the caps AFTER the merge — see assertDataTableLimit.
     this.assertDataTableLimit(merged.dataTables);
     this.assertNotificationLimit(merged.notifications);
@@ -400,6 +408,55 @@ export class UserSettingsService {
     patch: OnboardingPatchValue | null | undefined,
   ): OnboardingValue | undefined {
     return mergeFields(current, patch);
+  }
+
+  /**
+   * Merge the `coach` namespace (E7.1, #241) field-wise, and one level deeper
+   * into `audio` and `quietHours`.
+   *
+   * - patch absent         -> keep the stored namespace untouched
+   * - patch is `null`      -> clear the whole namespace
+   * - field omitted        -> stored value untouched
+   * - field set to a value -> replaces the stored value
+   * - field set to `null`  -> deletes the field (back to the built-in default)
+   * - `audio`/`quietHours` -> the same rules per nested field; an emptied
+   *   nested object collapses to absent
+   *
+   * An emptied namespace collapses to absent. The unlock rules (profanity,
+   * audio, the nudge ceiling) are not applied here; see
+   * `coachSettingsSchema`.
+   */
+  private mergeCoach(
+    current: CoachSettingsValue | undefined,
+    patch: CoachSettingsPatchValue | null | undefined,
+  ): CoachSettingsValue | undefined {
+    if (patch === undefined || patch === null) {
+      return mergeFields(current, patch);
+    }
+
+    const { audio, quietHours, ...flat } = patch;
+    const merged: Record<string, unknown> = {
+      ...(mergeFields(current, flat as Partial<CoachSettingsValue>) ?? {}),
+    };
+
+    for (const [key, nestedPatch] of [
+      ['audio', audio],
+      ['quietHours', quietHours],
+    ] as const) {
+      const nested = mergeFields(
+        current?.[key] as Record<string, unknown> | undefined,
+        nestedPatch as Record<string, unknown> | null | undefined,
+      );
+      if (nested === undefined) {
+        delete merged[key];
+      } else {
+        merged[key] = nested;
+      }
+    }
+
+    return Object.keys(merged).length > 0
+      ? (merged as CoachSettingsValue)
+      : undefined;
   }
 
   /**

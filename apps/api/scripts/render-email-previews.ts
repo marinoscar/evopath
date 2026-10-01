@@ -106,6 +106,32 @@ const SAMPLES: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     preRestoreBackupId: 'f0e1d2c3-b4a5-4968-8776-655443322110',
     appUrl: APP_URL,
   },
+  'coach-weekly-review': {
+    messageId: '3b5d7f91-2c4e-4a6b-8d0f-1e3a5c7e9b2d',
+    personaName: 'Coach',
+    stats: {
+      isoWeek: '2026-W40',
+      weekStart: '2026-09-28',
+      weekEnd: '2026-10-04',
+      planned: 4,
+      completed: 3,
+      adherencePct: 75,
+      weeklyStreak: 5,
+      streakPassesLeft: 1,
+      prs: [{ exercise: 'Back squat', value: 120, unit: 'kg', reps: 5 }],
+      checkIns: 5,
+      photosAdded: 1,
+      nextWeekSessions: 4,
+      noPlan: false,
+    },
+    prose: {
+      headline: 'Three of four, and a new squat best',
+      intro: 'You showed up three times this week and your squat moved. That is how habits are built.',
+      wins: ['A new back squat best', 'Five check-ins logged'],
+      focus: 'Protect your Wednesday session next week.',
+    },
+    appUrl: APP_URL,
+  },
 };
 
 /** Replace every `cid:<id>` with a data URI of the matching inline part. */

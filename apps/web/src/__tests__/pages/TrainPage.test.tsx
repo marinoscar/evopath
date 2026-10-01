@@ -176,4 +176,10 @@ describe('TrainPage', () => {
     await screen.findByText(HISTORY_EMPTY_TITLE);
     expect(screen.queryByRole('region', { name: "Today's plan" })).toBeNull();
   });
+
+  it('links to Gyms, which leaves the bottom bar while Coach holds the fourth tab (E7.8)', async () => {
+    renderPage();
+    await screen.findByText(HISTORY_EMPTY_TITLE);
+    expect(screen.getByRole('link', { name: 'Your gyms' })).toHaveAttribute('href', '/gyms');
+  });
 });

@@ -1,6 +1,6 @@
 # Epic E7 — AI Coach: accountability, nudges, chat, voice and progress photos
 
-> **Status:** Proposed · **Epic issue:** #240 · **Design spec:** [docs/specs/ai-coach.md](../specs/ai-coach.md) · **Template:** [epic.yml](../../.github/ISSUE_TEMPLATE/epic.yml) · **Stories:** E7.1 to E7.13
+> **Status:** Delivered (all 13 stories implemented) · **Epic issue:** #240 · **Design spec:** [docs/specs/ai-coach.md](../specs/ai-coach.md) · **Template:** [epic.yml](../../.github/ISSUE_TEMPLATE/epic.yml) · **Stories:** E7.1 to E7.13
 
 This file is the body of the GitHub epic plus the full definition of each of its 13 child stories.
 The design (data model, decision engine, personas, safety) lives in the spec and is not restated here; stories link to its sections.
@@ -78,19 +78,19 @@ Out of scope (see [spec §7 Out of scope and follow-ups](../specs/ai-coach.md#7-
 
 ### Sub-issues / Tasks
 
-- [ ] #241 E7.1 — Foundations: models, settings, AI feature ids, reset wiring
-- [ ] #242 E7.2 — Persona registry, content guard and settings API
-- [ ] #243 E7.3 — Coach settings UI (user, admin) and Model Assignments section
-- [ ] #244 E7.4 — Decision engine and sweep
-- [ ] #245 E7.5 — Nudge generation, delivery and feedback
-- [ ] #246 E7.6 — Voice: TTS, fallback, preview and retention
-- [ ] #247 E7.7 — Coach chat API
-- [ ] #248 E7.8 — Coach page, navigation and Today integration
-- [ ] #249 E7.9 — Progress photos
-- [ ] #250 E7.10 — Weekly review, email and weekly streak
-- [ ] #251 E7.11 — Learning loop (angle bandit)
-- [ ] #252 E7.12 — Onboarding meet_coach and kickoff
-- [ ] #253 E7.13 — E2E, visual baselines, runbook and doc rows
+- [x] #241 E7.1 — Foundations: models, settings, AI feature ids, reset wiring
+- [x] #242 E7.2 — Persona registry, content guard and settings API
+- [x] #243 E7.3 — Coach settings UI (user, admin) and Model Assignments section
+- [x] #244 E7.4 — Decision engine and sweep
+- [x] #245 E7.5 — Nudge generation, delivery and feedback
+- [x] #246 E7.6 — Voice: TTS, fallback, preview and retention
+- [x] #247 E7.7 — Coach chat API
+- [x] #248 E7.8 — Coach page, navigation and Today integration
+- [x] #249 E7.9 — Progress photos
+- [x] #250 E7.10 — Weekly review, email and weekly streak
+- [x] #251 E7.11 — Learning loop (angle bandit)
+- [x] #252 E7.12 — Onboarding meet_coach and kickoff
+- [x] #253 E7.13 — E2E, visual baselines, runbook and doc rows
 
 ### Affected Component(s)
 

@@ -45,7 +45,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
-import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
+import {
+  DESTINATIONS,
+  isDestinationVisible,
+  isPrimaryDestination,
+} from '../../config/destinations';
 import { useOnboarding } from '../../hooks/useOnboarding';
 
 export function UserMenu() {
@@ -97,9 +101,12 @@ export function UserMenu() {
   // Primary destinations are dropped: the phone bottom bar and the rail already
   // show them, and a menu row duplicating on-screen chrome is bloat. What is
   // left is every visible non-primary destination, at every width.
+  // Primary-ness is per user (E7.8, #248): Gyms is listed here exactly when
+  // Coach holds the fourth tab.
   const menuDestinations = DESTINATIONS.filter(
     (destination) =>
-      !destination.primary && isDestinationVisible(destination, hasPermission, features),
+      isDestinationVisible(destination, hasPermission, features) &&
+      !isPrimaryDestination(destination, hasPermission, features),
   );
 
   const initials = user.displayName

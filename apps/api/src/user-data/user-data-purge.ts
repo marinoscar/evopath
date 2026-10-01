@@ -38,6 +38,9 @@ export const ZERO_ROW_COUNTS: Readonly<DeletedRowCounts> = Object.freeze({
   healthProfiles: 0,
   photoIntakes: 0,
   healthDocuments: 0,
+  progressPhotos: 0,
+  coachMessages: 0,
+  coachStates: 0,
   programs: 0,
   programChangeLogs: 0,
   trainingRuns: 0,
@@ -96,24 +99,32 @@ export function addCounts<T extends Record<string, number>>(a: T, b: Partial<T>)
 
 /** Every storage object id a user's reset must delete (uploads, photo and document links, the avatar). */
 export async function collectUserObjectIds(db: Db, userId: string): Promise<string[]> {
-  const [uploaded, intakePhotos, gymPhotos, workoutPhotos, healthDocuments, settings] = await Promise.all([
-    db.storageObject.findMany({ where: { uploadedById: userId }, select: { id: true } }),
-    db.photoIntakePhoto.findMany({
-      where: { intake: { userId } },
-      select: { storageObjectId: true },
-    }),
-    db.gymPhoto.findMany({ where: { gym: { userId } }, select: { storageObjectId: true } }),
-    db.workoutPhoto.findMany({
-      where: { workout: { userId } },
-      select: { storageObjectId: true },
-    }),
-    // A purged document has already given its file up (`storageObjectId` null).
-    db.healthDocument.findMany({
-      where: { userId, storageObjectId: { not: null } },
-      select: { storageObjectId: true },
-    }),
-    db.userSettings.findUnique({ where: { userId }, select: { value: true } }),
-  ]);
+  const [uploaded, intakePhotos, gymPhotos, workoutPhotos, healthDocuments, progressPhotos, coachAudio, settings] =
+    await Promise.all([
+      db.storageObject.findMany({ where: { uploadedById: userId }, select: { id: true } }),
+      db.photoIntakePhoto.findMany({
+        where: { intake: { userId } },
+        select: { storageObjectId: true },
+      }),
+      db.gymPhoto.findMany({ where: { gym: { userId } }, select: { storageObjectId: true } }),
+      db.workoutPhoto.findMany({
+        where: { workout: { userId } },
+        select: { storageObjectId: true },
+      }),
+      // A purged document has already given its file up (`storageObjectId` null).
+      db.healthDocument.findMany({
+        where: { userId, storageObjectId: { not: null } },
+        select: { storageObjectId: true },
+      }),
+      // AI Coach (E7): progress photo images and coach voice notes. Both may
+      // be named only by these link rows, which step 2 deletes.
+      db.progressPhoto.findMany({ where: { userId }, select: { storageObjectId: true } }),
+      db.coachMessage.findMany({
+        where: { userId, audioStorageObjectId: { not: null } },
+        select: { audioStorageObjectId: true },
+      }),
+      db.userSettings.findUnique({ where: { userId }, select: { value: true } }),
+    ]);
 
   const ids = new Set<string>();
   uploaded.forEach((row) => ids.add(row.id));
@@ -122,6 +133,10 @@ export async function collectUserObjectIds(db: Db, userId: string): Promise<stri
   workoutPhotos.forEach((row) => ids.add(row.storageObjectId));
   healthDocuments.forEach((row) => {
     if (row.storageObjectId) ids.add(row.storageObjectId);
+  });
+  progressPhotos.forEach((row) => ids.add(row.storageObjectId));
+  coachAudio.forEach((row) => {
+    if (row.audioStorageObjectId) ids.add(row.audioStorageObjectId);
   });
 
   const settingsValue = settings?.value as { profile?: unknown } | null | undefined;
@@ -237,6 +252,14 @@ export async function deleteUserOwnedRows(
   // (so a reset also turns the opt-in back off). Derived data, not counted.
   await tx.healthSummary.deleteMany({ where: { userId } });
   await tx.healthSummarySetting.deleteMany({ where: { userId } });
+
+  // AI Coach (E7, #241). Each cascades only from the (kept) User row, so
+  // they are deleted explicitly; no RESTRICT edges among them. Deleting the
+  // coach state also clears a pause or silence. Files (progress photos,
+  // coach voice notes): collected in step 1, deleted in step 3.
+  counts.progressPhotos = (await tx.progressPhoto.deleteMany({ where: { userId } })).count;
+  counts.coachMessages = (await tx.coachMessage.deleteMany({ where: { userId } })).count;
+  counts.coachStates = (await tx.coachState.deleteMany({ where: { userId } })).count;
 
   // AI and secrets.
   counts.aiRuns = (await tx.aiRun.deleteMany({ where: { userId } })).count;

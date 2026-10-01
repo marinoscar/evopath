@@ -181,12 +181,135 @@ describe('OnboardingService', () => {
       expect(prisma.gym.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'u1' } }));
     });
 
-    it('ai_plan is done once the user has a program', async () => {
+    it('ai_plan is done once the user has a program and the coach is switched off system-wide', async () => {
+      const systemSettings = { getCoachPolicy: jest.fn().mockResolvedValue({ enabled: false }) };
+      service = new OnboardingService(prisma, doctor as any, aiConfig as any, config as any, systemSettings as any);
       prisma.program.findFirst.mockResolvedValue({ id: 'p' });
 
       const res = await service.get({ id: 'u1', permissions: CONTRIBUTOR });
 
-      expect(res.user.steps.find((s) => s.id === 'ai_plan')!.status).toBe('done');
+      expect(res.user.steps.find((s) => s.id === 'ai_plan')).toMatchObject({
+        status: 'done',
+        label: 'Create an AI training plan',
+        href: '/train/plans/new',
+      });
+    });
+  });
+
+  // E7.12: the `ai_plan` step becomes "Meet your coach" once a plan exists
+  // (no fifth step), and is done once the coach settings were saved.
+  describe('ai_plan -> Meet your coach (E7.12)', () => {
+    let systemSettings: { getCoachPolicy: jest.Mock };
+    const aiPlan = (res: { user: { steps: Array<{ id: string }> } }) =>
+      res.user.steps.find((s) => s.id === 'ai_plan') as Record<string, unknown> | undefined;
+
+    beforeEach(() => {
+      systemSettings = { getCoachPolicy: jest.fn().mockResolvedValue({ enabled: true }) };
+      service = new OnboardingService(prisma, doctor as any, aiConfig as any, config as any, systemSettings as any);
+    });
+
+    it('without a program: "Create an AI training plan", todo, linking to /train/plans/new as before', async () => {
+      prisma.userSettings.findUnique.mockResolvedValue({ value: { coach: { personaId: 'coach' } } });
+
+      const res = await service.get({ id: 'u1', permissions: CONTRIBUTOR });
+
+      expect(aiPlan(res)).toEqual({
+        id: 'ai_plan',
+        group: null,
+        status: 'todo',
+        label: 'Create an AI training plan',
+        detail: null,
+        href: '/train/plans/new',
+      });
+    });
+
+    it('with a program and no saved coach settings: "Meet your coach", todo, linking to /settings/coach', async () => {
+      prisma.program.findFirst.mockResolvedValue({ id: 'p' });
+      prisma.userSettings.findUnique.mockResolvedValue({ value: { onboarding: { goal: 'general' } } });
+
+      const res = await service.get({ id: 'u1', permissions: CONTRIBUTOR });
+
+      expect(aiPlan(res)).toEqual({
+        id: 'ai_plan',
+        group: null,
+        status: 'todo',
+        label: 'Meet your coach',
+        detail: null,
+        href: '/settings/coach',
+      });
+      expect(res.user.total).toBeLessThanOrEqual(4);
+      expect(res.user.completed).toBe(0);
+    });
+
+    it('with a program and saved coach settings: "Meet your coach", done', async () => {
+      prisma.program.findFirst.mockResolvedValue({ id: 'p' });
+      prisma.userSettings.findUnique.mockResolvedValue({ value: { coach: { personaId: 'stoic', enabled: true } } });
+
+      const res = await service.get({ id: 'u1', permissions: CONTRIBUTOR });
+
+      expect(aiPlan(res)).toMatchObject({ status: 'done', label: 'Meet your coach', href: '/settings/coach' });
+      expect(res.user.completed).toBe(1);
+    });
+
+    it('a malformed coach namespace (not an object) is not a save', async () => {
+      prisma.program.findFirst.mockResolvedValue({ id: 'p' });
+      prisma.userSettings.findUnique.mockResolvedValue({ value: { coach: 'yes' } });
+
+      const res = await service.get({ id: 'u1', permissions: CONTRIBUTOR });
+
+      expect(aiPlan(res)).toMatchObject({ status: 'todo', label: 'Meet your coach' });
+    });
+
+    it('is omitted with AI off, without ai:use, or without programs:read, whatever is stored', async () => {
+      prisma.program.findFirst.mockResolvedValue({ id: 'p' });
+      prisma.userSettings.findUnique.mockResolvedValue({ value: { coach: { personaId: 'coach' } } });
+
+      const noAiUse = await service.get({ id: 'u1', permissions: [...VIEWER, P.PROGRAMS_READ] });
+      const noPrograms = await service.get({ id: 'u1', permissions: [...VIEWER, P.AI_USE] });
+      aiConfig.isEnabled.mockResolvedValue(false);
+      const aiOff = await service.get({ id: 'u1', permissions: CONTRIBUTOR });
+
+      for (const res of [noAiUse, noPrograms, aiOff]) {
+        expect(aiPlan(res)).toBeUndefined();
+        expect(res.user.steps.map((s) => s.label)).not.toContain('Meet your coach');
+      }
+      expect(systemSettings.getCoachPolicy).not.toHaveBeenCalled();
+    });
+
+    it('a failed coach policy read keeps the plain step (done on a program)', async () => {
+      systemSettings.getCoachPolicy.mockRejectedValue(new Error('db down'));
+      prisma.program.findFirst.mockResolvedValue({ id: 'p' });
+
+      const res = await service.get({ id: 'u1', permissions: CONTRIBUTOR });
+
+      expect(aiPlan(res)).toMatchObject({ status: 'done', label: 'Create an AI training plan' });
+    });
+
+    it.each(['strength', 'general'])('never exceeds four user steps (goal %s), with every step done', async (goal) => {
+      prisma.program.findFirst.mockResolvedValue({ id: 'p' });
+      prisma.healthProfile.findUnique.mockResolvedValue({ id: 'h' });
+      prisma.gym.findFirst.mockResolvedValue({ id: 'g' });
+      prisma.workout.findFirst.mockResolvedValue({ id: 'w' });
+      prisma.userSettings.findUnique.mockResolvedValue({ value: { onboarding: { goal }, coach: { personaId: 'coach' } } });
+
+      const res = await service.get({ id: 'u1', permissions: ADMIN });
+
+      expect(res.user.steps).toHaveLength(4);
+      expect(new Set(ids(res.user)).size).toBe(4);
+      expect(res.user).toMatchObject({ completed: 4, total: 4 });
+    });
+
+    it('stays read-only: the coach namespace is read from the same user_settings select', async () => {
+      prisma.program.findFirst.mockResolvedValue({ id: 'p' });
+
+      await service.get({ id: 'u1', permissions: CONTRIBUTOR });
+
+      expect(prisma.userSettings.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.userSettings.findUnique).toHaveBeenCalledWith({ where: { userId: 'u1' }, select: { value: true } });
+      const writes = ['create', 'update', 'upsert', 'delete'];
+      for (const model of Object.values(prisma) as Array<Record<string, unknown>>) {
+        for (const w of writes) expect(model[w]).toBeUndefined();
+      }
     });
   });
 

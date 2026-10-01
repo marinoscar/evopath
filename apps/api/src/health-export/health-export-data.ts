@@ -16,12 +16,15 @@
 //     the history of a value the user later deleted (an earlier revision of a
 //     deleted reading is still the user's deletion);
 //   - documents: kept files only (`retention = keep`, file not erased),
-//     metadata only.
+//     metadata only;
+//   - progress photos (E7.9, #249): an index, metadata only, like documents
+//     (day, pose, note, type, size). The images stay in storage, readable by
+//     their owner through the signed download; no writer embeds them.
 //
 // Range: `from`..`to` are calendar dates, inclusive, in UTC. A daily wellness
 // score is matched on its `localDate` (the user's day), every other reading
-// on `measuredAt`; a document on `documentDate`, else its upload time. The
-// profile is not ranged.
+// on `measuredAt`; a document on `documentDate`, else its upload time; a
+// progress photo on its `localDate`. The profile is not ranged.
 //
 // Values are exported in the metric's canonical unit (the unit in the column
 // key and header), whatever the user's display preference. The one exception
@@ -226,6 +229,16 @@ export function datasetColumns(dataset: HealthExportDataset): ExportColumn[] {
         { key: 'document_date', header: 'Document date' },
         { key: 'uploaded_at', header: 'Uploaded at (UTC)' },
       ];
+    case 'progress_photos':
+      return [
+        { key: 'id', header: 'Photo id' },
+        { key: 'date', header: 'Date' },
+        { key: 'pose', header: 'Pose' },
+        { key: 'note', header: 'Note' },
+        { key: 'mime_type', header: 'Type' },
+        { key: 'size_bytes', header: 'Size (bytes)', numeric: true },
+        { key: 'added_at', header: 'Added at (UTC)' },
+      ];
   }
 }
 
@@ -287,7 +300,7 @@ export async function collectHealthExport(
   );
   const metricKeys = measurementDatasets.flatMap((dataset) => metricsOf(dataset).map((metric) => metric.key));
 
-  const [user, profileRow, measurementRows, documentRows] = await Promise.all([
+  const [user, profileRow, measurementRows, documentRows, photoRows] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { displayName: true, providerDisplayName: true } }),
     selected.has('profile') ? db.healthProfile.findUnique({ where: { userId } }) : Promise.resolve(null),
     metricKeys.length === 0
@@ -329,6 +342,20 @@ export async function collectHealthExport(
           orderBy: { createdAt: 'asc' },
         })
       : Promise.resolve([]),
+    selected.has('progress_photos')
+      ? db.progressPhoto.findMany({
+          where: { userId, localDate: { gte: fromInstant, lte: toDbDate(to) } },
+          select: {
+            id: true,
+            localDate: true,
+            pose: true,
+            note: true,
+            createdAt: true,
+            storageObject: { select: { mimeType: true, size: true } },
+          },
+          orderBy: [{ localDate: 'asc' }, { createdAt: 'asc' }],
+        })
+      : Promise.resolve([]),
   ]);
 
   const rows = includeHistory ? await withoutDeletedHistory(db, userId, measurementRows) : measurementRows;
@@ -352,7 +379,7 @@ export async function collectHealthExport(
     dataset,
     title: HEALTH_EXPORT_DATASET_TITLES[dataset],
     columns: datasetColumns(dataset),
-    rows: datasetRows(dataset, { profile, rows, documents: documentRows, labUnits }),
+    rows: datasetRows(dataset, { profile, rows, documents: documentRows, labUnits, photos: photoRows }),
   }));
 
   const rowCounts = Object.fromEntries(HEALTH_EXPORT_DATASETS.map((dataset) => [dataset, 0])) as Record<
@@ -421,6 +448,14 @@ interface RowSources {
     documentDate: Date | null;
     createdAt: Date;
   }>;
+  photos: Array<{
+    id: string;
+    localDate: Date;
+    pose: string;
+    note: string | null;
+    createdAt: Date;
+    storageObject: { mimeType: string; size: bigint | number } | null;
+  }>;
 }
 
 function datasetRows(dataset: HealthExportDataset, sources: RowSources): ExportRow[] {
@@ -455,6 +490,16 @@ function datasetRows(dataset: HealthExportDataset, sources: RowSources): ExportR
         size_bytes: doc.sizeBytes === null ? null : Number(doc.sizeBytes),
         document_date: doc.documentDate ? fromDbDate(doc.documentDate) : null,
         uploaded_at: doc.createdAt.toISOString(),
+      }));
+    case 'progress_photos':
+      return sources.photos.map((photo) => ({
+        id: photo.id,
+        date: fromDbDate(photo.localDate),
+        pose: photo.pose,
+        note: photo.note,
+        mime_type: photo.storageObject?.mimeType ?? null,
+        size_bytes: photo.storageObject ? Number(photo.storageObject.size) : null,
+        added_at: photo.createdAt.toISOString(),
       }));
   }
 }

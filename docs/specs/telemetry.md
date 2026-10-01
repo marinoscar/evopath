@@ -1927,6 +1927,34 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.health.summary.regenerations` | `app_health_summary_regenerations_total` | counter | `{regeneration}` | none | An answer asked for again after a post-check rejection. |
 | `app.health.summary.post_check_rejections` | `app_health_summary_post_check_rejections_total` | counter | `{answer}` | none | An answer the post-check rejected. |
 | `app.health.summary.tokens` | `app_health_summary_tokens_total` | counter | `{token}` | `token_type` (`input`, `output`) | Tokens the health summary used. |
+| `app.coach.guard.rejected` | `app_coach_guard_rejected_total` | counter | `{rejection}` | `reason` (`profanity`, `banned_term`, `insult_target`, `lock_screen`, `invented_number`, `length`, `supportive_register`) | The coach content guard refuses a message; one count per failed rule, never the text. |
+| `app.coach.settings.updated` | `app_coach_settings_updated_total` | counter | `{update}` | `persona` (the selected persona id) | A user saves coach settings through `PUT /api/coach/settings`. |
+| `app.coach.photo.added` | `app_coach_photo_added_total` | counter | `{photo}` | none | A user adds a progress photo. Counts only; nothing about the photo. |
+| `app.coach.photo.deleted` | `app_coach_photo_deleted_total` | counter | `{photo}` | none | A user deletes a progress photo. |
+| `app.coach.nudge.sent` | `app_coach_nudge_sent_total` | counter | `{message}` | `moment` (a coach moment, or `unknown`) | `coach.message.deliver` delivers a coach message. |
+| `app.coach.nudge.suppressed` | `app_coach_nudge_suppressed_total` | counter | `{nudge}` | `reason` (`model_declined`, `coach_off`, `paused`, `no_model`, `ai_error`, `guard_rejected`, `already_sent`), `moment` | An `ai.coach.nudge` job ends without a message. The planner's own suppressions are a different, un-prefixed metric (`coach.nudge.suppressed`, below). |
+| `app.coach.nudge.fallback` | `app_coach_nudge_fallback_total` | counter | `{message}` | `moment` | A static persona line replaces a model message after two guard rejections. |
+| `app.coach.nudge.opened` | `app_coach_nudge_opened_total` | counter | `{message}` | `moment` | A coach message is opened for the first time. |
+| `app.coach.nudge.converted` | `app_coach_nudge_converted_total` | counter | `{message}` | `moment`, `target` (`workout`, `check_in`, `photo`), `angle` (a learning-loop angle, or `none`) | A delivered message is followed by its target action inside the conversion window. |
+| `app.coach.feedback` | `app_coach_feedback_total` | counter | `{feedback}` | `value` (`up`, `down`, `cleared`) | A user rates a coach message or removes the rating. |
+| `app.coach.angle.picked` | `app_coach_angle_picked_total` | counter | `{angle}` | `angle` (`loss_aversion`, `identity`, `humor`, `challenge`, `data`, `future_self`, `social_proof_self`) | The learning loop picks an angle for a nudge. |
+| `app.coach.audio.generated` | `app_coach_audio_generated_total` | counter | `{message}` | none | A coach message's spoken version becomes ready. |
+| `app.coach.audio.failed` | `app_coach_audio_failed_total` | counter | `{message}` | `reason` (`provider_error`, `refusal`, `timeout`, `no_voice_model`) | A message is delivered as text only after its audio failed. |
+| `app.coach.audio.purged` | `app_coach_audio_purged_total` | counter | `{object}` | none | `coach.audio.purge` deletes voice notes past the retention window; adds the batch count. |
+| `app.coach.chat.turns` | `app_coach_chat_turns_total` | counter | none | `coach.outcome` (`model`, `safety`, `fallback`) | A chat turn is answered. |
+| `app.coach.chat.safety_hits` | `app_coach_chat_safety_hits_total` | counter | none | `coach.screen` (`distress`, `symptom`, `pain`) | A safety screen matches a chat message. |
+| `app.coach.chat.tool_calls` | `app_coach_chat_tool_calls_total` | counter | none | `coach.tool`, `coach.status` | The chat model calls a tool. |
+| `app.coach.chat.errors` | `app_coach_chat_errors_total` | counter | none | `coach.reason` (an AI error code, `cancelled`, `internal`) | A chat turn fails. |
+| `app.coach.weekly_review.sent` | `app_coach_weekly_review_sent_total` | counter | none | `coach.source` (`model`, `static`) | A weekly review is persisted and queued for delivery. |
+| `app.coach.weekly_review.skipped` | `app_coach_weekly_review_skipped_total` | counter | none | `coach.reason` (`invalid_payload`, `invalid_week`, `coach_off`, `paused`, `not_due`, `stale`, `already_sent`) | An `ai.coach.weekly_review` job ends without a review. |
+| `app.coach.weekly_review.fallback` | `app_coach_weekly_review_fallback_total` | counter | none | `coach.reason` (`no_model`, `ai_error`, `guard_rejected`) | Static persona prose replaces the model's review text. |
+| `app.coach.weekly_streak.updated` | `app_coach_weekly_streak_updated_total` | counter | none | `coach.change` (`advanced`, `pass_used`, `reset`, `held`) | The weekly review updates the weekly streak. |
+| `app.coach.weekly_streak.length` | `app_coach_weekly_streak_length_{bucket,sum,count}` | histogram | none | none | The weekly streak, in weeks, after each review. |
+| `coach.moment.planned` | `coach_moment_planned_total` | counter | none | `coach.moment` | The planner enqueues an eligible moment. No `app.` prefix: created by `coach/planning/coach-planning.metrics.ts`. |
+| `coach.nudge.suppressed` | `coach_nudge_suppressed_total` | counter | none | `coach.reason` (`coach_off`, `quiet_hours`, `daily_cap`, `spacing`, `paused`, `silenced`, `safety_supportive_only`, `pref_off`, `already_sent`, `handler_missing`), `coach.moment` | A planner gate removes a moment, or its handler is not registered in this process. Un-prefixed. |
+| `coach.sweep.users` | `coach_sweep_users_total` | counter | none | none | Adds the number of users a sweep pass planned. Un-prefixed. |
+| `coach.sweep.user_error` | `coach_sweep_user_error_total` | counter | none | none | The sweep skips a user after an error. Un-prefixed. |
+| `coach.time_zone.invalid` | `coach_time_zone_invalid_total` | counter | none | none | A planning pass falls back to UTC for an unknown time zone. Un-prefixed. |
 | `app.jobs.queue.depth` | `app_jobs_queue_depth` | gauge | `{job}` | `job_type`, `status` (`pending`, `running`) | Observed at collection. |
 | `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
 | `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |
@@ -1944,6 +1972,8 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.nodes.uptime` | `app_nodes_uptime_seconds` | gauge | `s` | `node_id`, `node_name` | Node process uptime. |
 | `app.nodes.counter` | `app_nodes_counter` | gauge | `{event}` | `node_id`, `node_name`, `counter` (`claims`, `empty_polls`, `claim_failures`, `succeeded`, `failed`, `rate_limited`, `lease_renewals`, `lease_renew_failures`, `heartbeat_failures`, `watchdog_trips`) | The node's cumulative counters. They reset when the node process restarts, so read them with a reset-aware rate. |
 | `app.nodes.types.no_eligible_node` | `app_nodes_types_no_eligible_node` | gauge | `{type}` | `job_type` | For each node-offered type with due pending jobs: `1` when no `online`, `healthy` node lists the type as eligible, else `0`. See [worker-nodes.md](worker-nodes.md#fleet-metrics). |
+
+The coach metrics created outside `AppMetricsService` (`coach/chat/`, `coach/review/`, `coach/planning/`) carry no unit and dotted attribute names (`coach.reason`); their table names follow the counter rule above and are not verified live. Attribute columns with dots need double-quoting in SQL.
 
 Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{bucket,sum,count}`, `app_backup_size_bytes_{bucket,sum,count}`, `app_jobs_oldest_pending_age_seconds`, `app_jobs_queue_depth`, `app_backup_last_success_timestamp_seconds`, `app_backup_last_success_size_bytes`. The remaining tables follow the same rules.
 

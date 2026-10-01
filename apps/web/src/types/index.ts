@@ -424,9 +424,63 @@ export interface UserSettings {
    * from real data by `GET /api/onboarding`.
    */
   onboarding?: OnboardingSettings;
+  /**
+   * AI Coach preferences (E7.1, #241). Optional and sparse: absent (namespace
+   * or field) means the built-in default; see `CoachSettings`.
+   */
+  coach?: CoachSettings;
   updatedAt: string;
   version: number;
 }
+
+// =============================================================================
+// AI Coach user settings (E7.1, #241; docs/specs/ai-coach.md §3.1)
+// =============================================================================
+
+export type CoachPhotoCadence = 'off' | 'weekly' | 'biweekly' | 'monthly';
+
+/**
+ * `user_settings.coach`. Every field is optional; absent means the built-in
+ * default (`enabled: false`, `personaId: 'coach'`, `intensity: 2`, quiet hours
+ * 21:30 to 07:30, `maxNudgesPerDay: 2`, `lockScreenSafe: true`,
+ * `photoCadence: 'biweekly'`, audio off at speed 1.0 in the persona's voice).
+ */
+export interface CoachSettings {
+  enabled?: boolean;
+  personaId?: string;
+  /** 1 to 3. */
+  intensity?: number;
+  profanity?: boolean;
+  /** ISO datetime stamped by the server when the 18+ dialog is confirmed. */
+  adultConfirmedAt?: string | null;
+  audio?: {
+    enabled?: boolean;
+    voice?: string;
+    /** 0.75 to 1.5. */
+    speed?: number;
+  };
+  /** `HH:mm`; the window may wrap midnight. */
+  quietHours?: { start?: string; end?: string };
+  /** 1 to 4, clamped to the deployment ceiling. */
+  maxNudgesPerDay?: number;
+  lockScreenSafe?: boolean;
+  photoCadence?: CoachPhotoCadence;
+  /** At most 200 characters. */
+  why?: string | null;
+  /** `HH:mm`. */
+  preferredTime?: string | null;
+}
+
+type Nullable<T> = { [K in keyof T]?: T[K] | null };
+
+/**
+ * PATCH form of `coach`: merged field by field server-side (and one level into
+ * `audio` and `quietHours`); `null` clears a field.
+ */
+export type CoachSettingsPatch = Nullable<Omit<CoachSettings, 'audio' | 'quietHours'>> & {
+  audio?: Nullable<NonNullable<CoachSettings['audio']>> | null;
+  quietHours?: Nullable<NonNullable<CoachSettings['quietHours']>> | null;
+};
 
 // =============================================================================
 // First-run onboarding (#203)
@@ -619,6 +673,8 @@ export interface UserSettingsUpdate {
   ai?: UserAiSettingsPatch | null;
   /** First-run onboarding state (#203). Shallow merge; `null` clears a key. */
   onboarding?: OnboardingSettingsPatch | null;
+  /** AI Coach preferences (E7.1, #241). Field-wise merge; `null` clears a key or the namespace. */
+  coach?: CoachSettingsPatch | null;
 }
 
 /**

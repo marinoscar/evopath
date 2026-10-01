@@ -1275,4 +1275,55 @@ describe('UserSettingsService', () => {
       expect(current.training).toEqual({ maxRunTokens: 50_000, maxCriticRounds: 1 });
     });
   });
+
+  // ===========================================================================
+  // coach namespace merge logic (E7.1, #241)
+  // ===========================================================================
+
+  describe('mergeCoach (private)', () => {
+    const mergeCoach = (current: unknown, patch: unknown) => (service as any).mergeCoach(current, patch);
+
+    it('patch absent leaves the namespace untouched; null clears it', () => {
+      const current = { enabled: true, intensity: 3 };
+
+      expect(mergeCoach(current, undefined)).toBe(current);
+      expect(mergeCoach(undefined, undefined)).toBeUndefined();
+      expect(mergeCoach(current, null)).toBeUndefined();
+    });
+
+    it('top-level fields replace or delete; omitted fields survive', () => {
+      expect(mergeCoach({ enabled: true, why: 'my kids' }, { intensity: 1, why: null })).toEqual({
+        enabled: true,
+        intensity: 1,
+      });
+    });
+
+    it('audio and quietHours merge one level deeper', () => {
+      const current = { audio: { enabled: true, voice: 'alloy', speed: 1 }, quietHours: { start: '22:00', end: '07:00' } };
+
+      expect(mergeCoach(current, { audio: { speed: 1.25 } })).toEqual({
+        audio: { enabled: true, voice: 'alloy', speed: 1.25 },
+        quietHours: { start: '22:00', end: '07:00' },
+      });
+      expect(mergeCoach(current, { audio: { voice: null }, quietHours: null })).toEqual({
+        audio: { enabled: true, speed: 1 },
+      });
+    });
+
+    it('an emptied nested object, and an emptied namespace, collapse to absent', () => {
+      expect(mergeCoach({ audio: { speed: 1.25 }, enabled: true }, { audio: { speed: null } })).toEqual({ enabled: true });
+      expect(mergeCoach({ enabled: true }, { enabled: null })).toBeUndefined();
+    });
+
+    it('creates the namespace from nothing and does not mutate what it read', () => {
+      const current = { audio: { speed: 1 } };
+
+      expect(mergeCoach(undefined, { enabled: true, quietHours: { start: '23:00' } })).toEqual({
+        enabled: true,
+        quietHours: { start: '23:00' },
+      });
+      mergeCoach(current, { audio: { speed: null } });
+      expect(current).toEqual({ audio: { speed: 1 } });
+    });
+  });
 });

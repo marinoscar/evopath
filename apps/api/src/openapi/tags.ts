@@ -153,6 +153,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '`health_data:read`/`:write`; owner-scoped (a foreign id is a 404).',
       },
       {
+        name: 'Progress Photos',
+        description:
+          'The calling user\'s private progress photos: list (newest first, keyset-paged, by pose), add an ' +
+          'uploaded JPEG, PNG or WebP storage object (checked by its bytes), and delete (with its stored ' +
+          'object). Images are read through the owner-checked signed storage download; never sent to an AI ' +
+          'model or a notification. Gated on `health_data:read`/`:write`, not on AI; owner-scoped.',
+      },
+      {
         name: 'Intakes',
         description:
           'The calling user\'s photo intakes: share photos instead of typing, let a vision model ' +
@@ -302,6 +310,21 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'reasoning effort each role will use, or why it cannot run and where to fix it, and a ' +
           'pre-run token estimate against your per-run cap (tokens only, never a price). ' +
           'Requires `ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
+      },
+      {
+        name: 'AI Coach',
+        description:
+          'The AI Coach as a signed-in user: the persona gallery with its static sample lines, and your ' +
+          'coach settings with the profanity unlock and the other deployment rules applied server-side. ' +
+          'Requires `ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled. ' +
+          'Coach refusals carry the coach code in `details.code`.',
+      },
+      {
+        name: 'AI Coach Administration',
+        description:
+          'The deployment-wide coach policy: the coach switch, the profane-persona unlock, spoken messages, ' +
+          'the daily nudge ceiling, audio retention, auto-silence and the inactivity stop. Gated on ' +
+          '`ai_config:read`/`ai_config:write` and reachable while AI is disabled.',
       },
     ],
   },

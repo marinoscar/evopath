@@ -3,7 +3,14 @@ import {
   AI_PROVIDER_IDS,
   systemSettingsSchema,
   systemSettingsPatchSchema,
+  userSettingsSchema,
+  userSettingsPatchSchema,
 } from './settings.schema';
+import {
+  updateUserSettingsSchema,
+  patchUserSettingsSchema,
+} from '../../settings/dto/update-user-settings.dto';
+import { userSettingsResponseSchema } from '../../settings/dto/user-settings-response.dto';
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,
@@ -308,5 +315,49 @@ describe('system settings parity across the places a namespace must be declared'
       expect(keys).not.toBeNull();
       expectSameKeys(keys ?? [], [...AI_PROVIDER_IDS], `${name}: ai.providers slots`);
     }
+  });
+});
+
+// =============================================================================
+// User settings: the `coach` namespace (E7.1, #241)
+// =============================================================================
+//
+// `userSettingsSchema.parse` silently strips a namespace it does not know, so
+// `coach` must be declared in every layer a user-settings body passes through
+// (onboarding.md §4.4). Each layer must model the same fields, and each must
+// reject an unknown key inside the namespace (strict), so a typo is a 400
+// rather than a silently dropped preference.
+describe('user settings parity: the coach namespace', () => {
+  const LAYERS: Array<[string, z.ZodObject<z.ZodRawShape>]> = [
+    ['userSettingsSchema', userSettingsSchema],
+    ['userSettingsPatchSchema', userSettingsPatchSchema],
+    ['updateUserSettingsSchema (PUT body)', updateUserSettingsSchema],
+    ['patchUserSettingsSchema (PATCH body)', patchUserSettingsSchema],
+    ['userSettingsResponseSchema (response)', userSettingsResponseSchema],
+  ];
+
+  const coachKeys = (schema: z.ZodObject<z.ZodRawShape>) =>
+    objectKeys((schema.shape as Record<string, unknown>).coach);
+
+  it.each(LAYERS)('%s declares coach with the canonical fields', (name, schema) => {
+    const keys = coachKeys(schema);
+
+    expect(keys).not.toBeNull();
+    expectSameKeys(keys ?? [], coachKeys(userSettingsSchema) ?? [], `${name}: fields of "coach"`);
+  });
+
+  it.each(LAYERS)('%s keeps a valid coach namespace and rejects an unknown key inside it', (_name, schema) => {
+    const base = {
+      theme: 'system',
+      profile: { imageSource: 'none', imageObjectId: null },
+      updatedAt: '2026-10-01T00:00:00.000Z',
+      version: 1,
+    };
+
+    const ok = schema.safeParse({ ...base, coach: { enabled: true, intensity: 3 } });
+    expect(ok.success).toBe(true);
+    expect((ok.data as Record<string, unknown>).coach).toEqual({ enabled: true, intensity: 3 });
+
+    expect(schema.safeParse({ ...base, coach: { enabled: true, mood: 'grumpy' } }).success).toBe(false);
   });
 });

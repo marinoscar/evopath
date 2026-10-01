@@ -39,6 +39,7 @@ import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
 import { HealthDocumentsModule } from './health-documents/health-documents.module';
+import { ProgressPhotosModule } from './progress-photos/progress-photos.module';
 import { HealthExportModule } from './health-export/health-export.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
@@ -52,6 +53,8 @@ import { DoctorModule } from './doctor/doctor.module';
 import { UserDataModule } from './user-data/user-data.module';
 import { AdminFactoryResetModule } from './admin-factory-reset/admin-factory-reset.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { CoachPlanningModule } from './coach/planning/coach-planning.module';
+import { CoachModule } from './coach/coach.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -261,6 +264,11 @@ import configuration from './config/configuration';
     // `health.export.purge` (queued by a cron) that removes files after 7 days.
     HealthExportModule,
 
+    // Progress photos (E7.9, #249): `/api/progress-photos` under
+    // `health_data:*`, NOT AI-gated; the `progress_photos` storage reference
+    // checker. Exports `ProgressPhotoSummaryService` (counts and dates only).
+    ProgressPhotosModule,
+
     // Gyms (E3.3): `/api/gyms` (with equipment and photos), `/api/equipment-types`
     // and `/api/capabilities` under `gyms:*` (photo attach/remove also
     // `storage:write`). Manual only; no AI import.
@@ -310,6 +318,15 @@ import configuration from './config/configuration';
     // `system:factory_reset`, and the server-only `admin.factory_reset` job
     // that deletes every other user and all application data.
     AdminFactoryResetModule,
+
+    // AI Coach decision engine (E7.4): the hourly `coach.sweep`, the
+    // `coach.workout_finished` job and `GET /api/coach/state`.
+    CoachPlanningModule,
+    // The AI Coach (epic E7): the persona registry, the content guard,
+    // `/api/coach/*` (`ai:use`, behind `AiEnabledGuard`) and
+    // `/api/admin/coach/*` (`ai_config:*`, reachable while AI is off). Later
+    // coach stories add their sub-modules inside `CoachModule`, not here.
+    CoachModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

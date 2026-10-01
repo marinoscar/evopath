@@ -268,6 +268,7 @@ describe('src/sw.ts', () => {
 describe('sw.ts message handlers (notificationclick, push, pushsubscriptionchange)', () => {
   let notificationClickHandler: (event: {
     notification: { close: () => void; data: unknown };
+    action?: string;
     waitUntil: (promise: Promise<unknown>) => void;
   }) => void;
   type FakePushEvent = {
@@ -355,10 +356,11 @@ describe('sw.ts message handlers (notificationclick, push, pushsubscriptionchang
     pushManagerSubscribe.mockReset().mockResolvedValue(undefined);
   });
 
-  function fireAndAwait(data: unknown) {
+  function fireAndAwait(data: unknown, action = '') {
     const close = vi.fn();
     let waited: Promise<unknown> = Promise.resolve();
     const event = {
+      action,
       notification: { close, data },
       waitUntil: (promise: Promise<unknown>) => {
         waited = promise;
@@ -595,6 +597,116 @@ describe('sw.ts message handlers (notificationclick, push, pushsubscriptionchang
   // ==========================================================================
   // push: admin test push (issue #115)
   // ==========================================================================
+
+  // E7.5 (#245): the coach's "Hear Coach" action and its deep link.
+  describe('push and click: action buttons (coach "Hear Coach")', () => {
+    const COACH_PAYLOAD = {
+      id: 'notif-c1',
+      eventKey: 'coach.nudge',
+      title: 'Your session is waiting',
+      body: 'Coach has a message for you.',
+      link: '/coach?m=msg-1',
+      actions: [{ action: 'hear', title: '▶ Hear Coach', link: '/coach?m=msg-1&autoplay=1' }],
+      data: { messageId: 'msg-1' },
+    };
+
+    it('shows the action button and keeps each action link in notification.data', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      await firePush({ json: () => COACH_PAYLOAD });
+
+      expect(showNotification).toHaveBeenCalledWith('Your session is waiting', {
+        body: 'Coach has a message for you.',
+        tag: 'notif-c1',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/badge-96.png',
+        data: {
+          id: 'notif-c1',
+          link: '/coach?m=msg-1',
+          actionLinks: { hear: '/coach?m=msg-1&autoplay=1' },
+          messageId: 'msg-1',
+        },
+        actions: [{ action: 'hear', title: '▶ Hear Coach' }],
+      });
+    });
+
+    it('shows no actions for a payload without any, and leaves data as { id, link }', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      await firePush({ json: () => ({ ...COACH_PAYLOAD, actions: undefined, data: undefined }) });
+
+      const options = showNotification.mock.calls[0][1] as Record<string, unknown>;
+      expect(options).not.toHaveProperty('actions');
+      expect(options.data).toEqual({ id: 'notif-c1', link: '/coach?m=msg-1' });
+    });
+
+    it('drops malformed actions', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      await firePush({ json: () => ({ ...COACH_PAYLOAD, actions: [{ action: 'hear' }, 'nope', null] }) });
+
+      const options = showNotification.mock.calls[0][1] as Record<string, unknown>;
+      expect(options).not.toHaveProperty('actions');
+    });
+
+    const DATA = {
+      id: 'notif-c1',
+      link: '/coach?m=msg-1',
+      actionLinks: { hear: '/coach?m=msg-1&autoplay=1' },
+    };
+
+    it('a click on "hear" with no window open opens the autoplay deep link', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      const { settled } = fireAndAwait(DATA, 'hear');
+      await settled;
+
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/coach?m=msg-1&autoplay=1&n=notif-c1');
+    });
+
+    it('a click on "hear" with a window open focuses it and posts the autoplay link', async () => {
+      const client = { url: 'http://localhost:3000/coach', focus: vi.fn().mockResolvedValue(undefined), postMessage: vi.fn() };
+      clientsMatchAll.mockResolvedValue([client]);
+
+      const { settled } = fireAndAwait(DATA, 'hear');
+      await settled;
+
+      expect(client.focus).toHaveBeenCalled();
+      expect(client.postMessage).toHaveBeenCalledWith({
+        type: 'notification-click',
+        id: 'notif-c1',
+        link: '/coach?m=msg-1&autoplay=1',
+      });
+      expect(clientsOpenWindow).not.toHaveBeenCalled();
+    });
+
+    it('a plain click opens /coach?m=<id> without autoplay', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      const { settled } = fireAndAwait(DATA, '');
+      await settled;
+
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/coach?m=msg-1&n=notif-c1');
+    });
+
+    it('an unknown action falls back to the plain link', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      const { settled } = fireAndAwait(DATA, 'snooze');
+      await settled;
+
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/coach?m=msg-1&n=notif-c1');
+    });
+
+    it('rejects an off-origin action link and falls back to "/"', async () => {
+      clientsMatchAll.mockResolvedValue([]);
+
+      const { settled } = fireAndAwait({ ...DATA, actionLinks: { hear: 'https://evil.example.com/x' } }, 'hear');
+      await settled;
+
+      expect(clientsOpenWindow).toHaveBeenCalledWith('/?n=notif-c1');
+    });
+  });
 
   describe('push: test payload (test: true)', () => {
     const TEST_PAYLOAD = {

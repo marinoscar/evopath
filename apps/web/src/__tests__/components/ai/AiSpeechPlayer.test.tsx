@@ -2,7 +2,7 @@
  * `AiSpeechPlayer` — issue #445 (API #439). The disclosure is always shown,
  * the player is labelled, and a failed signed-URL read is explained.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { render } from '../../utils/test-utils';
@@ -11,6 +11,7 @@ import {
   AiSpeechPlayer,
   AI_GENERATED_AUDIO_LABEL,
   AI_SPEECH_PLAYBACK_FAILED_MESSAGE,
+  AI_SPEECH_AUTOPLAY_BLOCKED_LABEL,
 } from '../../../components/ai/AiSpeechPlayer';
 import { SPEECH_OBJECT_ID, mockAiSpeechRunOutput, mockSignedUrl } from '../../mocks/fixtures/ai';
 import { isAiResponseRunOutput, isAiSpeechRunOutput, isAiTranscriptionRunOutput } from '../../../services/ai';
@@ -66,5 +67,44 @@ describe('run output guards', () => {
     expect(isAiResponseRunOutput(mockAiSpeechRunOutput)).toBe(false);
     expect(isAiSpeechRunOutput(mockAiTranscriptionRunOutput)).toBe(false);
     expect(isAiSpeechRunOutput(null)).toBe(false);
+  });
+
+  describe('autoPlay (E7.8, #248)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('does not try to play without autoPlay', async () => {
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+      const { container } = render(<AiSpeechPlayer output={mockAiSpeechRunOutput} />);
+      await waitFor(() => expect(container.querySelector('audio')).not.toBeNull());
+      expect(play).not.toHaveBeenCalled();
+    });
+
+    it('plays once the signed URL has loaded, and shows no Play button when allowed', async () => {
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+      render(<AiSpeechPlayer output={mockAiSpeechRunOutput} autoPlay />);
+      await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole('button', { name: /^Play/ })).not.toBeInTheDocument();
+    });
+
+    it('shows a large Play button, not an unhandled rejection, when the browser refuses', async () => {
+      const refusal = Object.assign(new Error('blocked'), { name: 'NotAllowedError' });
+      const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockRejectedValueOnce(refusal);
+      render(<AiSpeechPlayer output={mockAiSpeechRunOutput} autoPlay />);
+
+      const button = await screen.findByRole('button', { name: /^Play/ });
+      expect(button).toHaveTextContent(AI_SPEECH_AUTOPLAY_BLOCKED_LABEL);
+      play.mockResolvedValueOnce(undefined);
+      fireEvent.click(button);
+      expect(play).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(screen.queryByRole('button', { name: /^Play/ })).not.toBeInTheDocument());
+    });
+
+    it('accepts a stored message without format or character count', async () => {
+      render(<AiSpeechPlayer output={{ storageObjectId: SPEECH_OBJECT_ID, voice: 'coral' }} />);
+      expect(screen.getByText('Voice coral')).toBeInTheDocument();
+      expect(screen.getByText(AI_GENERATED_AUDIO_LABEL)).toBeInTheDocument();
+    });
   });
 });

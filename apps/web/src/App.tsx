@@ -61,6 +61,9 @@ const HealthPage = lazy(() => import('./pages/HealthPage'));
 // `/health` prefix; not settings pages.
 const BiomarkersPage = lazy(() => import('./pages/BiomarkersPage'));
 const BiomarkerDetailPage = lazy(() => import('./pages/BiomarkerDetailPage'));
+// E7.9 (#249): progress photos. Owned by the `health` destination through the
+// `/health` prefix; `?add=1` opens the add flow (the Coach's "Take photo").
+const ProgressPhotosPage = lazy(() => import('./pages/ProgressPhotosPage'));
 const GymsPage = lazy(() => import('./pages/GymsPage'));
 // E3.3: add a gym, and one gym's equipment and photos. Owned by the `gyms`
 // destination through the `/gyms` prefix.
@@ -78,6 +81,9 @@ const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
 // Issue #126, epic #109 — the per-user event x channel notification matrix.
 const UserNotificationsPage = lazy(() => import('./pages/UserNotificationsPage'));
+// AI Coach settings (E7.3, #243).
+const UserCoachSettingsPage = lazy(() => import('./pages/UserCoachSettingsPage'));
+const CoachAdminPage = lazy(() => import('./pages/Admin/CoachAdminPage'));
 const UserTokensPage = lazy(() => import('./pages/UserTokensPage'));
 // Issue #202 — the per-user factory reset (Danger Zone).
 const UserDangerZonePage = lazy(() => import('./pages/UserDangerZonePage'));
@@ -136,6 +142,8 @@ const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage')
 // Issue #190 (H6) — the caller's own uploaded health documents.
 const UserHealthDocumentsPage = lazy(() => import('./pages/UserHealthDocumentsPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
+// E7.8 (#248): the AI Coach timeline.
+const CoachPage = lazy(() => import('./pages/CoachPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
 // editor, so neither weighs on the entry chunk.
@@ -319,6 +327,28 @@ function AppRoutes() {
                   <Route path="/health" element={<HealthPage />} />
                   <Route path="/health/biomarkers" element={<BiomarkersPage />} />
                   <Route path="/health/biomarkers/:analyteKey" element={<BiomarkerDetailPage />} />
+                  <Route
+                    path="/health/progress-photos"
+                    element={
+                      <RequirePermission permission="health_data:read" fallback={<Navigate to="/health" replace />}>
+                        <ProgressPhotosPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E7.8 (#248): the AI Coach timeline. Gated exactly as the
+                      `coach` destination is: `ai:use` (the string the coach
+                      controllers enforce) plus AI being on; with AI off it
+                      redirects to Today. */}
+                  <Route
+                    path="/coach"
+                    element={
+                      <RequirePermission permission="ai:use" fallback={<Navigate to="/" replace />}>
+                        <RequireAiEnabled>
+                          <CoachPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
                   <Route path="/gyms" element={<GymsPage />} />
                   <Route path="/gyms/new" element={<GymNewPage />} />
                   <Route path="/gyms/:gymId" element={<GymDetailPage />} />
@@ -385,6 +415,23 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <UserAgentModelsPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E7.3 (#243). Gated like `/settings/ai/agents`: `ai:use`
+                      (the string `coach-settings.controller.ts` enforces and
+                      the `Coach` card declares) plus AI being on, since every
+                      coach route sits behind `AiEnabledGuard`. */}
+                  <Route
+                    path="/settings/coach"
+                    element={
+                      <RequirePermission
+                        permission="ai:use"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <UserCoachSettingsPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }
@@ -848,6 +895,23 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <AiAssignmentsPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* E7.3 (#243). `ai_config:read`, the string the `Coach`
+                      admin card declares and the coach admin controller
+                      enforces on its GET; feature-gated like the other AI
+                      pages. Writes are gated inside the page. */}
+                  <Route
+                    path="/admin/settings/coach"
+                    element={
+                      <RequirePermission
+                        permission="ai_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <CoachAdminPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }

@@ -19,6 +19,7 @@ This repository is both the product and its foundation. The product features (he
 | Training plans | Manual plan builder with immutable versions, today's workout, change log and revert. Works with AI off | [ai-training-plans](docs/specs/ai-training-plans.md) |
 | Training signals | Adherence, frequency, hard sets per muscle, lift trends, effort, pain and readiness, computed deterministically | [training-signals](docs/specs/training-signals.md) |
 | AI training plans | Researcher, planner, critic and evaluator agents on LangGraph, server-enforced guardrails, continuous evaluation, quick workout adaptation | [ai-training-plans](docs/specs/ai-training-plans.md), [runbook](docs/runbooks/ai-training-plans.md) |
+| AI Coach | An accountability coach with seven personas: a deterministic scheduler decides when it may speak and a model writes the nudge, with an age-gated adult-language mode, optional spoken messages, chat grounded in your training data, a weekly review and email, and progress photos | [ai-coach](docs/specs/ai-coach.md), [runbook](docs/runbooks/ai-coach.md) |
 | Onboarding | Welcome dialog, admin Setup guide, user Get started checklist, derived from real state | [onboarding](docs/specs/onboarding.md) |
 
 ### Platform

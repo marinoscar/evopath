@@ -292,6 +292,14 @@ export interface NotifyNowResult {
    * ready only earns another refusal.
    */
   retryAfterMs: number | null;
+
+  /**
+   * The `notifications` (inbox) row the BROWSER channel wrote, when it
+   * delivered (E7.5, #245: `coach.message.deliver` stores it on the coach
+   * message). Absent when the browser channel was muted, not declared or
+   * failed. Present only on success, so a throttle-only caller can ignore it.
+   */
+  notificationId?: string;
 }
 
 /**

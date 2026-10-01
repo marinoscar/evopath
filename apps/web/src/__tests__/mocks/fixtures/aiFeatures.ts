@@ -14,23 +14,41 @@ const LABELS: Record<AiFeatureId, string> = {
   'training.critic': 'Training plan critic',
   'training.evaluator': 'Training plan evaluator',
   health_summary: 'Health summary for training plans',
+  'coach.decision': 'Coach decisions and weekly review',
+  'coach.chat': 'Coach chat',
+  'coach.voice': 'Coach voice',
+};
+
+/** What each coach feature needs; mirrors `AI_FEATURES` in the API. */
+const COACH_NEEDS: Partial<Record<AiFeatureId, string[]>> = {
+  'coach.decision': ['responses', 'structured_output'],
+  'coach.chat': ['responses', 'tools', 'streaming'],
+  'coach.voice': ['audio_speech'],
 };
 
 /** One feature, ready on the `mockUsableAiModels[0]` model (`openai` / `gpt-5-mini`, the caller's key). */
 export function mockFeatureView(featureId: AiFeatureId, overrides: Partial<AiFeatureView> = {}): AiFeatureView {
   const summary = featureId === 'health_summary';
-  const photo = !summary && !featureId.startsWith('training.');
+  const coach = featureId.startsWith('coach.');
+  const photo = !summary && !coach && !featureId.startsWith('training.');
+  const noEffort = photo || summary || coach;
   return {
     featureId,
     label: LABELS[featureId],
-    group: photo ? 'photo' : 'training',
+    group: coach ? 'coach' : photo ? 'photo' : 'training',
     state: 'ready',
     source: 'admin_feature',
     model: { provider: 'openai', modelId: 'gpt-5-mini', displayName: 'GPT-5 mini', keySource: 'user' },
-    needs: photo ? ['vision_input', 'structured_output'] : summary ? ['structured_output'] : ['responses', 'structured_output'],
+    needs: coach
+      ? (COACH_NEEDS[featureId] ?? [])
+      : photo
+        ? ['vision_input', 'structured_output']
+        : summary
+          ? ['structured_output']
+          : ['responses', 'structured_output'],
     inputModalities: photo ? ['image'] : [],
-    requestedEffort: photo || summary ? null : 'medium',
-    effectiveEffort: photo || summary ? null : 'medium',
+    requestedEffort: noEffort ? null : 'medium',
+    effectiveEffort: noEffort ? null : 'medium',
     fix: null,
     ...overrides,
   };

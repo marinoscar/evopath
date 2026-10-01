@@ -1,0 +1,66 @@
+import { z } from 'zod';
+
+import { defineTool } from '../../../ai/core/tools';
+import type { TrainingTodayData } from '../../../programs/today/dto/training-today.dto';
+import type { CoachChatToolDeps } from './coach-chat-tool.types';
+import { TOOL_UNAVAILABLE } from './coach-chat-tool.types';
+import { safely } from './minimise';
+
+/** Today's plan as the coach sees it: names, sets and targets only. No ids, no rationale, no gym. */
+export function minimiseToday(today: TrainingTodayData) {
+  switch (today.kind) {
+    case 'no_program':
+      return { kind: today.kind, date: today.date };
+    case 'not_started':
+      return { kind: today.kind, date: today.date, program: today.program.name, startsOn: today.startsOn };
+    case 'program_complete':
+      return { kind: today.kind, date: today.date, program: today.program.name };
+    case 'rest_day':
+      return {
+        kind: today.kind,
+        date: today.date,
+        program: today.program.name,
+        weekNumber: today.weekNumber,
+        totalWeeks: today.totalWeeks,
+        next: today.next ? { date: today.next.date, workout: today.next.programWorkout.name } : null,
+      };
+    case 'workout':
+      return {
+        kind: today.kind,
+        date: today.date,
+        program: today.program.name,
+        workout: today.programWorkout.name,
+        weekNumber: today.weekNumber,
+        totalWeeks: today.totalWeeks,
+        isDeload: today.isDeload,
+        done: today.done,
+        inProgress: today.inProgressWorkoutId !== null,
+        estimatedMinutes: today.session.estimatedMinutes,
+        exercises: today.session.exercises.map((exercise) => ({
+          name: exercise.exercise.name,
+          sets: exercise.sets,
+          repMin: exercise.repMin,
+          repMax: exercise.repMax,
+          targetRpe: exercise.targetRpe,
+          restSeconds: exercise.restSeconds,
+        })),
+      };
+  }
+}
+
+/** `get_today_plan`: today's planned session from the Today resolver (`TrainingTodayService`). */
+export function createGetTodayPlanTool(deps: CoachChatToolDeps) {
+  return defineTool({
+    name: 'get_today_plan',
+    description:
+      "Today's planned session from the user's active program: whether it is a workout or a rest day, the workout " +
+      'name, its exercises with sets, rep range, target RPE and rest, whether it is done, and the next session on a ' +
+      'rest day.',
+    parameters: z.object({}),
+    execute: (_args, ctx) =>
+      safely(async () => {
+        const date = await deps.checkIns.today(ctx.userId, deps.now());
+        return minimiseToday(await deps.today.today(ctx.userId, date, deps.now()));
+      }, TOOL_UNAVAILABLE),
+  });
+}

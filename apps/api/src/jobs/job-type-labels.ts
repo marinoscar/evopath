@@ -163,6 +163,20 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'telemetry.stack.deploy': 'Telemetry services deploy',
   // One user's "factory reset" of their own data (#202), from Settings.
   'user.data_reset': 'User data reset',
+  // Hourly: plans each coach-enabled user's next moment (E7.4).
+  'coach.sweep': 'Coach sweep',
+  // Plans a comeback, PR or weekly-target moment after a finished workout (E7.4).
+  'coach.workout_finished': 'Coach workout check',
+  // Writes, guards and persists one persona-tailored coach message (E7.5).
+  'ai.coach.nudge': 'AI coach nudge',
+  // Writes the weekly review and advances the weekly streak (E7.10).
+  'ai.coach.weekly_review': 'AI coach weekly review',
+  // Sends one persisted coach message as a notification (E7.5).
+  'coach.message.deliver': 'Coach message delivery',
+  // Maps a finished coach speech run (or the wait cap) to its message (E7.6).
+  'coach.audio.settle': 'Coach audio settle',
+  // Daily: deletes coach voice notes older than the retention window (E7.6).
+  'coach.audio.purge': 'Coach audio purge',
 };
 
 /**

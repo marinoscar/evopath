@@ -10,7 +10,10 @@
 // files the Jest scenario suites replay, so a contributor can run the whole
 // planner flow with no key, no cost and no outbound network.
 //
-//   GET  /v1/models              fake-frontier and fake-fast
+//   GET  /v1/models              fake-frontier, fake-fast and fake-tts (speech; the catalog
+//                                classifies it audio_speech by its `-tts` suffix)
+//   POST /v1/audio/speech        a valid silent MP3 over 1 KiB (AI Coach audio, E7.13);
+//                                POST /__control/speech { "mode": "ok" | "fail" | "refuse" }
 //   POST /v1/responses           an OpenAI Responses object: a message with
 //                                output_text (url_citation annotations for the
 //                                researcher), a web_search_call item, usage with
@@ -50,9 +53,11 @@ import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SPEECH_MODES, SPEECH_REFUSAL, fakeSpeech } from './fake-coach-scenarios.mjs';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_SCENARIO_DIR = resolve(HERE, '../../../apps/api/test/fixtures/training/scenarios');
-const MODELS = ['fake-frontier', 'fake-fast'];
+const MODELS = ['fake-frontier', 'fake-fast', 'fake-tts'];
 const ROLES = ['researcher', 'planner', 'critic', 'evaluator'];
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 const INVESTIGATION_NOTE = 'Checked volume and substitutes; see the verdict.';
@@ -208,7 +213,7 @@ export function startFakeResponsesServer({ port = Number(process.env.PORT ?? 401
   const loadScenario = (name) => JSON.parse(readFileSync(join(scenarioDir, `${name}.json`), 'utf8'));
   const loadOutput = (spec) => JSON.parse(readFileSync(join(scenarioDir, spec.outputJson), 'utf8'));
 
-  const state = { scenario: 'happy', counters: {}, requestNumber: 0, log: [], seq: 0, responses: 0 };
+  const state = { speechMode: 'ok', scenario: 'happy', counters: {}, requestNumber: 0, log: [], seq: 0, responses: 0 };
 
   function resetCounters(name) {
     state.scenario = name;
@@ -298,6 +303,25 @@ export function startFakeResponsesServer({ port = Number(process.env.PORT ?? 401
 
     if (req.method === 'POST' && path === '/v1/responses') return respond(req, res, await readBody(req));
 
+    if (req.method === 'POST' && path === '/v1/audio/speech') {
+      await readBody(req);
+      if (!tokenAccepted(req.headers.authorization)) {
+        return send(res, 401, { error: { message: 'Incorrect API key provided.', type: 'invalid_request_error', code: 'invalid_api_key' } });
+      }
+      if (state.speechMode === 'fail') return send(res, 500, { error: { message: 'The fake speech model is set to fail.', type: 'server_error' } });
+      if (state.speechMode === 'refuse') return send(res, 400, SPEECH_REFUSAL);
+      const audio = fakeSpeech();
+      res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': audio.length });
+      return res.end(audio);
+    }
+
+    if (req.method === 'POST' && path === '/__control/speech') {
+      const body = parseJson(await readBody(req));
+      if (!SPEECH_MODES.includes(body.mode)) return send(res, 400, { error: `mode must be one of ${SPEECH_MODES.join(', ')}` });
+      state.speechMode = body.mode;
+      return send(res, 200, { speech: state.speechMode });
+    }
+
     if (req.method === 'POST' && path === '/__control/scenario') {
       const body = parseJson(await readBody(req));
       if (typeof body.name !== 'string' || !listScenarios().includes(body.name)) {
@@ -324,6 +348,7 @@ export function startFakeResponsesServer({ port = Number(process.env.PORT ?? 401
       state.log = [];
       state.seq = 0;
       state.responses = 0;
+      state.speechMode = 'ok';
       return send(res, 200, { reset: true, scenario: state.scenario });
     }
 

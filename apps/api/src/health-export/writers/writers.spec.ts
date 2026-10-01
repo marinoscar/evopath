@@ -66,7 +66,17 @@ describe('health export writers', () => {
       expect(parsed.exportedAt).toBe('2026-09-30T12:00:00.000Z');
       expect(parsed.range).toEqual({ from: '2026-09-01', to: '2026-09-30' });
       expect(parsed.profile).toMatchObject({ dateOfBirth: '1990-05-01', ageYears: 36, sexAtBirth: 'female' });
-      expect(Object.keys(parsed.datasets)).toEqual(['body', 'vitals', 'labs', 'wellness', 'documents']);
+      expect(Object.keys(parsed.datasets)).toEqual(['body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos']);
+      // Progress photos are an index: day, pose, note, type, size. Never the image or its storage id.
+      expect(parsed.datasets.progress_photos[0]).toEqual({
+        id: '00000000-0000-4000-8000-000000000007',
+        date: '2026-09-14',
+        pose: 'front',
+        note: 'Morning, fasted',
+        mime_type: 'image/jpeg',
+        size_bytes: 345678,
+        added_at: '2026-09-14T07:30:00.000Z',
+      });
       expect(parsed.datasets.body[0]).toMatchObject({ weight_kg: 70.2, notes: FIXTURE_FORMULA_NOTE });
       expect(parsed.datasets.labs[1].value).toBe(-5);
     });
@@ -94,10 +104,10 @@ describe('health export writers', () => {
       const zip = await JSZip.loadAsync(await streamToBuffer(csvZipExportStream(exportFixture())));
 
       expect(Object.keys(zip.files).sort()).toEqual(
-        ['body.csv', 'documents.csv', 'labs.csv', 'profile.csv', 'vitals.csv', 'wellness.csv'].sort(),
+        ['body.csv', 'documents.csv', 'labs.csv', 'profile.csv', 'progress_photos.csv', 'vitals.csv', 'wellness.csv'].sort(),
       );
 
-      for (const dataset of ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents'] as const) {
+      for (const dataset of ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos'] as const) {
         const bytes = await zip.file(`${dataset}.csv`)!.async('nodebuffer');
         expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
 
@@ -155,6 +165,7 @@ describe('health export writers', () => {
         'Labs',
         'Wellness - mood',
         'Documents',
+        'Progress photos',
       ]);
 
       const body = workbook.getWorksheet('Body')!;
@@ -201,6 +212,7 @@ describe('health export writers', () => {
       expect(text).toContain('69.4');
       expect(text).toContain('Energy');
       expect(text).toContain(FIXTURE_AT_FILE_NAME);
+      expect(text).toContain('Morning, fasted');
 
       const pages = pdfPageCount(pdf);
       expect(pages).toBeGreaterThanOrEqual(1);

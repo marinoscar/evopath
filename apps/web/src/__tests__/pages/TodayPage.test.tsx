@@ -6,6 +6,7 @@ import TodayPage from '../../pages/TodayPage';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { comingInLabel } from '../../config/roadmap';
+import { coachMessageId, mockCoachMessage } from '../mocks/fixtures/coach';
 
 const CARDS = [
   { title: "Today's workout", area: 'programs', link: 'Open Train', href: '/train' },
@@ -137,5 +138,58 @@ describe('TodayPage', () => {
     const { container } = render(<TodayPage />);
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
+  });
+
+  /** E7.8 (#248): the CoachHero strip and the appended, gated coach card. */
+  describe('coach (E7.8)', () => {
+    it('shows neither the hero nor the coach card with AI off', async () => {
+      render(<TodayPage />, { wrapperOptions: { aiEnabled: false } });
+      expect(screen.getAllByRole('region').map((r) => r.querySelector('h2')?.textContent)).toEqual(
+        CARDS.map((c) => c.title),
+      );
+      expect(screen.queryByRole('region', { name: 'Coach' })).toBeNull();
+      expect(screen.queryByTestId('coach-hero')).toBeNull();
+    });
+
+    it('appends the Coach card last with AI on and ai:use, with its state and Open Coach link', async () => {
+      render(<TodayPage />, { wrapperOptions: { aiEnabled: true } });
+      const regions = screen.getAllByRole('region').filter((r) => r.querySelector('h2'));
+      expect(regions.map((r) => r.querySelector('h2')?.textContent)).toEqual([
+        ...CARDS.map((c) => c.title),
+        'Coach',
+      ]);
+      const coach = screen.getByRole('region', { name: 'Coach' });
+      expect(await within(coach).findByTestId('today-coach-target')).toHaveTextContent('2 of 3 this week');
+      expect(within(coach).getByRole('link', { name: 'Open Coach' })).toHaveAttribute('href', '/coach');
+    });
+
+    it('hides the Coach card from a user without ai:use', () => {
+      render(<TodayPage />, {
+        wrapperOptions: {
+          aiEnabled: true,
+          user: { ...mockUser, permissions: mockUser.permissions.filter((p) => p !== 'ai:use') },
+        },
+      });
+      expect(screen.queryByRole('region', { name: 'Coach' })).toBeNull();
+    });
+
+    it('shows the CoachHero above the cards with the latest unread line and Reply', async () => {
+      server.use(
+        http.get('*/api/coach/messages', () =>
+          HttpResponse.json({
+            data: {
+              items: [mockCoachMessage({ id: coachMessageId(3), openedAt: null, kind: 'chat', title: '', body: 'Ready for today?' })],
+              nextCursor: null,
+            },
+          }),
+        ),
+      );
+      render(<TodayPage />, { wrapperOptions: { aiEnabled: true } });
+      const hero = await screen.findByTestId('coach-hero');
+      expect(within(hero).getByText('Ready for today?')).toBeInTheDocument();
+      expect(within(hero).getByRole('link', { name: 'Reply' })).toHaveAttribute('href', `/coach?m=${coachMessageId(3)}`);
+      const firstCard = screen.getByRole('region', { name: "Today's workout" });
+      expect(hero.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
   });
 });

@@ -67,10 +67,14 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     aiRoutes = [];
     adminAiRoutes = [];
 
+    // The AI Coach (docs/specs/ai-coach.md §3.6) follows the same rule: its
+    // consumer routes `/api/coach/*` are kill-switched, its admin routes
+    // `/api/admin/coach/*` are not.
+    const under = (path: string, prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
     forEachOperation(document, (_operation, path, method) => {
-      if (path.startsWith('/api/admin/ai')) {
+      if (under(path, '/api/admin/ai') || under(path, '/api/admin/coach')) {
         adminAiRoutes.push({ path, method: method.toUpperCase() });
-      } else if (path.startsWith('/api/ai')) {
+      } else if (under(path, '/api/ai') || under(path, '/api/coach')) {
         aiRoutes.push({ path, method: method.toUpperCase() });
       }
     });
@@ -90,8 +94,17 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     expect(aiRoutes.length).toBeGreaterThanOrEqual(10);
     expect(adminAiRoutes.length).toBeGreaterThanOrEqual(5);
     expect(aiRoutes).toEqual(
-      expect.arrayContaining([{ path: '/api/ai/config', method: 'GET' }]),
+      expect.arrayContaining([
+        { path: '/api/ai/config', method: 'GET' },
+        { path: '/api/coach/settings', method: 'PUT' },
+        // E7.7: the coach chat stream and the timeline.
+        { path: '/api/coach/chat/stream', method: 'POST' },
+        { path: '/api/coach/messages', method: 'GET' },
+        // E7.6: the voice preview.
+        { path: '/api/coach/voice-preview', method: 'POST' },
+      ]),
     );
+    expect(adminAiRoutes).toEqual(expect.arrayContaining([{ path: '/api/admin/coach/settings', method: 'PUT' }]));
   });
 
   describe('while ai.enabled = false', () => {
@@ -208,6 +221,10 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.workout.prefill': null, // filled in per-test: needs a scanning workout_prefill intake (E4.5)
       'ai.training.plan.run': null, // filled in per-test: needs a queued training_plan_runs row (E5.3)
       'ai.training.adapt.run': null, // filled in per-test: needs a queued workout_adaptations row and its run (E6.1)
+      // E7.5 (#245): one coach nudge for a planned moment; filled in per-test.
+      'ai.coach.nudge': null,
+      // E7.10 (#250): one user's weekly review; filled in per-test.
+      'ai.coach.weekly_review': null,
     };
 
     let registry: JobHandlerRegistry;
@@ -684,6 +701,59 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       expect(prisma.workoutAdaptation.updateMany).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'running' }) }),
       );
+    });
+
+    it('ai.coach.nudge: disabled makes zero provider calls, persists and delivers nothing, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.coach.nudge');
+      expect(handler).toBeDefined();
+      const prisma = app.context.prismaMock as any;
+      prisma.coachMessage.create.mockClear();
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.coach.nudge',
+          subjectType: 'user',
+          subjectId: HARNESS_USER,
+          payload: {
+            userId: HARNESS_USER,
+            moment: 'missed_twice',
+            momentKey: 'missed_twice:2026-10-01',
+            candidates: [{ moment: 'missed_twice', priority: 1, reason: 'missed_streak' }],
+            trigger: 'sweep',
+          },
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.coachMessage.create).not.toHaveBeenCalled();
+    });
+
+    it('ai.coach.weekly_review: disabled makes zero provider calls, writes no review or streak, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.coach.weekly_review');
+      expect(handler).toBeDefined();
+      const prisma = app.context.prismaMock as any;
+      prisma.coachMessage.create.mockClear();
+      prisma.coachState.updateMany.mockClear();
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.coach.weekly_review',
+          subjectType: 'user',
+          subjectId: HARNESS_USER,
+          attempts: 1,
+          payload: { userId: HARNESS_USER, isoWeek: '2026-W40' },
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.coachMessage.create).not.toHaveBeenCalled();
+      expect(prisma.coachState.updateMany).not.toHaveBeenCalled();
     });
 
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {

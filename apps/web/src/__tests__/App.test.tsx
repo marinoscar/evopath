@@ -108,6 +108,8 @@ vi.mock('../pages/GymsPage', () => ({ default: () => <h1>Gyms Page</h1> }));
 vi.mock('../pages/GymNewPage', () => ({ default: () => <h1>Gym New Page</h1> }));
 vi.mock('../pages/GymDetailPage', () => ({ default: () => <h1>Gym Detail Page</h1> }));
 vi.mock('../pages/GymScanPage', () => ({ default: () => <h1>Gym Scan Page</h1> }));
+// E7.8 (#248). Stood in like the product pages above; `CoachPage.test.tsx` covers the page.
+vi.mock('../pages/CoachPage', () => ({ default: () => <h1>Coach Page</h1> }));
 
 const API_BASE = '*/api';
 
@@ -699,6 +701,72 @@ describe('App', () => {
       }
     );
   });
+  /**
+   * E7.8 (#248). `/coach` is gated like the `coach` destination: `ai:use` plus
+   * AI being on. With AI off it redirects to Today, and Gyms is unaffected.
+   */
+  describe('Coach route (E7.8)', () => {
+    function aiOn() {
+      server.use(
+        http.get(`${API_BASE}/ai/config`, () =>
+          HttpResponse.json({ data: mockAiPublicConfigEnabled })
+        )
+      );
+    }
+
+    function renderAt(path: string) {
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>
+      );
+    }
+
+    it('renders /coach with AI on for an ai:use holder', async () => {
+      aiOn();
+      signInAs(['user_settings:read', 'ai:use']);
+      renderAt('/coach');
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Coach Page' })).toBeInTheDocument(),
+        { timeout: 5000 }
+      );
+    });
+
+    it('redirects /coach to Today while AI is off, and leaves /gyms reachable', async () => {
+      signInAs(['user_settings:read', 'ai:use']);
+      renderAt('/coach');
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        { timeout: 5000 }
+      );
+      expect(screen.queryByRole('heading', { name: 'Coach Page' })).not.toBeInTheDocument();
+    });
+
+    it('keeps /gyms reachable while AI is off', async () => {
+      signInAs(['user_settings:read', 'ai:use']);
+      renderAt('/gyms');
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Gyms Page' })).toBeInTheDocument(),
+        { timeout: 5000 }
+      );
+    });
+
+    it('redirects /coach for a user without ai:use, even with AI on', async () => {
+      aiOn();
+      signInAs(['user_settings:read']);
+      renderAt('/coach');
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { name: 'Today Page' })).toBeInTheDocument(),
+        { timeout: 5000 }
+      );
+      expect(screen.queryByRole('heading', { name: 'Coach Page' })).not.toBeInTheDocument();
+    });
+  });
+
   describe('Telemetry routes (#537)', () => {
     const TELEMETRY_ALL = [
       'user_settings:read',

@@ -354,6 +354,45 @@ describe('PushNotificationChannel', () => {
     });
   });
 
+  // E7.5 (#245): the optional `actions` and `data.messageId` of a coach push.
+  describe('the payload of a coach notification (actions and messageId)', () => {
+    function sentPayload(): Record<string, unknown> {
+      const [, serialized] = webpush.sendNotification.mock.calls[0] as [unknown, string, unknown];
+      return JSON.parse(serialized);
+    }
+
+    beforeEach(() => {
+      mockPrisma.pushSubscription.findMany.mockResolvedValue([subscriptionRow()]);
+      webpush.sendNotification.mockResolvedValue(undefined);
+    });
+
+    it('carries the lock-screen pair, the deep link and messageId, and no actions without audio', async () => {
+      await channel.deliver(
+        contextFor('coach.nudge', { messageId: 'msg-1', pushTitle: 'Your coach checked in', pushBody: 'Ready for today?' }),
+        'user-1',
+      );
+      expect(sentPayload()).toEqual({
+        id: 'notif-1',
+        eventKey: 'coach.nudge',
+        title: 'Your coach checked in',
+        body: 'Ready for today?',
+        link: '/coach?m=msg-1',
+        data: { messageId: 'msg-1' },
+      });
+    });
+
+    it('adds the "Hear Coach" action with its autoplay link when the audio is ready', async () => {
+      await channel.deliver(
+        contextFor('coach.celebration', { messageId: 'msg-2', pushTitle: 'New best', pushBody: 'Well earned.', hasAudio: true }),
+        'user-1',
+      );
+      expect(sentPayload()).toMatchObject({
+        link: '/coach?m=msg-2',
+        actions: [{ action: 'hear', title: '▶ Hear Coach', link: '/coach?m=msg-2&autoplay=1' }],
+      });
+    });
+  });
+
   // ==========================================================================
   // VAPID details — now sourced from PushConfigService.resolveActiveVapidConfig()
   // ==========================================================================

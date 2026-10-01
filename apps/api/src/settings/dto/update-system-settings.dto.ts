@@ -21,6 +21,7 @@ import {
   aiEndpointUrlSchema,
   TELEMETRY_INSTANCE_ID_PATTERN,
   TASK_REASONING_EFFORTS,
+  COACH_MAX_NUDGES_PER_DAY_CEILING_MAX,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -316,6 +317,23 @@ const telemetrySettingsSchema = z.object({
   }),
 });
 
+// =============================================================================
+// AI Coach policy on the wire (E7.1, #241)
+// =============================================================================
+//
+// Restated here rather than imported, for the reason at the top of this file.
+// Bounds mirror `systemCoachSchema` exactly.
+
+const coachSettingsSchema = z.object({
+  enabled: z.boolean(),
+  allowProfanePersonas: z.boolean(),
+  allowAudio: z.boolean(),
+  maxNudgesPerDayCeiling: z.number().int().min(1).max(COACH_MAX_NUDGES_PER_DAY_CEILING_MAX),
+  audioRetentionDays: z.number().int().min(1).max(3650),
+  autoSilenceAfterIgnored: z.number().int().min(1).max(20),
+  inactiveStopDays: z.number().int().min(1).max(90),
+});
+
 // Full replacement (PUT)
 export const updateSystemSettingsSchema = z.object({
   // REQUIRED. A PUT that omits it is a 400 and
@@ -339,6 +357,8 @@ export const updateSystemSettingsSchema = z.object({
   // Epic #528, story #533 — optional for the same reason, carried forward the
   // same way.
   telemetry: telemetrySettingsSchema.optional(),
+  // E7.1, #241 — optional for the same reason, carried forward the same way.
+  coach: coachSettingsSchema.optional(),
 });
 
 export class UpdateSystemSettingsDto extends createZodDto(
@@ -555,6 +575,24 @@ export const patchSystemSettingsSchema = z.object({
           maxSteps: z.number().int().min(1).max(20).optional(),
         })
         .optional(),
+    })
+    .optional(),
+  // E7.1, #241. Optional at the namespace level and field by field inside —
+  // `{ "coach": { "allowAudio": false } }` must be a legal body.
+  coach: z
+    .object({
+      enabled: z.boolean().optional(),
+      allowProfanePersonas: z.boolean().optional(),
+      allowAudio: z.boolean().optional(),
+      maxNudgesPerDayCeiling: z
+        .number()
+        .int()
+        .min(1)
+        .max(COACH_MAX_NUDGES_PER_DAY_CEILING_MAX)
+        .optional(),
+      audioRetentionDays: z.number().int().min(1).max(3650).optional(),
+      autoSilenceAfterIgnored: z.number().int().min(1).max(20).optional(),
+      inactiveStopDays: z.number().int().min(1).max(90).optional(),
     })
     .optional(),
 });

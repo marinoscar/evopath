@@ -592,6 +592,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                coach: DEFAULT_SYSTEM_SETTINGS.coach,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -653,6 +654,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                coach: DEFAULT_SYSTEM_SETTINGS.coach,
               },
             }),
           }),
@@ -1000,6 +1002,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                coach: DEFAULT_SYSTEM_SETTINGS.coach,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -1134,6 +1137,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                coach: DEFAULT_SYSTEM_SETTINGS.coach,
               },
             } as any,
           },
@@ -2415,6 +2419,45 @@ describe('SystemSettingsService', () => {
       expect(result.retentionDays).toBe(90);
       expect(result.query).toEqual({ maxRows: 500, timeoutSeconds: 10 });
       expect(result.assistant).toEqual(DEFAULT_SYSTEM_SETTINGS.telemetry.assistant);
+    });
+  });
+
+  describe('coach policy (E7.1, #241)', () => {
+    it('getCoachPolicy returns the defaults for a missing row, a legacy row and a malformed block', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValueOnce(null);
+      expect(await service.getCoachPolicy()).toEqual(DEFAULT_SYSTEM_SETTINGS.coach);
+
+      const { coach: _omitted, ...legacy } = DEFAULT_SYSTEM_SETTINGS;
+      mockPrisma.systemSettings.findUnique.mockResolvedValueOnce({ value: legacy as any } as any);
+      expect(await service.getCoachPolicy()).toEqual(DEFAULT_SYSTEM_SETTINGS.coach);
+
+      mockPrisma.systemSettings.findUnique.mockResolvedValueOnce({
+        value: { coach: { ...DEFAULT_SYSTEM_SETTINGS.coach, allowAudio: false, maxNudgesPerDayCeiling: 99 } } as any,
+      } as any);
+      const degraded = await service.getCoachPolicy();
+      expect(degraded.allowAudio).toBe(false);
+      expect(degraded.maxNudgesPerDayCeiling).toBe(DEFAULT_SYSTEM_SETTINGS.coach.maxNudgesPerDayCeiling);
+      expect(mockPrisma.systemSettings.create).not.toHaveBeenCalled();
+    });
+
+    it('PATCH changes one coach field and keeps the others', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: { ...DEFAULT_SYSTEM_SETTINGS, coach: { ...DEFAULT_SYSTEM_SETTINGS.coach, inactiveStopDays: 14 } } as any,
+      } as any);
+      mockPrisma.systemSettings.update.mockResolvedValue({ ...mockSystemSettings, version: 2 } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.patchSettings({ coach: { allowProfanePersonas: true } }, mockUserId);
+
+      const call = mockPrisma.systemSettings.update.mock.calls[0][0] as {
+        data: { value: { coach: Record<string, unknown> } };
+      };
+      expect(call.data.value.coach).toEqual({
+        ...DEFAULT_SYSTEM_SETTINGS.coach,
+        allowProfanePersonas: true,
+        inactiveStopDays: 14,
+      });
     });
   });
 

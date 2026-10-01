@@ -53,6 +53,39 @@ describe('OnboardingMetricsService', () => {
     });
   });
 
+  describe('ai_plan reflects the "Meet your coach" done rule (E7.12)', () => {
+    const sqlOf = () => {
+      const sql = queryRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
+      return { text: sql.sql, values: sql.values };
+    };
+
+    it('requires a saved coach namespace while the system coach is on (the default without a settings service)', async () => {
+      await run(row());
+      const { text, values } = sqlOf();
+      expect(text).toContain("jsonb_typeof(us.value -> 'coach') = 'object'");
+      expect(values).toContain(true);
+    });
+
+    it('passes the switch through when the coach is off', async () => {
+      service = new OnboardingMetricsService(
+        { $queryRaw: queryRaw } as never,
+        { getCoachPolicy: jest.fn().mockResolvedValue({ enabled: false }) } as never,
+      );
+      await run(row());
+      expect(sqlOf().values).toContain(false);
+      expect(sqlOf().values).not.toContain(true);
+    });
+
+    it('a failed policy read falls back to the plain program rule', async () => {
+      service = new OnboardingMetricsService(
+        { $queryRaw: queryRaw } as never,
+        { getCoachPolicy: jest.fn().mockRejectedValue(new Error('db')) } as never,
+      );
+      await run(row());
+      expect(sqlOf().values).toContain(false);
+    });
+  });
+
   it('issues exactly one query', async () => {
     await run(row());
 

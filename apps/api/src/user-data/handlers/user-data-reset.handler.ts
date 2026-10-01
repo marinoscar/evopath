@@ -12,7 +12,9 @@
 //   1. COLLECT the storage objects to delete: every object the user uploaded
 //      (`uploadedById`, which includes the avatar), every object linked through
 //      the user's photo intakes, gym photos, workout photos and health
-//      documents (`storageObjectId`, SET NULL on the object), and the avatar
+//      documents (`storageObjectId`, SET NULL on the object), the user's
+//      progress photos (the row CASCADES from its object) and coach voice
+//      notes (`audioStorageObjectId`, SET NULL on the object), and the avatar
 //      named by the settings (`profile.imageObjectId`). The ids are written to
 //      `payload.objectIds` BEFORE step 2, because step 2 cascades away the link
 //      rows that name them: a retry after step 2 committed still knows them.
@@ -77,6 +79,15 @@
 //   EquipmentType (custom)            ownerUserId, AFTER gyms and exercises
 //                                     (GymEquipment/ExerciseRequirement RESTRICT);
 //                                     one still used elsewhere is kept
+//   ProgressPhoto                     userId — explicitly (cascades only from the
+//                                     kept User row). Its image is collected in
+//                                     step 1 and deleted in step 3.
+//   CoachMessage                      userId — explicitly; every nudge, chat
+//                                     turn and review. A voice note
+//                                     (`audioStorageObjectId`) is collected in
+//                                     step 1 and deleted in step 3.
+//   CoachState                        userId — explicitly; the scheduling state
+//                                     (pause, silence, streak) restarts fresh
 //   AiRun, AiUsageEvent               userId
 //   UserAiKey, UserCredential         userId
 //   PersonalAccessToken, DeviceCode   userId

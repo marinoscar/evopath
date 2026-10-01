@@ -23,6 +23,7 @@ import {
   systemAiSchema,
   systemAiProviderSchema,
   systemTelemetrySchema,
+  systemCoachSchema,
   AI_PROVIDER_IDS,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
@@ -33,6 +34,7 @@ import {
   type SystemStorageValue,
   type SystemAiValue,
   type SystemTelemetryValue,
+  type SystemCoachValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -403,6 +405,13 @@ export class SystemSettingsService {
         systemTelemetrySchema,
         DEFAULT_SYSTEM_SETTINGS.telemetry,
       ),
+      // AI Coach policy (E7.1, #241), read through the same helper: a row
+      // written before this namespace existed reads as the defaults.
+      coach: this.readNamespace(
+        root?.coach,
+        systemCoachSchema,
+        DEFAULT_SYSTEM_SETTINGS.coach,
+      ),
     };
   }
 
@@ -743,6 +752,9 @@ export class SystemSettingsService {
       // client cannot GET is a block it cannot echo back in a PUT" reason as
       // `jobs` above.
       telemetry: value.telemetry,
+      // E7.1, #241. No credential; published for the same "a block a client
+      // cannot GET is a block it cannot echo back in a PUT" reason.
+      coach: value.coach,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -1065,6 +1077,21 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).telemetry;
+  }
+
+  /**
+   * The deployment-wide AI Coach policy (E7.1, #241). A narrow accessor for
+   * the same reasons as `getTelemetryPolicy`: it does not create the row, it
+   * returns only this block, and it is the one read path for these values.
+   * A missing or malformed value degrades to `DEFAULT_SYSTEM_SETTINGS.coach`.
+   */
+  async getCoachPolicy(): Promise<SystemCoachValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).coach;
   }
 
   /**
@@ -1528,6 +1555,25 @@ export class SystemSettingsService {
             dto.telemetry?.assistant?.maxSteps ??
             currentValue.telemetry.assistant.maxSteps,
         },
+      },
+      // E7.1, #241. Every field is required and non-nullable, so `??` keeps
+      // an omitted field at its stored value.
+      coach: {
+        enabled: dto.coach?.enabled ?? currentValue.coach.enabled,
+        allowProfanePersonas:
+          dto.coach?.allowProfanePersonas ??
+          currentValue.coach.allowProfanePersonas,
+        allowAudio: dto.coach?.allowAudio ?? currentValue.coach.allowAudio,
+        maxNudgesPerDayCeiling:
+          dto.coach?.maxNudgesPerDayCeiling ??
+          currentValue.coach.maxNudgesPerDayCeiling,
+        audioRetentionDays:
+          dto.coach?.audioRetentionDays ?? currentValue.coach.audioRetentionDays,
+        autoSilenceAfterIgnored:
+          dto.coach?.autoSilenceAfterIgnored ??
+          currentValue.coach.autoSilenceAfterIgnored,
+        inactiveStopDays:
+          dto.coach?.inactiveStopDays ?? currentValue.coach.inactiveStopDays,
       },
     };
 

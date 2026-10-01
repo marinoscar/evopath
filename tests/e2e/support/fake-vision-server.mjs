@@ -37,6 +37,16 @@
 //                                message text (no image bytes), so a test can assert what was
 //                                NOT sent: a PII canary, a gym name, a photo
 //
+// AI Coach (E7.13), answers in `fake-coach-scenarios.mjs`: `coach_nudge` and
+// `coach_weekly_review` by schema name, and a chat turn (a request carrying the
+// `get_training_signals` tool) as a tool call then an answer; model `fake-coach`
+// (classify it responses, structured_output, tools and streaming).
+//
+//   POST /__control/coach        { "nudge": "send" | "decline", "speech": "ok" | "fail" | "refuse" }
+//                                (reset by /__control/reset)
+//   POST /v1/audio/speech        valid silent MP3 (> 1 KiB); the `openai` provider is the one that
+//                                speaks, see fake-responses-server.mjs
+//
 // The scenario is global to the process; a `SCENARIO:<name>` token in a
 // request's free text overrides it for that request. The default is `valid`.
 //
@@ -61,6 +71,19 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  COACH_NUDGE_SCHEMA,
+  COACH_WEEKLY_REVIEW_SCHEMA,
+  NUDGE_MODES,
+  SPEECH_MODES,
+  SPEECH_REFUSAL,
+  coachChatTurn,
+  fakeSpeech,
+  isCoachChat,
+  nudgeAnswer,
+  parseNudgeContext,
+  weeklyReviewAnswer,
+} from './fake-coach-scenarios.mjs';
+import {
   SCENARIOS,
   SCENARIO_NAMES,
   SCHEMA_CRITIQUE,
@@ -83,7 +106,7 @@ const FIXTURE_DIR = process.env.FIXTURE_DIR ?? resolve(HERE, '../../../apps/api/
 const PORT = Number(process.env.PORT ?? 4010);
 const MODEL_ID = 'fake-vision';
 /** Listed by /v1/models: the vision model first, then the adaptation roles. */
-export const MODEL_IDS = [MODEL_ID, 'fake-planner', 'fake-critic', 'fake-text-only'];
+export const MODEL_IDS = [MODEL_ID, 'fake-planner', 'fake-critic', 'fake-text-only', 'fake-coach'];
 /** Fixture name -> its `*.model-output.json` path under FIXTURE_DIR, without the suffix. */
 const FIXTURE_FILES = {
   'cardio-row-wide': 'gym-scan/cardio-row-wide',
@@ -104,7 +127,7 @@ const FIXTURES = Object.keys(FIXTURE_FILES);
 /** A request body this big is refused (inline images are base64). */
 const MAX_BODY_BYTES = 200 * 1024 * 1024;
 
-const state = { next: null, requests: [], counter: 0, scenario: 'valid', plannerCalls: 0, criticCalls: 0, adaptCalls: 0, log: [], seq: 0 };
+const state = { next: null, requests: [], counter: 0, scenario: 'valid', plannerCalls: 0, criticCalls: 0, adaptCalls: 0, log: [], seq: 0, coach: { nudge: 'send', speech: 'ok' } };
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -257,6 +280,22 @@ async function handle(req, res) {
       return send(res, 400, { error: { message: 'The fake vision server does not stream.', type: 'invalid_request_error' } });
     }
 
+    // The AI Coach (E7.13): the structured nudge and weekly review, and the chat tool loop.
+    if (schemaName === COACH_NUDGE_SCHEMA) {
+      const moment = parseNudgeContext(userText)?.moment ?? 'streak_at_risk';
+      return send(res, 200, completion(body, JSON.stringify(nudgeAnswer(moment, state.coach.nudge))));
+    }
+    if (schemaName === COACH_WEEKLY_REVIEW_SCHEMA) {
+      return send(res, 200, completion(body, JSON.stringify(weeklyReviewAnswer())));
+    }
+    if (isCoachChat(body)) {
+      const turn = coachChatTurn(body);
+      const result = completion(body, turn.message.content ?? '');
+      result.choices[0].message = turn.message;
+      result.choices[0].finish_reason = turn.finish;
+      return send(res, 200, result);
+    }
+
     // The adaptation planner and critic.
     if (schemaName === SCHEMA_PROPOSAL || schemaName === SCHEMA_CRITIQUE) {
       state.adaptCalls += 1;
@@ -298,6 +337,24 @@ async function handle(req, res) {
     return send(res, 200, completion(body, content));
   }
 
+  // Fake speech (E7.13). The `openai` provider normally speaks; this lets a custom setup try it here too.
+  if (req.method === 'POST' && path === '/v1/audio/speech') {
+    await readJson(req);
+    if (state.coach.speech === 'fail') return send(res, 500, { error: { message: 'The fake speech model is set to fail.', type: 'server_error' } });
+    if (state.coach.speech === 'refuse') return send(res, 400, SPEECH_REFUSAL);
+    const audio = fakeSpeech();
+    res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': audio.length });
+    return res.end(audio);
+  }
+
+  if (req.method === 'POST' && path === '/__control/coach') {
+    const body = await readJson(req);
+    if (body.nudge !== undefined && !NUDGE_MODES.includes(body.nudge)) return send(res, 400, { error: `nudge must be one of ${NUDGE_MODES.join(', ')}` });
+    if (body.speech !== undefined && !SPEECH_MODES.includes(body.speech)) return send(res, 400, { error: `speech must be one of ${SPEECH_MODES.join(', ')}` });
+    state.coach = { ...state.coach, ...(body.nudge ? { nudge: body.nudge } : {}), ...(body.speech ? { speech: body.speech } : {}) };
+    return send(res, 200, state.coach);
+  }
+
   if (req.method === 'POST' && path === '/__control/scenario') {
     const body = await readJson(req);
     if (!SCENARIO_NAMES.includes(body.name)) {
@@ -337,6 +394,7 @@ async function handle(req, res) {
     state.requests = [];
     state.log = [];
     state.seq = 0;
+    state.coach = { nudge: 'send', speech: 'ok' };
     resetCounters(state.scenario);
     return send(res, 200, { reset: true });
   }

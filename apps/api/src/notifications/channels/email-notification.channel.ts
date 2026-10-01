@@ -129,6 +129,8 @@ export const EVENT_EMAIL_TEMPLATES: Partial<Record<string, EmailTemplateName>> =
     'nodes.node_offline': 'node-offline',
     'db_backup.backup_failed': 'backup-failed',
     'db_backup.restore_completed': 'restore-completed',
+    // AI Coach (E7.5 registers the event; E7.10 raises it and writes the body).
+    'coach.weekly_review': 'coach-weekly-review',
   };
 
 @Injectable()

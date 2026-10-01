@@ -5,6 +5,10 @@ import {
 } from './allowlist-invitation.email';
 import { type BroadcastEmailData, broadcastEmail } from './broadcast.email';
 import {
+  type CoachWeeklyReviewEmailData,
+  coachWeeklyReviewEmail,
+} from './coach-weekly-review.email';
+import {
   type BackupFailedEmailData,
   backupFailedEmail,
 } from './backup-failed.email';
@@ -95,6 +99,9 @@ export interface EmailTemplateDataMap {
   'node-offline': NodeOfflineEmailData;
   'backup-failed': BackupFailedEmailData;
   'restore-completed': RestoreCompletedEmailData;
+
+  // AI Coach weekly review (E7.5 registered the event; E7.10 renders the review).
+  'coach-weekly-review': CoachWeeklyReviewEmailData;
 }
 
 /**
@@ -131,6 +138,7 @@ export const EMAIL_TEMPLATES: {
   'node-offline': nodeOfflineEmail,
   'backup-failed': backupFailedEmail,
   'restore-completed': restoreCompletedEmail,
+  'coach-weekly-review': coachWeeklyReviewEmail,
 };
 
 /**
@@ -262,6 +270,9 @@ export { nodeOfflineEmail } from './node-offline.email';
 export { backupFailedEmail } from './backup-failed.email';
 export { restoreCompletedEmail } from './restore-completed.email';
 
+// The AI Coach weekly review (E7.10).
+export { coachWeeklyReviewEmail } from './coach-weekly-review.email';
+
 export type {
   CalloutOptions,
   CalloutTone,
@@ -294,3 +305,8 @@ export type {
   BackupFailureOutcome,
 } from './backup-failed.email';
 export type { RestoreCompletedEmailData } from './restore-completed.email';
+export type {
+  CoachWeeklyReviewEmailData,
+  CoachWeeklyReviewEmailProse,
+  CoachWeeklyReviewEmailStats,
+} from './coach-weekly-review.email';

@@ -95,6 +95,8 @@ describeWithDb('onboarding activation metrics (real Postgres)', () => {
     const b = await makeUser('b', ago(10 * DAY));
     await completedAfter(b, 7 * DAY);
     await client.program.create({ data: { userId: b.id, name: 'P', goal: 'general' } });
+    // E7.12: with a program, `ai_plan` is "Meet your coach", done once the coach settings were saved.
+    await client.userSettings.create({ data: { userId: b.id, value: { coach: { personaId: 'coach' } } } });
 
     // Eligible, one second past 7 days: has a workout but NOT activated.
     const c = await makeUser('c', ago(10 * DAY));
@@ -104,6 +106,9 @@ describeWithDb('onboarding activation metrics (real Postgres)', () => {
     const d = await makeUser('d', ago(9 * DAY));
     await workout(d.id, { status: 'in_progress', startedAt: ago(9 * DAY - HOUR), endedAt: null });
     await client.gym.create({ data: { userId: d.id, name: 'D gym' } });
+    // A program but no saved coach settings: "Meet your coach" is still todo.
+    await client.program.create({ data: { userId: d.id, name: 'P', goal: 'general' } });
+    await client.userSettings.create({ data: { userId: d.id, value: { onboarding: { goal: 'general' } } } });
 
     // Eligible exactly at the 7-day edge of eligibility (created_at == now - 7d), no workout.
     const e = await makeUser('e', ago(7 * DAY));
@@ -133,6 +138,13 @@ describeWithDb('onboarding activation metrics (real Postgres)', () => {
     expect(steps.gym).toEqual({ id: 'gym', completed: 2, rate: 2 / 6 });
     expect(steps.first_workout).toEqual({ id: 'first_workout', completed: 4, rate: 4 / 6 });
     expect(steps.ai_plan).toEqual({ id: 'ai_plan', completed: 1, rate: 1 / 6 });
+
+    // With the system coach switched off, `ai_plan` is the plain "a program exists" rule again (b and d).
+    const coachOff = new OnboardingMetricsService(client as never, {
+      getCoachPolicy: async () => ({ enabled: false }),
+    } as never);
+    const offSteps = Object.fromEntries((await coachOff.metrics(30, NOW)).steps.map((s) => [s.id, s]));
+    expect(offSteps.ai_plan).toEqual({ id: 'ai_plan', completed: 2, rate: 2 / 6 });
   });
 
   it('narrows the cohort with a smaller window', async () => {

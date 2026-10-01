@@ -40,7 +40,15 @@ const recipient: NotificationRecipient = {
  * would carry. An event with no template ignores this entirely — the fallback
  * renders from the registry's own label and description.
  */
+const COACH_SAMPLE = { messageId: 'msg-1', pushTitle: 'Your coach checked in', pushBody: 'Ready for today?' };
+
 const SAMPLE_PAYLOADS: Record<string, unknown> = {
+  // E7.5 (#245): the four coach events share one renderer that reads the
+  // message id and the lock-screen pair, so `{}` would take its throw branch.
+  'coach.nudge': COACH_SAMPLE,
+  'coach.celebration': COACH_SAMPLE,
+  'coach.photo_prompt': COACH_SAMPLE,
+  'coach.weekly_review': COACH_SAMPLE,
   'security.role_changed': {
     recipientEmail: 'user@example.com',
     previousRoles: ['admin'],

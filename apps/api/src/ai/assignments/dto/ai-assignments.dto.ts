@@ -112,7 +112,7 @@ export const aiAssignmentsResponseSchema = z.object({
     z.object({
       featureId: z.enum(AI_FEATURE_IDS),
       label: z.string(),
-      group: z.enum(['photo', 'training']),
+      group: z.enum(['photo', 'training', 'coach']),
       needs: z.array(z.enum(AI_CAPABILITIES)),
       inputModalities: z.array(z.enum(AI_INPUT_MODALITIES)),
       /** Providers the feature is restricted to; `null` = any. */

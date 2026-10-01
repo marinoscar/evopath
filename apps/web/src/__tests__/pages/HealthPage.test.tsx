@@ -169,6 +169,21 @@ describe('HealthPage', () => {
     expect(within(bloodWork).getByRole('link', { name: 'View biomarkers' })).toHaveAttribute('href', '/health/biomarkers');
   });
 
+  it('links to the progress photos from a section after Blood work (E7.9, #249)', async () => {
+    statefulApi();
+    statefulCheckInApi();
+    render(<HealthPage />);
+    await screen.findByRole('region', { name: 'Weight' });
+    const bloodWork = screen.getByRole('region', { name: 'Blood work' });
+    const photos = screen.getByRole('region', { name: 'Progress photos' });
+    expect(bloodWork.compareDocumentPosition(photos) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(photos).getByText(/Private to you\. Never shared with AI or put in notifications\./)).toBeInTheDocument();
+    expect(within(photos).getByRole('link', { name: 'View progress photos' })).toHaveAttribute(
+      'href',
+      '/health/progress-photos',
+    );
+  });
+
   it('a viewer without health_data:write sees disabled Log buttons', async () => {
     statefulApi();
     render(<HealthPage />, {
