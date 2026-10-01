@@ -99,6 +99,8 @@ export const COACH_ERRORS = {
   AUDIO_DISABLED: 'COACH_AUDIO_DISABLED',
   PERSONA_UNKNOWN: 'COACH_PERSONA_UNKNOWN',
   PREVIEW_RATE_LIMITED: 'COACH_PREVIEW_RATE_LIMITED',
+  MESSAGE_NOT_FOUND: 'COACH_MESSAGE_NOT_FOUND',
+  AUDIO_RATE_LIMITED: 'COACH_AUDIO_RATE_LIMITED',
 } as const;
 
 // -----------------------------------------------------------------------------
@@ -496,6 +498,72 @@ export function markCoachMessageOpened(id: string): Promise<void> {
 
 export function setCoachMessageFeedback(id: string, feedback: CoachFeedback | null): Promise<void> {
   return api.post<void>(`/coach/messages/${encodeURIComponent(id)}/feedback`, { feedback });
+}
+
+// -----------------------------------------------------------------------------
+// POST / GET /api/coach/messages/:id/audio — on-demand Listen (#259)
+// -----------------------------------------------------------------------------
+
+/**
+ * The POST answer. `200 ready`: the message already has audio. `202 pending`:
+ * generation started (or was already running); poll `getCoachMessageAudio`.
+ */
+export type CoachMessageAudioRequest =
+  | { status: 'ready'; storageObjectId: string; voice: string }
+  | { status: 'pending'; runId: string };
+
+/** The GET answer: the message's audio as it stands (no side effects). */
+export interface CoachMessageAudioView {
+  status: CoachAudioStatus;
+  storageObjectId?: string | null;
+  runId?: string | null;
+  voice?: string | null;
+}
+
+/** Ask for a coach message's audio; generation happens only on this call. */
+export function requestCoachMessageAudio(id: string): Promise<CoachMessageAudioRequest> {
+  return api.post<CoachMessageAudioRequest>(`/coach/messages/${encodeURIComponent(id)}/audio`);
+}
+
+/** Read a coach message's audio status (cheap polling while `pending`). */
+export function getCoachMessageAudio(id: string): Promise<CoachMessageAudioView> {
+  return api.get<CoachMessageAudioView>(`/coach/messages/${encodeURIComponent(id)}/audio`);
+}
+
+export type CoachAudioFailureKind = 'disabled' | 'unavailable' | 'rate_limited' | 'not_found' | 'other';
+
+export interface CoachAudioFailure {
+  kind: CoachAudioFailureKind;
+  message: string;
+}
+
+export const COACH_AUDIO_MESSAGES = {
+  creating: 'Creating audio…',
+  failed: "Couldn't create audio — try again",
+  disabled: 'Spoken messages are turned off',
+  unavailable: "Voice isn't set up yet — ask an admin",
+  rateLimited: 'Too many requests, try again in a minute',
+  notFound: 'This message is no longer available',
+} as const;
+
+/** Classify a refused or failed audio request into what the bubble shows. */
+export function coachAudioFailureOf(error: unknown): CoachAudioFailure {
+  if (error instanceof ApiError) {
+    const details = (error.details ?? {}) as { code?: unknown };
+    const code = typeof details.code === 'string' ? details.code : error.code;
+    if (error.status === 403 || code === COACH_ERRORS.AUDIO_DISABLED) {
+      return { kind: 'disabled', message: COACH_AUDIO_MESSAGES.disabled };
+    }
+    if (error.status === 409) return { kind: 'unavailable', message: COACH_AUDIO_MESSAGES.unavailable };
+    if (error.status === 429) return { kind: 'rate_limited', message: COACH_AUDIO_MESSAGES.rateLimited };
+    if (error.status === 404) return { kind: 'not_found', message: COACH_AUDIO_MESSAGES.notFound };
+  }
+  return { kind: 'other', message: COACH_AUDIO_MESSAGES.failed };
+}
+
+/** Whether the caller hears coach messages: their own toggle and the deployment's policy. */
+export function coachSpeechEnabled(view: CoachSettingsView | null | undefined): boolean {
+  return Boolean(view?.settings.audio.enabled && view.policy.allowAudio);
 }
 
 // -----------------------------------------------------------------------------

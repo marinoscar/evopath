@@ -46,6 +46,8 @@ import { mockHealthSummaryView } from './fixtures/healthSummary';
 import { mockAiFeaturesView } from './fixtures/aiFeatures';
 import {
   coachSseBody,
+  mockCoachAudioPending,
+  mockCoachAudioReady,
   mockCoachChatFrames,
   mockCoachPersonas,
   mockCoachSettingsView,
@@ -836,6 +838,16 @@ export const handlers = [
   http.post(`${API_BASE}/coach/messages/:id/opened`, () => new HttpResponse(null, { status: 204 })),
 
   http.post(`${API_BASE}/coach/messages/:id/feedback`, () => new HttpResponse(null, { status: 204 })),
+
+  // On-demand Listen (#259): generation starts on the POST (202), the first
+  // poll finds it ready.
+  http.post(`${API_BASE}/coach/messages/:id/audio`, () => {
+    return HttpResponse.json({ data: mockCoachAudioPending() }, { status: 202 });
+  }),
+
+  http.get(`${API_BASE}/coach/messages/:id/audio`, () => {
+    return HttpResponse.json({ data: mockCoachAudioReady() });
+  }),
 
   http.post(`${API_BASE}/coach/chat/stream`, () => {
     return new HttpResponse(coachSseBody(mockCoachChatFrames), {

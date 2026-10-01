@@ -2,21 +2,25 @@
 // `coach.audio.settle`: map a finished speech run to its message (E7.6, #246)
 // =============================================================================
 //
-// docs/specs/ai-coach.md §2.7. Two producers, one handler:
+// docs/specs/ai-coach.md §2.7. Three producers, one handler:
 //
 //   - `CoachAudioSettledListener` (an `ai.audio.speech` job settled):
-//     `{ messageId, cause: 'settled', jobSucceeded }`, deduplicated per
-//     message, so a repeated event collapses onto one job;
+//     `{ messageId, cause: 'settled', jobSucceeded, runId }`, deduplicated
+//     per message, so a repeated event collapses onto one job;
 //   - `CoachAudioService.start` (the WAIT CAP): `{ messageId, cause:
-//     'timeout' }`, scheduled 2 minutes out, never deduplicated;
+//     'timeout', runId }`, scheduled 2 minutes out, never deduplicated;
 //   - the `coach.audio.purge` safety net re-queues a `timeout` settle for a
-//     message stuck `pending` for more than 10 minutes.
+//     message stuck `pending` for more than 10 minutes after its request.
 //
 // The first to run moves the message `pending -> ready | failed`; later ones
-// find nothing pending. When the message is no longer waiting and not yet
-// delivered, `coach.message.deliver` is enqueued (deduplicated per message;
-// the delivery job skips a delivered message), so delivery happens at most
-// once and ALWAYS happens: text plus audio, or text with a recorded fallback.
+// find nothing pending, and one pinned to an older `runId` changes nothing.
+// AUDIO IS ON DEMAND (#259): the message was delivered as text long before,
+// so settling never notifies. The single exception is a message written
+// `pending` by the pre-#259 automatic path and still undelivered (no
+// `data.audioOnDemand`): `coach.message.deliver` is enqueued for it
+// (deduplicated per message; the delivery job skips a delivered message), so
+// a message in flight across the upgrade is not lost. A chat reply is never
+// delivered from here.
 //
 // SERVER-ONLY: bounded row reads and writes, no provider call. PROFILE
 // `{ maxRuntimeMs: 30 s, maxAttempts: 3 }`.
@@ -37,6 +41,8 @@ export const coachAudioSettlePayloadSchema = z
     messageId: z.uuid(),
     cause: z.enum(['settled', 'timeout']),
     jobSucceeded: z.boolean().optional(),
+    /** The speech run this settle is for (#259); absent on jobs queued before it. */
+    runId: z.string().min(1).max(64).optional(),
   })
   .passthrough();
 
@@ -63,8 +69,8 @@ export class CoachAudioSettleHandler implements JobHandler, OnModuleInit {
       this.logger.warn(`Coach audio settle job ${job.id} carries no valid payload; nothing to do`);
       return;
     }
-    const { messageId, cause, jobSucceeded } = parsed.data;
-    await this.run(messageId, cause, new Date(), jobSucceeded ?? null);
+    const { messageId, cause, jobSucceeded, runId } = parsed.data;
+    await this.run(messageId, cause, new Date(), jobSucceeded ?? null, runId ?? null);
   }
 
   async run(
@@ -72,8 +78,9 @@ export class CoachAudioSettleHandler implements JobHandler, OnModuleInit {
     cause: 'settled' | 'timeout',
     now: Date,
     jobSucceeded: boolean | null = null,
+    runId: string | null = null,
   ): Promise<CoachAudioSettleOutcome> {
-    const outcome = await this.audio.settle(messageId, cause, now, jobSucceeded);
+    const outcome = await this.audio.settle(messageId, cause, now, jobSucceeded, runId);
     if (outcome.deliver) await this.audio.enqueueDelivery(messageId);
     this.logger.debug(`Coach audio settle (${cause}) for message ${messageId}: ${outcome.status}`);
     return outcome;

@@ -13,9 +13,9 @@
 //     `audio_status = 'none'` with `data.audioPurgedAt`);
 //   - objects another feature still references survive (the cascade from a
 //     delete would take that feature's row with it);
-//   - the safety net's `audio_status = 'pending' AND delivered_at IS NULL AND
-//     created_at < now - 10 min` scan and the `timeout` settle job it queues
-//     through the real queue.
+//   - the safety net's `audio_status = 'pending' AND created_at < now - 10 min`
+//     scan, aged in code from `data.audioRequestedAt` for an on-demand request
+//     (#259), and the `timeout` settle job it queues through the real queue.
 //
 // The storage object is deleted through a stand-in with `ObjectsService
 // .delete`'s database effect (`prisma.storageObject.delete`); the bytes
@@ -188,17 +188,27 @@ describeWithDb('coach audio retention (real Postgres)', () => {
   it('re-queues a message stuck pending past the 10-minute wait cap with a timeout settle job', async () => {
     const stuck = await message(new Date(NOW.getTime() - 11 * MIN), { audioStatus: 'pending', deliveredAt: null });
     const fresh = await message(new Date(NOW.getTime() - 5 * MIN), { audioStatus: 'pending', deliveredAt: null });
-    const delivered = await message(new Date(NOW.getTime() - 20 * MIN), { audioStatus: 'pending', deliveredAt: new Date(NOW.getTime() - 15 * MIN) });
+    // #259: an on-demand request on a delivered message is swept too, aged from its request.
+    const delivered = await message(new Date(NOW.getTime() - 20 * MIN), {
+      audioStatus: 'pending',
+      deliveredAt: new Date(NOW.getTime() - 15 * MIN),
+      data: { audioOnDemand: true, audioRequestedAt: new Date(NOW.getTime() - 12 * MIN).toISOString() },
+    });
+    const listening = await message(new Date(NOW.getTime() - 5 * DAY), {
+      audioStatus: 'pending',
+      data: { audioOnDemand: true, audioRequestedAt: new Date(NOW.getTime() - 1 * MIN).toISOString() },
+    });
     const ready = await message(new Date(NOW.getTime() - 20 * MIN), { audioStatus: 'ready', deliveredAt: null });
 
     const result = await handler.run(NOW);
-    expect(result.stalePending).toBeGreaterThanOrEqual(1);
+    expect(result.stalePending).toBeGreaterThanOrEqual(2);
 
     const jobs = await settleJobs(stuck);
     expect(jobs).toHaveLength(1);
     expect(jobs[0].payload).toMatchObject({ messageId: stuck, cause: 'timeout' });
+    expect(await settleJobs(delivered)).toHaveLength(1);
     expect(await settleJobs(fresh)).toHaveLength(0);
-    expect(await settleJobs(delivered)).toHaveLength(0);
+    expect(await settleJobs(listening)).toHaveLength(0);
     expect(await settleJobs(ready)).toHaveLength(0);
   });
 });

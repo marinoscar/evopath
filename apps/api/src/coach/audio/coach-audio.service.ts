@@ -1,26 +1,32 @@
 // =============================================================================
-// CoachAudioService — a coach message's optional spoken version (E7.6, #246)
+// CoachAudioService — a coach message's optional spoken version (E7.6, #246;
+// on demand since #259)
 // =============================================================================
 //
-// docs/specs/ai-coach.md §2.7. AUDIO ALWAYS MEANS TEXT PLUS AUDIO: a message
-// is delivered with ready audio, or as text with a recorded fallback
-// (`audioStatus = 'failed'`, `data.audioFailure`). It is never audio-only and
-// never lost.
+// docs/specs/ai-coach.md §2.7. AUDIO IS ON REQUEST ONLY (#259): no job speaks
+// a message by itself. A coach message is written `audioStatus = 'none'` and
+// delivered as text at once; the user presses "Listen" (or the push's
+// "Hear Coach" action, which autoplays) and `POST /api/coach/messages/:id/audio`
+// (`CoachMessageAudioService`) moves it `none | failed -> pending` with a
+// guarded update, marks `data.audioOnDemand` and calls `start`.
 //
-//   start   `ai.coach.nudge` wrote the message `pending`; this resolves the
-//           voice request, calls `speak()` (which queues `ai.audio.speech`),
-//           stores `audioRunId` and queues the WAIT CAP: a
+//   start   resolves nothing itself: the caller passes the `coach.voice`
+//           model and the speech request. Calls `speak()` (which queues
+//           `ai.audio.speech`), stores `audioRunId` and queues the WAIT CAP: a
 //           `coach.audio.settle` job scheduled 2 minutes out. A `speak()` that
-//           throws marks the audio failed at once and the caller delivers.
+//           throws marks the audio failed at once.
 //   settle  `coach.audio.settle` (the speech job settled, or the cap
 //           elapsed): reads the run, classifies it (`tts-refusal.ts`) and
 //           moves the message `pending -> ready | failed` with a guarded
-//           update, so a duplicate settle changes nothing. The caller then
-//           enqueues `coach.message.deliver` (deduplicated per message, and a
-//           delivered message is skipped), so delivery happens at most once.
+//           update, so a duplicate settle changes nothing. An on-demand
+//           message is NEVER (re)delivered by its settle: the user is already
+//           looking at it, and a chat reply has no delivery at all. `deliver`
+//           is true only for a message written `pending` by the pre-#259
+//           automatic path (no `data.audioOnDemand`) that is still undelivered,
+//           so a message in flight across the upgrade is not lost.
 //
-// Single attempt per message: a failure is never retried and a refusal is
-// never rephrased (spec §2.14).
+// Single attempt per request: a failure is never retried and a refusal is
+// never rephrased (spec §2.14); the user may press Listen again.
 //
 // ⚠ PRIVACY: ids, model ids, enums and a character count in logs and spans;
 // never the script, the instructions or the provider's error text.
@@ -53,10 +59,14 @@ import { classifySpeechRun, type CoachAudioCause } from './tts-refusal';
 
 export const COACH_VOICE_FEATURE_ID = 'coach.voice';
 
-/** How long delivery waits for the speech job before sending text only (spec §2.7). */
+/** How long a speech run may take before its message is recorded `failed` (`timeout`) (spec §2.7). */
 export const COACH_AUDIO_WAIT_CAP_MS = 2 * 60_000;
 
-/** A message still `pending` this long after it was written is swept by `coach.audio.purge` (safety net). */
+/**
+ * A message still `pending` this long after its audio was requested
+ * (`data.audioRequestedAt`, else `createdAt`) is swept by `coach.audio.purge`
+ * (safety net).
+ */
 export const COACH_AUDIO_STALE_PENDING_MS = 10 * 60_000;
 
 /** Upper bound of the combined persona + message TTS instructions. */
@@ -134,13 +144,14 @@ export class CoachAudioService {
   }
 
   /**
-   * Starts the spoken version of a message already written `pending`. On
-   * `pending` the caller must NOT deliver (the settle job does); on `failed`
-   * the audio is recorded failed and the caller delivers text now.
+   * Starts the spoken version of a message already moved to `pending`. On
+   * `failed` the audio is recorded failed (`provider_error`) at once.
+   * `jobId` scopes the AI call to a job when one is running it; an on-demand
+   * request has none.
    */
   async start(params: {
     userId: string;
-    jobId: string;
+    jobId?: string;
     messageId: string;
     model: CoachVoiceModel;
     request: CoachSpeechRequest;
@@ -158,7 +169,7 @@ export class CoachAudioService {
       try {
         let runId: string;
         try {
-          const handle = await this.ai.forUser(userId, { jobId }).speak({
+          const handle = await this.ai.forUser(userId, jobId ? { jobId } : {}).speak({
             provider: model.provider,
             model: model.modelId,
             input: request.input,
@@ -171,7 +182,7 @@ export class CoachAudioService {
           // A refusal to even queue (voice the model does not speak, a key
           // gone, a limit): text only, never retried.
           const code = errorCode(error);
-          this.logger.warn(`Coach audio for message ${messageId} could not start (${code ?? 'error'}); text only`);
+          this.logger.warn(`Coach audio for message ${messageId} could not start (${code ?? 'error'})`);
           await this.markFailed(messageId, 'provider_error', code, now);
           span.setAttribute('coach.audio.outcome', 'failed:provider_error');
           return { status: 'failed', reason: 'provider_error' };
@@ -185,13 +196,15 @@ export class CoachAudioService {
         // The wait cap: a settle job two minutes out, independent of the
         // event-driven one (`skipDedup`), so whichever runs first decides
         // and the other finds nothing pending.
-        await this.enqueueSettle(messageId, 'timeout', new Date(now.getTime() + COACH_AUDIO_WAIT_CAP_MS));
+        // Pinned to this run: a cap left over from an earlier attempt on the
+        // same message (Listen pressed again after a failure) changes nothing.
+        await this.enqueueSettle(messageId, 'timeout', new Date(now.getTime() + COACH_AUDIO_WAIT_CAP_MS), undefined, runId);
 
         // The speech job may have settled before `audioRunId` was stored, in
         // which case the listener found no message. Settle now if so.
         const run = await this.prisma.aiRun.findUnique({ where: { id: runId }, select: { status: true } });
         if (run && ['succeeded', 'failed', 'cancelled'].includes(run.status)) {
-          await this.enqueueSettle(messageId, 'settled');
+          await this.enqueueSettle(messageId, 'settled', undefined, undefined, runId);
         }
 
         span.setAttribute('coach.audio.outcome', 'pending');
@@ -208,27 +221,36 @@ export class CoachAudioService {
 
   /**
    * Moves a `pending` message to `ready` or `failed` from its speech run.
-   * `deliver` tells the caller to enqueue `coach.message.deliver` (the
-   * message is not delivered yet and no longer waiting).
+   * `deliver` tells the caller to enqueue `coach.message.deliver`: true only
+   * for an undelivered message of the pre-#259 automatic path (see the file
+   * header), never for an on-demand request or a chat reply.
    */
   async settle(
     messageId: string,
     cause: CoachAudioCause,
     now: Date,
     jobSucceeded: boolean | null = null,
+    runId: string | null = null,
   ): Promise<CoachAudioSettleOutcome> {
     const message = await this.prisma.coachMessage.findUnique({
       where: { id: messageId },
-      select: { id: true, userId: true, audioStatus: true, audioRunId: true, deliveredAt: true, data: true },
+      select: { id: true, userId: true, kind: true, audioStatus: true, audioRunId: true, deliveredAt: true, data: true },
     });
     if (!message) return { status: 'not_found', deliver: false };
 
-    const undelivered = message.deliveredAt === null;
+    // Only a legacy automatic message still waiting for its push is delivered
+    // from here; an on-demand request (or a chat reply) never is.
+    const deliver = message.deliveredAt === null && message.kind !== 'chat' && !isOnDemandAudio(message.data);
+    if (runId && message.audioRunId && message.audioRunId !== runId) {
+      // A settle (or wait cap) of an EARLIER speech run of this message: a
+      // newer on-demand attempt owns the row now.
+      return { status: 'not_pending', userId: message.userId, deliver: false };
+    }
     if (message.audioStatus !== 'pending') {
       // A duplicate settle, or the other of the event/cap pair: nothing to
-      // change. Delivery is re-enqueued only if it has not happened (the
-      // enqueue collapses onto a queued delivery).
-      return { status: 'not_pending', userId: message.userId, deliver: undelivered };
+      // change. A legacy automatic message is re-enqueued for delivery only
+      // if that has not happened (the enqueue collapses onto a queued one).
+      return { status: 'not_pending', userId: message.userId, deliver };
     }
 
     const run = message.audioRunId
@@ -253,7 +275,7 @@ export class CoachAudioService {
         this.metrics.coachAudioReady();
         this.logger.log(`Coach audio for message ${messageId} is ready (object ${outcome.storageObjectId})`);
       }
-      return { status: 'ready', userId: message.userId, deliver: undelivered };
+      return { status: 'ready', userId: message.userId, deliver };
     }
 
     if (outcome.reason === 'timeout' && message.audioRunId && run && ['pending', 'running'].includes(run.status)) {
@@ -264,11 +286,11 @@ export class CoachAudioService {
     }
 
     await this.markFailed(messageId, outcome.reason, outcome.code, now, message.data);
-    return { status: 'failed', userId: message.userId, deliver: undelivered };
+    return { status: 'failed', userId: message.userId, deliver };
   }
 
   /**
-   * Records the text fallback: `pending -> failed` with `data.audioFailure`
+   * Records the failure: `pending -> failed` with `data.audioFailure`
    * `{ reason, code, at }`. Guarded, so only the first caller counts it.
    */
   async markFailed(
@@ -294,18 +316,33 @@ export class CoachAudioService {
     if (changed.count === 0) return false;
 
     this.metrics.coachAudioFailure(reason);
-    this.logger.log(`Coach audio for message ${messageId} failed (${reason}); delivered as text`);
+    this.logger.log(`Coach audio for message ${messageId} failed (${reason}); the text stands`);
     return true;
   }
 
-  /** Queue `coach.audio.settle`. The event-driven one dedups per message; the wait cap never does. */
-  async enqueueSettle(messageId: string, cause: CoachAudioCause, scheduledFor?: Date, jobSucceeded?: boolean): Promise<void> {
+  /**
+   * Queue `coach.audio.settle`. The event-driven one dedups per message; the
+   * wait cap never does. `runId` pins the job to one speech run (a settle of
+   * an older run of the same message is then a no-op).
+   */
+  async enqueueSettle(
+    messageId: string,
+    cause: CoachAudioCause,
+    scheduledFor?: Date,
+    jobSucceeded?: boolean,
+    runId?: string,
+  ): Promise<void> {
     await this.jobs.enqueue({
       type: COACH_AUDIO_SETTLE_JOB_TYPE,
       reason: 'backfill',
       subjectType: COACH_MESSAGE_SUBJECT_TYPE,
       subjectId: messageId,
-      payload: { messageId, cause, ...(jobSucceeded !== undefined ? { jobSucceeded } : {}) },
+      payload: {
+        messageId,
+        cause,
+        ...(jobSucceeded !== undefined ? { jobSucceeded } : {}),
+        ...(runId ? { runId } : {}),
+      },
       ...(scheduledFor ? { scheduledFor } : {}),
       ...(cause === 'timeout' ? { skipDedup: true } : {}),
     });
@@ -320,6 +357,23 @@ export class CoachAudioService {
       payload: { messageId },
     });
   }
+}
+
+/** True when the message's audio was requested on demand (#259): its settle never delivers. */
+export function isOnDemandAudio(data: Prisma.JsonValue | null | undefined): boolean {
+  return Boolean(data && typeof data === 'object' && !Array.isArray(data) && (data as Prisma.JsonObject).audioOnDemand === true);
+}
+
+/** When a message's current audio was asked for: `data.audioRequestedAt` (on demand, #259), else its `createdAt`. */
+export function audioRequestedAtOf(data: Prisma.JsonValue | null | undefined, createdAt: Date): Date {
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const at = (data as Prisma.JsonObject).audioRequestedAt;
+    if (typeof at === 'string') {
+      const parsed = new Date(at);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+  }
+  return createdAt;
 }
 
 /** `data` with `patch` merged in at the top level (a non-object `data` is replaced). */

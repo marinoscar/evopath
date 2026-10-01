@@ -9,6 +9,8 @@ import { SettingsModule } from '../../settings/settings.module';
 import { StorageModule } from '../../storage/storage.module';
 import { CoachAudioSettledListener } from './coach-audio-settled.listener';
 import { CoachAudioService } from './coach-audio.service';
+import { CoachListenRateLimiter } from './coach-listen-rate-limiter';
+import { CoachMessageAudioService } from './coach-message-audio.service';
 import { CoachPreviewRateLimiter } from './coach-preview-rate-limiter';
 import { CoachVoicePreviewService } from './coach-voice-preview.service';
 import { CoachVoiceController } from './coach-voice.controller';
@@ -21,8 +23,10 @@ import { CoachAudioPurgeTask } from './tasks/coach-audio-purge.task';
 // =============================================================================
 //
 // - `CoachAudioService`: `coach.voice` resolution, `speak()` for a pending
-//   message, settle and the text fallback. Exported for `ai.coach.nudge` and
-//   `coach.message.deliver` (`CoachNudgesModule`).
+//   message, settle and the failure record.
+// - `CoachMessageAudioService` + `CoachListenRateLimiter` (#259): on-demand
+//   Listen. Exported for `CoachMessagesController` (`CoachNudgesModule`),
+//   which serves `GET|POST /api/coach/messages/:id/audio`.
 // - `CoachAudioSettledListener` (`job.settled` of `ai.audio.speech`, enqueue
 //   only) and `coach.audio.settle`.
 // - `coach.audio.purge` and its daily cron (enqueue only).
@@ -52,7 +56,9 @@ import { CoachAudioPurgeTask } from './tasks/coach-audio-purge.task';
     CoachAudioPurgeTask,
     CoachPreviewRateLimiter,
     CoachVoicePreviewService,
+    CoachListenRateLimiter,
+    CoachMessageAudioService,
   ],
-  exports: [CoachAudioService],
+  exports: [CoachAudioService, CoachMessageAudioService],
 })
 export class CoachAudioModule {}

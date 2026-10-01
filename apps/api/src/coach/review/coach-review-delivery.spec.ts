@@ -53,7 +53,6 @@ function deliverer(row: Record<string, any>, appUrl: string | null = 'https://ap
     prisma as never,
     notifications as never,
     coachState as never,
-    { cancelPending: jest.fn() } as never,
     { isEnabled: jest.fn(async () => true) } as never,
     { getCoachPolicy: jest.fn(async () => ({ enabled: true })) } as never,
     { coachNudgeDelivered: jest.fn() } as never,

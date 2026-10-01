@@ -183,7 +183,6 @@ describeWithDb('coach chat safety, retry and delivery claim (real Postgres)', ()
       client as unknown as PrismaService,
       { notifyNow } as never,
       { recordNudgeSent: jest.fn() } as never,
-      { markFailed: jest.fn() } as never,
       { isEnabled: async () => true } as never,
       { getCoachPolicy: async () => ({ enabled: true }) } as never,
       { coachNudgeDelivered: jest.fn(), coachNudgeSuppression: jest.fn() } as never,

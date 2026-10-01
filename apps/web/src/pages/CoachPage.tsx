@@ -13,7 +13,13 @@
  * DEEP LINK. `?m=<id>` (a push notification's target) scrolls to and
  * highlights that message, paging back a few pages if it is not in the first;
  * `&autoplay=1` also starts its audio, which the browser may refuse (a Play
- * button then stands in). `m` is used only when it is shaped like a message id
+ * button then stands in). A message with no audio yet is requested on demand
+ * (#259) when speech is on: the push's "Hear Coach" was the reader's request.
+ *
+ * LISTEN (#259). Speech is on when the caller's audio toggle and the
+ * deployment's policy both allow it (`coachSpeechEnabled`), read once here
+ * with the settings; Listen stays hidden while that is unknown, and for the
+ * rest of the visit once the API answers that audio is switched off. `m` is used only when it is shaped like a message id
  * and only ever matched against the caller's own timeline.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -27,7 +33,7 @@ import { useCoachState } from '../hooks/useCoachState';
 import { useCoachTimeline } from '../hooks/useCoachTimeline';
 import { useCoachChat } from '../hooks/useCoachChat';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
-import { isCoachMessageId, type CoachTimelineItem } from '../services/coach';
+import { coachSpeechEnabled, isCoachMessageId, type CoachTimelineItem } from '../services/coach';
 
 /** How many older pages a deep link may load while looking for its message. */
 const DEEP_LINK_MAX_PAGES = 5;
@@ -64,6 +70,9 @@ export default function CoachPage() {
     () => personas.find((p) => p.id === view?.settings.personaId) ?? null,
     [personas, view?.settings.personaId],
   );
+  const [speechRefused, setSpeechRefused] = useState(false);
+  const speechEnabled = coachSpeechEnabled(view) && !speechRefused;
+  const onSpeechDisabled = useCallback(() => setSpeechRefused(true), []);
   const coachState = useCoachState();
   const timeline = useCoachTimeline();
   const online = useOnlineStatus();
@@ -154,6 +163,8 @@ export default function CoachPage() {
               onDismissFailure={chat.dismiss}
               onPlanWeek={onPlanWeek}
               empty={timeline.error ? null : <CoachEmptyState />}
+              speechEnabled={speechEnabled}
+              onSpeechDisabled={onSpeechDisabled}
             />
           )}
         </Paper>

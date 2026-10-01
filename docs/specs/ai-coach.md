@@ -13,7 +13,7 @@ This page is the single home for the design. Epic E7 carries the stories (E7.1 t
 - A proactive layer over the adherence the app already computes. It notices a missed week, a streak at risk or a personal record and reaches out.
 - A timeline at `/coach` that mixes nudges, chat, weekly reviews and photo prompts in one conversation.
 - A persona system (seven original archetypes, three intensities) with an optional, age-gated profane drill-sergeant mode.
-- Optional spoken nudges (OpenAI text-to-speech) that always arrive with their text.
+- Optional spoken messages (OpenAI text-to-speech), generated only when the user presses **Listen**; the text always arrives first.
 - A weekly review (stats from the server, prose from the model), also sent by email.
 - Progress photos: private storage, a gallery, a compare view and a ghost overlay for consistent poses.
 
@@ -52,13 +52,14 @@ This page is the single home for the design. Epic E7 carries the stories (E7.1 t
 cron 17 * * * *  ──►  coach.sweep job  ──►  planCoachMoments(signals, state, settings, nowLocal)
                                                    │ ranked eligible moments (pure, table-tested)
                                                    ▼
-                      ai.coach.nudge job ──► coach.decision model ──► content guard ──► CoachMessage
+                      ai.coach.nudge job ──► coach.decision model ──► content guard ──► CoachMessage (text)
                                                                                           │
-                          text only ◄──────────────────────────────────────────────────────┤
-                          ▼                                                                │ audio on
-                    notifyNow(coach.*)                                          speak() ──► JOB_SETTLED_EVENT
-                                                                                          ▼
-                                                                              coach.message.deliver ──► notifyNow
+                                                       coach.message.deliver ◄────────────┘
+                                                                ▼
+                                                      notifyNow(coach.*)  (+ "Hear Coach" when audio is available)
+
+user presses Listen ──► POST /api/coach/messages/:id/audio ──► speak() ──► JOB_SETTLED_EVENT ──► coach.audio.settle
+                                                                                                   (ready | failed; no notification)
 ```
 
 - **Numbers.** Adherence, streaks and counts are read from `TrainingSignalsService.forEvaluator` and `compactForEvaluator` (`apps/api/src/programs/signals/signals.service.ts`, `compact-signals.ts`). The model receives them as context and may restate them, but the guard rejects a message whose digits do not appear in the context ([§2.6](#26-nudge-generation-and-the-content-guard)). A review's stats table is built by code and the model never writes it ([§2.10](#210-weekly-review-and-email)).
@@ -84,7 +85,7 @@ One timeline per user. Index `(userId, createdAt desc)`.
 | `personaId`, `intensity` | string, int | Snapshot at send time; later setting changes do not rewrite history. |
 | `title`, `body` | text | The in-app content. |
 | `pushTitle`, `pushBody` | text, nullable | Lock-screen-safe variant ([§2.4](#24-profanity-unlock)). |
-| `audioStatus` | `none`, `pending`, `ready`, `failed` | State of the optional audio. |
+| `audioStatus` | `none`, `pending`, `ready`, `failed` | State of the optional audio, made only on request ([§2.7](#27-delivery-and-audio)). |
 | `audioStorageObjectId` | uuid, nullable | The stored mp3 (`ai-outputs/<userId>/<runId>/`). Registered for reference checks. |
 | `audioRunId` | uuid, nullable | The `ai_runs` row of the `speak()` call. Maps a settled job back to the message. |
 | `aiRunId` | uuid, nullable | The `ai_runs` row of the text generation. |
@@ -356,17 +357,17 @@ const coachNudgeSchema = z.object({
 
 **Persist, then notify.** The handler writes the `CoachMessage` row, then calls `notifyNow('coach.<kind>')` **after the write commits and outside any `$transaction`** (the notifications README rule, [notifications README](../../apps/api/src/notifications/README.md)). `notifyNow` is used because the caller is a job, not a request.
 
-**Audio off (the default).** One `notifyNow` call with the text. `audioStatus` stays `none`.
+**Text first, always.** Every coach message is saved with `audioStatus = 'none'` and delivered as text at once. No job speaks a message by itself (#259): audio is generated **only when the user asks**, so a deployment pays only for clips someone wanted to hear.
 
-**Audio on.** Audio always means text plus audio, never audio alone.
+**Audio on request ("Listen").** Available when the system `allowAudio` and the user's `audio.enabled` are both on. Audio always means text plus audio, never audio alone.
 
-1. `coach.voice` resolves a model that declares `audio_speech` and is passed explicitly to `speak()`, because `speak()` does not read assignments itself.
-2. The handler calls `AiService.forUser(userId, { jobId }).speak({ model, voice, instructions, speed, input: audioScript })`. `AiSpeakRequest` is in `apps/api/src/ai/runtime/ai-runtime.types.ts`. The call enqueues the existing `ai.audio.speech` job and returns an `AiRunHandle` at once.
-3. The message is saved with `audioStatus = 'pending'` and `audioRunId`.
-4. `coach.message.deliver` runs when the speech job settles. A listener on `JOB_SETTLED_EVENT` (`apps/api/src/jobs/events/job-settled.event.ts`) maps `audioRunId` to the message, sets `audioStatus` to `ready` (and `audioStorageObjectId`) or `failed`, and enqueues `coach.message.deliver` for the message. The job does the `notifyNow`.
-5. **Refusal and failure fall back to text.** OpenAI's speech model sometimes declines profane input, and any provider can fail or time out. In either case the delivery job records `audioStatus = 'failed'` and sends the text notification anyway. A wait cap (2 minutes) delivers text when no settle event arrives.
+1. The user presses **Listen** on a coach message in `/coach` (or follows the push's **Hear Coach** action, which autoplays). The client calls `POST /api/coach/messages/:id/audio` ([§3.6](#36-routes)).
+2. Ready audio is returned at once; a run already in flight is joined. Otherwise the message moves `none | failed -> pending` with a **guarded** update (so concurrent presses start one run), and `coach.voice` resolves a model that declares `audio_speech`, passed explicitly to `speak()`, because `speak()` does not read assignments itself.
+3. The route calls `AiService.forUser(userId).speak({ model, voice, instructions, speed, input })` with the stored, guard-approved `audioScript` (else the body). `AiSpeakRequest` is in `apps/api/src/ai/runtime/ai-runtime.types.ts`. The call enqueues the existing `ai.audio.speech` job and returns an `AiRunHandle` at once; the message stores `audioRunId` and the route answers **202** with the run id.
+4. A listener on `JOB_SETTLED_EVENT` (`apps/api/src/jobs/events/job-settled.event.ts`) maps `audioRunId` to the message and enqueues `coach.audio.settle`, which sets `audioStatus` to `ready` (and `audioStorageObjectId`) or `failed`. **No notification is sent**: the user is already looking at the message. The client polls `GET /api/ai/runs/{runId}` or `GET /api/coach/messages/{id}/audio` and plays the clip.
+5. **Refusal and failure keep the text.** OpenAI's speech model sometimes declines profane input, and any provider can fail or time out. The message records `audioStatus = 'failed'`; its text is untouched. A wait cap (2 minutes) records `timeout` when no settle event arrives. The user may press **Listen** again.
 
-**Notification events.** Appended to `NOTIFICATION_EVENTS` ([§3.5](#35-notification-events)). The link is `/coach?m=<id>`. A message with ready audio adds the action **"▶ Hear Coach"**, which deep-links to `/coach?m=<id>&autoplay=1`.
+**Notification events.** Appended to `NOTIFICATION_EVENTS` ([§3.5](#35-notification-events)). The link is `/coach?m=<id>`. When audio is available to the user (system `allowAudio` and the user's `audio.enabled`), the push adds the action **"▶ Hear Coach"**, which deep-links to `/coach?m=<id>&autoplay=1`; that page requests the audio and plays it.
 
 **Why the push cannot play the audio.** No browser supports the Notification `sound` option ([MDN: showNotification](https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/showNotification)), and a service worker has no audio output. The push therefore carries text plus the action. The click is a user gesture, which satisfies autoplay rules, so the opened page can play the audio. The push channel (`apps/api/src/notifications/channels/push-notification.channel.ts`) and `apps/web/src/sw.ts` carry the action: a payload `actions` field and a `notificationclick` branch that opens the action's link ([browser-notifications.md](browser-notifications.md#27-web-push)).
 
@@ -386,8 +387,8 @@ const coachNudgeSchema = z.object({
 - **Notification text.** The browser inbox row and the push both show the lock-screen pair (`pushTitle`, `pushBody`); the full text is on `/coach?m=<id>`. `notificationId` is the browser channel's inbox row (`NotifyNowResult.notificationId`). `deliveredAt` is the delivery **claim**: it is stamped with a guarded update (`deliveredAt: null`) **before** `notifyNow`, and only the run whose stamp lands sends, so a retry, a concurrent run or a run after a lapsed lease never sends a second push or email. A channel failure is recorded in `notification_deliveries`, as for every event, and does not release the claim. `notifyNow` never rejects by contract; should it throw anyway, the claim is released (guarded on the same timestamp) and the job retries. A process killed between the claim and the send loses that message: at most once, never twice. The inbox `notificationId` is stored after the send.
 - **Push actions.** The payload gains optional `actions` (`{ action, title, link }`, at most two, links sanitised) and `data.messageId`. The service worker keeps each action's link in `notification.data.actionLinks` and opens it on that button's click.
 - **Idempotency.** The nudge job stores `momentKey` in `CoachMessage.data`; a retry after the write only re-enqueues delivery, and the delivery job skips a message that already has `deliveredAt` or `data.suppressed`.
-- **Re-check at send time.** The state can change between the nudge job and delivery (up to the 2-minute audio wait cap). `coach.message.deliver` re-checks AI on, the system coach on, the account active and the user's `coach.enabled` (any off: `coach_off`), and `pausedUntil` in the future (`paused`). A suppressed message gets no notification: `data.suppressed = { reason, at }` is written (guarded on `deliveredAt: null`), `deliveredAt` stays null, no later run sends it, it stays on the `/coach` timeline, and `app.coach.nudge.suppressed{reason, moment}` counts it. A weekly review obeys the pause too ([§2.10](#210-weekly-review-and-email)). A `kickoff` skips only the pause re-check: the nudge job's `kickoffGate` already deferred it past any pause, and a kickoff is never dropped.
-- **`data`.** A nudge row's `data` holds `momentKey`, `trigger`, `register` (`clean`, `profane`, `supportive`), `lowReadiness`, `eligibleAngles` (the set the angle was chosen from, E7.11), `regenerations`, `fallback`, and the `audioScript` and `audioInstructions` E7.6 speaks.
+- **Re-check at send time.** The state can change between the nudge job and delivery (the queue may run it later). `coach.message.deliver` re-checks AI on, the system coach on, the account active and the user's `coach.enabled` (any off: `coach_off`), and `pausedUntil` in the future (`paused`). A suppressed message gets no notification: `data.suppressed = { reason, at }` is written (guarded on `deliveredAt: null`), `deliveredAt` stays null, no later run sends it, it stays on the `/coach` timeline, and `app.coach.nudge.suppressed{reason, moment}` counts it. A weekly review obeys the pause too ([§2.10](#210-weekly-review-and-email)). A `kickoff` skips only the pause re-check: the nudge job's `kickoffGate` already deferred it past any pause, and a kickoff is never dropped.
+- **`data`.** A nudge row's `data` holds `momentKey`, `trigger`, `register` (`clean`, `profane`, `supportive`), `lowReadiness`, `eligibleAngles` (the set the angle was chosen from, E7.11), `regenerations`, `fallback`, and the `audioScript` and `audioInstructions` a later **Listen** speaks.
 - **Angle.** `DefaultAnglePicker` behind the `COACH_ANGLE_PICKER` token: `future_self` when the user wrote a `why`, `data` for the Analyst, else `identity`, always a supportive angle under the supportive register. E7.11 binds `BanditAnglePicker` (`apps/api/src/coach/learning/`, `pickAngle`) to the same token; `DefaultAnglePicker` stays as its fallback when the learning loop cannot run.
 - **Static fallback.** The sample line is filled from the context (`{n}` this week's done sessions, `{streak}` the streak plus one, `{lift}` the latest PR lift, `{time}` the usual or preferred time, else 17:00); its lock-screen body is `<Persona> has a message for you.`. Under the supportive register the calm `SUPPORTIVE_FALLBACK_LINE` replaces it. Should even that fail the guard, the job ends without a message (`guard_rejected`).
 - **`send: false`.** Only the reason's length is logged (and set as the span attribute `coach.decline_reason_length`); the text is model output about the user, so it is never logged or stored.
@@ -397,14 +398,25 @@ const coachNudgeSchema = z.object({
 **As built (E7.6).** Where the voice implementation settles a detail this section leaves open:
 
 - **Layout.** `apps/api/src/coach/audio/` (`CoachAudioModule`, imported by `CoachNudgesModule`): `coach-audio.service.ts`, `tts-refusal.ts`, `coach-audio-settled.listener.ts`, `handlers/coach-audio-settle.handler.ts`, `handlers/coach-audio-purge.handler.ts`, `tasks/coach-audio-purge.task.ts`, `coach-voice.controller.ts` with `coach-voice-preview.service.ts` and `coach-preview-rate-limiter.ts`.
-- **When audio is attempted.** Only when the user's `audio.enabled` and the system `allowAudio` are both on. The message is then written `pending`; if `coach.voice` does not resolve it is written `failed` instead, with `data.audioFailure.reason = 'no_voice_model'`, and delivered as text at once.
+- **When audio is attempted.** Superseded by **As built (#259)** below: only on the user's request. (E7.6 spoke every message automatically when the user's audio was on; that path is removed.)
 - **The speech request.** Model: the resolved `coach.voice`. Voice: the user's `audio.voice`, else the persona's voice for the **rendered** level. Speed: the user's. Instructions: the persona's TTS instructions, then the message's `audioInstructions` (at most 1,000 characters). Input: `audioScript`, else the body (at most 4,096).
-- **Settling is a job, not the listener.** The `JOB_SETTLED_EVENT` listener does one indexed read (`audio_run_id`) and enqueues `coach.audio.settle` (deduplicated per message), so duplicate events collapse and a run no message waits on (a preview) is ignored. The settle job classifies the run (`tts-refusal.ts`), moves the message `pending -> ready | failed` with a guarded update and enqueues `coach.message.deliver`, which skips a delivered message, so delivery happens at most once.
-- **Refusal.** A run that failed with `AI_CONTENT_FILTERED` or refusal wording, or that "succeeded" with less than 1 KiB of audio, is `reason = 'refusal'`; any other failure (including a `speak()` that throws, such as a voice the model does not speak) is `provider_error`. Never retried, never rephrased.
-- **Wait cap.** A `coach.audio.settle` job scheduled 2 minutes after `speak()` (never deduplicated) records `reason = 'timeout'`, cancels the still-running speech run and delivers text. Safety net: the daily `coach.audio.purge` re-queues a timeout settle for any undelivered message still `pending` after 10 minutes. `coach.message.deliver` never waits: a message it finds `pending` is recorded `timeout` and sent as text.
-- **The fallback record.** `data.audioFailure = { reason, code, at }` (`code` is the AI error code, never provider text). Ready audio stores `data.voice` and `data.audioMimeType`. `hasAudio` (the "Hear Coach" action) is set only for `ready` audio with its object.
-- **Retention.** `coach.audio.purge` deletes each object older than `audioRetentionDays` (by message `createdAt`) through `ObjectsService.delete` unless another feature still references it (`StorageObjectReferences`), then sets `audioStatus = 'none'`, `audioStorageObjectId = null` and `data.audioPurgedAt`; the text stays. A storage error keeps the row for the next run. Cron `23 3 * * *` (UTC), not gated on the AI or coach switches.
-- **Metrics and spans.** `app.coach.audio.generated`, `app.coach.audio.failed{reason}` (`provider_error`, `refusal`, `timeout`, `no_voice_model`), `app.coach.audio.purged`. Spans `coach.audio.generate` (model id and character count, never the script) and `coach.audio.purge`.
+- **Settling is a job, not the listener.** The `JOB_SETTLED_EVENT` listener does one indexed read (`audio_run_id`) and enqueues `coach.audio.settle` (deduplicated per message, carrying the run id), so duplicate events collapse and a run no message waits on (a preview) is ignored. The settle job classifies the run (`tts-refusal.ts`) and moves the message `pending -> ready | failed` with a guarded update. It never notifies for an on-demand request (see #259 below).
+- **Refusal.** A run that failed with `AI_CONTENT_FILTERED` or refusal wording, or that "succeeded" with less than 1 KiB of audio, is `reason = 'refusal'`; any other failure (including a `speak()` that throws, such as a voice the model does not speak) is `provider_error`. Never retried, never rephrased automatically.
+- **Wait cap.** A `coach.audio.settle` job scheduled 2 minutes after `speak()` (never deduplicated, pinned to its run id) records `reason = 'timeout'` and cancels the still-running speech run. Safety net: the daily `coach.audio.purge` re-queues a timeout settle for any message still `pending` 10 minutes after its audio was requested (`data.audioRequestedAt`, else `createdAt`), delivered or not. `coach.message.deliver` never waits for audio and never changes `audioStatus`.
+- **The failure record.** `data.audioFailure = { reason, code, at }` (`code` is the AI error code, never provider text). Ready audio stores `data.voice` and `data.audioMimeType`. `hasAudio` (the "Hear Coach" action) is set when audio is available on demand: the system `allowAudio` and the user's `audio.enabled`.
+- **Retention.** `coach.audio.purge` deletes each object older than `audioRetentionDays` (by `data.audioRequestedAt` for on-demand audio, else message `createdAt`) through `ObjectsService.delete` unless another feature still references it (`StorageObjectReferences`), then sets `audioStatus = 'none'`, `audioStorageObjectId = null` and `data.audioPurgedAt`; the text stays. A storage error keeps the row for the next run. Cron `23 3 * * *` (UTC), not gated on the AI or coach switches.
+- **Metrics and spans.** `app.coach.audio.generated`, `app.coach.audio.failed{reason}` (`provider_error`, `refusal`, `timeout`; `no_voice_model` only on rows written before #259), `app.coach.audio.purged`. Spans `coach.audio.generate` (model id and character count, never the script) and `coach.audio.purge`.
+
+**As built (#259, on-demand Listen).** Where the on-demand implementation settles a detail:
+
+- **Layout.** `apps/api/src/coach/audio/coach-message-audio.service.ts` (`CoachMessageAudioService`), `coach-listen-rate-limiter.ts` and `dto/coach-message-audio.dto.ts`; the routes are on `CoachMessagesController` (`apps/api/src/coach/nudges/coach-messages.controller.ts`).
+- **Nothing speaks automatically.** `ai.coach.nudge` never resolves `coach.voice` and never calls `speak()`; `ai.coach.weekly_review` and chat replies never did. Every message is written `audioStatus = 'none'` and delivered at once.
+- **Order of checks** on `POST /api/coach/messages/:id/audio`: the caller's own coach message (`role = 'coach'`, else 404 `COACH_MESSAGE_NOT_FOUND`); system `allowAudio` and the user's `audio.enabled` (else 403 `COACH_AUDIO_DISABLED`); `ready` with its object answers 200 and `pending` answers 202 with its run, neither starting a run; `coach.voice` resolves (else 409 `AI_FEATURE_UNAVAILABLE`); the per-user limit (else 429 `COACH_AUDIO_RATE_LIMITED`); then the guarded claim and `speak()`.
+- **The guarded claim.** One conditional update: `audioStatus` in (`none`, `failed`), or `ready` whose object is gone, to `pending`, clearing `audioRunId` and `data.audioFailure`, setting `data.audioOnDemand = true` and `data.audioRequestedAt`. A press that loses re-reads the row and answers its state, so concurrent presses start exactly one run. An unexpected error after the claim records `provider_error` rather than leaving it `pending`.
+- **The voice and text.** The persona and intensity are the message's own (`personaId`, `intensity`; the user's current persona when the message has none, such as a safety reply). The register is re-evaluated now with `resolveRegister`, so a level that is no longer unlocked speaks with the clean level's voice and instructions; the text is the stored, guard-approved text and is never regenerated. Markdown links are read as their labels.
+- **Settle never notifies an on-demand message.** `coach.audio.settle` enqueues `coach.message.deliver` only for a message written `pending` by the pre-#259 automatic path (no `data.audioOnDemand`), not yet delivered and not a chat reply, so a message in flight across the upgrade still gets its text. A settle pinned to an older run of the same message changes nothing.
+- **Limit.** 20 new speech runs per 10 minutes per user, per API process (in memory, like the preview's, in its own bucket). A `ready` or `pending` answer does not count.
+- **Metric.** `app.coach.audio.requested{outcome}`: `started`, `ready`, `pending`, `failed`, `disabled`, `rate_limited`, `no_voice_model`.
 
 ### 2.8 Learning loop
 
@@ -669,7 +681,7 @@ Admin-configured at `/admin/settings/coach`, stored with the other system settin
 |---|---|---|---|
 | `enabled` | boolean | `true` | Deployment-wide switch. AI must also be on. |
 | `allowProfanePersonas` | boolean | `false` | Condition 1 of the profanity unlock. |
-| `allowAudio` | boolean | `true` | Whether users may enable spoken nudges. |
+| `allowAudio` | boolean | `true` | Whether users may enable spoken messages (Listen). |
 | `maxNudgesPerDayCeiling` | integer | `4` | Upper bound on a user's `maxNudgesPerDay`. |
 | `audioRetentionDays` | integer | `30` | Retention of audio files; `coach.audio.purge` deletes older ones. |
 | `autoSilenceAfterIgnored` | integer | `3` | Ignored nudges before the one back-off message. |
@@ -683,7 +695,7 @@ Appended to `AI_FEATURE_IDS` (`apps/api/src/common/schemas/settings.schema.ts`) 
 |---|---|---|
 | `coach.decision` | Nudges and the weekly review | `responses`, `structured_output` |
 | `coach.chat` | Chat | `responses`, tools, streaming |
-| `coach.voice` | Spoken nudges and the voice preview | `audio_speech`; resolved and passed explicitly to `speak()` |
+| `coach.voice` | On-demand Listen on a coach message, and the voice preview | `audio_speech`; resolved and passed explicitly to `speak()` |
 
 **Widen the group union in four places**, because the type is spelled out in each:
 
@@ -706,10 +718,10 @@ All coach jobs are server-only. The AI jobs implement neither `nodeResultSchema`
 | `coach.workout_finished` | no | 1 min / 2 | A finished workout; plans the event moments (`comeback`, `pr`, `weekly_target_hit`) for that one user through the planner's gates | Server-only: reads many tables mid-computation. |
 | `ai.coach.nudge` | yes | 2 min / 2 | The sweep or `coach.workout_finished`, one per planned moment | Server-only: AI rule; a user's key never goes to a node. |
 | `ai.coach.weekly_review` | yes | 3 min / 2 | The sweep, for the weekly-review lane (local Sunday 18:00, caught up until Monday 18:00) | Server-only: AI rule. |
-| `coach.message.deliver` | no | 3 min / 3 | `ai.coach.nudge`, `ai.coach.weekly_review`, `coach.audio.settle` | Server-only: sends a notification and writes rows as it goes. |
-| `coach.audio.settle` | no | 30 s / 3 | A settled `ai.audio.speech` run (listener), or a 2-minute wait-cap job scheduled with the speech request | Server-only: maps a settled speech run (or the wait cap) to its message and enqueues delivery. |
+| `coach.message.deliver` | no | 3 min / 3 | `ai.coach.nudge`, `ai.coach.weekly_review` (and `coach.audio.settle` only for a pre-#259 automatic message still pending) | Server-only: sends a notification and writes rows as it goes. |
+| `coach.audio.settle` | no | 30 s / 3 | A settled `ai.audio.speech` run (listener), or a 2-minute wait-cap job scheduled with the speech request | Server-only: maps a settled speech run (or the wait cap) to its message; never notifies for an on-demand request. |
 | `coach.audio.purge` | no | 10 min / 2 | `CoachAudioPurgeTask`, cron `23 3 * * *`, through `enqueueHousekeepingJob` | Server-only: deletes stored objects. |
-| `ai.audio.speech` (existing) | yes | existing | `coach.*` speech requests and voice previews | Reused unchanged. |
+| `ai.audio.speech` (existing) | yes | existing | On-demand Listen (`POST /api/coach/messages/:id/audio`) and voice previews | Reused unchanged. |
 
 A job `type` string is permanent once rows of it exist.
 
@@ -736,6 +748,8 @@ Details in `/api/docs`.
 | `GET /api/coach/messages` | `ai:use` | `@Auth`, `AiEnabledGuard` |
 | `POST /api/coach/messages/:id/opened` | `ai:use` | `@Auth`, `AiEnabledGuard`; answers 204 |
 | `POST /api/coach/messages/:id/feedback` | `ai:use` | `@Auth`, `AiEnabledGuard`; answers 204 |
+| `POST /api/coach/messages/:id/audio` | `ai:use` | `@Auth`, `AiEnabledGuard`, rate limit (20 new speech runs per 10 minutes per user, per API process); answers 202 or 200 |
+| `GET /api/coach/messages/:id/audio` | `ai:use` | `@Auth`, `AiEnabledGuard`; read only, no limit |
 | `POST /api/coach/chat/stream` | `ai:use` and `programs:read` | `@Auth`, `AiEnabledGuard` |
 | `GET /api/coach/state` | `ai:use` and `programs:read` | `@Auth`, `AiEnabledGuard`; header ring and streak |
 | `GET /api/progress-photos`, `POST /api/progress-photos`, `DELETE /api/progress-photos/:id` | `health_data:read` / `health_data:write` | `@Auth`; **no** `AiEnabledGuard` |
@@ -743,6 +757,14 @@ Details in `/api/docs`.
 | `GET /api/admin/coach/stats` | `ai_config:read` | `@Auth`; **not** behind `AiEnabledGuard` |
 
 `POST /api/coach/voice-preview` (E7.6) takes `{ personaId, intensity?, voice?, speed?, moment? }` and answers **202** `{ runId, jobId, personaId, intensity, moment, voice, censored }`: a queued `ai.audio.speech` run of the persona's static sample line (demo values in the placeholders, never user data; the caller's register decides the level, so a locked Sarge 3 speaks level 2 with `censored: true`). The client polls `GET /api/ai/runs/{runId}` and plays `output.storageObjectId`. It does not return audio bytes.
+
+`POST /api/coach/messages/:id/audio` (#259) takes no body and answers `{ status, storageObjectId?, runId?, voice? }`, `status` one of `none`, `pending`, `ready`, `failed`:
+
+- **200** `{ status: 'ready', storageObjectId, voice }` when the audio is ready (no new run);
+- **202** `{ status: 'pending', runId }` when a run is in flight, already or just queued (concurrent presses share one run);
+- **200** `{ status: 'failed' }` when the provider refused even to queue the run (for example a voice the model does not speak).
+
+The client polls `GET /api/ai/runs/{runId}` or `GET /api/coach/messages/:id/audio` (same shape; `storageObjectId` and `voice` only while `ready`, `runId` only while `pending`; no side effects) and plays `storageObjectId` through `GET /api/storage/objects/{id}/download` with the AI-generated label. Owner only: another user's message, a user turn and an unknown id are the same 404.
 
 Every consumer route sits behind `AiEnabledGuard` plus `ai:use`. Admin routes are deliberately not behind it, so an administrator can always reach the settings (AI rule 4). **No new permission family** is added.
 
@@ -752,8 +774,9 @@ Every consumer route sits behind `AiEnabledGuard` plus `ai:use`. Admin routes ar
 |---|---|---|
 | `COACH_DISABLED` | 403 | The system or user coach switch is off. |
 | `COACH_PROFANITY_LOCKED` | 403 | A profanity write fails an unlock condition; `details.reason` names it. |
-| `COACH_AUDIO_DISABLED` | 403 | Audio requested while system `allowAudio` is off. |
+| `COACH_AUDIO_DISABLED` | 403 | Audio requested while system `allowAudio` is off, or (on `POST /api/coach/messages/:id/audio`) while the user's `audio.enabled` is off. |
 | `COACH_PREVIEW_RATE_LIMITED` | 429 | Too many voice previews; `Retry-After` is set. |
+| `COACH_AUDIO_RATE_LIMITED` | 429 | Too many new on-demand speech runs (Listen); `Retry-After` is set. Separate from the preview limit. |
 | `COACH_PERSONA_UNKNOWN` | 400 | `personaId` is not in the registry. |
 | `COACH_MESSAGE_NOT_FOUND` | 404 | The message is not the caller's. |
 | `COACH_PAUSE_INVALID` | 400 | `pause_coach` with `days` outside 1 to 14. |
@@ -765,7 +788,7 @@ The envelope's `code` is status-derived ([API.md](../API.md#errors)), so a coach
 Not every failure gets a coach-specific code:
 - Chat input over 2,000 characters, and any other schema failure, is an ordinary 400 validation error.
 - A chat turn when `coach.chat` has no resolvable model returns `409` with `details.reason: AI_FEATURE_UNAVAILABLE` (the photo-intake convention).
-- A voice preview or audio request when `coach.voice` has no resolvable model returns the existing unresolved-feature 409 from `AiFeatureModelResolver`.
+- A voice preview or a Listen (`POST /api/coach/messages/:id/audio`) when `coach.voice` has no resolvable model returns `409` with `details.reason: AI_FEATURE_UNAVAILABLE`, `featureId`, `state` and `fix`.
 - The 18+ dialog sends `confirmAdult: true` on `PUT /api/coach/settings`, and the server stamps `adultConfirmedAt`; the client never writes the timestamp itself.
 
 ## 4. Extending it in a fork
@@ -883,7 +906,7 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
 2. At `/admin/settings/coach`, leave `allowProfanePersonas` off. In `/settings/coach`, pick Sarge at level 3 and try the profanity toggle. **Observe:** `403 COACH_PROFANITY_LOCKED` and a clean preview.
 3. Turn `allowProfanePersonas` on, confirm 18+ and enable profanity. **Observe:** the L3 preview shows the profane sample lines; a push body stays clean while lock-screen-safe is on.
 4. Seed a user with two missed sessions, then fire the sweep from the admin job list. **Observe:** one `ai.coach.nudge` job, one `CoachMessage`, one notification, no second nudge inside 3 hours, none during quiet hours.
-5. Enable audio. **Observe:** the message arrives as text with a "Hear Coach" action; opening `/coach?m=<id>&autoplay=1` plays it with the "AI-generated audio" label. Force the speech job to fail and **observe** a text-only delivery with `audioStatus = 'failed'`.
+5. Enable audio. **Observe:** the message arrives as text at once with a "Hear Coach" action and no speech run is made; opening `/coach?m=<id>&autoplay=1` (or pressing **Listen**) makes one run and plays it with the "AI-generated audio" label, and pressing again replays without a new run. Force the speech job to fail and **observe** `audioStatus = 'failed'`, the text unchanged and no second notification.
 6. Send "I'm sick" in chat. **Observe:** a `pause_coach` tool call and no nudges while `pausedUntil` is set. Send a message containing an urgent symptom. **Observe:** a seek-help reply and no model call.
 7. Add a progress photo; open the gallery, compare and ghost overlay. **Observe:** no image appears in any request the fake provider received.
 8. Wait for local Sunday 18:00 (or fire `ai.coach.weekly_review`). **Observe:** one review card, one email whose stats table matches `GET /api/training/signals`, and no second review in the same ISO week.
@@ -905,3 +928,4 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
   - E7.11 (issue 251): the learning loop and admin engagement stats.
   - E7.12 (issue 252): the `ai_plan` step's "Meet your coach" phase, the program-activation kickoff with deferral, and the `save_commitment` chat tool ([§2.13](#213-ux-surfaces)).
   - E7.13 (issue 253): end-to-end tests, visual baselines, the runbook and the doc rows.
+- Issue 259, after the epic: audio on request only (the **Listen** button, `POST /api/coach/messages/:id/audio`); nothing is spoken automatically. The as-built notes are at the end of [§2.7](#27-delivery-and-audio).
