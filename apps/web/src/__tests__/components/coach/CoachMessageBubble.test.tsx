@@ -1,14 +1,16 @@
 /**
  * `CoachMessageBubble` (E7.8, #248): the variants by `kind`, the audio player
  * only for `ready` audio, the supportive safety style, Take photo, the chat's
- * links, thumbs feedback and the displayed-once signal.
+ * links, thumbs feedback and the displayed-once signal (only when actually
+ * visible, or at once for the deep-linked message).
  */
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
 import { render } from '../../utils/test-utils';
+import { installIntersectionObserver, type ControlledIntersectionObserver } from '../../utils/intersectionObserver';
 import { CoachMessageBubble, COACH_TAKE_PHOTO_PATH } from '../../../components/coach/CoachMessageBubble';
 import { AI_GENERATED_AUDIO_LABEL } from '../../../components/ai/AiSpeechPlayer';
 import { mockCoachMessage, mockCoachPersona } from '../../mocks/fixtures/coach';
@@ -155,12 +157,80 @@ describe('CoachMessageBubble', () => {
     expect(onFeedback).toHaveBeenLastCalledWith(mockCoachMessage().id, 'down');
   });
 
-  it('reports itself displayed exactly once', async () => {
-    const onDisplayed = vi.fn();
-    const message = mockCoachMessage();
-    const { rerender } = render(<CoachMessageBubble message={message} persona={persona} onDisplayed={onDisplayed} />);
-    rerender(<CoachMessageBubble message={{ ...message, feedback: 'up' }} persona={persona} onDisplayed={onDisplayed} />);
-    await waitFor(() => expect(onDisplayed).toHaveBeenCalledTimes(1));
+  describe('displayed signal', () => {
+    let io: ControlledIntersectionObserver;
+    beforeEach(() => {
+      io = installIntersectionObserver();
+    });
+    afterEach(() => {
+      io.restore();
+    });
+
+    it('is not reported on mount, only once the bubble is half visible', () => {
+      const onDisplayed = vi.fn();
+      const message = mockCoachMessage();
+      render(<CoachMessageBubble message={message} persona={persona} onDisplayed={onDisplayed} />);
+      expect(onDisplayed).not.toHaveBeenCalled();
+      expect(io.instances[0]?.options?.threshold).toBe(0.5);
+
+      io.intersectAll(1);
+      expect(onDisplayed).toHaveBeenCalledTimes(1);
+      expect(onDisplayed).toHaveBeenCalledWith(message);
+      // Disconnected after firing.
+      expect(io.observed()).toHaveLength(0);
+    });
+
+    it('is not reported while the bubble is off screen or barely visible', () => {
+      const onDisplayed = vi.fn();
+      const { container } = render(
+        <CoachMessageBubble message={mockCoachMessage()} persona={persona} onDisplayed={onDisplayed} />,
+      );
+      const el = container.querySelector('[data-message-id]') as Element;
+      io.intersect(el, 0);
+      io.intersect(el, 0.2);
+      expect(onDisplayed).not.toHaveBeenCalled();
+    });
+
+    it('reports itself displayed exactly once, across re-renders and repeated intersections', () => {
+      const onDisplayed = vi.fn();
+      const message = mockCoachMessage();
+      const { rerender } = render(<CoachMessageBubble message={message} persona={persona} onDisplayed={onDisplayed} />);
+      rerender(<CoachMessageBubble message={{ ...message, feedback: 'up' }} persona={persona} onDisplayed={onDisplayed} />);
+      io.intersectAll(1);
+      io.intersectAll(1);
+      rerender(<CoachMessageBubble message={{ ...message, feedback: null }} persona={persona} onDisplayed={onDisplayed} />);
+      expect(onDisplayed).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the highlighted (deep-linked) message at once', () => {
+      const onDisplayed = vi.fn();
+      render(<CoachMessageBubble message={mockCoachMessage()} persona={persona} highlighted onDisplayed={onDisplayed} />);
+      expect(onDisplayed).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('displayed signal without IntersectionObserver', () => {
+    const original = globalThis.IntersectionObserver;
+    beforeEach(() => {
+      // @ts-expect-error simulate a browser without IntersectionObserver
+      delete globalThis.IntersectionObserver;
+    });
+    afterEach(() => {
+      globalThis.IntersectionObserver = original;
+    });
+
+    it('never auto-reports an ordinary message', async () => {
+      const onDisplayed = vi.fn();
+      render(<CoachMessageBubble message={mockCoachMessage()} persona={persona} onDisplayed={onDisplayed} />);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(onDisplayed).not.toHaveBeenCalled();
+    });
+
+    it('still reports the highlighted (deep-linked) message', () => {
+      const onDisplayed = vi.fn();
+      render(<CoachMessageBubble message={mockCoachMessage()} persona={persona} highlighted onDisplayed={onDisplayed} />);
+      expect(onDisplayed).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('has no axe violations', async () => {

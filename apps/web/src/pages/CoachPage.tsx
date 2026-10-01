@@ -67,7 +67,7 @@ export default function CoachPage() {
   const coachState = useCoachState();
   const timeline = useCoachTimeline();
   const online = useOnlineStatus();
-  const { append, markOpened, loadOlder } = timeline;
+  const { append, markOpened, loadOlder, findStoredUserTurn } = timeline;
   const refreshState = coachState.refresh;
 
   const onComplete = useCallback(
@@ -78,7 +78,7 @@ export default function CoachPage() {
     },
     [append, refreshState],
   );
-  const chat = useCoachChat({ personaId: persona?.id ?? null, onComplete });
+  const chat = useCoachChat({ personaId: persona?.id ?? null, onComplete, findStoredTurn: findStoredUserTurn });
 
   // A weekly review's Plan my week: put its prompt in the composer (not sent).
   const [prefill, setPrefill] = useState<CoachComposerPrefill | null>(null);

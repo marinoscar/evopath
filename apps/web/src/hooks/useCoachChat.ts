@@ -10,6 +10,14 @@
  * `409 AI_FEATURE_UNAVAILABLE`, `429`) stored nothing, so `retry()` re-sends
  * the same text and re-uses the same pending bubble: the user never sees the
  * turn twice. The text stays in the failed turn, so nothing typed is lost.
+ *
+ * A failure AFTER the stream began may have stored the user's turn already:
+ * an `error` frame says so (`userMessageId`), and a stream cut off without
+ * `done` or `error` after any frame (a network drop) is checked against the
+ * latest timeline page (`findStoredTurn`). A stored turn is remembered in
+ * `storedUserMessageId`, and `retry()` then sends `retryOf` so the server
+ * answers that row again instead of storing the text a second time.
+ *
  * Unmounting aborts the stream; the server then discards the partial reply.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -32,12 +40,23 @@ export interface CoachPendingTurn {
   tools: Array<{ name: string; status: string }>;
   safety: { level: CoachSafetyLevel; screen: string } | null;
   failure: CoachChatFailure | null;
+  /**
+   * The server's row for this user turn when it was stored but not answered:
+   * a retry sends it as `retryOf`. `null` when nothing is known to be stored.
+   */
+  storedUserMessageId: string | null;
 }
 
 export interface UseCoachChatOptions {
   /** The persona the reply is attributed to (dropped for a safety reply). */
   personaId?: string | null;
   onComplete: (items: CoachTimelineItem[], done: CoachChatDone) => void;
+  /**
+   * After a stream was cut off mid-way (no `done`, no `error`): look the turn
+   * up on the latest timeline page and return its stored user row's id, or
+   * `null`. Without it a cut-off turn is treated as not stored.
+   */
+  findStoredTurn?: (text: string) => Promise<string | null>;
 }
 
 export interface UseCoachChatReturn {
@@ -50,15 +69,21 @@ export interface UseCoachChatReturn {
 
 let localCounter = 0;
 
-export function useCoachChat({ personaId = null, onComplete }: UseCoachChatOptions): UseCoachChatReturn {
+export function useCoachChat({
+  personaId = null,
+  onComplete,
+  findStoredTurn,
+}: UseCoachChatOptions): UseCoachChatReturn {
   const [pending, setPending] = useState<CoachPendingTurn | null>(null);
   const controller = useRef<AbortController | null>(null);
   const onCompleteRef = useRef(onComplete);
+  const findStoredTurnRef = useRef(findStoredTurn);
   const isMounted = useIsMounted();
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
-  }, [onComplete]);
+    findStoredTurnRef.current = findStoredTurn;
+  }, [onComplete, findStoredTurn]);
 
   useEffect(() => () => controller.current?.abort(), []);
 
@@ -72,15 +97,40 @@ export function useCoachChat({ personaId = null, onComplete }: UseCoachChatOptio
       let reply = '';
       let safety: CoachPendingTurn['safety'] = null;
       let finished = false;
+      let sawFrame = false;
 
-      const fail = (failure: CoachChatFailure) => {
+      const fail = (failure: CoachChatFailure, storedUserMessageId: string | null = turn.storedUserMessageId) => {
         finished = true;
-        if (isMounted()) setPending((current) => (current ? { ...current, status: 'failed', failure } : current));
+        if (abort.signal.aborted || !isMounted()) return;
+        setPending((current) =>
+          current && current.localId === turn.localId
+            ? { ...current, status: 'failed', failure, storedUserMessageId }
+            : current,
+        );
+      };
+
+      // The stream started and then broke without `done` or `error`: the
+      // server may have stored the turn. Look before offering Retry.
+      const failCutOff = async (failure: CoachChatFailure) => {
+        finished = true;
+        let stored = turn.storedUserMessageId;
+        const find = findStoredTurnRef.current;
+        if (!stored && find) {
+          try {
+            stored = await find(turn.text);
+          } catch {
+            stored = null;
+          }
+        }
+        fail(failure, stored);
       };
 
       void streamCoachChat(
         turn.text,
         {
+          onAnyFrame: () => {
+            sawFrame = true;
+          },
           onSafety: (frame) => {
             safety = frame;
             if (isMounted()) setPending((current) => (current ? { ...current, safety: frame } : current));
@@ -100,7 +150,7 @@ export function useCoachChat({ personaId = null, onComplete }: UseCoachChatOptio
             const now = new Date().toISOString();
             const items: CoachTimelineItem[] = [
               {
-                id: done.userMessageId || `${turn.localId}-user`,
+                id: done.userMessageId || turn.storedUserMessageId || `${turn.localId}-user`,
                 role: 'user',
                 kind: 'chat',
                 moment: null,
@@ -142,16 +192,23 @@ export function useCoachChat({ personaId = null, onComplete }: UseCoachChatOptio
             setPending(null);
             onCompleteRef.current(items, done);
           },
-          onError: (frame) => fail({ kind: 'other', message: frame.message }),
+          onError: (frame) =>
+            fail({ kind: 'other', message: frame.message }, frame.userMessageId ?? turn.storedUserMessageId),
         },
         abort.signal,
+        { retryOf: turn.storedUserMessageId },
       ).then(
         () => {
-          if (!finished && !abort.signal.aborted) {
-            fail({ kind: 'other', message: 'The reply was cut off. Try again.' });
-          }
+          if (finished || abort.signal.aborted) return;
+          const cutOff: CoachChatFailure = { kind: 'other', message: 'The reply was cut off. Try again.' };
+          if (sawFrame) void failCutOff(cutOff);
+          else fail(cutOff);
         },
-        (err: unknown) => fail(coachChatFailureOf(err)),
+        (err: unknown) => {
+          if (finished) return;
+          if (sawFrame) void failCutOff(coachChatFailureOf(err));
+          else fail(coachChatFailureOf(err));
+        },
       );
     },
     [isMounted, personaId],
@@ -172,6 +229,7 @@ export function useCoachChat({ personaId = null, onComplete }: UseCoachChatOptio
         tools: [],
         safety: null,
         failure: null,
+        storedUserMessageId: null,
       });
     },
     [pending, run],

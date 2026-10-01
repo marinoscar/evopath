@@ -1,6 +1,7 @@
 /**
  * `useCoachTimeline` (E7.8, #248): display order, the `before` cursor, the
- * opened signal at most once per id, optimistic feedback with revert.
+ * opened signal at most once per id, optimistic feedback with revert, and the
+ * stored-turn lookup after a cut-off chat stream.
  */
 import { describe, it, expect } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -79,5 +80,34 @@ describe('useCoachTimeline', () => {
     act(() => result.current.append([user, coach]));
     act(() => result.current.append([coach]));
     expect(result.current.items.map((m) => m.body)).toEqual(['b', 'c', 'u', 'r']);
+  });
+
+  it('finds a stored user turn on the latest page only when it is new and matches the text', async () => {
+    const stored = mockCoachMessage({ id: coachMessageId(9), role: 'user', kind: 'chat', title: '', body: 'Motivate me', personaId: null });
+    let latest = { items: [c, b], nextCursor: null as string | null };
+    server.use(http.get(`${API}/coach/messages`, () => HttpResponse.json({ data: latest })));
+    const { result } = renderHook(() => useCoachTimeline());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // No user row at all.
+    await expect(result.current.findStoredUserTurn('Motivate me')).resolves.toBeNull();
+
+    latest = { items: [stored, c, b], nextCursor: null };
+    await expect(result.current.findStoredUserTurn('Motivate me')).resolves.toBe(stored.id);
+    await expect(result.current.findStoredUserTurn('Something else')).resolves.toBeNull();
+    // Nothing on screen changed.
+    expect(result.current.items.map((m) => m.id)).toEqual([b.id, c.id]);
+
+    // Already on screen: not the cut-off turn.
+    act(() => result.current.append([stored]));
+    await expect(result.current.findStoredUserTurn('Motivate me')).resolves.toBeNull();
+  });
+
+  it('answers null when the lookup fails', async () => {
+    pages();
+    const { result } = renderHook(() => useCoachTimeline());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    server.use(http.get(`${API}/coach/messages`, () => HttpResponse.json({ message: 'boom' }, { status: 500 })));
+    await expect(result.current.findStoredUserTurn('Motivate me')).resolves.toBeNull();
   });
 });
