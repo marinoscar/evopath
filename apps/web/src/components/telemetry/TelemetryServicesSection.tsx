@@ -76,6 +76,31 @@ export const UNAVAILABLE_MESSAGE =
   "Automatic deployment isn't available in this environment (it's available on server deployments). " +
   'In development, the telemetry services start with the rest of the stack.';
 
+export const AGENT_DOWN_MESSAGE =
+  "The deployment agent isn't responding, so these services can't be redeployed from here. " +
+  'Telemetry collection is unaffected.';
+
+/** The agent's own error, verbatim, in a small monospace line. */
+function AgentErrorLine({ error, testId }: { error: string | null | undefined; testId: string }) {
+  if (!error) return null;
+  return (
+    <Box
+      component="code"
+      data-testid={testId}
+      sx={{
+        display: 'block',
+        mt: 1,
+        fontFamily: 'monospace',
+        fontSize: '0.8125rem',
+        wordBreak: 'break-word',
+        whiteSpace: 'pre-wrap',
+      }}
+    >
+      {error}
+    </Box>
+  );
+}
+
 export interface TelemetryServicesSectionProps {
   /** `system_settings:write` — what `POST /admin/telemetry/stack/deploy` enforces. */
   canDeploy: boolean;
@@ -172,9 +197,16 @@ export function TelemetryServicesSection({
         </Alert>
       )}
 
-      {(agent === 'unavailable' || agent === 'not_configured') && (
+      {agent === 'not_configured' && (
         <Alert severity="info" sx={{ mb: 2 }} data-testid="telemetry-services-unavailable">
           {UNAVAILABLE_MESSAGE}
+        </Alert>
+      )}
+
+      {agent === 'unavailable' && (
+        <Alert severity="info" sx={{ mb: 2 }} data-testid="telemetry-services-agent-down">
+          {AGENT_DOWN_MESSAGE}
+          <AgentErrorLine error={stack?.agentError} testId="telemetry-services-agent-error" />
         </Alert>
       )}
 
@@ -184,6 +216,7 @@ export function TelemetryServicesSection({
           This deployment&apos;s internal service credentials don&apos;t match, so the telemetry
           services can&apos;t be managed from here. Update the application to bring them back in
           line.
+          <AgentErrorLine error={stack?.agentError} testId="telemetry-services-agent-error" />
         </Alert>
       )}
 

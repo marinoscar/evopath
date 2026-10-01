@@ -315,6 +315,34 @@ describe('AppMetricsService', () => {
       expect(sizes).toEqual(expect.arrayContaining([{ format: 'pdf' }]));
       expect(sizes).not.toEqual(expect.arrayContaining([{ format: 'csv' }]));
     });
+
+    it('counts health document downloads and deletes (H6, #190)', async () => {
+      const { service, reader } = setup();
+
+      service.healthDocumentDownload('inline');
+      service.healthDocumentDownload('attachment');
+      service.healthDocumentDownload('attachment');
+      service.healthDocumentDelete('file', false);
+      service.healthDocumentDelete('file', true);
+      service.healthDocumentDelete('record', false);
+
+      const all = await collect(reader);
+
+      expect(metric(all, 'app.health.documents.downloads').descriptor.unit).toBe('{download}');
+      expect(points(all, 'app.health.documents.downloads')).toEqual(
+        expect.arrayContaining([
+          { attributes: { disposition: 'inline' }, value: 1 },
+          { attributes: { disposition: 'attachment' }, value: 2 },
+        ]),
+      );
+      expect(points(all, 'app.health.documents.deletes')).toEqual(
+        expect.arrayContaining([
+          { attributes: { scope: 'file', values: 'kept' }, value: 1 },
+          { attributes: { scope: 'file', values: 'deleted' }, value: 1 },
+          { attributes: { scope: 'record', values: 'kept' }, value: 1 },
+        ]),
+      );
+    });
   });
 
   describe('label bounding', () => {
@@ -375,6 +403,8 @@ describe('AppMetricsService', () => {
       ).not.toThrow();
       expect(() => service.notificationDelivery('email', 'sent')).not.toThrow();
       expect(() => service.healthDocumentPurge('purged')).not.toThrow();
+      expect(() => service.healthDocumentDownload('inline')).not.toThrow();
+      expect(() => service.healthDocumentDelete('file', true)).not.toThrow();
     });
 
     it('the fallback instance (no DI) works against the global no-op meter', () => {

@@ -16,6 +16,12 @@
  * H7 (#191): "Export health data" sits with the header actions for anyone who
  * can read health data, whatever the AI state; it opens
  * `ExportHealthDataDialog` (format, range, datasets, progress, download).
+ *
+ * H4 (#188): "Import lab report" sits beside it under the same gate and opens
+ * `LabReportDialog` (a PDF or page photos become reviewed lab results).
+ *
+ * H5 (#189): the "Blood work" section links to the biomarker views
+ * (`/health/biomarkers`), between the check-in and Trend/History.
  */
 
 import { useState } from 'react';
@@ -38,6 +44,9 @@ import { HealthHistorySections } from '../components/health/HealthHistorySection
 import { PhotoReadButton } from '../components/health/PhotoReadButton';
 import { PhotoReadDialog } from '../components/health/PhotoReadDialog';
 import { ExportHealthDataDialog } from '../components/health/ExportHealthDataDialog';
+import { LabReportButton } from '../components/health/LabReportButton';
+import { LabReportDialog } from '../components/health/LabReportDialog';
+import { BloodWorkSection } from '../components/health/biomarkers/BloodWorkSection';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -54,6 +63,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
   const [photoOpen, setPhotoOpen] = useState(false);
   // H7 (#191): the export dialog. Reading is enough: exporting changes nothing.
   const [exportOpen, setExportOpen] = useState(false);
+  // H4 (#188): the lab report import.
+  const [labOpen, setLabOpen] = useState(false);
   // Bumped after every change to readings: the Trend chart and History refetch.
   const [readingsVersion, setReadingsVersion] = useState(0);
   const readingsChanged = () => {
@@ -92,6 +103,7 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
               Export health data
             </Button>
             <PhotoReadButton onClick={() => setPhotoOpen(true)} showUnavailable />
+            <LabReportButton onClick={() => setLabOpen(true)} />
             <LogMeasurementButton variant="contained" startIcon={<AddIcon />} canLog={canLog} onClick={() => openDialog()}>
               Log measurement
             </LogMeasurementButton>
@@ -130,6 +142,9 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         {/* E2.4 (#56): today's check-in and the recent ones. */}
         {!forbidden && <CheckInSection canWrite={canLog} />}
 
+        {/* H5 (#189): the way into the blood-work history. */}
+        {!forbidden && <BloodWorkSection />}
+
         {!forbidden && catalog && !loading && (
           <HealthHistorySections
             catalog={catalog}
@@ -161,6 +176,7 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
       />
 
       <ExportHealthDataDialog open={exportOpen && !forbidden} onClose={() => setExportOpen(false)} />
+      <LabReportDialog open={labOpen && !forbidden} onClose={() => setLabOpen(false)} onSaved={readingsChanged} />
     </>
   );
 }

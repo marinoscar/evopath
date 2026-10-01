@@ -36,7 +36,8 @@ export class TelemetryStackController {
       'deployment\'s stack agent, and the most recent `telemetry.stack.deploy` job.\n\n' +
       '**Always 200.** `agent` is `available` (the agent answered), `unavailable` (configured ' +
       'but unreachable within five seconds, or an unexpected answer), `unauthorized` (it refused ' +
-      'the API\'s token) or `not_configured` (this deployment has no stack agent). `services` is ' +
+      'the API\'s token) or `not_configured` (this deployment has no stack agent). `agentError` ' +
+      'says why the agent is `unavailable` or `unauthorized` (never the token), else null. `services` is ' +
       'empty unless `agent` is `available`. `deploy` is null when no deploy was ever requested; ' +
       '`deploy.output` is the tail (at most 4 KB) of what the agent printed.',
   })

@@ -1101,6 +1101,9 @@ deployment settings, not a telemetry-policy edit.
   seconds) and reads the most recent `telemetry.stack.deploy` job. It always
   answers 200: `agent` is `available`, `unavailable`, `unauthorized` or
   `not_configured` — a missing or unreachable agent is a state, not an error.
+  `agentError` is `string | null`: the agent's secret-free error message when
+  `agent` is `unavailable` or `unauthorized`, otherwise `null`. The Doctor has
+  no check for the agent, because telemetry capture never uses it.
 - `POST /deploy` enqueues `telemetry.stack.deploy`
   (`apps/api/src/telemetry/stack/telemetry-stack-deploy.handler.ts`) and
   answers `202` at once — an image pull can take up to ten minutes, far
@@ -1136,6 +1139,12 @@ never compose, a compose file or the CLI. This is the same posture the
 connection error messages already took (§8's unresolvable-host handling): an
 administrator should never need to know this template runs on Docker Compose
 to operate telemetry from the admin UI.
+
+The section words the agent states differently. For `unavailable` it shows
+"The deployment agent isn't responding, so these services can't be redeployed
+from here. Telemetry collection is unaffected." plus the `agentError` reason.
+`not_configured` keeps its own text, since there is no agent to be
+unresponsive.
 
 ### `STACK_AGENT_TOKEN`
 
@@ -1908,6 +1917,8 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.ai.request.duration` | `app_ai_request_duration_seconds_{bucket,sum,count}` | histogram | `s` | `provider`, `model`, `operation`, `status`, `key_source` | With the usage event. |
 | `app.notifications.deliveries` | `app_notifications_deliveries_total` | counter | `{delivery}` | `channel`, `event`, `outcome` (`sent`, `failed`, `rate_limited`, `error`) | A channel delivery attempt ends. |
 | `app.health.documents.purges` | `app_health_documents_purges_total` | counter | `{document}` | `outcome` (`purged`, `failed`) | A `health.document.purge` attempt erases a file or fails (and is retried). |
+| `app.health.documents.downloads` | `app_health_documents_downloads_total` | counter | `{download}` | `disposition` (`inline`, `attachment`) | `GET /api/health/documents/:id/download` issues a signed link. |
+| `app.health.documents.deletes` | `app_health_documents_deletes_total` | counter | `{document}` | `scope` (`file`, `record`), `values` (`kept`, `deleted`) | The owner deletes a health document: `file` queues the file's purge, `record` removes the metadata of a file already gone. |
 | `app.health.exports` | `app_health_exports_total` | counter | `{export}` | `format` (`json`, `csv`, `xlsx`, `pdf`), `outcome` (`completed`, `failed`) | A `health.export` attempt writes its file or fails. |
 | `app.health.export.duration` | `app_health_export_duration_seconds_{bucket,sum,count}` | histogram | `s` | `format`, `outcome` | With `exports`. |
 | `app.health.export.size` | `app_health_export_size_bytes_{bucket,sum,count}` | histogram | `By` | `format` | An export completes. |

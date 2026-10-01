@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { LAB_REPORT_SOURCE_KIND, recomputeLabUserEdited } from '../lab-report/lab-report-source-ref';
 import { bodyMetricReadingValueSchema, sameReading, type BodyMetricReadingValue } from './body-metric-reading.value';
 
 // =============================================================================
@@ -46,11 +47,14 @@ export interface PhotoManualSourceRef {
   healthDocumentId?: string;
 }
 
-/** The `healthDocumentId` of a measurement's `sourceRef`, or null (no document, or not a photo ref). */
+/**
+ * The `healthDocumentId` of a measurement's `sourceRef`, or null (no document,
+ * or neither a photo nor a lab-report ref, H4 #188).
+ */
 export function healthDocumentIdOf(sourceRef: unknown): string | null {
   if (!sourceRef || typeof sourceRef !== 'object') return null;
   const ref = sourceRef as Record<string, unknown>;
-  if (ref.kind !== PHOTO_INTAKE_SOURCE_KIND) return null;
+  if (ref.kind !== PHOTO_INTAKE_SOURCE_KIND && ref.kind !== LAB_REPORT_SOURCE_KIND) return null;
   return typeof ref.healthDocumentId === 'string' ? ref.healthDocumentId : null;
 }
 
@@ -64,14 +68,17 @@ const aiSourceRefSchema = z
   .loose();
 
 /**
- * A photo-read row's `sourceRef` with `userEdited` recomputed against a new
- * value (`value` in `unit`, normally the canonical unit the row stores).
- * Returns `sourceRef` unchanged when it is not a photo-read AI ref.
+ * A photo-read (or lab-report, H4 #188) row's `sourceRef` with `userEdited`
+ * recomputed against a new value (`value` in `unit`, normally the canonical
+ * unit the row stores). Returns `sourceRef` unchanged when it is neither.
  */
 export function withRecomputedUserEdited(
   sourceRef: unknown,
   reading: { metricKey: string; value: number; unit: string },
 ): unknown {
+  const lab = recomputeLabUserEdited(sourceRef, reading);
+  if (lab) return lab;
+
   const parsed = aiSourceRefSchema.safeParse(sourceRef);
 
   if (!parsed.success) return sourceRef;

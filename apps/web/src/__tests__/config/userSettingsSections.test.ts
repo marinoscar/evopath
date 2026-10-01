@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { USER_SETTINGS_SECTIONS } from '../../config/userSettingsSections';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import {
+  USER_HUB_PATH,
+  USER_HUB_TITLE,
+  USER_SETTINGS_SECTIONS,
+} from '../../config/userSettingsSections';
+import { settingsPageTitle, visibleSettingsSections } from '../../config/adminSections';
 
 /**
  * Issue #126, epic #109. The Notifications card follows the same
@@ -68,6 +76,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     '/settings/ai': 'ai:use',
     // #47 (E2.1): the exact string `GET /api/health-profile` enforces.
     '/settings/health-profile': 'health_data:read',
+    // #190 (H6): the exact string the health documents controller's reads enforce.
+    '/settings/health-documents': 'health_data:read',
     // Training agents: the exact string `/api/ai/training/*` enforces.
     '/settings/ai/agents': 'ai:use',
   };
@@ -144,5 +154,56 @@ describe('USER_SETTINGS_SECTIONS - Danger Zone card (issue #202)', () => {
     expect(card?.path).toBe('/settings/danger-zone');
     expect(card?.permission).toBeUndefined();
     expect(card?.feature).toBeUndefined();
+  });
+});
+
+/**
+ * Issue #190 (H6). Health Documents is APPENDED to the `Health` group after
+ * Health Profile, as its own destination (not a tab on Health Profile), gated
+ * on the exact string `health-documents.controller.ts` enforces on its reads.
+ * The permission is read off the API workspace on disk, the mechanical half of
+ * CLAUDE.md Settings UI Pattern rule 3.
+ */
+describe('USER_SETTINGS_SECTIONS - Health Documents card (issue #190)', () => {
+  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  const health = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Health');
+  const card = health?.cards.find((c) => c.path === '/settings/health-documents');
+
+  it('is appended after Health Profile in the Health group', () => {
+    expect(health?.cards.map((c) => c.title)).toEqual(['Health Profile', 'Health Documents']);
+  });
+
+  it('declares health_data:read, no feature gate and no alwaysShow', () => {
+    expect(card).toMatchObject({ title: 'Health Documents', permission: 'health_data:read' });
+    expect(card?.feature).toBeUndefined();
+    expect(card?.alwaysShow).toBeUndefined();
+    expect(card?.disabled).toBeUndefined();
+  });
+
+  it('declares the exact permission the documents controller enforces on its reads', () => {
+    const roles = readFileSync(resolve(API_SRC, 'common/constants/roles.constants.ts'), 'utf8');
+    const controller = readFileSync(
+      resolve(API_SRC, 'health-documents/health-documents.controller.ts'),
+      'utf8',
+    );
+    expect(roles).toContain("HEALTH_DATA_READ: 'health_data:read'");
+    expect(controller).toContain('@Auth({ permissions: [PERMISSIONS.HEALTH_DATA_READ] })');
+  });
+
+  it('is visible with health_data:read, hidden without it, and titles its route', () => {
+    const titles = (granted: string[]) =>
+      visibleSettingsSections(USER_SETTINGS_SECTIONS, (p) => granted.includes(p)).flatMap((s) =>
+        s.cards.map((c) => c.title),
+      );
+    expect(titles(['health_data:read'])).toContain('Health Documents');
+    expect(titles([])).not.toContain('Health Documents');
+    expect(
+      settingsPageTitle(
+        USER_SETTINGS_SECTIONS,
+        USER_HUB_PATH,
+        USER_HUB_TITLE,
+        '/settings/health-documents',
+      ),
+    ).toBe('Health Documents');
   });
 });

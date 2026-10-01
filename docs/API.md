@@ -97,7 +97,7 @@ body:
 
 - `code` is always derived from the status: `BAD_REQUEST` (400),
   `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409),
-  `PAYLOAD_TOO_LARGE` (413), `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS`
+  `PRECONDITION_FAILED` (412), `PAYLOAD_TOO_LARGE` (413), `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS`
   (429), `INTERNAL_ERROR` (500), and `ERROR` for anything else (for example
   503). A `code` on a thrown exception is ignored.
 - A `400` from a body or query that fails Zod validation carries `details.issues`: an array of `{ "path": "readings.0.unit", "message": "…" }`, one per failing field, with dots joining nested path segments. Only the path and the rule's message are published, never the submitted value, so health data and free text are not echoed back.

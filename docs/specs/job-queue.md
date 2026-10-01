@@ -419,11 +419,12 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 | `ai.audio.speech` | `ai/runtime/ai-audio-speech.handler.ts` | `POST /api/ai/audio/speech` | No (permanently) |
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Daily cron | No (permanently) |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Weekly cron, catalog sync | No (permanently) |
+| `ai.health.lab_report` | `measurements/lab-report/lab-report.handler.ts` | `POST /api/intakes/:id/analyze` (`lab_report`) | No (permanently) |
 | `ai.training.plan.run` | `training-agents/runtime/training-plan-run.handler.ts` | `POST /api/ai/training/runs`, resume, decision | No (permanently) |
 | `ai.training.adapt.run` | `training-adaptation/handlers/adaptation-run.handler.ts` | `POST /api/ai/training/adaptations` | No (permanently) |
 | `training.adaptations.purge` | `training-adaptation/handlers/adaptations-purge.handler.ts` | Daily cron (03:20) | No |
 | `gyms.temporary.purge` | `gyms/handlers/temporary-gym-purge.handler.ts` | Daily cron (03:30) | No |
-| `health.document.purge` | `health-documents/handlers/health-document-purge.handler.ts` | Apply or discard of a health intake with `delete_after_processing` (enqueued in that transaction) | No |
+| `health.document.purge` | `health-documents/handlers/health-document-purge.handler.ts` | Apply or discard of a health intake with `delete_after_processing` (enqueued in that transaction); `DELETE /api/health/documents/:id` with `reason: user_delete` | No |
 | `health.export` | `health-export/handlers/health-export.handler.ts` | `POST /api/health/exports` | No |
 | `health.export.purge` | `health-export/handlers/health-export-purge.handler.ts` | Daily cron (03:00) | No |
 | `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Daily cron (05:30) | No |

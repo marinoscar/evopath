@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,10 +30,12 @@ describe('the update pipeline', () => {
       'environment-drift',
       'ensure-database',
       'version',
+      'maintenance-on',
       'build',
       'migrate',
       'seed',
       'restart',
+      'maintenance-off',
       'edge-config',
       'health',
       'deploy-info',
@@ -69,7 +71,7 @@ describe('the update pipeline', () => {
   it('stands every later step down when the revision has not moved', () => {
     // Several minutes of build and a restart for a no-op is exactly the
     // friction that stops people updating often.
-    for (const id of ['ensure-database', 'build', 'migrate', 'seed', 'restart', 'health', 'publish', 'renewal', 'verify']) {
+    for (const id of ['ensure-database', 'maintenance-on', 'build', 'migrate', 'seed', 'restart', 'maintenance-off', 'health', 'publish', 'renewal', 'verify']) {
       expect(skipReason(id, { unchanged: true, options: {}, state: {} })).toBe(
         'already up to date',
       );
@@ -80,7 +82,10 @@ describe('the update pipeline', () => {
     // A checkout updated by hand never reaches the steps above, so this is
     // the only step that can notice nginx still serving an old config.
     expect(skipReason('edge-config', { unchanged: true, options: {}, state: {} })).toBeUndefined();
-    expect(ids.indexOf('edge-config')).toBe(ids.indexOf('restart') + 1);
+    // ⚠ NOT a hardcoded `+ 1`: `maintenance-off` (#226) now sits between
+    // `restart` and `edge-config` when it runs, so the real intent here is
+    // just "after restart, before health" - not a specific offset.
+    expect(ids.indexOf('edge-config')).toBeGreaterThan(ids.indexOf('restart'));
     expect(ids.indexOf('edge-config')).toBeLessThan(ids.indexOf('health'));
   });
 
@@ -638,5 +643,211 @@ describe('the verify step: the certs hint on a failed external probe', () => {
 
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).not.toContain('deploy certs');
+  });
+});
+
+// =============================================================================
+// Opt-in maintenance mode during `deploy update` (#226): `maintenance-on`
+// forces `MAINTENANCE_MODE=true` into the `.env` before the risky part of the
+// run, `maintenance-off` clears it afterwards, and the off-step self-heals a
+// window a PREVIOUS failed run left open -- regardless of `--maintenance`.
+// =============================================================================
+describe('maintenance mode (#226)', () => {
+  function step(id: string) {
+    const found = buildUpdateSteps().find((candidate) => candidate.id === id);
+    if (found === undefined) throw new Error(`the "${id}" step was removed or renamed`);
+    return found;
+  }
+
+  function envPathFor(root: string): string {
+    return join(root, 'repo', 'infra', 'compose', '.env');
+  }
+
+  /** A deploy root with a `.env`/`.env.example` pair, as `compose()` needs. */
+  function deployRootWithEnv(envContents: string): string {
+    const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-maintenance-'));
+    const composeDir = join(root, 'repo', 'infra', 'compose');
+    mkdirSync(composeDir, { recursive: true });
+    writeFileSync(join(composeDir, '.env.example'), 'APP_URL=http://localhost:3535\n');
+    writeFileSync(envPathFor(root), envContents);
+    return root;
+  }
+
+  /**
+   * A context whose `runCommand` answers every `docker compose` call and
+   * records only the part after `up`/`exec` - the same style
+   * `contextFor` uses above for the nginx edge-config tests - so assertions
+   * read as the flag list rather than the full `docker compose -p ... -f ...`
+   * preamble.
+   */
+  function contextFor(
+    root: string,
+    options: { maintenance?: boolean } = {},
+    behavior: 'ok' | 'fail' = 'ok',
+  ) {
+    const calls: string[][] = [];
+    const journalLines: string[] = [];
+    const progressMessages: string[] = [];
+
+    const run = (async (argv: readonly string[], runOptions: { cwd: string }): Promise<CommandResult> => {
+      if (argv[0] !== 'docker') throw new Error(`unexpected command: ${argv.join(' ')}`);
+      const at = argv.indexOf('up');
+      if (at === -1) throw new Error(`unexpected compose call: ${argv.join(' ')}`);
+      calls.push(argv.slice(at));
+
+      if (behavior === 'fail') throw new Error('compose recreate failed');
+
+      return {
+        argv: [...argv],
+        cwd: runOptions.cwd,
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        durationMs: 0,
+        timedOut: false,
+      };
+    }) as typeof runCommand;
+
+    return {
+      calls,
+      journalLines,
+      progressMessages,
+      context: {
+        options: { deployRoot: root, ...options },
+        state: { bindPort: 3535 },
+        runCommand: run,
+        // Skips the external-network probe; not what these tests are about.
+        networksEnsured: true,
+        journal: {
+          line: (text: string) => void journalLines.push(text),
+          command: () => undefined,
+          redact: (text: string) => text,
+        },
+        hooks: { onProgress: (message: string) => void progressMessages.push(message) },
+        completed: new Set<string>(),
+        env: new Map<string, string>(),
+        progress: [] as string[],
+      },
+    };
+  }
+
+  const RECREATE_API = ['up', '-d', '--no-deps', '--force-recreate', 'api'];
+
+  describe('enableMaintenanceMode (the "maintenance-on" step)', () => {
+    it('writes MAINTENANCE_MODE=true into the .env and recreates api', async () => {
+      const root = deployRootWithEnv('APP_URL=http://localhost:3535\n');
+      const { context, calls } = contextFor(root);
+
+      await step('maintenance-on').run(context as never);
+
+      expect(readFileSync(envPathFor(root), 'utf8')).toContain('MAINTENANCE_MODE=true');
+      expect(calls).toContainEqual(RECREATE_API);
+    });
+
+    it('swallows a failed api recreate: warns, and never throws', async () => {
+      const root = deployRootWithEnv('APP_URL=http://localhost:3535\n');
+      const { context, journalLines, progressMessages } = contextFor(root, {}, 'fail');
+
+      await expect(step('maintenance-on').run(context as never)).resolves.toBeUndefined();
+
+      // The write still happened - only the recreate failed.
+      expect(readFileSync(envPathFor(root), 'utf8')).toContain('MAINTENANCE_MODE=true');
+      expect(journalLines.some((line) => line.startsWith('warning:'))).toBe(true);
+      expect(progressMessages.some((message) => message.startsWith('warning:'))).toBe(true);
+    });
+
+    it('no-ops, without writing anything, when there is no .env yet', async () => {
+      const root = mkdtempSync(join(tmpdir(), 'evopathcli-update-maintenance-noenv-'));
+      const { context, calls } = contextFor(root);
+
+      await step('maintenance-on').run(context as never);
+
+      expect(calls).toEqual([]);
+    });
+  });
+
+  describe('disableMaintenanceMode (the "maintenance-off" step)', () => {
+    it('deletes the key - never writes `false` - and recreates api', async () => {
+      const root = deployRootWithEnv('APP_URL=http://localhost:3535\nMAINTENANCE_MODE=true\n');
+      const { context, calls } = contextFor(root);
+
+      await step('maintenance-off').run(context as never);
+
+      const written = readFileSync(envPathFor(root), 'utf8');
+      expect(written).not.toContain('MAINTENANCE_MODE');
+      expect(calls).toContainEqual(RECREATE_API);
+    });
+
+    it('no-ops when the key is already absent: no compose call at all', async () => {
+      const root = deployRootWithEnv('APP_URL=http://localhost:3535\n');
+      const { context, calls } = contextFor(root);
+
+      await step('maintenance-off').run(context as never);
+
+      expect(calls).toEqual([]);
+    });
+
+    it('propagates a failed api recreate - unlike enable, this is allowed to throw', async () => {
+      const root = deployRootWithEnv('APP_URL=http://localhost:3535\nMAINTENANCE_MODE=true\n');
+      const { context } = contextFor(root, {}, 'fail');
+
+      const error = await step('maintenance-off')
+        .run(context as never)
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('compose recreate failed');
+    });
+
+    it('clears a stale MAINTENANCE_MODE=true left by a previous run, even with --maintenance not set', async () => {
+      // The self-heal this step exists for: a PREVIOUS run's maintenance-on
+      // set the key and never reached its own off-step (a failure in
+      // build/migrate/seed before restart). This run never passed
+      // --maintenance at all - `context.options.maintenance` is absent - and
+      // the leftover key is still cleared.
+      const root = deployRootWithEnv('APP_URL=http://localhost:3535\nMAINTENANCE_MODE=true\n');
+      const { context } = contextFor(root); // no `maintenance` in options
+
+      expect('maintenance' in context.options).toBe(false);
+
+      await step('maintenance-off').run(context as never);
+
+      expect(readFileSync(envPathFor(root), 'utf8')).not.toContain('MAINTENANCE_MODE');
+    });
+  });
+
+  describe('skip gating', () => {
+    const steps = buildUpdateSteps();
+    function skipReason(id: string, context: Record<string, unknown>): string | undefined {
+      return steps.find((candidate) => candidate.id === id)?.skip?.(context as never);
+    }
+
+    it('maintenance-on skips, naming --maintenance, when the flag was not passed', () => {
+      expect(skipReason('maintenance-on', { unchanged: false, options: {}, state: {} })).toContain(
+        '--maintenance',
+      );
+    });
+
+    it('maintenance-on runs when --maintenance was passed', () => {
+      expect(
+        skipReason('maintenance-on', { unchanged: false, options: { maintenance: true }, state: {} }),
+      ).toBeUndefined();
+    });
+
+    it('maintenance-on is still gated by "already up to date" ahead of the flag', () => {
+      expect(
+        skipReason('maintenance-on', { unchanged: true, options: { maintenance: true }, state: {} }),
+      ).toBe('already up to date');
+    });
+
+    it('maintenance-off is NEVER gated on --maintenance, only on "unchanged"', () => {
+      expect(skipReason('maintenance-off', { unchanged: false, options: {}, state: {} })).toBeUndefined();
+      expect(
+        skipReason('maintenance-off', { unchanged: false, options: { maintenance: true }, state: {} }),
+      ).toBeUndefined();
+      expect(skipReason('maintenance-off', { unchanged: true, options: {}, state: {} })).toBe(
+        'already up to date',
+      );
+    });
   });
 });

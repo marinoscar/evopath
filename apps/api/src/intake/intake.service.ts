@@ -49,6 +49,7 @@ import {
   allowedMimeTypes,
   declaredInputKind,
   INTAKE_INPUT_KIND_SPAN_ATTRIBUTE,
+  INTAKE_PAGE_COUNT_SPAN_ATTRIBUTE,
   inputKindAttribute,
   inputMaxBytes,
   maxPdfPagesOf,
@@ -398,7 +399,7 @@ export class IntakeService {
       if (updated.count > 0 && retention && kind.healthDocumentKind) {
         await tx.healthDocument.updateMany({
           where: { intakeId, userId, fileDeletedAt: null },
-          data: { retention },
+          data: { retention, version: { increment: 1 } },
         });
       }
 
@@ -696,8 +697,9 @@ export class IntakeService {
       throw refuse(400, 'NO_PHOTOS', 'Attach at least one photo before analyzing');
     }
 
-    const inputKinds = await this.recheckInputs(kind, intakeId);
+    const { kinds: inputKinds, pages } = await this.recheckInputs(kind, intakeId);
     recordInputKinds(inputKinds);
+    trace.getActiveSpan()?.setAttribute(INTAKE_PAGE_COUNT_SPAN_ATTRIBUTE, pages);
 
     const { provider, modelId } = await this.resolveAnalyzeModel(userId, kind, input);
 
@@ -754,9 +756,13 @@ export class IntakeService {
    * and a PDF's stored bytes are read again for the magic bytes and the page
    * cap. The attach made the same checks; this holds them for links made
    * before a kind changed its declaration, and keeps "no provider call for a
-   * refused file" true however the link came to be. Returns the input kinds.
+   * refused file" true however the link came to be. Returns the input kinds
+   * and the page count (an image is one page, a PDF its counted pages).
    */
-  private async recheckInputs(kind: IntakeKind<any, any>, intakeId: string): Promise<Set<IntakeInputKind>> {
+  private async recheckInputs(
+    kind: IntakeKind<any, any>,
+    intakeId: string,
+  ): Promise<{ kinds: Set<IntakeInputKind>; pages: number }> {
     const photos =
       (await this.prisma.photoIntakePhoto.findMany({
         where: { intakeId },
@@ -767,6 +773,7 @@ export class IntakeService {
       })) ?? [];
 
     const kinds = new Set<IntakeInputKind>();
+    let pages = 0;
 
     for (const photo of photos) {
       const object = photo.storageObject;
@@ -774,12 +781,14 @@ export class IntakeService {
 
       const inputKind = this.assertDeclaredInput(kind, object, photo.storageObjectId);
       if (inputKind === 'pdf') {
-        await this.assertStoredInput(kind, object.storageKey, inputKind, photo.storageObjectId);
+        pages += (await this.assertStoredInput(kind, object.storageKey, inputKind, photo.storageObjectId)) ?? 1;
+      } else {
+        pages += 1;
       }
       kinds.add(inputKind);
     }
 
-    return kinds;
+    return { kinds, pages };
   }
 
   /**
@@ -874,7 +883,7 @@ export class IntakeService {
     storageKey: string,
     inputKind: IntakeInputKind,
     storageObjectId: string,
-  ): Promise<void> {
+  ): Promise<number | null> {
     const inspection = await this.inputs.inspect(storageKey, inputKind);
 
     if (inspection.oversize) {
@@ -893,7 +902,7 @@ export class IntakeService {
       );
     }
 
-    if (inputKind !== 'pdf') return;
+    if (inputKind !== 'pdf') return null;
 
     const maxPages = maxPdfPagesOf(kind);
 
@@ -910,6 +919,8 @@ export class IntakeService {
         maxPages,
       });
     }
+
+    return inspection.pages;
   }
 
   /** The administrator-assigned model for `kind`'s AI feature, for this caller (#173). */
@@ -1177,13 +1188,19 @@ export class IntakeService {
    * issue only, in `resultMeta.invalidItems`. Low-confidence and uncertain
    * items are stored like any other.
    *
+   * `options.context`, when given, replaces the intake's context in the same
+   * transaction (an analyzer that reads document-level fields, e.g. a lab
+   * report's collection date). It is validated with the kind's
+   * `contextSchema`; an invalid one is not stored and its issues are recorded
+   * in `resultMeta.invalidContext`.
+   *
    * Throws 404 when the intake is gone (discarded mid-scan) and 409
    * `NOT_SCANNING` when it is no longer `scanning` (another writer won).
    */
   async replaceAiDrafts(
     intakeId: string,
     items: readonly AiDraftInput[],
-    options: { resultMeta?: Record<string, unknown> } = {},
+    options: { resultMeta?: Record<string, unknown>; context?: unknown } = {},
   ): Promise<ReplaceAiDraftsResult> {
     const intake = await this.prisma.photoIntake.findUnique({ where: { id: intakeId } });
 
@@ -1222,11 +1239,26 @@ export class IntakeService {
       valid.push({ input, value });
     }
 
+    // A context the analyzer read (a lab report's collection date, H4 #188),
+    // validated like a user's; an invalid one is not stored, only recorded.
+    let nextContext: { value: unknown } | null = null;
+    let invalidContext: InvalidAiDraft['issues'] | null = null;
+
+    if (options.context !== undefined) {
+      const parsed = kind.contextSchema.safeParse(options.context);
+      if (parsed.success) {
+        nextContext = { value: parsed.data };
+      } else {
+        invalidContext = parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }));
+      }
+    }
+
     const resultMeta: Record<string, unknown> = {
       ...(options.resultMeta ?? {}),
       itemsReturned: items.length,
       itemsStored: valid.length,
       ...(invalid.length > 0 ? { invalidItems: invalid } : {}),
+      ...(invalidContext ? { invalidContext } : {}),
     };
 
     return this.prisma.$transaction(async (tx) => {
@@ -1237,6 +1269,7 @@ export class IntakeService {
           resultMeta: resultMeta as Prisma.InputJsonValue,
           errorCode: null,
           errorMessage: null,
+          ...(nextContext ? { context: nullableJson(nextContext.value) } : {}),
         },
       });
 

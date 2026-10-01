@@ -4,10 +4,11 @@ import { harnessUrl, waitForInter } from '../support/harness';
 /**
  * The per-user settings hub — `/settings`, `UserSettingsHubPage` over the same
  * `SettingsHub` component as the admin console, parameterised with
- * `USER_SETTINGS_SECTIONS` (`config/userSettingsSections.tsx`): `Account`
- * (Profile, Appearance) and `Security` (Access Tokens). No card in this
- * registry declares a `permission` — every authenticated user owns their own
- * settings — so nothing here depends on the harness's `perms` param.
+ * the harness's FROZEN `USER_SETTINGS_SECTIONS`
+ * (`apps/web/visual/fixtures/userSettingsSections.tsx`, #222), so a card added
+ * to the live registry does not move this baseline. Its gated cards
+ * (`Health Profile`, the `ai` ones) follow the harness's default permissions
+ * and AI-off state.
  *
  * `/settings` is not an admin route, so the rail stays in library mode
  * (Console pinned at the foot) rather than swapping to Console mode — this

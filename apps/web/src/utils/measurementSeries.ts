@@ -347,7 +347,8 @@ export interface MetricChoice {
   metricKeys: string[];
 }
 
-const GROUP_OF_CATEGORY: Record<MetricDef['category'], MetricChoiceGroup> = {
+/** Lab analytes (H3, #187) are not offered here yet: these pickers chart and list body, vital and check-in values. */
+const GROUP_OF_CATEGORY: Record<Exclude<MetricDef['category'], 'lab'>, MetricChoiceGroup> = {
   body: 'Body',
   vital: 'Vitals',
   wellness: 'How you feel',
@@ -366,6 +367,7 @@ export function metricChoices(
   const includeWellness = options.includeWellness ?? true;
   const choices: MetricChoice[] = [];
   for (const metric of metrics) {
+    if (metric.category === 'lab') continue;
     if (metric.category === 'wellness' && !includeWellness) continue;
     if (metric.key === BP_DIASTOLIC) continue;
     if (metric.key === BP_SYSTOLIC) {

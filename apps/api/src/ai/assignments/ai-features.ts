@@ -98,6 +98,7 @@ export const AI_FEATURES: Readonly<Record<AiFeatureId, AiFeatureDefinition>> = {
   gym_scan: photo('gym_scan', 'Gym equipment scan'),
   workout_prefill: photo('workout_prefill', 'Workout prefill from a photo'),
   body_metric_reading: photo('body_metric_reading', 'Body metric photo reading'),
+  lab_report: photo('lab_report', 'Lab report reading'),
   'training.researcher': training('researcher'),
   'training.planner': training('planner'),
   'training.critic': training('critic'),

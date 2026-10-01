@@ -33,7 +33,7 @@ Each registry is an ordered list of groups, each group an ordered list of cards.
 
 `ADMIN_SECTIONS` has four groups, appended in this order: **General**, **Access**, **Operations**, **AI**. Groups and cards are append-only because the hub, the rail and the drill-down list render the array in declaration order; inserting a card moves every existing card for a reader who has learnt where they are. The full inventory of pages and their permissions lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-`USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to all three roles. Two cards are the exception. `AI Keys` (`/settings/ai`) declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (Admin and Contributor, not Viewer). `Health Profile` (`/settings/health-profile`, group Health) declares `permission: 'health_data:read'`, because health data is a separate grant a deployment can withhold from any role; see [health-data.md](health-data.md).
+`USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to all three roles. Two cards are the exception. `AI Keys` (`/settings/ai`) declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (Admin and Contributor, not Viewer). `Health Profile` (`/settings/health-profile`) and `Health Documents` (`/settings/health-documents`), both in group Health, declare `permission: 'health_data:read'`, because health data is a separate grant a deployment can withhold from any role; see [health-data.md](health-data.md) and [health-records.md](health-records.md#211-documents-api).
 
 ### Consumers
 
@@ -139,7 +139,7 @@ To add a settings page:
 3. Set `permission` to the exact read permission the page's controller enforces, copied from `roles.constants.ts`. Gate writes inside the page.
 4. If the page depends on a deployment feature, set `feature`. Do not put `feature` on the page that turns that feature on (the admin `AI` card carries none, or the switch would be unreachable in the state it exists to change).
 5. Nest a sub-page's path under its parent (`/admin/settings/ai/models`) so `settingsPageTitle`'s longest-prefix rule titles it correctly.
-6. If the card introduces a permission string new to either registry, add it to `DEFAULT_PERMISSIONS` in `apps/web/visual/main.tsx` in the same change (see §5).
+6. Do not touch the visual harness or its baselines: the harness draws frozen fixture registries, not the live ones (see §5).
 7. Do not add a new tab to an existing settings page. Add a tab only for parallel content inside one destination (§2, Cards vs. tabs).
 8. A new settings **surface** (a third hub) is another binding over `SettingsHub.tsx`, never a copy of it.
 
@@ -150,10 +150,10 @@ To add a settings page:
 | `apps/web/src/__tests__/config/settingsRegistry.test.ts` | `visibleSettingsSections` drops unpermitted cards and emptied groups; search is title-only and composes with the permission gate; `settingsPageTitle` longest-match, segment boundaries and fallback; new cards carry their controller's exact permission, are not `alwaysShow`, and appear in hub, rail and title resolver together |
 | `apps/web/src/__tests__/config/userSettingsSections.test.ts` | Per-user cards (e.g. Notifications) declare no `permission` |
 | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` | Every card tagged `feature: 'ai'` or routed under an AI path carries the literal permission string the API controller source enforces, read off disk |
-| `apps/web/src/__tests__/config/destinations.test.ts` | `/admin/settings`'s route gate matches `console`'s `anyPermission` in `destinations.ts`; no `App.tsx` route is claimed by two destinations |
+| `apps/web/src/__tests__/config/destinations.test.ts` | `/admin/settings`'s route gate matches `console`'s `anyPermission` in `destinations.ts`; no `App.tsx` route is claimed by two destinations; every admin and user card path is routed under the card's own permission; every `/settings/*` route has a `USER_SETTINGS_SECTIONS` card |
 | `apps/web/src/__tests__/components/settings/SettingsHub.test.tsx` | Correct cards for a permission-limited user, click navigation, grid vs. drill-down at the right width, independent scroll offsets per hub |
 
-The Playwright visual-regression harness has one manual coupling. `apps/web/visual/main.tsx`'s `DEFAULT_PERMISSIONS` is a hand-maintained list of permission strings that seeds the harness's fake user. It is not derived from the registries. A card whose permission is missing from that list is filtered out for the fake user, so the baselines pass green over a grid with one card fewer than the one that ships.
+The Playwright visual-regression harness draws frozen fixture registries (`apps/web/visual/fixtures/`), swapped in for `config/adminSections.tsx`, `config/userSettingsSections.tsx` and `config/todayCards.tsx` by `apps/web/visual/vite.config.ts` (#222). Its baselines assert layout, theme and breakpoints, so adding a card moves none of them. `apps/web/src/__tests__/visual/registryFixtures.test.ts` fails if a fixture imports a value from a live registry. `DEFAULT_PERMISSIONS` in `apps/web/visual/main.tsx` seeds the harness user and is matched to the fixtures, not to the live registries; see [TESTING.md](../TESTING.md#visual-specs-assert-layout-not-registry-content).
 
 ## 6. Design decisions
 

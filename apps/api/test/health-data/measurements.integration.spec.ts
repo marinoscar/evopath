@@ -28,6 +28,7 @@ import {
 } from '../helpers/auth-mock.helper';
 
 const BASE = '/api/measurements';
+const SUMMARY = '/api/health/biomarkers/summary';
 const ENTRY_ID = '33333333-3333-4333-8333-333333333333';
 const ACTIVE_PREDICATE = { supersededAt: null, deletedAt: null };
 
@@ -151,6 +152,10 @@ describe('Measurements (integration)', () => {
       permission: 'health_data:write',
       body: { readings: [{ metricKey: 'ldl_cholesterol', value: 128, flag: 'normal' }] },
     },
+    // Blood-work history (H5, #189).
+    { method: 'get', path: `${BASE}/${ENTRY_ID}/revisions`, permission: 'health_data:read' },
+    { method: 'get', path: SUMMARY, permission: 'health_data:read' },
+    { method: 'get', path: `${SUMMARY}?panel=lipids&outOfRange=true`, permission: 'health_data:read' },
   ];
 
   describe.each(ROUTES)('$method $path', ({ method, path, permission, body }) => {
@@ -172,6 +177,8 @@ describe('Measurements (integration)', () => {
       expect(prisma.measurement.findMany).not.toHaveBeenCalled();
       expect(prisma.measurement.create).not.toHaveBeenCalled();
       expect(prisma.measurement.updateMany).not.toHaveBeenCalled();
+      expect(prisma.measurement.findFirst).not.toHaveBeenCalled();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
     });
   });
 
@@ -281,6 +288,111 @@ describe('Measurements (integration)', () => {
         .set(authHeader(viewer.accessToken))
         .expect(400);
       expect(prisma.measurement.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /api/measurements/series (lab, H5)', () => {
+    it('returns each lab point with its own range and flag', async () => {
+      const viewer = await createMockViewerUser(context);
+      prisma.measurement.findMany.mockResolvedValue([
+        storedRow(viewer.id, { metricKey: 'ldl_cholesterol', value: 130, unit: 'mg/dL', referenceHigh: 129, flag: 'high' }),
+        storedRow(viewer.id, { metricKey: 'ldl_cholesterol', value: 95, unit: 'mg/dL', referenceHigh: 99, flag: 'normal' }),
+      ]);
+
+      const response = await request(server())
+        .get(`${BASE}/series?metricKey=ldl_cholesterol`)
+        .set(authHeader(viewer.accessToken))
+        .expect(200);
+
+      expect(response.body.data.points).toEqual([
+        expect.objectContaining({ value: 95, referenceLow: null, referenceHigh: 99, referenceText: null, flag: 'normal' }),
+        expect.objectContaining({ value: 130, referenceLow: null, referenceHigh: 129, referenceText: null, flag: 'high' }),
+      ]);
+    });
+  });
+
+  describe('GET /api/measurements/:id/revisions', () => {
+    it('returns the chain newest first, owner-scoped', async () => {
+      const viewer = await createMockViewerUser(context);
+      prisma.measurement.findFirst.mockResolvedValue({ entryId: ENTRY_ID, metricKey: 'weight' });
+      prisma.measurement.findMany.mockResolvedValue([
+        storedRow(viewer.id, { value: 81, revision: 2 }),
+        storedRow(viewer.id, { value: 80, revision: 1, supersededAt: new Date('2026-09-29T00:00:00Z') }),
+      ]);
+
+      const response = await request(server())
+        .get(`${BASE}/${ENTRY_ID}/revisions`)
+        .set(authHeader(viewer.accessToken))
+        .expect(200);
+
+      expect(response.body.data.items).toEqual([
+        expect.objectContaining({ value: 81, revision: 2, edited: true, supersededAt: null }),
+        expect.objectContaining({ value: 80, revision: 1, supersededAt: '2026-09-29T00:00:00.000Z' }),
+      ]);
+      expect(prisma.measurement.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: ENTRY_ID, userId: viewer.id } }),
+      );
+    });
+
+    it('returns 404 for a reading the caller does not own', async () => {
+      const viewer = await createMockViewerUser(context);
+      prisma.measurement.findFirst.mockResolvedValue(null);
+
+      await request(server())
+        .get(`${BASE}/${ENTRY_ID}/revisions`)
+        .set(authHeader(viewer.accessToken))
+        .expect(404);
+    });
+
+    it('returns 400 for a non-UUID id', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(server())
+        .get(`${BASE}/not-a-uuid/revisions`)
+        .set(authHeader(viewer.accessToken))
+        .expect(400);
+    });
+  });
+
+  describe('GET /api/health/biomarkers/summary', () => {
+    it('returns one item per analyte with values, in the envelope', async () => {
+      const viewer = await createMockViewerUser(context);
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          id: randomUUID(), metric_key: 'ldl_cholesterol', value: 120, measured_at: new Date('2026-09-15T00:00:00Z'),
+          flag: 'high', reference_low: null, reference_high: 99, reference_text: null, rn: 1, total: 2,
+        },
+        {
+          id: randomUUID(), metric_key: 'ldl_cholesterol', value: 130, measured_at: new Date('2026-03-15T00:00:00Z'),
+          flag: 'high', reference_low: null, reference_high: 99, reference_text: null, rn: 2, total: 2,
+        },
+      ]);
+
+      const response = await request(server()).get(SUMMARY).set(authHeader(viewer.accessToken)).expect(200);
+
+      expect(response.body.data.items).toEqual([
+        expect.objectContaining({
+          analyteKey: 'ldl_cholesterol',
+          panel: 'lipids',
+          unit: 'mg/dL',
+          count: 2,
+          delta: -10,
+          latest: expect.objectContaining({ value: 120, flag: 'high', referenceHigh: 99 }),
+          previous: expect.objectContaining({ value: 130 }),
+        }),
+      ]);
+      expect(prisma.$queryRaw.mock.calls[0][0].values[0]).toBe(viewer.id);
+    });
+
+    it.each([
+      ['an unknown panel', '?panel=urine'],
+      ['a non-boolean outOfRange', '?outOfRange=1'],
+      ['an unknown parameter', '?metricKey=ldl_cholesterol'],
+    ])('returns 400 for %s', async (_case, qs) => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(server()).get(`${SUMMARY}${qs}`).set(authHeader(viewer.accessToken)).expect(400);
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
     });
   });
 

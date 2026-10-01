@@ -74,7 +74,7 @@ Registered events:
 The two broadcast events are specified in
 [notification-broadcasts.md](notification-broadcasts.md). The four
 operational events are in §2.9. The two health export events are in
-[health-records.md](health-records.md#212-export).
+[health-records.md](health-records.md#213-export).
 
 ### 2.2 Dispatch and the delivery model
 
