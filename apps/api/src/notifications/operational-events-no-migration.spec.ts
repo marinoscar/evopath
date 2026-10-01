@@ -125,6 +125,9 @@ const MIGRATIONS_AT_288 = [
   // files, not notifications.
   '20260930190000_add_health_documents',
   '20260930200000_add_measurement_reference_range',
+  // #190 (H6): `health_documents.version` for If-Match. About health files,
+  // not notifications.
+  '20261001090000_add_health_document_version',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

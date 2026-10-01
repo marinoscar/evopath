@@ -134,6 +134,8 @@ const AiAssignmentsPage = lazy(() => import('./pages/Admin/AiAssignmentsPage'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
 const UserAgentModelsPage = lazy(() => import('./pages/UserAgentModelsPage'));
 const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage'));
+// Issue #190 (H6) — the caller's own uploaded health documents.
+const UserHealthDocumentsPage = lazy(() => import('./pages/UserHealthDocumentsPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
@@ -334,8 +336,8 @@ function AppRoutes() {
                       settings, which the API grants to all three roles, and
                       `config/userSettingsSections.tsx` correspondingly declares no
                       `permission` on their cards. A gate here would deny a Viewer
-                      their own display name. (The exceptions, `/settings/ai` and
-                      `/settings/health-profile` below, gate on grants the API
+                      their own display name. (The exceptions, `/settings/ai`,
+                      `/settings/health-profile` and `/settings/health-documents` below, gate on grants the API
                       really does withhold — see their own comments.)
 
                       As above, declaration order does not matter — React Router
@@ -400,6 +402,22 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <UserHealthProfilePage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #190 (H6). Gated like Health Profile, on
+                      `health_data:read`: the exact string every read route of
+                      `health-documents.controller.ts` enforces and the
+                      `Health Documents` card declares. Rename and delete need
+                      `health_data:write`, gated inside the page. */}
+                  <Route
+                    path="/settings/health-documents"
+                    element={
+                      <RequirePermission
+                        permission="health_data:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <UserHealthDocumentsPage />
                       </RequirePermission>
                     }
                   />

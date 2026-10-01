@@ -37,6 +37,16 @@ export function retainsFiles(retention: string): boolean {
 /** PERMANENT once jobs of this type exist. */
 export const HEALTH_DOCUMENT_PURGE_JOB_TYPE = 'health.document.purge';
 
+/**
+ * Why a purge erases a file, carried in the job payload and the audit row:
+ * `delete_after_processing` (the user's upload-time choice; the default for a
+ * payload without one, which is every job enqueued before H6) or
+ * `user_delete` (`DELETE /api/health/documents/:id`, H6 #190), which erases
+ * the file whatever its retention.
+ */
+export const HEALTH_DOCUMENT_PURGE_REASONS = ['delete_after_processing', 'user_delete'] as const;
+export type HealthDocumentPurgeReason = (typeof HEALTH_DOCUMENT_PURGE_REASONS)[number];
+
 /** `jobs.subject_type` of a purge job, and the audit target type. */
 export const HEALTH_DOCUMENT_SUBJECT_TYPE = 'health_document';
 
@@ -45,3 +55,20 @@ export const HEALTH_DOCUMENT_DELETE_AUDIT_ACTION = 'health:document:delete';
 
 /** Span attribute naming the retention mode (intake routes and the purge job). */
 export const RETENTION_SPAN_ATTRIBUTE = 'health.document.retention';
+
+/** Seconds a `GET /api/health/documents/:id/download` URL stays valid (H6, #190). At most 5 minutes. */
+export const HEALTH_DOCUMENT_DOWNLOAD_TTL_SECONDS = 300;
+
+/** `details.reason` values the documents API (H6, #190) refuses with. */
+export const HEALTH_DOCUMENT_REASONS = {
+  /** PATCH or DELETE without a usable `If-Match` (400). */
+  IF_MATCH_REQUIRED: 'IF_MATCH_REQUIRED',
+  /** `If-Match` names an older version (412); `details.currentVersion` has the current one. */
+  STALE: 'HEALTH_DOCUMENT_STALE',
+  /** Download of a document whose file was erased (409). */
+  FILE_DELETED: 'HEALTH_DOCUMENT_FILE_DELETED',
+  /** Download of a document whose file purge is queued or running (409). */
+  FILE_DELETION_PENDING: 'HEALTH_DOCUMENT_FILE_DELETION_PENDING',
+  /** Download of a file whose upload is not `ready` (409). */
+  FILE_NOT_READY: 'HEALTH_DOCUMENT_FILE_NOT_READY',
+} as const;

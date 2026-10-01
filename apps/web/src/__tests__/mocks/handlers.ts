@@ -36,6 +36,7 @@ import {
   mockTelemetryStatus,
 } from './fixtures/telemetry';
 import { mockHealthProfileEmpty } from './fixtures/health';
+import { mockHealthDocumentList } from './fixtures/healthDocuments';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
 import { mockDocumentDownload } from './fixtures/biomarkers';
 import { mockTodayCheckInEmpty } from './fixtures/checkIns';
@@ -126,6 +127,11 @@ export const handlers = [
     return HttpResponse.json({
       data: { ...body, version, updatedAt: new Date().toISOString() },
     });
+  }),
+
+  // Health documents (#190, H6): a user with no documents.
+  http.get(`${API_BASE}/health/documents`, () => {
+    return HttpResponse.json({ data: mockHealthDocumentList([]) });
   }),
 
   // Measurements (#53, E2.3): the catalog, a user with nothing logged, and a

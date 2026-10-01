@@ -1,6 +1,6 @@
 # Health Records
 
-> **Status:** in progress (the document store, the keep-or-delete choice, PDFs for body metrics, the lab catalog and the lab report API are shipped; the lab report review UI and the rest of the epic are planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/api/src/measurements/lab-report/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*`, `/api/measurements/lab-reports/*` (see `/api/docs`; the documents API is planned) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
+> **Status:** in progress (the document store, the keep-or-delete choice, PDFs for body metrics, the lab catalog, the lab report API and the documents API are shipped; the lab report review UI and the rest of the epic are planned) · **Code:** `apps/api/src/health-documents/`, `apps/api/src/intake/`, `apps/api/src/measurements/photo/`, `apps/api/src/measurements/lab-report/`, `apps/web/src/components/intake/` · **API:** `/api/intakes/*`, `/api/measurements/lab-reports/*`, `/api/health/documents/*` (see `/api/docs`) · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [the intake README](../../apps/api/src/intake/README.md)
 
 Health Records turns the per-user [health data](health-data.md) into a complete, user-owned health record. Every health file a user hands the system becomes a `HealthDocument` with the user's keep-or-delete choice. Values read from those files keep a link to their source document, and the record can grow (lab results, exports, a health summary for the training planner) without the user ever losing control of the files.
 
@@ -72,8 +72,8 @@ job     ->  ObjectsService.delete  ->  file_deleted_at set, storage_object_id nu
 ```
 
 - **Apply and discard** enqueue one `health.document.purge` job per `delete_after_processing` document whose file still exists, through `JobsService.enqueueWithin` inside the same transaction. The intent commits with the apply (after the kind's writes) or the discard, and no worker claims the job earlier. A discard reads the documents before the delete, because the delete sets their `intake_id` to null.
-- **The job** (`health-documents/handlers/health-document-purge.handler.ts`, payload `{ healthDocumentId }`):
-  1. Reads the document. A missing, already purged or `keep` document is a no-op.
+- **The job** (`health-documents/handlers/health-document-purge.handler.ts`, payload `{ healthDocumentId, reason? }`; `reason` defaults to `delete_after_processing`, and `user_delete` comes from an owner delete, 2.11):
+  1. Reads the document. A missing or already purged document is a no-op, and so is a `keep` document unless the reason is `user_delete`.
   2. Hard-deletes the storage object through `ObjectsService.delete` as the owner. An object that is already gone counts as deleted.
   3. Stamps `file_deleted_at` and nulls `storage_object_id`, conditional on `file_deleted_at IS NULL`.
   4. Writes the audit row and counts the purge.
@@ -82,7 +82,7 @@ job     ->  ObjectsService.delete  ->  file_deleted_at set, storage_object_id nu
 - **Never rolls back measurements.** The purge runs after the apply committed and never touches measurement rows.
 - **Server-only.** The handler has neither `nodeResultSchema` nor `persistNodeResult`: deleting objects from the deployment's storage is a privilege a worker node must never hold.
 - **Detach.** Removing a file from an intake (`DELETE /api/intakes/:id/photos/:storageObjectId`) deletes its document with the link, in one transaction. The file was never processed, and the existing cleanup may delete the object.
-- **Keep.** A `keep` document is never purged. It survives discard and stays until a later part of the epic lets the user delete it.
+- **Keep.** A `keep` document is never purged by apply or discard. It survives discard and stays until its owner deletes it (2.11).
 
 ### 2.5 The `health_documents` reference checker
 
@@ -104,7 +104,7 @@ Once `file_deleted_at` is set, the document holds nothing. A failing check keeps
 
 - **Span attribute.** `health.document.retention` carries the mode on the intake routes (create, change, discard, apply) and on the purge job's span.
 - **Metric.** `app.health.documents.purges` (counter, attribute `outcome` of `purged` or `failed`); see [telemetry.md](telemetry.md).
-- **Audit.** A successful purge writes `health:document:delete`, `targetType` `health_document`, `targetId` the document id, `meta` with the storage object id, the intake id, a file count and `reason: delete_after_processing`. Never a file name or content. The write is best effort: an audit failure is logged and does not retry a purge that already erased the file.
+- **Audit.** A successful purge writes `health:document:delete`, `targetType` `health_document`, `targetId` the document id, `meta` with the storage object id, the intake id, a file count and the reason (`delete_after_processing`, or `user_delete` for an owner delete, 2.11). Never a file name or content. The write is best effort: an audit failure is logged and does not retry a purge that already erased the file.
 - **Logs.** Ids and counts only. A file name never reaches a log line, a span, an audit row or an error message.
 - **Ownership.** The intake routes are owner-scoped, so another user's intake, photo or document id is a `404`. The purge deletes the object as its owner.
 - **Permissions.** The intake kind requires `health_data:read` and `health_data:write` on top of `intakes:*` ([health-data.md 2.17](health-data.md#217-photo-readings)).
@@ -258,9 +258,64 @@ On every user write, `normalizeValue` recomputes `match` from the printed name a
 
 **Fake provider.** The fake vision server (`tests/e2e/support/fake-vision-server.mjs`) answers every `lab_report` request with the `lab-report-panel` fixture (`apps/api/test/fixtures/lab-report/lipid-glucose-panel.model-output.json`): collected 2026-09-15 by "Acme Clinical Laboratories", four lipids in mg/dL, `Lipoprotein (a)` (not in the catalog), glucose 5.4 mmol/L and HbA1c 5.6 %.
 
-### 2.11 Planned: Health Documents settings page and documents API
+### 2.11 Documents API
 
-Placeholder. A registry-driven settings card ([settings-ui.md](settings-ui.md)) lists the user's documents, shows each one's retention and lets the user download or delete a kept file. This section records the routes, permissions and the delete flow when it ships.
+`/api/health/documents` (`apps/api/src/health-documents/health-documents.controller.ts`, tag "Health Documents") lets the owner see and manage every document the system holds about them. The Health Documents settings card (`/settings/health-documents`, `health_data:read`) is its UI ([settings-ui.md](settings-ui.md)).
+
+| Route | Permission | What it does |
+|---|---|---|
+| `GET /api/health/documents` | `health_data:read` | Flat-paginated list (`page`, `pageSize` up to 100), filter `kind`, `sort` `createdAt` (default) or `documentDate` (undated last), `order` `desc` (default) or `asc` |
+| `GET /api/health/documents/:id` | `health_data:read` | One document; `ETag: "<version>"` |
+| `GET /api/health/documents/:id/download?disposition=inline\|attachment` | `health_data:read` | A signed URL valid 300 seconds; `Cache-Control: no-store` |
+| `PATCH /api/health/documents/:id` | `health_data:write` | Rename (`originalName`) and/or set `documentDate` (`null` clears it); `If-Match` required |
+| `DELETE /api/health/documents/:id?deleteValues=true\|false` | `health_data:write` | Delete the file, or the record of a file already gone; `If-Match` required |
+
+**Ownership.** Every route reads and writes only the caller's rows. Another user's id, or an unknown one, is a `404` on every route.
+
+**Item.** `id`, `kind`, `originalName`, `mimeType`, `sizeBytes` (decimal string), `documentDate` (`YYYY-MM-DD` or null), `createdAt` (upload time), `updatedAt`, `retention`, `valueCount`, `fileAvailable`, `fileDeletedAt`, `fileDeletionPending`, `intakeId`, `version`.
+
+- `valueCount` counts the caller's active measurements (not superseded, not deleted) whose `sourceRef.healthDocumentId` names the document. One grouped query per page on `source_ref->>'healthDocumentId'`, scoped by `user_id`.
+- `fileAvailable` is `storageObjectId != null && fileDeletedAt == null`.
+- `fileDeletionPending` is `true` while a `health.document.purge` job for the document is pending or running (one job query per page).
+
+**Concurrency.** `health_documents.version` (default 1) is incremented by every write: a rename or date change, an owner delete, a retention change through the intake, the lab report's collection date and the purge. PATCH and DELETE require `If-Match` with it (bare `4`, `"4"` or `W/"4"`). A missing or unparseable header is a `400` with `details.reason: IF_MATCH_REQUIRED`. A stale one is a `412 PRECONDITION_FAILED` with `details.reason: HEALTH_DOCUMENT_STALE` and `details.currentVersion`, and nothing changes. The check is a conditional write on `version`; the read before it only tells `404` from `412`.
+
+**Rename.** The name is sanitised before it is stored. Control characters and the Unicode direction marks that can disguise an extension are removed, `/` and `\` become `_`, and whitespace is collapsed and trimmed. The result is 1 to 255 characters (`health-document-names.ts`). Only the document's name changes, never the storage object's.
+
+**Download.** The service signs the owner's storage object (`status: ready`) through the storage provider's `getSignedDownloadUrl` with `expiresIn: 300` and a `Content-Disposition` it builds itself:
+
+- `filename="…"` is a printable-ASCII fallback with no `"`, `\`, `%` or `;`.
+- `filename*=UTF-8''…` is the exact sanitised name, RFC 5987 encoded.
+- `inline` is honoured only for PDFs and raster images; any other type is signed as `attachment`.
+
+The body is `{ url, expiresIn, expiresAt, disposition, fileName, mimeType }`. The URL never reaches a log line or a span. Refusals are a `409` with `details.reason`:
+
+- `HEALTH_DOCUMENT_FILE_DELETED`: the file was erased.
+- `HEALTH_DOCUMENT_FILE_DELETION_PENDING`: a purge is queued or running.
+- `HEALTH_DOCUMENT_FILE_NOT_READY`: the object is missing or its upload is not complete.
+
+**Delete.** One transaction:
+
+1. Read the document, `404` if not the caller's, `412` if stale.
+2. With `deleteValues=true`, soft-delete (`deletedAt`) the caller's active measurements whose `sourceRef.healthDocumentId` is the document, and only those.
+3. Then one of two paths:
+   - **The file still exists (`scope: file`).** Bump `version` and enqueue `health.document.purge` with payload `{ healthDocumentId, reason: 'user_delete' }` (`skipDedup`). The job erases the file whatever its retention (a `user_delete` purge skips the `kept` no-op) and stamps `file_deleted_at`. The row stays, so provenance never dangles, and it lists as metadata only: "file deleted on …".
+   - **The file is already gone (`scope: record`).** Delete the row. Measurements keep `sourceRef.healthDocumentId`, and `fileStatesOf` reads a missing document as a deleted file, so they report `fileDeleted: true`.
+4. Write `health:document:delete` with `meta` `{ documentId, valuesDeleted, scope, reason: 'user_delete' }`, never a name.
+
+The response is `{ id, scope, jobId, valuesDeleted }`. Values kept without `deleteValues` stay, now with `fileDeleted: true` once the purge ran. Soft-deleted values disappear from history and remain only as counted rows.
+
+**Observability.** `app.health.documents.downloads` (attribute `disposition`) and `app.health.documents.deletes` (attributes `scope` and `values` of `kept` or `deleted`), see [telemetry.md](telemetry.md). Spans carry `health.document.id` and, on delete, `health.document.delete_scope` and `health.document.values_deleted`. Logs carry ids and counts only.
+
+**Web page.** `/settings/health-documents` (`apps/web/src/pages/UserHealthDocumentsPage.tsx`) is the Health Documents card in the Health group of `USER_SETTINGS_SECTIONS`, its own destination rather than a tab on Health Profile. Card and route are gated on `health_data:read`.
+
+- **List.** A `DataTable`: a grid at desktop width and cards below `sm`. Each row shows the name, kind, file type, size, document date, upload date, retention, value count and file status ("Available", "Deleting…" or "File deleted on …"). The kind filter, the document and upload date sort and the pagination are sent to the API; nothing is filtered in the browser. CSV export is off.
+- **View.** The dialog fetches an `inline` URL when it opens and shows a PDF in an `<iframe>` and an image in an `<img>`, with "Open in a new tab" always offered. The page's CSP has no `frame-src`, so a PDF served from another origin (an S3 bucket) does not render in the frame; the new-tab link is the fallback.
+- **Download.** Fetches an `attachment` URL and hands it to the browser.
+- **Rename or set date.** Sends only the changed fields with `If-Match`.
+- **Delete.** A confirmation dialog with the checkbox "Also delete the N values extracted from this document", hidden when `valueCount` is 0. A row whose file is already gone says it removes the record.
+- **Concurrency.** A `412` on rename or delete closes the dialog, refreshes the list and tells the user the document changed.
+- **Permissions in the page.** View and Download are disabled while the file is deleted or being deleted. Without `health_data:write`, Rename and Delete are disabled with the reason shown under the menu item, and an info alert explains why. Signed URLs live in component state only.
 
 ### 2.12 Blood-work history: biomarker summary, series and revisions
 
@@ -299,12 +354,13 @@ Placeholder. An opt-in summary the training planner reads in place of raw values
 - No environment variable and no system setting. Storage is configured at runtime in the admin UI ([storage-providers.md](storage-providers.md)).
 - The PDF page cap is a constant (`INTAKE_PDF_MAX_PAGES`, 20) that a kind may override with `maxPdfPages`. It bounds the cost of one AI request, like the 16-inputs-per-request cap.
 - Retention is chosen per intake and per file by the user.
-- **Permissions.** No permission of its own. The routes are the generic intake routes, gated by `intakes:*` plus the kind's `health_data:read` and `health_data:write`.
+- **Permissions.** No permission of its own. The intake routes are gated by `intakes:*` plus the kind's `health_data:read` and `health_data:write`; the documents API (2.11) by `health_data:read` (reads, download) and `health_data:write` (rename, delete).
 - **Job types.** `health.document.purge` and `ai.health.lab_report`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
 - **AI feature.** `lab_report`, assigned a model by the administrator at `/admin/settings/ai` like the other photo features.
 - **Duplicate route.** `GET /api/measurements/lab-reports/:intakeId/duplicates` requires `health_data:read` and `intakes:read`.
 - **Audit action.** `health:document:delete`.
-- **Metric.** `app.health.documents.purges`.
+- **Metrics.** `app.health.documents.purges`, `app.health.documents.downloads`, `app.health.documents.deletes`.
+- **Download link lifetime.** A constant, `HEALTH_DOCUMENT_DOWNLOAD_TTL_SECONDS` (300).
 
 Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 
@@ -320,6 +376,10 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 | `GET /api/measurements` | Each reading carries `fileDeleted` |
 | `POST /api/intakes` with `kind: 'lab_report'` | A lab report intake (2.10); apply may answer 409 `UNRESOLVED_ANALYTES` |
 | `GET /api/measurements/lab-reports/:intakeId/duplicates` | The duplicate warning for a lab report under review |
+| `GET /api/health/documents`, `GET /api/health/documents/:id` | The caller's documents, with value counts and file state (2.11) |
+| `GET /api/health/documents/:id/download` | A 300-second signed URL with a safe `Content-Disposition` |
+| `PATCH /api/health/documents/:id` | Rename and document date; `If-Match` required |
+| `DELETE /api/health/documents/:id` | Queues the `user_delete` purge, or removes the record of an erased file; `deleteValues=true` soft-deletes its values; `If-Match` required |
 
 ## 4. Extending it in a fork
 
@@ -334,6 +394,9 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 - `apps/api/test/health-data/health-documents.db.spec.ts`: on real Postgres, the default `keep`, purge after apply and after discard, a kept file surviving discard, detach removing the document, a purge failure retried with the measurements intact, `retainFiles` changes before apply, and another user's `404`.
 - `apps/api/src/health-documents/handlers/health-document-purge.handler.spec.ts`: permanent type, server-only, profile, idempotence, failure rethrown and counted, audit carrying no file name.
 - `apps/api/src/health-documents/health-document-object-references.spec.ts`: the checker holds only files that still exist and fails safe.
+- `apps/api/src/health-documents/health-documents.service.spec.ts`, `health-document-names.spec.ts` and `dto/health-document.dto.spec.ts`: owner scoping, the per-page facts (one grouped count, one job query), the download TTL, disposition and refusals, `If-Match` parsing and `412`, both delete paths, rename sanitising and the `Content-Disposition` builder.
+- `apps/api/test/health-data/health-documents-api.integration.spec.ts`: the RBAC matrix (401, 403 without the exact permission, 404 for another user's id) on every documents route, `If-Match` 400 and 412, `ETag`, and the no-store download link. `apps/api/test/openapi/openapi-document.spec.ts` pins the routes and their permissions.
+- `apps/api/test/health-data/health-documents-api.db.spec.ts`: on real Postgres and real file storage, the caller-only list with value counts, `404` everywhere for another user, delete through the purge (provider `exists()` false) with values kept and `fileDeleted: true`, record removal, `deleteValues=true` on exactly that document, stale `If-Match`, and the download TTL and `Content-Disposition`.
 - `apps/api/src/intake/intake.service.spec.ts`: the retention, attach, detach, discard and apply paths.
 - `apps/api/src/measurements/measurements.service.spec.ts`: `fileDeleted` on the measurement view.
 - `apps/api/src/common/otel/app-metrics.service.spec.ts`: the purge counter and its outcome label.
@@ -371,6 +434,16 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 
 **Server-only purge.** A worker node must never hold the privilege to delete objects from the deployment's storage.
 
+**An owner delete reuses the purge job.** One deleter per file keeps the audit row, the counter and `file_deleted_at` truthful, and a storage outage is retried. The job takes a `reason`, and `user_delete` erases a kept file. Rejected: deleting the object inline in the request (a failure loses the intent) and flipping the document's retention to `delete_after_processing` (it would rewrite the user's upload-time choice).
+
+**The document row outlives an owner's file delete; a second delete removes it.** A document whose file is gone lists as metadata only, so history stays explainable, and the user can still remove that entry. Values that named it keep `healthDocumentId` and read `fileDeleted: true`, because a missing document counts as a deleted file. Rejected: removing the row with the file, which loses "file deleted on …" for kept values.
+
+**A `version` column for `If-Match`.** The same integer-version convention as the programs and settings resources. Rejected: `updatedAt` as the ETag, which is clock-based and not what [API.md](../API.md) documents.
+
+**412 for a stale `If-Match`.** It is the status HTTP defines for a failed precondition. The exception filter maps it to `PRECONDITION_FAILED`. Older resources answer `409` and keep doing so.
+
+**Short-lived signed URL, not a streaming proxy.** The bytes go straight from storage to the browser, and the API holds no file in memory. The 300-second lifetime and `no-store` limit what a leaked URL is worth. Rejected: streaming through the API (memory and egress for no gain) and the default one-hour presign.
+
 **Each kind opts in to PDFs.** `acceptedInputs` defaults to images, so a kind whose analyzer never expected a document cannot receive one by accident. Rejected: accepting PDFs everywhere once the gateway could carry them.
 
 **Magic bytes of the stored object, not the declared type.** The MIME type is whatever the uploader said. Reading the stored bytes is the only check that holds for a renamed file. Rejected: trusting the MIME type or the file extension.
@@ -402,6 +475,8 @@ cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-
 npm run test:run --workspace=web -- RetainFilesControl
 npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/measurements/lab-report test/ai/ai-kill-switch
 cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/lab-report\.db\.spec\.ts$' --runInBand
+npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/health-documents test/health-data/health-documents-api.integration
+cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/health-documents-api\.db\.spec\.ts$' --runInBand
 npx jest --config apps/api/test/jest.config.js --rootDir apps/api src/measurements/biomarkers test/health-data/measurements.integration
 cd apps/api && npx jest --config ./test/jest.config.js --testRegex 'test/health-data/biomarkers-summary\.db\.spec\.ts$' --runInBand
 ```
@@ -415,6 +490,7 @@ In a running app, with AI on:
 5. With a model that has file input, read a smart-scale PDF report: the readings appear for review, and the saved entry links a document whose type is `application/pdf`.
 6. Attach a PDF of more than 20 pages, or a text file renamed to `.pdf`: the attach is refused before any scan.
 7. With the fake AI provider, create a `lab_report` intake, attach a PDF and analyze: seven results appear, `Lipoprotein (a)` unmatched. Accept all and apply: 409 `UNRESOLVED_ANALYTES`. Reject it and apply: one lab entry dated 2026-09-15, glucose in mg/dL. A second import of the same report lists five duplicates at `GET /api/measurements/lab-reports/<id>/duplicates`.
+8. `GET /api/health/documents` lists the report and the scale photo with their value counts. `GET …/:id/download` returns a URL that opens the file for 5 minutes. `DELETE …/:id` with the item's `version` as `If-Match` queues `health.document.purge`. Once it ran, the item shows `fileAvailable: false` and its readings report `fileDeleted: true`. A second `DELETE` removes the item.
 
 ## History
 
@@ -424,3 +500,4 @@ In a running app, with AI on:
 - #188: lab report extraction (API): the `lab_report` intake kind and AI feature, the `ai.health.lab_report` job and prompt, server-side analyte matching and unit conversion, the `UNRESOLVED_ANALYTES` refusal, lab-report provenance and `documentDate`, the duplicate-warning route, analyzer context in `replaceAiDrafts`, `intake.page_count`, and the fake provider's lab report fixture.
 - #189: blood-work history (API): `GET /api/health/biomarkers/summary`, per-point range and flag on lab series, `GET /api/measurements/:id/revisions`.
 - #187: the lab analyte catalog (39 analytes, seven panels, affine unit conversion, `resolveLabAnalyte`), the `referenceLow`, `referenceHigh`, `referenceText` and `flag` columns on `measurements`, lab entries and the `category` list filter on `/api/measurements` (API).
+- #190: the documents API (`/api/health/documents`), `health_documents.version`, the `user_delete` purge reason, the download and delete counters, and `412 PRECONDITION_FAILED`.
