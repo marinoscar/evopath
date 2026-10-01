@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, type ActivityEntry } from '@prisma/client';
 
 import { CheckInsService } from '../check-ins/check-ins.service';
 import { isWithinWindow, toDbDate } from '../check-ins/local-date';
 import { PrismaService } from '../prisma/prisma.service';
+import { ACTIVITY_ENTRY_RECORDED_EVENT, type ActivityEntryRecordedEvent } from './activity-events';
 import { ACTIVITY_REASONS, ENTRY_LIST_MAX_RANGE_DAYS, ENTRY_MAX_DAYS_BACK } from './activity.constants';
 import { activityRefusal, entryNotFound, toEntryView } from './activity-mapper';
 import type {
@@ -42,16 +44,25 @@ import { WorkoutActivitySyncService } from './workout-activity-sync.service';
 // (raw-SQL partial unique index: Prisma's upsert cannot target it). A repeated
 // pair inside one batch keeps the last occurrence. An existing row with the
 // same pair that is NOT manual is left alone and counted in neither total.
+//
+// EVENTS. `create`, and a `batch` that wrote at least one row, emit
+// `activity.entry.recorded` after the write committed (never inside the
+// transaction), so the AI Coach can celebrate a goal the check-in completed.
+// A listener's failure never fails the check-in.
 // =============================================================================
 
 const BATCH_TX_TIMEOUT_MS = 30_000;
 
 @Injectable()
 export class ActivityEntriesService {
+  private readonly logger = new Logger(ActivityEntriesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly checkIns: CheckInsService,
     private readonly sync: WorkoutActivitySyncService,
+    // Optional: `activity.entry.recorded` is only emitted when present.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   async list(userId: string, query: ListActivityEntriesQuery, now: Date = new Date()): Promise<ActivityEntryViewData[]> {
@@ -82,6 +93,7 @@ export class ActivityEntriesService {
     const occurredOn = input.occurredOn ?? today;
     assertEntryDay(occurredOn, today);
 
+    const recordedSince = new Date();
     const entry = await this.prisma.activityEntry.create({
       data: {
         userId,
@@ -95,6 +107,7 @@ export class ActivityEntriesService {
         source: 'manual',
       },
     });
+    this.emitRecorded({ userId, recordedSince: recordedSince.toISOString() });
     return toEntryView(entry);
   }
 
@@ -150,7 +163,8 @@ export class ActivityEntriesService {
       else plain.push(entry);
     }
 
-    return this.prisma.$transaction(
+    const recordedSince = new Date();
+    const result = await this.prisma.$transaction(
       async (tx) => {
         let created = 0;
         let updated = 0;
@@ -186,6 +200,17 @@ export class ActivityEntriesService {
       },
       { timeout: BATCH_TX_TIMEOUT_MS },
     );
+    if (result.created + result.updated > 0) this.emitRecorded({ userId, recordedSince: recordedSince.toISOString() });
+    return result;
+  }
+
+  /** `activity.entry.recorded`, after the write committed. A listener's failure never fails the check-in. */
+  private emitRecorded(event: ActivityEntryRecordedEvent): void {
+    try {
+      this.events?.emit(ACTIVITY_ENTRY_RECORDED_EVENT, event);
+    } catch (error) {
+      this.logger.warn(`A ${ACTIVITY_ENTRY_RECORDED_EVENT} listener threw: ${error instanceof Error ? error.name : 'error'}`);
+    }
   }
 
   private async findOwnedManual(userId: string, entryId: string): Promise<ActivityEntry> {
