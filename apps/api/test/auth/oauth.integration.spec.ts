@@ -426,51 +426,29 @@ describe('OAuth Callback Integration', () => {
       }
     });
 
-    it('should sanitize error messages in redirect URL', async () => {
-      const mockProfile = createMockGoogleProfile({
-        email: 'test@example.com',
-      });
-      MockGoogleStrategy.setMockProfile(mockProfile);
-
-      // Simulate an error that might contain newlines or special characters
-      context.prismaMock.userIdentity.findUnique.mockRejectedValue(
-        new Error('Database\nerror\rwith\nnewlines'),
-      );
-
+    // The next two drive the REAL guard + strategy + filter: passport-oauth2
+    // answers `?error=...` itself, before any network call, so no Google is
+    // needed (#652).
+    it('redirects consent cancelled at Google (guard failure) with error=access_denied', async () => {
       const response = await request(context.app.getHttpServer())
-        .get('/api/auth/google/callback')
+        .get('/api/auth/google/callback?error=access_denied&error_description=user%20said%20no')
         .expect(302);
 
       const redirectUrl = new URL(response.headers.location);
-      const errorParam = redirectUrl.searchParams.get('error');
-      // If there's an error in the redirect
-      if (errorParam) {
-        // Should not contain newlines
-        expect(errorParam).not.toContain('\n');
-        expect(errorParam).not.toContain('\r');
-      }
+      expect(redirectUrl.pathname).toBe('/auth/callback');
+      expect(redirectUrl.searchParams.get('error')).toBe('access_denied');
+      expect(response.headers.location).not.toContain('said');
     });
 
-    it('should limit error message length in redirect URL', async () => {
-      const mockProfile = createMockGoogleProfile();
-      MockGoogleStrategy.setMockProfile(mockProfile);
-
-      // Simulate an error with very long message
-      const longMessage = 'Error: ' + 'x'.repeat(200);
-      context.prismaMock.userIdentity.findUnique.mockRejectedValue(new Error(longMessage));
-
+    it('redirects any other Google-reported error with error=authentication_failed', async () => {
       const response = await request(context.app.getHttpServer())
-        .get('/api/auth/google/callback')
+        .get('/api/auth/google/callback?error=server_error&error_description=call%20555-0100')
         .expect(302);
 
       const redirectUrl = new URL(response.headers.location);
-      const errorParam = redirectUrl.searchParams.get('error');
-      // If there's an error in the redirect
-      if (errorParam) {
-        // Decoded error should be truncated to 100 characters max
-        const decodedError = decodeURIComponent(errorParam);
-        expect(decodedError.length).toBeLessThanOrEqual(100);
-      }
+      expect(redirectUrl.pathname).toBe('/auth/callback');
+      expect(redirectUrl.searchParams.get('error')).toBe('authentication_failed');
+      expect(response.headers.location).not.toContain('555');
     });
 
     it('should set cookie with 14 days expiration', async () => {

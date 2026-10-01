@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   UseGuards,
+  UseFilters,
   Req,
   Res,
   HttpCode,
@@ -17,10 +18,16 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
+import {
+  buildAuthErrorRedirectUrl,
+  resolveAuthErrorCode,
+} from './auth-error-codes';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
+import { GoogleOAuthExceptionFilter } from './filters/google-oauth-exception.filter';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -107,7 +114,15 @@ export class AuthController {
   @UseGuards(GoogleOAuthGuard)
   @ApiOperation({
     summary: 'Initiate Google OAuth',
-    description: 'Redirects to Google OAuth consent screen',
+    description:
+      'Redirects to Google OAuth consent screen. Pass select_account=1 to make Google show its account chooser instead of re-using the signed-in account.',
+  })
+  @ApiQuery({
+    name: 'select_account',
+    required: false,
+    description:
+      'Set to 1 to forward prompt=select_account to Google so the person can pick a different account. Any other value is ignored.',
+    schema: { type: 'string', enum: ['1'] },
   })
   @ApiResponse({
     status: 302,
@@ -124,13 +139,18 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleOAuthGuard)
+  // Callback route only: guard failures run before the method body, so its
+  // try/catch never sees them (#652).
+  @UseFilters(GoogleOAuthExceptionFilter)
   @ApiOperation({
     summary: 'Google OAuth callback',
-    description: 'Handles the OAuth callback from Google and redirects to frontend with token',
+    description:
+      'Handles the OAuth callback from Google and redirects to the frontend /auth/callback page: with the access token on success, or with error=<code> on any failure.',
   })
   @ApiResponse({
     status: 302,
-    description: 'Redirects to frontend with token in query params',
+    description:
+      'Redirects to frontend with the token in query params, or with error set to one of not_allowlisted, account_disabled, access_denied, authentication_failed, server_misconfigured',
   })
   async googleAuthCallback(
     @Req() req: FastifyRequest & { user?: GoogleProfile },
@@ -142,9 +162,11 @@ export class AuthController {
 
       if (!profile) {
         this.logger.error('No profile found in Google OAuth callback');
-        const appUrl = this.configService.get<string>('appUrl');
         return res.redirect(
-          `${appUrl}/auth/callback?error=authentication_failed`,
+          buildAuthErrorRedirectUrl(
+            this.configService.get<string>('appUrl'),
+            'authentication_failed',
+          ),
         );
       }
 
@@ -177,13 +199,14 @@ export class AuthController {
         this.logger.error('Error in Google OAuth callback', error);
       }
 
-      const appUrl = this.configService.get<string>('appUrl');
-      // Sanitize error message for URL - remove newlines and encode
-      const errorMessage = error instanceof Error
-        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 200))
-        : 'authentication_failed';
+      // Closed set of codes only (#652): the exception's message never
+      // reaches the redirect, so the callback page cannot be made to show
+      // attacker-chosen text.
       return res.redirect(
-        `${appUrl}/auth/callback?error=${errorMessage}`,
+        buildAuthErrorRedirectUrl(
+          this.configService.get<string>('appUrl'),
+          resolveAuthErrorCode(error),
+        ),
       );
     }
   }
