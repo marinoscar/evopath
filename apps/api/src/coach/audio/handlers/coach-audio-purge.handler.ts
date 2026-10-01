@@ -6,16 +6,19 @@
 // `enqueueHousekeepingJob` (global, single-flight). Two passes:
 //
 //   1. RETENTION. Every coach message whose audio object is older than the
-//      system `coach.audioRetentionDays` (by the message's `createdAt`):
+//      system `coach.audioRetentionDays` (by `data.audioRequestedAt` for audio
+//      generated on demand, #259; else the message's `createdAt`):
 //      the storage object is deleted through `ObjectsService.delete` (bytes,
 //      row and audit event) unless another feature still holds it
 //      (`StorageObjectReferences`), then the message is set
 //      `audioStatus = 'none'`, `audioStorageObjectId = null` and
 //      `data.audioPurgedAt`. THE TEXT IS KEPT. A storage error is logged by
 //      id and the row is left untouched, so the next run retries it.
-//   2. SAFETY NET. A message still `pending` audio, undelivered, written more
-//      than 10 minutes ago (the 2-minute wait cap job was lost) gets a
-//      `timeout` settle job, which records the text fallback and delivers.
+//   2. SAFETY NET. A message still `pending` audio more than 10 minutes after
+//      its audio was requested (`data.audioRequestedAt` for an on-demand
+//      request, #259; else `createdAt`), so the 2-minute wait cap job was
+//      lost, gets a `timeout` settle job, which records `failed`. Delivered
+//      or not: an on-demand request is usually on a delivered message.
 //
 // SERVER-ONLY: it deletes stored objects; a worker node never holds storage
 // credentials for that. PROFILE `{ maxRuntimeMs: 10 min, maxAttempts: 2 }`;
@@ -38,7 +41,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
 import { ObjectsService } from '../../../storage/objects/objects.service';
 import { COACH_AUDIO_PURGE_JOB_TYPE } from '../../coach-job-types';
-import { COACH_AUDIO_STALE_PENDING_MS, CoachAudioService, mergeData } from '../coach-audio.service';
+import { audioRequestedAtOf, COACH_AUDIO_STALE_PENDING_MS, CoachAudioService, mergeData } from '../coach-audio.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows read per batch. */
@@ -139,6 +142,9 @@ export class CoachAudioPurgeHandler implements JobHandler, OnModuleInit {
       if (rows.length === 0) break;
 
       for (const row of rows) {
+        // Audio generated on demand (#259) is aged from its request, not from
+        // the message: a Listen on an old message keeps its audio for the window.
+        if (audioRequestedAtOf(row.data, row.createdAt).getTime() >= cutoff.getTime()) continue;
         if (await this.purgeOne(row, now)) purged += 1;
         else failed += 1;
       }
@@ -191,17 +197,22 @@ export class CoachAudioPurgeHandler implements JobHandler, OnModuleInit {
     }
   }
 
-  /** Safety net: a message stuck `pending` past the wait cap gets a `timeout` settle (text fallback). */
+  /**
+   * Safety net: a message stuck `pending` past the wait cap gets a `timeout`
+   * settle. Pending rows are few (each lives about a speech run), so they are
+   * read by status and their age is judged in code from
+   * `data.audioRequestedAt` (else `createdAt`): an on-demand request on an old
+   * message is not stale merely because the message is.
+   */
   private async requeueStalePending(now: Date): Promise<number> {
-    const stale = await this.prisma.coachMessage.findMany({
-      where: {
-        audioStatus: 'pending',
-        deliveredAt: null,
-        createdAt: { lt: new Date(now.getTime() - COACH_AUDIO_STALE_PENDING_MS) },
-      },
-      select: { id: true },
+    const cutoff = now.getTime() - COACH_AUDIO_STALE_PENDING_MS;
+    const pending = await this.prisma.coachMessage.findMany({
+      where: { audioStatus: 'pending', createdAt: { lt: new Date(cutoff) } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, createdAt: true, data: true },
       take: STALE_PENDING_LIMIT,
     });
+    const stale = pending.filter((row) => audioRequestedAtOf(row.data, row.createdAt).getTime() < cutoff);
 
     let queued = 0;
     for (const { id } of stale) {

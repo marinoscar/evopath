@@ -40,6 +40,19 @@
 //     query string): numeric, UUID and 24+ hex segments become `:id`
 //     (`ROUTE_NORMALIZE_PATTERN`). The API field stays `route`, documented as
 //     the normalized path.
+//     Since #258 the API's own `onRequest` hook (`common/otel/request-span-
+//     attributes.ts`) writes `http.route` on matched requests going forward,
+//     but the dashboard keeps grouping by the normalized path: old spans have
+//     no route, and an UNKNOWN route has none by definition.
+//   - Unknown routes (#258): the same hook writes `app.route.matched = false`
+//     when Fastify's not-found handler answered, and `app.request.bearer`
+//     (an `Authorization: Bearer` header was present — never the token) on
+//     every request. Flattened to `"span_attributes.app.route.matched"` and
+//     `"span_attributes.app.request.bearer"` (booleans), like every span
+//     attribute. Both columns exist only once written, so every statement that
+//     reads them is built only when `catalogOf` saw them; without the matched
+//     column there is NO unknown-route figure at all (a 404 alone cannot tell
+//     an unknown route from a missing row, so the dashboard does not guess).
 //   - Service: `service_name`; instance: `"resource_attributes.app.instance.id"`.
 //   - duration_nano: bigint unsigned (ns).
 //
@@ -112,6 +125,10 @@ export const TRACE_COLUMNS = {
   method: 'span_attributes.http.request.method',
   path: 'span_attributes.url.path',
   duration: 'duration_nano',
+  /** `false` when no route matched (#258). Absent on old data and on stores that never saw an unknown route. */
+  routeMatched: 'span_attributes.app.route.matched',
+  /** Whether an `Authorization: Bearer` header was present (#258). Never the token. */
+  bearer: 'span_attributes.app.request.bearer',
 } as const;
 
 /** The trace columns without which no API panel can be computed. */
@@ -204,6 +221,17 @@ export interface DashboardSqlFilters {
    * instance id was written).
    */
   tracesHaveInstance?: boolean;
+  /**
+   * Whether the traces table has `"span_attributes.app.route.matched"` (#258).
+   * Without it no unknown-route figure is computed, and the per-route
+   * `unknown` count is a literal 0.
+   */
+  tracesHaveRouteMatched?: boolean;
+  /**
+   * Whether the traces table has `"span_attributes.app.request.bearer"` (#258).
+   * Without it every bearer count is a literal 0.
+   */
+  tracesHaveBearer?: boolean;
 }
 
 function traceFilters(filters: DashboardSqlFilters): string {
@@ -313,18 +341,88 @@ export function apiTotalsSql(previousFrom: Date, window: DashboardSqlWindow, fil
   );
 }
 
+/** The server span's path with numeric/UUID/hex segments as `:id`. */
+const NORMALIZED_ROUTE =
+  `regexp_replace(${ident(TRACE_COLUMNS.path)}, ${literal(ROUTE_NORMALIZE_PATTERN)}, ${literal(ROUTE_NORMALIZE_REPLACEMENT)}, 'g')`;
+
 /**
- * Top routes (normalized path) by 5xx count, then p95. Columns: method,
- * route, requests, errors, p95_ns. `limit` is TOP_N + 1 so truncation shows.
- * Streams stay in, with their own p95: the table is per route, so it is honest.
+ * Top routes (normalized path) by 5xx count, then client errors (4xx except
+ * 401), then p95. Columns: method, route, requests, errors (5xx),
+ * client_errors, unknown_requests (requests to an unknown route — a literal 0 when the
+ * traces table has no matched column, #258), p95_ns. `limit` is TOP_N + 1 so
+ * truncation shows. Streams stay in, with their own p95: the table is per
+ * route, so it is honest.
  */
 export function topRoutesSql(window: DashboardSqlWindow, filters: DashboardSqlFilters = {}, limit = TOP_N + 1): string {
+  const unknown = filters.tracesHaveRouteMatched
+    ? `sum(CASE WHEN ${UNKNOWN_ROUTE_PREDICATE} THEN 1 ELSE 0 END)`
+    : '0';
   return (
-    `SELECT ${ident(TRACE_COLUMNS.method)} AS method, ` +
-    `regexp_replace(${ident(TRACE_COLUMNS.path)}, ${literal(ROUTE_NORMALIZE_PATTERN)}, ${literal(ROUTE_NORMALIZE_REPLACEMENT)}, 'g') AS route, ` +
-    `count(*) AS requests, sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS errors, ${P95_NS} AS p95_ns ` +
+    `SELECT ${ident(TRACE_COLUMNS.method)} AS method, ${NORMALIZED_ROUTE} AS route, ` +
+    `count(*) AS requests, sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS errors, ` +
+    `sum(CASE WHEN ${CLIENT_ERROR_PREDICATE} THEN 1 ELSE 0 END) AS client_errors, ${unknown} AS unknown_requests, ${P95_NS} AS p95_ns ` +
     `${serverSpans(window.from, window.to, filters)} ` +
-    `GROUP BY method, route ORDER BY errors DESC, p95_ns DESC LIMIT ${positive(limit)}`
+    `GROUP BY method, route ORDER BY errors DESC, client_errors DESC, p95_ns DESC LIMIT ${positive(limit)}`
+  );
+}
+
+// ---- unknown routes and client errors (#258) ---------------------------------
+//
+// An UNKNOWN ROUTE is a server span answered 404 by Fastify's not-found
+// handler: `status = 404 AND "span_attributes.app.route.matched" = false`. A
+// 404 from a matched route (`GET /api/gyms/:id` for a deleted gym) is a client
+// error, not an unknown route. Requests with a bearer are the application's
+// own clients (the web app, the CLI, worker nodes) calling a route this build
+// does not have — a deploy skew or a real defect; anonymous ones are mostly
+// internet scanners, counted but never alarming.
+
+/** SQL predicate: the server span is a request to an unknown route. Only valid when the column exists. */
+export const UNKNOWN_ROUTE_PREDICATE = `${STATUS} = 404 AND ${ident(TRACE_COLUMNS.routeMatched)} = false`;
+
+/** Client errors the problem-routes table counts: 4xx except 401 (an expired access token is routine). */
+export const CLIENT_ERROR_PREDICATE = `${STATUS} >= 400 AND ${STATUS} < 500 AND ${STATUS} <> 401`;
+
+function bearerCount(filters: DashboardSqlFilters): string {
+  return filters.tracesHaveBearer
+    ? `sum(CASE WHEN ${ident(TRACE_COLUMNS.bearer)} = true THEN 1 ELSE 0 END)`
+    : '0';
+}
+
+/**
+ * Unknown-route requests of the current window `[from, to)` and the previous
+ * one `[previousFrom, from)`. Columns: period ('current'|'previous'),
+ * requests, bearer. Null when the traces table has no matched column (#258).
+ */
+export function unknownRoutesTotalsSql(
+  previousFrom: Date,
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+): string | null {
+  if (!filters.tracesHaveRouteMatched) return null;
+  return (
+    `SELECT CASE WHEN ${ident('timestamp')} >= ${timestampLiteral(window.from)} THEN 'current' ELSE 'previous' END AS period, ` +
+    `count(*) AS requests, ${bearerCount(filters)} AS bearer ` +
+    `${serverSpans(previousFrom, window.to, filters)} AND ${UNKNOWN_ROUTE_PREDICATE} ` +
+    'GROUP BY period ORDER BY period LIMIT 2'
+  );
+}
+
+/**
+ * Unknown routes of the window by (method, normalized path), bearer requests
+ * first. Columns: method, route, requests, bearer. `limit` is TOP_N + 1 so
+ * truncation shows. Null when the traces table has no matched column (#258).
+ */
+export function topUnknownRoutesSql(
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+  limit = TOP_N + 1,
+): string | null {
+  if (!filters.tracesHaveRouteMatched) return null;
+  return (
+    `SELECT ${ident(TRACE_COLUMNS.method)} AS method, ${NORMALIZED_ROUTE} AS route, ` +
+    `count(*) AS requests, ${bearerCount(filters)} AS bearer ` +
+    `${serverSpans(window.from, window.to, filters)} AND ${UNKNOWN_ROUTE_PREDICATE} ` +
+    `GROUP BY method, route ORDER BY bearer DESC, requests DESC, method, route LIMIT ${positive(limit)}`
   );
 }
 

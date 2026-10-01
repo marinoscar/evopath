@@ -154,6 +154,8 @@ export const APP_METRIC_NAMES = {
   coachAudioGenerated: 'app.coach.audio.generated',
   coachAudioFailed: 'app.coach.audio.failed',
   coachAudioPurged: 'app.coach.audio.purged',
+  // On-demand "Listen" (#259): every POST /api/coach/messages/:id/audio, by outcome.
+  coachAudioRequested: 'app.coach.audio.requested',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -341,6 +343,18 @@ const COACH_ANGLE_LABELS = new Set<string>([
 export const COACH_AUDIO_FAILURE_REASONS = ['provider_error', 'refusal', 'timeout', 'no_voice_model'] as const;
 export type CoachAudioFailureReason = (typeof COACH_AUDIO_FAILURE_REASONS)[number];
 const COACH_AUDIO_FAILURE_SET = new Set<string>(COACH_AUDIO_FAILURE_REASONS);
+/** How an on-demand coach audio request ended (#259). Closed set. */
+export const COACH_AUDIO_REQUEST_OUTCOMES = [
+  'started',
+  'ready',
+  'pending',
+  'failed',
+  'disabled',
+  'rate_limited',
+  'no_voice_model',
+] as const;
+export type CoachAudioRequestOutcome = (typeof COACH_AUDIO_REQUEST_OUTCOMES)[number];
+const COACH_AUDIO_REQUEST_SET = new Set<string>(COACH_AUDIO_REQUEST_OUTCOMES);
 const COACH_CONVERSION_TARGETS = new Set<string>(['workout', 'check_in', 'photo']);
 
 export interface AiUsageMetric {
@@ -446,6 +460,7 @@ export class AppMetricsService implements OnModuleInit {
   private readonly coachAudioGenerated: Counter;
   private readonly coachAudioFailed: Counter;
   private readonly coachAudioPurged: Counter;
+  private readonly coachAudioRequests: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -632,6 +647,11 @@ export class AppMetricsService implements OnModuleInit {
     this.coachAudioPurged = m.createCounter(N.coachAudioPurged, {
       description: 'Coach voice notes deleted by coach.audio.purge after the retention window.',
       unit: '{object}',
+    });
+    this.coachAudioRequests = m.createCounter(N.coachAudioRequested, {
+      description:
+        'On-demand coach audio requests (Listen), by outcome: started, ready, pending, failed, disabled, rate_limited, no_voice_model.',
+      unit: '{request}',
     });
   }
 
@@ -901,6 +921,11 @@ export class AppMetricsService implements OnModuleInit {
   /** A coach message's audio fell back to text for `reason` (E7.6). */
   coachAudioFailure(reason: CoachAudioFailureReason): void {
     this.safely(() => this.coachAudioFailed.add(1, { reason: enumLabel(reason, COACH_AUDIO_FAILURE_SET) }));
+  }
+
+  /** One on-demand coach audio request ended with `outcome` (#259). */
+  coachAudioRequest(outcome: CoachAudioRequestOutcome): void {
+    this.safely(() => this.coachAudioRequests.add(1, { outcome: enumLabel(outcome, COACH_AUDIO_REQUEST_SET) }));
   }
 
   /** `coach.audio.purge` deleted `count` voice notes (E7.6). */

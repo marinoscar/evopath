@@ -31,6 +31,7 @@ describe('computeVerdict', () => {
       p95Ms: { degraded: 1000, critical: 3000 },
       errorLogs: { minCurrent: 10, degradedRatio: 3, criticalRatio: 10 },
       noDataMinutes: 5,
+      unknownRoutes: { criticalBearerRequests: 20, criticalDistinctRoutes: 3 },
       diskUtilizationPct: { degraded: 85, critical: 95 },
       memoryUtilizationPct: { degraded: 90, critical: 97 },
       dbConnectionsPct: { degraded: 80, critical: 95 },
@@ -39,6 +40,61 @@ describe('computeVerdict', () => {
       uptimeMinChecksForCritical: 2,
       collectorFailedPct: { critical: 10 },
       backupAgeHours: { degraded: 26, critical: 50 },
+    });
+  });
+
+  describe('unknown API routes (#258)', () => {
+    const unknown = (bearerRequests: number, bearerRoutes: number, topRoute: string | null = 'GET /api/coach/messages') => ({
+      unknownRoutes: { bearerRequests, bearerRoutes, topRoute },
+    });
+
+    it('stays healthy when the store cannot tell (no matched column)', () => {
+      expect(computeVerdict(input({ unknownRoutes: null })).level).toBe('healthy');
+      expect(computeVerdict(input({ unknownRoutes: undefined })).level).toBe('healthy');
+    });
+
+    it('never fires for anonymous-only unknown routes (scanner noise)', () => {
+      // The summary passes only bearer figures: anonymous requests reach the
+      // verdict as bearerRequests 0, whatever their count.
+      expect(computeVerdict(input(unknown(0, 0, null)))).toEqual({ level: 'healthy', reasons: [] });
+    });
+
+    it('degrades on a single bearer request and names the route', () => {
+      expect(computeVerdict(input(unknown(1, 1)))).toEqual({
+        level: 'degraded',
+        reasons: ['1 request to unknown API routes (GET /api/coach/messages)'],
+      });
+    });
+
+    it('needs no request volume: fires on a quiet deployment too', () => {
+      expect(computeVerdict(input({ requests: 3, ...unknown(3, 1) })).reasons).toEqual([
+        '3 requests to unknown API routes (GET /api/coach/messages)',
+      ]);
+    });
+
+    it.each([
+      [19, 1, 'degraded'],
+      [20, 1, 'critical'],
+      [5, 2, 'degraded'],
+      [3, 3, 'critical'],
+    ])('%d bearer requests over %d routes → %s', (requests, routes, level) => {
+      expect(computeVerdict(input(unknown(requests, routes))).level).toBe(level);
+    });
+
+    it('says how many routes when there are several', () => {
+      expect(computeVerdict(input(unknown(12, 3))).reasons).toEqual([
+        '12 requests to unknown API routes across 3 routes (GET /api/coach/messages)',
+      ]);
+    });
+
+    it('cuts a long route to the offender length', () => {
+      const reason = computeVerdict(input(unknown(1, 1, `GET /api/${'x'.repeat(200)}`))).reasons[0];
+      expect(reason.length).toBeLessThan(140);
+      expect(reason).toMatch(/…\)$/);
+    });
+
+    it('is overridden by no_data', () => {
+      expect(computeVerdict(input({ lastDataAt: null, ...unknown(50, 5) })).level).toBe('no_data');
     });
   });
 

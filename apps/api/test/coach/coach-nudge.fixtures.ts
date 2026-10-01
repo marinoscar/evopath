@@ -1,6 +1,5 @@
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import type { PlanSignals } from '../../src/programs/signals/plan-signals.contract';
-import { CoachAudioService } from '../../src/coach/audio/coach-audio.service';
 import { CoachContentGuard } from '../../src/coach/guard/coach-content-guard.service';
 import { DefaultAnglePicker } from '../../src/coach/nudges/angle-picker';
 import type { CoachNudgeOutput } from '../../src/coach/nudges/nudge-schema';
@@ -83,12 +82,8 @@ export interface SetupOptions {
   system?: Record<string, unknown>;
   state?: Record<string, unknown> | null;
   existing?: { id: string; deliveredAt: Date | null; audioStatus?: string; createdAt?: Date } | null;
-  /** `coach.voice` resolution (E7.6); defaults to a runnable speech model. */
+  /** `coach.voice` resolution (E7.6); defaults to a runnable speech model. The nudge job must never use it (#259). */
   voiceResolution?: { state: string; model: { provider: string; modelId: string } | null };
-  /** What `speak()` does (E7.6): resolve a run handle (default) or throw. */
-  speak?: Error;
-  /** Status of the speech run right after `speak()` (the early-settle check). */
-  speechRunStatus?: string;
   answers?: Array<CoachNudgeOutput | Error>;
   resolution?: { state: string; model: { provider: string; modelId: string } | null };
   signals?: PlanSignals;
@@ -107,10 +102,11 @@ export function setupNudge(options: SetupOptions = {}) {
     if (next instanceof Error) throw next;
     return { parsed: next, usage: {} };
   });
-  const speak = jest.fn(async (_req: unknown) => {
-    if (options.speak) throw options.speak;
-    return { runId: '00000000-0000-4000-8000-0000000000a1', jobId: '00000000-0000-4000-8000-0000000000b1' };
-  });
+  // Present so a test can prove the nudge job NEVER speaks (#259: audio is on demand).
+  const speak = jest.fn(async (_req: unknown) => ({
+    runId: '00000000-0000-4000-8000-0000000000a1',
+    jobId: '00000000-0000-4000-8000-0000000000b1',
+  }));
   const forUser = jest.fn(() => ({ respondStructured, speak }));
   const prisma = {
     userSettings: {
@@ -145,9 +141,6 @@ export function setupNudge(options: SetupOptions = {}) {
       findUnique: jest.fn(async () => ({ data: {} })),
       updateMany: jest.fn(async (_args: { where: Record<string, any>; data: Record<string, any> }) => ({ count: 1 })),
     },
-    aiRun: {
-      findUnique: jest.fn(async () => ({ status: options.speechRunStatus ?? 'pending' })),
-    },
     program: { findFirst: jest.fn(async () => null) },
     trainingPlanRun: { findFirst: jest.fn(async () => null) },
   };
@@ -181,16 +174,7 @@ export function setupNudge(options: SetupOptions = {}) {
       return Reflect.get(target, prop, receiver);
     },
   });
-  const runs = { cancel: jest.fn(async () => ({})) };
   const goals = { progressForUser: jest.fn(async () => options.goals ?? []) };
-  const audio = new CoachAudioService(
-    trackedPrisma as never,
-    { forUser } as never,
-    runs as never,
-    features as never,
-    jobs as never,
-    metrics as never,
-  );
   const handler = new CoachNudgeHandler(
     registry as never,
     trackedPrisma as never,
@@ -201,7 +185,6 @@ export function setupNudge(options: SetupOptions = {}) {
     signals as never,
     new CoachContentGuard(metrics as never),
     jobs as never,
-    audio,
     new DefaultAnglePicker(),
     metrics as never,
     goals as never,

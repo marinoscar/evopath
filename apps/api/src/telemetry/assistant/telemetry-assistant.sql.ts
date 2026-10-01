@@ -24,6 +24,14 @@
 // system wrote (service names, routes, log bodies, trace ids).
 // =============================================================================
 
+import {
+  literal,
+  ROUTE_NORMALIZE_PATTERN,
+  ROUTE_NORMALIZE_REPLACEMENT,
+  SERVER_SPAN_KIND,
+  TRACE_COLUMNS,
+} from '../dashboard/telemetry-dashboard.sql';
+
 export const TRACES_TABLE = 'opentelemetry_traces';
 export const LOGS_TABLE = 'opentelemetry_logs';
 
@@ -269,6 +277,111 @@ export function buildSlowestSpans(columns: ColumnSet, interval: string): Section
   };
 }
 
+// ---- health_overview: HTTP statuses and unknown routes (#258) -----------------
+//
+// OpenTelemetry leaves a 4xx server span STATUS_CODE_UNSET, so `failingRoutes`
+// (error spans) never shows a client error. These sections read the numeric
+// status column of SERVER spans instead. An UNKNOWN ROUTE is a 404 the
+// not-found handler answered: the API's onRequest hook writes
+// `app.route.matched = false` on it (and `app.request.bearer`, whether a
+// bearer was sent — never the token). The matched column only exists once an
+// unknown route has been recorded; without it the sections are skipped, with
+// a reason that says so (an absent column is not "zero unknown routes").
+
+const STATUS_COLUMN = TRACE_COLUMNS.status;
+const SERVER_SPAN = `span_kind = '${SERVER_SPAN_KIND}'`;
+
+/** Server spans of the window: the WHERE clause, server-kind filtered when `span_kind` exists. */
+function serverSpansSince(columns: ReadonlySet<string>, interval: string): string {
+  return `${since(interval)}${columns.has('span_kind') ? ` AND ${SERVER_SPAN}` : ''}`;
+}
+
+/** Requests by HTTP status code (server spans): shows 4xx, which error spans never do. */
+export function buildHttpStatuses(columns: ColumnSet, interval: string): SectionPlan {
+  const name = 'httpStatuses';
+  const required = ['timestamp', STATUS_COLUMN];
+  if (!hasAll(columns, required)) return { name, skipped: missing(TRACES_TABLE, columns, required) };
+
+  return {
+    name,
+    sql:
+      `SELECT ${q(STATUS_COLUMN)} AS http_status, count(*) AS requests FROM ${q(TRACES_TABLE)} ` +
+      `WHERE ${serverSpansSince(columns, interval)} AND ${q(STATUS_COLUMN)} IS NOT NULL ` +
+      `GROUP BY ${q(STATUS_COLUMN)} ORDER BY requests DESC LIMIT 20`,
+    shareable: ['http_status', 'requests'],
+    maxRows: 20,
+  };
+}
+
+const UNKNOWN_ROUTE_REQUIRED = ['timestamp', STATUS_COLUMN, TRACE_COLUMNS.routeMatched];
+
+function unknownRouteSkip(name: string, columns: ColumnSet): SkippedSection {
+  if (columns && !columns.has(TRACE_COLUMNS.routeMatched) && columns.has('timestamp')) {
+    return {
+      name,
+      skipped:
+        `table ${TRACES_TABLE} has no column ${TRACE_COLUMNS.routeMatched} yet: no request to an unknown route ` +
+        'has been recorded since the API started writing it, so unknown routes cannot be counted (not the same as zero)',
+    };
+  }
+  return { name, skipped: missing(TRACES_TABLE, columns, UNKNOWN_ROUTE_REQUIRED) };
+}
+
+function unknownRouteWhere(columns: ReadonlySet<string>, interval: string): string {
+  return `${serverSpansSince(columns, interval)} AND ${q(STATUS_COLUMN)} = 404 AND ${q(TRACE_COLUMNS.routeMatched)} = false`;
+}
+
+function bearerSum(columns: ReadonlySet<string>): string {
+  return columns.has(TRACE_COLUMNS.bearer) ? `sum(CASE WHEN ${q(TRACE_COLUMNS.bearer)} = true THEN 1 ELSE 0 END)` : '0';
+}
+
+/** Requests to unknown API routes in the window: with a bearer (our own clients) and without (scanners). */
+export function buildUnknownRoutes(columns: ColumnSet, interval: string): SectionPlan {
+  const name = 'unknownRoutes';
+  if (!hasAll(columns, UNKNOWN_ROUTE_REQUIRED)) return unknownRouteSkip(name, columns);
+
+  const bearer = bearerSum(columns);
+  return {
+    name,
+    sql:
+      `SELECT count(*) AS requests, ${bearer} AS bearer_requests, count(*) - ${bearer} AS anonymous_requests ` +
+      `FROM ${q(TRACES_TABLE)} WHERE ${unknownRouteWhere(columns, interval)}`,
+    shareable: ['requests', 'bearer_requests', 'anonymous_requests'],
+    maxRows: 1,
+  };
+}
+
+/** The unknown routes themselves, by method and normalized path, bearer requests first. */
+export function buildUnknownRoutePaths(columns: ColumnSet, interval: string): SectionPlan {
+  const name = 'unknownRoutePaths';
+  const required = [...UNKNOWN_ROUTE_REQUIRED, TRACE_COLUMNS.path];
+  if (!hasAll(columns, UNKNOWN_ROUTE_REQUIRED)) return unknownRouteSkip(name, columns);
+  if (!hasAll(columns, required)) return { name, skipped: missing(TRACES_TABLE, columns, required) };
+
+  const method = columns.has(TRACE_COLUMNS.method) ? q(TRACE_COLUMNS.method) : null;
+  const route =
+    `regexp_replace(${q(TRACE_COLUMNS.path)}, ${literal(ROUTE_NORMALIZE_PATTERN)}, ${literal(ROUTE_NORMALIZE_REPLACEMENT)}, 'g')`;
+  const selects = [
+    ...(method ? [`${method} AS http_method`] : []),
+    `${route} AS route`,
+    'count(*) AS requests',
+    `${bearerSum(columns)} AS bearer_requests`,
+    'max(timestamp) AS last_seen',
+  ];
+  const groups = [...(method ? ['http_method'] : []), 'route'];
+
+  return {
+    name,
+    sql:
+      `SELECT ${selects.join(', ')} FROM ${q(TRACES_TABLE)} WHERE ${unknownRouteWhere(columns, interval)} ` +
+      `GROUP BY ${groups.join(', ')} ORDER BY bearer_requests DESC, requests DESC LIMIT ${HEALTH_TOP_N}`,
+    // The method and path are what the REQUEST said — an outsider (a scanner)
+    // chooses them — so, like every route, they are withheld when sharing is off.
+    shareable: ['requests', 'bearer_requests', 'last_seen'],
+    maxRows: HEALTH_TOP_N,
+  };
+}
+
 // ---- health_overview: logs ----------------------------------------------------
 
 /** Log records grouped by severity_text AND severity_number (shows an unpopulated one). */
@@ -343,6 +456,9 @@ export function buildHealthOverview(
     buildServiceStats(traces, interval),
     buildServiceLatency(traces, interval),
     buildFailingRoutes(traces, interval),
+    buildHttpStatuses(traces, interval),
+    buildUnknownRoutes(traces, interval),
+    buildUnknownRoutePaths(traces, interval),
     buildSlowestSpans(traces, interval),
     buildWindowCoverage('logsCoverage', LOGS_TABLE, logs, interval),
     buildTableRange('logsRange', LOGS_TABLE, logs),

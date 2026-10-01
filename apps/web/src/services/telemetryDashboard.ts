@@ -105,11 +105,49 @@ export interface DashboardTile {
   sparkline: (number | null)[];
 }
 
+/** One unknown API route of the summary (#258): a method + path no route of the running API matches. */
+export interface DashboardUnknownRoute {
+  method: string | null;
+  /** The request path with id-like segments normalized to `:id`. */
+  route: string | null;
+  count: number;
+  /** Requests carrying an `Authorization: Bearer` header: the application's own clients. */
+  bearer: number;
+  /** Requests without a bearer: typically internet scanners. */
+  anonymous: number;
+}
+
+/**
+ * Requests to API routes that do not exist (#258) — a 404 from the not-found
+ * handler, e.g. a web build calling a route its API lacks after a deploy.
+ * Bearer requests degrade the verdict; anonymous ones are only counted.
+ */
+export interface DashboardUnknownRoutes {
+  requests: number;
+  bearer: number;
+  anonymous: number;
+  previousRequests: number;
+  previousBearer: number;
+  /** At most 5, bearer requests first. */
+  topRoutes: DashboardUnknownRoute[];
+  /** More unknown routes exist than `topRoutes` lists. */
+  truncated: boolean;
+  /**
+   * The exact statements run for this block, per-route list first, then the
+   * window totals — for "Open in Explorer". Optional only so a web build
+   * ahead of its API renders (the action is then disabled).
+   */
+  sql?: string[];
+}
+
 export interface DashboardSummary extends DashboardEnvelope {
   verdict: { level: DashboardVerdictLevel; reasons: string[] };
+  /** Includes `unknownRoutes` (#258), whose value is null while the store cannot tell. */
   tiles: DashboardTile[];
   /** Present only when the runtime metric tables exist. */
   runtime?: DashboardTile[];
+  /** #258. Absent when the store cannot tell unknown routes apart yet: unknown, not zero. */
+  unknownRoutes?: DashboardUnknownRoutes;
 }
 
 export interface DashboardApiBucket {
@@ -152,6 +190,15 @@ export interface DashboardTopRoute {
   /** 5xx responses. */
   errors: number;
   errorRatePct: number;
+  /**
+   * 4xx responses except 401, unknown routes included (#258). Optional only
+   * so a web build ahead of its API renders: the API always sends it.
+   */
+  clientErrors?: number;
+  /** Requests answered by the not-found handler (#258); 0 while the store cannot tell. */
+  unknownRequests?: number;
+  /** No route of the running API matches this method + path (#258). */
+  unknown?: boolean;
   p95Ms: number | null;
 }
 

@@ -1,4 +1,11 @@
-import { BadRequestException, ForbiddenException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 
 import type { CoachRegisterReason } from './personas/resolve-register';
 
@@ -21,6 +28,7 @@ export const COACH_ERRORS = {
   PERSONA_UNKNOWN: 'COACH_PERSONA_UNKNOWN',
   MESSAGE_NOT_FOUND: 'COACH_MESSAGE_NOT_FOUND',
   PREVIEW_RATE_LIMITED: 'COACH_PREVIEW_RATE_LIMITED',
+  AUDIO_RATE_LIMITED: 'COACH_AUDIO_RATE_LIMITED',
 } as const;
 
 export function coachDisabledError(): ForbiddenException {
@@ -37,9 +45,11 @@ export function coachProfanityLockedError(reason: CoachRegisterReason): Forbidde
   });
 }
 
-export function coachAudioDisabledError(): ForbiddenException {
+export function coachAudioDisabledError(
+  message = 'Spoken coach messages are switched off for this deployment.',
+): ForbiddenException {
   return new ForbiddenException({
-    message: 'Spoken coach messages are switched off for this deployment.',
+    message,
     details: { code: COACH_ERRORS.AUDIO_DISABLED, reason: COACH_ERRORS.AUDIO_DISABLED },
   });
 }
@@ -79,4 +89,35 @@ export function coachPreviewRateLimitedError(retryAfterMs: number): HttpExceptio
     },
     HttpStatus.TOO_MANY_REQUESTS,
   );
+}
+
+/**
+ * 429 for an on-demand "Listen" over the per-user limit (#259). Its own
+ * bucket, separate from the voice preview's. `details.retryAfterMs` sets
+ * `Retry-After`.
+ */
+export function coachAudioRateLimitedError(retryAfterMs: number): HttpException {
+  return new HttpException(
+    {
+      message: 'Too many coach audio requests. Try again later.',
+      details: {
+        code: COACH_ERRORS.AUDIO_RATE_LIMITED,
+        reason: COACH_ERRORS.AUDIO_RATE_LIMITED,
+        retryAfterMs: Math.max(1, Math.ceil(retryAfterMs)),
+      },
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+}
+
+/**
+ * 409 `AI_FEATURE_UNAVAILABLE` (`details.reason`) when `coach.voice` resolves
+ * no runnable model with `audio_speech` (the photo-intake convention). Shared
+ * by the voice preview and the on-demand message audio.
+ */
+export function coachVoiceUnavailableError(featureId: string, state: string, fix: unknown): ConflictException {
+  return new ConflictException({
+    message: `No AI model is available for the coach voice (${state}).`,
+    details: { reason: 'AI_FEATURE_UNAVAILABLE', featureId, state, fix },
+  });
 }

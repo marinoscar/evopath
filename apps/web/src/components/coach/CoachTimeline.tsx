@@ -79,6 +79,10 @@ export interface CoachTimelineProps {
   distanceUnit?: 'km' | 'mi';
   /** Rendered in the box when there is nothing else (the empty state). */
   empty?: ReactNode;
+  /** Speech is on for the caller: coach messages offer **Listen** (#259). */
+  speechEnabled?: boolean;
+  /** The API refused audio as switched off: the page hides Listen. */
+  onSpeechDisabled?: () => void;
 }
 
 function PendingTurn({
@@ -230,6 +234,8 @@ export function CoachTimeline({
   onPlanWeek,
   distanceUnit,
   empty,
+  speechEnabled = false,
+  onSpeechDisabled,
 }: CoachTimelineProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const firstId = items[0]?.id ?? null;
@@ -315,6 +321,8 @@ export function CoachTimeline({
             onDisplayed={onDisplayed}
             onPlanWeek={onPlanWeek}
             distanceUnit={distanceUnit}
+            speechEnabled={speechEnabled && message.role === 'coach'}
+            onSpeechDisabled={onSpeechDisabled}
           />
         ))}
         {pending && <PendingTurn turn={pending} persona={persona} onRetry={onRetry} onDismiss={onDismissFailure} />}

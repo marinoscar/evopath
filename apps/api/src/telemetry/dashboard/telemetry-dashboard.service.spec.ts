@@ -104,10 +104,26 @@ function answer(sql: string, overrides: Record<string, TelemetryQueryResult> = {
       return result(['traces_last', 'logs_last'], [['2026-09-27 21:59:30.000000', '2026-09-27 21:59:50.000000']]);
     case 'topRoutes':
       return result(
-        ['method', 'route', 'requests', 'errors', 'p95_ns'],
+        ['method', 'route', 'requests', 'errors', 'client_errors', 'unknown_requests', 'p95_ns'],
         [
-          ['POST', '/api/jobs', '100', '70', '900000000'],
-          ['GET', '/api/users/:id', '200', '2', '4000000000'],
+          ['POST', '/api/jobs', '100', '70', '3', '0', '900000000'],
+          ['GET', '/api/users/:id', '200', '2', '40', '0', '4000000000'],
+        ],
+      );
+    case 'unknownTotals':
+      return result(
+        ['period', 'requests', 'bearer'],
+        [
+          ['current', '9', '3'],
+          ['previous', '4', '0'],
+        ],
+      );
+    case 'unknownTop':
+      return result(
+        ['method', 'route', 'requests', 'bearer'],
+        [
+          ['GET', '/api/coach/messages', '3', '3'],
+          ['GET', '/wp-login.php', '6', '0'],
         ],
       );
     case 'topErrors':
@@ -138,6 +154,8 @@ function classify(sql: string): string {
   if (sql.includes(' AS v ') && sql.includes('app.instance.id')) return 'instances';
   if (sql.includes(' AS v ')) return 'services';
   if (sql.includes('traces_last')) return 'lastData';
+  if (sql.includes('AS bearer') && sql.includes('AS period')) return 'unknownTotals';
+  if (sql.includes('AS bearer')) return 'unknownTop';
   if (sql.includes('AS period') && sql.includes('opentelemetry_traces')) return 'apiTotals';
   if (sql.includes('AS period')) return 'logsTotals';
   if (sql.includes('AS s2xx')) return 'apiSeries';
@@ -483,7 +501,18 @@ describe('summary', () => {
     ]);
 
     const tiles = Object.fromEntries(summary.tiles.map((t) => [t.key, t]));
-    expect(Object.keys(tiles)).toEqual(['requestsPerMin', 'errorRatePct', 'p95Ms', 'errorLogs', 'warnLogs', 'lastDataAt']);
+    expect(Object.keys(tiles)).toEqual([
+      'requestsPerMin',
+      'errorRatePct',
+      'p95Ms',
+      'errorLogs',
+      'warnLogs',
+      'unknownRoutes',
+      'lastDataAt',
+    ]);
+    // No `app.route.matched` column in this store: unknown, not zero, and no block.
+    expect(tiles.unknownRoutes).toMatchObject({ value: null, previous: null, unit: 'count', sparkline: [] });
+    expect(summary.unknownRoutes).toBeUndefined();
     expect(tiles.requestsPerMin).toMatchObject({ value: 16.67, previous: 13.33, unit: 'req/min' });
     expect(tiles.errorRatePct).toMatchObject({ value: 7.2, previous: 0, unit: '%' });
     expect(tiles.p95Ms).toMatchObject({ value: 3450, previous: 1.2, unit: 'ms' });
@@ -511,6 +540,138 @@ describe('summary', () => {
     });
     expect(summary.sql).toHaveLength(9);
     expect(summary.truncated).toBe(false);
+  });
+
+  describe('unknown API routes (#258)', () => {
+    const UNKNOWN_SCHEMA: TelemetrySchema = {
+      tables: [
+        table('opentelemetry_traces', [
+          ...REQUIRED_TRACE_COLUMNS,
+          TRACE_COLUMNS.instance,
+          TRACE_COLUMNS.routeMatched,
+          TRACE_COLUMNS.bearer,
+        ]),
+        ...FULL_SCHEMA.tables.slice(1),
+      ],
+    };
+
+    it('runs the two unknown-route statements only when the matched column exists', async () => {
+      const without = setup();
+      await without.service.summary('u1', {});
+      expect(without.sqlOf('unknownTotals')).toEqual([]);
+      expect(without.sqlOf('unknownTop')).toEqual([]);
+      expect(without.sqlOf('topRoutes')[0]).toContain('0 AS unknown_requests');
+
+      const withColumns = setup({ schema: UNKNOWN_SCHEMA });
+      const summary = await withColumns.service.summary('u1', {});
+      expect(withColumns.sqlOf('unknownTotals')).toHaveLength(1);
+      expect(withColumns.sqlOf('unknownTop')).toHaveLength(1);
+      expect(withColumns.sqlOf('unknownTop')[0]).toContain('LIMIT 6');
+      expect(summary.sql).toHaveLength(11);
+    });
+
+    it('counts bearer and anonymous requests in the tile and the block', async () => {
+      const { service, sqlOf } = setup({ schema: UNKNOWN_SCHEMA });
+      const summary = await service.summary('u1', {});
+
+      expect(summary.tiles.find((t) => t.key === 'unknownRoutes')).toMatchObject({ value: 9, previous: 4 });
+      expect(summary.unknownRoutes).toEqual({
+        requests: 9,
+        bearer: 3,
+        anonymous: 6,
+        previousRequests: 4,
+        previousBearer: 0,
+        topRoutes: [
+          { method: 'GET', route: '/api/coach/messages', count: 3, bearer: 3, anonymous: 0 },
+          { method: 'GET', route: '/wp-login.php', count: 6, bearer: 0, anonymous: 6 },
+        ],
+        truncated: false,
+        // The exact statements run, per-route list first; no rebuilding.
+        sql: [sqlOf('unknownTop')[0], sqlOf('unknownTotals')[0]],
+      });
+      const [top, totals] = summary.unknownRoutes!.sql;
+      expect(top).toMatch(/AS bearer .*LIMIT 6$/);
+      expect(totals).toMatch(/AS period.*LIMIT 2$/);
+      expect(summary.sql).toEqual(expect.arrayContaining([top, totals]));
+    });
+
+    it('degrades the verdict on bearer requests, naming the top bearer route', async () => {
+      const { service } = setup({ schema: UNKNOWN_SCHEMA });
+      const summary = await service.summary('u1', {});
+      expect(summary.verdict.reasons).toContain('3 requests to unknown API routes (GET /api/coach/messages)');
+    });
+
+    it('does not let anonymous-only unknown routes touch the verdict', async () => {
+      const { service } = setup({
+        schema: UNKNOWN_SCHEMA,
+        overrides: {
+          unknownTotals: result(['period', 'requests', 'bearer'], [['current', '500', '0']]),
+          unknownTop: result(['method', 'route', 'requests', 'bearer'], [['GET', '/wp-login.php', '500', '0']]),
+        },
+      });
+      const summary = await service.summary('u1', {});
+      expect(summary.unknownRoutes).toMatchObject({ requests: 500, bearer: 0, anonymous: 500 });
+      expect(summary.verdict.reasons.join('\n')).not.toContain('unknown API routes');
+    });
+
+    it('is critical at 3 distinct bearer routes', async () => {
+      const { service } = setup({
+        schema: UNKNOWN_SCHEMA,
+        overrides: {
+          unknownTotals: result(['period', 'requests', 'bearer'], [['current', '3', '3']]),
+          unknownTop: result(
+            ['method', 'route', 'requests', 'bearer'],
+            [
+              ['GET', '/api/coach/messages', '1', '1'],
+              ['GET', '/api/admin/coach/settings', '1', '1'],
+              ['GET', '/api/admin/coach/stats', '1', '1'],
+            ],
+          ),
+        },
+      });
+      const summary = await service.summary('u1', {});
+      expect(summary.verdict.reasons).toContain(
+        '3 requests to unknown API routes across 3 routes (GET /api/coach/messages)',
+      );
+      expect(summary.verdict.level).toBe('critical');
+    });
+
+    it('marks the block truncated past five routes', async () => {
+      const rows = Array.from({ length: 6 }, (_, i) => ['GET', `/api/x${i}`, '1', '0']);
+      const { service } = setup({
+        schema: UNKNOWN_SCHEMA,
+        overrides: { unknownTop: result(['method', 'route', 'requests', 'bearer'], rows) },
+      });
+      const summary = await service.summary('u1', {});
+      expect(summary.unknownRoutes?.topRoutes).toHaveLength(5);
+      expect(summary.unknownRoutes?.truncated).toBe(true);
+    });
+
+    it('flags unknown routes and counts client errors in top routes', async () => {
+      const { service, sqlOf } = setup({
+        schema: UNKNOWN_SCHEMA,
+        overrides: {
+          topRoutes: result(
+            ['method', 'route', 'requests', 'errors', 'client_errors', 'unknown_requests', 'p95_ns'],
+            [['GET', '/api/coach/messages', '12', '0', '12', '12', '1000000']],
+          ),
+        },
+      });
+      const top = await service.top('u1', { kind: 'routes' });
+      expect(sqlOf('topRoutes')[0]).toContain('AS unknown_requests');
+      expect(sqlOf('topRoutes')[0]).not.toContain('0 AS unknown_requests');
+      expect(top.items[0]).toEqual({
+        method: 'GET',
+        route: '/api/coach/messages',
+        count: 12,
+        errors: 0,
+        errorRatePct: 0,
+        clientErrors: 12,
+        unknownRequests: 12,
+        unknown: true,
+        p95Ms: 1,
+      });
+    });
   });
 
   it('never names a streaming (SSE) route as the slowest offender', async () => {
@@ -595,6 +756,9 @@ describe('timeseries and top', () => {
       count: 100,
       errors: 70,
       errorRatePct: 70,
+      clientErrors: 3,
+      unknownRequests: 0,
+      unknown: false,
       p95Ms: 900,
     });
     expect(top.truncated).toBe(false);
@@ -729,11 +893,20 @@ describe('audit', () => {
 });
 
 describe('catalogOf', () => {
+  it('detects the #258 unknown-route columns independently', () => {
+    const traces = table('opentelemetry_traces', [...REQUIRED_TRACE_COLUMNS, TRACE_COLUMNS.routeMatched, TRACE_COLUMNS.bearer]);
+    expect(catalogOf({ tables: [traces] })).toMatchObject({ traces: true, tracesHaveRouteMatched: true, tracesHaveBearer: true });
+    const bearerOnly = table('opentelemetry_traces', [...REQUIRED_TRACE_COLUMNS, TRACE_COLUMNS.bearer]);
+    expect(catalogOf({ tables: [bearerOnly] })).toMatchObject({ tracesHaveRouteMatched: false, tracesHaveBearer: true });
+  });
+
   it('needs every required column', () => {
     const partial = { tables: [table('opentelemetry_traces', ['timestamp', 'span_kind'])] };
     expect(catalogOf(partial)).toEqual({
       traces: false,
       tracesHaveInstance: false,
+      tracesHaveRouteMatched: false,
+      tracesHaveBearer: false,
       logs: false,
       heap: false,
       eventLoop: false,
@@ -741,6 +914,8 @@ describe('catalogOf', () => {
     expect(catalogOf(FULL_SCHEMA)).toEqual({
       traces: true,
       tracesHaveInstance: true,
+      tracesHaveRouteMatched: false,
+      tracesHaveBearer: false,
       logs: true,
       heap: true,
       eventLoop: true,

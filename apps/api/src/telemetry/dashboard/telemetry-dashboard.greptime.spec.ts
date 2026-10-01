@@ -100,9 +100,39 @@ describeLive('telemetry dashboard — live GreptimeDB', () => {
       'p95Ms',
       'errorLogs',
       'warnLogs',
+      'unknownRoutes',
       'lastDataAt',
     ]);
     expect(['healthy', 'degraded', 'critical', 'no_data']).toContain(summary.verdict.level);
+  });
+
+  // #258: runs the unknown-route statements whenever the store has recorded
+  // an unknown route (the API's onRequest hook wrote `app.route.matched`);
+  // on a store that has not, proves the summary degrades to "unknown".
+  it('counts unknown API routes when the store can tell', async () => {
+    const schema = await new TelemetrySchemaService(greptime, { getPolicy: async () => POLICY } as never).getSchema();
+    const traces = schema.tables.find((t) => t.name === 'opentelemetry_traces');
+    const hasMatched = !!traces?.columns.some((c) => c.name === 'span_attributes.app.route.matched');
+
+    const summary = await dashboard.summary('u1', { range: '7d' });
+    const tile = summary.tiles.find((t) => t.key === 'unknownRoutes');
+    if (!hasMatched) {
+      expect(tile?.value).toBeNull();
+      expect(summary.unknownRoutes).toBeUndefined();
+      return;
+    }
+    expect(summary.unknownRoutes).toBeDefined();
+    const block = summary.unknownRoutes!;
+    expect(tile?.value).toBe(block.requests);
+    expect(block.bearer + block.anonymous).toBe(block.requests);
+    expect(block.topRoutes.length).toBeLessThanOrEqual(5);
+
+    const top = await dashboard.top('u1', { kind: 'routes', range: '7d' });
+    for (const item of top.items) {
+      if (!('clientErrors' in item)) continue;
+      expect(item.unknown).toBe(item.unknownRequests > 0);
+      expect(item.clientErrors).toBeGreaterThanOrEqual(item.unknownRequests);
+    }
   });
 
   it.each(['api', 'logs'] as const)('computes the %s time series', async (panel) => {

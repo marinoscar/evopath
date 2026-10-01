@@ -809,6 +809,87 @@ describe('TelemetryAssistantService', () => {
       }
     });
 
+    describe('unknown API routes and HTTP statuses (#258)', () => {
+      const traceColumns = (extra: string[]) => [
+        ...SCHEMA.tables[1].columns,
+        ...['span_kind', 'span_attributes.http.response.status_code', 'span_attributes.http.request.method', 'span_attributes.url.path', ...extra].map(
+          (name) => ({ name, type: 'String', semanticType: 'FIELD' }),
+        ),
+      ];
+      const schemaWith = (extra: string[]): TelemetrySchema => ({
+        tables: [SCHEMA.tables[0], { ...SCHEMA.tables[1], columns: traceColumns(extra) }],
+      });
+      const WITH_650 = schemaWith(['span_attributes.app.route.matched', 'span_attributes.app.request.bearer']);
+
+      /** Answers the unknown-route sections with fixture rows, everything else with one count. */
+      const runFor = () =>
+        jest.fn(async (_userId: string, sql: string) => {
+          if (sql.includes('AS anonymous_requests')) {
+            return {
+              columns: [{ name: 'requests' }, { name: 'bearer_requests' }, { name: 'anonymous_requests' }],
+              rows: [[9, 3, 6]],
+              rowCount: 1,
+              truncated: false,
+              elapsedMs: 1,
+            };
+          }
+          if (sql.includes('AS route') && sql.includes('app.route.matched')) {
+            return {
+              columns: [{ name: 'http_method' }, { name: 'route' }, { name: 'requests' }, { name: 'bearer_requests' }, { name: 'last_seen' }],
+              rows: [['GET', '/api/coach/messages', 3, 3, '2026-09-27T21:59:00Z']],
+              rowCount: 1,
+              truncated: false,
+              elapsedMs: 1,
+            };
+          }
+          return { columns: [{ name: 'n' }], rows: [[1]], rowCount: 1, truncated: false, elapsedMs: 1 };
+        });
+
+      it('counts unknown routes with and without a bearer and lists the top path', async () => {
+        const run = runFor();
+        const t = setup({ run, schema: WITH_650, script: [call('c1', 'health_overview', { window: '1h' }), answer(null, 'ok')] });
+
+        await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+        const { sections } = JSON.parse(outputsOf(t.requests()[1])[0].output);
+        expect(sections.httpStatuses.skipped).toBeUndefined();
+        expect(sections.unknownRoutes).toMatchObject({
+          columns: ['requests', 'bearer_requests', 'anonymous_requests'],
+          rows: [[9, 3, 6]],
+        });
+        expect(sections.unknownRoutePaths.rows[0]).toEqual(['GET', '/api/coach/messages', 3, 3, '2026-09-27T21:59:00Z']);
+        const sqls = run.mock.calls.map(([, sql]) => sql as string);
+        expect(sqls.some((sql) => sql.includes('"span_attributes.app.route.matched" = false'))).toBe(true);
+      });
+
+      it('withholds the method and path, but keeps the counts, when shareResults is off', async () => {
+        const t = setup({
+          run: runFor(),
+          schema: WITH_650,
+          policy: policyWith({ shareResults: false }),
+          script: [call('c1', 'health_overview', { window: '1h' }), answer(null, 'ok')],
+        });
+
+        await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+        const { sections } = JSON.parse(outputsOf(t.requests()[1])[0].output);
+        expect(sections.unknownRoutes.rows).toEqual([[9, 3, 6]]);
+        expect(sections.unknownRoutePaths.rows[0]).toEqual([null, null, 3, 3, '2026-09-27T21:59:00Z']);
+        expect(sections.unknownRoutePaths.note).toMatch(/hidden from the assistant by policy/);
+      });
+
+      it('skips the unknown-route sections, saying why, before the store has the matched column', async () => {
+        const t = setup({ schema: schemaWith([]), script: [call('c1', 'health_overview', { window: '1h' }), answer(null, 'ok')] });
+
+        await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+        const { sections } = JSON.parse(outputsOf(t.requests()[1])[0].output);
+        expect(sections.unknownRoutes.skipped).toMatch(/not the same as zero/);
+        expect(sections.unknownRoutePaths.skipped).toMatch(/not the same as zero/);
+        expect(sections.httpStatuses.skipped).toBeUndefined();
+      });
+    });
+
     it('defaults the window to 1h when the model omits it', async () => {
       const t = setup({ script: [call('c1', 'health_overview', {}), answer(null, 'ok')] });
 

@@ -176,6 +176,40 @@ describe('CoachAudioService', () => {
       expect(t.metrics.coachAudioReady).not.toHaveBeenCalled();
     });
 
+    it('on demand (#259): settles ready or failed exactly the same, but NEVER asks for delivery', async () => {
+      const onDemand = { deliveredAt: null, data: { momentKey: 'k', audioOnDemand: true, audioRequestedAt: NOW.toISOString() } };
+      const ready = setup({ run: SPEECH_OK, message: onDemand });
+      await expect(ready.service.settle(MESSAGE, 'settled', NOW)).resolves.toEqual({ status: 'ready', userId: USER, deliver: false });
+      expect(ready.prisma.coachMessage.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ audioStatus: 'ready', audioStorageObjectId: OBJECT }) }),
+      );
+
+      const failed = setup({ run: { status: 'failed', output: null, errorCode: 'AI_CONTENT_FILTERED', errorMessage: null }, message: onDemand });
+      await expect(failed.service.settle(MESSAGE, 'settled', NOW)).resolves.toMatchObject({ status: 'failed', deliver: false });
+
+      const duplicate = setup({ message: { ...onDemand, audioStatus: 'ready' } });
+      await expect(duplicate.service.settle(MESSAGE, 'timeout', NOW)).resolves.toMatchObject({ status: 'not_pending', deliver: false });
+    });
+
+    it('a chat reply (no deliveredAt, ever) is never delivered by a settle, on demand or not', async () => {
+      const t = setup({ run: SPEECH_OK, message: { kind: 'chat', data: {} } });
+      await expect(t.service.settle(MESSAGE, 'settled', NOW)).resolves.toMatchObject({ status: 'ready', deliver: false });
+    });
+
+    it('a settle pinned to an older speech run of the message changes nothing', async () => {
+      const t = setup({ run: { status: 'running', output: null, errorCode: null, errorMessage: null } });
+      await expect(t.service.settle(MESSAGE, 'timeout', NOW, null, '00000000-0000-4000-8000-0000000000b9')).resolves.toEqual({
+        status: 'not_pending',
+        userId: USER,
+        deliver: false,
+      });
+      expect(t.prisma.coachMessage.updateMany).not.toHaveBeenCalled();
+      expect(t.runs.cancel).not.toHaveBeenCalled();
+
+      const current = setup({ run: { status: 'running', output: null, errorCode: null, errorMessage: null } });
+      await expect(current.service.settle(MESSAGE, 'timeout', NOW, null, RUN)).resolves.toMatchObject({ status: 'failed' });
+    });
+
     it('an unknown message is ignored', async () => {
       const t = setup({ message: null });
       await expect(t.service.settle(MESSAGE, 'settled', NOW)).resolves.toEqual({ status: 'not_found', deliver: false });
@@ -195,6 +229,44 @@ describe('CoachAudioService', () => {
         payload: { messageId: MESSAGE, cause: 'settled', jobSucceeded: true },
       });
       expect(t.jobs.enqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ skipDedup: true, scheduledFor: expect.any(Date) }));
+    });
+
+    it('carries the speech run id when given (#259)', async () => {
+      const t = setup();
+      await t.service.enqueueSettle(MESSAGE, 'timeout', NOW, undefined, RUN);
+      expect(t.jobs.enqueue).toHaveBeenCalledWith(expect.objectContaining({ payload: { messageId: MESSAGE, cause: 'timeout', runId: RUN } }));
+    });
+  });
+
+  describe('start', () => {
+    it('without a job (on demand): speak() is scoped to no job, the run id is stored and the pinned wait cap queued', async () => {
+      const speak = jest.fn(async () => ({ runId: RUN, jobId: 'job' }));
+      const forUser = jest.fn(() => ({ speak }));
+      const prisma = {
+        coachMessage: { updateMany: jest.fn(async () => ({ count: 1 })) },
+        aiRun: { findUnique: jest.fn(async () => ({ status: 'pending' })) },
+      };
+      const jobs = { enqueue: jest.fn(async () => ({ id: 'job' })) };
+      const service = new CoachAudioService(prisma as never, { forUser } as never, {} as never, {} as never, jobs as never, {} as never);
+
+      await expect(
+        service.start({
+          userId: USER,
+          messageId: MESSAGE,
+          model: { provider: 'openai', modelId: 'tts' },
+          request: { input: 'Hi', voice: 'alloy', speed: 1, instructions: undefined },
+          now: NOW,
+        }),
+      ).resolves.toEqual({ status: 'pending', runId: RUN });
+      expect(forUser).toHaveBeenCalledWith(USER, {});
+      expect(prisma.coachMessage.updateMany).toHaveBeenCalledWith({ where: { id: MESSAGE, audioStatus: 'pending' }, data: { audioRunId: RUN } });
+      expect(jobs.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: { messageId: MESSAGE, cause: 'timeout', runId: RUN },
+          scheduledFor: new Date(NOW.getTime() + COACH_AUDIO_WAIT_CAP_MS),
+          skipDedup: true,
+        }),
+      );
     });
   });
 });

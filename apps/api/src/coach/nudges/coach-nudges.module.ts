@@ -29,12 +29,14 @@ import { CoachNudgeHandler } from './handlers/coach-nudge.handler';
 //   enqueues a type a handler is registered for.
 // - `coach.message.deliver` (`CoachMessageDeliverHandler`): `notifyNow`,
 //   `deliveredAt`, `CoachState` counters.
-// - `POST /api/coach/messages/:id/{opened,feedback}` and the conversion
+// - `POST /api/coach/messages/:id/{opened,feedback}`, `GET|POST
+//   /api/coach/messages/:id/audio` (on-demand Listen, #259, served by
+//   `CoachMessageAudioService` from `CoachAudioModule`) and the conversion
 //   listener.
 // - `COACH_ANGLE_PICKER`: the angle seam. E7.11 (#251) binds
 //   `BanditAnglePicker` (`learning/`), which falls back to
 //   `DefaultAnglePicker` when it cannot run.
-// - `CoachAudioModule` (E7.6): spoken nudges, their settle and retention.
+// - `CoachAudioModule` (E7.6, #259): on-demand message audio, its settle and retention.
 //
 // Imported by `CoachModule`, never by `AppModule` directly. `CoachContentGuard`
 // is stateless, so this module provides its own instance rather than importing

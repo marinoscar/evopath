@@ -43,7 +43,7 @@ export class CoachAudioSettledListener {
       });
       if (!message || message.audioStatus !== 'pending') return;
 
-      await this.audio.enqueueSettle(message.id, 'settled', undefined, event.succeeded);
+      await this.audio.enqueueSettle(message.id, 'settled', undefined, event.succeeded, event.subjectId);
     } catch (error) {
       this.logger.warn(
         `Could not queue the coach audio settle for speech run ${event.subjectId}: ` +

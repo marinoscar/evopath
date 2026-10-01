@@ -96,6 +96,16 @@ import {
   type DashboardLayout,
 } from '../../components/telemetry/dashboard/DashboardFilterBar';
 import { TopProblems, type TopProblemsKind } from '../../components/telemetry/dashboard/TopProblems';
+import {
+  UNKNOWN_ROUTES_TITLE,
+  UnknownRoutesPanel,
+} from '../../components/telemetry/dashboard/UnknownRoutesPanel';
+import {
+  hasUnknownRoutes,
+  isUnknownRoutesReason,
+  scrollToUnknownRoutes,
+  unknownRoutesSql,
+} from '../../components/telemetry/dashboard/unknownRoutes';
 import { EventsFeed } from '../../components/telemetry/dashboard/EventsFeed';
 import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxis';
 import { TELEMETRY_EXPLORER_PATH, explorerHandoff } from '../../components/telemetry/explorerHandoff';
@@ -338,8 +348,15 @@ export default function TelemetryDashboardPage() {
   const notCollected = METRIC_SECTIONS.map(({ group }) => group).filter(
     (group) => metrics[group].data?.available === false,
   );
-  /** A verdict reason about an infrastructure section links to it — when that section is on screen. */
+  // Unknown API routes (#258): its panel shows only when the summary counted one.
+  const unknownRoutes = hasUnknownRoutes(summary.data?.unknownRoutes) ? summary.data.unknownRoutes : null;
+  const unknownSql = unknownRoutesSql(unknownRoutes);
+
+  /** A verdict reason about an infrastructure section (or unknown routes) links to it — when it is on screen. */
   const reasonLink = (reason: string) => {
+    if (isUnknownRoutesReason(reason)) {
+      return unknownRoutes ? { label: 'Show unknown routes', onClick: scrollToUnknownRoutes } : null;
+    }
     const group = verdictReasonGroup(reason);
     if (!group || !metrics[group].data?.available) return null;
     return { label: `Show ${metricSectionTitle(group)}`, onClick: () => scrollToMetricSection(group) };
@@ -424,7 +441,13 @@ export default function TelemetryDashboardPage() {
               isEmpty={!!summary.data && summary.data.tiles.length === 0}
               skeletonHeight={120}
             >
-              {summary.data && <KpiTiles tiles={summary.data.tiles} runtime={summary.data.runtime} />}
+              {summary.data && (
+                <KpiTiles
+                  tiles={summary.data.tiles}
+                  runtime={summary.data.runtime}
+                  unknownRoutes={summary.data.unknownRoutes}
+                />
+              )}
             </DashboardPanel>
 
             <Grid container spacing={{ xs: 1.5, sm: 2 }}>
@@ -506,6 +529,19 @@ export default function TelemetryDashboardPage() {
                 </DashboardPanel>
               </Grid>
             </Grid>
+
+            {unknownRoutes && (
+              <UnknownRoutesPanel
+                unknownRoutes={unknownRoutes}
+                sql={unknownSql}
+                isRefreshing={summary.isRefreshing}
+                actions={panelActions('panel-unknown-routes', unknownSql, {
+                  kind: 'unknownRoutes',
+                  title: UNKNOWN_ROUTES_TITLE,
+                  unknownRoutes,
+                })}
+              />
+            )}
 
             <TopProblems
               routes={topRoutes}

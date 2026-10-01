@@ -111,7 +111,7 @@ export type TelemetryDashboardTimeseriesQuery = z.infer<typeof telemetryDashboar
 
 export const DASHBOARD_TOP_KINDS = ['routes', 'errors'] as const;
 export const telemetryDashboardTopQuerySchema = z
-  .object({ ...commonShape, kind: z.enum(DASHBOARD_TOP_KINDS).describe('`routes` (by 5xx, then p95) or `errors` (log messages).') })
+  .object({ ...commonShape, kind: z.enum(DASHBOARD_TOP_KINDS).describe('`routes` (by 5xx, then 4xx except 401, then p95) or `errors` (log messages).') })
   .superRefine(refineWindow);
 export class TelemetryDashboardTopQueryDto extends createZodDto(telemetryDashboardTopQuerySchema) {}
 export type TelemetryDashboardTopQuery = z.infer<typeof telemetryDashboardTopQuerySchema>;
@@ -190,17 +190,59 @@ export const telemetryDashboardTileSchema = z.object({
 });
 export type TelemetryDashboardTile = z.infer<typeof telemetryDashboardTileSchema>;
 
+export const unknownRouteSchema = z.object({
+  method: z.string().nullable(),
+  route: z
+    .string()
+    .nullable()
+    .describe('The request path with numeric/UUID/hex segments normalized to `:id` (a route shape, not a value).'),
+  count: z.number().describe('Requests to this unknown route in the window.'),
+  bearer: z.number().describe('Of those, requests carrying an `Authorization: Bearer` header (the application\'s own clients).'),
+  anonymous: z.number().describe('Of those, requests without a bearer (typically internet scanners).'),
+});
+
+export const telemetryDashboardUnknownRoutesSchema = z
+  .object({
+    requests: z.number().describe('Requests answered by the not-found handler (404, no matched route) in the window.'),
+    bearer: z.number().describe('Of those, requests with an `Authorization: Bearer` header. Any of these degrades the verdict.'),
+    anonymous: z.number().describe('Of those, requests without a bearer. Counted, never alarming.'),
+    previousRequests: z.number().describe('`requests` over the previous window of equal length.'),
+    previousBearer: z.number().describe('`bearer` over the previous window of equal length.'),
+    topRoutes: z
+      .array(unknownRouteSchema)
+      .describe('Most-hit unknown routes by `METHOD /normalized-path`, bearer requests first (at most 5).'),
+    truncated: z.boolean().describe('More unknown routes exist than `topRoutes` lists.'),
+    sql: z
+      .array(z.string())
+      .describe(
+        'The exact statements run for this block, per-route list first, then the window totals ' +
+          '(the same text that also appears in the summary\'s `sql`), for "Open in Explorer".',
+      ),
+  })
+  .describe(
+    'Requests to API routes that do not exist (issue #258). Absent when the store has no ' +
+      '`span_attributes.app.route.matched` column yet (no unknown route recorded since the API started ' +
+      'writing it): the figure is then unknown, not zero.',
+  );
+export type TelemetryDashboardUnknownRoutes = z.infer<typeof telemetryDashboardUnknownRoutesSchema>;
+
 export const telemetryDashboardSummarySchema = z.object({
   ...envelope,
   verdict: z.object({
     level: z.enum(VERDICT_LEVELS),
     reasons: z.array(z.string()),
   }),
-  tiles: z.array(telemetryDashboardTileSchema),
+  tiles: z
+    .array(telemetryDashboardTileSchema)
+    .describe(
+      'Fixed tiles: `requestsPerMin`, `errorRatePct`, `p95Ms`, `errorLogs`, `warnLogs`, `unknownRoutes` ' +
+        '(requests to unknown API routes; value null when the store cannot tell yet, see `unknownRoutes`) and `lastDataAt`.',
+    ),
   runtime: z
     .array(telemetryDashboardTileSchema)
     .optional()
     .describe('Heap used and event-loop delay p99, when the runtime metric tables exist. Not filtered by instance.'),
+  unknownRoutes: telemetryDashboardUnknownRoutesSchema.optional(),
 });
 export class TelemetryDashboardSummaryDto extends createZodDto(telemetryDashboardSummarySchema) {}
 export type TelemetryDashboardSummary = z.infer<typeof telemetryDashboardSummarySchema>;
@@ -235,6 +277,11 @@ export const topRouteSchema = z.object({
   count: z.number(),
   errors: z.number().describe('5xx responses.'),
   errorRatePct: z.number(),
+  clientErrors: z.number().describe('4xx responses except 401 (an expired access token is routine), unknown routes included.'),
+  unknownRequests: z
+    .number()
+    .describe('Requests answered by the not-found handler: no API route matches this method and path. 0 when the store cannot tell yet.'),
+  unknown: z.boolean().describe('`unknownRequests > 0`: this method + path is not a route of the running API build.'),
   p95Ms: z.number().nullable(),
 });
 export const topErrorSchema = z.object({
