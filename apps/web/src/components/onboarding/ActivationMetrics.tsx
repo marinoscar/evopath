@@ -47,7 +47,8 @@ export const METRICS_STEP_LABEL: Record<OnboardingMetricsStepId, string> = {
   health_profile: 'Completed the health profile',
   gym: 'Added a gym',
   first_workout: 'Logged a first workout',
-  ai_plan: 'Created an AI training plan',
+  // E7.12: once a plan exists the step is "Meet your coach" (done when coach settings are saved).
+  ai_plan: 'Created an AI plan and met the coach',
 };
 
 /** `0.304` → `30%`; `null` → `null`. */

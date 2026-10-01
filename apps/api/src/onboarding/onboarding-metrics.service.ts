@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import {
   ACTIVATION_WINDOW_DAYS,
   OnboardingMetricsResponse,
@@ -24,7 +25,9 @@ import {
 //                completed workout, over cohort users that have one
 //   * steps      the same "done" rules as the user checklist
 //                (`OnboardingService.userBlock`): a health-profile row, a gym,
-//                a completed workout, a program.
+//                a completed workout, and for `ai_plan` a program plus,
+//                while the system coach switch is on, a saved `coach`
+//                user-settings namespace ("Meet your coach", E7.12).
 // =============================================================================
 
 interface MetricsRow {
@@ -42,12 +45,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class OnboardingMetricsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional: absent reads as "the coach is on" (the switch's default).
+    @Optional() private readonly systemSettings?: SystemSettingsService,
+  ) {}
 
   async metrics(days: number, now: Date = new Date()): Promise<OnboardingMetricsResponse> {
     const cohortStart = new Date(now.getTime() - days * DAY_MS);
     const eligibleBefore = new Date(now.getTime() - ACTIVATION_WINDOW_DAYS * DAY_MS);
     const activationWindow = `${ACTIVATION_WINDOW_DAYS} days`;
+    const requireCoach = await this.coachEnabled();
 
     const rows = await this.prisma.$queryRaw<MetricsRow[]>(Prisma.sql`
       WITH cohort AS (
@@ -82,6 +90,13 @@ export class OnboardingMetricsService {
         (count(*) FILTER (WHERE f.user_id IS NOT NULL))::int AS first_workout,
         (count(*) FILTER (
           WHERE EXISTS (SELECT 1 FROM programs p WHERE p.user_id = c.id)
+            AND (
+              NOT ${requireCoach}::boolean
+              OR EXISTS (
+                SELECT 1 FROM user_settings us
+                WHERE us.user_id = c.id AND jsonb_typeof(us.value -> 'coach') = 'object'
+              )
+            )
         ))::int AS ai_plan
       FROM cohort c
       LEFT JOIN first_workout f ON f.user_id = c.id
@@ -115,6 +130,16 @@ export class OnboardingMetricsService {
         step('ai_plan', toInt(row?.ai_plan)),
       ],
     };
+  }
+
+  /** The system coach switch, as the checklist reads it; a failed read keeps the plain program rule. */
+  private async coachEnabled(): Promise<boolean> {
+    if (!this.systemSettings) return true;
+    try {
+      return (await this.systemSettings.getCoachPolicy()).enabled;
+    } catch {
+      return false;
+    }
   }
 }
 

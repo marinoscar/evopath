@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AiConfigService } from '../ai/config/ai-config.service';
@@ -10,6 +10,7 @@ import {
 import { DoctorService } from '../doctor/doctor.service';
 import { DoctorCheckReport } from '../doctor/dto/doctor-report.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import {
   OnboardingAdminBlock,
   OnboardingResponse,
@@ -59,6 +60,17 @@ const USER_STEPS: Record<UserStepId, UserStepDef> = {
     label: 'Create an AI training plan',
     href: '/train/plans/new',
   },
+};
+
+/**
+ * The `ai_plan` step once a program exists (E7.12): same id, same slot, so
+ * the checklist stays at four steps. Done once the coach settings were saved
+ * at least once (the `coach` user-settings namespace exists).
+ */
+const MEET_COACH_STEP: UserStepDef = {
+  id: 'ai_plan',
+  label: 'Meet your coach',
+  href: '/settings/coach',
 };
 
 /** Lifting goals put the gym and a workout first; everything else the profile. */
@@ -147,6 +159,9 @@ export class OnboardingService {
     private readonly doctor: DoctorService,
     private readonly aiConfig: AiConfigService,
     private readonly config: ConfigService,
+    // Optional so hand-built instances in tests need no stub: absent reads as
+    // "the coach is on" (the system switch's default).
+    @Optional() private readonly systemSettings?: SystemSettingsService,
   ) {}
 
   async get(
@@ -157,12 +172,12 @@ export class OnboardingService {
       PERMISSIONS.SYSTEM_SETTINGS_READ,
     );
 
-    const [state, admin] = await Promise.all([
+    const [{ coachConfigured, ...state }, admin] = await Promise.all([
       this.readState(caller.id),
       isAdmin ? this.adminBlock(options.refresh === true) : Promise.resolve(null),
     ]);
 
-    const user = await this.userBlock(caller, state.goal);
+    const user = await this.userBlock(caller, state.goal, coachConfigured);
 
     return { ...state, user, admin };
   }
@@ -172,32 +187,42 @@ export class OnboardingService {
     welcomeSeenAt: string | null;
     checklistDismissedAt: string | null;
     goal: OnboardingGoal | null;
+    /** The `coach` namespace exists: coach settings were saved at least once (E7.12). */
+    coachConfigured: boolean;
   }> {
     const row = await this.prisma.userSettings.findUnique({
       where: { userId },
       select: { value: true },
     });
 
-    const raw = (row?.value as { onboarding?: unknown } | null | undefined)
-      ?.onboarding;
-    const parsed = onboardingSettingsSchema.safeParse(raw ?? {});
+    const stored = row?.value as
+      | { onboarding?: unknown; coach?: unknown }
+      | null
+      | undefined;
+    const parsed = onboardingSettingsSchema.safeParse(stored?.onboarding ?? {});
     const value = parsed.success ? parsed.data : {};
+    const coach = stored?.coach;
 
     return {
       welcomeSeenAt: value.welcomeSeenAt ?? null,
       checklistDismissedAt: value.checklistDismissedAt ?? null,
       goal: value.goal ?? null,
+      coachConfigured:
+        typeof coach === 'object' && coach !== null && !Array.isArray(coach),
     };
   }
 
   private async userBlock(
     caller: OnboardingCaller,
     goal: OnboardingGoal | null,
+    coachConfigured: boolean,
   ): Promise<OnboardingUserBlock> {
     const has = (permission: string) => caller.permissions.includes(permission);
     const userId = caller.id;
 
     const checks: Partial<Record<UserStepId, () => Promise<boolean>>> = {};
+    // Per-step label/link overrides (the `ai_plan` -> "Meet your coach" variant).
+    const variants: Partial<Record<UserStepId, UserStepDef>> = {};
 
     if (has(PERMISSIONS.HEALTH_DATA_READ)) {
       // A stored row is a saved profile: the read API reports `version: 0`
@@ -230,11 +255,22 @@ export class OnboardingService {
       has(PERMISSIONS.PROGRAMS_READ) &&
       (await this.isAiEnabled())
     ) {
-      checks.ai_plan = async () =>
-        (await this.prisma.program.findFirst({
-          where: { userId },
-          select: { id: true },
-        })) !== null;
+      // Before a plan exists: "Create an AI training plan", done never.
+      // Once one exists the same step becomes "Meet your coach" (E7.12; no
+      // fifth step), done once the coach settings were saved.
+      const coachOn = await this.isCoachEnabled();
+      checks.ai_plan = async () => {
+        const hasProgram =
+          (await this.prisma.program.findFirst({
+            where: { userId },
+            select: { id: true },
+          })) !== null;
+        if (!hasProgram) return false;
+        // The administrator switched the coach off: the step is done as before.
+        if (!coachOn) return true;
+        variants.ai_plan = MEET_COACH_STEP;
+        return coachConfigured;
+      };
     }
 
     const order =
@@ -244,14 +280,17 @@ export class OnboardingService {
     const included = order.filter((id) => checks[id] !== undefined);
     const done = await Promise.all(included.map((id) => checks[id]!()));
 
-    const steps: OnboardingStep[] = included.map((id, index) => ({
-      id,
-      group: null,
-      status: done[index] ? 'done' : 'todo',
-      label: USER_STEPS[id].label,
-      detail: null,
-      href: USER_STEPS[id].href,
-    }));
+    const steps: OnboardingStep[] = included.map((id, index) => {
+      const def = variants[id] ?? USER_STEPS[id];
+      return {
+        id,
+        group: null,
+        status: done[index] ? 'done' : 'todo',
+        label: def.label,
+        detail: null,
+        href: def.href,
+      };
+    });
 
     return summarize(steps);
   }
@@ -264,6 +303,19 @@ export class OnboardingService {
       // AI step is simply not offered.
       this.logger.warn(
         `AI policy unavailable for onboarding: ${(error as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  /** The system coach switch; a failed read keeps the plain `ai_plan` step. Never writes. */
+  private async isCoachEnabled(): Promise<boolean> {
+    if (!this.systemSettings) return true;
+    try {
+      return (await this.systemSettings.getCoachPolicy()).enabled;
+    } catch (error) {
+      this.logger.warn(
+        `Coach policy unavailable for onboarding: ${(error as Error).message}`,
       );
       return false;
     }
