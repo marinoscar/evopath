@@ -90,7 +90,7 @@
 //   PersonalAccessToken          DELETED (step 2; others' also cascade)
 //   AllowedEmail                 DELETED except the actor's entry (by email,
 //                                case-insensitive, or claimed by the actor)
-//   DeviceCode                   DELETED (step 2, plus unapproved ones in step 6)
+//   DeviceCode                   DELETED (step 2, plus all remaining ones in step 6)
 //   StorageObject (+Chunk)       DELETED except backup archives (step 7)
 //   Credential                   KEPT (deployment credentials: storage, AI, SMTP)
 //   UserCredential               DELETED (step 2)
