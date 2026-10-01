@@ -4,6 +4,23 @@ import userEvent from '@testing-library/user-event';
 import { render } from '../../utils/test-utils';
 import { OAuthButton } from '../../../components/auth/OAuthButton';
 
+/** Every emitted CSS rule whose selector targets one of the element's classes. */
+function emittedCssFor(element: Element): string {
+  const classes = Array.from(element.classList);
+  const rules: string[] = [];
+  for (const sheet of Array.from(document.styleSheets)) {
+    for (const rule of Array.from(sheet.cssRules)) {
+      if (classes.some((c) => rule.cssText.includes(`.${c}`))) {
+        rules.push(rule.cssText);
+      }
+    }
+  }
+  const text = Array.from(document.querySelectorAll('style'))
+    .map((style) => style.textContent ?? '')
+    .filter((t) => classes.some((c) => t.includes(`.${c}`)));
+  return [...rules, ...text].join('\n');
+}
+
 describe('OAuthButton', () => {
   const mockOnClick = vi.fn();
 
@@ -215,7 +232,30 @@ describe('OAuthButton', () => {
 
       const button = screen.getByRole('button');
       expect(button).toBeInTheDocument();
-      // Unknown provider gets default blue styling
+      // Unknown provider follows the theme's primary palette
+    });
+
+    it('should paint the fallback with the theme primary colour token', () => {
+      render(<OAuthButton provider="unknown" onClick={mockOnClick} />);
+
+      const button = screen.getByRole('button', { name: /continue with unknown/i });
+      expect(button.className).toContain('MuiButton-colorPrimary');
+
+      // jsdom cannot resolve CSS variables, so assert on the emitted rules
+      // for this button's classes rather than on a computed colour.
+      const css = emittedCssFor(button);
+      expect(css).toContain('var(--mui-palette-primary-main');
+      expect(css).toContain('var(--mui-palette-primary-contrastText');
+      expect(css).toContain('var(--mui-palette-primary-dark');
+      expect(css.toLowerCase()).not.toContain('#1976d2');
+    });
+
+    it('should keep brand colours for known providers', () => {
+      render(<OAuthButton provider="github" onClick={mockOnClick} />);
+
+      const css = emittedCssFor(screen.getByRole('button'));
+      expect(css.toLowerCase()).toContain('#24292e');
+      expect(css.toLowerCase()).not.toContain('#1976d2');
     });
 
     it('should have border for Google provider', () => {

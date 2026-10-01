@@ -33,35 +33,46 @@ const providerConfig: Record<string, {
 };
 
 export function OAuthButton({ provider, onClick }: OAuthButtonProps) {
-  const config = providerConfig[provider.toLowerCase()] || {
-    label: `Continue with ${provider}`,
-    icon: null,
-    color: '#1976d2',
-    textColor: '#ffffff',
-  };
+  const brand = providerConfig[provider.toLowerCase()];
+
+  // Known providers keep their brand colours. Any other provider follows the
+  // theme's primary palette (CSS variables), so it is correct in light and
+  // dark mode without a colour literal.
+  const colorSx = brand
+    ? {
+        backgroundColor: brand.color,
+        color: brand.textColor,
+        '&:hover': {
+          backgroundColor: brand.color,
+          opacity: 0.9,
+        },
+      }
+    : {
+        bgcolor: 'primary.main',
+        color: 'primary.contrastText',
+        '&:hover': {
+          bgcolor: 'primary.dark',
+        },
+      };
 
   return (
     <Button
       fullWidth
       variant="contained"
+      color="primary"
       size="large"
       onClick={onClick}
-      startIcon={config.icon}
+      startIcon={brand ? brand.icon : null}
       sx={{
-        backgroundColor: config.color,
-        color: config.textColor,
+        ...colorSx,
         textTransform: 'none',
         fontWeight: 500,
         py: 1.5,
         borderRadius: 2,
         border: provider === 'google' ? '1px solid #dadce0' : 'none',
-        '&:hover': {
-          backgroundColor: config.color,
-          opacity: 0.9,
-        },
       }}
     >
-      {config.label}
+      {brand ? brand.label : `Continue with ${provider}`}
     </Button>
   );
 }
