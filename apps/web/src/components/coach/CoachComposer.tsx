@@ -3,8 +3,11 @@
  * (2,000 characters, the API's limit) and Send. Enter sends, Shift+Enter
  * breaks the line. Disabled, with the reason shown, while a reply streams,
  * while offline, or when chat cannot work at all (`disabledReason`).
+ *
+ * `prefill` replaces the draft and focuses the field (a weekly review's
+ * **Plan my week**); it never sends. A new `key` applies the same text again.
  */
-import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Box, Button, Stack, TextField, Typography } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import { COACH_CHAT_TEXT_MAX } from '../../services/coach';
@@ -18,10 +21,36 @@ export interface CoachComposerProps {
   offline?: boolean;
   /** Chat cannot be used at all (for example the coach is switched off). */
   disabledReason?: string | null;
+  /** Text to put in the field, applied whenever `key` changes. */
+  prefill?: CoachComposerPrefill | null;
 }
 
-export function CoachComposer({ onSend, busy = false, offline = false, disabledReason = null }: CoachComposerProps) {
+export interface CoachComposerPrefill {
+  text: string;
+  key: number;
+}
+
+export function CoachComposer({
+  onSend,
+  busy = false,
+  offline = false,
+  disabledReason = null,
+  prefill = null,
+}: CoachComposerProps) {
   const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const prefillKey = prefill?.key ?? null;
+  const prefillText = prefill?.text ?? '';
+
+  useEffect(() => {
+    if (prefillKey === null) return;
+    setDraft(prefillText.slice(0, COACH_CHAT_TEXT_MAX));
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    el.scrollIntoView?.({ block: 'nearest' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- applied once per key
+  }, [prefillKey]);
   const blocked = offline || Boolean(disabledReason);
   const canSend = !busy && !blocked && draft.trim().length > 0;
 
@@ -56,6 +85,7 @@ export function CoachComposer({ onSend, busy = false, offline = false, disabledR
             maxRows={6}
             fullWidth
             disabled={blocked}
+            inputRef={inputRef}
             helperText={`${draft.length} / ${COACH_CHAT_TEXT_MAX}`}
             slotProps={{ htmlInput: { maxLength: COACH_CHAT_TEXT_MAX } }}
             sx={{ minWidth: 0 }}

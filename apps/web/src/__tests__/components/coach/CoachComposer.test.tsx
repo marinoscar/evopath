@@ -75,6 +75,17 @@ describe('CoachComposer', () => {
     expect(screen.getByText(COACH_OFFLINE_TEXT)).toBeInTheDocument();
   });
 
+  it('applies a prefill to the field and focuses it, again on a new key, without sending', () => {
+    const onSend = vi.fn();
+    const { rerender } = render(<CoachComposer onSend={onSend} prefill={{ text: 'Plan my week', key: 1 }} />);
+    const field = screen.getByRole('textbox', { name: 'Message your coach' });
+    expect(field).toHaveValue('Plan my week');
+    expect(field).toHaveFocus();
+    rerender(<CoachComposer onSend={onSend} prefill={{ text: 'Plan my week again', key: 2 }} />);
+    expect(field).toHaveValue('Plan my week again');
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('has an accessible name and no axe violations', async () => {
     const { container } = render(<CoachComposer onSend={vi.fn()} />);
     expect(screen.getByRole('form', { name: 'Message your coach' })).toBeInTheDocument();
