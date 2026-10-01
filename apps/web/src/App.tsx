@@ -143,6 +143,8 @@ const UserAgentModelsPage = lazy(() => import('./pages/UserAgentModelsPage'));
 const UserHealthProfilePage = lazy(() => import('./pages/UserHealthProfilePage'));
 // Issue #190 (H6) — the caller's own uploaded health documents.
 const UserHealthDocumentsPage = lazy(() => import('./pages/UserHealthDocumentsPage'));
+// Connected devices (#283, epic #276): phones syncing Health Connect.
+const ConnectedDevicesPage = lazy(() => import('./pages/ConnectedDevicesPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // E7.8 (#248): the AI Coach timeline.
 const CoachPage = lazy(() => import('./pages/CoachPage'));
@@ -475,6 +477,21 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <UserHealthDocumentsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #283, epic #276. Gated on `goals:read`: the exact
+                      string the health-sync controller's reads enforce and the
+                      `Connected devices` card declares. Unpair needs
+                      `goals:write`, gated inside the page. */}
+                  <Route
+                    path="/settings/connected-devices"
+                    element={
+                      <RequirePermission
+                        permission="goals:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <ConnectedDevicesPage />
                       </RequirePermission>
                     }
                   />
