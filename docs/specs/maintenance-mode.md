@@ -163,6 +163,7 @@ Exactly this set, marked with `@AllowDuringMaintenance()`:
 | `POST /api/auth/test/login` | Non-production only. |
 | `GET`/`PUT /api/admin/maintenance` | The switch that closes the window. |
 | `GET /api/admin/about` | Read-only deployment report, most needed when a deploy has failed. Still gated on `system_settings:read`. |
+| `GET /api/well-known/assetlinks.json` | Digital Asset Links for the Android app, public. Chrome remembers a failed verification, so a 503 during a window would leave installed apps opening with a URL bar after it ends. A read of one settings row that publishes only public data. See [health-connect-sync.md](health-connect-sync.md#29-digital-asset-links-and-trust). |
 
 Not exempt: `POST /api/auth/device/code` and `POST /api/auth/device/token`.
 **A CLI cannot log in while a window is open.** Use the web UI, an existing

@@ -174,6 +174,7 @@ Server-side symptoms:
 | Sync answers 400 `ENTRY_DATE_OUT_OF_RANGE` | The phone clock or zone is far off | Fix the phone clock and time zone. |
 | A deleted row came back | Synced rows return while the phone still holds the record in its window | Delete the record in the source app. |
 | The app opens with an address bar | The build is not trusted | [Section 6.3](#63-trust-the-build-on-the-server). |
+| Pairing fails and syncs answer 503 | A maintenance window is open: the device-flow code and token routes are not exempt, and sync routes are blocked | Close the window ([maintenance runbook](maintenance-mode.md)), then pair or sync again. `assetlinks.json` stays reachable. |
 
 ## 11. Summary checklist
 

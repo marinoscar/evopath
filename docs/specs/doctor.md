@@ -26,7 +26,7 @@ The contract lives in `apps/api/src/doctor/doctor-check.interface.ts`. A check i
 | Member | Meaning |
 |---|---|
 | `id` | Stable, dotted, unique across the application (`storage.bucket`). |
-| `category` | `core`, `auth`, `maintenance`, `storage`, `email`, `push`, `ai`, `jobs`, `nodes`, `backup`, `telemetry`, or any new string a fork adds. |
+| `category` | `core`, `auth`, `maintenance`, `storage`, `email`, `push`, `ai`, `jobs`, `nodes`, `backup`, `telemetry`, or any new string a fork adds (the Android app's `android` is one: it is not in `DOCTOR_CATEGORIES`, so it sorts after the shipped ones). |
 | `label` | Short human label shown in the page. |
 | `settingsPath` | Optional web route that fixes the problem (`/admin/settings/storage`). |
 | `timeoutMs` | Optional per-check ceiling; the default is 5000 ms ([§2.4](#24-the-service)). |
@@ -151,7 +151,7 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-five checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Twenty-six checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
@@ -244,6 +244,14 @@ The five checks form one chain: `export`, `connection`, `reachable`, `tables`, `
 | `telemetry.freshness` | Telemetry data freshness | `telemetry.tables` | Data is actually arriving, from the dashboard's `lastDataSql` over the reader path (7-day lookback). Settings page `/admin/settings/telemetry/dashboard`. Timeout 7 s. | pass: both the newest trace and the newest log are within the threshold. warn: either side older than the threshold, or absent for 7 days. fail: neither arrived in 7 days. |
 
 **`telemetry.freshness` uses the dashboard's threshold.** Its limit is `DASHBOARD_VERDICT_THRESHOLDS.noDataMinutes` (5 minutes), the same constant behind the dashboard's "no data" banner, so the two cannot disagree. It reads through `GreptimeClient.queryReader` rather than `TelemetryDashboardService.summary` because the summary writes a `telemetry:dashboard` audit row per read, which would break [§2.2](#22-the-read-only-rule).
+
+#### android
+
+The `android` category is not in `DOCTOR_CATEGORIES`, so it sorts after the shipped categories.
+
+| Id | Label | `dependsOn` | What it verifies | Rules |
+|---|---|---|---|---|
+| `android.assetlinks` | Android app Digital Asset Links | `db.connection` | Every Android app (package and signing SHA-256) that an active paired device reports is listed in the trusted apps that `/.well-known/assetlinks.json` serves, so Chrome opens it full screen. Reads the `android_app` setting and the active devices only. Settings page `/admin/settings/android`. | skip: no device has reported a fingerprint (the app is optional). pass: every reported pair is trusted. warn: a reported pair is not trusted (detail names up to three), remedy "Trust it in Admin → Settings → Android app". fail: the settings or devices cannot be read. See [health-connect-sync.md](health-connect-sync.md#29-digital-asset-links-and-trust). |
 
 ### 2.8 The web page
 
