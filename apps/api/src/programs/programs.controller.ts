@@ -158,8 +158,12 @@ export class ProgramsController {
       'its week or block if needed. Creates a new version (`origin: manual_edit`) and a change-log ' +
       'entry "Edited by you". Invariants: 1..52 weeks numbered 1..n across the plan, at most 7 workouts ' +
       'per week with distinct weekdays, at most 20 exercises per workout, distinct positions per parent, ' +
-      '`1 <= repMin <= repMax <= 100`, `targetSets` 1..20, `targetRpe` 1..10 in 0.5 steps, ' +
-      '`targetLoadKg` 0..1000, `restSeconds` 0..900, and every `exerciseId` known.',
+      '`targetRpe` 1..10 in 0.5 steps, `targetLoadKg` 0..1000, `restSeconds` 0..900, and every `exerciseId` ' +
+      'known. Each exercise has exactly one prescription shape, matching its tracking mode: `weight_reps` and ' +
+      '`bodyweight_reps` take sets and reps (`targetSets` 1..20, `1 <= repMin <= repMax <= 100`, both targets ' +
+      'null); `time` takes `targetDurationSeconds` (60..36000) only; `distance_time` takes ' +
+      '`targetDurationSeconds` and/or `targetDistanceMeters` (100..100000). A cardio shape has `repMin`/`repMax` ' +
+      'null and an optional `targetSets`. A mismatch is a 400 with `details.reason: PRESCRIPTION_SHAPE_MISMATCH`.',
   })
   @ApiParam(PROGRAM_ID_PARAM)
   @ApiHeader(IF_MATCH_HEADER)
@@ -169,7 +173,7 @@ export class ProgramsController {
     status: 400,
     description:
       'Validation error (`details.issues`), or `details.reason`: `IF_MATCH_REQUIRED`, `INVALID_PLAN`, ' +
-      '`UNKNOWN_EXERCISES` (with `exerciseIds`), `ROW_ID_CONFLICT`',
+      '`UNKNOWN_EXERCISES` (with `exerciseIds`), `PRESCRIPTION_SHAPE_MISMATCH` (with `details.issues`), `ROW_ID_CONFLICT`',
     type: ErrorDto,
   })
   @ApiResponse(UNAUTHENTICATED)

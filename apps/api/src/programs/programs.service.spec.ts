@@ -46,6 +46,8 @@ const addWorkout = (weekday: number, name = `Day ${weekday}`) => (tree: PlanTree
         targetSets: 3,
         repMin: 5,
         repMax: 8,
+        targetDurationSeconds: null,
+        targetDistanceMeters: null,
         targetLoadKg: 60,
         targetRpe: null,
         restSeconds: 120,
@@ -390,6 +392,116 @@ describe('ProgramsService lifecycle', () => {
 
     const error = await rejection(service.remove(USER, programId));
     expect((error as ConflictException).getResponse()).toMatchObject({ details: { reason: 'PROGRAM_HAS_HISTORY' } });
+  });
+});
+
+describe('ProgramsService: cardio prescriptions (#262)', () => {
+  const WALK = randomUUID();
+  const PLANK = randomUUID();
+
+  function cardioSetup() {
+    const ctx = setup();
+    ctx.db.tables.exercise.push(
+      { id: WALK, name: 'Outdoor walk', slug: 'outdoor_walk', status: 'active', ownerUserId: null, trackingMode: 'distance_time' },
+      { id: PLANK, name: 'Plank', slug: 'plank', status: 'active', ownerUserId: null, trackingMode: 'time' },
+    );
+    return ctx;
+  }
+
+  const prescribe = (exerciseId: string, fields: Record<string, unknown>) => (tree: PlanTree): PlanTree => {
+    tree.blocks[0].weeks[0].workouts.push({
+      position: tree.blocks[0].weeks[0].workouts.length,
+      weekday: 2,
+      name: 'Walk',
+      estimatedMinutes: null,
+      rationale: null,
+      exercises: [
+        {
+          exerciseId,
+          position: 0,
+          isPriority: false,
+          targetSets: null,
+          repMin: null,
+          repMax: null,
+          targetDurationSeconds: null,
+          targetDistanceMeters: null,
+          targetLoadKg: null,
+          targetRpe: null,
+          restSeconds: 0,
+          loadGuidance: 'choose_start',
+          rationale: null,
+          evidenceRefs: [],
+          notes: null,
+          equipmentTypeId: null,
+          ...fields,
+        },
+      ],
+    });
+    return tree;
+  };
+
+  const setWalk = (seconds: number) => (tree: PlanTree): PlanTree => {
+    tree.blocks[0].weeks[0].workouts[0].exercises[0].targetDurationSeconds = seconds;
+    return tree;
+  };
+
+  it('saves a duration on a distance_time exercise and logs the change as "20 → 30 min"', async () => {
+    const { db, service } = cardioSetup();
+    const { programId } = await manualProgram(service);
+    await service.applyChange(change(programId, 1, prescribe(WALK, { targetDurationSeconds: 1200 })));
+    expect(db.tables.programExercise[0]).toMatchObject({ targetSets: null, repMin: null, repMax: null, targetDurationSeconds: 1200, targetDistanceMeters: null });
+
+    const result = await service.applyChange(change(programId, 2, setWalk(1800)));
+
+    const log = db.tables.programChangeLog.find((row) => row.id === result.changeLogId);
+    expect(log).toMatchObject({ summary: 'Edited by you', operations: [{ op: 'edit_prescription', description: 'Week 1, Outdoor walk: 20 → 30 min' }] });
+    expect(db.tables.programVersion[2].snapshot.tree.blocks[0].weeks[0].workouts[0].exercises[0]).toMatchObject({ targetDurationSeconds: 1800 });
+  });
+
+  it('keeps operations an AI change supplies, and adds none to a structural edit', async () => {
+    const { db, service } = cardioSetup();
+    const { programId } = await manualProgram(service);
+    const added = await service.applyChange(change(programId, 1, prescribe(WALK, { targetDistanceMeters: 5000 })));
+    expect(db.tables.programChangeLog.find((row) => row.id === added.changeLogId)?.operations).toEqual([]);
+  });
+
+  it.each([
+    ['reps on a distance_time exercise', WALK, { targetSets: 3, repMin: 8, repMax: 12 }],
+    ['a distance on a time exercise', PLANK, { targetDistanceMeters: 500 }],
+    ['a duration on a weight_reps exercise', EX, { targetDurationSeconds: 600 }],
+  ])('refuses %s with 400 PRESCRIPTION_SHAPE_MISMATCH and changes nothing', async (_label, exerciseId, fields) => {
+    const { db, service } = cardioSetup();
+    const { programId } = await manualProgram(service);
+    const before = structuredClone(db.tables);
+
+    const error = await rejection(service.applyChange(change(programId, 1, prescribe(exerciseId, fields))));
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect((error as BadRequestException).getResponse()).toMatchObject({
+      details: { reason: 'PRESCRIPTION_SHAPE_MISMATCH', issues: [{ path: 'blocks.0.weeks.0.workouts.0.exercises.0', message: expect.any(String) }] },
+    });
+    expect(db.tables).toEqual(before);
+  });
+
+  it('grandfathers an unchanged legacy reps prescription on a time exercise through an edit and a duplicate, but not a change to it', async () => {
+    const { db, service } = cardioSetup();
+    const { programId } = await manualProgram(service);
+    // Written before cardio prescriptions existed: the plank holds sets and reps.
+    await service.applyChange(change(programId, 1, prescribe(EX, { targetSets: 3, repMin: 8, repMax: 12 })));
+    db.tables.programExercise[0].exerciseId = PLANK;
+
+    await expect(service.applyChange(change(programId, 2, addWorkout(4)))).resolves.toMatchObject({ versionNumber: 3 });
+    await expect(service.duplicate(USER, programId)).resolves.toMatchObject({ name: 'Plan (copy)' });
+
+    const error = await rejection(
+      service.applyChange(
+        change(programId, 3, (tree) => {
+          tree.blocks[0].weeks[0].workouts.find((w) => w.name === 'Walk')!.exercises[0].repMax = 15;
+          return tree;
+        }),
+      ),
+    );
+    expect((error as BadRequestException).getResponse()).toMatchObject({ details: { reason: 'PRESCRIPTION_SHAPE_MISMATCH' } });
   });
 });
 

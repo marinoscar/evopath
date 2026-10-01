@@ -182,6 +182,8 @@ export function toTreeView(tree: PlanTree, exercises: ReadonlyMap<string, Exerci
               targetSets: exercise.targetSets,
               repMin: exercise.repMin,
               repMax: exercise.repMax,
+              targetDurationSeconds: exercise.targetDurationSeconds,
+              targetDistanceMeters: exercise.targetDistanceMeters,
               targetLoadKg: exercise.targetLoadKg,
               targetRpe: exercise.targetRpe,
               restSeconds: exercise.restSeconds,

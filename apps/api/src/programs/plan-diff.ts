@@ -67,21 +67,6 @@ export interface ExerciseRow {
   equipmentTypeId: string | null;
 }
 
-/**
- * The reps prescription of a row, or a throw for a cardio-shaped row. Callers
- * that only understand the reps shape use this until cardio is handled.
- */
-export function repsPrescriptionOf(row: Pick<ExerciseRow, 'id' | 'targetSets' | 'repMin' | 'repMax'>): {
-  targetSets: number;
-  repMin: number;
-  repMax: number;
-} {
-  if (row.targetSets === null || row.repMin === null || row.repMax === null) {
-    throw new Error(`Program exercise ${row.id} has no reps prescription`);
-  }
-  return { targetSets: row.targetSets, repMin: row.repMin, repMax: row.repMax };
-}
-
 export interface ProgramRows {
   blocks: BlockRow[];
   weeks: WeekRow[];
@@ -158,8 +143,8 @@ export function rowsOf(tree: PlanTree): Omit<ProgramRows, 'blocks' | 'weeks' | '
             targetSets: exercise.targetSets,
             repMin: exercise.repMin,
             repMax: exercise.repMax,
-            targetDurationSeconds: null,
-            targetDistanceMeters: null,
+            targetDurationSeconds: exercise.targetDurationSeconds,
+            targetDistanceMeters: exercise.targetDistanceMeters,
             targetLoadKg: exercise.targetLoadKg,
             targetRpe: exercise.targetRpe,
             restSeconds: exercise.restSeconds,
@@ -207,9 +192,8 @@ export function liveTreeOf(rows: ProgramRows): PlanTree {
               exercises: rows.exercises
                 .filter((exercise) => exercise.programWorkoutId === workout.id)
                 .sort(byPosition)
-                .map(({ programWorkoutId: _parent, targetDurationSeconds: _duration, targetDistanceMeters: _distance, ...exercise }) => ({
+                .map(({ programWorkoutId: _parent, ...exercise }) => ({
                   ...exercise,
-                  ...repsPrescriptionOf(exercise),
                   evidenceRefs: [...exercise.evidenceRefs],
                   loadGuidance: exercise.loadGuidance as LoadGuidance,
                 })),
