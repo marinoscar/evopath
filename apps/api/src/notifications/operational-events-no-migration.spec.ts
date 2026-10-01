@@ -125,6 +125,9 @@ const MIGRATIONS_AT_288 = [
   // files, not notifications.
   '20260930190000_add_health_documents',
   '20260930200000_add_measurement_reference_range',
+  // #192 (H8): `health_summary_settings` and `health_summaries`. About the AI
+  // health summary, not notifications.
+  '20261001100000_add_health_summaries',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
