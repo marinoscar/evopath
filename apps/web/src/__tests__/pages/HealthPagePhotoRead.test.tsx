@@ -158,4 +158,25 @@ describe('HealthPage: Read from photo', () => {
     expect(await screen.findByRole('dialog', { name: 'Log measurement' })).toBeInTheDocument();
     expect(requests.some((r) => r.includes('/intakes'))).toBe(false);
   });
+
+  it('with AI on but storage not configured, Read from photo is disabled with the storage reason (#204)', async () => {
+    healthApi();
+    server.use(http.get('*/api/storage/status', () => HttpResponse.json({ data: { configured: false } })));
+    render(<HealthPage />, { wrapperOptions: { user: reader, aiEnabled: true } });
+    await screen.findByRole('button', { name: 'Log measurement' });
+    const button = await screen.findByRole('button', { name: 'Read from photo' });
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveAccessibleDescription("Storage isn't enabled yet.");
+  });
+
+  it('with AI on and an unknown storage answer, Read from photo stays enabled (#204)', async () => {
+    healthApi();
+    server.use(
+      http.get('*/api/storage/status', () =>
+        HttpResponse.json({ statusCode: 500, code: 'INTERNAL', message: 'boom' }, { status: 500 }),
+      ),
+    );
+    render(<HealthPage />, { wrapperOptions: { user: reader, aiEnabled: true } });
+    expect(await screen.findByRole('button', { name: 'Read from photo' })).toBeEnabled();
+  });
 });

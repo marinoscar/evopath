@@ -79,3 +79,25 @@ describe('PrefillButton', () => {
     expect(modelReads).toBe(0);
   });
 });
+
+describe('PrefillButton: storage not configured (#204)', () => {
+  const storageOff = () =>
+    server.use(http.get('*/api/storage/status', () => HttpResponse.json({ data: { configured: false } })));
+
+  it('storage false with AI ready shows the storage notice instead of the button', async () => {
+    storageOff();
+    render(<PrefillButton workoutId={WORKOUT_ID} />, { wrapperOptions: { user: PREFILLER, aiEnabled: true } });
+    expect(await screen.findByText("Storage isn't enabled yet")).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Prefill from photo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Prefill from photo' })).not.toBeInTheDocument();
+  });
+
+  it('an AI reason wins over the storage notice', async () => {
+    storageOff();
+    render(<PrefillButton workoutId={WORKOUT_ID} />, { wrapperOptions: { user: PREFILLER, aiEnabled: false } });
+    const button = await screen.findByRole('button', { name: 'Prefill from photo' });
+    expect(button).toBeDisabled();
+    expect(await screen.findByText('AI is turned off for this app.')).toBeInTheDocument();
+    expect(screen.queryByText("Storage isn't enabled yet")).not.toBeInTheDocument();
+  });
+});
