@@ -91,7 +91,8 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
 | Runbook: AI training plans (web search, agent models, fake provider, troubleshooting) | [docs/runbooks/ai-training-plans.md](docs/runbooks/ai-training-plans.md) |
 | Runbook: AI Coach (enable, models, adult-language and audio policy, caps, weekly email, engagement stats, cost, troubleshooting) | [docs/runbooks/ai-coach.md](docs/runbooks/ai-coach.md) |
-| Runbook: Android app (keystore, GitHub secrets, `android-latest`, install, trust, pair, source apps, self-test troubleshooting) | [docs/runbooks/android-app.md](docs/runbooks/android-app.md) |
+| Runbook: Android app (install, trust, pair, source apps, self-test troubleshooting) | [docs/runbooks/android-app.md](docs/runbooks/android-app.md) |
+| Runbook: Android APK release (CLI, TUI, deploy, web, CI, rollback) | [docs/runbooks/android-release.md](docs/runbooks/android-release.md) |
 | Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
 | Runbook: factory reset a deployment (backup first, verify, recover) | [docs/runbooks/factory-reset.md](docs/runbooks/factory-reset.md) |
 | `evopathcli` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
