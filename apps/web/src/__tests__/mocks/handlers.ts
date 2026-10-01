@@ -44,7 +44,7 @@ import { mockHealthExport, mockHealthExportDownloadUrl, mockReadyHealthExport } 
 import { mockTrainingModelsView, mockTrainingRunEstimate } from './fixtures/trainingAgents';
 import { mockHealthSummaryView } from './fixtures/healthSummary';
 import { mockAiFeaturesView } from './fixtures/aiFeatures';
-import { mockCoachPersonas, mockCoachSettingsView, mockSystemCoachSettings } from './fixtures/coach';
+import { mockCoachPersonas, mockCoachSettingsView, mockEmptyCoachStats, mockSystemCoachSettings } from './fixtures/coach';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -808,6 +808,11 @@ export const handlers = [
 
   http.get(`${API_BASE}/admin/coach/settings`, () => {
     return HttpResponse.json({ data: mockSystemCoachSettings });
+  }),
+
+  // AI Coach engagement stats (E7.11, #251): nothing sent by default.
+  http.get(`${API_BASE}/admin/coach/stats`, () => {
+    return HttpResponse.json({ data: mockEmptyCoachStats });
   }),
 
   // Training agents: role states and the typical-plan estimate.

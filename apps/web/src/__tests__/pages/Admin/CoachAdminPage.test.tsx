@@ -67,7 +67,8 @@ describe('CoachAdminPage', () => {
     await renderPage();
     const panel = screen.getByTestId('coach-engagement-panel');
     expect(within(panel).getByRole('heading', { name: 'Engagement' })).toBeInTheDocument();
-    expect(within(panel).getByText('No engagement data yet')).toBeInTheDocument();
+    // E7.11: the panel now loads `GET /api/admin/coach/stats`; nothing sent -> the empty state.
+    expect(await within(panel).findByText('No engagement data yet')).toBeInTheDocument();
     expect(panel.textContent).not.toMatch(/\d/);
   });
 

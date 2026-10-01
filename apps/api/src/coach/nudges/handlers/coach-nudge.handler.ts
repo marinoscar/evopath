@@ -74,6 +74,7 @@ import { coachNow } from '../../planning/coach-time';
 import { COACH_INTENSITIES, COACH_MOMENTS, type Intensity } from '../../personas';
 import { renderPersonaStyle, resolveRegister, type RenderedPersonaStyle } from '../../personas/resolve-register';
 import { COACH_ANGLE_PICKER, type AnglePicker, type CoachAngle } from '../angle-picker';
+import { eligibleAnglesFor } from '../../learning/pick-angle';
 import { kindForMoment } from '../coach-message-kinds';
 import { buildNudgeContext, NUDGE_HISTORY_LIMIT, type NudgeContext } from '../nudge-context';
 import { nudgeInstructions, nudgeUserText } from '../nudge-prompt';
@@ -269,13 +270,17 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
       safetyStop: isSafetyStop(program, lastRun, now),
     });
 
-    const angle = await this.anglePicker.pick({
+    const angleInput = {
       userId,
       moment,
       personaId: style.persona.id,
       supportive: context.supportive,
       hasWhy: Boolean(settings.why && settings.why.trim()),
-    });
+    };
+    const angle = await this.anglePicker.pick(angleInput);
+    // The set the angle was chosen from, recorded for the learning loop's
+    // "eligible but not sent" rate (E7.11, spec §2.8). Enums only.
+    const eligibleAngles = eligibleAnglesFor(angleInput);
     span.setAttributes({ 'coach.persona': style.persona.id, 'coach.angle': angle ?? 'none', 'coach.intensity': style.intensity });
 
     const guardContext: CoachGuardContext = {
@@ -360,6 +365,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
           trigger: payload.trigger ?? 'sweep',
           register: context.supportive ? 'supportive' : register.profane ? 'profane' : 'clean',
           lowReadiness: context.lowReadiness,
+          eligibleAngles,
           regenerations: generated.regenerations,
           fallback: source === 'static',
           audioInstructions: text.audioInstructions,

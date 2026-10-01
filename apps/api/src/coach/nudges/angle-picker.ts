@@ -6,9 +6,9 @@ import { SUPPORTIVE_ANGLES } from '../guard/banned-terms';
 // =============================================================================
 //
 // Each nudge is written from one ANGLE (the learning loop's bandit arm),
-// recorded on `CoachMessage.angle`. E7.11 replaces the default picker with
-// `pickAngle` (the recovering-difference softmax over conversion history);
-// until then `DefaultAnglePicker` answers a fixed, deterministic angle.
+// recorded on `CoachMessage.angle`. E7.11 (#251) binds `BanditAnglePicker`
+// (`learning/`: `pickAngle`, the recovering-difference softmax over
+// conversion history); `DefaultAnglePicker` stays as its fallback.
 //
 // To swap it, provide another implementation under `COACH_ANGLE_PICKER` in
 // `CoachNudgesModule`. The handler only depends on the interface.

@@ -386,8 +386,8 @@ const coachNudgeSchema = z.object({
 - **Notification text.** The browser inbox row and the push both show the lock-screen pair (`pushTitle`, `pushBody`); the full text is on `/coach?m=<id>`. `notificationId` is the browser channel's inbox row (`NotifyNowResult.notificationId`). `deliveredAt` is stamped once `notifyNow` has run, whatever each channel's outcome (a channel failure is recorded in `notification_deliveries`, as for every event).
 - **Push actions.** The payload gains optional `actions` (`{ action, title, link }`, at most two, links sanitised) and `data.messageId`. The service worker keeps each action's link in `notification.data.actionLinks` and opens it on that button's click.
 - **Idempotency.** The nudge job stores `momentKey` in `CoachMessage.data`; a retry after the write only re-enqueues delivery, and the delivery job skips a message that already has `deliveredAt`.
-- **`data`.** A nudge row's `data` holds `momentKey`, `trigger`, `register` (`clean`, `profane`, `supportive`), `lowReadiness`, `regenerations`, `fallback`, and the `audioScript` and `audioInstructions` E7.6 speaks.
-- **Angle.** `DefaultAnglePicker` behind the `COACH_ANGLE_PICKER` token: `future_self` when the user wrote a `why`, `data` for the Analyst, else `identity`, always a supportive angle under the supportive register. E7.11 provides `pickAngle` through the same token.
+- **`data`.** A nudge row's `data` holds `momentKey`, `trigger`, `register` (`clean`, `profane`, `supportive`), `lowReadiness`, `eligibleAngles` (the set the angle was chosen from, E7.11), `regenerations`, `fallback`, and the `audioScript` and `audioInstructions` E7.6 speaks.
+- **Angle.** `DefaultAnglePicker` behind the `COACH_ANGLE_PICKER` token: `future_self` when the user wrote a `why`, `data` for the Analyst, else `identity`, always a supportive angle under the supportive register. E7.11 binds `BanditAnglePicker` (`apps/api/src/coach/learning/`, `pickAngle`) to the same token; `DefaultAnglePicker` stays as its fallback when the learning loop cannot run.
 - **Static fallback.** The sample line is filled from the context (`{n}` this week's done sessions, `{streak}` the streak plus one, `{lift}` the latest PR lift, `{time}` the usual or preferred time, else 17:00); its lock-screen body is `<Persona> has a message for you.`. Under the supportive register the calm `SUPPORTIVE_FALLBACK_LINE` replaces it. Should even that fail the guard, the job ends without a message (`guard_rejected`).
 - **`send: false`.** The reason is logged once (one line, at most 200 characters) and not stored.
 - **Metrics.** `app.coach.nudge.sent{moment}`, `app.coach.nudge.suppressed{reason, moment}` (job reasons: `model_declined`, `coach_off`, `paused`, `no_model`, `ai_error`, `guard_rejected`, `already_sent`), `app.coach.nudge.fallback{moment}`, `app.coach.nudge.opened{moment}`, `app.coach.nudge.converted{moment, target}`, `app.coach.feedback{value}`. The planner's own `coach.nudge.suppressed{coach.reason}` (E7.4) keeps the sweep's gate reasons. Spans: `coach.nudge.generate`, `coach.message.deliver`.
@@ -413,7 +413,15 @@ const coachNudgeSchema = z.object({
 - **Per-user novelty penalty** `γ · 0.5^(d/h)`, where `d` is the days since this user last got angle `a` and `h` is the half-life. A fresh angle pays no penalty; a repeated one pays most. This fights novelty decay.
 - **Score** `s(a) = r(a) - penalty(a)`; **probability** `p(a) = softmax(s / τ)` over `eligibleAngles`.
 - **Constants** `γ`, `h`, `τ`, the sample floor and the window live in `apps/api/src/coach/learning/learning.constants.ts` **(new)**. They are code constants, never settings or env vars.
-- **Eligible angles** are filtered by persona (the Analyst favours `data`) and by register: a supportive register allows only `identity` and `future_self`.
+- **Eligible angles** are filtered by persona and by register: a supportive register allows only `identity` and `future_self`. `future_self` needs a `why`. A persona that cannot voice an angle lists it in `PERSONA_ANGLE_EXCLUSIONS` (empty today); a persona's **favoured** angle (the Analyst's `data`) gets a score bonus from `PERSONA_ANGLE_BONUS`, in reward units, rather than an exclusion of the others.
+
+**Implementation notes (E7.11).**
+
+- **`μ⁻` is exact going forward.** The nudge job records the eligible set in `data.eligibleAngles`, so "eligible but not sent" counts exactly the messages whose set held `a` while another angle was sent. Older rows (E7.5, no set) are reconstructed from `data.register`: supportive → the supportive angles, otherwise every angle; that approximation ages out of the 90-day window.
+- **The aggregate** is one grouped SQL query over delivered coach messages with an angle and a conversion target (the workout moments, `photo_prompt`, `data.lowReadiness`), counts only. Messages younger than 48 hours are left out: their window is still open. `AngleStatsService` caches it in memory for an hour per API process; a failure answers no rewards (cold start), never an error.
+- **Smoothing and exploration.** Each rate is shrunk toward the pooled rate by a Beta prior (`priorStrength`), and an exploration floor `ε` mixes in `ε/n` so no eligible angle starves: `p(a) = (1 − ε)·softmax(s/τ) + ε/n`. With `ε = 0` and no bias this is exactly the formula above.
+- **Scale.** `r(a)` is an absolute rate difference (a few hundredths), so `γ = 0.03` and `τ = 0.02` are rescaled from the paper's relative-difference values; `h = 15` days as in the paper.
+- **Observability.** `app.coach.angle.picked{angle}`; `app.coach.nudge.converted` carries `angle`. No per-user score is logged.
 
 **Conversion attribution.** `convertedAt` is set when the target action follows delivery within the window:
 
@@ -575,7 +583,7 @@ A new card in `USER_SETTINGS_SECTIONS` (`apps/web/src/config/userSettingsSection
 A new card in `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`), appended to the AI group, `permission: 'ai_config:read'`, writes gated by `ai_config:write`, `feature: 'ai'`.
 
 - The system `coach` settings ([§3.2](#32-system-setting-coach)).
-- Engagement stats: send, open and convert rates by angle and persona, and suppression counts by reason.
+- Engagement stats (E7.11, `GET /api/admin/coach/stats?from=&to=` or `?days=`, UTC days inclusive, default 30, at most 365, 400 `COACH_STATS_RANGE_INVALID` beyond): send, open and convert rates in total and by angle, persona and moment, thumbs up and down, and KPI tiles (nudge open rate, follow-through, chat sessions per weekly active user, photo cadence adherence, opt-out rate). Counts and rates only, never a user id or text. Weekly adherence is per user (the signals service) and is not summed here (`weeklyAdherencePct: null`). Suppressions are not persisted (a suppressed nudge writes no row), so their counts by reason live in the `app.coach.nudge.suppressed` metric, not in this panel.
 - The **models** are chosen on the existing AI Model Assignments page, `apps/web/src/pages/Admin/AiAssignmentsPage.tsx`, which gets a **Coach** section ([§3.3](#33-ai-feature-ids)).
 
 #### Onboarding

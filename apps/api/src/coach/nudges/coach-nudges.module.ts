@@ -9,7 +9,9 @@ import { ProgramsModule } from '../../programs/programs.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { CoachContentGuard } from '../guard/coach-content-guard.service';
 import { CoachPlanningModule } from '../planning/coach-planning.module';
-import { COACH_ANGLE_PICKER, DefaultAnglePicker } from './angle-picker';
+import { AngleStatsService } from '../learning/angle-stats.service';
+import { BanditAnglePicker } from '../learning/bandit-angle-picker';
+import { COACH_ANGLE_PICKER } from './angle-picker';
 import { CoachConversionListener } from './coach-conversion.listener';
 import { CoachMessagesController } from './coach-messages.controller';
 import { CoachMessagesService } from './coach-messages.service';
@@ -27,7 +29,9 @@ import { CoachNudgeHandler } from './handlers/coach-nudge.handler';
 //   `deliveredAt`, `CoachState` counters.
 // - `POST /api/coach/messages/:id/{opened,feedback}` and the conversion
 //   listener.
-// - `COACH_ANGLE_PICKER`: the angle seam; E7.11 provides `pickAngle` here.
+// - `COACH_ANGLE_PICKER`: the angle seam. E7.11 (#251) binds
+//   `BanditAnglePicker` (`learning/`), which falls back to
+//   `DefaultAnglePicker` when it cannot run.
 //
 // Imported by `CoachModule`, never by `AppModule` directly. `CoachContentGuard`
 // is stateless, so this module provides its own instance rather than importing
@@ -52,7 +56,8 @@ import { CoachNudgeHandler } from './handlers/coach-nudge.handler';
     CoachNudgeHandler,
     CoachMessageDeliverHandler,
     CoachConversionListener,
-    { provide: COACH_ANGLE_PICKER, useClass: DefaultAnglePicker },
+    AngleStatsService,
+    { provide: COACH_ANGLE_PICKER, useClass: BanditAnglePicker },
   ],
   exports: [CoachMessagesService],
 })

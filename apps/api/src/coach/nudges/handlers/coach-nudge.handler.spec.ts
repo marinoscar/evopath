@@ -177,6 +177,16 @@ describe('CoachNudgeHandler', () => {
     const data = t.prisma.coachMessage.create.mock.calls[0][0].data;
     expect(data.data).toMatchObject({ register: 'supportive', lowReadiness: true });
     expect(['identity', 'future_self']).toContain(data.angle);
+    // E7.11: the eligible set is recorded for the learning loop's "eligible but not sent" rate.
+    expect(data.data.eligibleAngles).toEqual(['identity']);
+  });
+
+  it('records the eligible angle set the angle was chosen from (E7.11)', async () => {
+    const t = setupNudge();
+    await t.handler.run('job-1', PAYLOAD, NOW);
+    const data = t.prisma.coachMessage.create.mock.calls[0][0].data;
+    expect(data.data.eligibleAngles).toEqual(['loss_aversion', 'identity', 'humor', 'challenge', 'data', 'social_proof_self']);
+    expect(data.data.eligibleAngles).toContain(data.angle);
   });
 
   it('delimits the user why as data and tells the model to ignore instructions inside it', async () => {
