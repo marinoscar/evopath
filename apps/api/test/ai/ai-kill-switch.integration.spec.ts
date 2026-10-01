@@ -216,6 +216,8 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.workout.prefill': null, // filled in per-test: needs a scanning workout_prefill intake (E4.5)
       'ai.training.plan.run': null, // filled in per-test: needs a queued training_plan_runs row (E5.3)
       'ai.training.adapt.run': null, // filled in per-test: needs a queued workout_adaptations row and its run (E6.1)
+      // E7.5 (#245): one coach nudge for a planned moment; filled in per-test.
+      'ai.coach.nudge': null,
     };
 
     let registry: JobHandlerRegistry;
@@ -692,6 +694,34 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       expect(prisma.workoutAdaptation.updateMany).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'running' }) }),
       );
+    });
+
+    it('ai.coach.nudge: disabled makes zero provider calls, persists and delivers nothing, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.coach.nudge');
+      expect(handler).toBeDefined();
+      const prisma = app.context.prismaMock as any;
+      prisma.coachMessage.create.mockClear();
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.coach.nudge',
+          subjectType: 'user',
+          subjectId: HARNESS_USER,
+          payload: {
+            userId: HARNESS_USER,
+            moment: 'missed_twice',
+            momentKey: 'missed_twice:2026-10-01',
+            candidates: [{ moment: 'missed_twice', priority: 1, reason: 'missed_streak' }],
+            trigger: 'sweep',
+          },
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.coachMessage.create).not.toHaveBeenCalled();
     });
 
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {

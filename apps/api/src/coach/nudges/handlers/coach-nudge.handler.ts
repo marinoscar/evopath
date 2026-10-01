@@ -1,0 +1,473 @@
+// =============================================================================
+// `ai.coach.nudge`: generate, guard and persist one coach message (E7.5, #245)
+// =============================================================================
+//
+// docs/specs/ai-coach.md §2.6. Enqueued by `CoachMomentEnqueuer` (E7.4) for a
+// moment that passed every hard gate; payload `{ userId, moment, momentKey,
+// candidates, trigger }`, subject (`user`, userId).
+//
+// SERVER-ONLY, PERMANENTLY. No `nodeResultSchema`/`persistNodeResult`: the
+// call is made with the user's own provider key (or the org key), and no AI
+// key may ever reach a worker node (CLAUDE.md AI rule 3).
+//
+// PROFILE `{ maxRuntimeMs: 2 min, maxAttempts: 2 }`: at most two model calls
+// per attempt (the answer and one regeneration). A provider throttle DEFERS
+// the job; a terminal AI condition (kill switch, no key, ...) ends it without
+// a message; any other error is retried once and then fails, leaving no
+// message and no notification (the next sweep plans again).
+//
+// STEPS
+//   1. Cheap re-checks: AI on, system and user coach on, account active, not
+//      paused. (Not `silencedAt`: the back-off and win-back messages are sent
+//      AFTER the planner set it.) A message already persisted for this
+//      `momentKey` (a retry after the write) is only re-delivered.
+//   2. `coach.decision` through `AiFeatureModelResolver`; refused unless
+//      `ready`/`auto`.
+//   3. Context (`nudge-context.ts`): signals, `CoachState`, the last 10 coach
+//      titles, the persona card at the rendered intensity under
+//      `resolveRegister`, the angle (`AnglePicker` seam, E7.11) and the
+//      user's `why`, delimited as data.
+//   4. `respondStructured` (strict). `send: false` -> nothing persisted,
+//      `app.coach.nudge.suppressed{reason=model_declined}`.
+//   5. The content guard; one regeneration naming the failed rules; then the
+//      static persona line (`provider = 'static'`).
+//   6. Persist the `CoachMessage`, then enqueue `coach.message.deliver`.
+//
+// ⚠ PRIVACY: no prompt, `why`, title, body or reason text in any log line,
+// span or metric; ids, enums and rule names only.
+// =============================================================================
+
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { SpanStatusCode, trace, type Span } from '@opentelemetry/api';
+import { Prisma, type Job } from '@prisma/client';
+import { z } from 'zod';
+
+import { AiFeatureModelResolver } from '../../../ai/assignments/ai-feature-model-resolver.service';
+import { RUNNABLE_FEATURE_STATES } from '../../../ai/assignments/dto/ai-feature-resolution.dto';
+import { AiConfigService } from '../../../ai/config/ai-config.service';
+import { AiError } from '../../../ai/core/ai-error';
+import { AI_RUN_TERMINAL_CODES } from '../../../ai/runtime/ai-response-run.handler';
+import { AiService } from '../../../ai/runtime/ai.service';
+import { addDays, fromDbDate } from '../../../check-ins/local-date';
+import {
+  AppMetricsService,
+  fallbackAppMetrics,
+  type CoachNudgeSuppressionReason,
+} from '../../../common/otel/app-metrics.service';
+import { resolveServiceName } from '../../../common/otel/service-name';
+import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
+import type { JobHandler } from '../../../jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
+import { JobsService } from '../../../jobs/jobs.service';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { TrainingSignalsService } from '../../../programs/signals/signals.service';
+import { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
+import {
+  AI_COACH_NUDGE_JOB_TYPE,
+  COACH_MESSAGE_DELIVER_JOB_TYPE,
+  COACH_MESSAGE_SUBJECT_TYPE,
+} from '../../coach-job-types';
+import { CoachContentGuard } from '../../guard/coach-content-guard.service';
+import type { CoachGuardContext, CoachGuardReason } from '../../guard/coach-content-guard';
+import { coachUserSettingsOf, isSafetyStop } from '../../planning/coach-planner.service';
+import { coachNow } from '../../planning/coach-time';
+import { COACH_INTENSITIES, COACH_MOMENTS, type Intensity } from '../../personas';
+import { renderPersonaStyle, resolveRegister, type RenderedPersonaStyle } from '../../personas/resolve-register';
+import { COACH_ANGLE_PICKER, type AnglePicker, type CoachAngle } from '../angle-picker';
+import { kindForMoment } from '../coach-message-kinds';
+import { buildNudgeContext, NUDGE_HISTORY_LIMIT, type NudgeContext } from '../nudge-context';
+import { nudgeInstructions, nudgeUserText } from '../nudge-prompt';
+import { COACH_NUDGE_SCHEMA_NAME, coachNudgeSchema, type CoachNudgeOutput } from '../nudge-schema';
+import { staticFallbackMessage } from '../static-fallback';
+
+export const COACH_DECISION_FEATURE_ID = 'coach.decision';
+
+/** Each model call's own deadline; two fit inside the job's two minutes. */
+const CALL_DEADLINE_MS = 50_000;
+/** Output tokens one answer may use. */
+export const COACH_NUDGE_MAX_OUTPUT_TOKENS = 1_500;
+/** A training run that ended `blocked_safety` this recently is an active safety stop (the planner's window). */
+const SAFETY_STOP_WINDOW_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** `provider` of a message written from the registry, not a model. */
+export const STATIC_PROVIDER = 'static';
+
+export const coachNudgePayloadSchema = z
+  .object({
+    userId: z.uuid(),
+    moment: z.enum(COACH_MOMENTS),
+    momentKey: z.string().min(1).max(80),
+    candidates: z
+      .array(z.object({ moment: z.string(), priority: z.number(), reason: z.string() }).passthrough())
+      .optional(),
+    trigger: z.string().max(40).optional(),
+  })
+  .passthrough();
+
+export type CoachNudgePayload = z.infer<typeof coachNudgePayloadSchema>;
+
+/** How one job ended. */
+export type CoachNudgeOutcome =
+  | { status: 'persisted'; messageId: string; source: 'model' | 'static' }
+  | { status: 'redelivered'; messageId: string }
+  | { status: 'suppressed'; reason: CoachNudgeSuppressionReason };
+
+interface Generated {
+  /** The guard-approved answer, or null after two rejections. */
+  output: CoachNudgeOutput | null;
+  /** `send: false` was answered. */
+  declined: boolean;
+  /** The model's `reason` for declining (learning metadata; never shown to the user). */
+  declineReason: string | null;
+  regenerations: number;
+  lastReasons: CoachGuardReason[];
+}
+
+@Injectable()
+export class CoachNudgeHandler implements JobHandler, OnModuleInit {
+  private readonly logger = new Logger(CoachNudgeHandler.name);
+
+  readonly type = AI_COACH_NUDGE_JOB_TYPE;
+
+  readonly profile: JobExecutionProfile = { maxRuntimeMs: 120_000, maxAttempts: 2 };
+
+  constructor(
+    private readonly registry: JobHandlerRegistry,
+    private readonly prisma: PrismaService,
+    private readonly ai: AiService,
+    private readonly features: AiFeatureModelResolver,
+    private readonly aiConfig: AiConfigService,
+    private readonly systemSettings: SystemSettingsService,
+    private readonly signals: TrainingSignalsService,
+    private readonly guard: CoachContentGuard,
+    private readonly jobs: JobsService,
+    @Inject(COACH_ANGLE_PICKER) private readonly anglePicker: AnglePicker,
+    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+  ) {}
+
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
+
+  async process(job: Job): Promise<void> {
+    const parsed = coachNudgePayloadSchema.safeParse(job.payload ?? {});
+    if (!parsed.success) {
+      this.logger.warn(`Coach nudge job ${job.id} carries no valid payload; nothing to do`);
+      return;
+    }
+    await this.run(job.id, parsed.data, new Date());
+  }
+
+  /** One nudge, as of `now`. Throws on a retryable failure. */
+  async run(jobId: string, payload: CoachNudgePayload, now: Date): Promise<CoachNudgeOutcome> {
+    const tracer = trace.getTracer(resolveServiceName());
+    return tracer.startActiveSpan('coach.nudge.generate', async (span) => {
+      span.setAttribute('coach.moment', payload.moment);
+      try {
+        const outcome = await this.generateNudge(jobId, payload, now, span);
+        span.setAttribute('coach.outcome', outcome.status === 'suppressed' ? `suppressed:${outcome.reason}` : outcome.status);
+        return outcome;
+      } catch (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
+  }
+
+  private suppress(reason: CoachNudgeSuppressionReason, payload: CoachNudgePayload, jobId: string): CoachNudgeOutcome {
+    this.metrics.coachNudgeSuppression(reason, payload.moment);
+    this.logger.log(`Coach nudge job ${jobId} (${payload.moment}) for user ${payload.userId}: suppressed (${reason})`);
+    return { status: 'suppressed', reason };
+  }
+
+  private async generateNudge(jobId: string, payload: CoachNudgePayload, now: Date, span: Span): Promise<CoachNudgeOutcome> {
+    const { userId, moment } = payload;
+
+    // ---- 1. cheap re-checks -------------------------------------------------
+    const [aiEnabled, system] = await Promise.all([this.aiConfig.isEnabled(), this.systemSettings.getCoachPolicy()]);
+    if (!aiEnabled || !system.enabled) return this.suppress('coach_off', payload, jobId);
+
+    const row = await this.prisma.userSettings.findUnique({
+      where: { userId },
+      select: {
+        value: true,
+        user: { select: { isActive: true, healthProfile: { select: { timeZone: true, dateOfBirth: true } } } },
+      },
+    });
+    const settings = coachUserSettingsOf(row?.value ?? null);
+    if (!row || !row.user.isActive || !settings.enabled) return this.suppress('coach_off', payload, jobId);
+
+    const state = await this.prisma.coachState.findUnique({
+      where: { userId },
+      select: { pausedUntil: true, weeklyStreak: true, streakPassesLeft: true, usualWorkoutMinuteLocal: true },
+    });
+    if (state?.pausedUntil && state.pausedUntil.getTime() > now.getTime()) return this.suppress('paused', payload, jobId);
+
+    const existing = await this.prisma.coachMessage.findFirst({
+      where: { userId, role: 'coach', data: { path: ['momentKey'], equals: payload.momentKey } },
+      select: { id: true, deliveredAt: true },
+    });
+    if (existing) {
+      if (existing.deliveredAt) return this.suppress('already_sent', payload, jobId);
+      await this.enqueueDelivery(existing.id);
+      return { status: 'redelivered', messageId: existing.id };
+    }
+
+    // ---- 2. the model --------------------------------------------------------
+    const resolution = await this.features.resolve(userId, COACH_DECISION_FEATURE_ID);
+    if (!RUNNABLE_FEATURE_STATES.includes(resolution.state) || !resolution.model) {
+      this.logger.log(`Coach nudge job ${jobId}: coach.decision is not runnable (${resolution.state})`);
+      return this.suppress('no_model', payload, jobId);
+    }
+    const model = { provider: resolution.model.provider, modelId: resolution.model.modelId };
+    span.setAttribute('ai.model', model.modelId);
+
+    // ---- 3. context -----------------------------------------------------------
+    const timeZone = row.user.healthProfile?.timeZone ?? null;
+    const today = coachNow(now, timeZone).date;
+    const dob = row.user.healthProfile?.dateOfBirth ?? null;
+    const register = resolveRegister(settings, system, { dateOfBirth: dob ? fromDbDate(dob) : null }, now);
+    const style = renderPersonaStyle(settings.personaId, clampIntensity(settings.intensity), register);
+
+    const [signals, history, program, lastRun] = await Promise.all([
+      this.signals.forUser(userId, { to: addDays(today, 7) }, now),
+      this.prisma.coachMessage.findMany({
+        where: { userId, role: 'coach' },
+        orderBy: { createdAt: 'desc' },
+        take: NUDGE_HISTORY_LIMIT,
+        select: { kind: true, moment: true, title: true, createdAt: true },
+      }),
+      this.prisma.program.findFirst({
+        where: { userId, status: 'active' },
+        select: { autonomyPausedAt: true, autonomyPausedReason: true },
+      }),
+      this.prisma.trainingPlanRun.findFirst({
+        where: { userId, completedAt: { not: null, gte: new Date(now.getTime() - SAFETY_STOP_WINDOW_DAYS * DAY_MS) } },
+        orderBy: { completedAt: 'desc' },
+        select: { status: true, completedAt: true },
+      }),
+    ]);
+
+    const context = buildNudgeContext({
+      moment,
+      reason: payload.candidates?.find((c) => c.moment === moment)?.reason ?? 'planned',
+      trigger: payload.trigger ?? 'sweep',
+      today,
+      now,
+      signals,
+      state: state
+        ? {
+            weeklyStreak: state.weeklyStreak,
+            streakPassesLeft: state.streakPassesLeft,
+            usualWorkoutMinuteLocal: state.usualWorkoutMinuteLocal,
+          }
+        : null,
+      history,
+      settings,
+      safetyStop: isSafetyStop(program, lastRun, now),
+    });
+
+    const angle = await this.anglePicker.pick({
+      userId,
+      moment,
+      personaId: style.persona.id,
+      supportive: context.supportive,
+      hasWhy: Boolean(settings.why && settings.why.trim()),
+    });
+    span.setAttributes({ 'coach.persona': style.persona.id, 'coach.angle': angle ?? 'none', 'coach.intensity': style.intensity });
+
+    const guardContext: CoachGuardContext = {
+      personaId: style.persona.id,
+      intensity: style.intensity,
+      register,
+      lockScreenSafe: settings.lockScreenSafe,
+      allowedNumbers: context.allowedNumbers,
+      supportive: context.supportive,
+      angle,
+    };
+
+    // ---- 4 and 5. generate and guard -------------------------------------------
+    let generated: Generated;
+    try {
+      generated = await this.generate(userId, jobId, model, style, context, angle, settings.why, guardContext);
+    } catch (err) {
+      const aiError = err instanceof AiError ? err : null;
+      const rateLimit = aiError?.toRateLimitError();
+      if (rateLimit) throw rateLimit;
+      if (aiError && AI_RUN_TERMINAL_CODES.has(aiError.code)) {
+        this.logger.log(`Coach nudge job ${jobId} ended with ${aiError.code}`);
+        return this.suppress('ai_error', payload, jobId);
+      }
+      throw err;
+    }
+
+    if (generated.declined) {
+      // The decision and its reason are recorded (spec §2.6); the reason is the
+      // model's short learning note, one line, never shown to the user.
+      span.setAttribute('coach.decline_reason_length', generated.declineReason?.length ?? 0);
+      this.logger.log(`Coach nudge job ${jobId}: the model declined (reason: ${oneLine(generated.declineReason)})`);
+      return this.suppress('model_declined', payload, jobId);
+    }
+
+    let source: 'model' | 'static' = 'model';
+    let text = generated.output;
+    if (!text) {
+      const fallback = staticFallbackMessage({
+        style,
+        moment,
+        fill: context.fill,
+        lockScreenSafe: settings.lockScreenSafe,
+        supportive: context.supportive,
+      });
+      const check = this.guard.check(fallback, guardContext);
+      if (!check.ok) {
+        this.logger.warn(`Coach nudge job ${jobId}: the static fallback failed the guard (${check.reasons.join(', ')})`);
+        return this.suppress('guard_rejected', payload, jobId);
+      }
+      source = 'static';
+      this.metrics.coachNudgeFallbackUsed(moment);
+      this.logger.warn(
+        `Coach nudge job ${jobId}: two answers rejected by the guard (${generated.lastReasons.join(', ')}); static line used`,
+      );
+      text = { send: true, moment, reason: 'static_fallback', ...fallback };
+    }
+
+    // ---- 6. persist, then deliver ------------------------------------------------
+    const message = await this.prisma.coachMessage.create({
+      data: {
+        userId,
+        role: 'coach',
+        kind: kindForMoment(moment),
+        moment,
+        angle,
+        personaId: style.persona.id,
+        intensity: style.intensity,
+        title: text.title,
+        body: text.body,
+        pushTitle: text.pushTitle,
+        pushBody: text.pushBody,
+        // Audio seam (E7.6): when the user's audio is on and the system allows
+        // it, E7.6 calls `speak()` here and stores `pending` + `audioRunId`;
+        // delivery then waits for the speech job. Text only for now.
+        audioStatus: 'none',
+        aiRunId: null,
+        provider: source === 'static' ? STATIC_PROVIDER : model.provider,
+        model: source === 'static' ? null : model.modelId,
+        data: {
+          momentKey: payload.momentKey,
+          trigger: payload.trigger ?? 'sweep',
+          register: context.supportive ? 'supportive' : register.profane ? 'profane' : 'clean',
+          lowReadiness: context.lowReadiness,
+          regenerations: generated.regenerations,
+          fallback: source === 'static',
+          audioInstructions: text.audioInstructions,
+          audioScript: text.audioScript,
+        } satisfies Prisma.InputJsonObject,
+      },
+      select: { id: true },
+    });
+
+    await this.enqueueDelivery(message.id);
+    this.logger.log(
+      `Coach nudge job ${jobId}: message ${message.id} (${moment}, ${source}, ${generated.regenerations} regeneration(s)) queued for delivery`,
+    );
+    return { status: 'persisted', messageId: message.id, source };
+  }
+
+  /** One answer, guarded; one regeneration on a rejection. `output` is null after two rejections. */
+  private async generate(
+    userId: string,
+    jobId: string,
+    model: { provider: string; modelId: string },
+    style: RenderedPersonaStyle,
+    context: NudgeContext,
+    angle: CoachAngle | null,
+    why: string | null,
+    guardContext: CoachGuardContext,
+  ): Promise<Generated> {
+    const result: Generated = { output: null, declined: false, declineReason: null, regenerations: 0, lastReasons: [] };
+    const instructions = nudgeInstructions({
+      style,
+      angle,
+      supportive: context.supportive,
+      lockScreenSafe: guardContext.lockScreenSafe,
+    });
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      if (attempt === 2) result.regenerations += 1;
+
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(new Error('Coach nudge timed out')), CALL_DEADLINE_MS);
+      deadline.unref?.();
+
+      try {
+        const response = await this.ai.forUser(userId, { jobId }).respondStructured(
+          {
+            provider: model.provider,
+            model: model.modelId,
+            schema: coachNudgeSchema,
+            schemaName: COACH_NUDGE_SCHEMA_NAME,
+            strict: true,
+            instructions,
+            input: [
+              {
+                type: 'message',
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: nudgeUserText(context.promptData, why, attempt === 2 ? result.lastReasons : undefined),
+                  },
+                ],
+              },
+            ],
+            maxOutputTokens: COACH_NUDGE_MAX_OUTPUT_TOKENS,
+            metadata: { feature: COACH_DECISION_FEATURE_ID },
+          },
+          { signal: controller.signal },
+        );
+
+        const answer = response.parsed;
+        if (!answer.send) {
+          result.declined = true;
+          result.declineReason = answer.reason;
+          return result;
+        }
+
+        const check = this.guard.check(answer, guardContext);
+        if (check.ok) {
+          result.output = answer;
+          return result;
+        }
+        result.lastReasons = check.reasons;
+        this.logger.warn(`Coach nudge job ${jobId}: attempt ${attempt} rejected by the guard (${check.reasons.join(', ')})`);
+      } finally {
+        clearTimeout(deadline);
+      }
+    }
+
+    return result;
+  }
+
+  private async enqueueDelivery(messageId: string): Promise<void> {
+    await this.jobs.enqueue({
+      type: COACH_MESSAGE_DELIVER_JOB_TYPE,
+      reason: 'backfill',
+      subjectType: COACH_MESSAGE_SUBJECT_TYPE,
+      subjectId: messageId,
+      payload: { messageId },
+    });
+  }
+}
+
+function oneLine(text: string | null): string {
+  return JSON.stringify((text ?? '').replace(/\s+/g, ' ').slice(0, 200));
+}
+
+function clampIntensity(value: number): Intensity {
+  const level = Math.round(value);
+  return (COACH_INTENSITIES as readonly number[]).includes(level) ? (level as Intensity) : 2;
+}
+

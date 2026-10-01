@@ -23,5 +23,11 @@ export const AI_COACH_NUDGE_JOB_TYPE = 'ai.coach.nudge';
 /** Generates one weekly review (E7.10). */
 export const AI_COACH_WEEKLY_REVIEW_JOB_TYPE = 'ai.coach.weekly_review';
 
+/** Delivers one persisted coach message as a notification (E7.5). */
+export const COACH_MESSAGE_DELIVER_JOB_TYPE = 'coach.message.deliver';
+
+/** `jobs.subject_type` of a per-message coach job (`coach.message.deliver`). */
+export const COACH_MESSAGE_SUBJECT_TYPE = 'coach_message';
+
 /** `jobs.subject_type` of every per-user coach job. */
 export const COACH_USER_SUBJECT_TYPE = 'user';

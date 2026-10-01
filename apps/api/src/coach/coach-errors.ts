@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import type { CoachRegisterReason } from './personas/resolve-register';
 
@@ -19,6 +19,7 @@ export const COACH_ERRORS = {
   PROFANITY_LOCKED: 'COACH_PROFANITY_LOCKED',
   AUDIO_DISABLED: 'COACH_AUDIO_DISABLED',
   PERSONA_UNKNOWN: 'COACH_PERSONA_UNKNOWN',
+  MESSAGE_NOT_FOUND: 'COACH_MESSAGE_NOT_FOUND',
 } as const;
 
 export function coachDisabledError(): ForbiddenException {
@@ -50,5 +51,13 @@ export function coachPersonaUnknownError(): BadRequestException {
       reason: COACH_ERRORS.PERSONA_UNKNOWN,
       issues: [{ path: 'personaId', message: 'must be a persona id from GET /api/coach/personas' }],
     },
+  });
+}
+
+/** 404 for an unknown message id AND for another user's message (E7.5): existence is not disclosed. */
+export function coachMessageNotFoundError(): NotFoundException {
+  return new NotFoundException({
+    message: 'Coach message not found.',
+    details: { code: COACH_ERRORS.MESSAGE_NOT_FOUND, reason: COACH_ERRORS.MESSAGE_NOT_FOUND },
   });
 }

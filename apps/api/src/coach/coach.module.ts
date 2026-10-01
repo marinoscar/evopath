@@ -7,6 +7,7 @@ import { CoachAdminSettingsController } from './admin/coach-admin-settings.contr
 import { CoachSettingsController } from './coach-settings.controller';
 import { CoachSettingsService } from './coach-settings.service';
 import { CoachContentGuard } from './guard/coach-content-guard.service';
+import { CoachNudgesModule } from './nudges/coach-nudges.module';
 import { assertCoachRegistryComplete } from './personas';
 
 /**
@@ -21,11 +22,14 @@ import { assertCoachRegistryComplete } from './personas';
  *   `AiEnabledGuard`) and `/api/admin/coach/settings` (`ai_config:*`, not
  *   behind it).
  *
+ * E7.5 (#245): `CoachNudgesModule` (`nudges/`): `ai.coach.nudge`,
+ * `coach.message.deliver`, the opened/feedback routes and conversion.
+ *
  * The registry is checked at init: a persona missing a moment or an intensity
  * fails the boot, not a request.
  */
 @Module({
-  imports: [SettingsModule, HealthProfileModule, AiConfigModule],
+  imports: [SettingsModule, HealthProfileModule, AiConfigModule, CoachNudgesModule],
   controllers: [CoachSettingsController, CoachAdminSettingsController],
   providers: [CoachSettingsService, CoachContentGuard],
   exports: [CoachSettingsService, CoachContentGuard],

@@ -167,6 +167,10 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'coach.sweep': 'Coach sweep',
   // Plans a comeback, PR or weekly-target moment after a finished workout (E7.4).
   'coach.workout_finished': 'Coach workout check',
+  // Writes, guards and persists one persona-tailored coach message (E7.5).
+  'ai.coach.nudge': 'AI coach nudge',
+  // Sends one persisted coach message as a notification (E7.5).
+  'coach.message.deliver': 'Coach message delivery',
 };
 
 /**

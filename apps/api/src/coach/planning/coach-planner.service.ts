@@ -275,7 +275,8 @@ export function coachEventEnabled(
   return out;
 }
 
-function isSafetyStop(
+/** An active training safety stop (spec §2.14); shared with the nudge job (E7.5). */
+export function isSafetyStop(
   program: { autonomyPausedAt: Date | null; autonomyPausedReason: string | null } | null,
   lastRun: { status: string; completedAt: Date | null } | null,
   now: Date,

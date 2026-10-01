@@ -138,6 +138,13 @@ export const APP_METRIC_NAMES = {
   // AI Coach (E7.2, #242): content-guard rejections and settings writes.
   coachGuardRejected: 'app.coach.guard.rejected',
   coachSettingsUpdated: 'app.coach.settings.updated',
+  // AI Coach nudges (E7.5, #245): generation, delivery and the funnel.
+  coachNudgeSent: 'app.coach.nudge.sent',
+  coachNudgeSuppressed: 'app.coach.nudge.suppressed',
+  coachNudgeFallback: 'app.coach.nudge.fallback',
+  coachNudgeOpened: 'app.coach.nudge.opened',
+  coachNudgeConverted: 'app.coach.nudge.converted',
+  coachFeedback: 'app.coach.feedback',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -273,6 +280,37 @@ const COACH_GUARD_REASONS = new Set<string>([
   'supportive_register',
 ]);
 
+/** Why `ai.coach.nudge` ended without a message (E7.5, #245). Closed set. */
+export const COACH_NUDGE_SUPPRESSION_REASONS = [
+  'model_declined',
+  'coach_off',
+  'paused',
+  'no_model',
+  'ai_error',
+  'guard_rejected',
+  'already_sent',
+] as const;
+export type CoachNudgeSuppressionReason = (typeof COACH_NUDGE_SUPPRESSION_REASONS)[number];
+const COACH_NUDGE_SUPPRESSION_SET = new Set<string>(COACH_NUDGE_SUPPRESSION_REASONS);
+
+/** The coach moments (E7.2 registry), mirrored as a label set so this file does not import the coach. */
+const COACH_MOMENT_LABELS = new Set<string>([
+  'missed_twice',
+  'streak_at_risk',
+  'comeback',
+  'pr',
+  'weekly_target_hit',
+  'missed_session',
+  'fresh_start',
+  'photo_prompt',
+  'win_back',
+  'back_off',
+  'kickoff',
+  'weekly_review',
+]);
+const COACH_FEEDBACK_VALUES = new Set<string>(['up', 'down', 'cleared']);
+const COACH_CONVERSION_TARGETS = new Set<string>(['workout', 'check_in', 'photo']);
+
 export interface AiUsageMetric {
   provider: string;
   model: string;
@@ -364,6 +402,12 @@ export class AppMetricsService implements OnModuleInit {
   private readonly healthDocumentDeletes: Counter;
   private readonly coachGuardRejected: Counter;
   private readonly coachSettingsUpdated: Counter;
+  private readonly coachNudgeSent: Counter;
+  private readonly coachNudgeSuppressed: Counter;
+  private readonly coachNudgeFallback: Counter;
+  private readonly coachNudgeOpened: Counter;
+  private readonly coachNudgeConverted: Counter;
+  private readonly coachFeedback: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -502,6 +546,30 @@ export class AppMetricsService implements OnModuleInit {
     this.coachSettingsUpdated = m.createCounter(N.coachSettingsUpdated, {
       description: 'Coach settings saved through PUT /api/coach/settings, by persona.',
       unit: '{update}',
+    });
+    this.coachNudgeSent = m.createCounter(N.coachNudgeSent, {
+      description: 'Coach messages delivered by coach.message.deliver, by moment.',
+      unit: '{message}',
+    });
+    this.coachNudgeSuppressed = m.createCounter(N.coachNudgeSuppressed, {
+      description: 'ai.coach.nudge jobs that ended without a message, by reason.',
+      unit: '{nudge}',
+    });
+    this.coachNudgeFallback = m.createCounter(N.coachNudgeFallback, {
+      description: 'Coach messages that fell back to a static persona line after two guard rejections, by moment.',
+      unit: '{message}',
+    });
+    this.coachNudgeOpened = m.createCounter(N.coachNudgeOpened, {
+      description: 'Coach messages opened for the first time, by moment.',
+      unit: '{message}',
+    });
+    this.coachNudgeConverted = m.createCounter(N.coachNudgeConverted, {
+      description: 'Delivered coach messages followed by their target action within the window, by moment and target.',
+      unit: '{message}',
+    });
+    this.coachFeedback = m.createCounter(N.coachFeedback, {
+      description: 'Thumbs feedback on coach messages, by value (`cleared` when removed).',
+      unit: '{feedback}',
     });
   }
 
@@ -710,6 +778,46 @@ export class AppMetricsService implements OnModuleInit {
   /** A user saved their coach settings; `persona` is the registry id now selected. */
   coachSettingsUpdate(persona: string): void {
     this.safely(() => this.coachSettingsUpdated.add(1, { persona: this.boundLabel('persona', persona) }));
+  }
+
+  /** `coach.message.deliver` delivered a coach message for `moment`. */
+  coachNudgeDelivered(moment: string | null): void {
+    this.safely(() => this.coachNudgeSent.add(1, { moment: enumLabel(moment, COACH_MOMENT_LABELS) }));
+  }
+
+  /** `ai.coach.nudge` ended without a message for `reason`. */
+  coachNudgeSuppression(reason: CoachNudgeSuppressionReason, moment: string | null): void {
+    this.safely(() =>
+      this.coachNudgeSuppressed.add(1, {
+        reason: enumLabel(reason, COACH_NUDGE_SUPPRESSION_SET),
+        moment: enumLabel(moment, COACH_MOMENT_LABELS),
+      }),
+    );
+  }
+
+  /** A static persona line was persisted after two guard rejections. */
+  coachNudgeFallbackUsed(moment: string | null): void {
+    this.safely(() => this.coachNudgeFallback.add(1, { moment: enumLabel(moment, COACH_MOMENT_LABELS) }));
+  }
+
+  /** A coach message was opened for the first time. */
+  coachNudgeOpen(moment: string | null): void {
+    this.safely(() => this.coachNudgeOpened.add(1, { moment: enumLabel(moment, COACH_MOMENT_LABELS) }));
+  }
+
+  /** A delivered coach message was converted by `target` within its window. */
+  coachNudgeConversion(moment: string | null, target: string): void {
+    this.safely(() =>
+      this.coachNudgeConverted.add(1, {
+        moment: enumLabel(moment, COACH_MOMENT_LABELS),
+        target: enumLabel(target, COACH_CONVERSION_TARGETS),
+      }),
+    );
+  }
+
+  /** Feedback on a coach message: `up`, `down`, or `cleared` (null). */
+  coachFeedbackGiven(value: 'up' | 'down' | null): void {
+    this.safely(() => this.coachFeedback.add(1, { value: enumLabel(value ?? 'cleared', COACH_FEEDBACK_VALUES) }));
   }
 
   // ===========================================================================

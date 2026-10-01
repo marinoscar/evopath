@@ -464,6 +464,43 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     channels: ['browser', 'push'],
     defaultEnabled: true,
   },
+  // ===========================================================================
+  // AI Coach (E7.5, #245; docs/specs/ai-coach.md §3.5)
+  // ===========================================================================
+  //
+  // Raised by `coach.message.deliver` (the weekly review by E7.10). None is
+  // mandatory: the coach is opt-in and a user may mute any of them; muting
+  // one is also the planner's `pref_off` gate. The browser and push templates
+  // show the LOCK-SCREEN-SAFE variant (`pushTitle`/`pushBody`); the full text
+  // lives on `/coach?m=<id>`.
+  {
+    key: 'coach.nudge',
+    label: 'Coach nudges',
+    description: 'Messages from your AI coach about your training: reminders, comebacks and check-ins.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'coach.celebration',
+    label: 'Coach celebrations',
+    description: 'Your AI coach celebrates a personal record or a weekly target reached.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'coach.photo_prompt',
+    label: 'Progress photo reminders',
+    description: 'Your AI coach reminds you when a progress photo is due.',
+    channels: ['browser', 'push'],
+    defaultEnabled: true,
+  },
+  {
+    key: 'coach.weekly_review',
+    label: 'Weekly coach review',
+    description: 'Your AI coach sums up your training week every Sunday evening.',
+    channels: ['email', 'browser', 'push'],
+    defaultEnabled: true,
+  },
 ];
 
 /**
