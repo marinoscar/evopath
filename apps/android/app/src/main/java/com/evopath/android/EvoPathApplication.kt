@@ -4,7 +4,12 @@ import android.app.Application
 import com.evopath.android.auth.EncryptedTokenStore
 import com.evopath.android.auth.TokenStore
 import com.evopath.android.config.ServerConfig
+import com.evopath.android.diagnostics.AndroidDiagnosticsPlatform
+import com.evopath.android.diagnostics.ApiServerProbe
 import com.evopath.android.diagnostics.AppLog
+import com.evopath.android.diagnostics.AutoDiagnostics
+import com.evopath.android.diagnostics.DiagnosticsService
+import com.evopath.android.diagnostics.SelfTest
 import com.evopath.android.healthconnect.AndroidAppLabels
 import com.evopath.android.healthconnect.AndroidHealthConnectGateway
 import com.evopath.android.healthconnect.AppLabels
@@ -80,6 +85,31 @@ class EvoPathApplication : Application() {
         notifier = { SyncNotifications.notifyPairingExpired(this) },
         backgroundNotifier = { available -> SyncNotifications.notifyBackgroundAccess(this, available) },
     )
+
+    val diagnostics: DiagnosticsService by lazy {
+        DiagnosticsService(
+            selfTest = ::newSelfTest,
+            backend = healthSyncApi,
+            tokens = tokenStore,
+            state = syncState,
+            history = syncHistory,
+        )
+    }
+
+    fun newSelfTest(): SelfTest = SelfTest(
+        platform = AndroidDiagnosticsPlatform(this),
+        serverUrl = { serverConfig.serverUrl },
+        server = ApiServerProbe(apiClient),
+        backend = healthSyncApi,
+        gateway = healthConnect,
+        labels = appLabels,
+        tokens = tokenStore,
+        state = syncState,
+        history = syncHistory,
+    )
+
+    fun newAutoDiagnostics(): AutoDiagnostics =
+        AutoDiagnostics(tokens = tokenStore, state = syncState, server = ApiServerProbe(apiClient), service = diagnostics)
 
     fun newPairingManager(): PairingManager = PairingManager(
         transport = ApiDeviceFlowTransport(apiClient),

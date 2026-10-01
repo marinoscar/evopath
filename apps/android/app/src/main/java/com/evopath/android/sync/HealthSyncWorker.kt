@@ -19,7 +19,7 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
         AppLog.i(TAG, "Worker started (${trigger.wire}, attempt ${runAttemptCount + 1})")
         val outcome = app.newSyncEngine().run(trigger)
         AppLog.i(TAG, "Worker finished: ${describe(outcome)}")
-        return when (outcome) {
+        val result = when (outcome) {
             is SyncOutcome.Completed, SyncOutcome.NotPaired, SyncOutcome.PairingExpired -> Result.success()
             SyncOutcome.Unpaired -> {
                 app.syncScheduler.cancelAll()
@@ -27,7 +27,17 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
             }
             is SyncOutcome.RetryLater -> if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
             is SyncOutcome.Failed -> Result.failure()
-        }.also { app.onSyncFinished() }
+        }
+        app.onSyncFinished()
+        // Leave the web a recent report when something broke (throttled; never fails the work).
+        try {
+            app.newAutoDiagnostics().afterRun(outcome)
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Automatic diagnostics upload failed", e)
+        }
+        return result
     }
 
     /**
