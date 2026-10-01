@@ -85,7 +85,10 @@
 //   Job (pending, others')            a PENDING job whose subject is a deleted
 //                                     row is deleted (including a
 //                                     `health.document.purge` for a deleted
-//                                     document: step 3 deletes its file)
+//                                     document: step 3 deletes its file), and
+//                                     the user's own pending `health.export`
+//                                     jobs (subject = the user); an export
+//                                     FILE is a StorageObject the user owns
 //
 // KEPT:
 //   User, UserIdentity, UserRole      the account and its access

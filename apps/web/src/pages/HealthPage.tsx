@@ -13,6 +13,10 @@
  * (`useCanReadFromPhoto`); it opens `PhotoReadDialog`, which saves one entry
  * through the photo-intake apply and refreshes the tiles and History.
  *
+ * H7 (#191): "Export health data" sits with the header actions for anyone who
+ * can read health data, whatever the AI state; it opens
+ * `ExportHealthDataDialog` (format, range, datasets, progress, download).
+ *
  * H4 (#188): "Import lab report" sits beside it under the same gate and opens
  * `LabReportDialog` (a PDF or page photos become reviewed lab results).
  *
@@ -23,6 +27,7 @@
 import { useState } from 'react';
 import { Alert, Box, Button, Container, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import { HEALTH_DATA_UNAVAILABLE, type MetricKey } from '../services/health';
 import { usePermissions } from '../hooks/usePermissions';
 import { useHealthProfile } from '../hooks/useHealthProfile';
@@ -38,6 +43,7 @@ import { CheckInSection } from '../components/health/CheckInSection';
 import { HealthHistorySections } from '../components/health/HealthHistorySections';
 import { PhotoReadButton } from '../components/health/PhotoReadButton';
 import { PhotoReadDialog } from '../components/health/PhotoReadDialog';
+import { ExportHealthDataDialog } from '../components/health/ExportHealthDataDialog';
 import { LabReportButton } from '../components/health/LabReportButton';
 import { LabReportDialog } from '../components/health/LabReportDialog';
 import { BloodWorkSection } from '../components/health/biomarkers/BloodWorkSection';
@@ -55,6 +61,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
   const [dialog, setDialog] = useState<{ open: boolean; focusMetric?: MetricKey }>({ open: false });
   // E2.6 (#64): the photo-read dialog, opened from the header or over the quick-entry dialog.
   const [photoOpen, setPhotoOpen] = useState(false);
+  // H7 (#191): the export dialog. Reading is enough: exporting changes nothing.
+  const [exportOpen, setExportOpen] = useState(false);
   // H4 (#188): the lab report import.
   const [labOpen, setLabOpen] = useState(false);
   // Bumped after every change to readings: the Trend chart and History refetch.
@@ -91,6 +99,9 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         </Box>
         {!forbidden && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            <Button variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => setExportOpen(true)}>
+              Export health data
+            </Button>
             <PhotoReadButton onClick={() => setPhotoOpen(true)} showUnavailable />
             <LabReportButton onClick={() => setLabOpen(true)} />
             <LogMeasurementButton variant="contained" startIcon={<AddIcon />} canLog={canLog} onClick={() => openDialog()}>
@@ -164,6 +175,7 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         onSaved={readingsChanged}
       />
 
+      <ExportHealthDataDialog open={exportOpen && !forbidden} onClose={() => setExportOpen(false)} />
       <LabReportDialog open={labOpen && !forbidden} onClose={() => setLabOpen(false)} onSaved={readingsChanged} />
     </>
   );

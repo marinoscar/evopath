@@ -1919,6 +1919,9 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.health.documents.purges` | `app_health_documents_purges_total` | counter | `{document}` | `outcome` (`purged`, `failed`) | A `health.document.purge` attempt erases a file or fails (and is retried). |
 | `app.health.documents.downloads` | `app_health_documents_downloads_total` | counter | `{download}` | `disposition` (`inline`, `attachment`) | `GET /api/health/documents/:id/download` issues a signed link. |
 | `app.health.documents.deletes` | `app_health_documents_deletes_total` | counter | `{document}` | `scope` (`file`, `record`), `values` (`kept`, `deleted`) | The owner deletes a health document: `file` queues the file's purge, `record` removes the metadata of a file already gone. |
+| `app.health.exports` | `app_health_exports_total` | counter | `{export}` | `format` (`json`, `csv`, `xlsx`, `pdf`), `outcome` (`completed`, `failed`) | A `health.export` attempt writes its file or fails. |
+| `app.health.export.duration` | `app_health_export_duration_seconds_{bucket,sum,count}` | histogram | `s` | `format`, `outcome` | With `exports`. |
+| `app.health.export.size` | `app_health_export_size_bytes_{bucket,sum,count}` | histogram | `By` | `format` | An export completes. |
 | `app.jobs.queue.depth` | `app_jobs_queue_depth` | gauge | `{job}` | `job_type`, `status` (`pending`, `running`) | Observed at collection. |
 | `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
 | `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |

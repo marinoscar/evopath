@@ -360,7 +360,43 @@ export const EVENT_BROWSER_TEMPLATES: Partial<
       link: programId ? `/train/plans/${encodeURIComponent(programId)}/history` : '/train',
     };
   },
+
+  // Raised by the `health.export` job. Ids and the format only; the link
+  // opens the health page, where the export is downloaded.
+  'health.export_ready': (data: never): BrowserNotificationContent => {
+    const { format } = data as HealthExportNotificationData;
+
+    return {
+      title: 'Your health export is ready',
+      body: `Your ${exportFormatLabel(format)}health data export is ready to download for the next 7 days.`,
+      link: '/health',
+    };
+  },
+
+  'health.export_failed': (data: never): BrowserNotificationContent => {
+    const { format } = data as HealthExportNotificationData;
+
+    return {
+      title: 'Your health export failed',
+      body: `Your ${exportFormatLabel(format)}health data export could not be created. Please try again.`,
+      link: '/health',
+    };
+  },
 };
+
+/** `health.export_ready` / `health.export_failed` payload (`health-export.handler.ts`). */
+export interface HealthExportNotificationData {
+  exportId: string;
+  format: string;
+}
+
+const EXPORT_FORMAT_LABELS: Record<string, string> = { json: 'JSON', csv: 'CSV', xlsx: 'Excel', pdf: 'PDF' };
+
+/** `PDF ` (with the trailing space), or nothing for an unknown format. */
+function exportFormatLabel(format: unknown): string {
+  const label = typeof format === 'string' ? EXPORT_FORMAT_LABELS[format] : undefined;
+  return label ? `${label} ` : '';
+}
 
 /** `training.plan_safety_stop`'s payload (`nodes/safety-gate.node.ts`). Ids and a reason code only. */
 export interface TrainingPlanSafetyStopData {

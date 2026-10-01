@@ -4,6 +4,7 @@ import { Workbook } from 'exceljs';
 import type { TelemetryColumnType, TelemetryExportFormat, TelemetryQueryRunResult } from '../dto/telemetry-query.dto';
 import { TelemetryQueryService } from '../query/telemetry-query.service';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
+import { csvField, neutralizeFormula, UTF8_BOM } from '../../common/export/csv';
 import { loadParquetWriter, type ParquetColumn } from './parquet-writer.loader';
 
 // =============================================================================
@@ -105,9 +106,6 @@ export function exportFilename(format: TelemetryExportFormat, now: Date): string
 
 // --- CSV ---------------------------------------------------------------------
 
-const UTF8_BOM = '﻿';
-const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
-
 export function toCsv(result: TelemetryQueryRunResult): string {
   const numeric = result.columns.map((column) => NUMERIC_TYPES.has(column.type));
   const lines = [result.columns.map((column) => csvField(neutralizeFormula(column.name)))];
@@ -122,14 +120,6 @@ export function toCsv(result: TelemetryQueryRunResult): string {
   }
 
   return UTF8_BOM + lines.map((fields) => fields.join(',')).join('\r\n') + '\r\n';
-}
-
-function csvField(text: string): string {
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function neutralizeFormula(text: string): string {
-  return FORMULA_TRIGGER.test(text) ? `'${text}` : text;
 }
 
 /** A value as text: null → empty, objects/arrays → JSON. */

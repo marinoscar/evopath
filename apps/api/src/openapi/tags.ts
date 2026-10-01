@@ -135,6 +135,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '`health_data:read`/`:write`; owner-scoped.',
       },
       {
+        name: 'Health Export',
+        description:
+          'Export the calling user\'s health data (profile, body, vitals, labs, wellness check-ins ' +
+          'and an index of kept documents) for a date range as JSON, CSV (zip), Excel or a PDF report ' +
+          'for a doctor. An export is a queued job; poll it, then download the file through a ' +
+          'short-lived signed URL. Files are kept 7 days. Gated on `health_data:read`; owner-scoped ' +
+          '(a foreign id is a 404).',
+      },
+      {
         name: 'Health Documents',
         description:
           'The calling user\'s health documents: every file handed a health intake (scale photos, ' +
