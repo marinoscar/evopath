@@ -11,6 +11,7 @@ import {
   type CoachStateView,
   type CoachTimelineItem,
   type SystemCoachSettings,
+  type WeeklyReviewData,
 } from '../../../services/coach';
 
 function lines(text: (level: number) => string): CoachPersonaCard['sampleLines'] {
@@ -248,3 +249,81 @@ export const mockCoachChatFrames: Array<[string, unknown]> = [
     },
   ],
 ];
+
+// -----------------------------------------------------------------------------
+// A weekly review (E7.10): `CoachMessage.data` version 1, as
+// `apps/api/src/coach/review/weekly-review-data.ts` stores it.
+// -----------------------------------------------------------------------------
+
+export const WEEKLY_REVIEW_PLAN_PROMPT =
+  'Plan my week: four sessions, Monday, Tuesday, Thursday and Saturday, about 45 minutes each.';
+
+type WeeklyReviewOverrides = {
+  stats?: Partial<WeeklyReviewData['stats']>;
+  prose?: Partial<WeeklyReviewData['prose']>;
+};
+
+/** The full stored `data` (including `emailProse` and `fallback`, which the card ignores). */
+export function mockWeeklyReviewData(overrides: WeeklyReviewOverrides = {}) {
+  const prose = {
+    headline: 'Three of four, and a squat PR',
+    intro: 'Strong week. You showed up three times and the squat moved.',
+    wins: ['Back squat PR at 120 kg', 'Three check-ins logged'],
+    focus: 'Protect Thursday: it is the session that slipped.',
+    nextWeekPlanPrompt: WEEKLY_REVIEW_PLAN_PROMPT,
+    ...overrides.prose,
+  };
+  return {
+    version: 1 as const,
+    isoWeek: '2026-W40',
+    stats: {
+      isoWeek: '2026-W40',
+      weekStart: '2026-09-28',
+      weekEnd: '2026-10-04',
+      planned: 4,
+      completed: 3,
+      missed: 1,
+      adherencePct: 75,
+      weeklyStreak: 5,
+      streakPassesLeft: 1,
+      streakChange: 'advanced' as const,
+      prs: [
+        { exercise: 'Back squat', value: 120, unit: 'kg' as const, reps: 5 },
+        { exercise: 'Pull-up', value: 12, unit: 'reps' as const, reps: null },
+      ],
+      checkIns: 3,
+      photosAdded: 1,
+      nextWeekSessions: 4,
+      nextWeek: [
+        { date: '2026-10-05', weekday: 'Mon', name: 'Upper body A' },
+        { date: '2026-10-06', weekday: 'Tue', name: 'Lower body A' },
+        { date: '2026-10-08', weekday: 'Thu', name: 'Upper body B' },
+        { date: '2026-10-10', weekday: 'Sat', name: 'Lower body B' },
+      ],
+      noPlan: false,
+      firstWeek: false,
+      ...overrides.stats,
+    },
+    prose,
+    emailProse: { ...prose },
+    register: 'clean' as const,
+    fallback: { app: false, email: false },
+  };
+}
+
+/** A `weekly_review` timeline row: `title` = headline, `body` = intro. */
+export function mockWeeklyReviewMessage(
+  overrides: WeeklyReviewOverrides & { message?: Partial<CoachTimelineItem> } = {},
+): CoachTimelineItem {
+  const data = mockWeeklyReviewData(overrides);
+  return mockCoachMessage({
+    id: coachMessageId(40),
+    kind: 'weekly_review',
+    moment: 'weekly_review',
+    title: data.prose.headline,
+    body: data.prose.intro,
+    data,
+    createdAt: '2026-10-04T17:00:00.000Z',
+    ...overrides.message,
+  });
+}

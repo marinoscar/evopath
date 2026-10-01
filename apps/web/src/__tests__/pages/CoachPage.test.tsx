@@ -13,7 +13,13 @@ import 'vitest-axe/extend-expect';
 import { render } from '../utils/test-utils';
 import { server } from '../mocks/server';
 import CoachPage from '../../pages/CoachPage';
-import { coachMessageId, coachSseBody, mockCoachMessage } from '../mocks/fixtures/coach';
+import {
+  coachMessageId,
+  coachSseBody,
+  mockCoachMessage,
+  mockWeeklyReviewMessage,
+  WEEKLY_REVIEW_PLAN_PROMPT,
+} from '../mocks/fixtures/coach';
 import { SPEECH_OBJECT_ID } from '../mocks/fixtures/ai';
 import type { CoachTimelineItem } from '../../services/coach';
 
@@ -423,6 +429,37 @@ describe('CoachPage', () => {
       expect(within(error).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
       expect(screen.getByTestId('coach-pending-user')).toHaveTextContent('Motivate me');
     });
+  });
+
+  describe('weekly review', () => {
+    it('renders the review card, and Plan my week pre-fills the composer without sending', async () => {
+      messagesPages({ first: { items: [mockWeeklyReviewMessage(), oldest], nextCursor: null } });
+      const chat = chatRefusal(500, { message: 'should not be called' });
+      const user = userEvent.setup();
+      renderPage();
+      const card = await screen.findByTestId('coach-weekly-review');
+      expect(within(card).getByRole('heading', { name: 'Three of four, and a squat PR' })).toBeInTheDocument();
+
+      await user.click(within(card).getByRole('button', { name: 'Plan my week' }));
+      const field = screen.getByRole('textbox', { name: 'Message your coach' });
+      expect(field).toHaveValue(WEEKLY_REVIEW_PLAN_PROMPT);
+      expect(field).toHaveFocus();
+      expect(chat).toHaveLength(0);
+
+      // Editing then tapping again restores the prompt.
+      await user.clear(field);
+      await user.click(within(card).getByRole('button', { name: 'Plan my week' }));
+      expect(field).toHaveValue(WEEKLY_REVIEW_PLAN_PROMPT);
+    });
+  });
+
+  it('has no axe violations with a weekly review card', async () => {
+    messagesPages({ first: { items: [mockWeeklyReviewMessage(), oldest], nextCursor: null } });
+    const { container } = renderPage();
+    await screen.findByTestId('coach-weekly-review');
+    await screen.findByTestId('coach-weekly-target');
+    const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results).toHaveNoViolations();
   });
 
   it('has no axe violations with messages and the composer', async () => {

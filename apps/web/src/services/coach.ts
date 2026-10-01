@@ -559,6 +559,143 @@ export function coachMessageData(data: unknown): CoachMessageData {
   };
 }
 
+// -----------------------------------------------------------------------------
+// `data` of a `weekly_review` message (E7.10), version 1
+// -----------------------------------------------------------------------------
+//
+// Mirrors `apps/api/src/coach/review/weekly-review-data.ts` (the contract) and
+// `weekly-review-stats.ts`. The card renders this shape only when
+// `parseWeeklyReviewData` accepts it; anything else (another version, a
+// malformed row) falls back to the defensive `coachMessageData` rendering.
+
+export const WEEKLY_REVIEW_DATA_VERSION = 1;
+export const WEEKLY_STREAK_CHANGES = ['advanced', 'pass_used', 'reset', 'held'] as const;
+export type WeeklyStreakChange = (typeof WEEKLY_STREAK_CHANGES)[number];
+
+export interface WeeklyReviewPr {
+  exercise: string;
+  value: number;
+  unit: 'kg' | 'reps';
+  reps: number | null;
+}
+
+export interface WeeklyReviewNextSession {
+  date: string;
+  weekday: string;
+  name: string;
+}
+
+export interface WeeklyReviewStats {
+  isoWeek: string;
+  weekStart: string;
+  weekEnd: string;
+  planned: number;
+  completed: number;
+  missed: number;
+  /** Null when nothing was planned. */
+  adherencePct: number | null;
+  weeklyStreak: number;
+  streakPassesLeft: number;
+  streakChange: WeeklyStreakChange;
+  prs: WeeklyReviewPr[];
+  checkIns: number;
+  photosAdded: number;
+  nextWeekSessions: number;
+  nextWeek: WeeklyReviewNextSession[];
+  noPlan: boolean;
+  firstWeek: boolean;
+}
+
+export interface WeeklyReviewProse {
+  headline: string;
+  intro: string;
+  wins: string[];
+  focus: string;
+  nextWeekPlanPrompt: string;
+}
+
+export interface WeeklyReviewData {
+  version: typeof WEEKLY_REVIEW_DATA_VERSION;
+  isoWeek: string;
+  stats: WeeklyReviewStats;
+  prose: WeeklyReviewProse;
+  register: 'clean' | 'profane' | 'supportive';
+}
+
+type Rec = Record<string, unknown>;
+const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isStr = (v: unknown): v is string => typeof v === 'string';
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
+
+function parseProse(v: unknown): WeeklyReviewProse | null {
+  if (!isRec(v)) return null;
+  const { headline, intro, wins, focus, nextWeekPlanPrompt } = v;
+  if (!isStr(headline) || !isStr(intro) || !isStr(focus) || !isStr(nextWeekPlanPrompt)) return null;
+  if (!Array.isArray(wins) || !wins.every(isStr)) return null;
+  return { headline, intro, wins: wins.filter((w) => w.trim() !== ''), focus, nextWeekPlanPrompt };
+}
+
+function parsePr(v: unknown): WeeklyReviewPr | null {
+  if (!isRec(v)) return null;
+  const { exercise, value, unit, reps } = v;
+  if (!isStr(exercise) || !isNum(value) || (unit !== 'kg' && unit !== 'reps')) return null;
+  if (reps !== null && !isNum(reps)) return null;
+  return { exercise, value, unit, reps };
+}
+
+function parseNextSession(v: unknown): WeeklyReviewNextSession | null {
+  if (!isRec(v) || !isStr(v.date) || !isStr(v.weekday) || !isStr(v.name)) return null;
+  return { date: v.date, weekday: v.weekday, name: v.name };
+}
+
+function parseStats(v: unknown): WeeklyReviewStats | null {
+  if (!isRec(v)) return null;
+  const nums = ['planned', 'completed', 'missed', 'weeklyStreak', 'streakPassesLeft', 'checkIns', 'photosAdded', 'nextWeekSessions'] as const;
+  if (!nums.every((k) => isNum(v[k]))) return null;
+  if (!isStr(v.isoWeek) || !isStr(v.weekStart) || !isStr(v.weekEnd)) return null;
+  if (v.adherencePct !== null && !isNum(v.adherencePct)) return null;
+  if (!(WEEKLY_STREAK_CHANGES as readonly unknown[]).includes(v.streakChange)) return null;
+  if (!isBool(v.noPlan) || !isBool(v.firstWeek)) return null;
+  if (!Array.isArray(v.prs) || !Array.isArray(v.nextWeek)) return null;
+  const prs = v.prs.map(parsePr);
+  const nextWeek = v.nextWeek.map(parseNextSession);
+  if (prs.some((p) => p === null) || nextWeek.some((s) => s === null)) return null;
+  return {
+    isoWeek: v.isoWeek,
+    weekStart: v.weekStart,
+    weekEnd: v.weekEnd,
+    planned: v.planned as number,
+    completed: v.completed as number,
+    missed: v.missed as number,
+    adherencePct: v.adherencePct as number | null,
+    weeklyStreak: v.weeklyStreak as number,
+    streakPassesLeft: v.streakPassesLeft as number,
+    streakChange: v.streakChange as WeeklyStreakChange,
+    prs: prs as WeeklyReviewPr[],
+    checkIns: v.checkIns as number,
+    photosAdded: v.photosAdded as number,
+    nextWeekSessions: v.nextWeekSessions as number,
+    nextWeek: nextWeek as WeeklyReviewNextSession[],
+    noPlan: v.noPlan,
+    firstWeek: v.firstWeek,
+  };
+}
+
+/**
+ * A light runtime guard over a `weekly_review` message's `data`: the typed
+ * version-1 shape, or null (another version, or malformed). Extra keys are
+ * ignored; `emailProse` and `fallback` are not needed by the card.
+ */
+export function parseWeeklyReviewData(data: unknown): WeeklyReviewData | null {
+  if (!isRec(data) || data.version !== WEEKLY_REVIEW_DATA_VERSION || !isStr(data.isoWeek)) return null;
+  const stats = parseStats(data.stats);
+  const prose = parseProse(data.prose);
+  if (!stats || !prose) return null;
+  const register = data.register === 'profane' || data.register === 'supportive' ? data.register : 'clean';
+  return { version: WEEKLY_REVIEW_DATA_VERSION, isoWeek: data.isoWeek, stats, prose, register };
+}
+
 /**
  * The reply as display text. Bodies are plain text; the one Markdown construct
  * the chat produces is an app link (`[Adjust today's workout](/train)`), which

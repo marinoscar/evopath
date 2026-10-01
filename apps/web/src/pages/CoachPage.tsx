@@ -21,7 +21,7 @@ import { useSearchParams, Link as RouterLink } from 'react-router-dom';
 import { Alert, Box, Button, Card, CardActions, CardContent, Container, Paper, Skeleton, Stack, Typography } from '@mui/material';
 import { CoachHeader } from '../components/coach/CoachHeader';
 import { CoachTimeline } from '../components/coach/CoachTimeline';
-import { CoachComposer } from '../components/coach/CoachComposer';
+import { CoachComposer, type CoachComposerPrefill } from '../components/coach/CoachComposer';
 import { useCoachSettings } from '../hooks/useCoachSettings';
 import { useCoachState } from '../hooks/useCoachState';
 import { useCoachTimeline } from '../hooks/useCoachTimeline';
@@ -79,6 +79,10 @@ export default function CoachPage() {
     [append, refreshState],
   );
   const chat = useCoachChat({ personaId: persona?.id ?? null, onComplete });
+
+  // A weekly review's Plan my week: put its prompt in the composer (not sent).
+  const [prefill, setPrefill] = useState<CoachComposerPrefill | null>(null);
+  const onPlanWeek = useCallback((text: string) => setPrefill((prev) => ({ text, key: (prev?.key ?? 0) + 1 })), []);
 
   const onDisplayed = useCallback(
     (message: CoachTimelineItem) => {
@@ -148,12 +152,13 @@ export default function CoachPage() {
               onDisplayed={onDisplayed}
               onRetry={chat.retry}
               onDismissFailure={chat.dismiss}
+              onPlanWeek={onPlanWeek}
               empty={timeline.error ? null : <CoachEmptyState />}
             />
           )}
         </Paper>
 
-        <CoachComposer onSend={chat.send} busy={chat.isStreaming} offline={!online} />
+        <CoachComposer onSend={chat.send} busy={chat.isStreaming} offline={!online} prefill={prefill} />
       </Box>
     </Container>
   );

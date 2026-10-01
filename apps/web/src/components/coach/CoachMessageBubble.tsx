@@ -5,8 +5,9 @@
  *
  * - `nudge`, `chat`, `comeback`, `kickoff`, `system`: a plain bubble.
  * - `celebration`: the accent card.
- * - `weekly_review`: a rich card. E7.10 fills `data`; every stat is optional,
- *   and the body is the fallback when none is present.
+ * - `weekly_review`: `WeeklyReviewCard` when `data` is the version-1 contract
+ *   (`parseWeeklyReviewData`), with **Plan my week** wired to `onPlanWeek`;
+ *   otherwise the defensive rendering (any stat present, the body as fallback).
  * - `photo_prompt`: the body plus **Take photo** (`/health/progress-photos?add=1`).
  * - A safety reply (`data.safety` of `distress` or `symptom`): the supportive
  *   style, no persona, no thumbs.
@@ -30,11 +31,13 @@ import { AiSpeechPlayer } from '../ai/AiSpeechPlayer';
 import {
   coachDisplayText,
   coachMessageData,
+  parseWeeklyReviewData,
   type CoachFeedback,
   type CoachPersonaCard,
   type CoachTimelineItem,
 } from '../../services/coach';
 import { personaIcon } from './personaAvatar';
+import { WeeklyReviewCard } from './WeeklyReviewCard';
 
 export const COACH_TAKE_PHOTO_PATH = '/health/progress-photos?add=1';
 /** Screens whose reply is the fixed supportive text (no model, no persona). */
@@ -48,6 +51,8 @@ export interface CoachMessageBubbleProps {
   onFeedback?: (id: string, feedback: CoachFeedback | null) => void;
   /** Called once when the message has been displayed. */
   onDisplayed?: (message: CoachTimelineItem) => void;
+  /** A weekly review's **Plan my week**: pre-fill the composer with this prompt. */
+  onPlanWeek?: (prompt: string) => void;
 }
 
 function formatTime(iso: string): string {
@@ -160,6 +165,7 @@ export function CoachMessageBubble({
   autoPlay = false,
   onFeedback,
   onDisplayed,
+  onPlanWeek,
 }: CoachMessageBubbleProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const reported = useRef(false);
@@ -221,7 +227,10 @@ export function CoachMessageBubble({
           : { bgcolor: 'background.paper' };
   const KindIcon =
     kind === 'celebration' ? EmojiEventsOutlinedIcon : kind === 'weekly_review' ? InsightsIcon : null;
-  const showTitle = Boolean(message.title) && message.kind !== 'chat';
+  const review = kind === 'weekly_review' ? parseWeeklyReviewData(message.data) : null;
+  // The review card renders its headline (= title) as its own heading.
+  const labelTitle = Boolean(message.title) && message.kind !== 'chat';
+  const showTitle = labelTitle && !review;
   const audioReady = message.audioStatus === 'ready' && Boolean(message.audioStorageObjectId);
 
   return (
@@ -247,7 +256,7 @@ export function CoachMessageBubble({
       <Paper
         variant="outlined"
         component="article"
-        aria-label={`${speaker}${showTitle ? `: ${message.title}` : ''}${time ? `, ${time}` : ''}`}
+        aria-label={`${speaker}${labelTitle ? `: ${message.title}` : ''}${time ? `, ${time}` : ''}`}
         sx={{
           p: 1.5,
           flex: '0 1 auto',
@@ -264,7 +273,7 @@ export function CoachMessageBubble({
             {speaker}
             {time ? ` · ${time}` : ''}
           </Typography>
-          {(showTitle || KindIcon) && (
+          {(showTitle || (KindIcon && !review)) && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
               {KindIcon && <KindIcon fontSize="small" aria-hidden />}
               {showTitle && (
@@ -274,7 +283,13 @@ export function CoachMessageBubble({
               )}
             </Box>
           )}
-          {kind === 'weekly_review' ? <WeeklyReviewContent message={message} /> : <Body text={message.body} />}
+          {review ? (
+            <WeeklyReviewCard review={review} onPlanWeek={onPlanWeek} />
+          ) : kind === 'weekly_review' ? (
+            <WeeklyReviewContent message={message} />
+          ) : (
+            <Body text={message.body} />
+          )}
           {data.safety === 'pain' && (
             <Typography variant="caption" color="text.secondary">
               Careful mode: no advice to train through pain.
