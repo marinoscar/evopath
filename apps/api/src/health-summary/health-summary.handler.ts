@@ -142,7 +142,18 @@ export class HealthSummaryHandler implements JobHandler, OnModuleInit {
         span?.setAttribute(HEALTH_SUMMARY_SPAN_ATTRIBUTES.inputTokens, attempted.inputTokens);
         span?.setAttribute(HEALTH_SUMMARY_SPAN_ATTRIBUTES.outputTokens, attempted.outputTokens);
       }
-      this.metrics.healthSummaryGenerated(outcome, Date.now() - started, attempted);
+      this.metrics.healthSummaryGenerated(
+        outcome,
+        Date.now() - started,
+        attempted
+          ? {
+              regenerations: attempted.regenerations,
+              rejections: attempted.rejections,
+              inputTokens: attempted.inputTokens,
+              outputTokens: attempted.outputTokens,
+            }
+          : undefined,
+      );
     };
 
     if (!(await this.reader.consentOn(userId))) {

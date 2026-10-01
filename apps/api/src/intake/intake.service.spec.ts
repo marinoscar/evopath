@@ -1381,6 +1381,38 @@ describe('IntakeService', () => {
       );
     });
 
+    it('apply of a health kind emits health.data.changed after the transaction (H8, #192); a plain kind does not', async () => {
+      const events = { emit: jest.fn(() => true) };
+      const withEvents = new IntakeService(
+        prisma as never,
+        registry,
+        jobs as never,
+        usableModels as never,
+        objects as never,
+        features as never,
+        inputs,
+        references,
+        events as never,
+      );
+      const healthKind = stubKind({ kind: 'health_stub', healthDocumentKind: 'body_metric' });
+      registry.register(healthKind);
+      prisma.draftItem.count.mockResolvedValue(0);
+      prisma.photoIntake.updateMany.mockResolvedValue({ count: 1 });
+      prisma.draftItem.findMany.mockResolvedValue([] as never);
+      prisma.healthDocument.findMany.mockResolvedValue([] as never);
+
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      await withEvents.apply(USER, INTAKE);
+      expect(events.emit).not.toHaveBeenCalled();
+
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ kind: 'health_stub' }) as never);
+      await withEvents.apply(USER, INTAKE);
+      expect(events.emit).toHaveBeenCalledWith('health.data.changed', { userId: USER, source: 'intake' });
+      expect(events.emit.mock.invocationCallOrder[0]).toBeGreaterThan(
+        (prisma.$transaction as unknown as jest.Mock).mock.invocationCallOrder.at(-1)!,
+      );
+    });
+
     it('apply of a kind without healthDocumentKind reads no documents and enqueues nothing', async () => {
       prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
       prisma.draftItem.count.mockResolvedValue(0);
