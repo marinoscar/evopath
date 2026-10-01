@@ -925,6 +925,8 @@ describe('the Operations group (#266)', () => {
         'Maintenance',
         // #203: appended to General, gated on `system_settings:read`.
         'Setup guide',
+        // #283: appended to General, gated on `system_settings:read`.
+        'Android app',
         'Users & Allowlist',
         'About',
         'Doctor',
@@ -1454,5 +1456,48 @@ describe('the Danger Zone group (#211)', () => {
     expect(
       settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/factory-reset'),
     ).toBe('Factory reset');
+  });
+});
+
+/**
+ * Issue #283, epic #276. The `Android app` card is APPENDED to General after
+ * Setup guide, gated on `system_settings:read` (the string
+ * `GET /api/admin/android-app` enforces), with no feature gate, and routed in
+ * `App.tsx` behind the same permission.
+ */
+describe('ADMIN_SECTIONS - Android app card (#283)', () => {
+  const general = ADMIN_SECTIONS.find((section) => section.label === 'General');
+  const card = general?.cards.find((c) => c.path === '/admin/settings/android');
+
+  it('is the last General card, appended after Setup guide', () => {
+    const titles = general?.cards.map((c) => c.title) ?? [];
+    expect(titles[titles.length - 1]).toBe('Android app');
+    expect(titles[titles.length - 2]).toBe('Setup guide');
+  });
+
+  it('declares system_settings:read and no feature or alwaysShow', () => {
+    expect(card).toMatchObject({ title: 'Android app', permission: 'system_settings:read' });
+    expect(card?.feature).toBeUndefined();
+    expect(card?.alwaysShow).toBeUndefined();
+  });
+
+  it('resolves its route to its own title', () => {
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/android'),
+    ).toBe('Android app');
+  });
+
+  it('is hidden from a holder of only system_settings:write', () => {
+    const titles = visibleSettingsSections(ADMIN_SECTIONS, (p) => p === 'system_settings:write').flatMap((s) =>
+      s.cards.map((c) => c.title),
+    );
+    expect(titles).not.toContain('Android app');
+  });
+
+  it('is routed in App.tsx behind the same permission', () => {
+    const app = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'), 'utf8');
+    expect(app).toMatch(
+      /path="\/admin\/settings\/android"\s+element=\{\s+<RequirePermission\s+permission="system_settings:read"/,
+    );
   });
 });

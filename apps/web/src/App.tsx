@@ -157,6 +157,8 @@ const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorer
 // (`@mui/x-charts`) travel in its own chunk.
 const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
 const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
+// Android app trust (#283, epic #276).
+const AndroidAppPage = lazy(() => import('./pages/Admin/AndroidAppPage'));
 // Issue #211 — the admin factory reset.
 const FactoryResetPage = lazy(() => import('./pages/Admin/FactoryResetPage'));
 const SetupGuidePage = lazy(() => import('./pages/Admin/SetupGuidePage'));
@@ -1020,6 +1022,21 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <DoctorPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #283, epic #276. `system_settings:read`, the string the
+                      `Android app` card declares and `GET /api/admin/android-app`
+                      enforces. Saving needs `system_settings:write`, gated
+                      inside the page. */}
+                  <Route
+                    path="/admin/settings/android"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AndroidAppPage />
                       </RequirePermission>
                     }
                   />
