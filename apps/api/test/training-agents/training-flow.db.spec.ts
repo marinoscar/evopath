@@ -184,12 +184,16 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
 
   /**
    * Eight weeks, three sessions a week, weeks 4 and 8 deloads. The first session
-   * falls on today's weekday so today's planned session exists; the refs the
+   * includes today's weekday so today's planned session exists; the refs the
    * evaluator fixtures name (`W5-1-2` the push, `W5-1-3` the row) exist and are open.
    */
   function draftFor(keys: Keys): PlanDraft {
     const isoToday = new Date(`${todayStr}T00:00:00Z`).getUTCDay() || 7;
-    const day = (offset: number) => ((isoToday - 1 + offset) % 7) + 1;
+    // Three weekdays that include today's. Sorted ascending so "Full A/B/C" is also the
+    // weekday (and therefore stored position) order whatever today is: `W5-1-x` then always
+    // names Full A's exercises (an unsorted wrap, e.g. Thu/Sat/Mon, would put Full C first).
+    const days = [0, 2, 4].map((offset) => ((isoToday - 1 + offset) % 7) + 1).sort((a, b) => a - b);
+    const day = (index: number) => days[index];
     const type = (key: string, isDeload: boolean): PlanDraft['blocks'][number]['weekTypes'][number] => {
       const sets = isDeload ? 2 : 3;
       return {
@@ -197,8 +201,8 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
         isDeload,
         workouts: [
           draftWorkout('Full A', day(0), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
-          draftWorkout('Full B', day(2), [draftExercise(keys.lunge, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
-          draftWorkout('Full C', day(4), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.row, { sets }), draftExercise(keys.push, { sets })]),
+          draftWorkout('Full B', day(1), [draftExercise(keys.lunge, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
+          draftWorkout('Full C', day(2), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.row, { sets }), draftExercise(keys.push, { sets })]),
         ],
       };
     };
