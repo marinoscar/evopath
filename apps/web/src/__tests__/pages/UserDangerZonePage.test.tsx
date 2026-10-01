@@ -24,6 +24,8 @@ const SUMMARY = {
   aiKeys: 1,
   accessTokens: 3,
   notifications: 18,
+  activityGoals: 3,
+  activityEntries: 1,
 };
 
 /** Poll timing is real (1.5 s); give each settled state room to arrive. */
@@ -82,6 +84,8 @@ describe('UserDangerZonePage', () => {
     expect(screen.getByText('4 gyms')).toBeInTheDocument();
     expect(screen.getByText('112 photos')).toBeInTheDocument();
     expect(screen.getByText('1 AI provider key')).toBeInTheDocument();
+    expect(screen.getByText('3 activity goals')).toBeInTheDocument();
+    expect(screen.getByText('1 activity entry')).toBeInTheDocument();
 
     expect(screen.getByText('Your sign-in and account, and your role')).toBeInTheDocument();
     expect(screen.getByText('The security audit log')).toBeInTheDocument();
@@ -111,6 +115,8 @@ describe('UserDangerZonePage', () => {
     expect(await screen.findByText(/Could not load how much data you have/)).toBeInTheDocument();
     expect(screen.getByText('Workouts')).toBeInTheDocument();
     expect(screen.getByText('Photos')).toBeInTheDocument();
+    expect(screen.getByText('Activity goals')).toBeInTheDocument();
+    expect(screen.getByText('Activity entries')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete all my data…' })).toBeEnabled();
   });
 
@@ -173,7 +179,7 @@ describe('UserDangerZonePage', () => {
       { status: 'running' },
       {
         status: 'succeeded',
-        result: { workouts: 37, photos: 112, storageObjectsDeleted: 113, storageObjectsFailed: 0 },
+        result: { workouts: 37, photos: 112, activityGoals: 2, activityEntries: 1, storageObjectsDeleted: 113, storageObjectsFailed: 0 },
       },
     ]);
     const { user } = await renderPage();
@@ -193,6 +199,8 @@ describe('UserDangerZonePage', () => {
     expect(within(done).getByText('37 workouts')).toBeInTheDocument();
     expect(within(done).getByText('112 photos')).toBeInTheDocument();
     expect(within(done).getByText('113 stored files')).toBeInTheDocument();
+    expect(within(done).getByText('2 activity goals')).toBeInTheDocument();
+    expect(within(done).getByText('1 activity entry')).toBeInTheDocument();
     expect(within(done).queryByText(/could not be removed from storage/)).not.toBeInTheDocument();
     expect(within(done).getByRole('button', { name: 'Go to home' })).toBeInTheDocument();
   }, 10000);

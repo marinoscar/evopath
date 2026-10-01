@@ -80,6 +80,8 @@ const DELETED_CATEGORIES: Array<{
   { key: 'notifications', singular: 'notification', plural: 'notifications', detail: 'Your notification history.' },
   { key: 'progressPhotos', singular: 'progress photo', plural: 'progress photos', detail: 'Progress photos you saved for your coach.' },
   { key: 'coachMessages', singular: 'coach message', plural: 'coach messages', detail: 'Your AI Coach conversation, nudges and weekly reviews.' },
+  { key: 'activityGoals', singular: 'activity goal', plural: 'activity goals', detail: 'Your goals, archived ones included.' },
+  { key: 'activityEntries', singular: 'activity entry', plural: 'activity entries', detail: 'Check-ins and the activity counted toward your goals.' },
 ];
 
 const STORAGE_RESULT_KEYS = new Set(['storageObjectsDeleted', 'storageObjectsFailed']);
