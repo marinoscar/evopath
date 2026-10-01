@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -51,8 +53,17 @@ val backgroundColor = argb(identityValue("backgroundColor"))
 /** Kotlin package of the sources; identity-neutral on purpose (never renamed by a fork). */
 val codeNamespace = "com.enterpriseapp.android"
 
-val appVersionName = appProp("versionName") ?: "0.1.0"
-val appVersionCode = (appProp("versionCode") ?: "1").toInt()
+// Version: apps/android/version.properties (committed; the CLI bumps it), overridable per build
+// with -Papp.versionName / -Papp.versionCode (or the repository-prefixed form).
+val versionProps = Properties().apply {
+    val file = rootProject.file("version.properties")
+    if (file.isFile) file.inputStream().use { load(it) }
+}
+fun versionProp(key: String): String? = versionProps.getProperty(key)?.trim()?.ifEmpty { null }
+val appVersionName: String = appProp("versionName") ?: versionProp("versionName") ?: "0.1.0"
+val appVersionCode: Int = (appProp("versionCode") ?: versionProp("versionCode") ?: "1").toIntOrNull()
+    ?.takeIf { code -> code in 1..2_100_000_000 }
+    ?: throw GradleException("versionCode must be a whole number from 1 to 2100000000 (version.properties or -Papp.versionCode).")
 // Not blank-filtered: an empty value is meaningful (first-run setup screen).
 val defaultServerUrl = ((project.findProperty("app.serverUrl") ?: project.findProperty("$identityToken.serverUrl")) as String?)
     ?.trim().orEmpty()

@@ -10,7 +10,8 @@ A small Android app for the product (its name, package and colours come from
   `<repo>-android://health-sync`.
 
 Package `com.<repo>.android`, minSdk 26, target/compile SDK 36. Sideloaded; CI publishes the signed
-APK to the rolling GitHub prerelease `android-latest` (`.github/workflows/android.yml`).
+APK to the rolling GitHub prerelease `android-latest` (`.github/workflows/android.yml`, with the
+versionName in the release notes; `scripts/build-meta.sh` reads the name and version for it).
 
 ## Build locally
 
@@ -25,6 +26,14 @@ export ANDROID_HOME=/path/to/android-sdk
 ```
 
 Install on a connected phone: `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+
+### Version
+
+`version.properties` (committed) holds `versionName` and `versionCode`; Gradle reads it, and
+`-Papp.versionName` / `-Papp.versionCode` override it for one build. CI builds it as committed
+(no per-run numbering), so bump it (the CLI's `android version --bump patch`, or by hand) before a
+release: `versionCode` must strictly increase for every published APK, because Android refuses to
+install a lower code over a higher one.
 
 ### Product identity
 
@@ -58,8 +67,8 @@ Each property can be given with the neutral `app.` prefix or with the repository
 
 | Property | Default | Meaning |
 |---|---|---|
-| `app.versionName` | `0.1.0` | `versionName` |
-| `app.versionCode` | `1` | `versionCode` |
+| `app.versionName` | `version.properties` | `versionName` |
+| `app.versionCode` | `version.properties` | `versionCode` |
 | `app.serverUrl` | empty | Server baked into `BuildConfig.DEFAULT_SERVER_URL`. Empty shows a first-run setup screen. |
 | `app.applicationId`, `app.productName`, `app.deepLinkScheme` | from `identity.json` | Override one derived identity value (rarely needed). |
 
