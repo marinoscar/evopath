@@ -22,6 +22,9 @@
  *
  * H5 (#189): the "Blood work" section links to the biomarker views
  * (`/health/biomarkers`), between the check-in and Trend/History.
+ *
+ * E7.9 (#249): the "Progress photos" section, right after Blood work, links
+ * to the private gallery (`/health/progress-photos`).
  */
 
 import { useState } from 'react';
@@ -48,6 +51,7 @@ import { LabReportButton } from '../components/health/LabReportButton';
 import { LabReportDialog } from '../components/health/LabReportDialog';
 import { BloodWorkSection } from '../components/health/biomarkers/BloodWorkSection';
 import { labUnitsOf } from '../utils/labUnits';
+import { ProgressPhotosSection } from '../components/health/ProgressPhotosSection';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -145,6 +149,9 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
 
         {/* H5 (#189): the way into the blood-work history. */}
         {!forbidden && <BloodWorkSection labUnits={labUnitsOf(profile)} />}
+
+        {/* E7.9 (#249): the way into the private progress-photo gallery. */}
+        {!forbidden && <ProgressPhotosSection />}
 
         {!forbidden && catalog && !loading && (
           <HealthHistorySections

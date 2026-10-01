@@ -4,6 +4,7 @@ import { AiConfigModule } from '../../ai/config/ai-config.module';
 import { CheckInsModule } from '../../check-ins/check-ins.module';
 import { JobsModule } from '../../jobs/jobs.module';
 import { ProgramsModule } from '../../programs/programs.module';
+import { ProgressPhotosModule } from '../../progress-photos/progress-photos.module';
 import { SettingsModule } from '../../settings/settings.module';
 import { CoachEventsListener } from './coach-events.listener';
 import { CoachMomentEnqueuer } from './coach-moment-enqueuer';
@@ -28,7 +29,7 @@ import { CoachSweepTask } from './tasks/coach-sweep.task';
 // =============================================================================
 
 @Module({
-  imports: [AiConfigModule, CheckInsModule, JobsModule, ProgramsModule, SettingsModule],
+  imports: [AiConfigModule, CheckInsModule, JobsModule, ProgramsModule, ProgressPhotosModule, SettingsModule],
   controllers: [CoachStateController],
   providers: [
     CoachPlanningMetrics,

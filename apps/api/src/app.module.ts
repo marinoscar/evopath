@@ -39,6 +39,7 @@ import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
 import { IntakeModule } from './intake/intake.module';
 import { HealthDocumentsModule } from './health-documents/health-documents.module';
+import { ProgressPhotosModule } from './progress-photos/progress-photos.module';
 import { HealthExportModule } from './health-export/health-export.module';
 import { GymsModule } from './gyms/gyms.module';
 import { ExercisesModule } from './exercises/exercises.module';
@@ -262,6 +263,11 @@ import configuration from './config/configuration';
     // `health_data:read`; the server-only `health.export` job and the daily
     // `health.export.purge` (queued by a cron) that removes files after 7 days.
     HealthExportModule,
+
+    // Progress photos (E7.9, #249): `/api/progress-photos` under
+    // `health_data:*`, NOT AI-gated; the `progress_photos` storage reference
+    // checker. Exports `ProgressPhotoSummaryService` (counts and dates only).
+    ProgressPhotosModule,
 
     // Gyms (E3.3): `/api/gyms` (with equipment and photos), `/api/equipment-types`
     // and `/api/capabilities` under `gyms:*` (photo attach/remove also

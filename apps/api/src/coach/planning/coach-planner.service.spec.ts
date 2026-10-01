@@ -54,6 +54,8 @@ interface Setup {
   recentStarts?: Date[];
   enqueue?: 'enqueued' | 'handler_missing';
   finishedWorkout?: { date: Date } | null;
+  /** `ProgressPhotoSummaryService.summarize(...).lastLocalDate`; null (no photos) by default. */
+  lastPhotoLocalDate?: string | null;
 }
 
 function setup(options: Setup = {}) {
@@ -84,7 +86,6 @@ function setup(options: Setup = {}) {
       ),
     },
     coachMessage: { findMany: jest.fn(async () => options.messages ?? []) },
-    progressPhoto: { findFirst: jest.fn(async () => null) },
     program: { findFirst: jest.fn(async () => null) },
     trainingPlanRun: { findFirst: jest.fn(async () => null) },
   };
@@ -94,8 +95,22 @@ function setup(options: Setup = {}) {
     enqueueWeeklyReview: jest.fn(async () => ({ status: 'enqueued', jobId: 'job-r' })),
   };
   const metrics = { suppressed: jest.fn(), invalidTimeZone: jest.fn(), momentPlanned: jest.fn() };
-  const service = new CoachPlannerService(prisma as never, signals as never, enqueuer as never, metrics as never);
-  return { service, prisma, signals, enqueuer, metrics };
+  const lastLocalDate = options.lastPhotoLocalDate ?? null;
+  const photoSummary = {
+    summarize: jest.fn(async () => ({
+      count: lastLocalDate ? 1 : 0,
+      lastLocalDate,
+      byPose: { front: lastLocalDate ? 1 : 0, side: 0, back: 0, other: 0 },
+    })),
+  };
+  const service = new CoachPlannerService(
+    prisma as never,
+    signals as never,
+    enqueuer as never,
+    metrics as never,
+    photoSummary as never,
+  );
+  return { service, prisma, signals, enqueuer, metrics, photoSummary };
 }
 
 function ctx(overrides: Partial<CoachPlanContext> = {}): CoachPlanContext {
@@ -161,6 +176,37 @@ describe('CoachPlannerService.planUser', () => {
     const data = updateData(t);
     expect(data).not.toHaveProperty('nudgesToday');
     expect(data).not.toHaveProperty('lastSweepAt');
+  });
+
+  describe('photo cadence (reads ProgressPhotoSummaryService, never prisma.progressPhoto)', () => {
+    const MORNING = new Date('2026-09-30T10:00:00Z');
+    const photoCtx = () =>
+      ctx({ now: MORNING, settingsValue: { coach: { enabled: true, photoCadence: 'weekly' } } });
+    // The photo prompt rides a training day: a session planned for today.
+    const TRAINING_DAY = planSignals({
+      sessions: [
+        { programWorkoutId: '00000000-0000-4000-8000-000000000102', name: 'B', plannedFor: '2026-09-30', status: 'upcoming', workoutId: null, setsPlanned: 5, setsDone: 0, completionPct: null, avgRpe: null },
+      ],
+    });
+
+    it('reads the newest photo day through the summary service only', async () => {
+      const t = setup({ signals: TRAINING_DAY, lastPhotoLocalDate: '2026-09-28' });
+      await t.service.planUser(USER, photoCtx());
+      expect(t.photoSummary.summarize).toHaveBeenCalledWith(USER);
+      expect(t.prisma).not.toHaveProperty('progressPhoto');
+    });
+
+    it('does not prompt while the last photo is inside the cadence', async () => {
+      const t = setup({ signals: TRAINING_DAY, lastPhotoLocalDate: '2026-09-28' });
+      const outcome = await t.service.planUser(USER, photoCtx());
+      expect(outcome.queued).not.toBe('photo_prompt');
+    });
+
+    it('prompts once the summary\'s lastLocalDate is a full cadence old', async () => {
+      const t = setup({ signals: TRAINING_DAY, lastPhotoLocalDate: '2026-09-20' });
+      const outcome = await t.service.planUser(USER, photoCtx());
+      expect(outcome.queued).toBe('photo_prompt');
+    });
   });
 
   it('counts ignored messages; at the threshold it queues the back-off and sets silencedAt', async () => {

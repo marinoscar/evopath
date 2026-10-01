@@ -12,6 +12,7 @@ import { findEvent } from '../../notifications/notification-events';
 import { DEFAULT_NOTIFICATION_POLICY, type NotificationPolicy } from '../../notifications/notification-policy';
 import { readNotificationPreferences, resolveChannels } from '../../notifications/notification-preferences';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProgressPhotoSummaryService } from '../../progress-photos/progress-photo-summary.service';
 import { TrainingSignalsService } from '../../programs/signals/signals.service';
 import {
   consecutiveIgnoredOf,
@@ -105,6 +106,7 @@ export class CoachPlannerService {
     private readonly signals: TrainingSignalsService,
     private readonly enqueuer: CoachMomentEnqueuer,
     private readonly metrics: CoachPlanningMetrics,
+    private readonly photoSummary: ProgressPhotoSummaryService,
   ) {}
 
   async planUser(userId: string, ctx: CoachPlanContext): Promise<CoachPlanOutcome> {
@@ -138,7 +140,7 @@ export class CoachPlannerService {
         take: MESSAGE_WINDOW_LIMIT,
         select: { role: true, moment: true, createdAt: true, deliveredAt: true, openedAt: true },
       }),
-      this.prisma.progressPhoto.findFirst({ where: { userId }, orderBy: { localDate: 'desc' }, select: { localDate: true } }),
+      this.photoSummary.summarize(userId),
       this.prisma.program.findFirst({
         where: { userId, status: 'active' },
         select: { autonomyPausedAt: true, autonomyPausedReason: true },
@@ -170,7 +172,7 @@ export class CoachPlannerService {
       lastCompletedWorkoutDate: lastWorkout ? fromDbDate(lastWorkout.date) : null,
       // `CoachState.createdAt` floors it: a user who just turned the coach on is not inactive.
       lastActivityAt: latestOf(lastEngagementAt, state.createdAt),
-      lastProgressPhotoDate: photo ? fromDbDate(photo.localDate) : null,
+      lastProgressPhotoDate: photo.lastLocalDate,
       safetyStop: isSafetyStop(program, lastRun, now),
     });
     if (workoutDate) planningSignals.event = workoutEventOf(signals, workoutDate);

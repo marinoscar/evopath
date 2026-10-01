@@ -47,8 +47,9 @@ const datasetsSchema = z
     description:
       '`profile` (date of birth, sex at birth, height), `body` (weight, body fat, waist), `vitals` ' +
       '(blood pressure, resting heart rate), `labs` (blood work with reference ranges and flags), ' +
-      '`wellness` (the daily check-in scores, "Wellness / mood") and `documents` (an index of kept ' +
-      'documents, metadata only).',
+      '`wellness` (the daily check-in scores, "Wellness / mood"), `documents` (an index of kept ' +
+      'documents, metadata only) and `progress_photos` (an index of progress photos: day, pose, note, ' +
+      'type and size, metadata only).',
   });
 
 /** Days from `from` to `to`, inclusive of neither end. */
@@ -98,11 +99,16 @@ export type CreateHealthExportInput = z.output<typeof createHealthExportSchema>;
 
 export const healthExportIdParamSchema = z.object({ id: z.uuid() });
 
+// `progress_photos` (E7.9, #249) came later: a result written before it has
+// no such key, and reads as 0 rather than failing the whole result.
 const rowCountsSchema = z
-  .object(Object.fromEntries(HEALTH_EXPORT_DATASETS.map((d) => [d, z.number().int().nonnegative()])) as Record<
-    (typeof HEALTH_EXPORT_DATASETS)[number],
-    z.ZodNumber
-  >)
+  .object({
+    ...(Object.fromEntries(HEALTH_EXPORT_DATASETS.map((d) => [d, z.number().int().nonnegative()])) as Record<
+      (typeof HEALTH_EXPORT_DATASETS)[number],
+      z.ZodNumber
+    >),
+    progress_photos: z.number().int().nonnegative().default(0),
+  })
   .meta({ description: 'Rows written per dataset (0 for one not selected; `profile` is 0 or 1).' });
 
 /** What the job writes on `payload.result` when the file is committed. */

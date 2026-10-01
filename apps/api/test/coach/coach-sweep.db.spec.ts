@@ -21,6 +21,7 @@ import type { Job, PrismaClient } from '@prisma/client';
 import { CoachMomentEnqueuer } from '../../src/coach/planning/coach-moment-enqueuer';
 import { CoachPlannerService } from '../../src/coach/planning/coach-planner.service';
 import { CoachPlanningMetrics } from '../../src/coach/planning/coach-planning.metrics';
+import { ProgressPhotoSummaryService } from '../../src/progress-photos/progress-photo-summary.service';
 import { CoachStateService } from '../../src/coach/planning/coach-state.service';
 import { CoachSweepHandler } from '../../src/coach/planning/handlers/coach-sweep.handler';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
@@ -91,7 +92,13 @@ describeWithDb('coach sweep (real Postgres)', () => {
     const jobs = new JobsService(prisma);
     const metrics = new CoachPlanningMetrics();
     const signals = { forUser: jest.fn(async () => missedTwice('2026-09-30')) };
-    planner = new CoachPlannerService(prisma, signals as never, new CoachMomentEnqueuer(jobs, registry, metrics), metrics);
+    planner = new CoachPlannerService(
+      prisma,
+      signals as never,
+      new CoachMomentEnqueuer(jobs, registry, metrics),
+      metrics,
+      new ProgressPhotoSummaryService(prisma),
+    );
     const systemSettings = {
       getCoachPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.coach, enabled: true }),
       getNotificationsPolicy: async () => ({ browserEnabled: true, disabledEvents: [] }),
