@@ -72,7 +72,7 @@ Each step is an existence query. A step is included only when the caller may per
 | `health_profile` | Complete your health profile | A `health_profiles` row exists for the user | `health_data:read` | `/settings/health-profile` |
 | `gym` | Add your gym | The user owns at least one gym | `gyms:read` | `/gyms/new` |
 | `first_workout` | Log your first workout | The user has at least one workout with status `completed` | `workouts:read` | `/train` |
-| `ai_plan` | Create an AI training plan | The user has at least one program | AI is enabled, and `ai:use`, and `programs:read` | `/train/plans/new` |
+| `ai_plan` | Create an AI training plan; once a program exists, **Meet your coach** | No program: never. A program: the coach settings were saved at least once (the `coach` user-settings namespace exists). With the system coach switched off: the user has at least one program | AI is enabled, and `ai:use`, and `programs:read` | `/train/plans/new`; once a program exists, `/settings/coach` |
 
 **Order depends on the goal.**
 
@@ -82,6 +82,13 @@ Each step is an existence query. A step is included only when the caller may per
 | `strength`, `hypertrophy` | `gym`, `first_workout`, `health_profile`, `ai_plan` |
 
 A lifter's first need is a place to train and a logged session; the profile can follow. If the AI policy cannot be read, the `ai_plan` step is left out rather than failing the response.
+
+**`ai_plan` has two phases.** The checklist is capped at four steps ([§1.1](#11-design-principles)), so the AI Coach's "pick a persona" step is not a fifth step: it is the second phase of `ai_plan` ([ai-coach.md §2.13](ai-coach.md#213-ux-surfaces)).
+
+1. While the user has no program, the step reads "Create an AI training plan", links to `/train/plans/new` and is `todo`.
+2. Once a program exists, the same step id reads "Meet your coach", links to `/settings/coach`, and is `done` when the `coach` namespace exists in `user_settings.value`: the user saved the coach settings at least once (`PUT /api/coach/settings`).
+
+The `coach` namespace is read from the same direct `user_settings` select as the onboarding namespace, so the endpoint stays read-only. While the system coach switch is off (`coach.enabled` in system settings), the second phase is skipped and the step is `done` once a program exists, as before; a failed read of that switch does the same.
 
 ### 2.4 Administrator steps
 
@@ -157,7 +164,7 @@ The Setup guide appears in the admin hub (General group) as a card declared in `
 | Activated | Eligible users whose first completed workout (`MIN(ended_at)` over workouts with status `completed`) is within 7 days of `created_at` |
 | Activation rate | `activated / eligible`; `null` when no user is eligible |
 | Median hours to first workout | Median of the hours from sign-up to the first completed workout, over cohort users with at least one such workout (eligible or not), rounded to one decimal; `null` when none |
-| Step funnel | Per user step, `completed` (cohort users with the step done now, by the same rules as [§2.3](#23-user-steps)) and `rate` (`completed / cohortSize`; `null` for an empty cohort) |
+| Step funnel | Per user step, `completed` (cohort users with the step done now, by the same rules as [§2.3](#23-user-steps)) and `rate` (`completed / cohortSize`; `null` for an empty cohort). For `ai_plan` that is a program plus, while the system coach switch is on, a saved `coach` namespace |
 
 - **Counted only over eligible users.** A user who signed up yesterday has not had 7 days yet, so counting them would bias the rate down. They count in `cohortSize`, the median and the funnel.
 - **The window constant** is `ACTIVATION_WINDOW_DAYS` in `apps/api/src/onboarding/dto/onboarding-metrics.dto.ts`; the response echoes it as `activationWindowDays`.
@@ -290,6 +297,7 @@ The namespace is validated in six places, because `userSettingsSchema.parse` sil
 - **Aggregates computed on read, not events recorded.** The metric reads existing rows, so it needs no write path, no migration and no backfill, and it stays correct if a step is completed in any way. The cost is that it cannot say when a step was done, only that it is done now.
 - **A notice, not a disabled control.** A greyed button gives no reason. The notice says what is missing and who can fix it, and links an administrator straight there.
 - **The storage flag is a boolean for everyone.** Regular users need to know whether uploads can work, never which provider or bucket. The route returns only `configured`, decided by the Doctor's own predicate, so there is no second definition of "complete".
+- **"Meet your coach" is a phase of `ai_plan`, not a fifth step.** The coach needs a persona choice, and the checklist is capped at four. A plan comes first because the coach has nothing to hold the user to without one, so the step that asked for a plan asks for the coach next. Done is "the coach settings were saved once", read from the namespace's existence, so no completion fact is stored.
 - **`unavailable` is not a status.** A step the caller cannot perform is omitted, so the response has two statuses and the UI never explains a step the user cannot act on.
 
 ## 7. Out of scope and follow-ups
@@ -326,3 +334,4 @@ By hand, with the app running (development sign-in as a test user works):
 - #203 added first-run onboarding: the `onboarding` user-settings namespace, `GET /api/onboarding`, the welcome dialog, the Today cards and the Setup guide.
 - #204 added `GET /api/storage/status` and `FeatureUnavailableNotice` at the AI, storage and push entry points.
 - #212 added `GET /api/admin/onboarding/metrics` and the Activation section of the Setup guide.
+- #252 (AI Coach E7.12) turned the `ai_plan` step into "Meet your coach" once a program exists, done when the coach settings were saved, with the activation funnel following the same rule.

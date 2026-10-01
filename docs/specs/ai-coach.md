@@ -443,7 +443,7 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 - **Nginx.** The route needs an unbuffered location block in **both** `infra/nginx/nginx.conf` and `apps/cli/src/deploy/proxy.ts` (the CLI test `apps/cli/src/deploy/proxy.test.ts` asserts each streaming location). Model the block on `location /api/ai/responses/stream`. The existing guard `apps/api/test/ai/ai-stream-nginx.spec.ts` shows the pattern; a new `coach-stream-nginx.spec.ts` **(new)** asserts the coach block.
 - **History window.** The persona system prompt plus the last 20 messages of the timeline. Older turns are not sent.
 
-**Tools.** Read-only tools return minimised data. The one write tool is narrow.
+**Tools.** Read-only tools return minimised data. The two write tools are narrow.
 
 | Tool | Kind | Returns |
 |---|---|---|
@@ -454,6 +454,7 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 | `get_progress_photo_summary` | read | Dates and counts only, never an image |
 | `get_last_weekly_review` | read | The last review's stored stats and headline |
 | `pause_coach` | **write** | Sets `pausedUntil`. `days` is 1 to 14, `reason` is short text. For "I'm sick" or "on vacation". |
+| `save_commitment` | **write** | Saves the kickoff answer: `why` (at most 200 characters) and/or `preferredTime` (`HH:mm`), through `CoachSettingsService.update` (the `PUT /api/coach/settings` path). Called only after the user explicitly confirms the values; a bad value answers `COACH_COMMITMENT_INVALID` to the model. |
 
 Plan changes are not tools. The coach proposes and links to the existing adjust flow, so the user stays in control.
 
@@ -588,7 +589,9 @@ A new card in `ADMIN_SECTIONS` (`apps/web/src/config/adminSections.tsx`), append
 
 #### Onboarding
 
-A get-started step `meet_coach` ([onboarding.md §4.1](onboarding.md#41-add-a-user-step)) asks the user to pick a persona. It is included when the user holds `ai:use` and AI is on, and is `done` when `coach.personaId` is set. After a plan is activated, the `kickoff` message asks for an implementation intention (when, where, the fallback plan). The checklist stays at four steps or fewer, so `meet_coach` is **merged into the existing `ai_plan` step** rather than added as a fifth step. Once a plan exists, that step becomes "Meet your coach" (pick a persona), and it completes when the coach settings have been saved at least once. This amends [onboarding.md](onboarding.md).
+The checklist stays at four steps or fewer, so meeting the coach is **the second phase of the existing `ai_plan` step**, not a fifth step. Once a program exists, that step reads "Meet your coach" (pick a persona, `/settings/coach`) and is `done` when the coach settings have been saved at least once (the `coach` user-settings namespace exists). It is included when AI is on and the user holds `ai:use` and `programs:read`; with the system coach switch off the step keeps its original rule. The step list lives in [onboarding.md §2.3](onboarding.md#23-user-steps).
+
+**Kickoff.** `ProgramsService.activate` emits `program.activated` (`apps/api/src/programs/program-events.ts`) after its commit. `CoachKickoffListener` (`apps/api/src/coach/coach-kickoff.listener.ts`) only enqueues `ai.coach.nudge` with moment `kickoff`, subject (`program`, programId), `momentKey` `kickoff:<programId>` and trigger `program_activated`, so a program gets one kickoff however often it is re-activated. The job re-checks the gates with `kickoffGate` (`planning/plan-coach-moments.ts`): coach off sends nothing; a pause, quiet hours, the daily cap or spacing **defer** the kickoff (a new job row with `scheduledFor` at the next allowed instant, at most 8 times) instead of dropping it. The prompt asks the three implementation-intention questions (when, where, fallback plan) and names the first planned session from the signals; the guard's number rule still applies. A kickoff is never lost to the model: no runnable model, a model error, a decline or two guard rejections deliver the static persona kickoff line. The message is `kind = 'kickoff'` with `data.programId` and `data.questions = ['when', 'where', 'fallback']`. The user answers in chat, and the coach saves the time and reason with `save_commitment` once the user confirms ([§2.9](#29-chat)). Counter: `coach.kickoff{coach.outcome = sent | fallback | deferred | confirmed}`.
 
 ### 2.14 Safety
 
@@ -859,3 +862,4 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
 
 - Proposed under epic E7 (issue 240), stories E7.1 to E7.13 (issues 241 to 253).
 - E7.5 (issue 245): nudge generation, delivery, push action and feedback; the as-built notes are at the end of [§2.7](#27-delivery-and-audio).
+- E7.12 (issue 252): the `ai_plan` step's "Meet your coach" phase, the program-activation kickoff with deferral, and the `save_commitment` chat tool ([§2.13](#213-ux-surfaces)).
