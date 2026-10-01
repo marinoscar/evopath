@@ -135,6 +135,9 @@ export const APP_METRIC_NAMES = {
   healthExportSize: 'app.health.export.size',
   healthDocumentDownloads: 'app.health.documents.downloads',
   healthDocumentDeletes: 'app.health.documents.deletes',
+  // Progress photos (E7.9, #249): counts only, never a key, URL or note.
+  coachPhotoAdded: 'app.coach.photo.added',
+  coachPhotoDeleted: 'app.coach.photo.deleted',
   // Worker-node fleet gauges (#131). Created by `nodes/node-fleet-metrics.service.ts`
   // through `gaugeContext()`, because they read the nodes module's services.
   nodesCount: 'app.nodes.count',
@@ -257,6 +260,9 @@ const HEALTH_DOCUMENT_DOWNLOAD_DISPOSITIONS = new Set<string>(['inline', 'attach
  */
 export type HealthDocumentDeleteScope = 'file' | 'record';
 const HEALTH_DOCUMENT_DELETE_SCOPES = new Set<string>(['file', 'record']);
+
+/** What happened to a progress photo (E7.9, #249). */
+export type ProgressPhotoChange = 'added' | 'deleted';
 const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
 
 export interface AiUsageMetric {
@@ -348,6 +354,8 @@ export class AppMetricsService implements OnModuleInit {
   private readonly healthExportSize: Histogram;
   private readonly healthDocumentDownloads: Counter;
   private readonly healthDocumentDeletes: Counter;
+  private readonly coachPhotoAdded: Counter;
+  private readonly coachPhotoDeleted: Counter;
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -478,6 +486,14 @@ export class AppMetricsService implements OnModuleInit {
     this.healthDocumentDeletes = m.createCounter(N.healthDocumentDeletes, {
       description: 'Health documents deleted by their owner, by scope and whether the values went too.',
       unit: '{document}',
+    });
+    this.coachPhotoAdded = m.createCounter(N.coachPhotoAdded, {
+      description: 'Progress photos added by their owner.',
+      unit: '{photo}',
+    });
+    this.coachPhotoDeleted = m.createCounter(N.coachPhotoDeleted, {
+      description: 'Progress photos deleted by their owner.',
+      unit: '{photo}',
     });
   }
 
@@ -672,6 +688,11 @@ export class AppMetricsService implements OnModuleInit {
         values: withValues ? 'deleted' : 'kept',
       }),
     );
+  }
+
+  /** A progress photo was added or deleted by its owner (E7.9, #249). No attributes: nothing about the photo. */
+  progressPhotoChanged(change: ProgressPhotoChange): void {
+    this.safely(() => (change === 'added' ? this.coachPhotoAdded : this.coachPhotoDeleted).add(1));
   }
 
   // ===========================================================================

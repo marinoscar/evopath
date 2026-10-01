@@ -12,6 +12,8 @@
 //     entry that was edited and then deleted; superseded revisions appear
 //     only with `includeHistory`;
 //   - documents: kept files only, metadata only;
+//   - progress photos (E7.9, #249): the owner's in-range photos only, as an
+//     index (day, pose, note, type, size), never another user's;
 //   - the status route: owner-only (404 for another user), `ready` with a
 //     5-minute signed URL and an attachment filename;
 //   - the purge: files older than 7 days are erased (bytes and row) and the
@@ -214,6 +216,28 @@ describeWithDb('health data export (real Postgres)', () => {
         { userId: owner, kind: 'body_metric', originalName: 'erased.jpg', mimeType: 'image/jpeg', sizeBytes: BigInt(1), fileDeletedAt: new Date(), documentDate: new Date('2026-03-22T00:00:00Z') },
       ],
     });
+
+    // Progress photos (E7.9): two of the owner's in range, one out of range,
+    // and another user's in range.
+    const photo = async (userId: string, localDate: string, pose: string, note: string | null) => {
+      const object = await client.storageObject.create({
+        data: {
+          name: 'photo.jpg',
+          size: BigInt(2048),
+          mimeType: 'image/jpeg',
+          storageKey: `uploads/${userId}/progress-${randomUUID()}.jpg`,
+          status: 'ready',
+          uploadedById: userId,
+        },
+      });
+      await client.progressPhoto.create({
+        data: { userId, storageObjectId: object.id, localDate: new Date(`${localDate}T00:00:00Z`), pose, note },
+      });
+    };
+    await photo(owner, '2026-03-02', 'front', 'Week one');
+    await photo(owner, '2026-03-30', 'side', null);
+    await photo(owner, '2026-04-02', 'front', 'Out of range');
+    await photo(other, '2026-03-15', 'back', 'Not yours');
   });
 
   afterAll(async () => {
@@ -242,7 +266,7 @@ describeWithDb('health data export (real Postgres)', () => {
     });
     expect(Number(object.size)).toBe(result.sizeBytes);
     expect(await provider.exists(object.storageKey)).toBe(true);
-    expect(result.rowCounts).toEqual({ profile: 1, body: 1, vitals: 1, labs: 1, wellness: 1, documents: 1 });
+    expect(result.rowCounts).toEqual({ profile: 1, body: 1, vitals: 1, labs: 1, wellness: 1, documents: 1, progress_photos: 0 });
     expect(notify).toHaveBeenCalledWith('health.export_ready', owner, { exportId: job.id, format: 'json' });
 
     const audit = await client.auditEvent.findFirstOrThrow({ where: { action: 'health:export:create', targetId: job.id } });
@@ -260,6 +284,18 @@ describeWithDb('health data export (real Postgres)', () => {
     expect(file.datasets.labs![0]).toMatchObject({ analyte_key: 'ldl_cholesterol', value: 132, reference_high: 100, flag: 'high' });
     expect(file.datasets.wellness!).toEqual([expect.objectContaining({ date: '2026-03-31', energy: 4 })]);
     expect(file.datasets.documents!.map((row) => row.original_name)).toEqual(['march-labs.pdf']);
+  });
+
+  it("exports the owner's in-range progress photos as an index, never another user's", async () => {
+    const job = await exportFor(owner, { datasets: ['progress_photos'] });
+    const file = await exportedJson(job);
+
+    expect(file.datasets.progress_photos!.map((row) => [row.date, row.pose, row.note, row.mime_type, row.size_bytes])).toEqual([
+      ['2026-03-02', 'front', 'Week one', 'image/jpeg', 2048],
+      ['2026-03-30', 'side', null, 'image/jpeg', 2048],
+    ]);
+    expect(JSON.stringify(file)).not.toMatch(/Not yours|Out of range|uploads\//);
+    expect((job.payload as any).result.rowCounts.progress_photos).toBe(2);
   });
 
   it('adds superseded revisions only with includeHistory, never those of a deleted entry', async () => {

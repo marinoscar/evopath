@@ -128,6 +128,17 @@ const ROWS: Record<HealthExportDataset, ExportRow[]> = {
       uploaded_at: '2026-09-06T10:00:00.000Z',
     },
   ],
+  progress_photos: [
+    {
+      id: '00000000-0000-4000-8000-000000000007',
+      date: '2026-09-14',
+      pose: 'front',
+      note: 'Morning, fasted',
+      mime_type: 'image/jpeg',
+      size_bytes: 345678,
+      added_at: '2026-09-14T07:30:00.000Z',
+    },
+  ],
 };
 
 const READINGS: ExportReading[] = [

@@ -36,7 +36,15 @@ export const HEALTH_EXPORT_FORMATS = ['json', 'csv', 'xlsx', 'pdf'] as const;
 export type HealthExportFormat = (typeof HEALTH_EXPORT_FORMATS)[number];
 
 /** Datasets in the order every writer emits them. */
-export const HEALTH_EXPORT_DATASETS = ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents'] as const;
+export const HEALTH_EXPORT_DATASETS = [
+  'profile',
+  'body',
+  'vitals',
+  'labs',
+  'wellness',
+  'documents',
+  'progress_photos',
+] as const;
 export type HealthExportDataset = (typeof HEALTH_EXPORT_DATASETS)[number];
 
 /** Display titles (sheet names, PDF headings). Wellness is the check-in scores. */
@@ -47,6 +55,7 @@ export const HEALTH_EXPORT_DATASET_TITLES: Record<HealthExportDataset, string> =
   labs: 'Labs',
   wellness: 'Wellness / mood',
   documents: 'Documents',
+  progress_photos: 'Progress photos',
 };
 
 /** The file's extension and stored MIME type, per format. */

@@ -153,6 +153,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '`health_data:read`/`:write`; owner-scoped (a foreign id is a 404).',
       },
       {
+        name: 'Progress Photos',
+        description:
+          'The calling user\'s private progress photos: list (newest first, keyset-paged, by pose), add an ' +
+          'uploaded JPEG, PNG or WebP storage object (checked by its bytes), and delete (with its stored ' +
+          'object). Images are read through the owner-checked signed storage download; never sent to an AI ' +
+          'model or a notification. Gated on `health_data:read`/`:write`, not on AI; owner-scoped.',
+      },
+      {
         name: 'Intakes',
         description:
           'The calling user\'s photo intakes: share photos instead of typing, let a vision model ' +
