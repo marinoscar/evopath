@@ -13,11 +13,13 @@ const LABELS: Record<AiFeatureId, string> = {
   'training.planner': 'Training plan planner',
   'training.critic': 'Training plan critic',
   'training.evaluator': 'Training plan evaluator',
+  health_summary: 'Health summary for training plans',
 };
 
 /** One feature, ready on the `mockUsableAiModels[0]` model (`openai` / `gpt-5-mini`, the caller's key). */
 export function mockFeatureView(featureId: AiFeatureId, overrides: Partial<AiFeatureView> = {}): AiFeatureView {
-  const photo = !featureId.startsWith('training.');
+  const summary = featureId === 'health_summary';
+  const photo = !summary && !featureId.startsWith('training.');
   return {
     featureId,
     label: LABELS[featureId],
@@ -25,10 +27,10 @@ export function mockFeatureView(featureId: AiFeatureId, overrides: Partial<AiFea
     state: 'ready',
     source: 'admin_feature',
     model: { provider: 'openai', modelId: 'gpt-5-mini', displayName: 'GPT-5 mini', keySource: 'user' },
-    needs: photo ? ['vision_input', 'structured_output'] : ['responses', 'structured_output'],
+    needs: photo ? ['vision_input', 'structured_output'] : summary ? ['structured_output'] : ['responses', 'structured_output'],
     inputModalities: photo ? ['image'] : [],
-    requestedEffort: photo ? null : 'medium',
-    effectiveEffort: photo ? null : 'medium',
+    requestedEffort: photo || summary ? null : 'medium',
+    effectiveEffort: photo || summary ? null : 'medium',
     fix: null,
     ...overrides,
   };

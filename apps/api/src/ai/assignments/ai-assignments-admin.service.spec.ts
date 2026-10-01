@@ -220,7 +220,7 @@ describe('AiAssignmentsAdminService', () => {
     it('lists eligible models per feature and every feature id, with version provenance', async () => {
       const view = await service.describe();
 
-      expect(Object.keys(view.assignments.features)).toHaveLength(8);
+      expect(Object.keys(view.assignments.features)).toHaveLength(9);
       expect(view.default.eligibleModels.map((m) => m.modelId)).toEqual(['text-1', 'vision-1']);
       const gym = view.features.find((f) => f.featureId === 'gym_scan')!;
       expect(gym).toMatchObject({ group: 'photo', defaultReasoningEffort: null, assignment: null, warning: null });

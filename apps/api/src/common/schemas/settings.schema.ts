@@ -1098,6 +1098,8 @@ export const AI_FEATURE_IDS = [
   'training.planner',
   'training.critic',
   'training.evaluator',
+  // H8 (#192): the opt-in health summary the training planner reads (`ai.health.summary`).
+  'health_summary',
 ] as const;
 
 export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];

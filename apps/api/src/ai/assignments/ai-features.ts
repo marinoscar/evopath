@@ -89,6 +89,25 @@ function training(role: TrainingAgentRole): AiFeatureDefinition {
   };
 }
 
+/**
+ * The health summary (H8, #192): a text-only structured call that turns the
+ * server-built health digest into the summary the training planner reads.
+ * Grouped with the training agents because it exists only for them.
+ */
+function healthSummary(): AiFeatureDefinition {
+  return {
+    id: 'health_summary',
+    group: 'training',
+    label: 'Health summary for training plans',
+    needs: ['structured_output'],
+    inputModalities: [],
+    providers: null,
+    requiresWebSearch: false,
+    defaultEffort: null,
+    trainingRole: null,
+  };
+}
+
 /** The feature id of a training role. */
 export function trainingFeatureId(role: TrainingAgentRole): AiFeatureId {
   return `training.${role}`;
@@ -103,6 +122,7 @@ export const AI_FEATURES: Readonly<Record<AiFeatureId, AiFeatureDefinition>> = {
   'training.planner': training('planner'),
   'training.critic': training('critic'),
   'training.evaluator': training('evaluator'),
+  health_summary: healthSummary(),
 };
 
 /** Every feature, in `AI_FEATURE_IDS` order. */
