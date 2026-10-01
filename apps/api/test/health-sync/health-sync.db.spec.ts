@@ -8,7 +8,8 @@
 // `run.details.syncedTypes` and to this device's provider, a reading the user
 // deleted never coming back, source precedence over real rows (an imported
 // entry outranks a manual one in goal progress), DEVICE_REVOKED, unpairing
-// revoking the linked PAT, and the per-device retention of runs and reports.
+// revoking the linked PAT, re-pairing revoking the previous PAT, and the
+// per-device retention of runs and reports.
 //
 // THIS IS A `*.db.spec.ts` FILE, skipped with a warning when no Postgres is
 // reachable; see `test/jobs/db-test-support.ts`. Needs a migrated database.
@@ -311,6 +312,31 @@ describeWithDb('health sync (real Postgres)', () => {
     const installationId = (await client.healthSyncDevice.findUniqueOrThrow({ where: { id: device.id } })).installationId;
     const again = await healthSync.register(userId, { installationId, name: 'Pixel' }, { kind: 'jwt' });
     expect(again).toMatchObject({ id: device.id, status: 'active' });
+  });
+
+  it('re-pairing with a new PAT revokes the previously linked one; the same PAT revokes nothing', async () => {
+    const userId = await makeUser('repair');
+    const installationId = randomUUID();
+    const first = await pats.createToken(userId, { name: 'EvoPath Android', durationValue: 90, durationUnit: 'days' });
+    const device = await healthSync.register(userId, { installationId, name: 'Pixel' }, { kind: 'pat', tokenId: first.id });
+
+    // Same PAT again: nothing revoked, link unchanged.
+    await healthSync.register(userId, { installationId, name: 'Pixel' }, { kind: 'pat', tokenId: first.id });
+    expect(await pats.validateToken(first.token)).not.toBeNull();
+    expect((await client.healthSyncDevice.findUniqueOrThrow({ where: { id: device.id } })).patId).toBe(first.id);
+
+    // A session (JWT) caller leaves the link and the token alone.
+    await healthSync.register(userId, { installationId, name: 'Pixel' }, { kind: 'jwt' });
+    expect(await pats.validateToken(first.token)).not.toBeNull();
+    expect((await client.healthSyncDevice.findUniqueOrThrow({ where: { id: device.id } })).patId).toBe(first.id);
+
+    // New PAT: the old one is revoked, the new one linked and live.
+    const second = await pats.createToken(userId, { name: 'EvoPath Android', durationValue: 90, durationUnit: 'days' });
+    const again = await healthSync.register(userId, { installationId, name: 'Pixel' }, { kind: 'pat', tokenId: second.id });
+    expect(again).toMatchObject({ id: device.id, tokenExpiresAt: second.expiresAt });
+    expect(await pats.validateToken(first.token)).toBeNull();
+    expect(await pats.validateToken(second.token)).not.toBeNull();
+    expect((await client.healthSyncDevice.findUniqueOrThrow({ where: { id: device.id } })).patId).toBe(second.id);
   });
 
   it('keeps the newest 200 runs and 20 reports per device', async () => {
