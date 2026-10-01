@@ -25,6 +25,7 @@ In this order:
 | [DEVICE-AUTH.md](DEVICE-AUTH.md) | Integrating a CLI or device with the RFC 8628 device flow |
 | [personal-access-tokens.md](personal-access-tokens.md) | Creating and using `pat_` tokens for scripts and CI |
 | [../apps/cli/README.md](../apps/cli/README.md) | `evopathcli`: install, `login`, `api`, `config`, `deploy`, `node`, CI usage |
+| [../apps/api/src/email/templates/README.md](../apps/api/src/email/templates/README.md) | Building an email template: the layout contract, components, timestamp rule, preview script and the add-a-template checklist |
 
 ## Feature specs
 

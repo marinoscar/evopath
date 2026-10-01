@@ -16,8 +16,9 @@ import {
 // =============================================================================
 //
 // `index.spec.ts` already loops every registered template through the shared
-// contract (non-empty subject/html/text, escaping, no `<link>`/`<style>`/`src=`,
-// table-based). What is asserted HERE is what is specific to these four, and
+// contract (non-empty subject/html/text, escaping; the layout invariants — no
+// `<link>`, at most one progressive-enhancement `<style>` block, `cid:` as the
+// only `src` scheme, table-based — are asserted in layout.spec.ts). What is asserted HERE is what is specific to these four, and
 // each one is a claim `index.spec.ts` structurally cannot make:
 //
 //   1. THE OPERATOR'S FACTS ARE ACTUALLY IN THE MESSAGE. The reason these exist
