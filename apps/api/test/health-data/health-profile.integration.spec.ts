@@ -42,6 +42,7 @@ function storedRow(userId: string, overrides: Record<string, unknown> = {}) {
     unitSystem: 'imperial',
     timeZone: 'Europe/Madrid',
     bio: 'Runs on weekends.',
+    labUnits: 'conventional',
     version: 1,
     createdAt: new Date('2026-09-29T10:00:00.000Z'),
     updatedAt: new Date('2026-09-29T10:00:00.000Z'),
@@ -130,6 +131,7 @@ describe('Health profile (integration)', () => {
         unitSystem: 'metric',
         timeZone: null,
         bio: null,
+        labUnits: 'conventional',
         version: 0,
         updatedAt: null,
       });
@@ -199,6 +201,7 @@ describe('Health profile (integration)', () => {
 
       expect(response.body.data).toEqual({
         ...VALID,
+        labUnits: 'conventional',
         version: 1,
         updatedAt: '2026-09-29T10:00:00.000Z',
       });
@@ -236,6 +239,34 @@ describe('Health profile (integration)', () => {
         where: { userId: viewer.id, version: 1 },
         data: expect.objectContaining({ version: { increment: 1 } }),
       });
+    });
+
+    it('saves labUnits and keeps it when a later PUT omits it', async () => {
+      const viewer = await createMockViewerUser(context);
+      context.prismaMock.healthProfile.findUnique.mockResolvedValue(storedRow(viewer.id));
+      context.prismaMock.healthProfile.updateMany.mockResolvedValue({ count: 1 });
+      context.prismaMock.healthProfile.findUniqueOrThrow.mockResolvedValue(
+        storedRow(viewer.id, { version: 2, labUnits: 'si' }),
+      );
+
+      const response = await request(server())
+        .put(PATH)
+        .set(authHeader(viewer.accessToken))
+        .send({ ...VALID, labUnits: 'si' })
+        .expect(200);
+
+      expect(response.body.data.labUnits).toBe('si');
+      expect(context.prismaMock.healthProfile.updateMany).toHaveBeenLastCalledWith({
+        where: { userId: viewer.id, version: 1 },
+        data: expect.objectContaining({ labUnits: 'si' }),
+      });
+      expect(context.prismaMock.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ meta: { fields: ['labUnits'] } }),
+      });
+
+      await request(server()).put(PATH).set(authHeader(viewer.accessToken)).send(VALID).expect(200);
+      const data = (context.prismaMock.healthProfile.updateMany as jest.Mock).mock.calls.at(-1)[0].data;
+      expect(data).not.toHaveProperty('labUnits');
     });
 
     it('returns 409 for a stale If-Match', async () => {
@@ -281,6 +312,8 @@ describe('Health profile (integration)', () => {
       ["timeZone 'Mars/Base'", { timeZone: 'Mars/Base' }],
       ['bio over 1000 characters', { bio: 'b'.repeat(1001) }],
       ['an unknown extra property', { weightKg: 70 }],
+      ["labUnits 'metric'", { labUnits: 'metric' }],
+      ['labUnits null', { labUnits: null }],
       ['a missing unitSystem', { unitSystem: undefined }],
     ])('returns 400 for %s', async (_case, patch) => {
       const viewer = await createMockViewerUser(context);
