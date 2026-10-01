@@ -8,6 +8,8 @@ function planned(overrides: Partial<PlannedExerciseInput> = {}): PlannedExercise
     targetSets: 3,
     repMin: 6,
     repMax: 10,
+    targetDurationSeconds: null,
+    targetDistanceMeters: null,
     targetRpe: 8,
     targetLoadKg: 60,
     loadGuidance: 'fixed',
@@ -53,9 +55,29 @@ describe('prefilledSets', () => {
       { setNumber: 2, weightKg: null, reps: null },
     ]);
   });
+
+  it('starts a cardio prescription without rep targets: one empty set, no load', () => {
+    const walk = planned({
+      slug: 'outdoor_walk',
+      trackingMode: 'distance_time',
+      targetSets: null,
+      repMin: null,
+      repMax: null,
+      targetDurationSeconds: 1800,
+      targetLoadKg: null,
+      loadGuidance: 'choose_start',
+    });
+    expect(prefilledSets(walk, last(50))).toEqual([{ setNumber: 1, weightKg: null, reps: null }]);
+    expect(prefilledSets({ ...walk, targetSets: 3, targetDurationSeconds: 300 }, null)).toHaveLength(3);
+  });
 });
 
 describe('plannedSnapshotOf', () => {
+  it('records a cardio prescription with its targets', () => {
+    const walk = planned({ slug: 'outdoor_walk', trackingMode: 'distance_time', targetSets: null, repMin: null, repMax: null, targetDistanceMeters: 5000 });
+    expect(plannedSnapshotOf([walk])[0]).toMatchObject({ sets: null, repMin: null, repMax: null, targetDurationSeconds: null, targetDistanceMeters: 5000 });
+  });
+
   it('records the prescription with sets named as planned', () => {
     expect(plannedSnapshotOf([planned()])).toEqual([
       {
@@ -64,6 +86,8 @@ describe('plannedSnapshotOf', () => {
         sets: 3,
         repMin: 6,
         repMax: 10,
+        targetDurationSeconds: null,
+        targetDistanceMeters: null,
         targetRpe: 8,
         targetLoadKg: 60,
         loadGuidance: 'fixed',

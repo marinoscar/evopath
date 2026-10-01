@@ -73,6 +73,8 @@ describeWithDb('program sessions (real Postgres)', () => {
       targetSets: 3,
       repMin: 6,
       repMax: 10,
+      targetDurationSeconds: null,
+      targetDistanceMeters: null,
       targetLoadKg,
       targetRpe: 8,
       restSeconds: 120,

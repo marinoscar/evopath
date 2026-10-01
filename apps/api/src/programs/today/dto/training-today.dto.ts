@@ -76,9 +76,18 @@ const sessionExerciseSchema = z.object({
     primaryMuscles: z.array(z.string()),
   }),
   isPriority: z.boolean(),
-  sets: z.number().int(),
-  repMin: z.number().int(),
-  repMax: z.number().int(),
+  sets: z.number().int().nullable().meta({ description: 'Planned sets; null only for a cardio prescription that leaves the count open.' }),
+  repMin: z.number().int().nullable().meta({ description: 'Null for a cardio (duration/distance) prescription.' }),
+  repMax: z.number().int().nullable().meta({ description: 'Null for a cardio (duration/distance) prescription.' }),
+  targetDurationSeconds: z
+    .number()
+    .int()
+    .nullable()
+    .meta({ description: 'Cardio prescription: total time in seconds; null for a reps prescription.' }),
+  targetDistanceMeters: z
+    .number()
+    .nullable()
+    .meta({ description: 'Cardio prescription: total distance in meters; null for a reps prescription.' }),
   targetRpe: z.number().nullable(),
   restSeconds: z.number().int(),
   loadGuidance: z.enum(LOAD_GUIDANCE),

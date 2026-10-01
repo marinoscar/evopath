@@ -8,7 +8,7 @@ import { isUniqueViolation } from '../../gyms/gym-views';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkoutsService } from '../../workouts/workouts.service';
 import type { LoadGuidance, PlanExercise, PlanWorkout } from '../contracts/plan-tree.contract';
-import { liveTreeOf, repsPrescriptionOf } from '../plan-diff';
+import { liveTreeOf } from '../plan-diff';
 import { loadProgramRows } from '../program-mapper';
 import { REVIEW_KINDS, type ChangeActor } from '../programs.constants';
 import type {
@@ -244,6 +244,8 @@ export class TrainingTodayService {
         targetSets: true,
         repMin: true,
         repMax: true,
+        targetDurationSeconds: true,
+        targetDistanceMeters: true,
         targetRpe: true,
         targetLoadKg: true,
         loadGuidance: true,
@@ -262,7 +264,11 @@ export class TrainingTodayService {
       equipmentTypeId: row.equipmentTypeId,
       slug: row.exercise.slug,
       trackingMode: row.exercise.trackingMode,
-      ...repsPrescriptionOf(row),
+      targetSets: row.targetSets,
+      repMin: row.repMin,
+      repMax: row.repMax,
+      targetDurationSeconds: row.targetDurationSeconds,
+      targetDistanceMeters: row.targetDistanceMeters === null ? null : Number(row.targetDistanceMeters),
       targetRpe: row.targetRpe === null ? null : Number(row.targetRpe),
       targetLoadKg: row.targetLoadKg === null ? null : Number(row.targetLoadKg),
       loadGuidance: row.loadGuidance,
@@ -420,6 +426,8 @@ function toSessionExercise(
     sets: planned.targetSets,
     repMin: planned.repMin,
     repMax: planned.repMax,
+    targetDurationSeconds: planned.targetDurationSeconds,
+    targetDistanceMeters: planned.targetDistanceMeters,
     targetRpe: planned.targetRpe,
     restSeconds: planned.restSeconds,
     loadGuidance: planned.loadGuidance as LoadGuidance,

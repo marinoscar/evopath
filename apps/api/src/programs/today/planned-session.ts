@@ -1,4 +1,5 @@
 import type { LoadGuidance } from '../contracts/plan-tree.contract';
+import { isCardioPrescription } from '../contracts/prescription';
 
 // =============================================================================
 // Planned sessions (E5.7): the snapshot and the prefill rules, pure
@@ -13,15 +14,23 @@ import type { LoadGuidance } from '../contracts/plan-tree.contract';
 //
 // The snapshot is what planned-versus-done compares against, so it is taken
 // once, at start, and never rewritten by later plan changes.
+//
+// A cardio prescription (a duration and/or distance target, no reps) starts
+// as `targetSets` (default 1) empty sets: no reps, no load. The logger shows
+// the targets; the person logs the time and distance they did.
 // =============================================================================
 
 export interface PlannedExerciseInput {
   exerciseId: string;
   slug: string;
   trackingMode: string;
-  targetSets: number;
-  repMin: number;
-  repMax: number;
+  /** Null only for a cardio prescription that leaves the set count open. */
+  targetSets: number | null;
+  /** Null for a cardio prescription. */
+  repMin: number | null;
+  repMax: number | null;
+  targetDurationSeconds: number | null;
+  targetDistanceMeters: number | null;
   targetRpe: number | null;
   targetLoadKg: number | null;
   loadGuidance: LoadGuidance | string;
@@ -37,9 +46,12 @@ export interface LastTimeTopSet {
 export interface PlannedSnapshotEntry {
   exerciseId: string;
   slug: string;
-  sets: number;
-  repMin: number;
-  repMax: number;
+  sets: number | null;
+  repMin: number | null;
+  repMax: number | null;
+  /** Absent in snapshots taken before cardio prescriptions existed (read as null). */
+  targetDurationSeconds?: number | null;
+  targetDistanceMeters?: number | null;
   targetRpe: number | null;
   targetLoadKg: number | null;
   loadGuidance: string;
@@ -53,6 +65,8 @@ export function plannedSnapshotOf(exercises: readonly PlannedExerciseInput[]): P
     sets: exercise.targetSets,
     repMin: exercise.repMin,
     repMax: exercise.repMax,
+    targetDurationSeconds: exercise.targetDurationSeconds,
+    targetDistanceMeters: exercise.targetDistanceMeters,
     targetRpe: exercise.targetRpe,
     targetLoadKg: exercise.targetLoadKg,
     loadGuidance: exercise.loadGuidance,
@@ -84,13 +98,22 @@ export interface PrefilledSet {
 
 /**
  * `targetSets` uncompleted sets: `reps = repMin` for rep-tracked exercises,
- * the suggested load for weighted ones. The lifter confirms each set.
+ * the suggested load for weighted ones. The lifter confirms each set. A
+ * cardio prescription gets `targetSets` (default 1) empty sets: no reps
+ * target, no load.
  */
 export function prefilledSets(exercise: PlannedExerciseInput, lastTime: LastTimeTopSet | null): PrefilledSet[] {
+  if (isCardioPrescription(exercise)) {
+    return Array.from({ length: Math.max(1, exercise.targetSets ?? 1) }, (_, index) => ({
+      setNumber: index + 1,
+      weightKg: null,
+      reps: null,
+    }));
+  }
   const weighted = exercise.trackingMode === 'weight_reps';
   const repTracked = weighted || exercise.trackingMode === 'bodyweight_reps';
   const weightKg = weighted ? suggestedLoadKg(exercise, lastTime) : null;
-  return Array.from({ length: exercise.targetSets }, (_, index) => ({
+  return Array.from({ length: Math.max(1, exercise.targetSets ?? 1) }, (_, index) => ({
     setNumber: index + 1,
     weightKg,
     reps: repTracked ? exercise.repMin : null,
