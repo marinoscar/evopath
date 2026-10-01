@@ -4,7 +4,6 @@ import { join, resolve } from 'node:path';
 
 import type { Command } from 'commander';
 
-import { ApiClient, resolveApiBaseUrl } from '../api-client.js';
 import { runBuild, type BuildResult } from '../android/build.js';
 import { formatAndroidDoctorReport, runAndroidDoctor, sdkFixesNeeded } from '../android/doctor.js';
 import { exec as defaultExec, type ExecFn } from '../android/exec.js';
@@ -20,7 +19,8 @@ import {
   writeSigningConfig,
   type SigningConfig,
 } from '../android/keystore.js';
-import { apkFileName, metadataPathFor, readMetadata } from '../android/metadata.js';
+import { apkFileName } from '../android/metadata.js';
+import { bumpVersionFile, publishBuiltApk, readBuiltApk, releasesClient } from '../android/operations.js';
 import { distDir, GRADLE_ARGS_ENV_VAR, REPO_ROOT_ENV_VAR, requireRepoRoot, versionPropertiesPath } from '../android/paths.js';
 import {
   downloadPageUrl,
@@ -28,7 +28,6 @@ import {
   formatReleasesTable,
   listReleases,
   makeCurrent,
-  publishRelease,
   type AndroidRelease,
 } from '../android/publish.js';
 import { commitVersionFile, runRelease } from '../android/release.js';
@@ -267,19 +266,16 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
     apkPath: string,
     options: { notes?: string; current: boolean; force?: boolean },
   ): Promise<AndroidRelease> => {
-    if (!existsSync(apkPath)) throw new PreconditionError(`${apkPath} does not exist. Build it with \`${CLI_NAME} android build\`.`);
-    const metadata = readMetadata(metadataPathFor(apkPath));
+    const metadata = readBuiltApk(apkPath);
     const credentials = requireCredentials(paths());
-    const client = new ApiClient({
-      baseUrl: resolveApiBaseUrl(credentials.serverUrl),
-      token: credentials.token,
-      ...(ctx?.fetch !== undefined ? { fetch: ctx.fetch } : {}),
-    });
     log(`Uploading ${metadata.versionName} (${metadata.versionCode}) to ${credentials.serverUrl}…`);
-    const release = await publishRelease(client, apkPath, metadata, {
+    const { release } = await publishBuiltApk({
+      apkPath,
+      credentials,
       notes: options.notes,
       makeCurrent: options.current,
       force: options.force === true,
+      fetch: ctx?.fetch,
     });
     log(`Published ${release.versionName} (${release.versionCode})${release.isCurrent === true ? ' — now the current release' : ''}.`);
     log(`Release id: ${release.id}`);
@@ -301,16 +297,9 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
     });
 
   // ---- releases ----------------------------------------------------------------------
-  const client = (): { client: ApiClient; serverUrl: string } => {
+  const client = (): { client: ReturnType<typeof releasesClient>; serverUrl: string } => {
     const credentials = requireCredentials(paths());
-    return {
-      client: new ApiClient({
-        baseUrl: resolveApiBaseUrl(credentials.serverUrl),
-        token: credentials.token,
-        ...(ctx?.fetch !== undefined ? { fetch: ctx.fetch } : {}),
-      }),
-      serverUrl: credentials.serverUrl,
-    };
+    return { client: releasesClient(credentials, ctx?.fetch), serverUrl: credentials.serverUrl };
   };
 
   const releases = android
@@ -352,12 +341,7 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
       const outcome = await runRelease<BuildResult, AndroidRelease>(
         { bump: part, commit: options.commit },
         {
-          bump: (bumpPart): AppVersion => {
-            const file = versionPropertiesPath(root);
-            const next = applyVersionChange(readVersion(file), { bump: bumpPart }) as AppVersion;
-            writeVersion(file, next);
-            return next;
-          },
+          bump: (bumpPart): AppVersion => bumpVersionFile(root, bumpPart).after,
           build: () => doBuild({ ...(options.serverUrl !== undefined ? { serverUrl: options.serverUrl } : {}) }),
           publish: (build) => doPublish(build.apkPath, { ...(options.notes !== undefined ? { notes: options.notes } : {}), current: true }),
           commit: (version) => commitVersionFile(exec, root, version),
