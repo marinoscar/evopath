@@ -2,7 +2,9 @@
  * A gym's photos (E3.3): a grid of thumbnails that open the lightbox, and
  * **Add photos**. Uploading needs `storage:write`: the bytes go to
  * `POST /api/storage/objects`, never through the gyms API. Without it the
- * button is not rendered and a note says why (the viewer role).
+ * button is not rendered and a note says why (the viewer role). When object
+ * storage is known not to be configured (`storageConfigured={false}`, #204),
+ * "Storage isn't enabled yet" stands in for the button, whose upload would fail.
  *
  * Client-side, a non-image or a file over 20 MiB is refused with the reason;
  * a large image is downscaled first (which also strips EXIF, including GPS).
@@ -11,6 +13,7 @@ import { useRef, useState, type ChangeEvent } from 'react';
 import { Alert, Box, Button, ButtonBase, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import { AddPhotoAlternate as AddPhotoIcon, DeleteOutlined as DeleteIcon } from '@mui/icons-material';
 import { StoragePhotoThumb } from '../intake/StoragePhotoThumb';
+import { FeatureUnavailableNotice } from '../common/FeatureUnavailableNotice';
 import { downscaleImage, UnsupportedImageError } from '../../utils/downscaleImage';
 import {
   GYM_PHOTOS_MAX,
@@ -27,6 +30,8 @@ export interface GymPhotosProps {
   canWrite: boolean;
   /** `storage:write`: may upload a file at all. */
   canUpload: boolean;
+  /** `false` only when `GET /api/storage/status` said so; unknown counts as configured. */
+  storageConfigured?: boolean;
   onAdd: (file: File) => Promise<unknown>;
   onOpen: (photo: GymPhoto) => void;
   onRemove: (photo: GymPhoto) => void;
@@ -40,7 +45,15 @@ async function prepare(file: File): Promise<File> {
   return downscaleImage(file);
 }
 
-export function GymPhotos({ photos, canWrite, canUpload, onAdd, onOpen, onRemove }: GymPhotosProps) {
+export function GymPhotos({
+  photos,
+  canWrite,
+  canUpload,
+  storageConfigured = true,
+  onAdd,
+  onOpen,
+  onRemove,
+}: GymPhotosProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -90,7 +103,8 @@ export function GymPhotos({ photos, canWrite, canUpload, onAdd, onOpen, onRemove
 
   return (
     <Stack spacing={2}>
-      {canWrite && canUpload && (
+      {canWrite && canUpload && !storageConfigured && <FeatureUnavailableNotice feature="storage" />}
+      {canWrite && canUpload && storageConfigured && (
         <Box>
           <input
             ref={inputRef}

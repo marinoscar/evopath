@@ -101,6 +101,14 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'Gated on `user_settings:write`; a reset job is visible only to its owner.',
       },
       {
+        name: 'Onboarding',
+        description:
+          'The calling user\'s first-run checklist: onboarding UI state from the `onboarding` ' +
+          'user-settings namespace plus steps derived from their data, and, for callers with ' +
+          '`system_settings:read`, the deployment setup steps derived from the Doctor; plus, for ' +
+          'administrators, aggregate new-user activation metrics. Read-only.',
+      },
+      {
         name: 'Health Profile',
         description:
           'The calling user\'s health profile: date of birth, sex at birth, height, unit system, ' +
@@ -364,6 +372,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           '`telemetry:read`/`telemetry:write`; running queries against the data is ' +
           '`telemetry:query`. `GET /api/telemetry/config` is readable by any signed-in user — ' +
           'it is how a client learns whether to show telemetry surfaces at all.',
+      },
+      {
+        name: 'Factory Reset',
+        description:
+          'Reset the whole application to a clean slate: a deployment-wide count of what would be ' +
+          'deleted, and a queued job that deletes every other user and all application data while ' +
+          'keeping the calling administrator, roles, system settings, deployment credentials, worker ' +
+          'nodes and database backups. Gated on `system:factory_reset` (Admin only); one factory ' +
+          'reset can be in flight per deployment.',
       },
       {
         name: 'Maintenance',

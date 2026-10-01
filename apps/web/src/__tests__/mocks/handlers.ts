@@ -826,6 +826,21 @@ export const handlers = [
     return HttpResponse.json({ data: { runId: 'run_speech_1', jobId: 'job-ai-audio-2' } }, { status: 202 });
   }),
 
+  // Onboarding (#203): by default the welcome has been seen and the checklist
+  // dismissed, so no existing suite is interrupted by the welcome dialog or a
+  // Today card. Suites that exercise onboarding install their own handler.
+  http.get(`${API_BASE}/onboarding`, () =>
+    HttpResponse.json({
+      data: {
+        welcomeSeenAt: '2026-01-01T00:00:00.000Z',
+        checklistDismissedAt: '2026-01-01T00:00:00.000Z',
+        goal: null,
+        user: { steps: [], completed: 0, total: 0 },
+        admin: null,
+      },
+    }),
+  ),
+
   // Gyms (E3.3): nobody has a gym yet, and the catalog is empty. Suites that
   // exercise the gym pages install their own stateful API
   // (`fixtures/gyms.ts`).
@@ -859,6 +874,32 @@ export const handlers = [
   http.get(`${API_BASE}/workouts`, () =>
     HttpResponse.json({ data: { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 } }),
   ),
+
+  // Storage status (#204): configured by default, so no upload control is
+  // swapped for a "not enabled" notice in existing suites.
+  http.get(`${API_BASE}/storage/status`, () => HttpResponse.json({ data: { configured: true } })),
+
+  // Activation metrics (#212): an empty cohort by default.
+  http.get(`${API_BASE}/admin/onboarding/metrics`, ({ request }) => {
+    const days = Number(new URL(request.url).searchParams.get('days') ?? 30);
+    return HttpResponse.json({
+      data: {
+        windowDays: Number.isFinite(days) ? days : 30,
+        activationWindowDays: 7,
+        cohortSize: 0,
+        eligible: 0,
+        activated: 0,
+        activationRate: null,
+        medianHoursToFirstWorkout: null,
+        steps: [
+          { id: 'health_profile', completed: 0, rate: null },
+          { id: 'gym', completed: 0, rate: null },
+          { id: 'first_workout', completed: 0, rate: null },
+          { id: 'ai_plan', completed: 0, rate: null },
+        ],
+      },
+    });
+  }),
 
   // Storage objects (#445 playground inputs/outputs): an upload answers
   // `processing`, a read answers `ready`, and a download is a signed URL.

@@ -458,7 +458,7 @@ describe('UserNotificationsPage', () => {
         screen.getByRole('switch', { name: /push notifications for synthetic push event/i }),
       ).not.toBeDisabled();
       expect(
-        screen.queryByText('Push notifications are not available yet'),
+        screen.queryByText("Web Push isn't enabled yet"),
       ).not.toBeInTheDocument();
     });
 

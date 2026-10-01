@@ -183,18 +183,21 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
   }
 
   /**
-   * Eight weeks, three sessions a week, weeks 4 and 8 deloads. The first session
-   * falls on today's weekday so today's planned session exists; the refs the
-   * evaluator fixtures name (`W5-1-2` the push, `W5-1-3` the row) exist and are open.
+   * Eight weeks, three sessions a week, weeks 4 and 8 deloads. One session falls
+   * on today's weekday so today's planned session exists; the refs the evaluator
+   * fixtures name (`W5-1-2` the push, `W5-1-3` the row) exist and are open.
    *
-   * Workout positions follow the weekday order, which wraps past Sunday for a
-   * start late in the week (a Thursday start puts `Full C`, on Monday, first).
-   * So every workout lists squat/lunge, push, row in the same slots: `W5-1-3` is
-   * the row whichever workout sorts first, on any weekday the suite runs.
+   * The sessions sit two days apart on weekdays that ASCEND in draft order
+   * (Mon/Wed/Fri, Tue/Thu/Sat or Wed/Fri/Sun, whichever holds today), so Full A
+   * is always the week's earliest weekday. The guardrails normalise a week's
+   * workouts by weekday (`guardrails/tree.ts` `sortWeek`), and the evaluator's
+   * refs and `rowSets` follow that stored order: anchoring Full A on today and
+   * wrapping past Sunday put Full C first on a Thursday or Friday (#216).
    */
   function draftFor(keys: Keys): PlanDraft {
     const isoToday = new Date(`${todayStr}T00:00:00Z`).getUTCDay() || 7;
-    const day = (offset: number) => ((isoToday - 1 + offset) % 7) + 1;
+    const first = isoToday <= 3 ? isoToday : isoToday - 2 * Math.ceil((isoToday - 3) / 2);
+    const day = (offset: number) => first + offset;
     const type = (key: string, isDeload: boolean): PlanDraft['blocks'][number]['weekTypes'][number] => {
       const sets = isDeload ? 2 : 3;
       return {
@@ -203,6 +206,9 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
         workouts: [
           draftWorkout('Full A', day(0), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
           draftWorkout('Full B', day(2), [draftExercise(keys.lunge, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
+          // Same push-then-row order as the other workouts: guardrails sort the week by
+          // weekday, so whichever workout sorts first must carry the refs the evaluator
+          // fixtures name (W5-1-2 the push, W5-1-3 the row).
           draftWorkout('Full C', day(4), [draftExercise(keys.squat, { isPriority: true, sets }), draftExercise(keys.push, { sets }), draftExercise(keys.row, { sets })]),
         ],
       };
@@ -444,5 +450,14 @@ describeWithDb('the agentic training flow (real Postgres)', () => {
 
     expect(await rowSets(programId, keys.row)).toEqual([[1, 3], [2, 3], [3, 3], [4, 2], [5, 3], [6, 3], [7, 3], [8, 2]]);
     expect(toDbDate(start).getTime()).toBeLessThan(toDbDate(todayStr).getTime());
+    // Whatever today's weekday, the stored order (the refs' order) is Full A, B, C,
+    // so `W5-1-2` is Full A's push and `W5-1-3` its row.
+    const week5 = await client.programWorkout.findMany({
+      where: { archivedAt: null, week: { programId, archivedAt: null, weekNumber: 5 } },
+      orderBy: { position: 'asc' },
+      select: { name: true, exercises: { orderBy: { position: 'asc' }, select: { exercise: { select: { slug: true } } } } },
+    });
+    expect(week5.map((w) => w.name)).toEqual(['Full A', 'Full B', 'Full C']);
+    expect(week5[0].exercises.map((e) => e.exercise.slug)).toEqual([keys.squat, keys.push, keys.row]);
   });
 });

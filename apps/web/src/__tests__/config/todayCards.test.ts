@@ -5,7 +5,15 @@ import { ROADMAP } from '../../config/roadmap';
 
 describe('TODAY_CARDS', () => {
   it('keeps the append-only order', () => {
-    expect(TODAY_CARDS.map((c) => c.key)).toEqual(['workout', 'readiness', 'body', 'gym']);
+    // #203 put the two onboarding cards at the top; the original four keep their order.
+    expect(TODAY_CARDS.map((c) => c.key)).toEqual([
+      'adminSetup',
+      'getStarted',
+      'workout',
+      'readiness',
+      'body',
+      'gym',
+    ]);
   });
 
   it('has unique keys', () => {

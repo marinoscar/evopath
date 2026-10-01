@@ -173,3 +173,35 @@ describe('PlansPage', () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 });
+
+describe('PlansPage: AI off notice (#204)', () => {
+  it('AI off with programs:write + ai:use shows the notice and Build manually, not Create with AI', async () => {
+    listPlans([]);
+    renderPage({ aiEnabled: false });
+    expect(await screen.findByText("AI isn't enabled yet")).toBeInTheDocument();
+    expect(screen.getByText(/Your administrator hasn't set this up yet\. You can still build a plan yourself\./)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Set it up' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Build manually' })).toBeInTheDocument();
+    expect(screen.queryByText('Create with AI')).not.toBeInTheDocument();
+  });
+
+  it('an AI administrator gets Set it up to /admin/settings/ai', async () => {
+    listPlans([]);
+    renderPage({ aiEnabled: false, permissions: [...user.permissions, 'ai_config:read'] });
+    expect(await screen.findByRole('link', { name: 'Set it up' })).toHaveAttribute('href', '/admin/settings/ai');
+  });
+
+  it('AI on shows Create with AI and no notice', async () => {
+    listPlans([]);
+    renderPage({ aiEnabled: true });
+    expect(await screen.findByRole('link', { name: 'Create with AI' })).toBeInTheDocument();
+    expect(screen.queryByText("AI isn't enabled yet")).not.toBeInTheDocument();
+  });
+
+  it('no notice without programs:write', async () => {
+    listPlans([]);
+    renderPage({ aiEnabled: false, permissions: user.permissions.filter((p) => p !== 'programs:write') });
+    await screen.findByText('No plans yet');
+    expect(screen.queryByText("AI isn't enabled yet")).not.toBeInTheDocument();
+  });
+});

@@ -6,6 +6,7 @@ import { NotificationPermissionBanner } from '../notifications/NotificationPermi
 import { usePushSubscriptionSync } from '../../hooks/usePushSubscriptionSync';
 import { NavigationRail } from '../navigation/NavigationRail';
 import { BottomNav } from '../navigation/BottomNav';
+import { WelcomeDialog } from '../onboarding/WelcomeDialog';
 
 /**
  * The app shell — two navigation treatments, one per size class.
@@ -115,6 +116,10 @@ export function Layout() {
               for anyone without `system_settings:read` and whenever no window
               is open, which is every viewer on every ordinary day. */}
           <MaintenanceBanner />
+          {/* Issue #203. Mounted once, here: the one-time welcome reads the
+              shell's `OnboardingProvider` and renders nothing once seen (or
+              when there is no provider, e.g. a test rendering the shell). */}
+          <WelcomeDialog />
           {/* Issue #365. Fed by the shell's single `usePushSubscriptionSync`
               mount above; renders nothing unless this device still needs to
               allow (or unblock, or install for) notifications. */}

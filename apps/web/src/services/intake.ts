@@ -33,7 +33,7 @@ export type FileRetention = 'keep' | 'delete_after_processing';
  * choice applies. Presentation only: the server decides per kind
  * (`healthDocumentKind`) and ignores the choice for any other kind.
  */
-export const HEALTH_INTAKE_KINDS: readonly string[] = ['body_metric_reading'];
+export const HEALTH_INTAKE_KINDS: readonly string[] = ['body_metric_reading', 'lab_report'];
 
 /** The keep-or-delete choice a health upload starts with: keep (pre-selected). */
 export const DEFAULT_RETAIN_FILES = true;

@@ -4,6 +4,7 @@ import {
   dataTablesSchema,
   navigationSchema,
   notificationsSchema,
+  onboardingSettingsSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import { profileImageSourceSchema } from '../../common/schemas/settings.schema';
 
@@ -23,6 +24,8 @@ export const userSettingsResponseSchema = z.object({
   // the user has expressed no opinion, so every control derives its state from
   // the registry default rather than from a defaulted local object (#126).
   notifications: notificationsSchema.optional(),
+  // First-run onboarding UI state (#203); absent until the user has any.
+  onboarding: onboardingSettingsSchema.optional(),
   updatedAt: z.iso.datetime(),
   version: z.number(),
 });

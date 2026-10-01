@@ -97,6 +97,7 @@ import type {
 } from '../../types';
 import type { NotificationCapability } from '../../hooks/useNotificationCapability';
 import { AddToHomeScreenPanel } from './AddToHomeScreenPanel';
+import { FeatureUnavailableNotice, featureUnavailableTitle } from '../common/FeatureUnavailableNotice';
 
 // =============================================================================
 // Derivation — the pure half, exported so it can be reasoned about and tested
@@ -409,6 +410,9 @@ export function browserChannelState(
   }
 }
 
+/** What still works while Web Push is off (#204). */
+export const PUSH_UNAVAILABLE_DETAIL = 'Email and browser notifications are unaffected.';
+
 /**
  * How the push column must behave.
  *
@@ -446,10 +450,8 @@ export function pushChannelState(
     note: 'Not available yet',
     alert: {
       severity: 'info',
-      title: 'Push notifications are not available yet',
-      body:
-        'Push notifications have not been turned on for this server. ' +
-        'Email and browser notifications are unaffected.',
+      title: featureUnavailableTitle('push'),
+      body: PUSH_UNAVAILABLE_DETAIL,
     },
   };
 }
@@ -688,16 +690,17 @@ export function NotificationSettings({
         )}
 
         {showsPushChannel && push.alert && (
-          <Alert severity={push.alert.severity} sx={{ mb: 2 }}>
-            <AlertTitle>{push.alert.title}</AlertTitle>
-            {push.alert.body}
+          <Box sx={{ mb: 2 }}>
             {/*
-              NO ACTION BUTTON HERE. This alert only renders while the
-              deployment has push off, which no user action can change. The
+              #204: the shared "Web Push isn't enabled yet" notice. It renders
+              only while the deployment has push off, which no user action on
+              this page can change: an administrator (`push:read`) is offered
+              "Set it up", everyone else is told it is not set up yet. The
               permission a push subscription needs is requested by the browser
               banner above and by the app-wide banner (#365).
             */}
-          </Alert>
+            <FeatureUnavailableNotice feature="push" detail={PUSH_UNAVAILABLE_DETAIL} />
+          </Box>
         )}
 
         <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>

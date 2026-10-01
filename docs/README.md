@@ -41,6 +41,7 @@ In this order:
 | [specs/database-restore.md](specs/database-restore.md) | Restore and rollback from a backup | you change restore gates or outcomes |
 | [specs/maintenance-mode.md](specs/maintenance-mode.md) | The 503 maintenance window | you change maintenance behaviour or its layers |
 | [specs/doctor.md](specs/doctor.md) | The admin Doctor: read-only configuration and health checks | you add a check for a capability or read the Doctor's report |
+| [specs/onboarding.md](specs/onboarding.md) | First-run onboarding: the welcome dialog, the admin Setup guide, the user Get started checklist, and the `onboarding` user-settings namespace | you add a checklist step, change what a new user or administrator sees first, or read `GET /api/onboarding` |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/health-data.md](specs/health-data.md) | Per-user health data: the health profile, measurements with the metric registry, daily check-ins, photo readings, and the `health_data` permissions | you add a health feature, read values off a photo, add a metric, read the profile (units, time zone, height), or read today's readiness |
 | [specs/health-records.md](specs/health-records.md) | Health records: the health document store, the keep-or-delete retention choice at every upload, the `health.document.purge` job, the storage reference checker, and the planned blood work, export and AI health summary | you add a health upload, read a value's source file, or change how health files are kept or erased |
@@ -49,6 +50,7 @@ In this order:
 | [specs/training-signals.md](specs/training-signals.md) | Plan signals: adherence, frequency, hard sets per muscle, lift trends, effort, pain, readiness and body weight, computed deterministically for the user and for agents | you add or change a signal, read a user's adherence, or build an agent prompt from training facts |
 | [specs/ai-training-plans.md](specs/ai-training-plans.md) | AI training plans: the researcher, planner, critic and evaluator agents, the LangGraph graphs, run state machine, guardrails and adaptation envelope, quick workout adaptation and travel workouts (rules, minimised context, apply), events, limits, and the fake-provider scenarios | you change or extend the training agents, their guardrails, the adjust-workout flow or their tests |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
+| [specs/factory-reset.md](specs/factory-reset.md) | The admin Danger Zone factory reset (`admin.factory_reset`): step design, what is deleted and kept, confirmation, extending it | you change the reset or add a model with a user relation |
 | [specs/user-data-reset.md](specs/user-data-reset.md) | The per-user Danger Zone factory reset (`user.data_reset`): what is deleted and kept, confirmation, retry safety | you add a model with a user relation or change the reset |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `evopathcli deploy` to a single VPS | you change the deploy commands or the deployed layout |
 
@@ -70,6 +72,7 @@ In this order:
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
 | [runbooks/telemetry.md](runbooks/telemetry.md) | Enabling the GreptimeDB telemetry overlay, setting retention, configuring the AI assistant, connecting a BI tool |
 | [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor |
+| [runbooks/factory-reset.md](runbooks/factory-reset.md) | Wiping a deployment to a fresh install: backup first, run the reset, verify, recover, troubleshoot |
 
 ## Developer recipes in the code
 

@@ -335,7 +335,7 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 
 ### 5.20 Health data
 
-Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry (body, vital, wellness and lab analytes) and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. The daily readiness check-in (four optional 1 to 5 scores and a note per local day) is stored as `measurements` rows too and served by `/api/check-ins`, with "today" decided by the server in the profile time zone. A reading can also come from a photo: the `body_metric_reading` intake kind (`apps/api/src/measurements/photo/`, see [5.21](#521-photo-intake)) has the server-only job `ai.health.body_metric_reading` draft values from a scale or cuff photo, and its `apply` saves the accepted ones as one entry whose rows carry server-derived provenance. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
+Per-user health facts live in their own tables with their own permission family `health_data:read/write` (held by all three roles, withholdable per role). `health_profiles` holds one row per user: date of birth, sex at birth, height, unit system, time zone and a short bio. It is served by `GET/PUT /api/health-profile`, always for the signed-in user, and edited at `/settings/health-profile`. `measurements` is one longitudinal table of values in canonical units, described by an in-code metric registry (body, vital, wellness and lab analytes) and served by `/api/measurements`; an edit supersedes rows instead of overwriting them. The daily readiness check-in (four optional 1 to 5 scores and a note per local day) is stored as `measurements` rows too and served by `/api/check-ins`, with "today" decided by the server in the profile time zone. A reading can also come from a photo: the `body_metric_reading` intake kind (`apps/api/src/measurements/photo/`, see [5.21](#521-photo-intake)) has the server-only job `ai.health.body_metric_reading` draft values from a scale or cuff photo, and its `apply` saves the accepted ones as one entry whose rows carry server-derived provenance. Lab results can come from a lab report the same way: the `lab_report` intake kind (`apps/api/src/measurements/lab-report/`, [specs/health-records.md](specs/health-records.md#210-lab-report-extraction)) has `ai.health.lab_report` transcribe a PDF or page photos, refuses apply while an unmatched analyte is accepted, and saves one lab entry dated with the collection date; `GET /api/measurements/lab-reports/:intakeId/duplicates` warns about results already saved. Later health features build on the same permissions, read the profile through `HealthProfileService` and write values through `MeasurementsService`.
 
 - **Code:** `apps/api/src/health-profile/`, `apps/api/src/measurements/` (photo readings in `photo/`), `apps/api/src/check-ins/`, `apps/web/src/pages/UserHealthProfilePage.tsx`
 - **UI:** `/settings/health-profile`, `/health` (tiles, Daily check-in, Trend and History sections, **Read from photo**), the Today body snapshot and Readiness cards
@@ -344,7 +344,7 @@ Per-user health facts live in their own tables with their own permission family 
 
 ### 5.21 Photo intake
 
-A photo intake is the shared path for "share pictures instead of typing" features. `photo_intakes` holds one flow for one user: the photos attached to it (links to storage objects), the draft items an AI job read from them, and the state (`draft`, `scanning`, `ready`, `applied`, `failed`). What is being captured is a registered intake kind (`IntakeKindRegistry`): it validates the kind-specific context and each item value, names the server-only `ai.*` analyzer job, may declare `requiredPermissions` (extra `read` and `write` permissions checked on every route, fail-closed, `403` with `details.reason: MISSING_KIND_PERMISSIONS`), and writes the accepted items as real rows in the transaction that marks the intake applied. The registered kinds are `body_metric_reading` ([specs/health-data.md](specs/health-data.md#217-photo-readings)) `gym_equipment` ("Scan gym", [5.22](#522-gyms-and-equipment), analyzer `ai.equipment.scan`) and `workout_prefill` ("Prefill from photo", [5.24](#524-workout-logging), analyzer `ai.workout.prefill`); the first requires `health_data:read/write`, the second `gyms:read/write`, the third `workouts:read`, `workouts:write` and `exercises:write`, on top of `intakes:*`. `PATCH /api/intakes/:id` replaces an intake's context in `draft`, `ready` or `failed` (a source hint, for example) and answers `409` while it is `scanning` or `applied`. The chunk loop and error handling every analyzer job shares live in `apps/api/src/intake/intake-analyzer.ts`. `POST /api/intakes/:id/analyze` re-checks that the chosen model reads images and returns structured output, then enqueues the kind's analyzer job; the job stores its output through `IntakeService.replaceAiDrafts`. AI output is always a draft: the API keeps every item the model returned, records the first AI value of an edited item, and never deletes an AI item (it is rejected instead). The web kit in `apps/web/src/components/intake/` supplies photo picking with client-side downscaling, the provider disclosure and the draft review list.
+A photo intake is the shared path for "share pictures instead of typing" features. `photo_intakes` holds one flow for one user: the photos attached to it (links to storage objects), the draft items an AI job read from them, and the state (`draft`, `scanning`, `ready`, `applied`, `failed`). What is being captured is a registered intake kind (`IntakeKindRegistry`): it validates the kind-specific context and each item value, names the server-only `ai.*` analyzer job, may declare `requiredPermissions` (extra `read` and `write` permissions checked on every route, fail-closed, `403` with `details.reason: MISSING_KIND_PERMISSIONS`), and writes the accepted items as real rows in the transaction that marks the intake applied. The registered kinds are `body_metric_reading` ([specs/health-data.md](specs/health-data.md#217-photo-readings)), `lab_report` ([specs/health-records.md](specs/health-records.md#210-lab-report-extraction), analyzer `ai.health.lab_report`), `gym_equipment` ("Scan gym", [5.22](#522-gyms-and-equipment), analyzer `ai.equipment.scan`) and `workout_prefill` ("Prefill from photo", [5.24](#524-workout-logging), analyzer `ai.workout.prefill`); the first two require `health_data:read/write`, `gym_equipment` `gyms:read/write`, `workout_prefill` `workouts:read`, `workouts:write` and `exercises:write`, on top of `intakes:*`. `PATCH /api/intakes/:id` replaces an intake's context in `draft`, `ready` or `failed` (a source hint, for example) and answers `409` while it is `scanning` or `applied`. The chunk loop and error handling every analyzer job shares live in `apps/api/src/intake/intake-analyzer.ts`. `POST /api/intakes/:id/analyze` re-checks that the chosen model reads images and returns structured output, then enqueues the kind's analyzer job; the job stores its output through `IntakeService.replaceAiDrafts`. AI output is always a draft: the API keeps every item the model returned, records the first AI value of an edited item, and never deletes an AI item (it is rejected instead). The web kit in `apps/web/src/components/intake/` supplies photo picking with client-side downscaling, the provider disclosure and the draft review list.
 
 - **Code:** `apps/api/src/intake/`, `apps/web/src/components/intake/`
 - **Permissions:** `intakes:read`, `intakes:write`; analyze also `ai:use` behind `AiEnabledGuard`
@@ -413,10 +413,28 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 
 A user can delete everything they own and keep their account. `POST /api/user-data/reset` (with the typed phrase `DELETE MY DATA`) enqueues the server-only `user.data_reset` job, which deletes the user's rows in one transaction and then their stored media. The account, roles, refresh token and audit log are kept; personal access tokens are deleted.
 
-- **Code:** `apps/api/src/user-data/`
+- **Code:** `apps/api/src/user-data/` (the per-user deletion in `user-data-purge.ts` is shared with the factory reset, §5.28)
 - **UI:** `/settings/danger-zone` (`apps/web/src/pages/UserDangerZonePage.tsx`)
 - **Permissions:** `user_settings:write`
 - **Read more:** [specs/user-data-reset.md](specs/user-data-reset.md)
+
+### 5.28 Admin factory reset
+
+An administrator can return the deployment to a fresh install. `POST /api/admin/factory-reset` (with the typed phrase `FACTORY RESET`) enqueues the server-only `admin.factory_reset` job, one active reset deployment-wide. It runs seven idempotent steps, each in its own transaction: job history, every user's data (the shared per-user deletion, the actor included), custom catalog rows, worker node reassignment to the actor, other users, deployment-wide leftovers, then storage objects except backup archives. The actor's account and session, roles, system settings, deployment credentials, AI models, seeded catalogs, worker nodes, backups and the audit log are kept.
+
+- **Code:** `apps/api/src/admin-factory-reset/`, `apps/api/src/user-data/user-data-purge.ts`
+- **UI:** `/admin/settings/factory-reset` (`apps/web/src/pages/Admin/FactoryResetPage.tsx`)
+- **Permissions:** `system:factory_reset` (Admin only)
+- **Read more:** [specs/factory-reset.md](specs/factory-reset.md), [runbooks/factory-reset.md](runbooks/factory-reset.md)
+
+### 5.29 First-run onboarding
+
+A one-time welcome dialog leads into a short checklist: a Setup guide for administrators and a Get started card on Today for everyone else. `GET /api/onboarding` derives every step from real state on each request and never writes; administrator steps reuse the [Doctor](#526-admin-doctor)'s checks. The only stored facts are `welcomeSeenAt`, `checklistDismissedAt` and an optional `goal` in the `onboarding` user-settings namespace, written through `PATCH /api/user-settings`. `GET /api/admin/onboarding/metrics` adds read-only aggregate activation numbers (first completed workout within 7 days of sign-up, over eligible users) to the Setup guide. Entry points of an unconfigured feature (AI, storage, Web Push) show a feature-unavailable notice; storage's state comes from `GET /api/storage/status`.
+
+- **Code:** `apps/api/src/onboarding/`, `apps/web/src/components/onboarding/`, `apps/web/src/pages/Admin/SetupGuidePage.tsx`
+- **UI:** welcome dialog (every signed-in page), Today cards, `/admin/settings/setup`
+- **Permissions:** `user_settings:read` (the endpoint); the `admin` block, the Setup guide and the metrics endpoint need `system_settings:read`; `GET /api/storage/status` needs `storage:read`
+- **Read more:** [specs/onboarding.md](specs/onboarding.md)
 
 ---
 
@@ -521,7 +539,7 @@ Namespaces of the `global` document (`systemSettingsSchema`):
 
 Every read completes missing namespaces from built-in defaults, so the stored document is always whole.
 
-`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (`training` limits only; models are chosen by administrators in the `ai.assignments` system setting). An absent optional namespace means "use the defaults".
+`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences), `ai` (`training` limits only; models are chosen by administrators in the `ai.assignments` system setting) and `onboarding` (`welcomeSeenAt`, `checklistDismissedAt`, `goal`: UI state only, step completion is derived; see [specs/onboarding.md](specs/onboarding.md)). An absent optional namespace means "use the defaults".
 
 ---
 
@@ -574,10 +592,11 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
-| `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`, `GET /api/measurements*`, `GET /api/check-ins*`); reach `/settings/health-profile` |
+| `system:factory_reset` | ✓ | | | Reset the deployment's application data to a fresh install (irreversible; Admin only) |
+| `health_data:read` | ✓ | ✓ | ✓ | Read own health data (`GET /api/health-profile`, `GET /api/measurements*`, `GET /api/check-ins*`); reach `/settings/health-profile`; with `intakes:read`, `GET /api/measurements/lab-reports/:intakeId/duplicates` |
 | `health_data:write` | ✓ | ✓ | ✓ | Change own health data (`PUT /api/health-profile`, `POST/PATCH/DELETE /api/measurements`, `PUT/DELETE /api/check-ins/:date`) |
-| `intakes:read` | ✓ | ✓ | ✓ | Read own photo intakes and their draft items (`GET /api/intakes*`); a kind's own `requiredPermissions.read` is also needed (`body_metric_reading`: `health_data:read`, `gym_equipment`: `gyms:read`, `workout_prefill`: `workouts:read`) |
-| `intakes:write` | ✓ | ✓ | ✓ | Create, edit, apply and discard own photo intakes (`POST/PATCH/DELETE /api/intakes*`); `POST /api/intakes/:id/analyze` also needs `ai:use`, and a kind's own `requiredPermissions.write` is also needed (`body_metric_reading`: `health_data:write`, `gym_equipment`: `gyms:write`, `workout_prefill`: `workouts:write` and `exercises:write`) |
+| `intakes:read` | ✓ | ✓ | ✓ | Read own photo intakes and their draft items (`GET /api/intakes*`); a kind's own `requiredPermissions.read` is also needed (`body_metric_reading` and `lab_report`: `health_data:read`, `gym_equipment`: `gyms:read`, `workout_prefill`: `workouts:read`) |
+| `intakes:write` | ✓ | ✓ | ✓ | Create, edit, apply and discard own photo intakes (`POST/PATCH/DELETE /api/intakes*`); `POST /api/intakes/:id/analyze` also needs `ai:use`, and a kind's own `requiredPermissions.write` is also needed (`body_metric_reading` and `lab_report`: `health_data:write`, `gym_equipment`: `gyms:write`, `workout_prefill`: `workouts:write` and `exercises:write`) |
 | `gyms:read` | ✓ | ✓ | ✓ | Read own gyms, their equipment and the equipment catalog (`GET /api/gyms*`, `GET /api/equipment-types`, `GET /api/capabilities`) |
 | `gyms:write` | ✓ | ✓ | ✓ | Create, edit and delete own gyms, equipment and custom equipment types (`POST/PATCH/DELETE /api/gyms*`, `/api/equipment-types*`); gym photo attach and remove also need `storage:write` |
 | `exercises:read` | ✓ | ✓ | ✓ | Read the exercise library and own custom exercises (`GET /api/exercises*`) |
@@ -587,7 +606,7 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `programs:read` | ✓ | ✓ | ✓ | Read own training programs, versions and change log (`GET /api/programs*`) |
 | `programs:write` | ✓ | ✓ | ✓ | Create, edit, activate, pause, archive, duplicate, revert and delete own programs (`POST/PATCH/PUT/DELETE /api/programs*`) |
 
-**Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
+**Note on `storage:*`.** `GET /api/storage/status` (a `configured` boolean) and every `/api/storage/objects` route require `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
 Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`, `health_data:*`, `intakes:*`, `gyms:*`, `exercises:*`, `workouts:*`, `programs:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
@@ -608,6 +627,7 @@ All 34 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `ai.audio.speech` | `ai/runtime/ai-audio-speech.handler.ts` | Text-to-speech; the audio becomes the user's storage object | No |
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Deletes `ai_usage_events` past `ai.usageRetentionDays`, in batches; daily | No |
 | `ai.health.body_metric_reading` | `measurements/photo/body-metric-reading.handler.ts` | Reads a scale or blood-pressure-cuff photo into pending draft readings for a `body_metric_reading` intake | No |
+| `ai.health.lab_report` | `measurements/lab-report/lab-report.handler.ts` | Transcribes a lab report (PDF or page photos) of a `lab_report` intake into pending draft lab results, matched to the lab catalog and converted to canonical units by the server, plus the collection date and lab name in the intake's context | No |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Re-verifies stale user keys for one provider, refreshes reachable models | No |
 | `ai.equipment.scan` | `gyms/scan/equipment-scan.handler.ts` | "Scan gym": sends a `gym_equipment` photo intake's photos to the user's vision model in batches of 16 and stores the equipment drafts for review | No |
 | `ai.workout.prefill` | `workouts/prefill/workout-prefill.handler.ts` | "Prefill from photo": sends a `workout_prefill` photo intake's photos (machine placard, notebook, whiteboard) to the user's vision model in chunks of 16 and stores one exercise draft per line, with the written sets converted to kg | No |
@@ -619,6 +639,7 @@ All 34 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `training.runs.purge` | `training-agents/runtime/handlers/training-runs-purge.handler.ts` | Deletes finished runs' events and checkpoints past retention, then old run rows; enqueued by a daily 05:30 cron that only enqueues; profile 30 minutes, 3 attempts | No |
 | `training.evaluation.sweep` | `training-agents/evaluation/handlers/training-evaluation-sweep.handler.ts` | Expires unanswered proposals and starts the due evaluation runs (weekly, deferred, missed sessions) through the scheduler's gates; enqueued hourly (minute 7) by a cron that only enqueues, and only while `ai.enabled`; profile 10 minutes, 3 attempts | No |
 | `user.data_reset` | `user-data/handlers/user-data-reset.handler.ts` | A user's factory reset: collects storage object ids, deletes the user's rows in one transaction, then deletes the media from the storage provider; profile 15 minutes, 3 attempts; server-only | No |
+| `admin.factory_reset` | `admin-factory-reset/handlers/admin-factory-reset.handler.ts` | The deployment factory reset: seven idempotent steps (job history, every user's data via the shared per-user deletion, custom catalog rows, node reassignment to the actor, other users, deployment-wide leftovers, storage objects except backup archives), each in its own transaction; one active reset deployment-wide; profile 30 minutes, 3 attempts; server-only | No |
 | `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
 | `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
 | `example.checksum` | `jobs/handlers/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
@@ -689,6 +710,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/push` | Web Push | General | `push:read` | |
 | `/admin/settings/storage` | Storage | General | `storage_config:read` | |
 | `/admin/settings/maintenance` | Maintenance | General | `system_settings:read` | |
+| `/admin/settings/setup` | Setup guide | General | `system_settings:read` | none (it is where AI gets switched on) |
 | `/admin/settings/users` | Users & Allowlist | Access | `users:read` | |
 | `/admin/settings/jobs` | Jobs | Operations | `jobs:read` | |
 | `/admin/settings/jobs/insights` | Job Insights | Operations | `jobs:read` | |
@@ -704,6 +726,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/doctor` | Doctor | Observability | `system_settings:read` | none (reports on AI and telemetry while they are off) |
+| `/admin/settings/factory-reset` | Factory reset | Danger Zone | `system:factory_reset` | none |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
@@ -841,7 +864,7 @@ Health endpoints (public, reachable during maintenance):
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
-| A model with a user relation (keep/delete decision for the data reset) | [specs/user-data-reset.md §4](specs/user-data-reset.md#4-extending-it-in-a-fork) |
+| A model with a user relation (keep/delete decision for the data reset and the factory reset, in `user-data/user-data-purge.ts`) | [specs/user-data-reset.md §4](specs/user-data-reset.md#4-extending-it-in-a-fork), [specs/factory-reset.md §4](specs/factory-reset.md#4-extending-it-in-a-fork) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
 

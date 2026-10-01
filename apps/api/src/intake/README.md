@@ -46,6 +46,20 @@ draft --analyze--> scanning --replaceAiDrafts--> ready --apply--> applied
 - `PATCH /api/intakes/:id` replaces the `context` (for example a source hint the analyzer reads) in `draft`, `ready` and `failed`; the kind validates it as on create. It answers 409 `INVALID_INTAKE_STATUS` while the intake is `scanning` or `applied`. Photos and items are untouched.
 - `apply` needs no `pending` item; accepted items reach the kind, rejected ones do not.
 
+## Registered Kinds
+
+| Kind | Code | Analyzer job | AI feature | Inputs | Health document |
+|---|---|---|---|---|---|
+| `body_metric_reading` | `measurements/photo/` | `ai.health.body_metric_reading` | `body_metric_reading` | image, PDF (4) | `body_metric` |
+| `lab_report` | `measurements/lab-report/` | `ai.health.lab_report` | `lab_report` | image, PDF (10) | `lab_report` |
+| `gym_equipment` | `gyms/intake/` | `ai.equipment.scan` | `gym_scan` | image | none |
+| `workout_prefill` | `workouts/intake/` | `ai.workout.prefill` | `workout_prefill` | image | none |
+
+`lab_report` ([health-records.md 2.10](../../../../docs/specs/health-records.md#210-lab-report-extraction)) shows two
+patterns the others do not: the analyzer fills document-level fields into the
+context (`replaceAiDrafts`' `context`), and `apply` refuses with a kind-specific
+409 (`UNRESOLVED_ANALYTES`) instead of dropping what the server could not match.
+
 ## Adding a Kind
 
 ### 1. Implement `IntakeKind`
@@ -103,11 +117,11 @@ export class GymEquipmentIntakeKind implements IntakeKind<Context, Value>, OnMod
 | `analyzeJobType` | The server-only `ai.*` job type, or `null`. A `null` kind answers `analyze` with 400 `MANUAL_ONLY_KIND`. |
 | `aiFeature` | Required when `analyzeJobType` is set: the AI feature id (`AI_FEATURE_IDS`) whose administrator-assigned model analyzes this kind. `IntakeKindRegistry.register` throws for an analyzer kind without one. Register a new id first (see [the AI README](../ai/README.md)). |
 | `maxPhotos` | Optional; default 48 (`DEFAULT_INTAKE_MAX_PHOTOS`). A PDF counts as one photo. |
-| `acceptedInputs` | Optional; `['image']` by default, or `['image', 'pdf']` (`INTAKE_INPUT_KINDS`). What files an attach accepts; a PDF on a kind without `'pdf'` is a 400 `UNSUPPORTED_MEDIA_TYPE`. The registry refuses an empty list, an unknown entry or a duplicate. `body_metric_reading` accepts PDFs; `gym_equipment` and `workout_prefill` stay image-only. See [Accepted Inputs](#accepted-inputs). |
+| `acceptedInputs` | Optional; `['image']` by default, or `['image', 'pdf']` (`INTAKE_INPUT_KINDS`). What files an attach accepts; a PDF on a kind without `'pdf'` is a 400 `UNSUPPORTED_MEDIA_TYPE`. The registry refuses an empty list, an unknown entry or a duplicate. `body_metric_reading` and `lab_report` accept PDFs; `gym_equipment` and `workout_prefill` stay image-only. See [Accepted Inputs](#accepted-inputs). |
 | `maxPdfPages` | Optional; default 20 (`INTAKE_PDF_MAX_PAGES`). The most pages one PDF input may have; a positive integer. |
 | `itemKinds` | Optional allow-list for `DraftItem.kind`. Omitted means any non-empty string. |
 | `requiredPermissions` | Optional `{ read?, write? }`: permissions this kind needs on top of the routes' `intakes:read` / `intakes:write`. See [Kind Permissions](#kind-permissions). |
-| `healthDocumentKind` | Optional (`body_metric`, `lab_report`). Declares a health intake kind: each attached file becomes one `HealthDocument` carrying the user's `retainFiles` choice, `apply` receives them as `args.healthDocuments`, and a `delete_after_processing` file is erased by the `health.document.purge` job once the intake is applied or discarded. `body_metric_reading` is the worked example. |
+| `healthDocumentKind` | Optional (`body_metric`, `lab_report`). Declares a health intake kind: each attached file becomes one `HealthDocument` carrying the user's `retainFiles` choice, `apply` receives them as `args.healthDocuments`, and a `delete_after_processing` file is erased by the `health.document.purge` job once the intake is applied or discarded. `body_metric_reading` is the worked example; `lab_report` is the other one. |
 | `assertContext` | Optional. Checks the context against the caller; another user's record is a 404, never a 403. Runs on create. |
 | `subjectOf` | Optional. Derives `subjectType`/`subjectId` from the context (e.g. the gym); when defined it wins over what the client sent, so the list filter `subjectId` finds the intake. |
 | `normalizeValue` | Optional. Recomputes derived fields; runs after `valueSchema` on every stored value. Its third argument, `source`, is `'user'` (a route add or edit: throw a 400 naming the field) or `'analyzer'` (`replaceAiDrafts`: be lenient and never throw, so a doubtful AI item is shown flagged rather than dropped; `apply` refuses it until the user resolves it). |
@@ -198,7 +212,7 @@ Rules for the handler:
 
 | Helper | Behaviour |
 |---|---|
-| `replaceAiDrafts(intakeId, items, { resultMeta? })` | One transaction: moves a `scanning` intake to `ready`, deletes only untouched AI drafts of an earlier scan (`origin: 'ai'`, `status: 'pending'`, `userVerified: false`), appends the new items after the survivors. An item that fails the shape check, `itemKinds` or `valueSchema` is not stored and is recorded by index and issue (never the value) in `resultMeta.invalidItems`. Returns `{ inserted, removed, invalid }`. Throws 404 when the intake was discarded and 409 `NOT_SCANNING` when it is no longer `scanning`. |
+| `replaceAiDrafts(intakeId, items, { resultMeta?, context? })` | One transaction: moves a `scanning` intake to `ready`, deletes only untouched AI drafts of an earlier scan (`origin: 'ai'`, `status: 'pending'`, `userVerified: false`), appends the new items after the survivors. An item that fails the shape check, `itemKinds` or `valueSchema` is not stored and is recorded by index and issue (never the value) in `resultMeta.invalidItems`. Returns `{ inserted, removed, invalid }`. Throws 404 when the intake was discarded and 409 `NOT_SCANNING` when it is no longer `scanning`. A `context` (document-level fields the analyzer read, e.g. a lab report's collection date) replaces the intake's context in the same update, validated by the kind's `contextSchema`; an invalid one is not stored and its issues are recorded in `resultMeta.invalidContext`. |
 | `failIntake(intakeId, code, message)` | Moves a `scanning` intake to `failed` with `errorCode` and a short user-safe `errorMessage`. Returns `false` and changes nothing when the intake is gone or not `scanning`, so a failure path may call it unconditionally. |
 
 ### 6. Keep Photos Other Features Use
@@ -277,7 +291,8 @@ Analyzer jobs map each input with `intakeInputPart`: an image to
 `{ type: 'image', storageObjectId, detail: 'high' }`, a PDF to
 `{ type: 'file', storageObjectId }`, labelled `Photo <n> (PDF document):`.
 The span attribute `intake.input_kind` (`image`, `pdf` or `mixed`) is set on
-attach, analyze and the `body_metric_reading` job. Nothing logs file bytes, names
+attach, analyze and the `body_metric_reading` and `lab_report` jobs; analyze
+also sets `intake.page_count` (an image is one page, a PDF its counted pages). Nothing logs file bytes, names
 or presigned URLs.
 
 In tests, `src/intake/testing/input-inspector.stub.ts` has
@@ -332,7 +347,7 @@ controller as each method's last argument):
   `requiredPermissions` behave exactly as before.
 
 The registered kinds each declare one: `body_metric_reading` (`measurements/photo/`)
-requires `health_data:read` / `health_data:write`, `gym_equipment`
+and `lab_report` (`measurements/lab-report/`) require `health_data:read` / `health_data:write`, `gym_equipment`
 (`gyms/intake/`) requires `gyms:read` / `gyms:write`, and `workout_prefill`
 (`workouts/intake/`) requires `workouts:read` and `workouts:write` plus
 `exercises:write`. `body_metric_reading` is the worked example.
@@ -357,6 +372,7 @@ Refusals carry a machine-readable `details.reason` next to the message.
 | `INTAKE_SCANNING` | 409 | The intake (or its analyze job) is already in flight. |
 | `MISSING_KIND_PERMISSIONS` | 403 | The caller lacks a permission the kind's `requiredPermissions` names (`details.permissions`). |
 | `ALREADY_APPLIED` | 409 | The intake was applied; nothing changes. |
+| `UNRESOLVED_ANALYTES` | 409 | `lab_report` only: `apply` with accepted results not matched to a catalog analyte; `details.itemIds`, `details.count`. Map each (edit `value.analyteKey`) or reject it. |
 | `INVALID_INTAKE_STATUS` | 409 | The operation does not fit the current status (`details.status`). |
 | `NOT_SCANNING` | 409 | `replaceAiDrafts` on an intake that is no longer `scanning`. |
 | `USE_REJECT` | 409 | `DELETE` on an AI item. |

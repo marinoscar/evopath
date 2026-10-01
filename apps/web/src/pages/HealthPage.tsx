@@ -12,6 +12,9 @@
  * quick-entry dialog) when AI and the needed permissions allow it
  * (`useCanReadFromPhoto`); it opens `PhotoReadDialog`, which saves one entry
  * through the photo-intake apply and refreshes the tiles and History.
+ *
+ * H4 (#188): "Import lab report" sits beside it under the same gate and opens
+ * `LabReportDialog` (a PDF or page photos become reviewed lab results).
  */
 
 import { useState } from 'react';
@@ -32,6 +35,8 @@ import { CheckInSection } from '../components/health/CheckInSection';
 import { HealthHistorySections } from '../components/health/HealthHistorySections';
 import { PhotoReadButton } from '../components/health/PhotoReadButton';
 import { PhotoReadDialog } from '../components/health/PhotoReadDialog';
+import { LabReportButton } from '../components/health/LabReportButton';
+import { LabReportDialog } from '../components/health/LabReportDialog';
 
 function HealthOverview({ canLog }: { canLog: boolean }) {
   const {
@@ -46,6 +51,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
   const [dialog, setDialog] = useState<{ open: boolean; focusMetric?: MetricKey }>({ open: false });
   // E2.6 (#64): the photo-read dialog, opened from the header or over the quick-entry dialog.
   const [photoOpen, setPhotoOpen] = useState(false);
+  // H4 (#188): the lab report import.
+  const [labOpen, setLabOpen] = useState(false);
   // Bumped after every change to readings: the Trend chart and History refetch.
   const [readingsVersion, setReadingsVersion] = useState(0);
   const readingsChanged = () => {
@@ -80,7 +87,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         </Box>
         {!forbidden && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            <PhotoReadButton onClick={() => setPhotoOpen(true)} />
+            <PhotoReadButton onClick={() => setPhotoOpen(true)} showUnavailable />
+            <LabReportButton onClick={() => setLabOpen(true)} />
             <LogMeasurementButton variant="contained" startIcon={<AddIcon />} canLog={canLog} onClick={() => openDialog()}>
               Log measurement
             </LogMeasurementButton>
@@ -148,6 +156,8 @@ function HealthOverview({ canLog }: { canLog: boolean }) {
         onEnterManually={enterManually}
         onSaved={readingsChanged}
       />
+
+      <LabReportDialog open={labOpen && !forbidden} onClose={() => setLabOpen(false)} onSaved={readingsChanged} />
     </>
   );
 }

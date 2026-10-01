@@ -250,6 +250,7 @@ describe('OpenAPI document', () => {
       expect(measurementOps.map(({ method, path }) => `${method} ${path}`).sort()).toEqual([
         'delete /api/measurements/entries/{entryId}',
         'get /api/measurements',
+        'get /api/measurements/lab-reports/{intakeId}/duplicates',
         'get /api/measurements/latest',
         'get /api/measurements/metrics',
         'get /api/measurements/series',
@@ -257,10 +258,13 @@ describe('OpenAPI document', () => {
         'post /api/measurements',
       ]);
 
-      for (const { method, operation } of measurementOps) {
+      for (const { method, path, operation } of measurementOps) {
         const rbac = operation[RBAC_EXTENSION_KEY] as { permissions: string[] } | undefined;
+        // The lab report duplicate warning also reads an intake (H4, #188).
+        const extra = path.startsWith('/api/measurements/lab-reports/') ? ['intakes:read'] : [];
         expect(rbac?.permissions).toEqual([
           method === 'get' ? 'health_data:read' : 'health_data:write',
+          ...extra,
         ]);
         expect(operation.tags).toEqual(['Measurements']);
       }

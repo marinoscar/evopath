@@ -5,6 +5,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AiConfigProvider } from './contexts/AiConfigContext';
 import { TelemetryConfigProvider } from './contexts/TelemetryConfigContext';
+import { OnboardingProvider } from './contexts/OnboardingContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
@@ -139,6 +140,9 @@ const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorer
 // (`@mui/x-charts`) travel in its own chunk.
 const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
 const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
+// Issue #211 — the admin factory reset.
+const FactoryResetPage = lazy(() => import('./pages/Admin/FactoryResetPage'));
+const SetupGuidePage = lazy(() => import('./pages/Admin/SetupGuidePage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -211,13 +215,18 @@ function AppRoutes() {
                     chrome (rail, bottom bar, menu, AppBar) and every routed
                     page, instead of one request per consumer.
                     `TelemetryConfigProvider` (#537, epic #528) is its twin for
-                    `GET /api/telemetry/config`. */}
+                    `GET /api/telemetry/config`. `OnboardingProvider` (#203) is
+                    the same shape again for `GET /api/onboarding`, shared by the
+                    welcome dialog, the Today cards, the user menu and the setup
+                    guide. */}
                 <Route
                   element={
                     <NotificationProvider>
                       <AiConfigProvider>
                         <TelemetryConfigProvider>
-                          <Layout />
+                          <OnboardingProvider>
+                            <Layout />
+                          </OnboardingProvider>
                         </TelemetryConfigProvider>
                       </AiConfigProvider>
                     </NotificationProvider>
@@ -869,6 +878,20 @@ function AppRoutes() {
                       </RequirePermission>
                     }
                   />
+                  {/* Issue #203. `system_settings:read`, the string the `Setup guide`
+                      card declares; `GET /api/onboarding` returns the admin steps
+                      only to holders of it. */}
+                  <Route
+                    path="/admin/settings/setup"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <SetupGuidePage />
+                      </RequirePermission>
+                    }
+                  />
                   {/* Issue #634. `system_settings:read`, the string the `Doctor`
                       card declares and `doctor/doctor.controller.ts` enforces.
                       NOT behind `RequireTelemetryEnabled` or `RequireAiEnabled`:
@@ -882,6 +905,22 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <DoctorPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #211. `system:factory_reset`, the string the `Factory
+                      reset` card declares and the factory-reset controller
+                      enforces on every route; seeded to the Admin role only.
+                      The route gate only hides the page — the API refuses the
+                      reset itself to anyone without the permission. */}
+                  <Route
+                    path="/admin/settings/factory-reset"
+                    element={
+                      <RequirePermission
+                        permission="system:factory_reset"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <FactoryResetPage />
                       </RequirePermission>
                     }
                   />

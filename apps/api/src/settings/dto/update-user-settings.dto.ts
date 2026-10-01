@@ -7,6 +7,8 @@ import {
   navigationPatchSchema,
   notificationsSchema,
   notificationsPatchSchema,
+  onboardingSettingsSchema,
+  onboardingPatchSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import {
   userProfileSettingsSchema,
@@ -31,6 +33,8 @@ export const updateUserSettingsSchema = z.object({
   // as the namespaces above. Only `training` (models are assigned by the
   // administrator, #173); the object is strict.
   ai: userAiSettingsSchema.optional(),
+  // First-run onboarding UI state (#203). Omit to store nothing.
+  onboarding: onboardingSettingsSchema.optional(),
 });
 
 export class UpdateUserSettingsDto extends createZodDto(
@@ -58,6 +62,9 @@ export const patchUserSettingsSchema = z.object({
   // `ai: null` clears the whole namespace; `ai: { training: null }` clears
   // just the run limits.
   ai: userAiSettingsPatchSchema.nullable().optional(),
+  // `onboarding: null` clears the namespace; `onboarding: { welcomeSeenAt:
+  // null }` clears one field; other fields are left as stored (#203).
+  onboarding: onboardingPatchSchema.nullable().optional(),
 });
 
 export class PatchUserSettingsDto extends createZodDto(
