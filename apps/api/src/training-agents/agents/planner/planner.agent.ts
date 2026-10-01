@@ -26,7 +26,8 @@ import {
 // Every call goes through `ctx.agent` (frozen model, effort, budget, kill
 // switch, capability checks). The planner context is fitted to the model's
 // window by `ctx.contextBudget` (reductions, then optional sections dropped,
-// last first: bio, body metrics, profile, readiness, history); what was
+// last first: bio, body metrics, profile, health summary, readiness,
+// history); what was
 // dropped is returned so the "what was sent" record can say so.
 //
 // A cut-off answer (`AgentOutputTruncated`) or an answer that does not match
@@ -66,6 +67,7 @@ export function plannerSections(context: PlannerContext, brief: VerifiedEvidence
     currentPlan,
     history,
     readiness,
+    healthSummary,
     profile,
     bodyMetrics,
     bio,
@@ -107,6 +109,9 @@ export function plannerSections(context: PlannerContext, brief: VerifiedEvidence
     });
   }
   if (readiness) sections.push({ id: 'readiness', required: false, content: { readiness } });
+  // H8 (#192): the opt-in health summary, optional like the rest: dropped
+  // whole (never cut) after bio, body metrics and profile.
+  if (healthSummary) sections.push({ id: 'healthSummary', required: false, content: { healthSummary } });
   if (profile) {
     sections.push({
       id: 'profile',

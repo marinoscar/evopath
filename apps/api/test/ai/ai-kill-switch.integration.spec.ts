@@ -202,6 +202,8 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.health.body_metric_reading': null,
       // H4 (#188): transcribes a lab report off a lab_report intake; filled in per-test.
       'ai.health.lab_report': null,
+      // H8 (#192): the opt-in health summary for the training planner; filled in per-test.
+      'ai.health.summary': null,
       'ai.equipment.scan': null, // filled in per-test: needs a scanning gym_equipment intake (E3.4)
       'ai.workout.prefill': null, // filled in per-test: needs a scanning workout_prefill intake (E4.5)
       'ai.training.plan.run': null, // filled in per-test: needs a queued training_plan_runs row (E5.3)
@@ -427,6 +429,46 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       expect(prisma.photoIntake.updateMany).toHaveBeenCalledWith({
         where: { id: intakeId, status: 'scanning' },
         data: expect.objectContaining({ status: 'failed', errorCode: 'AI_DISABLED' }),
+      });
+    });
+
+    it('ai.health.summary: disabled makes zero provider calls, records a failed AI_DISABLED version, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.health.summary');
+      expect(handler).toBeDefined();
+      const prisma = app.context.prismaMock as any;
+
+      // Consent on and health data present, so the kill switch is what refuses it.
+      prisma.healthSummarySetting.findUnique.mockResolvedValueOnce({ enabled: true });
+      prisma.healthProfile.findUnique.mockResolvedValueOnce(null);
+      prisma.measurement.findMany.mockResolvedValue([
+        {
+          metricKey: 'weight',
+          value: 80,
+          measuredAt: new Date('2026-09-30T08:00:00Z'),
+          localDate: null,
+          flag: null,
+          referenceLow: null,
+          referenceHigh: null,
+        },
+      ]);
+      prisma.healthSummary.findFirst.mockResolvedValue(null);
+      prisma.healthSummary.create.mockResolvedValue({});
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.health.summary',
+          subjectType: 'health_summary',
+          subjectId: HARNESS_USER,
+          payload: {},
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.healthSummary.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: HARNESS_USER, status: 'failed', errorCode: 'AI_DISABLED', narrative: null }),
       });
     });
 

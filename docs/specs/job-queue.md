@@ -420,6 +420,7 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Daily cron | No (permanently) |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Weekly cron, catalog sync | No (permanently) |
 | `ai.health.lab_report` | `measurements/lab-report/lab-report.handler.ts` | `POST /api/intakes/:id/analyze` (`lab_report`) | No (permanently) |
+| `ai.health.summary` | `health-summary/health-summary.handler.ts` | `health.data.changed` (debounced 2 minutes, while the opt-in is on), `PUT /api/ai/training/health-summary/consent`, `POST /api/ai/training/health-summary/refresh` | No (permanently) |
 | `ai.training.plan.run` | `training-agents/runtime/training-plan-run.handler.ts` | `POST /api/ai/training/runs`, resume, decision | No (permanently) |
 | `ai.training.adapt.run` | `training-adaptation/handlers/adaptation-run.handler.ts` | `POST /api/ai/training/adaptations` | No (permanently) |
 | `training.adaptations.purge` | `training-adaptation/handlers/adaptations-purge.handler.ts` | Daily cron (03:20) | No |

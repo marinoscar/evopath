@@ -16,7 +16,12 @@ import { createNodeContextHarness, HARNESS_FROZEN_MODEL } from '../testing/node-
 import { STUB_AGENT_NODES } from '../testing/stub-agent-nodes';
 import { RunBudgetExceededError } from './run-budget';
 import { TrainingRunFailedError, TrainingSafetyStopError } from './training-run-errors';
-import { TrainingPlanRunHandler, type TrainingRunHandlerOptions } from './training-plan-run.handler';
+import {
+  HEALTH_SUMMARY_PRESENT_ATTRIBUTE,
+  healthSummaryPresent,
+  TrainingPlanRunHandler,
+  type TrainingRunHandlerOptions,
+} from './training-plan-run.handler';
 import { TRAINING_RUN_JOB_TYPE } from './training-runs.constants';
 
 const ROLE_MODELS = JSON.parse(
@@ -434,3 +439,16 @@ async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
 }
+
+describe('healthSummary.present span attribute (H8, #192)', () => {
+  it('is true only when the planner context or the evaluator profile carries the summary; a boolean, never the text', () => {
+    const summary = { narrative: 'SECRET-SUMMARY', trainingConsiderations: [], dataAsOf: null };
+
+    expect(HEALTH_SUMMARY_PRESENT_ATTRIBUTE).toBe('healthSummary.present');
+    expect(healthSummaryPresent({ context: { planner: { healthSummary: summary } } })).toBe(true);
+    expect(healthSummaryPresent({ context: { sent: { profile: { healthSummary: summary } } } })).toBe(true);
+    expect(healthSummaryPresent({ context: { planner: {} } })).toBe(false);
+    expect(healthSummaryPresent({ context: null })).toBe(false);
+    expect(healthSummaryPresent({})).toBe(false);
+  });
+});

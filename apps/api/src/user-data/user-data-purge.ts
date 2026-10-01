@@ -233,6 +233,10 @@ export async function deleteUserOwnedRows(
   });
   counts.measurements = (await tx.measurement.deleteMany({ where: { userId } })).count;
   counts.healthProfiles = (await tx.healthProfile.deleteMany({ where: { userId } })).count;
+  // The AI health summary (H8, #192): every summary version and the consent
+  // (so a reset also turns the opt-in back off). Derived data, not counted.
+  await tx.healthSummary.deleteMany({ where: { userId } });
+  await tx.healthSummarySetting.deleteMany({ where: { userId } });
 
   // AI and secrets.
   counts.aiRuns = (await tx.aiRun.deleteMany({ where: { userId } })).count;

@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 
 import { CHECK_IN_FIELDS, CHECK_IN_METRIC_KEYS } from '../../check-ins/dto/check-in.dto';
 import { addDays, fromDbDate, localDateInZone, toDbDate } from '../../check-ins/local-date';
+import { HealthSummaryReader } from '../../health-summary/health-summary.reader';
 import { ACTIVE } from '../../measurements/measurement-active';
 import { PrismaService } from '../../prisma/prisma.service';
 import { loadProgramRows } from '../../programs/program-mapper';
@@ -33,6 +34,11 @@ import type { LibraryExercise } from './planner-context.contract';
 // custom exercises, with requirement groups), the last 6 weeks of workouts
 // with their sets, the last 7 local days of check-in scores, and for `revise`
 // the program's intake snapshot and live tree.
+//
+// HEALTH (H8, #192): no lab, blood pressure, document or photo row is read
+// here. The only health input is the user's opt-in AI health summary TEXT,
+// through `HealthSummaryReader.forTraining` (consent on and a ready summary,
+// else `null`). A loader built without the reader (tests, tools) reads none.
 // =============================================================================
 
 export const TRAINING_CONTEXT_REASONS = {
@@ -50,7 +56,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class PlannerContextLoader implements PlannerContextPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly healthSummaries?: HealthSummaryReader,
+  ) {}
 
   async load(userId: string, request: Record<string, unknown>, now: Date): Promise<PlannerContextSource> {
     const kind = request.kind === 'revise' ? 'revise' : 'create';
@@ -84,7 +93,7 @@ export class PlannerContextLoader implements PlannerContextPort {
       };
     }
 
-    const [profile, weights, latestWeight, bodyFat, gym, library, workouts] = await Promise.all([
+    const [profile, weights, latestWeight, bodyFat, gym, library, workouts, healthSummary] = await Promise.all([
       this.prisma.healthProfile.findUnique({
         where: { userId },
         select: { dateOfBirth: true, sexAtBirth: true, heightMm: true, unitSystem: true, timeZone: true, bio: true },
@@ -124,6 +133,7 @@ export class PlannerContextLoader implements PlannerContextPort {
           },
         },
       }),
+      this.healthSummaries ? this.healthSummaries.forTraining(userId) : Promise.resolve(null),
     ]);
 
     const today = localDateInZone(now, profile?.timeZone ?? null);
@@ -176,6 +186,7 @@ export class PlannerContextLoader implements PlannerContextPort {
         })),
       })),
       checkIns: groupCheckIns(checkInRows),
+      ...(healthSummary ? { healthSummary } : {}),
     };
   }
 

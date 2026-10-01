@@ -1,8 +1,9 @@
 import { isAvailable } from '../../exercises/exercise-availability.service';
 import { buildResearcherContext, type EquipmentClass } from '../agents/researcher/researcher-context';
 import type { TrainingIntake } from '../contracts/training-intake.contract';
+import type { TrainingHealthSummary } from '../../health-summary/health-summary.reader';
 import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
-import { conservativeModeOf, type ReadinessAverages } from '../guardrails/safety-screen';
+import { conservativeModeOf, screenFreeText, type ReadinessAverages } from '../guardrails/safety-screen';
 import { implementOfEquipment } from './implement';
 import type {
   CandidateExercise,
@@ -85,6 +86,32 @@ export interface PlannerContextSource {
   workouts: SourceWorkout[];
   /** Check-ins of the last 7 local days. */
   checkIns: Array<{ date: string; energy: number | null; sleepQuality: number | null; soreness: number | null; stress: number | null }>;
+  /**
+   * The opt-in AI health summary (H8, #192), `null` (or absent) unless the
+   * user opted in and a ready summary exists. Read through
+   * `HealthSummaryReader.forTraining`, never from a measurement.
+   */
+  healthSummary?: TrainingHealthSummary | null;
+}
+
+/** Every text of a health summary, for the safety screens. */
+export function healthSummaryTexts(summary: TrainingHealthSummary | null | undefined): string[] {
+  return summary ? [summary.narrative, ...summary.trainingConsiderations.map((c) => c.text)] : [];
+}
+
+/**
+ * The summary a run may send: `null` when there is none or when its text
+ * names an urgent symptom (the pre-run screen already stopped such a run;
+ * this is the second line for a summary written in between).
+ */
+export function sendableHealthSummary(summary: TrainingHealthSummary | null | undefined): TrainingHealthSummary | null {
+  if (!summary) return null;
+  if (screenFreeText(healthSummaryTexts(summary)).level === 'blocked') return null;
+  return {
+    narrative: summary.narrative,
+    trainingConsiderations: summary.trainingConsiderations.map((c) => ({ text: c.text, severity: c.severity, conservative: c.conservative })),
+    dataAsOf: summary.dataAsOf,
+  };
 }
 
 // ---- relevance ----------------------------------------------------------------
@@ -356,10 +383,12 @@ export function buildTrainingRunContext(source: PlannerContextSource): TrainingR
   const history = summarizeHistory(source, libraryById);
   const readiness = averages(source.checkIns);
   const instruction = source.kind === 'revise' ? (source.revise?.instruction ?? null) : null;
+  const healthSummary = sendableHealthSummary(source.healthSummary);
   const mode = conservativeModeOf({
     texts: [intake.goal.description, ...intake.limitations.map((l) => l.description), intake.preferences, instruction],
     limitationCount: intake.limitations.length,
     readiness: readiness.days > 0 ? readiness : null,
+    healthSummaryConservative: healthSummary?.trainingConsiderations.some((c) => c.conservative) ?? false,
   });
 
   const ageYears = ageInYears(source.profile?.dateOfBirth ?? null, now);
@@ -425,6 +454,8 @@ export function buildTrainingRunContext(source: PlannerContextSource): TrainingR
       days: readiness.days,
     };
   }
+
+  if (healthSummary) planner.healthSummary = healthSummary;
 
   if (intake.includeBio && source.profile?.bio) {
     const bio = clip(source.profile.bio, CONTEXT_LIMITS.bioChars);
