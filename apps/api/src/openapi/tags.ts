@@ -303,6 +303,21 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'pre-run token estimate against your per-run cap (tokens only, never a price). ' +
           'Requires `ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled.',
       },
+      {
+        name: 'AI Coach',
+        description:
+          'The AI Coach as a signed-in user: the persona gallery with its static sample lines, and your ' +
+          'coach settings with the profanity unlock and the other deployment rules applied server-side. ' +
+          'Requires `ai:use` and answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled. ' +
+          'Coach refusals carry the coach code in `details.code`.',
+      },
+      {
+        name: 'AI Coach Administration',
+        description:
+          'The deployment-wide coach policy: the coach switch, the profane-persona unlock, spoken messages, ' +
+          'the daily nudge ceiling, audio retention, auto-silence and the inactivity stop. Gated on ' +
+          '`ai_config:read`/`ai_config:write` and reachable while AI is disabled.',
+      },
     ],
   },
   {

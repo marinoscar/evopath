@@ -78,7 +78,7 @@ Every API request passes through the same stages, in this order:
 | 1 | nginx | `infra/nginx/nginx.conf` | Adds security headers, routes `/api` to the API. `/api/notifications/stream`, `/api/ai/responses/stream` and `/api/ai/training/stream` are unbuffered for SSE. |
 | 2 | Request ID | `apps/api/src/common/middleware/request-id.middleware.ts` | Assigns a request ID and captures trace context for log correlation. |
 | 3 | Maintenance gate | `apps/api/src/common/maintenance/maintenance.guard.ts` | The application's only global guard (`APP_GUARD`). Answers `503` while a maintenance window is open, except on routes marked `@AllowDuringMaintenance()`. |
-| 4 | Feature gate | `apps/api/src/ai/…` (`AiEnabledGuard`) | Controller-level, on `/api/ai/*` consumer controllers only. Answers `403 AI_DISABLED` while AI is switched off. |
+| 4 | Feature gate | `apps/api/src/ai/…` (`AiEnabledGuard`) | Controller-level, on `/api/ai/*` and `/api/coach/*` consumer controllers only. Answers `403 AI_DISABLED` while AI is switched off. |
 | 5 | Authentication | `apps/api/src/auth/guards/jwt-auth.guard.ts` | Applied by `@Auth()`. Accepts a session JWT, a `pat_` personal access token, or a `nod_` node credential (confined to `/api/nodes/*`). Rejects deactivated users. Skipped on routes marked `@Public()`. |
 | 6 | Roles | `apps/api/src/auth/guards/roles.guard.ts` | Applied by `@Auth({ roles })`. The caller needs any one listed role. |
 | 7 | Permissions | `apps/api/src/auth/guards/permissions.guard.ts` | Applied by `@Auth({ permissions })`. The caller needs all listed permissions. |
@@ -436,6 +436,14 @@ A one-time welcome dialog leads into a short checklist: a Setup guide for admini
 - **Permissions:** `user_settings:read` (the endpoint); the `admin` block, the Setup guide and the metrics endpoint need `system_settings:read`; `GET /api/storage/status` needs `storage:read`
 - **Read more:** [specs/onboarding.md](specs/onboarding.md)
 
+### 5.30 AI Coach
+
+The AI Coach (`apps/api/src/coach/`, module `CoachModule`) is an accountability coach with a chosen persona. Seven personas live in an in-code registry (`coach/personas/`), each with a style card, an intensity rubric for levels 1 to 3, a default voice and static sample lines for every moment; `GET /api/coach/personas` serves it. `resolveRegister` (`coach/personas/resolve-register.ts`) is the single answer to whether profanity is allowed: only Sarge at level 3, with the deployment's `allowProfanePersonas`, an adult user (a health-profile date of birth under 18 always refuses) and the user's opt-in. Every coach-written string passes the pure content guard `coach/guard/coach-content-guard.ts`, whose lists live in code. `GET/PUT /api/coach/settings` reads and writes the `coach` user-settings namespace with the unlock rules applied; `GET/PUT /api/admin/coach/settings` reads and writes the `coach` system setting.
+
+- **Code:** `apps/api/src/coach/`
+- **Permissions:** `ai:use` behind `AiEnabledGuard` (`/api/coach/*`); `ai_config:read`/`ai_config:write`, not behind it (`/api/admin/coach/*`)
+- **Read more:** [specs/ai-coach.md](specs/ai-coach.md)
+
 ---
 
 ## 6. Data architecture
@@ -588,9 +596,9 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `push:write` | ✓ | | | Generate, rotate, enable, remove VAPID keys |
 | `storage_config:read` | ✓ | | | View object-storage configuration |
 | `storage_config:write` | ✓ | | | Change storage configuration, test it, create the bucket |
-| `ai_config:read` | ✓ | | | View AI configuration, model catalog, model assignments, usage report |
-| `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models, model assignments; refresh the catalog |
-| `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
+| `ai_config:read` | ✓ | | | View AI configuration, model catalog, model assignments, usage report, the coach policy (`GET /api/admin/coach/settings`) |
+| `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models, model assignments, the coach policy (`PUT /api/admin/coach/settings`); refresh the catalog |
+| `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`); use the AI Coach (`/api/coach/*`) |
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
