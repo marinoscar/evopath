@@ -19,6 +19,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
       src/commands/           # init, login, api, config, deploy, node
       src/tui/                # interactive ink menu (real terminals only)
     stack-agent/              # VPS-only sidecar: holds the Docker socket, starts the telemetry stack
+    android/                  # Android app: TWA shell + Health Connect sync (Kotlin); built by .github/workflows/android.yml
   packages/shared/            # product identity (identity.json) shared by api, web, cli
   docs/
     specs/                    # feature design and rationale
@@ -71,6 +72,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: health records (documents, retention, blood work, export, AI health summary) | [docs/specs/health-records.md](docs/specs/health-records.md) |
 | Spec: gyms and equipment (catalog, default gym, provenance, AI Scan Gym, GPS location) | [docs/specs/gyms-and-equipment.md](docs/specs/gyms-and-equipment.md) |
 | Spec: exercise library and workout logging (set model, PRs, training summary, AI Prefill from photo) | [docs/specs/workouts.md](docs/specs/workouts.md) |
+| Spec: Android Health Connect sync (pairing, data mapping, reconciliation, assetlinks, diagnostics) | [docs/specs/health-connect-sync.md](docs/specs/health-connect-sync.md) |
 | Spec: training signals and adherence | [docs/specs/training-signals.md](docs/specs/training-signals.md) |
 | Spec: activity goals (weekly goals, check-ins, workout credit, precedence) | [docs/specs/activity-goals.md](docs/specs/activity-goals.md) |
 | Spec: background job queue | [docs/specs/job-queue.md](docs/specs/job-queue.md) |
@@ -89,6 +91,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
 | Runbook: AI training plans (web search, agent models, fake provider, troubleshooting) | [docs/runbooks/ai-training-plans.md](docs/runbooks/ai-training-plans.md) |
 | Runbook: AI Coach (enable, models, adult-language and audio policy, caps, weekly email, engagement stats, cost, troubleshooting) | [docs/runbooks/ai-coach.md](docs/runbooks/ai-coach.md) |
+| Runbook: Android app (keystore, GitHub secrets, `android-latest`, install, trust, pair, source apps, self-test troubleshooting) | [docs/runbooks/android-app.md](docs/runbooks/android-app.md) |
 | Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
 | Runbook: factory reset a deployment (backup first, verify, recover) | [docs/runbooks/factory-reset.md](docs/runbooks/factory-reset.md) |
 | `evopathcli` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
@@ -213,7 +216,7 @@ Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secr
 
 Each is enforced by tests and explained in the linked doc. Read it before touching the area.
 
-- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx`, `gyms_user_default_uniq_idx` (one default gym per user) and `workouts_user_in_progress_uniq_idx` (one in-progress workout per user), `training_plan_runs_active_per_user_uniq_idx` (one active training run per user; excludes kind `adapt`), `programs_one_active_per_user_uniq_idx` (one active program per user), `workout_adaptations_active_per_user_uniq_idx` (one queued or running quick adaptation per user), `activity_entries_provider_external_uniq_idx` (one entry per user, provider and external id) and `activity_entries_workout_kind_uniq_idx` (one derived entry per workout and kind) exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md), [database-backup.md](docs/specs/database-backup.md), [gyms-and-equipment.md](docs/specs/gyms-and-equipment.md), [workouts.md](docs/specs/workouts.md) and [activity-goals.md](docs/specs/activity-goals.md).
+- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx`, `gyms_user_default_uniq_idx` (one default gym per user) and `workouts_user_in_progress_uniq_idx` (one in-progress workout per user), `training_plan_runs_active_per_user_uniq_idx` (one active training run per user; excludes kind `adapt`), `programs_one_active_per_user_uniq_idx` (one active program per user), `workout_adaptations_active_per_user_uniq_idx` (one queued or running quick adaptation per user), `activity_entries_provider_external_uniq_idx` (one entry per user, provider and external id), `activity_entries_workout_kind_uniq_idx` (one derived entry per workout and kind), `measurements_provider_external_uniq_idx` (one device reading per user, external provider and external id) and `sleep_sessions_provider_external_uniq_idx` (one device sleep session per user, provider and external id) exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md), [database-backup.md](docs/specs/database-backup.md), [gyms-and-equipment.md](docs/specs/gyms-and-equipment.md), [workouts.md](docs/specs/workouts.md), [activity-goals.md](docs/specs/activity-goals.md) and [health-connect-sync.md](docs/specs/health-connect-sync.md).
 - **A backup archive is never buffered.** `pg_dump` streams straight into object storage, and both the upload and the dump's exit code are awaited. See [database-backup.md](docs/specs/database-backup.md).
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).
