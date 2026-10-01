@@ -94,7 +94,13 @@ export function HealthDocumentEditDialog({
   };
 
   return (
-    <Dialog open={doc !== null} onClose={saving ? undefined : onClose} fullWidth maxWidth="xs" aria-labelledby={titleId}>
+    <Dialog
+      open={doc !== null}
+      onClose={saving ? undefined : onClose}
+      fullWidth
+      maxWidth="xs"
+      aria-labelledby={titleId}
+    >
       <form onSubmit={(event) => void handleSubmit(event)} noValidate>
         <DialogTitle id={titleId}>Rename or set date</DialogTitle>
         <DialogContent>

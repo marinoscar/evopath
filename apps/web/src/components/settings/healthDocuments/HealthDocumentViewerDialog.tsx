@@ -36,7 +36,10 @@ export interface HealthDocumentViewerDialogProps {
   onClose: () => void;
 }
 
-export function HealthDocumentViewerDialog({ document: doc, onClose }: HealthDocumentViewerDialogProps) {
+export function HealthDocumentViewerDialog({
+  document: doc,
+  onClose,
+}: HealthDocumentViewerDialogProps) {
   const titleId = useId();
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
@@ -57,7 +60,7 @@ export function HealthDocumentViewerDialog({ document: doc, onClose }: HealthDoc
       },
       (err: unknown) => {
         if (!cancelled) setError(downloadErrorMessage(err));
-      },
+      }
     );
     return () => {
       cancelled = true;
@@ -96,9 +99,7 @@ export function HealthDocumentViewerDialog({ document: doc, onClose }: HealthDoc
       />
     );
   } else {
-    body = (
-      <Alert severity="info">This file can&apos;t be shown here. Open it in a new tab.</Alert>
-    );
+    body = <Alert severity="info">This file can&apos;t be shown here. Open it in a new tab.</Alert>;
   }
 
   return (

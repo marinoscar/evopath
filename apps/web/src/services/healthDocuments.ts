@@ -99,7 +99,9 @@ export interface HealthDocumentDeleteResult {
 }
 
 /** `GET /api/health/documents` (`health_data:read`). */
-export function listHealthDocuments(params: ListHealthDocumentsParams = {}): Promise<HealthDocumentList> {
+export function listHealthDocuments(
+  params: ListHealthDocumentsParams = {}
+): Promise<HealthDocumentList> {
   const search = new URLSearchParams();
   if (params.kind) search.set('kind', params.kind);
   if (params.sort) search.set('sort', params.sort);
@@ -113,10 +115,10 @@ export function listHealthDocuments(params: ListHealthDocumentsParams = {}): Pro
 /** `GET /api/health/documents/:id/download` (`health_data:read`): a URL valid 300 seconds. */
 export function getHealthDocumentDownload(
   id: string,
-  disposition: HealthDocumentDisposition,
+  disposition: HealthDocumentDisposition
 ): Promise<HealthDocumentDownload> {
   return api.get<HealthDocumentDownload>(
-    `/health/documents/${encodeURIComponent(id)}/download?disposition=${disposition}`,
+    `/health/documents/${encodeURIComponent(id)}/download?disposition=${disposition}`
   );
 }
 
@@ -124,7 +126,7 @@ export function getHealthDocumentDownload(
 export function updateHealthDocument(
   id: string,
   input: HealthDocumentUpdate,
-  expectedVersion: number,
+  expectedVersion: number
 ): Promise<HealthDocument> {
   return api.patch<HealthDocument>(`/health/documents/${encodeURIComponent(id)}`, input, {
     headers: { 'If-Match': String(expectedVersion) },
@@ -134,11 +136,11 @@ export function updateHealthDocument(
 /** `DELETE /api/health/documents/:id?deleteValues=` (`health_data:write`), `If-Match: <version>`. */
 export function deleteHealthDocument(
   id: string,
-  options: { deleteValues: boolean; expectedVersion: number },
+  options: { deleteValues: boolean; expectedVersion: number }
 ): Promise<HealthDocumentDeleteResult> {
   return api.delete<HealthDocumentDeleteResult>(
     `/health/documents/${encodeURIComponent(id)}?deleteValues=${options.deleteValues ? 'true' : 'false'}`,
-    { headers: { 'If-Match': String(options.expectedVersion) } },
+    { headers: { 'If-Match': String(options.expectedVersion) } }
   );
 }
 
@@ -157,7 +159,8 @@ export function downloadErrorMessage(error: unknown): string {
     const reason = (error.details as { reason?: unknown } | undefined)?.reason;
     if (reason === 'HEALTH_DOCUMENT_FILE_DELETED') return 'This file has been deleted.';
     if (reason === 'HEALTH_DOCUMENT_FILE_DELETION_PENDING') return 'This file is being deleted.';
-    if (reason === 'HEALTH_DOCUMENT_FILE_NOT_READY') return 'This file is not available yet. Try again later.';
+    if (reason === 'HEALTH_DOCUMENT_FILE_NOT_READY')
+      return 'This file is not available yet. Try again later.';
     if (error.status === 404) return 'This document no longer exists.';
   }
   return 'Could not open the file. Try again later.';

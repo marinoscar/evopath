@@ -34,7 +34,9 @@ import {
 export const TABLE_ID = 'settings-health-documents';
 
 /** Only these two columns sort; anything else maps to the API default. */
-export function asHealthDocumentSortField(field: string | undefined): HealthDocumentSortField | undefined {
+export function asHealthDocumentSortField(
+  field: string | undefined
+): HealthDocumentSortField | undefined {
   return field === 'createdAt' || field === 'documentDate' ? field : undefined;
 }
 

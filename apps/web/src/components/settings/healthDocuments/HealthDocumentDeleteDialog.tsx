@@ -98,7 +98,9 @@ export function HealthDocumentDeleteDialog({
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
     >
-      <DialogTitle id={titleId}>{fileExists ? 'Delete this file?' : 'Remove this record?'}</DialogTitle>
+      <DialogTitle id={titleId}>
+        {fileExists ? 'Delete this file?' : 'Remove this record?'}
+      </DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
           {error && <Alert severity="error">{error}</Alert>}
@@ -124,7 +126,12 @@ export function HealthDocumentDeleteDialog({
         <Button onClick={onClose} disabled={deleting}>
           Cancel
         </Button>
-        <Button color="error" variant="contained" onClick={() => void handleDelete()} disabled={deleting}>
+        <Button
+          color="error"
+          variant="contained"
+          onClick={() => void handleDelete()}
+          disabled={deleting}
+        >
           {deleting ? 'Deleting…' : 'Delete'}
         </Button>
       </DialogActions>
