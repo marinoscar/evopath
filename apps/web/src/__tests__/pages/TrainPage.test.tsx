@@ -182,4 +182,16 @@ describe('TrainPage', () => {
     await screen.findByText(HISTORY_EMPTY_TITLE);
     expect(screen.getByRole('link', { name: 'Your gyms' })).toHaveAttribute('href', '/gyms');
   });
+
+  it('hides the Goals link without goals:read (#268)', async () => {
+    renderPage();
+    await screen.findByText(HISTORY_EMPTY_TITLE);
+    expect(screen.queryByRole('link', { name: 'Goals' })).toBeNull();
+  });
+
+  it('shows the Goals link with goals:read (#268)', async () => {
+    renderPage({ permissions: [...mockUser.permissions, 'goals:read'] });
+    await screen.findByText(HISTORY_EMPTY_TITLE);
+    expect(screen.getByRole('link', { name: 'Goals' })).toHaveAttribute('href', '/train/goals');
+  });
 });

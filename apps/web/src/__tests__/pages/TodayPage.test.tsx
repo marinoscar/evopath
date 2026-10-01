@@ -192,4 +192,23 @@ describe('TodayPage', () => {
       expect(hero.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
   });
+
+  /** #268: the appended Goals card, gated on `goals:read`. */
+  describe('goals (#268)', () => {
+    it('hides the Goals card without goals:read', () => {
+      render(<TodayPage />);
+      expect(screen.queryByRole('region', { name: 'Goals' })).toBeNull();
+    });
+
+    it('appends the Goals card last with goals:read, with "Set a goal" and Open Goals', async () => {
+      render(<TodayPage />, {
+        wrapperOptions: { user: { ...mockUser, permissions: [...mockUser.permissions, 'goals:read', 'goals:write'] } },
+      });
+      const regions = screen.getAllByRole('region').filter((r) => r.querySelector('h2'));
+      expect(regions.map((r) => r.querySelector('h2')?.textContent)).toEqual([...CARDS.map((c) => c.title), 'Goals']);
+      const goals = screen.getByRole('region', { name: 'Goals' });
+      expect(await within(goals).findByRole('link', { name: 'Set a goal' })).toHaveAttribute('href', '/train/goals');
+      expect(within(goals).getByRole('link', { name: 'Open Goals' })).toHaveAttribute('href', '/train/goals');
+    });
+  });
 });
