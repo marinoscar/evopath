@@ -62,6 +62,12 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
         value: 'node',
       },
       {
+        key: 'android',
+        // Read-only toolchain check; build/publish stay subcommands.
+        label: 'Android app  (toolchain check)',
+        value: 'android',
+      },
+      {
         key: 'deploy',
         // Not gated on being logged in: deploying acts on THIS SERVER, not on
         // the API, so a stored token is irrelevant to it.

@@ -16,7 +16,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
     api/                      # NestJS API: src/, test/, prisma/ (schema.prisma, migrations/, seed), Dockerfile
     web/                      # React app: src/, src/__tests__/, Dockerfile
     cli/                      # `evopathcli` first-party CLI
-      src/commands/           # init, login, api, config, deploy, node
+      src/commands/           # init, login, api, config, deploy, node, android
       src/tui/                # interactive ink menu (real terminals only)
     stack-agent/              # VPS-only sidecar: holds the Docker socket, starts the telemetry stack
     android/                  # Android app: TWA shell + Health Connect sync (Kotlin); built by .github/workflows/android.yml

@@ -17,7 +17,7 @@ covers — they're what you'd script or run in CI.
 
 ## What evopathcli does
 
-Four jobs, one binary. Each is also reachable from the full-screen menu.
+Five jobs, one binary. Each is also reachable from the full-screen menu.
 
 **Create a local environment.** From a clone of the repository, `init` writes
 `infra/compose/.env` from the checkout's own `.env.example` and generates
@@ -52,6 +52,14 @@ then claims and runs jobs from the application's queue.
 ```bash
 evopathcli node enroll && evopathcli node register
 evopathcli node start
+```
+
+**Build and publish the Android app.** `android` checks the toolchain, signs
+with a keystore kept outside the checkout, and uploads the APK to your server.
+
+```bash
+evopathcli android doctor --fix
+evopathcli android release --bump patch --notes "Faster sync"
 ```
 
 In a real terminal, `evopathcli` with no arguments opens the menu. **Worker node
@@ -1154,6 +1162,40 @@ worker synthesises its settings from the environment and starts. If it cannot
 write the file back (a read-only container home is common), it warns and keeps
 going — set `EVOPATHCLI_NODE_ID` so a restart re-attaches instead of registering
 again.
+
+## Building and publishing the Android app
+
+`evopathcli android` builds the sideloaded Android app in `apps/android`, signs
+it with your release keystore, and publishes the APK to the server, where users
+download it from **Settings → Android app**. Run it from anywhere inside the
+repository (it walks up to the directory holding `apps/android`).
+
+| Command | What it does |
+|---|---|
+| `android doctor [--fix] [--json]` | Checks JDK 17+, the Android SDK (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `~/.evopathcli/android-sdk`, then Android Studio's default), cmdline-tools, `platforms;android-36`, `build-tools;36.0.0`, accepted licences, `apps/android/gradlew`, `version.properties`, the keystore and its SHA-256. Prints ✓/⚠/✗ rows with a fix each; exits 6 if any check fails. `--fix` downloads Google's cmdline-tools zip into the SDK directory (`~/.evopathcli/android-sdk` unless `ANDROID_HOME` names one), accepts the licences and installs platform-tools, the platform and build-tools. The JDK is never installed for you; doctor prints the OS-specific command. |
+| `android keystore init [--alias a] [--dname dn]` | Creates `~/.evopathcli/android/release.jks` (RSA 4096, valid 100 years). The password comes from `ANDROID_KEYSTORE_PASSWORD`, a prompt, or is generated. Refuses to replace an existing keystore. |
+| `android keystore import <file> [--alias a]` | Copies an existing keystore in. Passwords come from `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD` (key password defaults to the store password) or a prompt, and are verified with keytool before anything is saved. |
+| `android keystore show` | Prints the keystore path, alias and certificate SHA-256. Never prints passwords. |
+| `android keystore secrets` | Prints the four GitHub Actions secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) on stdout, **including the passwords**, with a warning on stderr. |
+| `android version [--bump patch\|minor\|major] [--set x.y.z] [--code n] [--json]` | Shows or edits `apps/android/version.properties`. Every bump or set increments `versionCode` by one, or sets `--code` (which must increase: Android refuses downgrades). A missing file is created at `0.1.0` / `1`. |
+| `android build [--server-url URL] [--debug]` | Runs `gradlew assembleRelease` (`gradlew.bat` on Windows) with the signing environment from your keystore and `-Pevopath.versionName/versionCode` from `version.properties`, verifies the signature with `apksigner` when present, and writes `dist/android/<app>-android-<versionName>.apk` plus a `.json` with `packageName`, `versionName`, `versionCode`, `signingSha256`, `fileSha256`, `sizeBytes`, `builtAt` and `gitSha`. `--debug` builds the debug-signed variant (`-debug.apk`). |
+| `android publish [apk] [--notes text] [--no-current] [--force]` | Uploads the APK (default: the one for the current `versionName`) and its metadata to `POST /api/admin/android-app/releases` with your logged-in credential (needs `system_settings:write`). `--no-current` uploads without making it the current release; `--force` makes it current even when its `versionCode` is not newer. A duplicate or not-newer `versionCode` answers with a pointer to `android version --bump patch`. |
+| `android releases [--json]` | Lists the server's releases, newest first; `*` marks the current one. |
+| `android releases current <id>` | Makes a release current (rollback is allowed). |
+| `android release [--bump patch] [--notes text] [--server-url URL] [--no-commit]` | Bumps the version, builds, publishes, then commits `apps/android/version.properties` alone as `chore(android): release <versionName> (<versionCode>)`. Skips the commit with `--no-commit` or outside a git repository. If the build or the upload fails nothing is committed, and the CLI tells you the version was bumped locally. |
+
+The keystore and `signing.json` (its passwords, mode 600) live in
+`~/.evopathcli/android/`, outside every checkout. Back both up: losing the
+keystore means installed copies can never be updated.
+
+Advanced environment variables:
+
+| Variable | Effect |
+|---|---|
+| `EVOPATHCLI_REPO_ROOT` | Repository root to use instead of searching upward for `apps/android`. |
+| `EVOPATHCLI_GRADLE_ARGS` | Extra arguments appended to every Gradle run, for example `-I /path/mirror.init.gradle.kts` or `--offline`. Quotes group arguments containing spaces. |
+
+The menu's **Android app** entry runs the same doctor checks read-only.
 
 ## CI usage
 

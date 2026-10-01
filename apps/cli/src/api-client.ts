@@ -58,6 +58,13 @@ export interface RequestOptions {
   query?: Record<string, QueryValue> | undefined;
   /** Serialised as JSON. Use `undefined` for no body — `null` sends `null`. */
   body?: unknown;
+  /**
+   * A multipart body, sent as-is (#286: `android publish` uploads an APK).
+   * Mutually exclusive with `body`. No Content-Type is set here: fetch writes
+   * `multipart/form-data; boundary=…` itself, and a hand-set one would lack
+   * the boundary. A `Blob` from `fs.openAsBlob` streams from disk.
+   */
+  formData?: FormData | undefined;
   /** Extra headers. Cannot remove Authorization; see `buildHeaders`. */
   headers?: Record<string, string> | undefined;
   /** Caller's cancellation, combined with the timeout. */
@@ -176,12 +183,19 @@ export class ApiClient {
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     const upperMethod = method.toUpperCase();
 
+    if (options.formData !== undefined && options.body !== undefined) {
+      throw new UsageError(`Request for ${upperMethod} ${path} has both a JSON body and form data.`);
+    }
     const hasBody = options.body !== undefined;
     const init: RequestInit = {
       method: upperMethod,
       headers: this.buildHeaders(hasBody, options.headers),
       signal: withTimeout(options.signal, timeoutMs),
     };
+
+    if (options.formData !== undefined) {
+      init.body = options.formData;
+    }
 
     if (hasBody) {
       // JSON.stringify can throw on a circular structure or a BigInt. That is
