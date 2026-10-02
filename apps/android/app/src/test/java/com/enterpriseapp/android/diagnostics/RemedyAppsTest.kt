@@ -72,13 +72,29 @@ class RemedyAppsTest {
         assertEquals(listOf(RemedyApp(samsung, "Samsung Health", RemedyApp.WROTE_DATA)), apps)
     }
 
-    @Test fun `capable apps already feeding other types come after installed ones`() {
-        // Garmin feeds sleep but the PackageManager could not see it; Oura is installed.
-        val apps = select(HcDataType.HRV, installed = setOf(oura), feeding = setOf(garmin, samsung))
+    @Test fun `a capable app already feeding other types outranks an installed one feeding nothing`() {
+        // Table order is Oura before Garmin; Garmin feeds sleep, Oura feeds nothing.
+        val apps = select(HcDataType.HRV, installed = setOf(oura, garmin), feeding = setOf(garmin, samsung))
         assertEquals(
-            listOf(RemedyApp(oura, "Oura", RemedyApp.INSTALLED_CAPABLE), RemedyApp(garmin, "Garmin Connect", RemedyApp.INSTALLED_CAPABLE)),
+            listOf(RemedyApp(garmin, "Garmin Connect", RemedyApp.INSTALLED_CAPABLE), RemedyApp(oura, "Oura", RemedyApp.INSTALLED_CAPABLE)),
             apps,
         )
+    }
+
+    @Test fun `order is wrote this type, then capable feeding apps, then capable installed apps`() {
+        val apps = select(
+            HcDataType.STEPS,
+            evidence = listOf(SourceEvidence(fit, "Google Fit")),
+            installed = setOf(samsung, oura, fit),
+            feeding = setOf(fit, oura),
+        )
+        assertEquals(listOf(fit, oura, samsung), apps.map { it.packageName })
+        assertEquals(RemedyApp.WROTE_DATA, apps.first().reason)
+    }
+
+    @Test fun `a feeding app the PackageManager cannot see is still a candidate`() {
+        val apps = select(HcDataType.HRV, installed = setOf(oura), feeding = setOf(garmin))
+        assertEquals(listOf(garmin, oura), apps.map { it.packageName })
     }
 
     @Test fun `Health Connect itself is never a candidate and duplicates collapse`() {

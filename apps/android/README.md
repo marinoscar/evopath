@@ -191,9 +191,9 @@ Connected devices page…). Verdicts are pure functions in `diagnostics/Checks.k
 
 **Source-aware remedies.** Health Connect offers no API to ask which apps may write a type, so
 `diagnostics/RemedyApps.select` (pure) derives the candidates for each type: apps that wrote it
-(the inventory's data origins), then installed apps whose entry in the capability table
-`healthconnect/KnownSourceApps.kt` includes it (installed = visible to the PackageManager through
-the manifest `<queries>`), then capable apps already feeding Health Connect other types. The
+(the inventory's data origins), then apps already feeding Health Connect other types whose entry
+in the capability table `healthconnect/KnownSourceApps.kt` includes it, then other installed
+capable apps (installed = visible to the PackageManager through the manifest `<queries>`). The
 no-records remedy names up to three ("Open Oura and allow Heart rate variability to be shared to
 Health Connect: Health Connect → App permissions → Oura → Allowed to write → Heart rate
 variability. Then Sync now."); with none it says no app on the phone writes the type and its

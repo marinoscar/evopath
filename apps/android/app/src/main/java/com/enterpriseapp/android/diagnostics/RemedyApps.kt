@@ -36,9 +36,11 @@ object RemedyApps {
     /**
      * Candidates for [typeKey], in order and without duplicates:
      * 1. apps with [evidence] for this type (they wrote it, so they are the surest answer);
-     * 2. [installed] apps whose [known] capabilities include the type (table order);
-     * 3. apps already [feeding] Health Connect other types whose capabilities include it (an app
-     *    that writes data is installed even when the PackageManager could not see it).
+     * 2. apps already [feeding] Health Connect other types whose [known] capabilities include it
+     *    (the user has connected them, so they are the likeliest; an app that writes data is
+     *    installed even when the PackageManager could not see it);
+     * 3. other [installed] apps whose capabilities include the type.
+     * Within groups 2 and 3, table order.
      */
     fun select(
         typeKey: String,
@@ -54,10 +56,10 @@ object RemedyApps {
             result[e.packageName] = RemedyApp(e.packageName, label(e.packageName, e.appLabel, byPackage), RemedyApp.WROTE_DATA)
         }
         val capable = known.filter { typeKey in it.writes && it.packageName !in HEALTH_CONNECT_PACKAGES }
-        capable.filter { it.packageName in installed }.forEach { app ->
+        capable.filter { it.packageName in feeding }.forEach { app ->
             result.putIfAbsent(app.packageName, RemedyApp(app.packageName, app.label, RemedyApp.INSTALLED_CAPABLE))
         }
-        capable.filter { it.packageName in feeding }.forEach { app ->
+        capable.filter { it.packageName in installed }.forEach { app ->
             result.putIfAbsent(app.packageName, RemedyApp(app.packageName, app.label, RemedyApp.INSTALLED_CAPABLE))
         }
         return result.values.toList()
