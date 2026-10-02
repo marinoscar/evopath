@@ -731,6 +731,32 @@ rendering of its report (status, summary, finding titles, root cause,
 recommendations, first query), bounded to `ASSISTANT_HISTORY_ANSWER_MAX`
 (6,000) characters.
 
+**Copy and download.** The panel can hand a conversation to a person or to
+another AI agent. It is client-side only: no route, permission or audit row
+is added, and nothing leaves the browser except through the clipboard or a
+file save. `components/telemetry/assistantExport.ts` holds the pure
+functions; `AssistantPanel.tsx` wires them to the buttons.
+
+- **Per-reply Copy** (`replyToMarkdown`): the Markdown of that reply's answer
+  only, with no investigation steps. The answer is the report (status,
+  summary, findings, root cause, recommendations, supporting queries), the
+  legacy `explanation` plus `sql`, or the error. It appears once a reply has
+  finished with an answer or an error.
+- **Copy conversation** and **Download** (`conversationToMarkdown`) in the
+  panel header: every question, each reply's investigation steps (tool,
+  input table/window/group/trace id/SQL, `rowCount`, error, and the step's
+  `thought`) and its answer. Download saves a `.md` file named
+  `telemetry-assistant-<timestamp>.md` (`assistantExportFilename`). Query
+  result rows are never part of the export, because the panel does not hold
+  them.
+- The export is plain text. Model and tool text is untrusted, so every
+  fenced block uses a fence longer than any backtick run inside it and
+  content cannot close the fence early.
+- The header actions are hidden while the conversation is empty and disabled
+  while a reply is streaming. They are icon buttons at `xs` and text buttons
+  from `sm`. "Copied" and "Copy failed" are announced through an `aria-live`
+  status region.
+
 **Untrusted tool output.** Telemetry rows are attacker-reachable (a log
 body, an HTTP route, a user agent; for the metric tools an uptime error
 message, a URL, a node name). The assistant's system prompt tells the
@@ -2320,3 +2346,4 @@ unknown-route request with a bearer.
   `largestTables` returns up to 500 rows so the dashboard can show every
   table (§11.14).
 - #258: unknown API routes and client errors (§11.15) — an `onRequest` hook writes `http.route`, `app.route.matched=false` and the `app.request.bearer` presence flag on the server span; the summary's "Unknown API routes" tile and `unknownRoutes` block; a verdict rule that degrades on any unknown-route request with a bearer (critical at 20 requests or 3 routes) and never on anonymous ones; `clientErrors`/`unknownRequests`/`unknown` on problem routes, now ordered 5xx, then 4xx except 401, then p95; `httpStatuses`, `unknownRoutes` and `unknownRoutePaths` in the assistant's `health_overview`.
+- #302: copy and download of the assistant conversation (§6) — a per-reply Copy, and header Copy conversation and Download (`.md`), all client-side Markdown from `assistantExport.ts`.

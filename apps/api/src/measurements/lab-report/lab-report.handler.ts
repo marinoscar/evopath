@@ -50,7 +50,7 @@ import { trace } from '@opentelemetry/api';
 import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
-import { AiError, type AiErrorCode } from '../../ai/core/ai-error';
+import { AiError, aiErrorLogDetails, type AiErrorCode } from '../../ai/core/ai-error';
 import type { AiContentPart } from '../../ai/core/types/responses.types';
 import { AI_RUN_TERMINAL_CODES } from '../../ai/runtime/ai-response-run.handler';
 import { AiService } from '../../ai/runtime/ai.service';
@@ -300,7 +300,13 @@ export class LabReportHandler implements JobHandler, OnModuleInit {
     await this.intakes.failIntake(intakeId, aiError.code, failureMessage(aiError, hasPdf));
 
     if (AI_RUN_TERMINAL_CODES.has(aiError.code)) {
-      this.logger.log(`Lab report intake ${intakeId} ended with ${aiError.code} (job ${jobId})`);
+      const details = aiErrorLogDetails(aiError);
+      const line = `Lab report intake ${intakeId} ended with ${aiError.code} (job ${jobId})${details ? ` ${details}` : ''}`;
+
+      // A provider refusing the request is worth an operator's look (#301).
+      if (aiError.code === 'AI_INVALID_REQUEST') this.logger.warn(line);
+      else this.logger.log(line);
+
       return;
     }
 

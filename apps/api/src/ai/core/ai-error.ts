@@ -196,3 +196,71 @@ export class AiError extends HttpException implements SelfClassifyingRateLimit {
     return new AiError(code, message, { cause: err });
   }
 }
+
+/**
+ * The provider metadata in an `AiError`'s `details` that is safe to log —
+ * the HTTP status and the provider's own short error code, type, offending
+ * parameter and request id (issue #301) — and nothing else: never a URL or
+ * key material. For `AI_INVALID_REQUEST` only, the cause's message is appended
+ * as `providerMessage` (log-only, never in `details`), with key-like tokens,
+ * Bearer credentials and URLs redacted. Fields an error does not carry are
+ * left out; string values are capped and quoted so no provider string can
+ * forge a log line.
+ */
+export const AI_ERROR_LOG_DETAIL_KEYS = ['status', 'providerCode', 'providerType', 'param', 'providerRequestId'] as const;
+
+const AI_ERROR_LOG_VALUE_MAX = 120;
+const AI_ERROR_LOG_MESSAGE_MAX = 300;
+
+const AI_ERROR_LOG_REDACTIONS: readonly RegExp[] = [
+  /\b(sk|rk|pk|sess)-[A-Za-z0-9_\-*]{6,}/g,
+  /Bearer\s+\S+/gi,
+  /https?:\/\/\S+/gi,
+];
+
+/**
+ * The provider's own message for a rejected request (the one field that says
+ * WHY a 400 happened), redacted, whitespace-collapsed and capped; `null` when
+ * the cause carries none.
+ */
+function providerMessageForLog(cause: unknown): string | null {
+  if (!(cause instanceof Error) || typeof cause.message !== 'string' || cause.message.length === 0) {
+    return null;
+  }
+
+  let message = cause.message;
+
+  for (const pattern of AI_ERROR_LOG_REDACTIONS) {
+    message = message.replace(pattern, '[redacted]');
+  }
+
+  message = message.replace(/\s+/g, ' ').trim().slice(0, AI_ERROR_LOG_MESSAGE_MAX);
+
+  return message.length > 0 ? message : null;
+}
+
+/** `status=400 providerCode="…" … providerMessage="…"` for `error`, or `''` when it carries none of the safe fields. */
+export function aiErrorLogDetails(error: AiError): string {
+  const details: Record<string, unknown> = (error.getResponse() as Partial<AiErrorBody>).details ?? {};
+  const parts: string[] = [];
+
+  for (const key of AI_ERROR_LOG_DETAIL_KEYS) {
+    const value = details[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      parts.push(`${key}=${value}`);
+    } else if (typeof value === 'string' && value.length > 0) {
+      parts.push(`${key}=${JSON.stringify(value.slice(0, AI_ERROR_LOG_VALUE_MAX))}`);
+    }
+  }
+
+  if (error.code === 'AI_INVALID_REQUEST') {
+    const providerMessage = providerMessageForLog(error.cause);
+
+    if (providerMessage !== null) {
+      parts.push(`providerMessage=${JSON.stringify(providerMessage)}`);
+    }
+  }
+
+  return parts.join(' ');
+}

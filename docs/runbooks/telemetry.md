@@ -230,6 +230,10 @@ self-heals on the next run without any action from you.
    errored in the last hour and why?", or trace-specific follow-ups once it
    has cited a trace id. A plain "write me a query for X" still works — the
    report's first `queries` entry is it.
+5. To share an investigation with another AI agent, use **Copy conversation**
+   or **Download** in the assistant header. Review the file before sharing:
+   it contains your SQL and the model's commentary. See
+   [spec §6](../specs/telemetry.md#6-ai-assistant).
 
 ## 7. Verify
 

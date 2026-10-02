@@ -212,6 +212,7 @@ import {
   type StoredAiImageRunRequest,
   toImageGenerationRequest,
 } from './ai-image-run-request';
+import { providerFileName } from './ai-provider-filename';
 import { toStoredRunRequest } from './ai-run-request';
 import { type AiHostedOutputOwner, AiHostedOutputSettler, discardHostedImage } from './ai-hosted-outputs';
 import {
@@ -954,17 +955,19 @@ export class AiService {
 
     if (input.size > 0) {
       const capped = await this.inputs.openCapped(input, { maxBytes, label: 'audio' });
+      const filename = providerFileName(input.name, input.mimeType);
 
       return {
-        payload: { stream: capped.stream, mimeType: input.mimeType, filename: input.name, size: input.size },
+        payload: { stream: capped.stream, mimeType: input.mimeType, filename, size: input.size },
         exceeded: capped.exceeded,
         close: capped.close,
       };
     }
 
     const bytes = await this.inputs.read(input, { maxBytes, label: 'audio' });
+    const payload = { ...bytes, filename: providerFileName(input.name, input.mimeType) };
 
-    return { payload: bytes, exceeded: () => undefined, close: () => undefined };
+    return { payload, exceeded: () => undefined, close: () => undefined };
   }
 
   // ---- speech -------------------------------------------------------------------------
@@ -1541,7 +1544,8 @@ export class AiService {
         storageObjectId: input.id,
         modality,
         mimeType: input.mimeType,
-        filename: input.name,
+        // The wire name, normalised for providers that sniff the extension (#301).
+        filename: providerFileName(input.name, input.mimeType),
         strategy,
       };
 
