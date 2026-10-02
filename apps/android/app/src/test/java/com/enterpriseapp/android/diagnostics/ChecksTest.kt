@@ -191,17 +191,24 @@ class ChecksTest {
         error: String? = null,
     ) = InventoryEntry(type.key, type.label, permission, count, capped, latest, sources, error)
 
+    private val samsung = RemedyApp("com.sec.android.app.shealth", "Samsung Health", RemedyApp.INSTALLED_CAPABLE)
+
     @Test fun `hc data fails when denied, warns on zero records naming the source app, passes with counts`() {
-        val denied = Checks.hcData(HcDataType.STEPS, true, entry(HcDataType.STEPS, 0, InventoryEntry.DENIED), "Samsung Health", zone)
+        val denied = Checks.hcData(HcDataType.STEPS, true, entry(HcDataType.STEPS, 0, InventoryEntry.DENIED), listOf(samsung), zone)
         assertStatus(CheckStatus.FAIL, denied)
         assertEquals("hc.data.steps", denied.id)
         assertEquals(CheckAction.GRANT_PERMISSIONS, denied.action)
 
-        val empty = Checks.hcData(HcDataType.WEIGHT, true, entry(HcDataType.WEIGHT, 0), "Samsung Health", zone)
+        val empty = Checks.hcData(HcDataType.WEIGHT, true, entry(HcDataType.WEIGHT, 0), listOf(samsung), zone)
         assertStatus(CheckStatus.WARN, empty)
         assertTrue(empty.detail, empty.detail.startsWith("Permission granted but no weight records in the last 30 days"))
         assertTrue(empty.detail.contains("30 days before ${Brand.name} was first granted access"))
-        assertTrue(empty.remedy!!, empty.remedy!!.startsWith("Open Samsung Health → Settings → Health Connect and allow Weight"))
+        assertEquals(
+            "Open Samsung Health and allow Weight to be shared to Health Connect: " +
+                "Health Connect → App permissions → Samsung Health → Allowed to write → Weight. Then Sync now.",
+            empty.remedy,
+        )
+        assertEquals(CheckAction.OPEN_HEALTH_CONNECT, empty.action)
 
         val full = Checks.hcData(
             HcDataType.STEPS, true,
@@ -209,23 +216,14 @@ class ChecksTest {
                 HcDataType.STEPS, 1000, capped = true, latest = "2026-10-01T12:30:00Z",
                 sources = listOf(InventorySource("com.sec.android.app.shealth", "Samsung Health", 1000, "2026-10-01T12:30:00Z")),
             ),
-            "Samsung Health", zone,
+            listOf(samsung), zone,
         )
         assertStatus(CheckStatus.PASS, full)
         assertTrue(full.detail, full.detail.startsWith("1000+ records in the last 30 days, latest 2026-10-01 06:30, from Samsung Health (1000)"))
 
-        assertStatus(CheckStatus.WARN, Checks.hcData(HcDataType.SLEEP, true, entry(HcDataType.SLEEP, 0, error = "SecurityException: x"), "Oura", zone))
-        assertStatus(CheckStatus.SKIP, Checks.hcData(HcDataType.SLEEP, false, entry(HcDataType.SLEEP, 0, InventoryEntry.DENIED), "Oura", zone))
-        assertStatus(CheckStatus.SKIP, Checks.hcData(HcDataType.SLEEP, true, null, "Oura", zone))
-    }
-
-    @Test fun `likely source app skips Health Connect itself and falls back to an example`() {
-        val sources = listOf(
-            SourceSummary("com.google.android.apps.healthdata", "Health Connect", listOf("weight"), 50),
-            SourceSummary("com.ouraring.oura", "Oura", listOf("sleep"), 10),
-        )
-        assertEquals("Oura", Checks.likelySourceApp(sources))
-        assertEquals("your source app (for example Samsung Health)", Checks.likelySourceApp(emptyList()))
+        assertStatus(CheckStatus.WARN, Checks.hcData(HcDataType.SLEEP, true, entry(HcDataType.SLEEP, 0, error = "SecurityException: x"), emptyList(), zone))
+        assertStatus(CheckStatus.SKIP, Checks.hcData(HcDataType.SLEEP, false, entry(HcDataType.SLEEP, 0, InventoryEntry.DENIED), emptyList(), zone))
+        assertStatus(CheckStatus.SKIP, Checks.hcData(HcDataType.SLEEP, true, null, emptyList(), zone))
     }
 
     @Test fun `source aggregation unions packages across types`() {

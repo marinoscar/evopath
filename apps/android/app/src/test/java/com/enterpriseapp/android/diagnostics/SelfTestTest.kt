@@ -42,12 +42,14 @@ class FakePlatform : DiagnosticsPlatform {
     var notificationsOn = true
     var work: WorkSnapshot? = WorkSnapshot("ENQUEUED", Instant.parse("2026-10-01T19:00:00Z"))
     var workError: Exception? = null
+    var installed: Set<String> = emptySet()
     override fun appInfo() = app
     override fun device() = DeviceSnapshot("samsung", "SM-S921B", "16", 36, "America/Costa_Rica")
     override fun isIgnoringBatteryOptimizations() = battery
     override fun notificationPermissionGranted() = notificationPermission
     override fun notificationsEnabled() = notificationsOn
     override suspend fun periodicWork(): WorkSnapshot? = workError?.let { throw it } ?: work
+    override fun installedPackages(packages: Collection<String>) = installed.filterTo(linkedSetOf()) { it in packages }
 }
 
 class FakeServerProbe : ServerProbe {
@@ -151,7 +153,7 @@ class SelfTestTest {
         assertEquals(CheckStatus.PASS, result.check("hc.data.sleep").verdict)
         val weight = result.check("hc.data.weight")
         assertEquals(CheckStatus.WARN, weight.verdict)
-        assertTrue(weight.remedy!!, weight.remedy!!.startsWith("Open Samsung Health → Settings → Health Connect and allow Weight"))
+        assertTrue(weight.remedy!!, weight.remedy!!.startsWith("Open Samsung Health and allow Weight to be shared to Health Connect"))
         val sources = result.healthConnect.sources
         assertEquals(listOf("Samsung Health", "Oura"), sources.map { it.appLabel })
         assertEquals(CheckStatus.PASS, result.check("hc.sources").verdict)

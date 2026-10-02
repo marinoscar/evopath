@@ -38,6 +38,23 @@ class AndroidDiagnosticsPlatform(context: Context) : DiagnosticsPlatform {
 
     override fun notificationsEnabled(): Boolean = NotificationManagerCompat.from(appContext).areNotificationsEnabled()
 
+    override fun installedPackages(packages: Collection<String>): Set<String> {
+        val pm = appContext.packageManager
+        return packages.filterTo(linkedSetOf()) { pkg ->
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getApplicationInfo(pkg, 0)
+                }
+                true
+            } catch (_: PackageManager.NameNotFoundException) {
+                false
+            }
+        }
+    }
+
     override suspend fun periodicWork(): WorkSnapshot? {
         val infos = WorkManager.getInstance(appContext)
             .getWorkInfosForUniqueWorkFlow(WorkManagerSyncScheduler.PERIODIC_WORK)

@@ -5,6 +5,7 @@ import com.enterpriseapp.android.healthconnect.AppLabels
 import com.enterpriseapp.android.healthconnect.HcAvailability
 import com.enterpriseapp.android.healthconnect.HcDataType
 import com.enterpriseapp.android.healthconnect.HealthConnectGateway
+import com.enterpriseapp.android.healthconnect.KnownSourceApps
 import com.enterpriseapp.android.net.ApiClient
 import com.enterpriseapp.android.net.ApiResult
 import com.enterpriseapp.android.net.HealthSyncBackend
@@ -49,6 +50,9 @@ interface DiagnosticsPlatform {
 
     /** The unique periodic sync work, or null when none exists. */
     suspend fun periodicWork(): WorkSnapshot?
+
+    /** Which of [packages] are installed (and visible through the manifest's `<queries>`). */
+    fun installedPackages(packages: Collection<String>): Set<String>
 }
 
 /** Unauthenticated server calls the self-test makes. */
@@ -174,6 +178,10 @@ class SelfTest(
             }.awaitAll()
         }
         val sources = inventory?.let { SourceAggregation.aggregate(it) }.orEmpty()
+        // Which known source apps are on the phone, and which apps already feed Health Connect:
+        // with each type's evidence, they decide which app a remedy names.
+        val installed = safe { platform.installedPackages(KnownSourceApps.PACKAGES) }.orEmpty()
+        val feeding = sources.mapTo(mutableSetOf()) { it.packageName }
 
         val live = liveJob.await()
         val deviceProbe = deviceJob.await()
@@ -200,12 +208,13 @@ class SelfTest(
             add(Checks.hcConnection(available, grantedProbe))
             add(Checks.hcPermissions(granted, enabled))
             add(Checks.hcBackground(available, featureAvailable, granted))
-            add(Checks.hcSources(available, inventory, sources, zoneId))
-            val likely = Checks.likelySourceApp(sources)
+            add(Checks.hcSources(available, inventory, sources, zoneId, RemedyApps.installedKnown(installed, feeding)))
             HcDataType.SYNCED.forEach { type ->
                 val entry = inventory?.firstOrNull { it.dataType == type.key }
                 val typeEnabled = enabled.any { type in it.dataTypes }
-                add(Checks.hcData(type, typeEnabled, entry, likely, zoneId))
+                val evidence = entry?.sources.orEmpty().map { SourceEvidence(it.packageName, it.appLabel) }
+                val remedyApps = RemedyApps.select(type.key, evidence, installed, feeding)
+                add(Checks.hcData(type, typeEnabled, entry, remedyApps, zoneId))
             }
             add(Checks.batteryOptimization(safe { platform.isIgnoringBatteryOptimizations() }))
             add(
