@@ -26,7 +26,11 @@
  *    again (kept for this session); a short bar offers "Skip all" and "Save
  *    all again". Save is blocked, with the reason, until each has a decision.
  *    #311: "Reject unmatched" (toolbar, and in the save hint) rejects every
- *    result not mapped to an analyte after a confirmation.
+ *    result not mapped to an analyte after a confirmation. #317: what apply
+ *    would refuse (`GET /measurements/lab-reports/:id/issues`, re-read with
+ *    the duplicate check) badges each row "Needs attention"; each reason in
+ *    the "Not saved yet" panel links to its row, and the panel and the save
+ *    hint offer "Show rows that need attention" (the review's filter).
  *
  * The server decides everything: matching, conversion, validation, whether
  * apply may run, and the provenance it writes. Full-screen below `sm` through
@@ -45,6 +49,7 @@ import {
   DialogContent,
   DialogTitle,
   LinearProgress,
+  Link,
   Snackbar,
   Stack,
   TextField,
@@ -84,7 +89,10 @@ import {
   LAB_REPORT_KIND,
   LAB_REPORT_MAX_PHOTOS,
   getLabReportDuplicates,
+  getLabReportIssues,
+  issuesByItem,
   isUnresolved,
+  labAttentionReasons,
   mapLabResult,
   rejectUnmatchedLabResults,
   sameNamedOthers,
@@ -99,6 +107,7 @@ import {
   type LabReportApplyResult,
   type LabReportContext,
   type LabReportDuplicate,
+  type LabReportIssue,
   type LabReportMapResult,
   type LabReportValue,
 } from '../../services/labReport';
@@ -106,13 +115,22 @@ import { useMeasurementCatalog } from '../../hooks/useMeasurementCatalog';
 import { useLabUnits } from '../../hooks/useLabUnits';
 import type { LabUnits } from '../../utils/labUnits';
 import { useIsMounted } from '../../hooks/useIsMounted';
-import { LabReportReview, REJECT_UNMATCHED_LABEL, RejectUnmatchedConfirm } from './LabReportReview';
+import {
+  LabReportReview,
+  REJECT_UNMATCHED_LABEL,
+  RejectUnmatchedConfirm,
+  type LabReviewFilter,
+  type LabReviewRequest,
+} from './LabReportReview';
 
 export const LAB_REPORT_TITLE = 'Import lab report';
 export const LAB_REPORT_HELPER_TEXT =
   'Add the PDF from your patient portal, or a sharp photo of each page of the printed report';
 export const SKIP_ALL_LABEL = 'Skip all';
 export const SAVE_LABEL = 'Save to Health';
+export const SHOW_ATTENTION_LABEL = 'Show rows that need attention';
+/** The "Not saved yet" panel links this many reasons; "Show rows that need attention" covers the rest. */
+const MAX_LINKED_REASONS = 8;
 
 const RESUMABLE = ['draft', 'scanning', 'ready'] as const;
 
@@ -299,8 +317,14 @@ function DuplicateBar({
 // The session over one intake
 // -----------------------------------------------------------------------------
 
+/** One line of the "Not saved yet" panel; with `itemId` it links to that row (#317). */
+interface ApplyFailureLine {
+  message: string;
+  itemId: string | null;
+}
+
 type ApplyFailure =
-  | { kind: 'messages'; title: string; messages: string[] }
+  | { kind: 'messages'; title: string; lines: ApplyFailureLine[]; filter?: LabReviewFilter }
   | { kind: 'error'; error: AiErrorInfo };
 
 interface SessionProps {
@@ -358,6 +382,13 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
   const [keptIds, setKeptIds] = useState<ReadonlySet<string>>(() => new Set());
   const [skippedIds, setSkippedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [skippingAll, setSkippingAll] = useState(false);
+  /** #317: what apply would refuse, by item id. */
+  const [issues, setIssues] = useState<ReadonlyMap<string, readonly LabReportIssue[]>>(() => new Map());
+  /** #317: what the review is asked to do (reveal a row, apply a filter). */
+  const [reviewRequest, setReviewRequest] = useState<LabReviewRequest | null>(null);
+  const requestSeq = useRef(0);
+  const revealRow = (itemId: string) => setReviewRequest({ seq: ++requestSeq.current, type: 'reveal', itemId });
+  const showFilter = (filter: LabReviewFilter) => setReviewRequest({ seq: ++requestSeq.current, type: 'filter', filter });
 
   const busy = scan.isMutating || applying || writing > 0 || skippingAll;
   const status = intake?.status ?? null;
@@ -468,6 +499,29 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
     void checkDuplicates();
   }, [status, signature, checkDuplicates]);
 
+  // #317: what apply would refuse, re-read with the duplicate check and on any
+  // change the server checks (the value and its range as well).
+  const issuesSignature = useMemo(
+    () =>
+      JSON.stringify([
+        signature,
+        items.map((item) => [item.value.valueText, item.value.referenceLow, item.value.referenceHigh]),
+      ]),
+    [signature, items],
+  );
+  const checkIssues = useCallback(async () => {
+    try {
+      const result = await getLabReportIssues(intakeId);
+      if (isMounted()) setIssues(issuesByItem(result));
+    } catch {
+      // Guidance only: apply still checks, and a failed read never blocks the review.
+    }
+  }, [intakeId, isMounted]);
+  useEffect(() => {
+    if (status !== 'ready') return;
+    void checkIssues();
+  }, [status, issuesSignature, checkIssues]);
+
   // #308: a decision lasts while its item is still a duplicate (kept) or still rejected (skipped).
   const duplicateIds = useMemo(() => new Set(duplicates.map((duplicate) => duplicate.itemId)), [duplicates]);
   useEffect(() => {
@@ -539,16 +593,29 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
         setApplyFailure({
           kind: 'messages',
           title: 'Not saved yet',
-          messages: ['Some results are not in the lab catalog. Map each one to an analyte or reject it.'],
+          lines: [
+            { message: 'Some results are not in the lab catalog. Map each one to an analyte or reject it.', itemId: null },
+            ...refusal.itemIds.map((itemId) => {
+              const printed = items.find((item) => item.id === itemId)?.value.nameAsPrinted;
+              return { message: printed ? `“${printed}” is not in the lab catalog` : 'A result is not in the lab catalog', itemId };
+            }),
+          ],
+          filter: 'attention',
         });
       } else if (refusal.kind === 'issues') {
-        setApplyFailure({ kind: 'messages', title: 'Not saved yet', messages: refusal.messages });
+        setApplyFailure({ kind: 'messages', title: 'Not saved yet', lines: refusal.issues, filter: 'attention' });
       } else if (refusal.kind === 'pending') {
-        setApplyFailure({ kind: 'messages', title: 'Not saved yet', messages: ['Accept or reject every result first.'] });
+        setApplyFailure({
+          kind: 'messages',
+          title: 'Not saved yet',
+          lines: [{ message: 'Accept or reject every result first.', itemId: null }],
+          filter: 'pending',
+        });
       } else {
         setApplyFailure({ kind: 'error', error: toAiErrorInfo(refusal.error, 'Could not save these results') });
       }
       void scan.refresh();
+      void checkIssues();
     } finally {
       applyingRef.current = false;
       if (isMounted()) setApplying(false);
@@ -595,6 +662,23 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
   const allDated = kept.length > 0 && kept.every((item) => resultDate(item.value) !== null);
   const reportDate = intake?.context?.collectionDate ?? null;
   const hintId = `${intakeId}-save-hint`;
+  // #317: the rows the review badges "Needs attention", and those only the server's issues flag.
+  const attentionRows = kept.filter(
+    (item) =>
+      labAttentionReasons(item, {
+        issues: issues.get(item.id),
+        undecidedDuplicate: duplicateIds.has(item.id) && !keptIds.has(item.id),
+      }).length > 0,
+  ).length;
+  const issueRows = kept.filter(
+    (item) => !isUnresolved(item) && (issues.get(item.id) ?? []).some((issue) => issue.code !== 'UNMATCHED'),
+  ).length;
+  /** A panel line without an item id links to the row whose issue says the same, when one does. */
+  const lineTarget = (line: ApplyFailureLine): string | null => {
+    if (line.itemId) return items.some((item) => item.id === line.itemId) ? line.itemId : null;
+    for (const [itemId, list] of issues) if (list.some((issue) => issue.message === line.message)) return itemId;
+    return null;
+  };
 
   let body;
   if (!intake) {
@@ -649,6 +733,8 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
           onSkipDuplicate={skipDuplicate}
           onKeepDuplicate={keepDuplicate}
           onRejectUnmatched={rejectUnmatched}
+          issues={issues}
+          request={reviewRequest}
         />
         {mapNotice && (
           <Alert
@@ -674,11 +760,43 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
         {scan.error && <FailureNotice error={scan.error} onRetry={retryFromError} />}
         {retainControl}
         {applyFailure?.kind === 'messages' && (
-          <Alert severity="error" data-testid="lab-report-apply-issues">
+          <Alert severity="error" data-testid="lab-report-apply-issues" sx={{ '& .MuiAlert-message': { minWidth: 0 } }}>
             <AlertTitle>{applyFailure.title}</AlertTitle>
-            {applyFailure.messages.map((message) => (
-              <Box key={message}>{message}</Box>
-            ))}
+            {applyFailure.lines.slice(0, MAX_LINKED_REASONS).map((line, index) => {
+              const target = lineTarget(line);
+              return (
+                <Box key={`${index}-${line.message}`} sx={{ overflowWrap: 'anywhere' }}>
+                  {target ? (
+                    <Link
+                      component="button"
+                      type="button"
+                      variant="body2"
+                      color="inherit"
+                      onClick={() => revealRow(target)}
+                      sx={{ textAlign: 'left', verticalAlign: 'baseline' }}
+                      data-testid="lab-report-apply-issue-link"
+                    >
+                      {line.message}
+                    </Link>
+                  ) : (
+                    line.message
+                  )}
+                </Box>
+              );
+            })}
+            {applyFailure.lines.length > MAX_LINKED_REASONS && (
+              <Box>and {applyFailure.lines.length - MAX_LINKED_REASONS} more</Box>
+            )}
+            {applyFailure.filter === 'attention' && attentionRows > 0 && (
+              <Button size="small" color="inherit" variant="outlined" onClick={() => showFilter('attention')} sx={{ mt: 1 }}>
+                {SHOW_ATTENTION_LABEL}
+              </Button>
+            )}
+            {applyFailure.filter === 'pending' && pending > 0 && (
+              <Button size="small" color="inherit" variant="outlined" onClick={() => showFilter('pending')} sx={{ mt: 1 }}>
+                Show pending results
+              </Button>
+            )}
           </Alert>
         )}
         {applyFailure?.kind === 'error' && <FailureNotice error={applyFailure.error} onRetry={() => void apply()} />}
@@ -688,23 +806,33 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
             ? `${unresolved} ${unresolved === 1 ? 'result is' : 'results are'} not in the lab catalog: map ${unresolved === 1 ? 'it' : 'each'} to an analyte or reject ${unresolved === 1 ? 'it' : 'them'} before saving`
             : undecidedDuplicates.length > 0
               ? `Decide on ${undecidedDuplicates.length} already-saved ${undecidedDuplicates.length === 1 ? 'result' : 'results'}: skip ${undecidedDuplicates.length === 1 ? 'it' : 'them'} or save ${undecidedDuplicates.length === 1 ? 'it' : 'them'} again`
+              : issueRows > 0
+              ? `${issueRows} ${issueRows === 1 ? 'result needs' : 'results need'} attention before saving: fix or reject ${issueRows === 1 ? 'it' : 'them'}`
               : pending > 0
               ? `${pending} ${pending === 1 ? 'result needs' : 'results need'} a decision before saving`
               : accepted === 0
                 ? 'Accept at least one result to save, or discard this report'
                 : `${accepted} ${accepted === 1 ? 'result' : 'results'} will be saved`}
           </Typography>
-          {unresolved > 0 && (
-            <Button
-              size="small"
-              color="error"
-              onClick={() => setRejectUnmatchedOpen(true)}
-              disabled={busy}
-              sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, flexShrink: 0 }}
-              data-testid="lab-report-hint-reject-unmatched"
-            >
-              {REJECT_UNMATCHED_LABEL} ({unresolved})
-            </Button>
+          {(attentionRows > 0 || unresolved > 0) && (
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', flexShrink: 0, alignSelf: { xs: 'flex-start', sm: 'center' } }}>
+              {attentionRows > 0 && (
+                <Button size="small" onClick={() => showFilter('attention')} data-testid="lab-report-hint-show-attention">
+                  {SHOW_ATTENTION_LABEL} ({attentionRows})
+                </Button>
+              )}
+              {unresolved > 0 && (
+                <Button
+                  size="small"
+                  color="error"
+                  onClick={() => setRejectUnmatchedOpen(true)}
+                  disabled={busy}
+                  data-testid="lab-report-hint-reject-unmatched"
+                >
+                  {REJECT_UNMATCHED_LABEL} ({unresolved})
+                </Button>
+              )}
+            </Stack>
           )}
         </Stack>
         <RejectUnmatchedConfirm
