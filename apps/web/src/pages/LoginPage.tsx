@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Box, Typography, Stack, Divider } from '@mui/material';
+import { Alert, Box, Typography, Stack, Divider } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { OAuthButton } from '../components/auth/OAuthButton';
 import { AuthBrandLayout } from '../components/auth/AuthBrandLayout';
@@ -16,7 +16,7 @@ interface LocationState {
  * the colour rules and the accessibility notes.
  */
 export default function LoginPage() {
-  const { isAuthenticated, isLoading, providers, login } = useAuth();
+  const { isAuthenticated, isLoading, providers, login, sessionExpired } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -47,6 +47,13 @@ export default function LoginPage() {
           Sign in to continue
         </Typography>
       </Box>
+
+      {/* Issue #295: the server refused to refresh a signed-in session. */}
+      {sessionExpired && (
+        <Alert severity="info" sx={{ mb: 3 }} data-testid="session-expired-notice">
+          Your session expired. Please sign in again.
+        </Alert>
+      )}
 
       <Divider sx={{ mb: 3 }}>
         <Typography variant="body2" color="text.secondary">
