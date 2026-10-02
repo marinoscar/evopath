@@ -13,7 +13,7 @@ This repository is both the product and its foundation. The product features (he
 | Feature | What it does | Read |
 |---|---|---|
 | Health data | Health profile, longitudinal measurements (body, vital, wellness, lab analytes), daily readiness check-ins, values read from a scale or cuff photo | [health-data](docs/specs/health-data.md) |
-| Health records | Health document store with a keep-or-delete choice on every upload, PDFs for body metrics, lab catalog and lab report extraction API. In progress: lab report review UI, documents API, export, AI health summary | [health-records](docs/specs/health-records.md) |
+| Health records | Health document store with a keep-or-delete choice on every upload, PDFs for body metrics, lab catalog, lab report extraction and review (multi-date trend reports). In progress: documents API, export, AI health summary | [health-records](docs/specs/health-records.md) |
 | Gyms and equipment | Gyms, equipment catalog and custom equipment, photos, optional GPS location, AI Scan Gym | [gyms-and-equipment](docs/specs/gyms-and-equipment.md) |
 | Workouts | Exercise library, custom exercises, workout logging, personal records, training summary, AI Prefill from photo | [workouts](docs/specs/workouts.md) |
 | Training plans | Manual plan builder with immutable versions, today's workout, change log and revert. Works with AI off | [ai-training-plans](docs/specs/ai-training-plans.md) |
