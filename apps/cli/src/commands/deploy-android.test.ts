@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -192,6 +192,16 @@ describe('deploy update --with-android', () => {
     expect(publish).toHaveBeenCalledWith('/out/a.apk', { serverUrl: URL, token: 'pat_x' }, 'Faster sync');
     expect(result.stderr).toContain('Updated.');
     expect(result.stderr).toContain('Android APK  published 1.0.7 (code 7)');
+  });
+
+  it('builds from the deployment checkout (the revision just deployed) when it holds apps/android (#315)', async () => {
+    const root = recordedRoot('app.example.test');
+    mkdirSync(join(root, 'repo', 'apps', 'android'), { recursive: true });
+    const { deps, getReleaseStatus } = stepDeps();
+    const result = await run(['deploy', 'update', '--root', root, '--with-android'], deps);
+    expect(result.error).toBeUndefined();
+    expect(getReleaseStatus).toHaveBeenCalledWith({ repoRoot: join(root, 'repo'), serverUrl: URL });
+    expect(result.stderr).toContain(`built from the deployment's checkout (${join(root, 'repo')})`);
   });
 
   it('runs even when the revision did not move', async () => {
