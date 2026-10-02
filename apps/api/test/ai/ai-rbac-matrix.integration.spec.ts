@@ -63,9 +63,10 @@ const ROLES = ['admin', 'contributor', 'viewer'] as const;
 /**
  * The AI surface: `/api/ai/*` and `/api/admin/ai/*`, plus the AI Coach's
  * consumer routes `/api/coach/*` and admin routes `/api/admin/coach/*`
- * (docs/specs/ai-coach.md §3.6), which follow exactly the same rules.
+ * (docs/specs/ai-coach.md §3.6), which follow exactly the same rules, and
+ * the user memory routes `/api/memories/*` (#325, docs/specs/ai-memory.md).
  */
-const AI_CONSUMER_PREFIXES = ['/api/ai', '/api/coach'] as const;
+const AI_CONSUMER_PREFIXES = ['/api/ai', '/api/coach', '/api/memories'] as const;
 const AI_ADMIN_PREFIXES = ['/api/admin/ai', '/api/admin/coach'] as const;
 
 function isAdminAiRoute(path: string): boolean {
@@ -155,6 +156,13 @@ describe('AI RBAC matrix — every /api/ai/*, /api/admin/ai/*, /api/coach/* and 
         'GET /api/coach/messages/{id}/audio',
         'GET /api/admin/coach/settings',
         'PUT /api/admin/coach/settings',
+        // #325: user memory, every route `ai:use` behind AiEnabledGuard.
+        'GET /api/memories',
+        'POST /api/memories',
+        'DELETE /api/memories',
+        'PATCH /api/memories/{id}',
+        'DELETE /api/memories/{id}',
+        'POST /api/memories/{id}/restore',
       ]),
     );
     expect(aiAndAdminRoutes.filter((r) => r.permissions.length > 0).length).toBeGreaterThanOrEqual(10);

@@ -1481,7 +1481,7 @@ export const systemCoachPatchSchema = z.object({
 });
 
 // =============================================================================
-// User memory policy (`memory`) — #325; docs/specs/user-memory.md
+// User memory policy (`memory`) — #325; docs/specs/ai-memory.md
 // =============================================================================
 //
 // Deployment-wide switches and bounds for user memories. `enabled` is the
