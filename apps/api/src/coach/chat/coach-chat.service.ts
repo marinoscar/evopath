@@ -13,6 +13,8 @@ import { resolveCoachUserSettings } from '../../common/schemas/user-settings-nam
 import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
 import { resolveServiceName } from '../../common/otel/service-name';
 import { HealthProfileService } from '../../health-profile/health-profile.service';
+import { HealthSummaryReader } from '../../health-summary/health-summary.reader';
+import { BiomarkersService } from '../../measurements/biomarkers/biomarkers.service';
 import { MemoryExtractionScheduler } from '../../memory/extraction/memory-extraction.scheduler';
 import { MemoryContextService, type MemoryChatContext } from '../../memory/memory-context.service';
 import { MemoryService } from '../../memory/memory.service';
@@ -43,6 +45,7 @@ import {
 } from './coach-chat-prompt';
 import { blockedReplyFor, screenCoachChat, type CoachChatSafety, type CoachChatSafetyScreen } from './coach-chat-safety';
 import { CoachChatMetrics, type CoachChatTurnOutcome } from './coach-chat.metrics';
+import { effectiveUserName } from './coach-user-name';
 import {
   createCoachChatTools,
   type CoachChatMemoryEvent,
@@ -113,6 +116,16 @@ import {
 // stored, `ai.memory.extract` is queued (5 minutes out, deduplicated per
 // user) to learn durable facts in the background.
 //
+// KNOWING THE USER (#327). The instructions carry the user's effective
+// display name as one delimited data line (the chat's documented never-send
+// exception, `coach/context/coach-never-send.ts`), and the turn gets
+// `get_profile`, `get_training_profile`, `get_health_summary` (consent-gated,
+// the training agents' door), `list_biomarkers` and `get_biomarker_values`
+// (consent-gated: the chat's documented `labs` exception) and `get_sleep`,
+// plus `set_display_name`; a
+// saved name sets `profileUpdated: true` on `done` so the client refreshes
+// the signed-in user.
+//
 // ⚠ NEVER LOG TEXT. No log line, span attribute or counter carries the
 // user's message, the model's reply or a tool argument (the `reason` of
 // `pause_coach` included).
@@ -131,6 +144,8 @@ export type CoachChatEvent =
       links: CoachChatLink[];
       pausedUntil: string | null;
       fallback: boolean;
+      /** Present (true) only when `set_display_name` saved the profile name this turn (#327). */
+      profileUpdated?: true;
     }
   | {
       type: 'error';
@@ -206,6 +221,10 @@ export class CoachChatService {
     @Optional() private readonly memoryContext?: MemoryContextService,
     @Optional() private readonly memories?: MemoryService,
     @Optional() private readonly memoryExtraction?: MemoryExtractionScheduler,
+    // `get_health_summary`'s consent-gated source (#327). Optional: without it the tool answers `unavailable`.
+    @Optional() private readonly healthSummary?: HealthSummaryReader,
+    // `list_biomarkers`' source (#327). Optional: without it the tool answers `unavailable`.
+    @Optional() private readonly biomarkers?: BiomarkersService,
   ) {}
 
   /**
@@ -267,7 +286,7 @@ export class CoachChatService {
       }
       span.setAttribute('ai.model', resolution.model.modelId);
 
-      const [rows, today, memory] = await Promise.all([
+      const [rows, today, memory, userName] = await Promise.all([
         // Twice the window, so dropping blocked safety turns still leaves a full one.
         this.prisma.coachMessage.findMany({
           where: { userId, ...afterChatClear(clearedAt), ...(ctx.retry ? { id: { not: ctx.retry.id } } : {}) },
@@ -277,6 +296,7 @@ export class CoachChatService {
         }) as Promise<HistoryRow[]>,
         this.checkIns.today(userId, ctx.startedAt),
         this.memoryContext ? this.memoryContext.forChat(userId) : Promise.resolve(null),
+        this.userName(userId),
       ]);
       rows.reverse();
       const history = excludeBlockedSafetyTurns(rows)
@@ -295,6 +315,7 @@ export class CoachChatService {
           today,
           memoryEnabled: Boolean(memory?.enabled && this.memories),
           memoryBlock: memory?.block ?? '',
+          userName,
         }),
         memory,
         // `why` is user text: a delimited user-role part, never the system prompt; not under the supportive register.
@@ -468,6 +489,7 @@ export class CoachChatService {
         links,
         pausedUntil,
         fallback: !verdict.ok,
+        ...(actions.displayNameUpdated ? { profileUpdated: true as const } : {}),
       };
     } catch (err) {
       if (ctx.signal?.aborted) {
@@ -545,7 +567,26 @@ export class CoachChatService {
       ...(this.coachSettings ? { commitments: this.coachSettings } : {}),
       ...(this.goals ? { goals: this.goals } : {}),
       ...(memory?.enabled && this.memories ? { memory: { service: this.memories, refs: memory.refs } } : {}),
+      profile: { healthProfile: this.healthProfile, userSettings: this.userSettings },
+      ...(this.healthSummary ? { healthSummary: this.healthSummary } : {}),
+      ...(this.biomarkers ? { labs: this.biomarkers } : {}),
     };
+  }
+
+  /**
+   * The user's effective display name for the instructions (#327): names only
+   * are selected, never the email. A failed read is no name (the chat still runs).
+   */
+  private async userName(userId: string): Promise<string | null> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { displayName: true, providerDisplayName: true },
+      });
+      return effectiveUserName(user);
+    } catch {
+      return null;
+    }
   }
 
   /**

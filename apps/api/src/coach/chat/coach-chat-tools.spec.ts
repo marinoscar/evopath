@@ -14,6 +14,7 @@ import {
   type CoachChatTurnActions,
 } from './tools';
 import { minimiseToday } from './tools/get-today-plan.tool';
+import { coachSignals } from './tools/get-training-signals.tool';
 import { withoutIds } from './tools/minimise';
 
 // =============================================================================
@@ -107,12 +108,28 @@ describe('coach chat tools (E7.7)', () => {
 
       expect(deps.signals.forUser).toHaveBeenCalledWith(USER, {});
       // The same figures GET /api/training/signals serves (same call, same defaults), ids stripped.
-      expect(result).toEqual(withoutIds(compactSignals(signals)));
+      expect(result).toEqual(withoutIds(coachSignals(compactSignals(signals))));
       const compact = compactSignals(signals);
       expect((result as any).adherence.totals).toEqual(compact.adherence.totals);
       expect((result as any).adherence.missedStreak).toBe(compact.adherence.missedStreak);
       expect(keysDeep(result).filter((k) => /^id$|Id$|Ids$/.test(k))).toEqual([]);
       expect(JSON.stringify(result)).not.toMatch(UUID);
+    });
+
+    it('strips the body block (weight, body fat): body_measurements is on COACH_NEVER_SEND (#327)', async () => {
+      const { deps, signals } = makeDeps();
+      const withBody = {
+        ...signals,
+        body: { weightKg: { latest: 93.7, changePerWeek: -0.4, points: 6 }, bodyFatPct: { latest: 21.9, points: 2 } },
+      };
+      deps.signals.forUser.mockResolvedValue(withBody);
+      const result = await run(deps, 'get_training_signals');
+
+      expect(compactSignals(withBody as never)).toHaveProperty('body');
+      expect(result).not.toHaveProperty('body');
+      expect(JSON.stringify(result)).not.toMatch(/93\.7|21\.9|bodyFatPct|changePerWeek/);
+      const description = tools(deps).get_training_signals.tool.description ?? '';
+      expect(description).not.toMatch(/body-weight|body weight/i);
     });
 
     it('answers a safe unavailable result instead of throwing raw errors', async () => {

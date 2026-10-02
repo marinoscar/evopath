@@ -6,6 +6,8 @@ import { AiConfigModule } from '../../ai/config/ai-config.module';
 import { AiRuntimeModule } from '../../ai/runtime/ai-runtime.module';
 import { CheckInsModule } from '../../check-ins/check-ins.module';
 import { HealthProfileModule } from '../../health-profile/health-profile.module';
+import { HealthSummaryModule } from '../../health-summary/health-summary.module';
+import { BiomarkersService } from '../../measurements/biomarkers/biomarkers.service';
 import { MemoryModule } from '../../memory/memory.module';
 import { ProgramsModule } from '../../programs/programs.module';
 import { ProgressPhotosModule } from '../../progress-photos/progress-photos.module';
@@ -33,6 +35,8 @@ import { CoachTimelineService } from './coach-timeline.service';
     AiRuntimeModule,
     CheckInsModule,
     HealthProfileModule,
+    // `get_health_summary` (#327): the consent-gated `HealthSummaryReader`.
+    HealthSummaryModule,
     // User memory (#325): the memory block, the memory tools and the extraction enqueue.
     MemoryModule,
     ProgramsModule,
@@ -41,6 +45,8 @@ import { CoachTimelineService } from './coach-timeline.service';
   ],
   controllers: [CoachChatController],
   // `CoachSettingsService` (stateless) backs the `save_commitment` tool (E7.12).
-  providers: [CoachChatService, CoachChatMetrics, CoachTimelineService, CoachSettingsService],
+  // `BiomarkersService` (stateless, Prisma only) backs `list_biomarkers` (#327); provided here
+  // rather than importing `MeasurementsModule`, which would pull in the intake and lab-report jobs.
+  providers: [CoachChatService, CoachChatMetrics, CoachTimelineService, CoachSettingsService, BiomarkersService],
 })
 export class CoachChatModule {}
