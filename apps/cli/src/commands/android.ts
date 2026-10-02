@@ -32,6 +32,7 @@ import {
   type AndroidRelease,
 } from '../android/publish.js';
 import { commitVersionFile, runRelease } from '../android/release.js';
+import { publishServerWarning } from '../android/server-url.js';
 import { applyVersionChange, parseBumpPart, readVersion, writeVersion, type AppVersion } from '../android/version.js';
 import { CLI_NAME } from '../branding.js';
 import { requireCredentials } from '../config.js';
@@ -255,7 +256,7 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
   android
     .command('build')
     .description('Build and sign the APK into dist/android/ with a metadata JSON')
-    .option('--server-url <url>', 'Default server URL baked into the app')
+    .option('--server-url <url>', 'Server URL the app is tied to (default: the logged-in server)')
     .option('--debug', 'Build the debug variant (debug-signed, not publishable)')
     .option('--require-up-to-date', 'Refuse to build when the checkout is behind its upstream (or origin/main) instead of warning')
     .action(async (options: { serverUrl?: string; debug?: boolean; requireUpToDate?: boolean }) => {
@@ -270,6 +271,8 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
   ): Promise<AndroidRelease> => {
     const metadata = readBuiltApk(apkPath);
     const credentials = requireCredentials(paths());
+    const mismatch = publishServerWarning(metadata, credentials.serverUrl);
+    if (mismatch !== undefined) log(mismatch);
     log(`Uploading ${metadata.versionName} (${metadata.versionCode}) to ${credentials.serverUrl}…`);
     const { release } = await publishBuiltApk({
       apkPath,
@@ -328,7 +331,7 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
     .description('Bump the version, build, publish, then commit version.properties')
     .option('--bump <part>', 'patch, minor or major', 'patch')
     .option('--notes <text>', 'Release notes')
-    .option('--server-url <url>', 'Default server URL baked into the app')
+    .option('--server-url <url>', 'Server URL the app is tied to (default: the logged-in server)')
     .option('--no-commit', 'Do not commit version.properties')
     .option('--require-up-to-date', 'Refuse to build when the checkout is behind its upstream (or origin/main) instead of warning')
     .action(async (options: { bump: string; notes?: string; serverUrl?: string; commit: boolean; requireUpToDate?: boolean }) => {

@@ -7,6 +7,7 @@ import TextInput from 'ink-text-input';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { runBuild, type BuildResult } from '../../android/build.js';
+import { builtForLine, NO_SERVER_URL_WARNING, publishServerWarning } from '../../android/server-url.js';
 import { runAndroidDoctor, type AndroidCheck, type AndroidDoctorReport } from '../../android/doctor.js';
 import { exec } from '../../android/exec.js';
 import { apkFileName } from '../../android/metadata.js';
@@ -177,8 +178,11 @@ export function AndroidScreen({ onDone, onLogin }: AndroidScreenProps): ReactNod
 
   const upload = useCallback(
     async (apkPath: string, progress: (text: string) => void, releaseNotes: string): Promise<PublishedApk> => {
-      const total = readBuiltApk(apkPath).sizeBytes;
+      const metadata = readBuiltApk(apkPath);
+      const total = metadata.sizeBytes;
       let shown = -1;
+      const mismatch = target === undefined ? undefined : publishServerWarning(metadata, target);
+      if (mismatch !== undefined) appendLine(mismatch);
       appendLine(`Uploading ${apkPath} to ${target ?? ''}…`);
       return await publishBuiltApk({
         apkPath,
@@ -271,6 +275,8 @@ export function AndroidScreen({ onDone, onLogin }: AndroidScreenProps): ReactNod
           return [
             `APK:       ${result.apkPath} (${formatBytes(result.metadata.sizeBytes)})`,
             `Metadata:  ${result.metadataPath}`,
+            builtForLine(result.server),
+            ...(result.server.serverUrl === undefined ? [NO_SERVER_URL_WARNING] : []),
             result.verified
               ? `apksigner: verified (${result.metadata.signingSha256})`
               : 'apksigner: not found — signature NOT verified',

@@ -27,6 +27,12 @@ export interface ApkMetadata {
   sizeBytes: number;
   builtAt: string;
   gitSha: string | null;
+  /**
+   * The server URL the APK was built for (its link and notification host), or
+   * null when built without one (#318). Absent in metadata from older builds.
+   * Local only: `publish` never sends it.
+   */
+  serverUrl?: string | null | undefined;
 }
 
 export function apkFileName(versionName: string): string {
@@ -67,6 +73,7 @@ export interface BuildMetadataInput {
   versionCode: number;
   signingSha256: string;
   gitSha: string | null;
+  serverUrl?: string | null | undefined;
   now?: Date | undefined;
 }
 
@@ -80,6 +87,7 @@ export async function buildMetadata(input: BuildMetadataInput): Promise<ApkMetad
     sizeBytes: statSync(input.apkPath).size,
     builtAt: (input.now ?? new Date()).toISOString(),
     gitSha: input.gitSha,
+    ...(input.serverUrl !== undefined ? { serverUrl: input.serverUrl } : {}),
   };
 }
 

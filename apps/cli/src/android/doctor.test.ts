@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { formatAndroidDoctorReport, runAndroidDoctor, sdkFixesNeeded, type AndroidCheck } from './doctor.js';
 import type { ExecFn } from './exec.js';
 import { ToolMissingError } from './exec.js';
+import { saveCredentials } from '../config.js';
 import { writeSigningConfig } from './keystore.js';
 
 const FINGERPRINT = Array.from({ length: 32 }, () => 'AB').join(':');
@@ -62,6 +63,7 @@ describe('runAndroidDoctor', () => {
     const keystore = join(home, 'release.jks');
     writeFileSync(keystore, 'x');
     writeSigningConfig({ keystorePath: keystore, keyAlias: 'a', storePassword: 'p', keyPassword: 'p' }, { home });
+    saveCredentials({ serverUrl: 'https://app.example.com', token: 'pat_x' }, { home, env: {} });
 
     const report = await runAndroidDoctor({
       exec: fakeExec('openjdk version "21.0.1" 2024'),
