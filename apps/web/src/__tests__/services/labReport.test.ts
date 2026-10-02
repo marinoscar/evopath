@@ -26,6 +26,8 @@ import {
   labPropagatedMessage,
   labResultPayload,
   mapLabResult,
+  labRejectedUnmatchedMessage,
+  rejectUnmatchedLabResults,
   labSavedMessage,
   needsAttention,
   referenceRangeText,
@@ -251,5 +253,21 @@ describe('labReport service', () => {
     expect(
       labPropagatedMessage({ items: others(1), skipped: [{ itemId: 's', message: 'unit' }] }, edited.id, 'Glucose Lvl'),
     ).toEqual({ message: 'Updated 1 other result named “Glucose Lvl”. 1 could not be updated', severity: 'warning' });
+  });
+
+  it('rejects the unmatched results through their route and says how many (#311)', async () => {
+    let path = '';
+    const rejected = labItem(labValue({ nameAsPrinted: 'Lp(a)', match: 'unmatched' }), { status: 'rejected' });
+    server.use(
+      http.post('*/api/measurements/lab-reports/:id/reject-unmatched', ({ request }) => {
+        path = new URL(request.url).pathname;
+        return HttpResponse.json({ data: { items: [rejected] } });
+      }),
+    );
+    const result = await rejectUnmatchedLabResults('a b');
+    expect(path).toBe('/api/measurements/lab-reports/a%20b/reject-unmatched');
+    expect(result.items).toEqual([rejected]);
+    expect(labRejectedUnmatchedMessage(3)).toBe('Rejected 3 unmatched results');
+    expect(labRejectedUnmatchedMessage(1)).toBe('Rejected 1 unmatched result');
   });
 });

@@ -4,7 +4,8 @@
  * keep-or-delete choice, the review grouped by panel, highlighting, the
  * unmatched gate and mapping, edits, the report details, apply, and an axe
  * pass on the review; #308: already-saved results decided row by row or with
- * the bar's "Skip all" / "Save all again"; #305: a
+ * the bar's "Skip all" / "Save all again"; #311: "Reject unmatched" from the
+ * toolbar and the save hint; #305: a
  * multi-date report, "Accept high confidence" and a save over several dates;
  * #307: mapping one result maps every same-named one, and an analyte or unit
  * edit is carried to them, with the feedback.
@@ -636,5 +637,77 @@ describe('LabReportDialog: already-saved results (#308)', () => {
       'aria-pressed',
       'false',
     );
+  });
+});
+
+/** The panel plus a second unmatched result and a suggested one (#311). */
+function unmatchedIntake() {
+  const intake = readyIntake();
+  intake.items.push(
+    labItem(labValue({ analyteKey: null, nameAsPrinted: 'Homocysteine', value: 9, unit: 'µmol/L', panel: 'other', match: 'unmatched' }), {
+      uncertain: true,
+    }),
+    labItem(labValue({ analyteKey: 'apob', nameAsPrinted: 'Apo-B', value: 90, unit: 'mg/dL', panel: 'lipids', match: 'suggested' })),
+  );
+  return intake;
+}
+
+describe('LabReportDialog: reject unmatched (#311)', () => {
+  const rejectRequests = (api: { requests: { path: string }[] }) =>
+    api.requests.filter((request) => request.path.endsWith('/reject-unmatched'));
+
+  it('counts the unmatched results and rejects only those after the confirmation', async () => {
+    const { api, user } = setup({ existing: [unmatchedIntake()] });
+    await screen.findByTestId('lab-report-review');
+    const toolbar = screen.getByTestId('lab-review-toolbar');
+    const button = within(toolbar).getByRole('button', { name: 'Reject unmatched (2)' });
+
+    // Cancel leaves everything as it was.
+    await user.click(button);
+    let confirm = await screen.findByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' });
+    expect(confirm).toHaveTextContent('They can be restored one by one from Rejected.');
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Reject 2 results/ })).not.toBeInTheDocument());
+    expect(rejectRequests(api)).toHaveLength(0);
+
+    await user.click(button);
+    confirm = await screen.findByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Reject unmatched' }));
+
+    await waitFor(() => expect(rejectRequests(api)).toHaveLength(1));
+    expect(await screen.findByTestId('lab-report-map-notice')).toHaveTextContent('Rejected 2 unmatched results');
+    expect(await screen.findByText('Rejected (2)')).toBeInTheDocument();
+    const stored = api.intakes.get('lab-intake-1')!.items;
+    expect(stored.filter((item) => item.status === 'rejected').map((item) => item.value.nameAsPrinted).sort()).toEqual([
+      'Homocysteine',
+      'Lipoprotein (a)',
+    ]);
+    // The suggested match is left alone.
+    expect(stored.find((item) => item.value.nameAsPrinted === 'Apo-B')?.status).toBe('pending');
+    // Nothing unmatched is left: the button goes away and saving is unblocked once the rest is accepted.
+    expect(within(toolbar).queryByRole('button', { name: /Reject unmatched/ })).not.toBeInTheDocument();
+    await user.click(within(dialog()).getByRole('button', { name: 'Accept all (7)' }));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+  });
+
+  it('offers the same action in the save hint', async () => {
+    const { api, user } = setup({ existing: [unmatchedIntake()] });
+    await screen.findByTestId('lab-report-review');
+    expect(screen.getByTestId('lab-report-save-hint')).toHaveTextContent('2 results are not in the lab catalog');
+    await user.click(screen.getByTestId('lab-report-hint-reject-unmatched'));
+    const confirm = await screen.findByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Reject unmatched' }));
+    await waitFor(() => expect(rejectRequests(api)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId('lab-report-hint-reject-unmatched')).not.toBeInTheDocument());
+    expect(screen.getByTestId('lab-report-save-hint')).not.toHaveTextContent('not in the lab catalog');
+  });
+
+  it('has no button when every result is matched', async () => {
+    const intake = readyIntake();
+    intake.items = intake.items.filter((item) => item.value.analyteKey !== null);
+    setup({ existing: [intake] });
+    await screen.findByTestId('lab-report-review');
+    expect(screen.queryByRole('button', { name: /Reject unmatched/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lab-report-hint-reject-unmatched')).not.toBeInTheDocument();
   });
 });

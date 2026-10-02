@@ -22,6 +22,9 @@
  * the user that carried the given result's previous unit. A result
  * `mapRefusal` refuses is skipped (a 400 when it is the given one); the
  * answer is `{ items, skipped }`.
+ *
+ * #311: `POST /api/measurements/lab-reports/:id/reject-unmatched` rejects
+ * every non-rejected result with no analyte and answers `{ items }`.
  */
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
@@ -576,6 +579,16 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
         skipped: skipped.map((skip) => skip.itemId),
       });
       return HttpResponse.json({ data: { items: mapped, skipped } });
+    }),
+
+    http.post('*/api/measurements/lab-reports/:intakeId/reject-unmatched', async ({ request, params }) => {
+      const id = String(params.intakeId);
+      await record(request, `/api/measurements/lab-reports/${id}/reject-unmatched`);
+      const intake = state.intakes.get(id);
+      if (!intake) return notFound();
+      const rejected = intake.items.filter((item) => item.status !== 'rejected' && item.value.analyteKey === null);
+      for (const item of rejected) item.status = 'rejected';
+      return HttpResponse.json({ data: { items: rejected } });
     }),
 
     http.get('*/api/measurements/lab-reports/:intakeId/duplicates', async ({ request, params }) => {
