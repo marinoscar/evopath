@@ -264,8 +264,8 @@ describe('CoachMessageBubble', () => {
     });
 
     function recordAudio(
-      post: () => Response = () => HttpResponse.json({ data: { status: 'pending', runId: 'r' } }, { status: 202 }),
-      get: () => Response = () => HttpResponse.json({ data: mockCoachAudioReady() }),
+      post: () => Response | Promise<Response> = () => HttpResponse.json({ data: { status: 'pending', runId: 'r' } }, { status: 202 }),
+      get: () => Response | Promise<Response> = () => HttpResponse.json({ data: mockCoachAudioReady() }),
     ) {
       const calls = { posts: 0, gets: 0 };
       server.use(
@@ -312,7 +312,16 @@ describe('CoachMessageBubble', () => {
     });
 
     it('creates audio only on press: POST, Creating audio…, poll, then plays', async () => {
-      const calls = recordAudio();
+      // Hold the POST open so the "creating" state is observable deterministically,
+      // instead of racing a mocked response that can settle before the assertion.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const calls = recordAudio(async () => {
+        await gate;
+        return HttpResponse.json({ data: { status: 'pending', runId: 'r' } }, { status: 202 });
+      });
       const user = userEvent.setup();
       const { container } = render(
         <CoachMessageBubble message={mockCoachMessage()} persona={persona} speechEnabled />,
@@ -321,9 +330,13 @@ describe('CoachMessageBubble', () => {
       expect(calls.posts).toBe(0);
 
       await user.click(screen.getByRole('button', { name: COACH_LISTEN_LABEL }));
+      await waitFor(() => expect(calls.posts).toBe(1));
       expect(screen.getByTestId('coach-audio-status')).toHaveTextContent(COACH_AUDIO_MESSAGES.creating);
       expect(screen.getByRole('button', { name: COACH_LISTEN_LABEL })).toHaveAttribute('aria-busy', 'true');
+      expect(container.querySelector('audio')).toBeNull();
+      expect(calls.gets).toBe(0);
 
+      release();
       await waitFor(() => expect(container.querySelector('audio')).not.toBeNull());
       expect(container.querySelector('audio')).toHaveAttribute('src', mockSignedUrl(COACH_AUDIO_OBJECT_ID));
       expect(screen.getByText(AI_GENERATED_AUDIO_LABEL)).toBeInTheDocument();
