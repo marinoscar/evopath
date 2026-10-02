@@ -150,6 +150,36 @@ describe('BodyMetricReadingHandler (E2.6)', () => {
     );
   });
 
+  it('warns on AI_INVALID_REQUEST with the whitelisted provider details only (#301)', async () => {
+    const cause = new Error('Invalid file https://files.example/secret?sig=abc for key sk-live-123');
+    respondStructured.mockRejectedValueOnce(
+      new AiError('AI_INVALID_REQUEST', 'The AI provider rejected the request.', {
+        cause,
+        details: {
+          provider: 'openai',
+          status: 400,
+          providerCode: 'invalid_value',
+          providerType: 'invalid_request_error',
+          param: 'file',
+          providerRequestId: 'req_123',
+          url: 'https://files.example/secret',
+        },
+      }),
+    );
+
+    await expect(handler.process(job())).resolves.toBeUndefined();
+
+    const warn = Logger.prototype.warn as jest.Mock;
+    const line = String(warn.mock.calls.find(([msg]) => String(msg).includes('Photo intake'))?.[0]);
+
+    expect(line).toContain(`Photo intake ${INTAKE_ID} ended with AI_INVALID_REQUEST`);
+    expect(line).toContain(
+      'status=400 providerCode="invalid_value" providerType="invalid_request_error" param="file" providerRequestId="req_123"',
+    );
+    expect(line).not.toMatch(/https?:|sk-live|sig=|rejected the request/);
+    expect(Logger.prototype.log).not.toHaveBeenCalledWith(expect.stringContaining('ended with'));
+  });
+
   it('hands every mapped reading to replaceAiDrafts with diagnostics-only resultMeta', async () => {
     await handler.process(job());
 

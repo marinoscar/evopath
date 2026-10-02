@@ -196,3 +196,33 @@ export class AiError extends HttpException implements SelfClassifyingRateLimit {
     return new AiError(code, message, { cause: err });
   }
 }
+
+/**
+ * The provider metadata in an `AiError`'s `details` that is safe to log —
+ * the HTTP status and the provider's own short error code, type, offending
+ * parameter and request id (issue #301) — and nothing else: never the cause's
+ * message, a URL, or key material. Fields an error does not carry are left
+ * out; string values are capped and quoted so no provider string can forge a
+ * log line.
+ */
+export const AI_ERROR_LOG_DETAIL_KEYS = ['status', 'providerCode', 'providerType', 'param', 'providerRequestId'] as const;
+
+const AI_ERROR_LOG_VALUE_MAX = 120;
+
+/** `status=400 providerCode="…" …` for `error`, or `''` when it carries none of the safe fields. */
+export function aiErrorLogDetails(error: AiError): string {
+  const details: Record<string, unknown> = (error.getResponse() as Partial<AiErrorBody>).details ?? {};
+  const parts: string[] = [];
+
+  for (const key of AI_ERROR_LOG_DETAIL_KEYS) {
+    const value = details[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      parts.push(`${key}=${value}`);
+    } else if (typeof value === 'string' && value.length > 0) {
+      parts.push(`${key}=${JSON.stringify(value.slice(0, AI_ERROR_LOG_VALUE_MAX))}`);
+    }
+  }
+
+  return parts.join(' ');
+}

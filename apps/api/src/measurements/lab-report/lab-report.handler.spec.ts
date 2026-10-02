@@ -175,6 +175,36 @@ describe('LabReportHandler (H4, #188)', () => {
     expect(intakes.replaceAiDrafts).not.toHaveBeenCalled();
   });
 
+  it('warns on AI_INVALID_REQUEST with the whitelisted provider details only (#301)', async () => {
+    const cause = new Error('Invalid file https://files.example/secret?sig=abc for key sk-live-123');
+    respondStructured.mockRejectedValueOnce(
+      new AiError('AI_INVALID_REQUEST', 'The AI provider rejected the request.', {
+        cause,
+        details: {
+          provider: 'openai',
+          status: 400,
+          providerCode: 'invalid_value',
+          providerType: 'invalid_request_error',
+          param: 'file',
+          providerRequestId: 'req_123',
+          url: 'https://files.example/secret',
+        },
+      }),
+    );
+
+    await expect(handler.process(job())).resolves.toBeUndefined();
+
+    const warn = Logger.prototype.warn as jest.Mock;
+    const line = String(warn.mock.calls.find(([msg]) => String(msg).includes('Lab report intake'))?.[0]);
+
+    expect(line).toContain(`Lab report intake ${INTAKE_ID} ended with AI_INVALID_REQUEST`);
+    expect(line).toContain(
+      'status=400 providerCode="invalid_value" providerType="invalid_request_error" param="file" providerRequestId="req_123"',
+    );
+    expect(line).not.toMatch(/https?:|sk-live|sig=|rejected the request/);
+    expect(Logger.prototype.log).not.toHaveBeenCalledWith(expect.stringContaining('ended with'));
+  });
+
   it('defers on a rate limit, leaving the intake scanning', async () => {
     respondStructured.mockRejectedValue(new AiError('AI_RATE_LIMITED', 'slow down', { retryAfterMs: 1000 }));
 

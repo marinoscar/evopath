@@ -2,7 +2,7 @@ import { ArgumentsHost, HttpException } from '@nestjs/common';
 
 import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
 import { CLASSIFY_RATE_LIMIT, classifyRateLimit, RateLimitError } from '../../jobs/rate-limit.error';
-import { AI_ERROR_CODES, AI_ERROR_STATUS, AiError, isAiErrorCode } from './ai-error';
+import { AI_ERROR_CODES, AI_ERROR_STATUS, AiError, aiErrorLogDetails, isAiErrorCode } from './ai-error';
 
 const SECRET = 'sk-test-SENTINEL-DO-NOT-LEAK-1234567890';
 
@@ -243,5 +243,41 @@ describe('AiError', () => {
     expect(isAiErrorCode('AI_DISABLED')).toBe(true);
     expect(isAiErrorCode('toString')).toBe(false);
     expect(isAiErrorCode(42)).toBe(false);
+  });
+});
+
+describe('aiErrorLogDetails (#301)', () => {
+  it('renders only the whitelisted provider fields, in a fixed order', () => {
+    const err = new AiError('AI_INVALID_REQUEST', 'rejected', {
+      cause: new Error(`bad key ${SECRET}`),
+      details: {
+        providerRequestId: 'req_1',
+        param: 'input[0].content[1]',
+        provider: 'openai',
+        url: 'https://example.test/x?sig=1',
+        status: 400,
+        providerType: 'invalid_request_error',
+        providerCode: 'invalid_value',
+        key: SECRET,
+      },
+    });
+
+    expect(aiErrorLogDetails(err)).toBe(
+      'status=400 providerCode="invalid_value" providerType="invalid_request_error" ' +
+        'param="input[0].content[1]" providerRequestId="req_1"',
+    );
+  });
+
+  it('is empty for an error without provider details', () => {
+    expect(aiErrorLogDetails(new AiError('AI_DISABLED', 'off'))).toBe('');
+  });
+
+  it('quotes and caps string values so a provider string cannot forge a log line', () => {
+    const line = aiErrorLogDetails(
+      new AiError('AI_INVALID_REQUEST', 'x', { details: { providerCode: `a\nFAKE ${'z'.repeat(500)}` } }),
+    );
+
+    expect(line).not.toContain('\n');
+    expect(line.length).toBeLessThan(160);
   });
 });
