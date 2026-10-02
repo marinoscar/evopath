@@ -433,6 +433,8 @@ export interface CoachStateView {
   streakPassesLeft: number;
   nextSession: { date: string; name: string; programWorkoutId: string } | null;
   unreadCount: number;
+  /** When the caller last started the chat over (#323); the timeline lists only messages after it. */
+  chatClearedAt: string | null;
 }
 
 export function getCoachState(): Promise<CoachStateView> {
@@ -484,6 +486,19 @@ export function getCoachMessages(params: { before?: string; limit?: number } = {
   if (params.before) query.set('before', params.before);
   query.set('limit', String(params.limit ?? COACH_TIMELINE_PAGE_SIZE));
   return api.get<CoachTimelinePage>(`/coach/messages?${query.toString()}`);
+}
+
+// -----------------------------------------------------------------------------
+// POST /api/coach/chat/clear (#323)
+// -----------------------------------------------------------------------------
+
+/**
+ * "Start over": a soft clear. The timeline, the chat history the coach sees
+ * and the nudge context then hold only messages after now; nothing is deleted
+ * and memories and settings stay. Idempotent; answers 204.
+ */
+export function clearCoachChat(): Promise<void> {
+  return api.post<void>('/coach/chat/clear');
 }
 
 /** A message id as the API mints them; the `?m=` deep link is validated against it. */
