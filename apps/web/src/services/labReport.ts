@@ -1,7 +1,7 @@
 /**
  * Lab report extraction, H4 (#188): the `lab_report` kind of the photo-intake
- * kit (`services/intake.ts`) and its one helper route, as the web app sees
- * them. Design: docs/specs/health-records.md §2.10.
+ * kit (`services/intake.ts`) and its helper routes (the duplicate warning;
+ * #307: map one result and every same-named one), as the web app sees them. Design: docs/specs/health-records.md §2.10.
  *
  * A lab report (a PDF from a patient portal, or photos of the pages) is read
  * by the server into one draft item per printed result. The SERVER matches
@@ -142,6 +142,138 @@ export interface LabReportDuplicates {
 /** The duplicate warning (`health_data:read` + `intakes:read`). Apply never de-duplicates. */
 export function getLabReportDuplicates(intakeId: string): Promise<LabReportDuplicates> {
   return api.get<LabReportDuplicates>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/duplicates`);
+}
+
+/** One result the map left unchanged, with the server's reason (#307). */
+export interface LabReportMapSkipped {
+  itemId: string;
+  message: string;
+}
+
+/** `POST /api/measurements/lab-reports/:intakeId/map` (#307). */
+export interface LabReportMapResult {
+  /** Every result the server mapped: the one picked and each same-named one. */
+  items: DraftItemView<LabReportValue>[];
+  /** Same-named results it could not map (e.g. a unit the analyte does not take). */
+  skipped: LabReportMapSkipped[];
+}
+
+/** What `mapLabResult` carries to every same-named result: at least one of the two. */
+export type LabReportMapChange = { analyteKey: string; unit?: string } | { analyteKey?: string; unit: string };
+
+/**
+ * "Map once, apply to all" (#307): set the analyte and/or the unit of one
+ * result; the SERVER applies the same change to every other result of the
+ * intake printed under the same name (it picks which: not rejected, not
+ * already changed by the user another way) in one transaction,
+ * re-normalising each like an edit. The given result is a no-op when it
+ * already carries the change. A 400 means the given result itself could not
+ * take it (`intakes:write` + `health_data:write`).
+ */
+export function mapLabResult(intakeId: string, itemId: string, change: LabReportMapChange): Promise<LabReportMapResult> {
+  return api.post<LabReportMapResult>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/map`, {
+    itemId,
+    ...(change.analyteKey !== undefined ? { analyteKey: change.analyteKey } : {}),
+    ...(change.unit !== undefined ? { unit: change.unit } : {}),
+  });
+}
+
+/** `POST /api/measurements/lab-reports/:intakeId/reject-unmatched` (#311). */
+export interface LabReportRejectUnmatchedResult {
+  /** The results the server rejected. */
+  items: DraftItemView<LabReportValue>[];
+}
+
+/**
+ * Reject every result of the intake that is not mapped to an analyte (#311).
+ * The SERVER picks them (not rejected, `analyteKey` null; a suggested match is
+ * left alone). Each can be restored one by one.
+ */
+export function rejectUnmatchedLabResults(intakeId: string): Promise<LabReportRejectUnmatchedResult> {
+  return api.post<LabReportRejectUnmatchedResult>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/reject-unmatched`);
+}
+
+/** "Rejected 3 unmatched results". */
+export function labRejectedUnmatchedMessage(count: number): string {
+  if (count === 0) return 'No unmatched results to reject';
+  return `Rejected ${count} unmatched ${count === 1 ? 'result' : 'results'}`;
+}
+
+/** A printed name as the review compares it: trimmed, lower-case, single spaces. The server decides. */
+export function foldPrintedName(name: string | null | undefined): string {
+  return (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * The other results of the review printed under the same name as `item`
+ * that are not rejected: whether an edit is worth carrying over (#307).
+ */
+export function sameNamedOthers<T extends Pick<DraftItemView<LabReportValue>, 'id' | 'status' | 'value'>>(
+  items: readonly T[],
+  item: Pick<DraftItemView<LabReportValue>, 'id' | 'value'>,
+): T[] {
+  const name = foldPrintedName(item.value.nameAsPrinted);
+  if (!name) return [];
+  return items.filter(
+    (other) => other.id !== item.id && other.status !== 'rejected' && foldPrintedName(other.value.nameAsPrinted) === name,
+  );
+}
+
+/**
+ * The change an edit makes that same-named results should share: the analyte
+ * and/or the unit when they differ from before; `null` when neither changed.
+ */
+export function labEditChange(
+  previous: Pick<LabReportValue, 'analyteKey' | 'unit'>,
+  next: Pick<LabReportValue, 'analyteKey' | 'unit'>,
+): LabReportMapChange | null {
+  const analyteKey = next.analyteKey && next.analyteKey !== previous.analyteKey ? next.analyteKey : undefined;
+  const unit = next.unit && next.unit !== previous.unit ? next.unit : undefined;
+  if (analyteKey !== undefined) return { analyteKey, ...(unit !== undefined ? { unit } : {}) };
+  if (unit !== undefined) return { unit };
+  return null;
+}
+
+/**
+ * What the review says after a map: "Mapped 5 results named “Chol/HDL Ratio”
+ * to Cholesterol/HDL ratio", plus "2 could not be mapped" when the server
+ * skipped some. `null` when one result was mapped and nothing was skipped
+ * (the row itself shows it).
+ */
+export function labMappedMessage(
+  result: LabReportMapResult,
+  nameAsPrinted: string | null,
+  analyteLabel: string,
+): { message: string; severity: 'success' | 'warning' } | null {
+  const mapped = result.items.length;
+  const skipped = result.skipped.length;
+  if (mapped <= 1 && skipped === 0) return null;
+  const named = nameAsPrinted ? ` named “${nameAsPrinted}”` : '';
+  const parts: string[] = [];
+  if (mapped > 1) parts.push(`Mapped ${mapped} results${named} to ${analyteLabel}`);
+  else if (mapped === 1) parts.push(nameAsPrinted ? `Mapped “${nameAsPrinted}” to ${analyteLabel}` : `Mapped 1 result to ${analyteLabel}`);
+  if (skipped > 0) parts.push(`${skipped} could not be mapped`);
+  return { message: parts.join('. '), severity: skipped > 0 ? 'warning' : 'success' };
+}
+
+/**
+ * What the review says after an edit was carried to same-named results:
+ * "Updated 4 other results named “Glucose”", plus "1 could not be updated".
+ * `null` when no other result changed and none was skipped.
+ */
+export function labPropagatedMessage(
+  result: LabReportMapResult,
+  editedId: string,
+  nameAsPrinted: string | null,
+): { message: string; severity: 'success' | 'warning' } | null {
+  const others = result.items.filter((item) => item.id !== editedId).length;
+  const skipped = result.skipped.length;
+  if (others === 0 && skipped === 0) return null;
+  const named = nameAsPrinted ? ` named “${nameAsPrinted}”` : '';
+  const parts: string[] = [];
+  if (others > 0) parts.push(`Updated ${others} other ${others === 1 ? 'result' : 'results'}${named}`);
+  if (skipped > 0) parts.push(`${skipped} could not be updated`);
+  return { message: parts.join('. '), severity: skipped > 0 ? 'warning' : 'success' };
 }
 
 // -----------------------------------------------------------------------------

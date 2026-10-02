@@ -16,7 +16,7 @@ import { setUnits } from '../helpers/profile.helper';
  * `ai.health.lab_report` and matches and converts each result; the fake
  * answers every `lab_report` request with `lab-report-panel`
  * (`apps/api/test/fixtures/lab-report/lipid-glucose-panel.model-output.json`):
- * collected 2026-09-15, four lipids, an unmatched "Lipoprotein (a)", glucose
+ * collected 2026-09-15, four lipids, an unmatched "Apolipoprotein A1", glucose
  * 5.4 mmol/L (drafted as 97.2973 mg/dL) and HbA1c.
  *
  * The fake's queue and request log are global, like `health-photo-read.spec.ts`
@@ -101,7 +101,7 @@ test.describe('Health: import a lab report with the fake vision provider', () =>
     await resetFake();
   });
 
-  test('a PDF is read into a review by panel; the unmatched row blocks saving; a re-import warns about duplicates', async ({ page }) => {
+  test('a PDF is read into a review by panel; the unmatched row blocks saving; a re-import marks the already-saved results', async ({ page }) => {
     const { api } = await signIn(page, 'contributor', 'lab-report');
     await setUnits(api, 'metric');
     await page.setViewportSize(DESKTOP);
@@ -126,7 +126,7 @@ test.describe('Health: import a lab report with the fake vision provider', () =>
     await expect(glucose.getByTestId('lab-result-original')).toContainText('Printed 5.4 mmol/L');
 
     // The unmatched row is highlighted and blocks saving until it is resolved.
-    const lpa = review.getByTestId('lab-result-row').filter({ hasText: 'Lipoprotein (a)' });
+    const lpa = review.getByTestId('lab-result-row').filter({ hasText: 'Apolipoprotein A1' });
     await expect(lpa).toHaveAttribute('data-attention', 'true');
     await expect(lpa).toHaveAttribute('data-unresolved', 'true');
     await expect(dialog.getByTestId('lab-report-save-hint')).toContainText('not in the lab catalog');
@@ -136,16 +136,22 @@ test.describe('Health: import a lab report with the fake vision provider', () =>
     await expect(dialog).toBeHidden({ timeout: 30_000 });
     await expect(page.getByText('Saved 6 lab results to Health')).toBeVisible();
 
-    // The same report again: the duplicate warning, and an explicit Save anyway.
+    // The same report again: the already-saved rows are marked and need a decision (#308).
     await resetFake();
     const again = await importReport(page);
-    const warning = again.dialog.getByTestId('lab-report-duplicates');
-    await expect(warning).toBeVisible({ timeout: 30_000 });
-    await expect(warning).toContainText('Total cholesterol');
+    const bar = again.dialog.getByTestId('lab-report-duplicates');
+    await expect(bar).toBeVisible({ timeout: 30_000 });
+    await expect(bar).toContainText(/\d+ results? (is|are) already saved/);
+    const cholesterol = again.review.getByTestId('lab-result-row').filter({ hasText: 'Cholesterol, Total' });
+    await expect(cholesterol.getByTestId('lab-result-already-saved')).toContainText('Already saved · Sep 15, 2026');
+    await expect(again.dialog.getByRole('button', { name: 'Save to Health', exact: true })).toBeDisabled();
+    await expect(again.dialog.getByTestId('lab-report-save-hint')).toContainText(/already-saved|not in the lab catalog/);
+    // Every result of the report is already saved, so keep them all: Save all again, then save as before.
+    await bar.getByRole('button', { name: /^Save all \d+ again$/ }).click();
+    await expect(again.dialog.getByTestId('lab-report-duplicates')).toBeHidden();
+    await expect(again.dialog.getByTestId('lab-report-duplicate-summary')).toContainText('will be saved again');
     await resolveAndAccept(again.dialog);
     await again.dialog.getByRole('button', { name: 'Save to Health', exact: true }).click();
-    await expect(again.dialog).toBeVisible();
-    await warning.getByRole('button', { name: 'Save anyway' }).click();
     await expect(again.dialog).toBeHidden({ timeout: 30_000 });
   });
 

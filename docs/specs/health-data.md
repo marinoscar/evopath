@@ -150,7 +150,7 @@ The shared method list is `unspecified`, `scale`, `smart_scale`, `bia`, `dexa`, 
 
 Readings saved together (a blood-pressure pair; weight with body fat and waist) share an `entryId` and one `measuredAt`. Create, edit and delete work on a whole entry and are atomic.
 
-`POST /api/measurements` takes `measuredAt` (default now), `notes` and 1 to 6 body/vital `readings` of `{ metricKey, value, unit?, method? }` (or 1 to 40 lab results, see [health-records.md 2.8](health-records.md#28-blood-work-lab-results)), and answers `201` with `{ entryId, items }`. The body is strict Zod: an unknown property is a `400`. A `400` names every failing field under `details.issues` ([API.md](../API.md#errors)), never the submitted value.
+`POST /api/measurements` takes `measuredAt` (default now), `notes` and 1 to 6 body/vital `readings` of `{ metricKey, value, unit?, method? }` (or 1 to 150 lab results, see [health-records.md 2.8](health-records.md#28-blood-work-lab-results)), and answers `201` with `{ entryId, items }`. The body is strict Zod: an unknown property is a `400`. A `400` names every failing field under `details.issues` ([API.md](../API.md#errors)), never the submitted value.
 
 | Rule | Detail |
 |---|---|

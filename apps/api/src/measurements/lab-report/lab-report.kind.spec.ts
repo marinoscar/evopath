@@ -264,9 +264,9 @@ describe('LabReportIntakeKind (H4, #188)', () => {
       expect(issues.map((i: any) => i.path)).toEqual([`items.${noNumber.id}.value.value`, `items.${twice.id}.value.analyteKey`]);
       expect(JSON.stringify(issues)).not.toContain('97.2973');
 
-      const many = Array.from({ length: 41 }, () => item(glucose()));
+      const many = Array.from({ length: 151 }, () => item(glucose()));
       const tooMany = await apply(many).catch((e) => e);
-      expect(JSON.stringify(tooMany.getResponse())).toContain('at most 40 results');
+      expect(JSON.stringify(tooMany.getResponse())).toContain('at most 150 results');
     });
 
     it('answers an empty result when every item was rejected', async () => {
@@ -355,23 +355,24 @@ describe('LabReportIntakeKind (H4, #188)', () => {
         expect(created()).toHaveLength(2); // only the first, valid apply wrote
       });
 
-      it('applies the 40-result cap per date, naming the date', async () => {
+      it('applies the 150-result cap per date, naming the date', async () => {
         const keys = ['total_cholesterol', 'ldl_cholesterol', 'hdl_cholesterol', 'triglycerides'];
-        const dates = Array.from({ length: 11 }, (_, i) => `2025-0${(i % 9) + 1}-1${Math.floor(i / 9)}`);
-        // 44 results over 11 dates (4 per date): allowed, though more than 40 in total.
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const dates = Array.from({ length: 40 }, (_, i) => `2025-${pad((i % 12) + 1)}-${pad(Math.floor(i / 12) + 1)}`);
+        // 160 results over 40 dates (4 per date): allowed, though more than 150 in total.
         const spread = dates.flatMap((date) =>
           keys.map((key) => item(labReportValueSchema.parse({ analyteKey: key, value: 100, unit: 'mg/dL', collectionDate: date }))),
         );
         await expect(apply(spread)).resolves.toMatchObject({ items: expect.any(Array) });
-        expect(created()).toHaveLength(44);
+        expect(created()).toHaveLength(160);
 
-        const crowded = Array.from({ length: 41 }, () =>
+        const crowded = Array.from({ length: 151 }, () =>
           item(labReportValueSchema.parse({ analyteKey: 'albumin', value: 4, unit: 'g/dL', collectionDate: '2025-11-19' })),
         );
         const error = await apply(crowded).catch((e) => e);
         const messages = error.getResponse().details.issues.map((i: any) => i.message);
         expect(messages).toContain(
-          'One collection date saves at most 40 results; 41 are accepted on 2025-11-19, reject 1 of them',
+          'One collection date saves at most 150 results; 151 are accepted on 2025-11-19, reject 1 of them',
         );
       });
     });

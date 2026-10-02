@@ -260,12 +260,14 @@ describe('OpenAPI document', () => {
         'get /api/measurements/{id}/revisions',
         'patch /api/measurements/entries/{entryId}',
         'post /api/measurements',
+        'post /api/measurements/lab-reports/{intakeId}/map',
+        'post /api/measurements/lab-reports/{intakeId}/reject-unmatched',
       ]);
 
       for (const { method, path, operation } of measurementOps) {
         const rbac = operation[RBAC_EXTENSION_KEY] as { permissions: string[] } | undefined;
-        // The lab report duplicate warning also reads an intake (H4, #188).
-        const extra = path.startsWith('/api/measurements/lab-reports/') ? ['intakes:read'] : [];
+        // The lab report duplicate warning also reads an intake (H4, #188); its map-to-analyte edits one (#307).
+        const extra = path.startsWith('/api/measurements/lab-reports/') ? [method === 'get' ? 'intakes:read' : 'intakes:write'] : [];
         expect(rbac?.permissions).toEqual([
           method === 'get' ? 'health_data:read' : 'health_data:write',
           ...extra,

@@ -3,12 +3,15 @@
  * drafts are SHOWN in the preferred unit with their ranges, the review says
  * which unit system it uses, a newly chosen analyte pre-selects the preferred
  * unit, and an edit is sent in whatever unit the user picks. Conventional is
- * the default and leaves the output as it was.
+ * the default and leaves the output as it was. #307: the map picker calls
+ * `onMapItem` when given, else edits the one result. #308: the already-saved
+ * badge with Skip and Save again. #311: the reject-unmatched confirmation
+ * keeps its count while it closes.
  */
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen, within } from '../../utils/test-utils';
-import { LabReportReview } from '../../../components/health/LabReportReview';
+import { render, screen, waitFor, within } from '../../utils/test-utils';
+import { LabReportReview, RejectUnmatchedConfirm, alreadySavedLabel } from '../../../components/health/LabReportReview';
 import type { LabUnits } from '../../../utils/labUnits';
 import { labItem, labValue, mockLabCatalog } from '../../mocks/fixtures/labReportIntake';
 
@@ -115,5 +118,130 @@ describe('LabReportReview: lab units', () => {
     await user.type(within(add).getByRole('combobox', { name: 'Analyte' }), 'LDL');
     await user.click(await screen.findByRole('option', { name: /^LDL cholesterol/ }));
     expect(within(add).getByRole('combobox', { name: 'Unit' })).toHaveTextContent('mg/dL');
+  });
+});
+
+describe('LabReportReview: map an unmatched result (#307)', () => {
+  const unmatched = () =>
+    labItem(labValue({ nameAsPrinted: 'Chol/HDL Ratio', value: 3.9, unit: null, panel: 'lipids', match: 'unmatched' }), {
+      sourcePhotoIds: [],
+    });
+  const handlers = () => ({
+    onAcceptItem: vi.fn(),
+    onRejectItem: vi.fn(),
+    onRestoreItem: vi.fn(),
+    onEditItem: vi.fn(),
+    onAddItem: vi.fn(),
+    onAcceptAll: vi.fn(),
+    onAcceptHighConfidence: vi.fn(),
+  });
+  const pick = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.type(screen.getByRole('combobox', { name: 'Map “Chol/HDL Ratio” to an analyte' }), 'TC/HDL');
+    await user.click(await screen.findByRole('option', { name: /Cholesterol\/HDL ratio/ }));
+  };
+
+  it('calls onMapItem with the item and the analyte, not an edit', async () => {
+    const item = unmatched();
+    const props = handlers();
+    const onMapItem = vi.fn();
+    const user = userEvent.setup();
+    render(<LabReportReview items={[item]} photos={[]} catalog={mockLabCatalog} {...props} onMapItem={onMapItem} />);
+    await pick(user);
+    expect(onMapItem).toHaveBeenCalledWith(item.id, 'chol_hdl_ratio');
+    expect(props.onEditItem).not.toHaveBeenCalled();
+  });
+
+  it('without onMapItem, the map is an edit of the one result', async () => {
+    const item = unmatched();
+    const props = handlers();
+    const user = userEvent.setup();
+    render(<LabReportReview items={[item]} photos={[]} catalog={mockLabCatalog} {...props} />);
+    await pick(user);
+    expect(props.onEditItem).toHaveBeenCalledWith(item.id, expect.objectContaining({ analyteKey: 'chol_hdl_ratio' }));
+  });
+});
+
+describe('LabReportReview: already-saved results (#308)', () => {
+  const handlers = () => ({
+    onAcceptItem: vi.fn(),
+    onRejectItem: vi.fn(),
+    onRestoreItem: vi.fn(),
+    onEditItem: vi.fn(),
+    onAddItem: vi.fn(),
+    onAcceptAll: vi.fn(),
+    onAcceptHighConfidence: vi.fn(),
+  });
+
+  it('labels the badge with text, and only on non-rejected duplicate rows', async () => {
+    const dup = glucose();
+    const rejected = labItem(labValue({ analyteKey: 'hba1c', nameAsPrinted: 'A1c', value: 6, unit: '%', panel: 'glycemic' }), {
+      status: 'rejected',
+      sourcePhotoIds: [],
+    });
+    const onSkipDuplicate = vi.fn();
+    const onKeepDuplicate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LabReportReview
+        items={[dup, hba1c(), rejected]}
+        photos={[]}
+        catalog={mockLabCatalog}
+        {...handlers()}
+        duplicateDates={new Map([[dup.id, '2025-11-19'], [rejected.id, null]])}
+        onSkipDuplicate={onSkipDuplicate}
+        onKeepDuplicate={onKeepDuplicate}
+      />,
+    );
+    const badges = screen.getAllByTestId('lab-result-already-saved');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent('Already saved · Nov 19, 2025');
+    expect(rowFor('Glucose')).toHaveAttribute('data-duplicate', 'true');
+    expect(rowFor('Hemoglobin A1c')).toHaveAttribute('data-duplicate', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'Skip Glucose' }));
+    expect(onSkipDuplicate).toHaveBeenCalledWith(dup.id);
+    const again = screen.getByRole('button', { name: 'Save again Glucose' });
+    expect(again).toHaveAttribute('aria-pressed', 'false');
+    await user.click(again);
+    expect(onKeepDuplicate).toHaveBeenCalledWith(dup.id);
+  });
+
+  it('shows a kept duplicate as pressed, saying it will be saved again', () => {
+    const dup = glucose();
+    render(
+      <LabReportReview
+        items={[dup]}
+        photos={[]}
+        catalog={mockLabCatalog}
+        {...handlers()}
+        duplicateDates={new Map([[dup.id, null]])}
+        keptDuplicateIds={new Set([dup.id])}
+        onSkipDuplicate={vi.fn()}
+        onKeepDuplicate={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('lab-result-already-saved')).toHaveTextContent('Already saved · will be saved again');
+    expect(screen.getByRole('button', { name: 'Save again Glucose' })).toHaveAttribute('aria-pressed', 'true');
+    expect(alreadySavedLabel(null)).toBe('Already saved');
+  });
+});
+
+describe('RejectUnmatchedConfirm (#311)', () => {
+  it('keeps the count it opened with while it closes', async () => {
+    const props = { onCancel: vi.fn(), onConfirm: vi.fn() };
+    const { rerender } = render(<RejectUnmatchedConfirm open count={2} {...props} />);
+    expect(screen.getByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' })).toBeInTheDocument();
+
+    // Confirmed: the results are rejected (count 0) while the dialog fades out.
+    rerender(<RejectUnmatchedConfirm open={false} count={0} {...props} />);
+    expect(screen.getByText('Reject 2 results that are not in the lab catalog?')).toBeInTheDocument();
+    expect(screen.queryByText(/Reject 0 results/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/not in the lab catalog\?$/)).not.toBeInTheDocument());
+
+    // Opened again later: the new count.
+    rerender(<RejectUnmatchedConfirm open count={1} {...props} />);
+    expect(screen.getByRole('dialog', { name: 'Reject 1 result that is not in the lab catalog?' })).toHaveTextContent(
+      'It can be restored from Rejected.',
+    );
   });
 });

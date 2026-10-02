@@ -36,8 +36,13 @@ import {
 // =============================================================================
 
 export const MAX_READINGS_PER_ENTRY = 6;
-/** A lab entry is one report (a panel or several): at most this many analytes. */
-export const MAX_LAB_READINGS_PER_ENTRY = 40;
+/**
+ * A lab entry is one collection date of a report (a panel or several): at
+ * most this many analytes. 150 (#309) holds a full portal report on one date
+ * (CBC with differential, CMP, lipids, thyroid and more: about 60-80 results)
+ * with room to spare; the request body stays far below Fastify's 1 MiB limit.
+ */
+export const MAX_LAB_READINGS_PER_ENTRY = 150;
 export const REFERENCE_TEXT_MAX = 100;
 /** The lab's own flag on a result (H3, #187). Stored as text; Zod is the guard. */
 export const MEASUREMENT_FLAGS = ['low', 'normal', 'high', 'critical', 'unknown'] as const;

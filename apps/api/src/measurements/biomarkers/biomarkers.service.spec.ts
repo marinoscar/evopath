@@ -107,7 +107,7 @@ describe('BiomarkersService', () => {
 
     const { items } = await service.summary(USER_ID, query({ panel: 'thyroid' }));
 
-    expect(sqlOf(prisma).values).toEqual([USER_ID, 'tsh', 'free_t4', 'free_t3']);
+    expect(sqlOf(prisma).values).toEqual([USER_ID, 'tsh', 'free_t4', 'free_t3', 'total_t4', 'total_t3', 'tpo_antibodies']);
     expect(items.map((item) => item.analyteKey)).toEqual(['tsh']);
   });
 

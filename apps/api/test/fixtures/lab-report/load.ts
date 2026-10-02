@@ -6,8 +6,8 @@ import { join } from 'node:path';
  *
  * `lipid-glucose-panel`: a one-document report collected 2026-09-15 by "Acme
  * Clinical Laboratories" with seven results: four lipids in mg/dL (resolved
- * from printed names and aliases), `Lipoprotein (a)` (NOT in the catalog: the
- * unmatched row), fasting glucose printed in mmol/L (converted to mg/dL) and
+ * from printed names and aliases), `Apolipoprotein A1` (NOT in the catalog:
+ * the unmatched row; Lp(a) was until #309), fasting glucose printed in mmol/L (converted to mg/dL) and
  * HbA1c in %. Every result carries its own `collectionDate` (the report's
  * date: a single-date report, #305).
  */

@@ -14,6 +14,17 @@
  * entry per effective date (the result's own date, else the report date, else
  * the time of apply), answering `entryIds`, `entries` and `measuredAtSource`
  * (`collection_date`, `mixed` or `apply_time`).
+ *
+ * #307: `POST /api/measurements/lab-reports/:id/map { itemId, analyteKey?,
+ * unit? }` applies the change to the given result and every same-named one
+ * (folded name; not rejected). An analyte change skips results user-mapped
+ * to another analyte; a unit-only change reaches only results not edited by
+ * the user that carried the given result's previous unit. A result
+ * `mapRefusal` refuses is skipped (a 400 when it is the given one); the
+ * answer is `{ items, skipped }`.
+ *
+ * #311: `POST /api/measurements/lab-reports/:id/reject-unmatched` rejects
+ * every non-rejected result with no analyte and answers `{ items }`.
  */
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
@@ -91,6 +102,8 @@ export const LAB_METRICS: MetricDef[] = [
     siUnit: 'µmol/L',
   }),
   lab('tsh', 'TSH', 'thyroid', 'mIU/L', [{ unit: 'µIU/mL', factor: 1 }], ['Thyrotropin', 'Thyroid stimulating hormone']),
+  // #307: a unitless ratio. Only some of the API's aliases, so a printed "Chol/HDL Ratio" stays unmatched here.
+  lab('chol_hdl_ratio', 'Cholesterol/HDL ratio', 'lipids', 'ratio', [], ['TC/HDL'], { max: 30 }),
 ];
 
 /** `GET /api/measurements/metrics` with the lab analytes appended. */
@@ -215,6 +228,13 @@ export interface LabIntakeApiOptions {
   duplicates?: (intake: PhotoIntakeView<LabReportValue, LabReportContext>) => LabReportDuplicate[];
   /** A refusal for an item PATCH, answered once. */
   itemPatchError?: { status: number; body: unknown };
+  /** #307: a refusal for the map route, answered once. */
+  mapError?: { status: number; body: unknown };
+  /**
+   * #307: why the server's write path would refuse mapping this result (the
+   * map skips it, or answers 400 for the picked one); default never.
+   */
+  mapRefusal?: (item: DraftItemView<LabReportValue>, metric: MetricDef) => string | null;
   /** The name the server reports for an attached file. */
   photoName?: string;
 }
@@ -225,6 +245,8 @@ export interface LabIntakeApiState {
   created: { kind: string; retainFiles?: boolean }[];
   itemPatches: { itemId: string; body: Record<string, unknown> }[];
   itemPosts: { kind: string; value: Partial<LabReportValue> }[];
+  /** #307: every map request, with the item ids the server mapped and skipped. */
+  maps: { itemId: string; analyteKey?: string; unit?: string; mapped: string[]; skipped: string[] }[];
   intakePatches: { id: string; body: Record<string, unknown> }[];
   duplicateChecks: number;
   applied: number;
@@ -237,11 +259,13 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
     created: [],
     itemPatches: [],
     itemPosts: [],
+    maps: [],
     intakePatches: [],
     duplicateChecks: 0,
     applied: 0,
   };
   let itemPatchError = options.itemPatchError;
+  let mapError = options.mapError;
   let uploads = 0;
 
   const view = (id: string) => {
@@ -484,6 +508,89 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
       });
     }),
 
+    http.post('*/api/measurements/lab-reports/:intakeId/map', async ({ request, params }) => {
+      const id = String(params.intakeId);
+      const body = (await record(request, `/api/measurements/lab-reports/${id}/map`)) as {
+        itemId: string;
+        analyteKey?: string;
+        unit?: string;
+      };
+      const intake = state.intakes.get(id);
+      const clicked = intake?.items.find((entry) => entry.id === body.itemId);
+      if (!intake || !clicked) return notFound();
+      if (mapError) {
+        const refusal = mapError;
+        mapError = undefined;
+        return HttpResponse.json(refusal.body, { status: refusal.status });
+      }
+      const metric = LAB_METRICS.find((m) => m.key === (body.analyteKey ?? clicked.value.analyteKey));
+      if (!metric || (body.analyteKey === undefined && body.unit === undefined)) {
+        return HttpResponse.json(
+          { code: 'BAD_REQUEST', message: 'Validation failed', details: { issues: [{ path: 'analyteKey', message: 'Not a lab analyte' }] } },
+          { status: 400 },
+        );
+      }
+      const fold = (name: string | null) => (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+      // The given result's unit before its edit (it may already carry the change).
+      const previousUnit = clicked.originalAiValue?.unit ?? clicked.value.unit;
+      const targets = intake.items.filter(
+        (item) =>
+          item.id === clicked.id ||
+          (fold(item.value.nameAsPrinted) === fold(clicked.value.nameAsPrinted) &&
+            item.status !== 'rejected' &&
+            (body.analyteKey !== undefined
+              ? !(item.value.match === 'user_mapped' && item.value.analyteKey !== null && item.value.analyteKey !== body.analyteKey)
+              : item.originalAiValue === null && item.value.unit === previousUnit)),
+      );
+      const refusal = (item: DraftItemView<LabReportValue>) => options.mapRefusal?.(item, metric) ?? null;
+      const clickedRefusal = refusal(clicked);
+      if (clickedRefusal) {
+        return HttpResponse.json(
+          { code: 'BAD_REQUEST', message: 'Validation failed', details: { issues: [{ path: 'value.unit', message: clickedRefusal }] } },
+          { status: 400 },
+        );
+      }
+      const mapped: DraftItemView<LabReportValue>[] = [];
+      const skipped: { itemId: string; message: string }[] = [];
+      for (const item of targets) {
+        const reason = refusal(item);
+        if (reason) {
+          skipped.push({ itemId: item.id, message: reason });
+          continue;
+        }
+        if (item.origin === 'ai' && item.originalAiValue === null) item.originalAiValue = item.value;
+        item.value = normalize(
+          {
+            ...(body.analyteKey !== undefined ? { analyteKey: body.analyteKey } : {}),
+            ...(body.unit !== undefined ? { unit: body.unit } : {}),
+          },
+          item.value,
+        );
+        item.userVerified = true;
+        item.uncertain = false;
+        item.uncertaintyNote = null;
+        mapped.push(item);
+      }
+      state.maps.push({
+        itemId: body.itemId,
+        ...(body.analyteKey !== undefined ? { analyteKey: body.analyteKey } : {}),
+        ...(body.unit !== undefined ? { unit: body.unit } : {}),
+        mapped: mapped.map((item) => item.id),
+        skipped: skipped.map((skip) => skip.itemId),
+      });
+      return HttpResponse.json({ data: { items: mapped, skipped } });
+    }),
+
+    http.post('*/api/measurements/lab-reports/:intakeId/reject-unmatched', async ({ request, params }) => {
+      const id = String(params.intakeId);
+      await record(request, `/api/measurements/lab-reports/${id}/reject-unmatched`);
+      const intake = state.intakes.get(id);
+      if (!intake) return notFound();
+      const rejected = intake.items.filter((item) => item.status !== 'rejected' && item.value.analyteKey === null);
+      for (const item of rejected) item.status = 'rejected';
+      return HttpResponse.json({ data: { items: rejected } });
+    }),
+
     http.get('*/api/measurements/lab-reports/:intakeId/duplicates', async ({ request, params }) => {
       const id = String(params.intakeId);
       await record(request, `/api/measurements/lab-reports/${id}/duplicates`);
@@ -544,4 +651,30 @@ export function cholesterolDuplicate(intake: PhotoIntakeView<LabReportValue, Lab
       ],
     },
   ];
+}
+
+/**
+ * #308: the server reporting every non-rejected result of these analytes as
+ * already saved (same analyte, day and value), saved on 2026-09-15.
+ */
+export function duplicatesOf(...keys: string[]) {
+  return (intake: PhotoIntakeView<LabReportValue, LabReportContext>): LabReportDuplicate[] =>
+    intake.items
+      .filter((item) => item.status !== 'rejected' && item.value.analyteKey && keys.includes(item.value.analyteKey))
+      .map((item, index) => ({
+        itemId: item.id,
+        analyteKey: item.value.analyteKey!,
+        value: item.value.value ?? 0,
+        unit: item.value.unit ?? '',
+        matches: [
+          {
+            measurementId: `m-dup-${index}`,
+            entryId: 'e-dup',
+            measuredAt: '2026-09-15T12:00:00.000Z',
+            origin: 'ai',
+            healthDocumentId: 'doc-old',
+            intakeId: 'lab-intake-old',
+          },
+        ],
+      }));
 }

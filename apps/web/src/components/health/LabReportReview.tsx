@@ -13,10 +13,19 @@
  *
  * - Rows that need a closer look (unsure, low confidence, a suggested match,
  *   or unmatched) are highlighted (`data-attention`), never hidden.
- * - An UNMATCHED row carries a "Map to an analyte" picker: picking one sends
- *   the edit (`value.analyteKey`); the server re-matches and converts. The
- *   alternative is Reject. Unknown analytes are never silently dropped.
+ * - An UNMATCHED row carries a "Map to an analyte" picker: picking one calls
+ *   `onMapItem` (#307: the server maps every same-named result of the report
+ *   with it, re-matching and converting each), or, without it, sends the edit
+ *   (`value.analyteKey`). The alternative is Reject. Unknown analytes are
+ *   never silently dropped.
  * - Rejected rows move into "Rejected (n)" with Restore.
+ * - #311: "Reject unmatched (n)" rejects every result not mapped to an
+ *   analyte at once, after a confirmation (`RejectUnmatchedConfirm`, shared
+ *   with the dialog's save hint).
+ * - #308: a result the server reports as ALREADY SAVED (same analyte, day and
+ *   value) carries an "Already saved · <date>" badge (text and an icon, never
+ *   colour alone) with Skip (rejects it, persisted) and Save again (a choice
+ *   the dialog keeps for the session). The dialog owns the decisions.
  */
 import { useId, useMemo, useState } from 'react';
 import {
@@ -26,6 +35,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -36,7 +46,9 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
+  ContentCopy as AlreadySavedIcon,
   DoneAll as AcceptAllIcon,
+  RemoveDone as RejectUnmatchedIcon,
   ExpandMore as ExpandIcon,
   Verified as HighConfidenceIcon,
 } from '@mui/icons-material';
@@ -58,6 +70,54 @@ import { AnalytePicker, LabResultEditor, LabResultView } from './LabResultValue'
 import { DEFAULT_LAB_UNITS, labUnitsNote, type LabUnits } from '../../utils/labUnits';
 
 export const ADD_MISSING_VALUE_LABEL = 'Add missing value';
+export const REJECT_UNMATCHED_LABEL = 'Reject unmatched';
+export const SKIP_DUPLICATE_LABEL = 'Skip';
+
+/**
+ * #311: the confirmation before rejecting every unmatched result. It keeps
+ * the count it opened with: once confirmed, the count drops to 0 while the
+ * dialog fades out, and the title must not flash "Reject 0 results…".
+ */
+export function RejectUnmatchedConfirm({
+  open,
+  count,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  count: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const titleId = useId();
+  // Follows `count` only while open (state adjusted during render, not in an effect).
+  const [shown, setShown] = useState(count);
+  if (open && shown !== count) setShown(count);
+  return (
+    <Dialog open={open} onClose={onCancel} aria-labelledby={titleId}>
+      <DialogTitle id={titleId}>
+        Reject {shown} {shown === 1 ? 'result that is' : 'results that are'} not in the lab catalog?
+      </DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          {shown === 1 ? 'It can be restored from Rejected.' : 'They can be restored one by one from Rejected.'}
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="contained" color="error" onClick={onConfirm}>
+          {REJECT_UNMATCHED_LABEL}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+export const SAVE_AGAIN_LABEL = 'Save again';
+
+/** "Already saved · Nov 19, 2025", or without the date when it is not known. */
+export function alreadySavedLabel(date: string | null): string {
+  return date ? `Already saved · ${formatLabDate(date)}` : 'Already saved';
+}
 export const ACCEPT_HIGH_CONFIDENCE_LABEL = 'Accept high confidence';
 
 /** "Nov 19, 2025 · 17 results", or the undated group's heading. */
@@ -81,10 +141,91 @@ export interface LabReportReviewProps {
   onRejectItem: (id: string) => void;
   onRestoreItem: (id: string) => void;
   onEditItem: (id: string, value: LabReportValue) => void;
+  /**
+   * #307: map an unmatched result to an analyte; the server applies it to
+   * every result printed under the same name. Absent: the map is an edit.
+   */
+  onMapItem?: (id: string, analyteKey: string) => void;
   onAddItem: (value: LabReportValue) => void;
   onAcceptAll: () => void;
   /** #305: accept every pending, high-confidence, not-uncertain result (`{ only: 'high_confidence' }`). */
   onAcceptHighConfidence: () => void;
+  /**
+   * #308: the results already saved (the duplicate check), by item id, with
+   * the day they were saved on (`YYYY-MM-DD`, `null` when unknown).
+   */
+  duplicateDates?: ReadonlyMap<string, string | null>;
+  /** #308: duplicates the user chose to save again this session. */
+  keptDuplicateIds?: ReadonlySet<string>;
+  /** #308: Skip a duplicate (the dialog rejects it). */
+  onSkipDuplicate?: (id: string) => void;
+  /** #308: Save a duplicate again. */
+  onKeepDuplicate?: (id: string) => void;
+  /** #311: reject every result not mapped to an analyte (the toolbar button is shown only with it). */
+  onRejectUnmatched?: () => void;
+}
+
+function DuplicateStrip({
+  item,
+  date,
+  kept,
+  busy,
+  onSkip,
+  onKeep,
+}: {
+  item: DraftItemView<LabReportValue>;
+  date: string | null;
+  kept: boolean;
+  busy: boolean;
+  onSkip?: () => void;
+  onKeep?: () => void;
+}) {
+  const badgeId = useId();
+  const printed = item.value.nameAsPrinted ?? 'this result';
+  return (
+    <Stack
+      direction={{ xs: 'column', sm: 'row' }}
+      spacing={1}
+      useFlexGap
+      sx={{ mt: 1, alignItems: { xs: 'stretch', sm: 'center' }, flexWrap: 'wrap' }}
+      data-testid="lab-result-duplicate"
+      data-decision={kept ? 'keep' : 'undecided'}
+    >
+      <Chip
+        id={badgeId}
+        icon={<AlreadySavedIcon />}
+        label={kept ? `${alreadySavedLabel(date)} · will be saved again` : alreadySavedLabel(date)}
+        color="info"
+        variant="outlined"
+        size="small"
+        sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, maxWidth: '100%' }}
+        data-testid="lab-result-already-saved"
+      />
+      <Stack direction="row" spacing={1}>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={onSkip}
+          disabled={busy || !onSkip}
+          aria-label={`${SKIP_DUPLICATE_LABEL} ${printed}`}
+          aria-describedby={badgeId}
+        >
+          {SKIP_DUPLICATE_LABEL}
+        </Button>
+        <Button
+          size="small"
+          variant={kept ? 'contained' : 'outlined'}
+          onClick={onKeep}
+          disabled={busy || !onKeep}
+          aria-pressed={kept}
+          aria-label={`${SAVE_AGAIN_LABEL} ${printed}`}
+          aria-describedby={badgeId}
+        >
+          {SAVE_AGAIN_LABEL}
+        </Button>
+      </Stack>
+    </Stack>
+  );
 }
 
 function MapStrip({
@@ -136,14 +277,21 @@ export function LabReportReview({
   onRejectItem,
   onRestoreItem,
   onEditItem,
+  onMapItem,
   onAddItem,
   onAcceptAll,
   onAcceptHighConfidence,
+  duplicateDates,
+  keptDuplicateIds,
+  onSkipDuplicate,
+  onKeepDuplicate,
+  onRejectUnmatched,
 }: LabReportReviewProps) {
   const idPrefix = useId();
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState<LabReportValue>(emptyLabResult);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rejectUnmatchedOpen, setRejectUnmatchedOpen] = useState(false);
 
   const photoNames = useMemo(
     () => new Map(photos.map((photo) => [photo.storageObjectId, photo.name] as const)),
@@ -155,6 +303,7 @@ export function LabReportReview({
   const pending = active.filter((item) => item.status === 'pending');
   const lowPending = pending.filter((item) => item.confidence === 'low').length;
   const highPending = pending.filter(isHighConfidencePending).length;
+  const unmatched = ordered.filter(isUnresolved).length;
   const dateGroups = groupByDate(active, reportDate);
   const refused = new Set(refusedIds);
 
@@ -189,6 +338,7 @@ export function LabReportReview({
       data-item-id={item.id}
       data-attention={needsAttention(item) ? 'true' : 'false'}
       data-unresolved={isUnresolved(item) ? 'true' : 'false'}
+      data-duplicate={duplicateDates?.has(item.id) && item.status !== 'rejected' ? 'true' : 'false'}
       sx={needsAttention(item) && item.status !== 'rejected' ? { borderLeft: 4, borderColor: 'warning.main', pl: 1 } : undefined}
     >
       <DraftItemRow<LabReportValue> item={item} {...rowProps} />
@@ -198,7 +348,19 @@ export function LabReportReview({
           catalog={catalog}
           busy={busy}
           refused={refused.has(item.id)}
-          onMap={(analyteKey) => onEditItem(item.id, { ...item.value, analyteKey })}
+          onMap={(analyteKey) =>
+            onMapItem ? onMapItem(item.id, analyteKey) : onEditItem(item.id, { ...item.value, analyteKey })
+          }
+        />
+      )}
+      {duplicateDates?.has(item.id) && item.status !== 'rejected' && (
+        <DuplicateStrip
+          item={item}
+          date={duplicateDates.get(item.id) ?? null}
+          kept={keptDuplicateIds?.has(item.id) ?? false}
+          busy={busy}
+          onSkip={onSkipDuplicate ? () => onSkipDuplicate(item.id) : undefined}
+          onKeep={onKeepDuplicate ? () => onKeepDuplicate(item.id) : undefined}
         />
       )}
     </Box>
@@ -228,6 +390,17 @@ export function LabReportReview({
         >
           {ACCEPT_HIGH_CONFIDENCE_LABEL} ({highPending})
         </Button>
+        {onRejectUnmatched && unmatched > 0 && (
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<RejectUnmatchedIcon />}
+            onClick={() => setRejectUnmatchedOpen(true)}
+            disabled={busy}
+          >
+            {REJECT_UNMATCHED_LABEL} ({unmatched})
+          </Button>
+        )}
         <Button
           variant="outlined"
           startIcon={<AddIcon />}
@@ -332,6 +505,16 @@ export function LabReportReview({
           </AccordionDetails>
         </Accordion>
       )}
+
+      <RejectUnmatchedConfirm
+        open={rejectUnmatchedOpen}
+        count={unmatched}
+        onCancel={() => setRejectUnmatchedOpen(false)}
+        onConfirm={() => {
+          setRejectUnmatchedOpen(false);
+          onRejectUnmatched?.();
+        }}
+      />
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} aria-labelledby="lab-accept-all-title">
         <DialogTitle id="lab-accept-all-title">Accept all {pending.length} results?</DialogTitle>

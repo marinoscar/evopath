@@ -21,6 +21,11 @@ import {
 //
 // Pure. Every result the model returned becomes ONE pending AI draft: nothing
 // is auto-accepted and nothing is dropped, an unrecognised analyte included.
+// The one exception (#310): a NON-RESULT, a cell with no number whose printed
+// text says there is none ("NOT APPLICABLE", "SEE NOTE:", "TNP", "Pending",
+// ...; {@link isNonResult}), is not a result at all. It is dropped and
+// counted in `resultMeta.nonResultsDropped`, so it never blocks apply with
+// "no numeric value". A non-numeric RESULT ("negative", "<0.5") is kept.
 //
 // MATCHING. The analyte is resolved on the SERVER from the printed name
 // (`resolveLabAnalyte`: key, label or alias, folded). The model's
@@ -53,6 +58,20 @@ export const UNMATCHED_NOTE = 'Not in the lab catalog: map it to an analyte or r
 export const SUGGESTED_NOTE = "Matched from the AI's suggestion: confirm the analyte";
 export const DATE_NOT_READ_NOTE = 'Date not read: set the collection date or keep the report date';
 
+/**
+ * What a lab prints in a cell that holds no result (#310), compared
+ * case-insensitively on the trimmed text without trailing punctuation.
+ */
+const NON_RESULT_TEXT =
+  /^(?:not applicable|n\/?a|see note|see notes|see comment|see comments|see below|tnp|test not performed|not performed|not done|cancel+ed|pending|in progress|to follow|qns|quantity not sufficient|[-\u2013\u2014]+)$/i;
+
+/** Whether a model result is a non-result: no number, and printed text that says there is none. */
+export function isNonResult(result: Pick<LabReportOutput['results'][number], 'value' | 'valueText'>): boolean {
+  if (finite(result.value) !== null) return false;
+  const printed = result.valueText?.trim().replace(/[\s.:;,]+$/, '') ?? '';
+  return printed !== '' && NON_RESULT_TEXT.test(printed);
+}
+
 export interface LabReportMapResult {
   drafts: AiDraftInput[];
   /** The document-level fields, validated; null where the model read nothing usable. */
@@ -73,6 +92,8 @@ export interface LabReportMapResult {
     distinctDates: number;
     /** Per-result dates discarded as impossible or in the future. */
     resultDatesDiscarded: number;
+    /** Cells that printed no result ("NOT APPLICABLE", "SEE NOTE:"), dropped (#310). */
+    nonResultsDropped: number;
   };
 }
 
@@ -88,7 +109,8 @@ const finite = (value: number | null): number | null => (value !== null && Numbe
  * object ids in the order they were sent (input 1 first).
  */
 export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly string[], now: Date = new Date()): LabReportMapResult {
-  const results = output.readable ? output.results.slice(0, LAB_REPORT_MAX_RESULTS) : [];
+  const returned = output.readable ? output.results.slice(0, LAB_REPORT_MAX_RESULTS) : [];
+  const results = returned.filter((result) => !isNonResult(result));
   const counts = { unmatched: 0, suggested: 0, flagged: 0, hintsIgnored: 0, converted: 0 };
   let resultDatesDiscarded = 0;
 
@@ -199,12 +221,13 @@ export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly s
       promptVersion: LAB_REPORT_PROMPT_VERSION,
       unreadable: !output.readable,
       resultsReturned: output.readable ? output.results.length : 0,
-      resultsTruncated: output.readable ? Math.max(0, output.results.length - results.length) : 0,
+      resultsTruncated: output.readable ? Math.max(0, output.results.length - returned.length) : 0,
       ...counts,
       collectionDateRead: output.readable && collectionDate !== null,
       collectionDateDiscarded: output.readable && printedDate !== null && reportDate === null,
       distinctDates: resultDates.size,
       resultDatesDiscarded,
+      nonResultsDropped: returned.length - results.length,
     },
   };
 }

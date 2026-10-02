@@ -2,9 +2,13 @@
  * `LabReportDialog` (H4, #188) over the intake kit and a stateful MSW
  * `/api/intakes` for the `lab_report` kind: the upload step with the
  * keep-or-delete choice, the review grouped by panel, highlighting, the
- * unmatched gate and mapping, edits, the report details, the duplicate
- * warning with "Save anyway", apply, and an axe pass on the review; #305: a
- * multi-date report, "Accept high confidence" and a save over several dates.
+ * unmatched gate and mapping, edits, the report details, apply, and an axe
+ * pass on the review; #308: already-saved results decided row by row or with
+ * the bar's "Skip all" / "Save all again"; #311: "Reject unmatched" from the
+ * toolbar and the save hint; #305: a
+ * multi-date report, "Accept high confidence" and a save over several dates;
+ * #307: mapping one result maps every same-named one, and an analyte or unit
+ * edit is carried to them, with the feedback.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -21,13 +25,14 @@ import {
   LAB_REPORT_HELPER_TEXT,
   LAB_REPORT_TITLE,
   LabReportDialog,
-  SAVE_ANYWAY_LABEL,
+  SKIP_ALL_LABEL,
 } from '../../../components/health/LabReportDialog';
 import { clearPhotoUrlCache } from '../../../components/intake/StoragePhotoThumb';
 import { RETAIN_FILES_LABEL } from '../../../components/intake';
 import { resetMeasurementCatalogCache } from '../../../hooks/useMeasurementCatalog';
 import {
   cholesterolDuplicate,
+  duplicatesOf,
   labIntake,
   labIntakeApi,
   labItem,
@@ -35,6 +40,7 @@ import {
   panelItems,
   type LabIntakeApiOptions,
 } from '../../mocks/fixtures/labReportIntake';
+import type { LabReportValue } from '../../../services/labReport';
 
 const reader: MockUser = {
   ...mockUser,
@@ -164,9 +170,15 @@ describe('LabReportDialog: review', () => {
     await user.type(picker, 'apo b');
     await user.click(await screen.findByRole('option', { name: /Apolipoprotein B/ }));
 
-    await waitFor(() => expect(api.itemPatches).toHaveLength(1));
-    expect(api.itemPatches[0].body).toMatchObject({ value: { analyteKey: 'apob', nameAsPrinted: 'Lipoprotein (a)', value: 32 } });
-    expect(api.itemPatches[0].body.value).not.toHaveProperty('match');
+    // #307: the map route, not an item PATCH; one result mapped needs no extra message.
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.maps[0]).toMatchObject({ analyteKey: 'apob', mapped: [api.maps[0].itemId], skipped: [] });
+    expect(api.requests.find((request) => request.path.endsWith('/map'))?.body).toEqual({
+      itemId: rowFor('Lipoprotein (a)').getAttribute('data-item-id'),
+      analyteKey: 'apob',
+    });
+    expect(api.itemPatches).toHaveLength(0);
+    expect(screen.queryByTestId('lab-report-map-notice')).not.toBeInTheDocument();
 
     await waitFor(() => expect(rowFor('Lipoprotein (a)')).toHaveAttribute('data-unresolved', 'false'));
     expect(within(rowFor('Lipoprotein (a)')).getByText('Mapped by you')).toBeInTheDocument();
@@ -207,6 +219,8 @@ describe('LabReportDialog: review', () => {
     });
     await waitFor(() => expect(within(rowFor('HDL Cholesterol')).getAllByTestId('lab-result-number')[0]).toHaveTextContent('50 mg/dL'));
     expect(within(rowFor('HDL Cholesterol')).getByTestId('draft-item-ai-said')).toHaveTextContent('48 mg/dL');
+    // #307: a value-only edit is not carried to other results.
+    expect(api.maps).toHaveLength(0);
   });
 
   it("shows the server's field message when an edit is refused", async () => {
@@ -248,29 +262,10 @@ describe('LabReportDialog: review', () => {
     expect(api.intakePatches[0].body).toEqual({ context: { collectionDate: '2026-09-15', labName: 'Beta Labs' } });
   });
 
-  it('warns about duplicates before saving and saves only after an explicit "Save anyway"', async () => {
-    const { api, user, onSaved } = await openReview({ duplicates: cholesterolDuplicate });
-
-    const warning = await screen.findByTestId('lab-report-duplicates');
-    expect(warning).toHaveTextContent('Some of these results are already saved');
-    expect(warning).toHaveTextContent('Total cholesterol 212 mg/dL');
-    expect(within(warning).queryByRole('button', { name: SAVE_ANYWAY_LABEL })).not.toBeInTheDocument();
-
-    await user.click(within(rowFor('Lipoprotein (a)')).getByRole('button', { name: 'Reject' }));
-    await user.click(within(dialog()).getByRole('button', { name: 'Accept all (6)' }));
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-    await user.click(saveButton());
-
-    const confirm = await within(screen.getByTestId('lab-report-duplicates')).findByRole('button', { name: SAVE_ANYWAY_LABEL });
-    expect(api.applied).toBe(0);
-    await user.click(confirm);
-    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(api.applied).toBe(1);
-  });
-
   it('has no axe violations on the review', async () => {
     await openReview({ duplicates: cholesterolDuplicate });
     await screen.findByTestId('lab-report-duplicates');
+    expect(screen.getByTestId('lab-result-already-saved')).toBeInTheDocument();
     const results = await axe(dialog(), { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
   });
@@ -336,5 +331,385 @@ describe('LabReportDialog: multi-date report (#305)', () => {
       '2026-09-15',
       '2026-09-01',
     ]);
+  });
+});
+
+/** A trend report printing "Chol/HDL Ratio" (not in the mock catalog) on five dates, plus distractors. */
+function ratioIntake() {
+  const dates = ['2021-03-01', '2022-03-01', '2023-03-01', '2024-03-01', '2025-03-01'];
+  const ratio = (date: string, value: number, extra = {}, overrides: Partial<LabReportValue> = {}) =>
+    labItem(
+      labValue({
+        nameAsPrinted: 'Chol/HDL Ratio',
+        value,
+        unit: null,
+        panel: 'lipids',
+        match: 'unmatched',
+        collectionDate: date,
+        referenceText: '(CALC)',
+        ...overrides,
+      }),
+      { uncertain: true, uncertaintyNote: 'Not in the lab catalog: map it to an analyte or reject it', ...extra },
+    );
+  const items = [
+    ...dates.map((date, index) => ratio(date, 3.5 + index / 10)),
+    // Rejected: left alone.
+    ratio('2020-03-01', 4.2, { status: 'rejected' }),
+    // Already mapped by the user to another analyte: left alone.
+    ratio('2019-03-01', 4.4, {}, { analyteKey: 'hdl_cholesterol', match: 'user_mapped' }),
+    // A different printed name: left alone.
+    labItem(labValue({ nameAsPrinted: 'LDL/HDL Ratio', value: 2.1, unit: null, panel: 'lipids', match: 'unmatched', collectionDate: dates[0] }), {
+      uncertain: true,
+    }),
+  ];
+  return labIntake('ready', { items, photos: PHOTOS, context: { collectionDate: null, labName: null } });
+}
+
+const ratioRows = () =>
+  screen
+    .getAllByTestId('lab-result-row')
+    .filter((row) => within(row).queryAllByTestId('lab-result-value')[0]?.textContent?.startsWith('Chol/HDL Ratio'));
+
+describe('LabReportDialog: map once for every same-named result (#307)', () => {
+  it('mapping one of several same-named results maps all of them and says how many', async () => {
+    const { api, user } = setup({ existing: [ratioIntake()] });
+    await screen.findByTestId('lab-report-review');
+    // Five unmatched plus the one the user mapped elsewhere (the rejected one sits in "Rejected").
+    expect(ratioRows().filter((row) => row.getAttribute('data-unresolved') === 'true')).toHaveLength(5);
+
+    const first = ratioRows().find((row) => row.getAttribute('data-unresolved') === 'true')!;
+    const picker = within(first).getByRole('combobox', { name: 'Map “Chol/HDL Ratio” to an analyte' });
+    await user.type(picker, 'TC/HDL');
+    await user.click(await screen.findByRole('option', { name: /Cholesterol\/HDL ratio/ }));
+
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.maps[0].analyteKey).toBe('chol_hdl_ratio');
+    expect(api.maps[0].mapped).toHaveLength(5);
+    expect(api.itemPatches).toHaveLength(0);
+
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Mapped 5 results named “Chol/HDL Ratio” to Cholesterol/HDL ratio');
+    expect(notice).not.toHaveTextContent('could not be mapped');
+
+    // Every same-named row is resolved after the re-read; the distractors are not touched.
+    await waitFor(() =>
+      expect(ratioRows().filter((row) => row.getAttribute('data-unresolved') === 'true')).toHaveLength(0),
+    );
+    const intake = api.intakes.get('lab-intake-1')!;
+    const byName = (name: string) => intake.items.filter((item) => item.value.nameAsPrinted === name);
+    expect(byName('Chol/HDL Ratio').filter((item) => item.value.analyteKey === 'chol_hdl_ratio')).toHaveLength(5);
+    expect(byName('Chol/HDL Ratio').find((item) => item.status === 'rejected')?.value.analyteKey).toBeNull();
+    expect(byName('Chol/HDL Ratio').filter((item) => item.value.analyteKey === 'hdl_cholesterol')).toHaveLength(1);
+    expect(byName('LDL/HDL Ratio')[0].value.analyteKey).toBeNull();
+    expect(screen.getByTestId('lab-report-save-hint')).toHaveTextContent('1 result is not in the lab catalog');
+  });
+
+  it('says how many could not be mapped, with the reason', async () => {
+    const reason = 'unit mg/dL is not allowed for Cholesterol/HDL ratio';
+    const intake = ratioIntake();
+    // The last same-named result was printed with a unit the ratio does not take.
+    intake.items[4] = { ...intake.items[4], value: { ...intake.items[4].value, unit: 'mg/dL' } };
+    const { api, user } = setup({
+      existing: [intake],
+      mapRefusal: (item, metric) => (item.value.unit && item.value.unit !== metric.canonicalUnit ? reason : null),
+    });
+    await screen.findByTestId('lab-report-review');
+
+    const row = ratioRows().find((candidate) => candidate.getAttribute('data-item-id') === intake.items[0].id)!;
+    await user.type(within(row).getByRole('combobox', { name: 'Map “Chol/HDL Ratio” to an analyte' }), 'TC/HDL');
+    await user.click(await screen.findByRole('option', { name: /Cholesterol\/HDL ratio/ }));
+
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.maps[0].skipped).toEqual([intake.items[4].id]);
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Mapped 4 results named “Chol/HDL Ratio” to Cholesterol/HDL ratio. 1 could not be mapped');
+    expect(notice).toHaveTextContent(reason);
+    expect(notice.className).toMatch(/Warning/);
+    await waitFor(() => expect(screen.getByTestId('lab-report-save-hint')).toHaveTextContent('2 results are not in the lab catalog'));
+  });
+
+  it("shows the server's message when the picked result itself cannot be mapped", async () => {
+    const message = 'unit nmol/L is not allowed for Apolipoprotein B';
+    const { user } = await openReview({
+      mapError: {
+        status: 400,
+        body: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: { issues: [{ path: 'value.unit', message }] } },
+      },
+    });
+    const picker = within(rowFor('Lipoprotein (a)')).getByRole('combobox', { name: 'Map “Lipoprotein (a)” to an analyte' });
+    await user.type(picker, 'apo b');
+    await user.click(await screen.findByRole('option', { name: /Apolipoprotein B/ }));
+    expect(await screen.findByTestId('lab-report-write-issues')).toHaveTextContent(message);
+    expect(screen.queryByTestId('lab-report-map-notice')).not.toBeInTheDocument();
+    expect(rowFor('Lipoprotein (a)')).toHaveAttribute('data-unresolved', 'true');
+  });
+});
+
+/** "Glucose Lvl" printed in mmol/L-looking values but read as mg/dL on four dates; one already edited by the user. */
+function glucoseTrendIntake() {
+  const dates = ['2022-01-10', '2023-01-10', '2024-01-10', '2025-01-10'];
+  const items = dates.map((date, index) =>
+    labItem(
+      labValue({ analyteKey: 'fasting_glucose', nameAsPrinted: 'Glucose Lvl', value: 5.1 + index / 10, unit: 'mg/dL', panel: 'glycemic', collectionDate: date }),
+    ),
+  );
+  // The user already corrected this one: an edit elsewhere leaves it alone.
+  items[3] = { ...items[3], originalAiValue: items[3].value, userVerified: true };
+  items.push(labItem(labValue({ analyteKey: 'hba1c', nameAsPrinted: 'Hemoglobin A1c', value: 5.6, unit: '%', panel: 'glycemic', collectionDate: dates[0] })));
+  return labIntake('ready', { items, photos: PHOTOS, context: { collectionDate: null, labName: null } });
+}
+
+describe('LabReportDialog: an edit is carried to same-named results (#307)', () => {
+  const glucoseRows = () =>
+    screen
+      .getAllByTestId('lab-result-row')
+      .filter((row) => within(row).queryAllByTestId('lab-result-value')[0]?.textContent?.startsWith('Glucose Lvl'));
+
+  async function changeUnit(user: ReturnType<typeof userEvent.setup>, row: HTMLElement, unit: string) {
+    await user.click(within(row).getByRole('button', { name: 'Edit' }));
+    const editor = within(row).getByTestId('lab-result-editor');
+    await user.click(within(editor).getByRole('combobox', { name: 'Unit' }));
+    await user.click(await screen.findByRole('option', { name: unit }));
+    await user.click(within(row).getByRole('button', { name: 'Save' }));
+  }
+
+  it('a unit change on one date updates the same-named results on the other dates', async () => {
+    const intake = glucoseTrendIntake();
+    const { api, user } = setup({ existing: [intake] });
+    await screen.findByTestId('lab-report-review');
+    expect(glucoseRows()).toHaveLength(4);
+
+    const edited = glucoseRows().find((row) => row.getAttribute('data-item-id') === intake.items[0].id)!;
+    await changeUnit(user, edited, 'mmol/L');
+
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.itemPatches).toHaveLength(1);
+    expect(api.itemPatches[0].body).toMatchObject({ value: { unit: 'mmol/L' } });
+    // The PATCH comes first, then the map carries only the unit.
+    const paths = api.requests.map((request) => request.path);
+    expect(paths.findIndex((path) => path.endsWith('/map'))).toBeGreaterThan(paths.findIndex((path) => path.includes('/items/')));
+    expect(api.requests.find((request) => request.path.endsWith('/map'))?.body).toEqual({ itemId: intake.items[0].id, unit: 'mmol/L' });
+
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Updated 2 other results named “Glucose Lvl”');
+
+    const stored = api.intakes.get('lab-intake-1')!.items;
+    expect(stored.slice(0, 3).map((item) => item.value.unit)).toEqual(['mmol/L', 'mmol/L', 'mmol/L']);
+    // The one the user had already edited, and a different name, are untouched.
+    expect(stored[3].value.unit).toBe('mg/dL');
+    expect(stored[4].value.unit).toBe('%');
+  });
+
+  it('an edit of a result with no same-named results is not carried anywhere', async () => {
+    const intake = glucoseTrendIntake();
+    const { api, user } = setup({ existing: [intake] });
+    await screen.findByTestId('lab-report-review');
+    const a1c = screen.getAllByTestId('lab-result-row').find((row) => row.getAttribute('data-item-id') === intake.items[4].id)!;
+    await changeUnit(user, a1c, 'mmol/mol');
+    await waitFor(() => expect(api.itemPatches).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId('lab-result-editor')).not.toBeInTheDocument());
+    expect(api.maps).toHaveLength(0);
+    expect(screen.queryByTestId('lab-report-map-notice')).not.toBeInTheDocument();
+  });
+
+  it('warns when some same-named results could not take the unit', async () => {
+    const intake = glucoseTrendIntake();
+    const reason = 'value is outside what Fasting glucose allows';
+    const { api, user } = setup({
+      existing: [intake],
+      mapRefusal: (item) => (item.id === intake.items[2].id ? reason : null),
+    });
+    await screen.findByTestId('lab-report-review');
+    const edited = glucoseRows().find((row) => row.getAttribute('data-item-id') === intake.items[0].id)!;
+    await changeUnit(user, edited, 'mmol/L');
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Updated 1 other result named “Glucose Lvl”. 1 could not be updated');
+    expect(notice).toHaveTextContent(reason);
+  });
+});
+
+describe('LabReportDialog: already-saved results (#308)', () => {
+  const hint = () => screen.getByTestId('lab-report-save-hint');
+  const bar = () => screen.getByTestId('lab-report-duplicates');
+
+  /** Resolve the unmatched row and accept the rest, so only the duplicate decisions block Save. */
+  async function resolveRest(user: ReturnType<typeof userEvent.setup>, accept: string) {
+    await user.click(within(rowFor('Lipoprotein (a)')).getByRole('button', { name: 'Reject' }));
+    await user.click(within(dialog()).getByRole('button', { name: accept }));
+  }
+
+  it('marks each duplicate row with the date and blocks Save until it is decided; Save again lets it save', async () => {
+    const { api, user, onSaved } = await openReview({ duplicates: cholesterolDuplicate });
+    const row = rowFor('Cholesterol, Total');
+    await waitFor(() => expect(row).toHaveAttribute('data-duplicate', 'true'));
+    expect(within(row).getByTestId('lab-result-already-saved')).toHaveTextContent('Already saved · Sep 15, 2026');
+    expect(rowFor('HDL Cholesterol')).toHaveAttribute('data-duplicate', 'false');
+    expect(bar()).toHaveTextContent('1 result is already saved');
+    // The long list and "Save anyway" are gone.
+    expect(screen.queryByText(/Saving creates a second copy/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save anyway' })).not.toBeInTheDocument();
+
+    await resolveRest(user, 'Accept all (6)');
+    await waitFor(() => expect(hint()).toHaveTextContent('Decide on 1 already-saved result: skip it or save it again'));
+    expect(saveButton()).toBeDisabled();
+
+    await user.click(within(row).getByRole('button', { name: 'Save again Cholesterol, Total' }));
+    expect(within(row).getByRole('button', { name: 'Save again Cholesterol, Total' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(row).getByTestId('lab-result-already-saved')).toHaveTextContent('will be saved again');
+    expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 will be saved again');
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(hint()).toHaveTextContent('6 results will be saved');
+
+    await user.click(saveButton());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(api.applied).toBe(1);
+  });
+
+  it('Skip rejects the duplicate (persisted); Restore makes it undecided again', async () => {
+    const { api, user } = await openReview({ duplicates: cholesterolDuplicate });
+    const row = rowFor('Cholesterol, Total');
+    const id = row.getAttribute('data-item-id')!;
+    await waitFor(() => expect(row).toHaveAttribute('data-duplicate', 'true'));
+
+    await user.click(within(row).getByRole('button', { name: 'Skip Cholesterol, Total' }));
+    await waitFor(() => expect(api.itemPatches).toContainEqual({ itemId: id, body: { status: 'rejected' } }));
+    await screen.findByText('Rejected (1)');
+    await waitFor(() => expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument());
+    expect(await screen.findByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 skipped');
+
+    await user.click(screen.getByText('Rejected (1)'));
+    await user.click(within(rowFor('Cholesterol, Total')).getByRole('button', { name: 'Restore' }));
+    await waitFor(() => expect(rowFor('Cholesterol, Total')).toHaveAttribute('data-duplicate', 'true'));
+    expect(bar()).toHaveTextContent('1 result is already saved');
+    expect(screen.queryByTestId('lab-report-duplicate-summary')).not.toBeInTheDocument();
+  });
+
+  it('"Skip all" rejects every duplicate, one after another', async () => {
+    const { api, user } = await openReview({ duplicates: duplicatesOf('total_cholesterol', 'hdl_cholesterol', 'triglycerides') });
+    await waitFor(() => expect(bar()).toHaveTextContent('3 results are already saved'));
+    const ids = ['Cholesterol, Total', 'HDL Cholesterol', 'Triglycerides'].map((name) => rowFor(name).getAttribute('data-item-id'));
+
+    await user.click(within(bar()).getByRole('button', { name: `${SKIP_ALL_LABEL} 3` }));
+    await waitFor(() => expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument());
+    expect(api.itemPatches.filter((patch) => patch.body.status === 'rejected').map((patch) => patch.itemId)).toEqual(ids);
+    expect(await screen.findByText('Rejected (3)')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('3 skipped'));
+
+    await resolveRest(user, 'Accept all (3)');
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+  });
+
+  it('"Save all again" keeps every duplicate; one can still be skipped after', async () => {
+    const { user } = await openReview({ duplicates: duplicatesOf('total_cholesterol', 'hdl_cholesterol', 'triglycerides') });
+    await waitFor(() => expect(bar()).toHaveTextContent('3 results are already saved'));
+    await user.click(within(bar()).getByRole('button', { name: 'Save all 3 again' }));
+    expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('3 will be saved again');
+
+    await user.click(within(rowFor('HDL Cholesterol')).getByRole('button', { name: 'Skip HDL Cholesterol' }));
+    await waitFor(() => expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 skipped · 2 will be saved again'));
+
+    await resolveRest(user, 'Accept all (5)');
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+  });
+
+  it('drops a decision once the result is no longer a duplicate', async () => {
+    let reported = true;
+    const { user } = await openReview({ duplicates: (intake) => (reported ? cholesterolDuplicate(intake) : []) });
+    const row = rowFor('Cholesterol, Total');
+    await waitFor(() => expect(row).toHaveAttribute('data-duplicate', 'true'));
+    await user.click(within(row).getByRole('button', { name: 'Save again Cholesterol, Total' }));
+    expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 will be saved again');
+
+    // An edit changes what would be saved; the re-check no longer reports it.
+    reported = false;
+    await user.click(within(rowFor('HDL Cholesterol')).getByRole('button', { name: 'Accept' }));
+    await waitFor(() => expect(rowFor('Cholesterol, Total')).toHaveAttribute('data-duplicate', 'false'));
+    expect(screen.queryByTestId('lab-report-duplicate-summary')).not.toBeInTheDocument();
+
+    // Reported again later: undecided, not silently kept.
+    reported = true;
+    await user.click(within(rowFor('Glucose')).getByRole('button', { name: 'Accept' }));
+    await waitFor(() => expect(bar()).toHaveTextContent('1 result is already saved'));
+    expect(within(rowFor('Cholesterol, Total')).getByRole('button', { name: 'Save again Cholesterol, Total' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+});
+
+/** The panel plus a second unmatched result and a suggested one (#311). */
+function unmatchedIntake() {
+  const intake = readyIntake();
+  intake.items.push(
+    labItem(labValue({ analyteKey: null, nameAsPrinted: 'Homocysteine', value: 9, unit: 'µmol/L', panel: 'other', match: 'unmatched' }), {
+      uncertain: true,
+    }),
+    labItem(labValue({ analyteKey: 'apob', nameAsPrinted: 'Apo-B', value: 90, unit: 'mg/dL', panel: 'lipids', match: 'suggested' })),
+  );
+  return intake;
+}
+
+describe('LabReportDialog: reject unmatched (#311)', () => {
+  const rejectRequests = (api: { requests: { path: string }[] }) =>
+    api.requests.filter((request) => request.path.endsWith('/reject-unmatched'));
+
+  it('counts the unmatched results and rejects only those after the confirmation', async () => {
+    const { api, user } = setup({ existing: [unmatchedIntake()] });
+    await screen.findByTestId('lab-report-review');
+    const toolbar = screen.getByTestId('lab-review-toolbar');
+    const button = within(toolbar).getByRole('button', { name: 'Reject unmatched (2)' });
+
+    // Cancel leaves everything as it was.
+    await user.click(button);
+    let confirm = await screen.findByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' });
+    expect(confirm).toHaveTextContent('They can be restored one by one from Rejected.');
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Reject 2 results/ })).not.toBeInTheDocument());
+    expect(rejectRequests(api)).toHaveLength(0);
+
+    await user.click(button);
+    confirm = await screen.findByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Reject unmatched' }));
+
+    await waitFor(() => expect(rejectRequests(api)).toHaveLength(1));
+    // The confirmation must be gone (its title re-counts while it closes): until then the import dialog is aria-hidden.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /not in the lab catalog\?$/ })).not.toBeInTheDocument());
+    expect(await screen.findByTestId('lab-report-map-notice')).toHaveTextContent('Rejected 2 unmatched results');
+    expect(await screen.findByText('Rejected (2)')).toBeInTheDocument();
+    const stored = api.intakes.get('lab-intake-1')!.items;
+    expect(stored.filter((item) => item.status === 'rejected').map((item) => item.value.nameAsPrinted).sort()).toEqual([
+      'Homocysteine',
+      'Lipoprotein (a)',
+    ]);
+    // The suggested match is left alone.
+    expect(stored.find((item) => item.value.nameAsPrinted === 'Apo-B')?.status).toBe('pending');
+    // Nothing unmatched is left: the button goes away and saving is unblocked once the rest is accepted.
+    expect(within(toolbar).queryByRole('button', { name: /Reject unmatched/ })).not.toBeInTheDocument();
+    await user.click(within(dialog()).getByRole('button', { name: 'Accept all (7)' }));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+  });
+
+  it('offers the same action in the save hint', async () => {
+    const { api, user } = setup({ existing: [unmatchedIntake()] });
+    await screen.findByTestId('lab-report-review');
+    expect(screen.getByTestId('lab-report-save-hint')).toHaveTextContent('2 results are not in the lab catalog');
+    await user.click(screen.getByTestId('lab-report-hint-reject-unmatched'));
+    const confirm = await screen.findByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Reject unmatched' }));
+    await waitFor(() => expect(rejectRequests(api)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId('lab-report-hint-reject-unmatched')).not.toBeInTheDocument());
+    expect(screen.getByTestId('lab-report-save-hint')).not.toHaveTextContent('not in the lab catalog');
+  });
+
+  it('has no button when every result is matched', async () => {
+    const intake = readyIntake();
+    intake.items = intake.items.filter((item) => item.value.analyteKey !== null);
+    setup({ existing: [intake] });
+    await screen.findByTestId('lab-report-review');
+    expect(screen.queryByRole('button', { name: /Reject unmatched/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('lab-report-hint-reject-unmatched')).not.toBeInTheDocument();
   });
 });

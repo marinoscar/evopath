@@ -27,8 +27,17 @@ describe('lab report prompt (H4, #188)', () => {
     expect(LAB_REPORT_INSTRUCTIONS).toContain('- albumin — Albumin (ALB, Serum albumin)');
   });
 
+  it('never returns a non-result and joins a wrapped unit (#310)', () => {
+    expect(LAB_REPORT_PROMPT_VERSION).toBe(3);
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('A cell that prints no result is not a result');
+    for (const printed of ['NOT APPLICABLE', 'SEE NOTE', 'N/A', 'TNP', 'Cancelled', 'Pending', 'Not done']) {
+      expect(LAB_REPORT_INSTRUCTIONS).toContain(printed);
+    }
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('A unit can wrap onto the next line');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('join the pieces into one unit ("mL/min/1.73m2", "x10E3/uL")');
+  });
+
   it('handles multi-date layouts and never takes a date it should not (#305)', () => {
-    expect(LAB_REPORT_PROMPT_VERSION).toBe(2);
     expect(LAB_REPORT_INSTRUCTIONS).toContain('First identify the layout of the document');
     expect(LAB_REPORT_INSTRUCTIONS).toContain('a trend or cumulative table');
     expect(LAB_REPORT_INSTRUCTIONS).toContain('one per filled (analyte, date) cell on a trend table');

@@ -124,6 +124,14 @@ export interface MetricDef {
    * conventional agree (U/L, mmol/L electrolytes, %).
    */
   siUnit?: string;
+  /**
+   * Lab analytes only (#310): other printed spellings of a unit that
+   * {@link normalizeLabUnit} cannot derive (`mL/min` for eGFR's
+   * `mL/min/1.73m²`, a unit wrapped onto the next line of a PDF), printed
+   * spelling -> one of `units`. Matched by {@link unitFor}; never published
+   * as a unit to pick.
+   */
+  unitAliases?: Readonly<Record<string, string>>;
 }
 
 const BODY_WEIGHT_METHODS = ['unspecified', 'scale', 'smart_scale', 'clinical', 'other'] as const;
@@ -191,6 +199,8 @@ interface LabSpec {
   max: number;
   decimals: number;
   aliases: readonly string[];
+  /** Printed unit spellings the normaliser cannot derive, -> one of the units (#310). */
+  unitAliases?: Readonly<Record<string, string>>;
 }
 
 function lab(key: string, spec: LabSpec): MetricDef {
@@ -204,6 +214,11 @@ function lab(key: string, spec: LabSpec): MetricDef {
 
   if (spec.si && !alternatives.some((unit) => unit.unit === spec.si![0])) {
     throw new Error(`Lab ${key}: SI unit ${spec.si[0]} is not one of its units`);
+  }
+  for (const target of Object.values(spec.unitAliases ?? {})) {
+    if (target !== spec.unit && !alternatives.some((unit) => unit.unit === target)) {
+      throw new Error(`Lab ${key}: unit alias target ${target} is not one of its units`);
+    }
   }
 
   return {
@@ -222,6 +237,7 @@ function lab(key: string, spec: LabSpec): MetricDef {
     panel: spec.panel,
     aliases: spec.aliases,
     siUnit: spec.si?.[0] ?? spec.unit,
+    ...(spec.unitAliases ? { unitAliases: spec.unitAliases } : {}),
   };
 }
 
@@ -232,7 +248,7 @@ const TRIGLYCERIDE_MMOL = per(0.01129); // 88.57 mg/dL per mmol/L
 const GLUCOSE_MMOL = per(0.0555); // 18.02 mg/dL per mmol/L (180.16 g/mol)
 const IRON_UMOL = 5.585; // ug/dL per umol/L (55.85 g/mol)
 const KATAL_U = 60; // 1 ukat/L = 60 U/L (umol/min)
-/** The canonical "unit" of a unitless lab ratio (A/G, BUN/creatinine). */
+/** The canonical "unit" of a unitless lab ratio (A/G, BUN/creatinine, the lipid ratios). */
 export const RATIO = 'ratio';
 /** HbA1c: NGSP % = IFCC mmol/mol / 10.929 + 2.15 (the IFCC-NGSP master equation). */
 const HBA1C_IFCC: readonly [number, number] = [per(10.929), 2.15];
@@ -273,6 +289,41 @@ const LAB_METRICS: readonly MetricDef[] = [
     min: 0, max: 500, decimals: 0,
     aliases: ['ApoB', 'Apo B', 'Apo-B', 'Apolipoprotein B-100', 'Apolipoprotein B100'],
   }),
+  // Unitless lipid ratios (#307), the same shape as the CMP ratios below.
+  lab('chol_hdl_ratio', {
+    label: 'Cholesterol/HDL ratio', panel: 'lipids', unit: RATIO,
+    min: 0, max: 30, decimals: 1,
+    aliases: [
+      'Chol/HDL Ratio', 'Chol/HDL', 'TC/HDL', 'TC/HDL Ratio', 'Cholesterol/HDL Ratio',
+      'Total Cholesterol/HDL Ratio', 'Cholesterol/HDL-C Ratio', 'Total Cholesterol/HDL-C Ratio',
+    ],
+  }),
+  lab('ldl_hdl_ratio', {
+    label: 'LDL/HDL ratio', panel: 'lipids', unit: RATIO,
+    min: 0, max: 30, decimals: 1,
+    aliases: ['LDL/HDL Ratio', 'LDL-C/HDL-C Ratio', 'LDL/HDL'],
+  }),
+  lab('tg_hdl_ratio', {
+    label: 'Triglyceride/HDL ratio', panel: 'lipids', unit: RATIO,
+    min: 0, max: 50, decimals: 1,
+    aliases: ['Triglyceride/HDL Ratio', 'TG/HDL', 'TG/HDL Ratio', 'Triglycerides/HDL Ratio'],
+  }),
+  // Lipid extras (#309). Lp(a) is molar (nmol/L); a mass result (mg/dL) does
+  // not convert (it depends on the apo(a) isoform), so mg/dL is not accepted:
+  // such a result is flagged for the user to reject or re-enter.
+  lab('vldl_cholesterol', {
+    label: 'VLDL cholesterol', panel: 'lipids', unit: 'mg/dL', alt: { 'mmol/L': CHOLESTEROL_MMOL }, si: ['mmol/L', 2],
+    min: 0, max: 1000, decimals: 0,
+    aliases: [
+      'VLDL', 'VLDL-C', 'VLDL Cholesterol', 'VLDL Cholesterol Cal', 'VLDL Chol Calc', 'VLDL Cholesterol Calculated',
+      'Very low density lipoprotein', 'Very-low-density lipoprotein cholesterol',
+    ],
+  }),
+  lab('lipoprotein_a', {
+    label: 'Lipoprotein(a)', panel: 'lipids', unit: 'nmol/L',
+    min: 0, max: 1500, decimals: 0,
+    aliases: ['Lp(a)', 'Lipoprotein (a)', 'Lipoprotein a', 'Lp a', 'LPA'],
+  }),
 
   // --- Glycemic ---------------------------------------------------------------
   lab('fasting_glucose', {
@@ -289,6 +340,17 @@ const LAB_METRICS: readonly MetricDef[] = [
     label: 'Fasting insulin', panel: 'glycemic', unit: 'µIU/mL', alt: { 'mIU/L': 1, 'pmol/L': per(6) }, si: ['pmol/L', 0],
     min: 0, max: 1000, decimals: 1,
     aliases: ['Insulin', 'Insulin, fasting', 'Serum insulin'],
+  }),
+  // Glycemic extras (#309).
+  lab('eag', {
+    label: 'Estimated average glucose', panel: 'glycemic', unit: 'mg/dL', alt: { 'mmol/L': GLUCOSE_MMOL }, si: ['mmol/L', 1],
+    min: 0, max: 1000, decimals: 0,
+    aliases: ['eAG', 'Est. average glucose', 'Estimated Average Glucose (eAG)', 'Average glucose, estimated'],
+  }),
+  lab('c_peptide', {
+    label: 'C-peptide', panel: 'glycemic', unit: 'ng/mL', alt: { 'nmol/L': per(0.331), 'µg/L': 1 }, si: ['nmol/L', 2],
+    min: 0, max: 50, decimals: 2,
+    aliases: ['C peptide', 'C-Peptide, serum', 'Connecting peptide', 'C-peptide, fasting'],
   }),
 
   // --- Complete blood count ---------------------------------------------------
@@ -321,6 +383,117 @@ const LAB_METRICS: readonly MetricDef[] = [
     label: 'Mean corpuscular volume', panel: 'cbc', unit: 'fL',
     min: 0, max: 200, decimals: 0,
     aliases: ['MCV', 'Mean cell volume'],
+  }),
+  // CBC indices and differential (#309). A differential prints each cell
+  // type twice: a percentage and an absolute count, separate keys whose names
+  // never cross. A bare name ("Neutrophils") is the PERCENTAGE, as most
+  // reports print it; a bare name printed with a count unit is then flagged by
+  // the unit check (the % analyte does not allow 10^3/µL) for the user to map.
+  lab('mch', {
+    label: 'Mean corpuscular hemoglobin', panel: 'cbc', unit: 'pg',
+    min: 0, max: 100, decimals: 1,
+    aliases: ['MCH', 'Mean cell hemoglobin', 'Mean corpuscular haemoglobin'],
+  }),
+  lab('mchc', {
+    label: 'Mean corpuscular hemoglobin concentration', panel: 'cbc', unit: 'g/dL', alt: { 'g/L': 0.1 }, si: ['g/L', 0],
+    min: 0, max: 60, decimals: 1,
+    aliases: ['MCHC', 'Mean cell hemoglobin concentration', 'Mean corpuscular haemoglobin concentration'],
+  }),
+  lab('rdw', {
+    label: 'Red cell distribution width', panel: 'cbc', unit: '%',
+    min: 0, max: 50, decimals: 1,
+    aliases: ['RDW', 'RDW-CV', 'RDW CV', 'Red blood cell distribution width', 'RBC distribution width'],
+  }),
+  lab('mpv', {
+    label: 'Mean platelet volume', panel: 'cbc', unit: 'fL',
+    min: 0, max: 30, decimals: 1,
+    aliases: ['MPV'],
+  }),
+  lab('neutrophils_pct', {
+    label: 'Neutrophils (%)', panel: 'cbc', unit: '%',
+    min: 0, max: 100, decimals: 1,
+    aliases: [
+      'Neut', 'Neutrophils', 'Neutrophils %', '% Neutrophils', 'Neutrophil %', 'Neutrophils, percent',
+      'Neutrophils Relative', 'Neut %', 'Neut%', 'Neutrophil', 'Segmented neutrophils', 'Segs', 'Polys',
+    ],
+  }),
+  lab('lymphocytes_pct', {
+    label: 'Lymphocytes (%)', panel: 'cbc', unit: '%',
+    min: 0, max: 100, decimals: 1,
+    aliases: [
+      'Lymph', 'Lymphocytes', 'Lymphocytes %', '% Lymphocytes', 'Lymphocyte %', 'Lymphocytes, percent',
+      'Lymphocytes Relative', 'Lymph %', 'Lymph%', 'Lymphocyte', 'Lymphs',
+    ],
+  }),
+  lab('monocytes_pct', {
+    label: 'Monocytes (%)', panel: 'cbc', unit: '%',
+    min: 0, max: 100, decimals: 1,
+    aliases: [
+      'Mono', 'Monocytes', 'Monocytes %', '% Monocytes', 'Monocyte %', 'Monocytes, percent', 'Monocytes Relative',
+      'Mono %', 'Mono%', 'Monocyte', 'Monos',
+    ],
+  }),
+  lab('eosinophils_pct', {
+    label: 'Eosinophils (%)', panel: 'cbc', unit: '%',
+    min: 0, max: 100, decimals: 1,
+    aliases: [
+      'Eos', 'Eosinophils', 'Eosinophils %', '% Eosinophils', 'Eosinophil %', 'Eosinophils, percent',
+      'Eosinophils Relative', 'Eos %', 'Eos%', 'Eosinophil',
+    ],
+  }),
+  lab('basophils_pct', {
+    label: 'Basophils (%)', panel: 'cbc', unit: '%',
+    min: 0, max: 100, decimals: 1,
+    aliases: [
+      'Baso', 'Basophils', 'Basophils %', '% Basophils', 'Basophil %', 'Basophils, percent', 'Basophils Relative',
+      'Baso %', 'Baso%', 'Basophil', 'Basos',
+    ],
+  }),
+  lab('neutrophils_abs', {
+    label: 'Neutrophils (absolute)', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 }, si: ['10^9/L', 2],
+    min: 0, max: 500, decimals: 2,
+    aliases: [
+      'Absolute Neutrophils', 'Neutrophils Abs', 'Neutrophils, Absolute', 'Abs Neutrophils',
+      'Neutrophils Absolute Count', 'Neutrophil Abs', 'Absolute Neutrophil count', 'Neut Abs', 'ANC', 'Neut Absolute',
+    ],
+  }),
+  lab('lymphocytes_abs', {
+    label: 'Lymphocytes (absolute)', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 }, si: ['10^9/L', 2],
+    min: 0, max: 500, decimals: 2,
+    aliases: [
+      'Absolute Lymphocytes', 'Lymphocytes Abs', 'Lymphocytes, Absolute', 'Abs Lymphocytes',
+      'Lymphocytes Absolute Count', 'Lymphocyte Abs', 'Absolute Lymphocyte count', 'Lymph Abs', 'ALC',
+      'Lymph Absolute',
+    ],
+  }),
+  lab('monocytes_abs', {
+    label: 'Monocytes (absolute)', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 }, si: ['10^9/L', 2],
+    min: 0, max: 100, decimals: 2,
+    aliases: [
+      'Absolute Monocytes', 'Monocytes Abs', 'Monocytes, Absolute', 'Abs Monocytes', 'Monocytes Absolute Count',
+      'Monocyte Abs', 'Absolute Monocyte count', 'Mono Abs', 'Mono Absolute',
+    ],
+  }),
+  lab('eosinophils_abs', {
+    label: 'Eosinophils (absolute)', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 }, si: ['10^9/L', 2],
+    min: 0, max: 100, decimals: 2,
+    aliases: [
+      'Absolute Eosinophils', 'Eosinophils Abs', 'Eosinophils, Absolute', 'Abs Eosinophils',
+      'Eosinophils Absolute Count', 'Eosinophil Abs', 'Absolute Eosinophil count', 'Eos Abs', 'AEC', 'Eos Absolute',
+    ],
+  }),
+  lab('basophils_abs', {
+    label: 'Basophils (absolute)', panel: 'cbc', unit: '10^3/µL', alt: { '10^9/L': 1 }, si: ['10^9/L', 2],
+    min: 0, max: 50, decimals: 2,
+    aliases: [
+      'Absolute Basophils', 'Basophils Abs', 'Basophils, Absolute', 'Abs Basophils', 'Basophils Absolute Count',
+      'Basophil Abs', 'Absolute Basophil count', 'Baso Abs', 'Baso Absolute',
+    ],
+  }),
+  lab('immature_granulocytes_pct', {
+    label: 'Immature granulocytes (%)', panel: 'cbc', unit: '%',
+    min: 0, max: 100, decimals: 1,
+    aliases: ['Immature Granulocytes', 'Immature Granulocytes %', 'Immature Grans', 'Immature Gran %', 'IG %', 'IG%', 'IG'],
   }),
 
   // --- Metabolic panel, liver and kidney ------------------------------------
@@ -356,6 +529,8 @@ const LAB_METRICS: readonly MetricDef[] = [
   }),
   lab('egfr', {
     label: 'eGFR', panel: 'cmp', unit: 'mL/min/1.73m²',
+    // A PDF often wraps "mL/min/1.73m2" after "mL/min/" (the slash survives or not).
+    unitAliases: { 'mL/min': 'mL/min/1.73m²' },
     min: 0, max: 250, decimals: 0,
     aliases: ['Estimated GFR', 'Estimated glomerular filtration rate', 'GFR estimated', 'eGFR non-African American', 'eGFR CKD-EPI'],
   }),
@@ -412,6 +587,60 @@ const LAB_METRICS: readonly MetricDef[] = [
     min: 0, max: 100, decimals: 0,
     aliases: ['B/C ratio', 'BUN/Creatinine Ratio', 'BUN/Creat ratio', 'BUN:Creatinine ratio', 'Urea nitrogen/creatinine ratio'],
   }),
+  // Metabolic, liver and kidney extras (#309).
+  lab('anion_gap', {
+    label: 'Anion gap', panel: 'cmp', unit: 'mmol/L', alt: { 'mEq/L': 1 },
+    min: -20, max: 80, decimals: 0,
+    aliases: ['AGAP', 'Anion gap, calculated'],
+  }),
+  lab('direct_bilirubin', {
+    label: 'Direct bilirubin', panel: 'cmp', unit: 'mg/dL', alt: { 'µmol/L': per(17.1) }, si: ['µmol/L', 0],
+    min: 0, max: 30, decimals: 1,
+    aliases: ['Bilirubin, direct', 'Bilirubin direct', 'Direct bili', 'D. Bili', 'DBIL', 'Conjugated bilirubin'],
+  }),
+  lab('ggt', {
+    label: 'GGT', panel: 'cmp', unit: 'U/L', alt: { 'IU/L': 1, 'µkat/L': KATAL_U },
+    min: 0, max: 10000, decimals: 0,
+    aliases: ['Gamma-glutamyl transferase', 'Gamma glutamyl transferase', 'Gamma-glutamyltransferase', 'GGTP', 'Gamma GT', 'Gamma-GT'],
+  }),
+  lab('magnesium', {
+    label: 'Magnesium', panel: 'cmp', unit: 'mg/dL', alt: { 'mmol/L': per(0.4114), 'mEq/L': per(0.8228) }, si: ['mmol/L', 2],
+    min: 0, max: 20, decimals: 1,
+    aliases: ['Mg', 'Serum magnesium', 'Magnesium, serum'],
+  }),
+  lab('phosphorus', {
+    label: 'Phosphorus', panel: 'cmp', unit: 'mg/dL', alt: { 'mmol/L': per(0.3229) }, si: ['mmol/L', 2],
+    min: 0, max: 30, decimals: 1,
+    aliases: ['Phosphate', 'Phos', 'Inorganic phosphorus', 'Phosphorus, inorganic', 'PO4', 'Serum phosphorus'],
+  }),
+  lab('ldh', {
+    label: 'Lactate dehydrogenase', panel: 'cmp', unit: 'U/L', alt: { 'IU/L': 1, 'µkat/L': KATAL_U },
+    min: 0, max: 20000, decimals: 0,
+    aliases: ['LDH', 'LD', 'Lactic dehydrogenase', 'Lactic acid dehydrogenase'],
+  }),
+  lab('amylase', {
+    label: 'Amylase', panel: 'cmp', unit: 'U/L', alt: { 'IU/L': 1, 'µkat/L': KATAL_U },
+    min: 0, max: 10000, decimals: 0,
+    aliases: ['Serum amylase', 'Amylase, serum', 'Amylase, total'],
+  }),
+  lab('lipase', {
+    label: 'Lipase', panel: 'cmp', unit: 'U/L', alt: { 'IU/L': 1, 'µkat/L': KATAL_U },
+    min: 0, max: 20000, decimals: 0,
+    aliases: ['Serum lipase', 'Lipase, serum'],
+  }),
+  lab('uacr', {
+    label: 'Urine albumin/creatinine ratio', panel: 'cmp', unit: 'mg/g', alt: { 'mg/mmol': per(0.113), 'µg/mg': 1 }, si: ['mg/mmol', 1],
+    min: 0, max: 10000, decimals: 0,
+    aliases: [
+      'UACR', 'ACR', 'Albumin/Creatinine Ratio', 'Albumin/Creatinine Ratio, Urine', 'Urine Albumin/Creatinine Ratio',
+      'Microalbumin/Creatinine Ratio', 'Microalb/Creat Ratio', 'Microalbumin Creatinine Ratio', 'Albumin Creatinine Ratio, Random Urine',
+    ],
+  }),
+  lab('cystatin_c', {
+    label: 'Cystatin C', panel: 'cmp', unit: 'mg/L',
+    min: 0, max: 20, decimals: 2,
+    aliases: ['Cystatin-C', 'Cys C', 'Serum cystatin C'],
+  }),
 
   // --- Thyroid ------------------------------------------------------------------
   lab('tsh', {
@@ -428,6 +657,25 @@ const LAB_METRICS: readonly MetricDef[] = [
     label: 'Free T3', panel: 'thyroid', unit: 'pg/mL', alt: { 'pmol/L': per(1.536) }, si: ['pmol/L', 1],
     min: 0, max: 30, decimals: 1,
     aliases: ['FT3', 'Free triiodothyronine', 'Triiodothyronine, free', 'T3, free'],
+  }),
+  // Thyroid extras (#309).
+  lab('total_t4', {
+    label: 'Total T4', panel: 'thyroid', unit: 'µg/dL', alt: { 'nmol/L': per(12.87) }, si: ['nmol/L', 0],
+    min: 0, max: 50, decimals: 1,
+    aliases: ['T4', 'T4, total', 'Thyroxine', 'Thyroxine, total', 'Total thyroxine', 'Thyroxine (T4)'],
+  }),
+  lab('total_t3', {
+    label: 'Total T3', panel: 'thyroid', unit: 'ng/dL', alt: { 'nmol/L': per(0.01536) }, si: ['nmol/L', 2],
+    min: 0, max: 1000, decimals: 0,
+    aliases: ['T3', 'T3, total', 'Triiodothyronine', 'Triiodothyronine, total', 'Total triiodothyronine', 'Triiodothyronine (T3)'],
+  }),
+  lab('tpo_antibodies', {
+    label: 'Thyroid peroxidase antibodies', panel: 'thyroid', unit: 'IU/mL', alt: { 'kIU/L': 1 },
+    min: 0, max: 100000, decimals: 0,
+    aliases: [
+      'TPO', 'TPO Ab', 'TPO Antibodies', 'Anti-TPO', 'Anti-TPO antibodies', 'Thyroid peroxidase Ab',
+      'Thyroid peroxidase antibody', 'Anti-thyroid peroxidase', 'Thyroperoxidase antibodies',
+    ],
   }),
 
   // --- Iron -------------------------------------------------------------------------
@@ -487,6 +735,62 @@ const LAB_METRICS: readonly MetricDef[] = [
     label: 'Uric acid', panel: 'other', unit: 'mg/dL', alt: { 'µmol/L': per(59.48) }, si: ['µmol/L', 0],
     min: 0, max: 30, decimals: 1,
     aliases: ['Urate', 'Serum uric acid', 'Uric acid, serum'],
+  }),
+  // Vitamins, minerals, hormones and other markers (#309).
+  lab('folate', {
+    label: 'Folate', panel: 'other', unit: 'ng/mL', alt: { 'nmol/L': per(2.266), 'µg/L': 1 }, si: ['nmol/L', 0],
+    min: 0, max: 100, decimals: 1,
+    aliases: ['Folic acid', 'Serum folate', 'Folate, serum', 'Vitamin B9'],
+  }),
+  lab('zinc', {
+    label: 'Zinc', panel: 'other', unit: 'µg/dL', alt: { 'µmol/L': per(0.153) }, si: ['µmol/L', 1],
+    min: 0, max: 1000, decimals: 0,
+    aliases: ['Zn', 'Serum zinc', 'Zinc, serum', 'Zinc, plasma'],
+  }),
+  lab('psa', {
+    label: 'PSA', panel: 'other', unit: 'ng/mL', alt: { 'µg/L': 1 },
+    min: 0, max: 10000, decimals: 2,
+    aliases: ['Prostate specific antigen', 'Prostate-specific antigen', 'PSA, total', 'Total PSA'],
+  }),
+  lab('estradiol', {
+    label: 'Estradiol', panel: 'other', unit: 'pg/mL', alt: { 'pmol/L': per(3.671) }, si: ['pmol/L', 0],
+    min: 0, max: 10000, decimals: 0,
+    aliases: ['E2', 'Oestradiol', 'Estradiol, serum', 'Estradiol (E2)'],
+  }),
+  lab('shbg', {
+    label: 'Sex hormone-binding globulin', panel: 'other', unit: 'nmol/L',
+    min: 0, max: 1000, decimals: 0,
+    aliases: ['SHBG', 'Sex hormone binding globulin', 'Sex-hormone-binding globulin'],
+  }),
+  lab('dhea_s', {
+    label: 'DHEA sulfate', panel: 'other', unit: 'µg/dL', alt: { 'µmol/L': per(0.02714) }, si: ['µmol/L', 1],
+    min: 0, max: 2000, decimals: 0,
+    aliases: ['DHEA-S', 'DHEAS', 'DHEA-SO4', 'DHEA Sulfate', 'DHEA-Sulfate', 'Dehydroepiandrosterone sulfate'],
+  }),
+  lab('lh', {
+    label: 'Luteinizing hormone', panel: 'other', unit: 'mIU/mL', alt: { 'IU/L': 1 },
+    min: 0, max: 500, decimals: 1,
+    aliases: ['LH', 'Lutropin'],
+  }),
+  lab('fsh', {
+    label: 'Follicle-stimulating hormone', panel: 'other', unit: 'mIU/mL', alt: { 'IU/L': 1 },
+    min: 0, max: 500, decimals: 1,
+    aliases: ['FSH', 'Follicle stimulating hormone', 'Follitropin'],
+  }),
+  lab('prolactin', {
+    label: 'Prolactin', panel: 'other', unit: 'ng/mL', alt: { 'µg/L': 1 },
+    min: 0, max: 10000, decimals: 1,
+    aliases: ['PRL', 'Serum prolactin', 'Prolactin, serum'],
+  }),
+  lab('esr', {
+    label: 'Erythrocyte sedimentation rate', panel: 'other', unit: 'mm/h', alt: { 'mm/hr': 1 },
+    min: 0, max: 200, decimals: 0,
+    aliases: ['ESR', 'Sed rate', 'Sedimentation rate', 'Sed Rate by Modified Westergren', 'Westergren ESR', 'ESR, Westergren'],
+  }),
+  lab('homocysteine', {
+    label: 'Homocysteine', panel: 'other', unit: 'µmol/L',
+    min: 0, max: 500, decimals: 1,
+    aliases: ['Hcy', 'Total homocysteine', 'Homocysteine, total', 'Homocyst(e)ine', 'Plasma homocysteine'],
   }),
 ];
 
@@ -695,12 +999,46 @@ export function unitFor(key: string, unit: string): MetricUnitDef | undefined {
   const exact = metric.units.find((candidate) => candidate.unit === unit);
   if (exact || metric.category !== 'lab') return exact;
 
-  const wanted = foldUnit(unit);
-  return metric.units.find((candidate) => foldUnit(candidate.unit) === wanted);
+  const wanted = normalizeLabUnit(unit);
+  const match = metric.units.find((candidate) => normalizeLabUnit(candidate.unit) === wanted);
+  if (match) return match;
+
+  const alias = Object.entries(metric.unitAliases ?? {}).find(([spelling]) => normalizeLabUnit(spelling) === wanted);
+  return alias ? metric.units.find((candidate) => candidate.unit === alias[1]) : undefined;
 }
 
-function foldUnit(unit: string): string {
-  return unit.trim().toLowerCase().replace(/[\u00b5\u03bc]/g, 'u');
+/**
+ * A lab unit in comparable form (#310): what {@link unitFor} compares, on
+ * both sides, for lab analytes. Folds what labs and portals print for the
+ * same unit:
+ *   - case, whitespace, compatibility forms (`²` -> `2`), a trailing `/`;
+ *   - micro: `µ`, `μ` and `u`;
+ *   - `unit`/`units` -> `U` (`unit/L` is `U/L`);
+ *   - powers of ten: `10^3`, `10*3`, `10E3`, `x10E3`, `x10^3`, `X10(3)`;
+ *   - counts per microlitre: `K`, `thou`, `thousand` -> `10^3`, and `M`,
+ *     `mil`, `million` -> `10^6`, per `µL` (or the same `mm3`/`cumm`);
+ *   - `m^2` -> `m2`.
+ * The result is a comparison key, never shown or stored.
+ */
+export function normalizeLabUnit(unit: string): string {
+  let folded = unit
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\u00b5\u03bc]/g, 'u')
+    .replace(/\u00d7/g, 'x')
+    .replace(/\s+/g, '')
+    .replace(/\/+$/, '');
+
+  folded = folded
+    .replace(/(^|[^a-z])units?(?![a-z])/g, '$1u')
+    .replace(/x?10(?:\^|\*{1,2}|e)\(?(\d+)\)?/g, '10^$1')
+    .replace(/x?10\((\d+)\)/g, '10^$1')
+    .replace(/m\^2/g, 'm2')
+    .replace(/\/(?:mm3|cumm)$/, '/ul')
+    .replace(/^(?:k|thou|thous|thousand)\/ul$/, '10^3/ul')
+    .replace(/^(?:m|mil|mill|million)\/ul$/, '10^6/ul');
+
+  return folded;
 }
 
 export function roundCanonical(value: number): number {

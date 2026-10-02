@@ -119,7 +119,7 @@ describe('LabReportHandler (H4, #188)', () => {
     expect(drafts).toHaveLength(7);
     expect(drafts.filter((d: any) => d.value.analyteKey === null)).toHaveLength(1);
     expect(options.context).toEqual({ collectionDate: '2026-09-15', labName: 'Acme Clinical Laboratories' });
-    expect(options.resultMeta).toMatchObject({ promptVersion: 2, unmatched: 1, converted: 1 });
+    expect(options.resultMeta).toMatchObject({ promptVersion: 3, unmatched: 1, converted: 1 });
 
     expect(span.setAttribute).toHaveBeenCalledWith('intake.input_kind', 'pdf');
     expect(span.setAttribute).toHaveBeenCalledWith(LAB_REPORT_SPAN_ATTRIBUTES.inputCount, 1);

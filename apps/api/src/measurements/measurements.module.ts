@@ -6,6 +6,8 @@ import { JobsModule } from '../jobs/jobs.module';
 import { BiomarkersController } from './biomarkers/biomarkers.controller';
 import { BiomarkersService } from './biomarkers/biomarkers.service';
 import { LabReportDuplicatesService } from './lab-report/lab-report-duplicates.service';
+import { LabReportMapService } from './lab-report/lab-report-map.service';
+import { LabReportRejectUnmatchedService } from './lab-report/lab-report-reject-unmatched.service';
 import { LabReportController } from './lab-report/lab-report.controller';
 import { LabReportHandler } from './lab-report/lab-report.handler';
 import { LabReportIntakeKind } from './lab-report/lab-report.kind';
@@ -28,7 +30,8 @@ import { BodyMetricReadingIntakeKind } from './photo/body-metric-reading.kind';
  *
  * "Import a lab report" (H4, #188) lives in `./lab-report`: the `lab_report`
  * intake kind, its server-only `ai.health.lab_report` job, and the
- * duplicate-warning route under `/api/measurements/lab-reports`.
+ * duplicate-warning, map-to-analyte (#307) and reject-unmatched (#311) routes under
+ * `/api/measurements/lab-reports`.
  *
  * Blood-work history (H5, #189) adds `./biomarkers`: the per-analyte summary
  * under `/api/health/biomarkers`.
@@ -43,6 +46,8 @@ import { BodyMetricReadingIntakeKind } from './photo/body-metric-reading.kind';
     LabReportIntakeKind,
     LabReportHandler,
     LabReportDuplicatesService,
+    LabReportMapService,
+    LabReportRejectUnmatchedService,
     BiomarkersService,
   ],
   exports: [MeasurementsService],

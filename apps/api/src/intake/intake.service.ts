@@ -223,8 +223,12 @@ function refuse(status: 400 | 409, reason: string, message: string, extra: Recor
   return status === 400 ? new BadRequestException(body) : new ConflictException(body);
 }
 
-/** The 409 for an intake whose status forbids the operation. */
-function stateConflict(status: string, operation: string): ConflictException {
+/**
+ * The 409 for an intake whose status forbids the operation. Exported for a
+ * kind's own item routes (the lab report's map-to-analyte, #307), so they
+ * refuse with the same `details.reason`.
+ */
+export function stateConflict(status: string, operation: string): ConflictException {
   if (status === 'applied') {
     return refuse(409, 'ALREADY_APPLIED', 'This intake was already applied') as ConflictException;
   }
@@ -1384,6 +1388,17 @@ export class IntakeService {
     if (!item) throw itemNotFound();
 
     return item;
+  }
+
+  /**
+   * A user-written item `value` for `intake`, validated and normalised
+   * exactly as `PATCH /api/intakes/:id/items/:itemId` does (the kind's value
+   * schema, then its `normalizeValue(..., 'user')`): the 400 the PATCH would
+   * answer, or the value it would store. Pure: reads and writes nothing. For
+   * a kind's own item routes (the lab report's map-to-analyte, #307).
+   */
+  async validateUserValue(intake: PhotoIntake, raw: unknown): Promise<unknown> {
+    return this.validateValue(this.registry.require(intake.kind), intake, raw);
   }
 
   /** The intake's documents whose file is to be erased and still exists. */

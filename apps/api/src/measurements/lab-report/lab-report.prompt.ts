@@ -25,6 +25,11 @@ import { getMetric, LAB_METRIC_KEYS } from '../metric-registry';
 // fallback for results without one. Demographic dates (date of birth) and
 // print / report-generated stamps are never result dates.
 //
+// NON-RESULTS AND WRAPPED UNITS (#310). A cell that prints no result ("NOT
+// APPLICABLE", "SEE NOTE:", "TNP", "Pending", ...) is never a result; the
+// mapper drops any the model still returns. A unit a PDF wraps onto the next
+// line ("mL/min/" then "1.73m2") is put back together.
+//
 // `matchedKey` is a HINT. The server resolves the analyte from the printed
 // name with `resolveLabAnalyte`; it uses the model's key only when the name
 // resolves to nothing and the key is a valid catalog key, and then marks the
@@ -35,11 +40,11 @@ import { getMetric, LAB_METRIC_KEYS } from '../metric-registry';
 // absent value is `null`, objects are closed.
 // =============================================================================
 
-export const LAB_REPORT_PROMPT_VERSION = 2;
+export const LAB_REPORT_PROMPT_VERSION = 3;
 
 /**
  * The most results one answer may carry: a trend table of ~20 analytes over
- * ~10 dates. More than one lab entry holds (`MAX_LAB_READINGS_PER_ENTRY`, 40,
+ * ~10 dates. More than one lab entry holds (`MAX_LAB_READINGS_PER_ENTRY`, 150,
  * per collection date), so a long report is shown whole and the user rejects
  * what they do not want saved.
  */
@@ -65,11 +70,13 @@ export const LAB_REPORT_INSTRUCTIONS = [
   '',
   'Return one result per printed result value, in the order printed, including rows you do not recognise: one per analyte row on a single-date report, and one per filled (analyte, date) cell on a trend table, so an analyte printed on 5 dates gives 5 results.',
   'Skip empty cells and cells printed as --, -, blank or N/A; never fill them in or carry a value over from another date.',
+  'A cell that prints no result is not a result: never return one for NOT APPLICABLE, SEE NOTE, SEE COMMENT, N/A, NA, --, TNP (test not performed), Cancelled, Pending, Not done or similar: skip that cell.',
   "Set each result's collectionDate to the date its specimen was collected, as YYYY-MM-DD: on a trend table the date heading that cell's column, on a single-date report the report's collection date, on several reports the collection date of the part it is printed in; null when none is legible. On a single-date report, use the report date only when no collection date is printed.",
   'Never use a date of birth, an age, a patient or record number (MRN), or an order, received, print or report-generated date as a collection date, and never invent or guess a date.',
   'Set the top-level collectionDate to the collection date of a single-date report; when the results carry several dates, to the most recent of them; null when no date is legible.',
   '',
   'Copy nameAsPrinted, value, unit and referenceText exactly as printed; keep the unit the report uses, never convert it.',
+  'A unit can wrap onto the next line of the cell (for example "mL/min/" with "1.73m2" below it, or "x10E3/" with "uL" below it): join the pieces into one unit ("mL/min/1.73m2", "x10E3/uL") and never put the continuation in referenceText or another field.',
   'nameAsPrinted is the analyte name only. When the name cell also prints a range (for example "Glucose Lvl" followed by "Normal Range: 65 - 99 mg/dL"), nameAsPrinted is "Glucose Lvl" and the range goes to referenceText, referenceLow and referenceHigh.',
   'The reference range may be printed in the name cell, in its own column or beside the value; the unit may be in its own column, in the value cell or in the printed range. Use whatever is printed for that analyte.',
   'When a value carries an annotation such as (CALC), (calculated) or a footnote mark, set value to the number alone and keep the annotation in note; an annotation alone is not a doubt.',
