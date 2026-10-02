@@ -1,5 +1,5 @@
 import { labReportFixture } from '../../../test/fixtures/lab-report/load';
-import { DATE_NOT_READ_NOTE, mapLabReportOutput, SUGGESTED_NOTE, UNMATCHED_NOTE } from './lab-report.mapper';
+import { DATE_NOT_READ_NOTE, isNonResult, mapLabReportOutput, SUGGESTED_NOTE, UNMATCHED_NOTE } from './lab-report.mapper';
 import { labReportOutputSchema, type LabReportOutput, type LabReportOutputResult } from './lab-report.prompt';
 import { labReportValueSchema } from './lab-report.value';
 
@@ -93,7 +93,7 @@ describe('mapLabReportOutput (H4, #188)', () => {
 
     expect(document).toEqual({ collectionDate: '2026-09-15', labName: 'Acme Clinical Laboratories' });
     expect(resultMeta).toEqual({
-      promptVersion: 2,
+      promptVersion: 3,
       unreadable: false,
       resultsReturned: 7,
       resultsTruncated: 0,
@@ -106,9 +106,10 @@ describe('mapLabReportOutput (H4, #188)', () => {
       collectionDateDiscarded: false,
       distinctDates: 1,
       resultDatesDiscarded: 0,
+      nonResultsDropped: 0,
     });
     // Diagnostics only: no printed name or value.
-    expect(JSON.stringify(resultMeta)).not.toMatch(/Lipoprotein|Acme|212/);
+    expect(JSON.stringify(resultMeta)).not.toMatch(/Apolipoprotein|Acme|212/);
   });
 
   it('resolves from the printed name and ignores a disagreeing model key', () => {
@@ -186,6 +187,43 @@ describe('mapLabReportOutput (H4, #188)', () => {
     expect(one(result({ nameAsPrinted: 'LDL-C/HDL-C Ratio', value: 2.4, unit: null })).drafts[0]).toMatchObject({
       uncertain: false,
       value: { analyteKey: 'ldl_hdl_ratio', unit: 'ratio' },
+    });
+  });
+
+  describe('non-results (#310)', () => {
+    it.each(['NOT APPLICABLE', 'SEE NOTE:', 'See note', 'see comment.', 'N/A', 'NA', '--', '—', 'TNP', 'Test not performed', 'Cancelled', 'Canceled', 'Pending', 'Not done', 'QNS'])(
+      'drops a cell printed %p with no number, counting it',
+      (printed) => {
+        const { drafts, resultMeta } = mapLabReportOutput(
+          {
+            readable: true,
+            collectionDate: '2026-09-15',
+            labName: null,
+            results: [
+              result({ nameAsPrinted: 'BUN/Creatinine Ratio', value: null, valueText: printed, unit: null }),
+              result(),
+            ],
+          },
+          [DOC, PAGE],
+          NOW,
+        );
+        expect(drafts).toHaveLength(1);
+        expect(drafts[0].value).toMatchObject({ analyteKey: 'ldl_cholesterol' });
+        expect(resultMeta).toMatchObject({ resultsReturned: 2, nonResultsDropped: 1, flagged: 0 });
+      },
+    );
+
+    it('keeps a non-numeric RESULT, a number with any text, and an empty cell the model returned', () => {
+      expect(isNonResult({ value: null, valueText: 'negative' })).toBe(false);
+      expect(isNonResult({ value: null, valueText: '<0.5' })).toBe(false);
+      expect(isNonResult({ value: null, valueText: 'Not detected' })).toBe(false);
+      expect(isNonResult({ value: 14, valueText: 'SEE NOTE' })).toBe(false);
+      expect(isNonResult({ value: null, valueText: null })).toBe(false);
+      expect(isNonResult({ value: null, valueText: '  pending.  ' })).toBe(true);
+
+      const kept = one(result({ value: null, valueText: 'negative' }));
+      expect(kept.drafts).toHaveLength(1);
+      expect(kept.resultMeta.nonResultsDropped).toBe(0);
     });
   });
 
