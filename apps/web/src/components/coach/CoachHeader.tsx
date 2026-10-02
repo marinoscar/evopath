@@ -54,7 +54,7 @@ export function weeklyTargetText(target: CoachStateView['weeklyTarget']): string
 }
 
 /** Where the user's explicit expand/collapse choice is remembered. */
-export const HEADER_EXPANDED_STORAGE_KEY = 'evopath.coach.headerExpanded';
+export const HEADER_EXPANDED_STORAGE_KEY = 'coach.headerExpanded';
 
 function readStoredExpanded(): boolean | null {
   try {
