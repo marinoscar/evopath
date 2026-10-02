@@ -147,8 +147,8 @@ export function getLabReportDuplicates(intakeId: string): Promise<LabReportDupli
 /**
  * #317: why `apply` would refuse a result if it were accepted, as the server
  * words it. `code` is one of `UNMATCHED`, `UNIT_NOT_ALLOWED`, `NO_VALUE`,
- * `OUT_OF_RANGE`, `REFERENCE_ORDER`, `DUPLICATE_ON_DATE` or `DATE_CAP` (an
- * unknown code is shown by its message all the same).
+ * `OUT_OF_RANGE`, `REFERENCE_ORDER`, `DUPLICATE_ON_DATE`, `DATE_CAP` or
+ * `INVALID_RESULT` (an unknown code is shown by its message all the same).
  */
 export interface LabReportIssue {
   code: string;
