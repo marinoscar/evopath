@@ -96,3 +96,62 @@ describe('evopathcli android keystore', () => {
     await expect(t.run('keystore', 'secrets')).rejects.toThrow(/keystore init/);
   });
 });
+
+// #315: `--require-up-to-date` turns "the checkout is behind" into an error
+// exit before anything is built (or, for release, bumped).
+describe('evopathcli android build|release --require-up-to-date', () => {
+  function behindExec(calls: string[]) {
+    return vi.fn(async (command: string, args: readonly string[]) => {
+      calls.push(`${command} ${args.join(' ')}`);
+      if (command !== 'git') throw new Error(`unexpected ${command}`);
+      if (args.includes('--is-inside-work-tree')) return { code: 0, stdout: 'true\n', stderr: '' };
+      if (args.includes('@{u}')) return { code: 0, stdout: 'origin/main\n', stderr: '' };
+      if (args.at(-1) === 'HEAD') return { code: 0, stdout: 'main\n', stderr: '' };
+      if (args[0] === 'fetch') return { code: 0, stdout: '', stderr: '' };
+      if (args[0] === 'rev-list') return { code: 0, stdout: '0\t2\n', stderr: '' };
+      return { code: 1, stdout: '', stderr: '' };
+    });
+  }
+
+  function setupBehind() {
+    const base = mkdtempSync(join(tmpdir(), 'android-cmd-fresh-'));
+    const repo = join(base, 'repo');
+    const sdk = join(base, 'sdk');
+    mkdirSync(join(repo, 'apps', 'android'), { recursive: true });
+    mkdirSync(sdk, { recursive: true });
+    writeFileSync(join(repo, 'apps', 'android', 'gradlew'), '#!/bin/sh\n');
+    writeFileSync(join(repo, 'apps', 'android', 'version.properties'), 'versionName=1.0.6\nversionCode=6\n');
+    const calls: string[] = [];
+    const exec = behindExec(calls);
+    const run = async (...args: string[]) => {
+      const program = new Command().exitOverride();
+      registerAndroidCommand(program, {
+        stdout: { write: () => true },
+        stderr: { write: () => true },
+        env: { EVOPATHCLI_REPO_ROOT: repo, ANDROID_HOME: sdk, EVOPATHCLI_SERVER_URL: 'https://app.example.com', EVOPATHCLI_TOKEN: 'pat_test' },
+        home: join(base, 'home'),
+        exec,
+      });
+      await program.parseAsync(['android', ...args], { from: 'user' });
+    };
+    return { repo, calls, run };
+  }
+
+  it('build: exits with a precondition error naming the gap, before Gradle', async () => {
+    const t = setupBehind();
+    await expect(t.run('build', '--debug', '--require-up-to-date')).rejects.toThrow(
+      /2 commits behind origin\/main .*Run: git pull .*--require-up-to-date/,
+    );
+    expect(t.calls.some((call) => call.includes('gradlew'))).toBe(false);
+  });
+
+  it('release: refuses before bumping version.properties', async () => {
+    const t = setupBehind();
+    const signingHome = join(t.repo, '..', 'home');
+    mkdirSync(signingHome, { recursive: true });
+    const { writeSigningConfig } = await import('../android/keystore.js');
+    writeSigningConfig({ keystorePath: join(signingHome, 'k.jks'), keyAlias: 'a', storePassword: 'p', keyPassword: 'p' }, { home: signingHome });
+    await expect(t.run('release', '--require-up-to-date')).rejects.toThrow(/refusing to release: --require-up-to-date/);
+    expect(readFileSync(join(t.repo, 'apps', 'android', 'version.properties'), 'utf8')).toBe('versionName=1.0.6\nversionCode=6\n');
+  });
+});
