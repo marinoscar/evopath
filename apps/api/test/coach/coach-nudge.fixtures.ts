@@ -93,6 +93,8 @@ export interface SetupOptions {
   historyExtras?: Record<string, unknown>;
   /** `GoalProgressService.progressForUser` (F9); [] by default. */
   goals?: unknown[];
+  /** The user's memory block (#325); absent: no memory service. */
+  memoryBlock?: string;
 }
 
 export function setupNudge(options: SetupOptions = {}) {
@@ -175,6 +177,8 @@ export function setupNudge(options: SetupOptions = {}) {
     },
   });
   const goals = { progressForUser: jest.fn(async () => options.goals ?? []) };
+  const memoryContext =
+    options.memoryBlock === undefined ? undefined : { buildBlock: jest.fn(async () => options.memoryBlock as string) };
   const handler = new CoachNudgeHandler(
     registry as never,
     trackedPrisma as never,
@@ -188,8 +192,9 @@ export function setupNudge(options: SetupOptions = {}) {
     new DefaultAnglePicker(),
     metrics as never,
     goals as never,
+    memoryContext as never,
   );
-  return { handler, prisma, respondStructured, forUser, speak, jobs, metrics, registry, features, accessedModels, goals };
+  return { handler, prisma, respondStructured, forUser, speak, jobs, metrics, registry, features, accessedModels, goals, memoryContext };
 }
 
 /** The `instructions` and user text of the n-th model request. */

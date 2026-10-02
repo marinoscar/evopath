@@ -14,6 +14,20 @@
 // (`planner.healthSummary`, the evaluator's `profile.healthSummary`), read
 // through `HealthSummaryReader.forTraining`; the canary tests seed
 // distinctive raw values and prove none of them reaches any request.
+//
+// USER MEMORY (#325, docs/specs/ai-memory.md). The one other piece of free
+// text a planner request may carry is `planner.userMemories`: the user's own
+// memory notes, which the user sees, edits and deletes in Settings > Memory,
+// limited to the training categories (goal, preference, constraint_injury,
+// schedule, equipment, training_history), validated on every write (no
+// instruction, link, email, code, secret, financial, phone or third-party
+// data) and rendered by `MemoryContextService` as one delimited
+// `<user_memories>` block marked as untrusted data. It is USER-CURATED, so it
+// is allowed by design, like the intake's own words; nothing ELSE on this
+// list may ride in on it: the loader reads it only through
+// `MemoryContextService.buildBlock` (active rows of the caller, no id, no
+// note, no check-in text), and the canary test seeds a memory and proves
+// that only its text, and no other canary, reaches the request.
 // =============================================================================
 
 export interface NeverSendEntry {
@@ -30,7 +44,10 @@ export const NEVER_SEND: readonly NeverSendEntry[] = [
   { id: 'exact_age', label: 'Your exact age (researcher: an age band, and only if you opt in)' },
   { id: 'check_in_notes', label: 'Check-in notes' },
   { id: 'pain_notes', label: 'Pain notes on logged sets' },
-  { id: 'other_free_text', label: 'Any free text other than what you typed for this plan (workout and measurement notes)' },
+  {
+    id: 'other_free_text',
+    label: 'Any free text other than what you typed for this plan and your own memories (workout and measurement notes)',
+  },
   { id: 'medications', label: 'Medications' },
   { id: 'labs', label: 'Raw biomarkers, lab results and blood pressure readings (if you opt in, only your health summary\'s text is used)' },
   { id: 'documents_photos', label: 'Documents and photos, and their file names' },

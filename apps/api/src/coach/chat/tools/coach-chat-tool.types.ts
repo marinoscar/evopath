@@ -1,4 +1,6 @@
 import type { GoalProgressService } from '../../../activity/goal-progress.service';
+import type { MemoryRefs } from '../../../memory/memory-context.service';
+import type { MemoryService } from '../../../memory/memory.service';
 import type { CheckInsService } from '../../../check-ins/check-ins.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { TrainingSignalsService } from '../../../programs/signals/signals.service';
@@ -37,6 +39,24 @@ export interface CoachChatToolDeps {
   commitments?: CoachCommitmentWriter;
   /** `get_goals`' source (F9); absent -> the tool answers `unavailable`. */
   goals?: Pick<GoalProgressService, 'progressForUser'>;
+  /**
+   * The memory tools' writer and this turn's ref table (#325). Present only
+   * while memory is on for the user: the memory tools are registered then.
+   */
+  memory?: CoachMemoryToolDeps;
+}
+
+export interface CoachMemoryToolDeps {
+  service: Pick<MemoryService, 'write' | 'update' | 'softDelete' | 'findBestMatch'>;
+  refs: MemoryRefs;
+}
+
+/** One memory change a tool made this turn: becomes a `memory` SSE frame (spec §2.9). */
+export interface CoachChatMemoryEvent {
+  op: 'added' | 'updated' | 'deleted';
+  /** The memory's id (for the client's Undo); never sent to the model. */
+  memoryId: string;
+  content: string;
 }
 
 /** What one turn's write tool did, for the `done` frame and the reply's `data`. */
@@ -45,6 +65,8 @@ export interface CoachChatTurnActions {
   pausedUntil: Date | null;
   /** Set when `save_commitment` saved something this turn (field names only, never values). */
   commitmentSaved?: Array<'why' | 'preferredTime'>;
+  /** Memory changes made this turn, drained into `memory` frames as they happen (#325). */
+  memoryEvents?: CoachChatMemoryEvent[];
 }
 
 /** The answer a tool gives instead of throwing: no raw exception text ever reaches the model or the user. */

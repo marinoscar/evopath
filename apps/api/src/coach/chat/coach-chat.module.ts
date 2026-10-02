@@ -6,6 +6,7 @@ import { AiConfigModule } from '../../ai/config/ai-config.module';
 import { AiRuntimeModule } from '../../ai/runtime/ai-runtime.module';
 import { CheckInsModule } from '../../check-ins/check-ins.module';
 import { HealthProfileModule } from '../../health-profile/health-profile.module';
+import { MemoryModule } from '../../memory/memory.module';
 import { ProgramsModule } from '../../programs/programs.module';
 import { ProgressPhotosModule } from '../../progress-photos/progress-photos.module';
 import { SettingsModule } from '../../settings/settings.module';
@@ -32,6 +33,8 @@ import { CoachTimelineService } from './coach-timeline.service';
     AiRuntimeModule,
     CheckInsModule,
     HealthProfileModule,
+    // User memory (#325): the memory block, the memory tools and the extraction enqueue.
+    MemoryModule,
     ProgramsModule,
     ProgressPhotosModule,
     SettingsModule,

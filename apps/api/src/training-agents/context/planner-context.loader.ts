@@ -3,6 +3,7 @@ import { Injectable, Optional } from '@nestjs/common';
 import { CHECK_IN_FIELDS, CHECK_IN_METRIC_KEYS } from '../../check-ins/dto/check-in.dto';
 import { addDays, fromDbDate, localDateInZone, toDbDate } from '../../check-ins/local-date';
 import { HealthSummaryReader } from '../../health-summary/health-summary.reader';
+import { MemoryContextService } from '../../memory/memory-context.service';
 import { ACTIVE } from '../../measurements/measurement-active';
 import { PrismaService } from '../../prisma/prisma.service';
 import { loadProgramRows } from '../../programs/program-mapper';
@@ -39,6 +40,11 @@ import type { LibraryExercise } from './planner-context.contract';
 // here. The only health input is the user's opt-in AI health summary TEXT,
 // through `HealthSummaryReader.forTraining` (consent on and a ready summary,
 // else `null`). A loader built without the reader (tests, tools) reads none.
+//
+// MEMORY (#325): the user's memory notes for the TRAINING audience (goal,
+// preference, constraint_injury, schedule, equipment, training_history),
+// as the delimited block `MemoryContextService.buildBlock` renders ('' while
+// memory is off). A loader built without the service reads none.
 // =============================================================================
 
 export const TRAINING_CONTEXT_REASONS = {
@@ -59,6 +65,7 @@ export class PlannerContextLoader implements PlannerContextPort {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly healthSummaries?: HealthSummaryReader,
+    @Optional() private readonly memories?: MemoryContextService,
   ) {}
 
   async load(userId: string, request: Record<string, unknown>, now: Date): Promise<PlannerContextSource> {
@@ -93,7 +100,7 @@ export class PlannerContextLoader implements PlannerContextPort {
       };
     }
 
-    const [profile, weights, latestWeight, bodyFat, gym, library, workouts, healthSummary] = await Promise.all([
+    const [profile, weights, latestWeight, bodyFat, gym, library, workouts, healthSummary, userMemories] = await Promise.all([
       this.prisma.healthProfile.findUnique({
         where: { userId },
         select: { dateOfBirth: true, sexAtBirth: true, heightMm: true, unitSystem: true, timeZone: true, bio: true },
@@ -136,6 +143,7 @@ export class PlannerContextLoader implements PlannerContextPort {
         },
       }),
       this.healthSummaries ? this.healthSummaries.forTraining(userId) : Promise.resolve(null),
+      this.memories ? this.memories.buildBlock(userId, { audience: 'training' }) : Promise.resolve(''),
     ]);
 
     const today = localDateInZone(now, profile?.timeZone ?? null);
@@ -191,6 +199,7 @@ export class PlannerContextLoader implements PlannerContextPort {
       })),
       checkIns: groupCheckIns(checkInRows),
       ...(healthSummary ? { healthSummary } : {}),
+      ...(userMemories ? { userMemories } : {}),
     };
   }
 

@@ -100,6 +100,12 @@ export interface PlannerContextSource {
    * `HealthSummaryReader.forTraining`, never from a measurement.
    */
   healthSummary?: TrainingHealthSummary | null;
+  /**
+   * The user's memory block for the training audience (#325), '' (or absent)
+   * when memory is off or there is nothing to send. Read through
+   * `MemoryContextService.buildBlock(userId, { audience: 'training' })`.
+   */
+  userMemories?: string | null;
 }
 
 /** Every text of a health summary, for the safety screens. */
@@ -559,6 +565,9 @@ export function buildTrainingRunContext(source: PlannerContextSource): TrainingR
   }
 
   if (healthSummary) planner.healthSummary = healthSummary;
+
+  const userMemories = source.userMemories?.trim() ?? '';
+  if (userMemories.length > 0) planner.userMemories = userMemories;
 
   if (intake.includeBio && source.profile?.bio) {
     const bio = clip(source.profile.bio, CONTEXT_LIMITS.bioChars);

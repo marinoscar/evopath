@@ -68,6 +68,7 @@ export function plannerSections(context: PlannerContext, brief: VerifiedEvidence
     history,
     readiness,
     healthSummary,
+    userMemories,
     profile,
     bodyMetrics,
     bio,
@@ -112,6 +113,8 @@ export function plannerSections(context: PlannerContext, brief: VerifiedEvidence
   // H8 (#192): the opt-in health summary, optional like the rest: dropped
   // whole (never cut) after bio, body metrics and profile.
   if (healthSummary) sections.push({ id: 'healthSummary', required: false, content: { healthSummary } });
+  // #325: the user's memory notes, optional and dropped whole (never cut).
+  if (userMemories) sections.push({ id: 'userMemories', required: false, content: { userMemories } });
   if (profile) {
     sections.push({
       id: 'profile',

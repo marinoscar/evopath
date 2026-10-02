@@ -13,6 +13,9 @@ import { resolveCoachUserSettings } from '../../common/schemas/user-settings-nam
 import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
 import { resolveServiceName } from '../../common/otel/service-name';
 import { HealthProfileService } from '../../health-profile/health-profile.service';
+import { MemoryExtractionScheduler } from '../../memory/extraction/memory-extraction.scheduler';
+import { MemoryContextService, type MemoryChatContext } from '../../memory/memory-context.service';
+import { MemoryService } from '../../memory/memory.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TrainingSignalsService } from '../../programs/signals/signals.service';
 import { TrainingTodayService } from '../../programs/today/training-today.service';
@@ -39,7 +42,12 @@ import {
 } from './coach-chat-prompt';
 import { blockedReplyFor, screenCoachChat, type CoachChatSafety, type CoachChatSafetyScreen } from './coach-chat-safety';
 import { CoachChatMetrics, type CoachChatTurnOutcome } from './coach-chat.metrics';
-import { createCoachChatTools, type CoachChatToolDeps, type CoachChatTurnActions } from './tools';
+import {
+  createCoachChatTools,
+  type CoachChatMemoryEvent,
+  type CoachChatToolDeps,
+  type CoachChatTurnActions,
+} from './tools';
 
 // =============================================================================
 // CoachChatService: one chat turn (E7.7, #247; docs/specs/ai-coach.md §2.9)
@@ -91,6 +99,14 @@ import { createCoachChatTools, type CoachChatToolDeps, type CoachChatTurnActions
 // (`excludeBlockedSafetyTurns`), and for `COACH_CHAT_SAFETY_LOOKBACK_MS`
 // after one every model turn runs in the supportive register.
 //
+// MEMORY (#325; docs/specs/ai-memory.md). While memory is on for the user,
+// the instructions carry the user's memory block and the turn gets the
+// `remember` / `forget` / `update_memory` tools; each change they make is a
+// `memory` frame (`{ op, memoryId, content }`) right after its `tool` frame,
+// so the client can show a chip with Undo. After a model turn's reply is
+// stored, `ai.memory.extract` is queued (5 minutes out, deduplicated per
+// user) to learn durable facts in the background.
+//
 // ⚠ NEVER LOG TEXT. No log line, span attribute or counter carries the
 // user's message, the model's reply or a tool argument (the `reason` of
 // `pause_coach` included).
@@ -100,6 +116,7 @@ import { createCoachChatTools, type CoachChatToolDeps, type CoachChatTurnActions
 export type CoachChatEvent =
   | { type: 'safety'; level: 'blocked' | 'conservative'; screen: CoachChatSafetyScreen }
   | { type: 'tool'; name: string; status: AiToolCallStatus }
+  | { type: 'memory'; op: CoachChatMemoryEvent['op']; memoryId: string; content: string }
   | { type: 'delta'; text: string }
   | {
       type: 'done';
@@ -179,6 +196,10 @@ export class CoachChatService {
     @Optional() private readonly coachSettings?: CoachSettingsService,
     // `get_goals`' source (F9). Optional: without it the tool answers `unavailable`.
     @Optional() private readonly goals?: GoalProgressService,
+    // User memory (#325). Optional: without them the chat runs without memory.
+    @Optional() private readonly memoryContext?: MemoryContextService,
+    @Optional() private readonly memories?: MemoryService,
+    @Optional() private readonly memoryExtraction?: MemoryExtractionScheduler,
   ) {}
 
   /**
@@ -238,7 +259,7 @@ export class CoachChatService {
       }
       span.setAttribute('ai.model', resolution.model.modelId);
 
-      const [rows, today] = await Promise.all([
+      const [rows, today, memory] = await Promise.all([
         // Twice the window, so dropping blocked safety turns still leaves a full one.
         this.prisma.coachMessage.findMany({
           where: { userId, ...(ctx.retry ? { id: { not: ctx.retry.id } } : {}) },
@@ -247,6 +268,7 @@ export class CoachChatService {
           select: { role: true, kind: true, title: true, body: true, data: true },
         }) as Promise<HistoryRow[]>,
         this.checkIns.today(userId, ctx.startedAt),
+        this.memoryContext ? this.memoryContext.forChat(userId) : Promise.resolve(null),
       ]);
       rows.reverse();
       const history = excludeBlockedSafetyTurns(rows)
@@ -258,7 +280,15 @@ export class CoachChatService {
         style,
         supportive,
         model: { provider: resolution.model.provider, modelId: resolution.model.modelId },
-        instructions: buildCoachChatInstructions({ style, supportive, supportiveReason, today }),
+        instructions: buildCoachChatInstructions({
+          style,
+          supportive,
+          supportiveReason,
+          today,
+          memoryEnabled: Boolean(memory?.enabled && this.memories),
+          memoryBlock: memory?.block ?? '',
+        }),
+        memory,
         // `why` is user text: a delimited user-role part, never the system prompt; not under the supportive register.
         why: supportive ? null : (user.why ?? null),
         history,
@@ -328,10 +358,13 @@ export class CoachChatService {
       instructions: string;
       why: string | null;
       history: Array<{ role: string; kind: string; title: string; body: string }>;
+      memory?: MemoryChatContext | null;
     },
   ): AsyncGenerator<CoachChatEvent> {
-    const actions: CoachChatTurnActions = { pausedUntil: null };
-    const tools = createCoachChatTools(this.toolDeps(), actions);
+    const actions: CoachChatTurnActions = { pausedUntil: null, memoryEvents: [] };
+    const tools = createCoachChatTools(this.toolDeps(turn.memory ?? null), actions);
+    const drainMemory = (): CoachChatEvent[] =>
+      (actions.memoryEvents ?? []).splice(0).map((e) => ({ type: 'memory', op: e.op, memoryId: e.memoryId, content: e.content }));
     const steps = new StepChannel();
     let yielded = false;
     // A retry starts with its stored row; `stored` is true once THIS call wrote one.
@@ -379,6 +412,7 @@ export class CoachChatService {
           yielded = true;
           yield { type: 'tool', name: call.name, status: call.status };
         }
+        for (const frame of drainMemory()) yield frame;
       }
 
       const result = steps.result as AiToolLoopResult;
@@ -413,8 +447,11 @@ export class CoachChatService {
       });
 
       this.finish(ctx, verdict.ok ? 'model' : 'fallback', toolCount);
+      // Background memory extraction for this conversation (never throws).
+      if (this.memoryExtraction) await this.memoryExtraction.afterChatTurn(ctx.userId);
 
       yielded = true;
+      for (const frame of drainMemory()) yield frame;
       for (const chunk of chunkText(body)) yield { type: 'delta', text: chunk };
       yield {
         type: 'done',
@@ -452,7 +489,7 @@ export class CoachChatService {
   /** The content guard over the final reply, in the chat context. */
   private check(
     text: string,
-    turn: { style: RenderedPersonaStyle; supportive: boolean; history: Array<{ body: string }> },
+    turn: { style: RenderedPersonaStyle; supportive: boolean; history: Array<{ body: string }>; memory?: MemoryChatContext | null },
     ctx: TurnContext,
     result: AiToolLoopResult,
   ): { ok: boolean; reasons: CoachGuardReason[] } {
@@ -465,6 +502,8 @@ export class CoachChatService {
     const sources = [
       ctx.text,
       ...turn.history.map((row) => row.body),
+      // The user's own memory notes (#325): a figure the user told the coach is not invented.
+      turn.memory?.block ?? '',
       ...result.steps.flatMap((step) => step.calls.map((call) => call.output)),
     ];
     for (const source of sources) for (const n of extractNumbers(source)) allowedNumbers.add(n);
@@ -487,7 +526,7 @@ export class CoachChatService {
     return { ok: false, reasons };
   }
 
-  private toolDeps(): CoachChatToolDeps {
+  private toolDeps(memory: MemoryChatContext | null): CoachChatToolDeps {
     return {
       prisma: this.prisma,
       signals: this.signals,
@@ -497,6 +536,7 @@ export class CoachChatService {
       now: () => new Date(),
       ...(this.coachSettings ? { commitments: this.coachSettings } : {}),
       ...(this.goals ? { goals: this.goals } : {}),
+      ...(memory?.enabled && this.memories ? { memory: { service: this.memories, refs: memory.refs } } : {}),
     };
   }
 
