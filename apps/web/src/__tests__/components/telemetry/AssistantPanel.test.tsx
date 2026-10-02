@@ -3,8 +3,8 @@
  * investigation timeline, the panel's empty state, and how an answered turn
  * is replayed to the model as history.
  */
-import { describe, it, expect, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { screen, within, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../../utils/test-utils';
 import { ReportCard, LegacyAnswer } from '../../../components/telemetry/AssistantReport';
@@ -20,6 +20,12 @@ import type {
   TelemetryAssistantReport,
   TelemetryAssistantStep,
 } from '../../../services/telemetry';
+
+const { downloadBlobMock } = vi.hoisted(() => ({ downloadBlobMock: vi.fn() }));
+vi.mock('../../../services/telemetry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../services/telemetry')>()),
+  downloadBlob: downloadBlobMock,
+}));
 
 const REPORT: TelemetryAssistantReport = {
   status: 'issue_found',
@@ -371,6 +377,129 @@ describe('AssistantPanel New chat (#574)', () => {
 
     await user.click(screen.getByTestId('assistant-new-chat'));
     expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AssistantPanel copy and download (#302)', () => {
+  const conversation = [
+    { id: 'u1', role: 'user' as const, text: 'Why slow?' },
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      status: 'done' as const,
+      steps: [],
+      answer: { sql: 'SELECT 1', explanation: 'Legacy answer.' },
+      error: null,
+    },
+  ];
+  const panel = (props: Partial<React.ComponentProps<typeof AssistantPanel>> = {}) => (
+    <AssistantPanel
+      messages={conversation}
+      isStreaming={false}
+      onAsk={vi.fn()}
+      onStop={vi.fn()}
+      onInsert={vi.fn()}
+      onInsertAndRun={vi.fn()}
+      modelCaption="openai · gpt-5-mini"
+      {...props}
+    />
+  );
+
+  beforeEach(() => downloadBlobMock.mockReset());
+  afterEach(() => vi.restoreAllMocks());
+
+  it('copies one reply (the answer only) and shows Copied', async () => {
+    const user = userEvent.setup();
+    const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+    render(panel());
+
+    await user.click(screen.getByTestId('assistant-copy-reply'));
+
+    expect(write).toHaveBeenCalledWith('Legacy answer.\n\n```sql\nSELECT 1\n```');
+    expect(screen.getAllByRole('status').some((el) => el.textContent === 'Copied')).toBe(true);
+  });
+
+  it('shows no per-reply copy for a streaming reply or one with nothing to copy', () => {
+    const streaming = { ...conversation[1], status: 'streaming' as const, answer: null };
+    render(panel({ messages: [conversation[0], streaming] }));
+    expect(screen.queryByTestId('assistant-copy-reply')).not.toBeInTheDocument();
+  });
+
+  it('copies the whole conversation as Markdown, with the model caption', async () => {
+    const user = userEvent.setup();
+    const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+    render(panel());
+
+    await user.click(screen.getByTestId('assistant-copy-conversation'));
+
+    const text = write.mock.calls[0][0];
+    expect(text).toContain('# Telemetry assistant conversation');
+    expect(text).toContain('Model: openai · gpt-5-mini');
+    expect(text).toContain('## Question\n\nWhy slow?');
+    expect(text).toContain('## Answer');
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copied'),
+    );
+  });
+
+  it('shows "Copy failed" when the clipboard rejects', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('denied'));
+    render(panel());
+
+    await user.click(screen.getByTestId('assistant-copy-conversation'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copy failed'),
+    );
+    expect(screen.getAllByRole('status').some((el) => el.textContent === 'Copy failed')).toBe(true);
+  });
+
+  it('reverts the feedback label after about two seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+      render(panel());
+
+      await user.click(screen.getByTestId('assistant-copy-conversation'));
+      await waitFor(() =>
+        expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copied'),
+      );
+      act(() => {
+        vi.advanceTimersByTime(2100);
+      });
+      expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copy');
+      expect(screen.getByTestId('assistant-copy-conversation')).not.toHaveTextContent('Copied');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('downloads the conversation as a .md Blob through downloadBlob', async () => {
+    const user = userEvent.setup();
+    render(panel());
+
+    await user.click(screen.getByTestId('assistant-download-conversation'));
+
+    expect(downloadBlobMock).toHaveBeenCalledTimes(1);
+    const [blob, filename] = downloadBlobMock.mock.calls[0] as [Blob, string];
+    expect(blob.type).toBe('text/markdown;charset=utf-8');
+    expect(filename).toMatch(/^telemetry-assistant-.+\.md$/);
+    expect(filename).not.toMatch(/[:.].*\.md$/);
+    expect(await blob.text()).toContain('## Question');
+  });
+
+  it('hides the conversation actions when there are no messages', () => {
+    render(panel({ messages: [] }));
+    expect(screen.queryByTestId('assistant-copy-conversation')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-download-conversation')).not.toBeInTheDocument();
+  });
+
+  it('disables the conversation actions while a turn is streaming', () => {
+    render(panel({ isStreaming: true }));
+    expect(screen.getByTestId('assistant-copy-conversation')).toBeDisabled();
+    expect(screen.getByTestId('assistant-download-conversation')).toBeDisabled();
   });
 });
 

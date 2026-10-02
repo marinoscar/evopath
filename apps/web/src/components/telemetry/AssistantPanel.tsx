@@ -14,12 +14,28 @@
  * desktop drawer and the phone dialog share it; it calls `onNewChat` (the
  * hook's `clear()`, which aborts any in-flight turn) and empties the input.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
-import { Alert, Box, Button, Chip, Paper, Stack, TextField, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  Paper,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from '@mui/material';
 import StopIcon from '@mui/icons-material/Stop';
 import SendIcon from '@mui/icons-material/Send';
 import AddCommentOutlinedIcon from '@mui/icons-material/AddCommentOutlined';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
+import DownloadIcon from '@mui/icons-material/Download';
 import {
   ASSISTANT_QUESTION_MAX,
   type AssistantMessage,
@@ -27,6 +43,53 @@ import {
 } from '../../hooks/useTelemetryAssistant';
 import { AssistantTimeline } from './AssistantTimeline';
 import { LegacyAnswer, ReportCard } from './AssistantReport';
+import { assistantExportFilename, conversationToMarkdown, replyToMarkdown } from './assistantExport';
+import { downloadBlob } from '../../services/telemetry';
+
+type CopyState = 'idle' | 'copied' | 'failed';
+const COPY_FEEDBACK_MS = 2000;
+
+const visuallyHidden = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+} as const;
+
+/** Clipboard write with a 2s "Copied" / "Copy failed" feedback state. */
+function useCopy(): [CopyState, (text: string) => Promise<void>] {
+  const [state, setState] = useState<CopyState>('idle');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const copy = useCallback(async (text: string) => {
+    let next: CopyState;
+    try {
+      await navigator.clipboard.writeText(text);
+      next = 'copied';
+    } catch {
+      next = 'failed';
+    }
+    setState(next);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState('idle'), COPY_FEEDBACK_MS);
+  }, []);
+  return [state, copy];
+}
+
+function CopyStatus({ state }: { state: CopyState }) {
+  return (
+    <Box component="span" role="status" aria-live="polite" sx={visuallyHidden}>
+      {state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : ''}
+    </Box>
+  );
+}
 
 export const ASSISTANT_EXAMPLE_PROMPTS = [
   'Are there any errors in the last hour?',
@@ -53,6 +116,8 @@ function Reply({
   }, [hasAnswer]);
 
   const answer = message.answer;
+  const [copyState, copy] = useCopy();
+  const canCopy = message.status !== 'streaming' && (message.answer !== null || message.error !== null);
   return (
     <Paper
       ref={ref}
@@ -87,6 +152,26 @@ function Reply({
         </Alert>
       )}
       {message.status === 'stopped' && <Chip size="small" label="Stopped" sx={{ mt: 1 }} />}
+      {canCopy && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
+          <Tooltip
+            title={
+              copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy this reply'
+            }
+          >
+            <IconButton
+              size="small"
+              aria-label="Copy this reply"
+              data-testid="assistant-copy-reply"
+              color={copyState === 'failed' ? 'error' : 'default'}
+              onClick={() => void copy(replyToMarkdown(message))}
+            >
+              {copyState === 'copied' ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+          <CopyStatus state={copyState} />
+        </Box>
+      )}
     </Paper>
   );
 }
@@ -164,7 +249,19 @@ export function AssistantPanel({
     setQuestion('');
   };
 
-  const showNewChat = Boolean(onNewChat) && messages.length > 0;
+  const isCompact = useMediaQuery(useTheme().breakpoints.down('sm'));
+  const hasMessages = messages.length > 0;
+  const showNewChat = Boolean(onNewChat) && hasMessages;
+  const [copyState, copy] = useCopy();
+  const copyConversation = () =>
+    void copy(conversationToMarkdown(messages, { exportedAt: new Date(), modelCaption }));
+  const downloadConversation = () => {
+    const now = new Date();
+    const markdown = conversationToMarkdown(messages, { exportedAt: now, modelCaption });
+    downloadBlob(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), assistantExportFilename(now));
+  };
+  const copyLabel = copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy';
+  const copyIcon = copyState === 'copied' ? <CheckIcon /> : <ContentCopyIcon />;
   const newChat = () => {
     setQuestion('');
     onNewChat?.();
@@ -179,7 +276,7 @@ export function AssistantPanel({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {(modelCaption || showNewChat) && (
+      {(modelCaption || showNewChat || hasMessages) && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, minWidth: 0 }}>
           <Typography
             variant="caption"
@@ -191,6 +288,66 @@ export function AssistantPanel({
           >
             {modelCaption}
           </Typography>
+          {hasMessages && (
+            <>
+              {isCompact ? (
+                <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                  <Tooltip title={copyLabel === 'Copy' ? 'Copy conversation' : copyLabel}>
+                    <span>
+                      <IconButton
+                        size="small"
+                        aria-label="Copy conversation"
+                        data-testid="assistant-copy-conversation"
+                        disabled={isStreaming}
+                        color={copyState === 'failed' ? 'error' : 'default'}
+                        onClick={copyConversation}
+                      >
+                        {copyIcon}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Download conversation">
+                    <span>
+                      <IconButton
+                        size="small"
+                        aria-label="Download conversation"
+                        data-testid="assistant-download-conversation"
+                        disabled={isStreaming}
+                        onClick={downloadConversation}
+                      >
+                        <DownloadIcon />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', flexShrink: 0 }}>
+                  <Button
+                    size="small"
+                    startIcon={copyIcon}
+                    aria-label="Copy conversation"
+                    data-testid="assistant-copy-conversation"
+                    disabled={isStreaming}
+                    color={copyState === 'failed' ? 'error' : 'primary'}
+                    onClick={copyConversation}
+                  >
+                    {copyLabel}
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<DownloadIcon />}
+                    aria-label="Download conversation"
+                    data-testid="assistant-download-conversation"
+                    disabled={isStreaming}
+                    onClick={downloadConversation}
+                  >
+                    Download
+                  </Button>
+                </Box>
+              )}
+              <CopyStatus state={copyState} />
+            </>
+          )}
           {showNewChat && (
             <Button
               size="small"
