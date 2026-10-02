@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -110,6 +110,26 @@ describe('AI settings registry — literal permission parity with the API (#435)
       expect(coachSettingsController).toMatch(/@Put\('settings'\)\s*@Auth\(\{ permissions: \[PERMISSIONS\.AI_USE\] \}\)/);
       const { user } = allAiTaggedCards();
       expect(user.find((card) => card.path === '/settings/coach')?.permission).toBe('ai:use');
+    });
+
+    // #325. The memory controller is built in parallel with this card; the
+    // literal check runs as soon as the file exists in this tree.
+    it.skipIf(!existsSync(resolve(API_SRC, 'memory/memory.controller.ts')))(
+      'memory.controller.ts (#325) enforces PERMISSIONS.AI_USE behind AiEnabledGuard',
+      () => {
+        const memoryController = readApiSource('memory/memory.controller.ts');
+        expect(memoryController).toContain('AiEnabledGuard');
+        expect(memoryController).toContain('PERMISSIONS.AI_USE');
+        expect(memoryController).not.toMatch(/PERMISSIONS\.AI_CONFIG_/);
+      },
+    );
+
+    it('the Memory card (#325) declares exactly ai:use', () => {
+      const { user } = allAiTaggedCards();
+      expect(user.find((card) => card.path === '/settings/memory')).toMatchObject({
+        permission: 'ai:use',
+        feature: 'ai',
+      });
     });
 
     it('user-ai-keys.controller.ts really does enforce PERMISSIONS.AI_USE', () => {

@@ -751,8 +751,38 @@ export interface SystemNotificationSettings {
   disabledEvents: string[];
 }
 
+/**
+ * Deployment-wide user memory policy (#325). Mirrors `systemMemorySchema`
+ * (`apps/api/src/common/schemas/settings.schema.ts`); PATCH merges it field by
+ * field.
+ */
+export interface SystemMemorySettings {
+  /** The feature's own switch; AI must also be on. */
+  enabled: boolean;
+  /** Whether the background `ai.memory.extract` job may run. */
+  autoExtract: boolean;
+  /** Active memories per user, 50–500. */
+  maxPerUser: number;
+  /** Extraction runs per user per UTC day, 1–200. */
+  extractDailyCapPerUser: number;
+  /** Days a deleted or superseded memory survives before it is purged, 1–3650. */
+  purgeAfterDays: number;
+}
+
+/** Bounds of the numeric `memory` fields, mirroring the API's schema. */
+export const SYSTEM_MEMORY_NUMBER_BOUNDS = {
+  maxPerUser: { min: 50, max: 500 },
+  extractDailyCapPerUser: { min: 1, max: 200 },
+  purgeAfterDays: { min: 1, max: 3650 },
+} as const;
+
 export interface SystemSettings {
   notifications: SystemNotificationSettings;
+  /**
+   * User memory policy (#325). Always present on a current API; optional here
+   * so a response from an older API (and fixtures predating #325) still types.
+   */
+  memory?: SystemMemorySettings;
   updatedAt: string;
   updatedBy: { id: string; email: string } | null;
   version: number;

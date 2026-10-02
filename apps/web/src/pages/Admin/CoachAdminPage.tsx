@@ -14,6 +14,10 @@
  * The models the coach uses are chosen on AI Model Assignments (its Coach
  * section), not here. The Engagement panel (`CoachEngagementPanel`, E7.11)
  * reads `GET /api/admin/coach/stats`; an empty state when nothing was sent.
+ *
+ * The Memory panel (`MemoryAdminPanel`, #325) edits the user memory policy in
+ * the system settings document, gated on `system_settings:read`/`:write`
+ * inside the panel.
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import {
@@ -36,6 +40,7 @@ import {
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { CoachEngagementPanel } from '../../components/coach/CoachEngagementPanel';
+import { MemoryAdminPanel } from '../../components/coach/MemoryAdminPanel';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useSystemCoachSettings } from '../../hooks/useSystemCoachSettings';
 import { SYSTEM_COACH_NUMBER_BOUNDS, type SystemCoachSettings } from '../../services/coach';
@@ -306,6 +311,10 @@ export default function CoachAdminPage() {
             </Stack>
           </Box>
         )}
+
+        {/* #325: the user memory policy. Its own form and Save, against the
+            system settings document (`system_settings:read`/`:write`). */}
+        <MemoryAdminPanel />
 
         <CoachEngagementPanel />
 
