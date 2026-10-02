@@ -5,7 +5,7 @@ import type { ProgramGoal } from '../../programs/programs.constants';
 
 // =============================================================================
 // User Settings Namespaces: `dataTables`, `navigation`, `notifications`,
-// `onboarding`, `coach`
+// `onboarding`, `coach`, `memory`
 // =============================================================================
 //
 // WHY THIS FILE EXISTS
@@ -643,5 +643,69 @@ export function resolveCoachUserSettings(
     photoCadence: stored?.photoCadence ?? d.photoCadence,
     why: stored?.why ?? d.why,
     preferredTime: stored?.preferredTime ?? d.preferredTime,
+  };
+}
+
+// =============================================================================
+// `memory` (#325): the user's memory preferences
+// =============================================================================
+//
+// Sparse and STRICT like `coach`: no `.default()`; absent means
+// `MEMORY_USER_DEFAULTS`, applied at read time by `resolveMemoryUserSettings`.
+// `allowHealth` lets health-related facts be stored when stated as training
+// constraints or explicitly requested. `disclosureSeenAt` records that the user
+// saw the "what is remembered" disclosure.
+//
+// The extraction watermark and daily counter are SERVER-MANAGED and live in
+// the `user_memory_states` table, never here, so no client PATCH can write them.
+
+export const memorySettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    autoExtract: z.boolean().optional(),
+    allowHealth: z.boolean().optional(),
+    disclosureSeenAt: z.iso.datetime().nullable().optional(),
+  })
+  .strict();
+
+/** PATCH form, merged by `mergeFields`: `null` clears a field (back to the default). */
+export const memorySettingsPatchSchema = z
+  .object({
+    enabled: z.boolean().nullable().optional(),
+    autoExtract: z.boolean().nullable().optional(),
+    allowHealth: z.boolean().nullable().optional(),
+    disclosureSeenAt: z.iso.datetime().nullable().optional(),
+  })
+  .strict();
+
+export type MemorySettingsValue = z.infer<typeof memorySettingsSchema>;
+export type MemorySettingsPatchValue = z.infer<typeof memorySettingsPatchSchema>;
+
+/** Every `memory` field resolved. */
+export interface ResolvedMemoryUserSettings {
+  enabled: boolean;
+  autoExtract: boolean;
+  allowHealth: boolean;
+  disclosureSeenAt: string | null;
+}
+
+/** The built-in defaults. The ONE place they live; never written into a user's row. */
+export const MEMORY_USER_DEFAULTS: Readonly<ResolvedMemoryUserSettings> = Object.freeze({
+  enabled: true,
+  autoExtract: true,
+  allowHealth: true,
+  disclosureSeenAt: null,
+});
+
+/** A stored (sparse, possibly absent) `memory` namespace with every default applied. */
+export function resolveMemoryUserSettings(
+  stored: MemorySettingsValue | undefined,
+): ResolvedMemoryUserSettings {
+  const d = MEMORY_USER_DEFAULTS;
+  return {
+    enabled: stored?.enabled ?? d.enabled,
+    autoExtract: stored?.autoExtract ?? d.autoExtract,
+    allowHealth: stored?.allowHealth ?? d.allowHealth,
+    disclosureSeenAt: stored?.disclosureSeenAt ?? d.disclosureSeenAt,
   };
 }

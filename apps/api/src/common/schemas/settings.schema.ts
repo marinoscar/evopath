@@ -11,6 +11,8 @@ import {
   onboardingPatchSchema,
   coachSettingsSchema,
   coachSettingsPatchSchema,
+  memorySettingsSchema,
+  memorySettingsPatchSchema,
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
 } from './user-settings-namespaces.schema';
 
@@ -163,6 +165,9 @@ export const userSettingsSchema = z.object({
   // AI Coach preferences (E7.1, #241). Optional and sparse: absent means the
   // built-in defaults (`COACH_USER_DEFAULTS`), applied at read time.
   coach: coachSettingsSchema.optional(),
+  // User memory preferences (#325). Optional and sparse: absent means the
+  // built-in defaults (`MEMORY_USER_DEFAULTS`), applied at read time.
+  memory: memorySettingsSchema.optional(),
 });
 
 export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
@@ -189,6 +194,9 @@ export const userSettingsPatchSchema = z.object({
   // `coach: null` clears the namespace; a field (or nested `audio`/
   // `quietHours` field) sent as `null` clears just that field (E7.1, #241).
   coach: coachSettingsPatchSchema.nullable().optional(),
+  // `memory: null` clears the namespace; a field sent as `null` clears just
+  // that field (#325).
+  memory: memorySettingsPatchSchema.nullable().optional(),
 });
 
 // =============================================================================
@@ -1112,6 +1120,8 @@ export const AI_FEATURE_IDS = [
   'coach.decision',
   'coach.chat',
   'coach.voice',
+  // #325: background extraction of durable user memories.
+  'memory.extract',
 ] as const;
 
 export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];
@@ -1470,6 +1480,44 @@ export const systemCoachPatchSchema = z.object({
   inactiveStopDays: z.number().int().min(1).max(90).optional(),
 });
 
+// =============================================================================
+// User memory policy (`memory`) — #325; docs/specs/user-memory.md
+// =============================================================================
+//
+// Deployment-wide switches and bounds for user memories. `enabled` is the
+// feature's own switch (AI must also be on); `autoExtract` gates the background
+// `ai.memory.extract` job; `maxPerUser` caps active memories per user;
+// `extractDailyCapPerUser` caps extraction runs per user per UTC day;
+// `purgeAfterDays` is how long deleted/superseded rows survive before the
+// purge job hard-deletes them. No credential is part of this namespace.
+
+export const MEMORY_MAX_PER_USER_MIN = 50;
+export const MEMORY_MAX_PER_USER_MAX = 500;
+
+export const systemMemorySchema = z.object({
+  enabled: z.boolean(),
+  autoExtract: z.boolean(),
+  maxPerUser: z.number().int().min(MEMORY_MAX_PER_USER_MIN).max(MEMORY_MAX_PER_USER_MAX),
+  extractDailyCapPerUser: z.number().int().min(1).max(200),
+  purgeAfterDays: z.number().int().min(1).max(3650),
+});
+
+export type SystemMemoryValue = z.infer<typeof systemMemorySchema>;
+
+/** `memory`, PATCH form: optional field by field. */
+export const systemMemoryPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  autoExtract: z.boolean().optional(),
+  maxPerUser: z
+    .number()
+    .int()
+    .min(MEMORY_MAX_PER_USER_MIN)
+    .max(MEMORY_MAX_PER_USER_MAX)
+    .optional(),
+  extractDailyCapPerUser: z.number().int().min(1).max(200).optional(),
+  purgeAfterDays: z.number().int().min(1).max(3650).optional(),
+});
+
 export const systemSettingsSchema = z.object({
   notifications: systemNotificationsSchema,
   // Operations namespaces (#256, epic #254). REQUIRED, because this schema
@@ -1501,6 +1549,9 @@ export const systemSettingsSchema = z.object({
   // AI Coach policy (E7.1, #241). REQUIRED for the identical reason as every
   // namespace above; optional on the wire.
   coach: systemCoachSchema,
+  // User memory policy (#325). REQUIRED for the identical reason; optional on
+  // the wire.
+  memory: systemMemorySchema,
 });
 
 export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
@@ -1542,6 +1593,8 @@ export const systemSettingsPatchSchema = z.object({
   telemetry: systemTelemetryPatchSchema.optional(),
   // E7.1, #241. Optional at the namespace level and field by field inside.
   coach: systemCoachPatchSchema.optional(),
+  // #325. Optional at the namespace level and field by field inside.
+  memory: systemMemoryPatchSchema.optional(),
 });
 
 // -----------------------------------------------------------------------------

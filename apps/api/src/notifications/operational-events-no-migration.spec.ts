@@ -156,6 +156,9 @@ const MIGRATIONS_AT_288 = [
   // #312: push_subscriptions.platform, tagging Android-app subscriptions. A
   // delivery-target column, not a per-event schema or a new notification.
   '20261004100000_add_push_subscription_platform',
+  // #325: `user_memories`, `user_memory_states` and the pg_trgm index. About
+  // user memory, not notifications.
+  '20261005100000_user_memories',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

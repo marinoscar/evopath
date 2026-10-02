@@ -136,6 +136,7 @@
 //   (+TrainingRunEvent)          DELETED (step 2)
 //   WorkoutAdaptation            DELETED (step 2)
 //   ProgressPhoto, CoachMessage,
+//   UserMemory, UserMemoryState,
 //   CoachState                   DELETED (step 2, explicitly: they cascade only
 //                                from the User row). Photo images and coach
 //                                voice notes are deleted in step 7 with every

@@ -25,6 +25,7 @@ function setup() {
     healthDocument: { count: jest.fn().mockResolvedValue(7) },
     progressPhoto: { count: jest.fn().mockResolvedValue(8) },
     coachMessage: { count: jest.fn().mockResolvedValue(10) },
+    userMemory: { count: jest.fn().mockResolvedValue(17) },
     activityGoal: { count: jest.fn().mockResolvedValue(11) },
     activityEntry: { count: jest.fn().mockResolvedValue(12) },
     healthSyncDevice: { count: jest.fn().mockResolvedValue(13) },
@@ -79,6 +80,7 @@ describe('UserDataService', () => {
         healthDocuments: 7,
         progressPhotos: 8,
         coachMessages: 10,
+        memories: 17,
         activityGoals: 11,
         activityEntries: 12,
         healthSyncDevices: 13,
@@ -86,6 +88,7 @@ describe('UserDataService', () => {
         healthSyncDiagnosticReports: 15,
         sleepSessions: 16,
       });
+      expect(prisma.userMemory.count).toHaveBeenCalledWith({ where: { userId: USER, status: 'active' } });
       expect(prisma.activityGoal.count).toHaveBeenCalledWith({ where: { userId: USER } });
       expect(prisma.activityEntry.count).toHaveBeenCalledWith({ where: { userId: USER } });
 
@@ -173,6 +176,8 @@ describe('toResetStatus', () => {
     progressPhotos: 3,
     coachMessages: 4,
     coachStates: 1,
+    memories: 2,
+    memoryStates: 1,
     activityGoals: 2,
     activityEntries: 5,
     healthSyncDevices: 1,

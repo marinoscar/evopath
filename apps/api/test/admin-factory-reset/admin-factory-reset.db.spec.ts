@@ -204,6 +204,9 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       },
     });
     await client.coachState.create({ data: { userId: b } });
+    await client.userMemory.create({ data: { userId: b, content: 'B likes squats.', category: 'preference', source: 'explicit' } });
+    await client.userMemory.create({ data: { userId: actorId, content: 'Admin trains early.', category: 'schedule', source: 'extracted' } });
+    await client.userMemoryState.create({ data: { userId: b } });
     await client.coachState.create({ data: { userId: actorId, weeklyStreak: 3 } });
     const goalShape = { title: 'Walk', activityKind: 'walk', metric: 'sessions', target: 3, period: 'week', startsOn: new Date('2026-09-01') } as const;
     await client.activityGoal.create({ data: { userId: actorId, ...goalShape } });
@@ -282,6 +285,8 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       ['coach messages', await client.coachMessage.count()],
       ['coach audio file', await client.storageObject.count({ where: { id: audioObject.id } })],
       ['coach states', await client.coachState.count()],
+      ['user memories', await client.userMemory.count()],
+      ['user memory states', await client.userMemoryState.count()],
       ['activity goals', await client.activityGoal.count()],
       ['activity entries', await client.activityEntry.count()],
       ['health sync devices', await client.healthSyncDevice.count()],
@@ -332,6 +337,8 @@ describeWithDb('admin.factory_reset (real Postgres)', () => {
       progressPhotos: 1,
       coachMessages: 1,
       coachStates: 2,
+      memories: 2,
+      memoryStates: 1,
       activityGoals: 2,
       activityEntries: 2,
       healthSyncDevices: 2,

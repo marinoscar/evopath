@@ -225,7 +225,7 @@ describe('Admin factory reset integration', () => {
       const admin = await createMockAdminUser(context);
       const result = {
         workouts: 1, gyms: 1, measurements: 1, healthProfiles: 1, healthDocuments: 0, photoIntakes: 0, programs: 0,
-        progressPhotos: 0, coachMessages: 0, coachStates: 0, activityGoals: 0, activityEntries: 0,
+        progressPhotos: 0, coachMessages: 0, coachStates: 0, memories: 0, memoryStates: 0, activityGoals: 0, activityEntries: 0,
         healthSyncDevices: 0, healthSyncRuns: 0, healthSyncDiagnosticReports: 0, sleepSessions: 0,
         programChangeLogs: 0, trainingRuns: 0, workoutAdaptations: 0, trainingCheckpoints: 0,
         customExercises: 0, customEquipment: 0, aiRuns: 0, aiUsageEvents: 0, aiKeys: 0,
