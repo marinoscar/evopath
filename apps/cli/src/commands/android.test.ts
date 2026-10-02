@@ -82,6 +82,31 @@ describe('evopathcli android publish', () => {
     expect(t.err.join('')).toContain('https://app.example.com/settings/android-app');
   });
 
+  it('warns when the APK was built for another server, and never sends serverUrl (#318)', async () => {
+    const t = setup();
+    writeFileSync(join(t.repo, 'apps', 'android', 'version.properties'), 'versionName=1.0.0\nversionCode=5\n');
+    const dist = join(t.repo, 'dist', 'android');
+    mkdirSync(dist, { recursive: true });
+    const apk = join(dist, apkFileName('1.0.0'));
+    writeFileSync(apk, 'PK\u0003\u0004');
+    writeFileSync(
+      apk.replace(/\.apk$/, '.json'),
+      JSON.stringify({ packageName: 'com.x', versionName: '1.0.0', versionCode: 5, signingSha256: 'ab', fileSha256: 'cd', sizeBytes: 4, serverUrl: 'https://other.example.com' }),
+    );
+    t.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({ data: { id: 'rel-2', versionName: '1.0.0', versionCode: 5, isCurrent: true, packageName: 'com.x', fileSha256: 'cd', sizeBytes: 4, createdAt: '' } }),
+        { status: 201 },
+      ),
+    );
+
+    await t.run('publish');
+
+    expect(t.err.join('')).toContain('built for https://other.example.com, not https://app.example.com');
+    const form = t.fetch.mock.calls[0]?.[1]?.body as FormData;
+    expect(form.get('serverUrl')).toBeNull();
+  });
+
   it('refuses when the APK has not been built', async () => {
     const t = setup();
     await expect(t.run('publish')).rejects.toThrow(/android build/);
