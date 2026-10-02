@@ -3,6 +3,7 @@ import {
   NOTIFICATION_EVENTS,
   NotificationChannel,
   channelsFor,
+  collapseOverlappingChannels,
   findEvent,
   isMandatory,
   supportsChannel,
@@ -236,5 +237,40 @@ describe('seeded events', () => {
     // unauthenticated, session-less recipient would ever see it.
     const event = findEvent('allowlist.invitation');
     expect(event?.channels).toEqual(['email']);
+  });
+});
+
+// =============================================================================
+// #312: the android_app channel and its overlap with push
+// =============================================================================
+
+describe('collapseOverlappingChannels', () => {
+  it('drops android_app when push is also present, keeping order', () => {
+    expect(collapseOverlappingChannels(['email', 'push', 'browser', 'android_app'])).toEqual([
+      'email',
+      'push',
+      'browser',
+    ]);
+  });
+
+  it('keeps android_app alone, and push alone, untouched', () => {
+    expect(collapseOverlappingChannels(['browser', 'android_app'])).toEqual(['browser', 'android_app']);
+    expect(collapseOverlappingChannels(['push'])).toEqual(['push']);
+    expect(collapseOverlappingChannels([])).toEqual([]);
+  });
+
+  it('returns a fresh array', () => {
+    const input = ['push'] as const;
+    expect(collapseOverlappingChannels(input)).not.toBe(input);
+  });
+});
+
+describe('android_app channel declarations', () => {
+  it('is declared by exactly the two broadcast events', () => {
+    const declaring = NOTIFICATION_EVENTS.filter((event) => event.channels.includes('android_app'))
+      .map((event) => event.key)
+      .sort();
+
+    expect(declaring).toEqual(['admin.broadcast', 'admin.broadcast_critical']);
   });
 });

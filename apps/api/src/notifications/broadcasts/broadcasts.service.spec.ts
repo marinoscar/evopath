@@ -90,12 +90,14 @@ function makeService(
   const updateMany = jest.fn().mockResolvedValue({ count: options.canceledCount ?? 1 });
   const deleteFn = jest.fn().mockResolvedValue({});
   const userCount = jest.fn().mockResolvedValue(1284);
+  const pushSubscriptionCount = jest.fn().mockResolvedValue(37);
   const auditCreate = jest.fn().mockResolvedValue({});
   const groupBy = jest.fn().mockResolvedValue([]);
 
   const prisma = {
     notificationBroadcast: { create, findUnique, findMany, count, updateMany, delete: deleteFn },
     user: { count: userCount },
+    pushSubscription: { count: pushSubscriptionCount },
     auditEvent: { create: auditCreate },
     notificationDelivery: { groupBy },
   } as unknown as PrismaService;
@@ -123,6 +125,7 @@ function makeService(
     updateMany,
     delete: deleteFn,
     userCount,
+    pushSubscriptionCount,
     auditCreate,
     groupBy,
     enqueue,
@@ -644,7 +647,10 @@ describe('BroadcastsService', () => {
     it('counts with the shared audience predicate', async () => {
       const { service, userCount } = makeService();
 
-      await expect(service.audience()).resolves.toEqual({ activeUsers: 1284 });
+      await expect(service.audience()).resolves.toEqual({
+        activeUsers: 1284,
+        androidAppSubscriptions: 37,
+      });
 
       // `isActive: true` plus the cutoff — the same predicate the fan-out
       // pages with, which is why the composer's number and the send's number
@@ -652,6 +658,16 @@ describe('BroadcastsService', () => {
       const where = userCount.mock.calls[0][0].where;
       expect(where.isActive).toBe(true);
       expect(where.createdAt.lte).toBeInstanceOf(Date);
+    });
+
+    it('counts android_app subscriptions held by the same audience (#312)', async () => {
+      const { service, userCount, pushSubscriptionCount } = makeService();
+
+      await service.audience();
+
+      const args = pushSubscriptionCount.mock.calls[0][0];
+      expect(args.where.platform).toBe('android_app');
+      expect(args.where.user).toEqual(userCount.mock.calls[0][0].where);
     });
   });
 

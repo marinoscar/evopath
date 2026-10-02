@@ -7,6 +7,7 @@ import { SettingsModule } from '../settings/settings.module';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { PushNotificationChannel } from './channels/push-notification.channel';
+import { AndroidAppNotificationChannel } from './channels/android-app-notification.channel';
 import { AndroidAppPushService } from './android-app-push.service';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationPolicyService } from './notification-policy.service';
@@ -192,6 +193,9 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
     // listener rather than a `notify()` inside `JobTerminalService`.
     JobFailureNotifier,
     PushNotificationChannel,
+    // #312: Web Push to Android app subscriptions only (a `PushNotificationChannel`
+    // subclass with a narrower subscription scope).
+    AndroidAppNotificationChannel,
     // Doctor check (#634): validates the active VAPID pair, never sends.
     PushVapidDoctorCheck,
     {
@@ -200,11 +204,13 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
         email: EmailNotificationChannel,
         browser: BrowserNotificationChannel,
         push: PushNotificationChannel,
-      ): NotificationChannelSender[] => [email, browser, push],
+        androidApp: AndroidAppNotificationChannel,
+      ): NotificationChannelSender[] => [email, browser, push, androidApp],
       inject: [
         EmailNotificationChannel,
         BrowserNotificationChannel,
         PushNotificationChannel,
+        AndroidAppNotificationChannel,
       ],
     },
   ],

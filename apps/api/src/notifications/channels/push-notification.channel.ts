@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import * as webpush from 'web-push';
 import { WebPushError } from 'web-push';
 
@@ -168,7 +169,21 @@ export function pushActionsOf(content: BrowserNotificationContent): PushAction[]
 export class PushNotificationChannel implements NotificationChannelSender {
   readonly channel: NotificationChannel = 'push';
 
-  private readonly logger = new Logger(PushNotificationChannel.name);
+  protected readonly logger = new Logger(this.constructor.name);
+
+  /**
+   * Which of the recipient's subscriptions this channel pushes to. `push`:
+   * every one, whatever surface registered it. `AndroidAppNotificationChannel`
+   * (#312) narrows this to `platform: 'android_app'`; nothing else differs.
+   */
+  protected subscriptionScope(): Prisma.PushSubscriptionWhereInput {
+    return {};
+  }
+
+  /** The "nothing to push to" failure, worded for this channel. */
+  protected noSubscriptionsError(): string {
+    return 'No push subscriptions for this user';
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -228,7 +243,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
     const eventKey = context.event.key;
 
     const subscriptions = await this.prisma.pushSubscription.findMany({
-      where: { userId: to },
+      where: { ...this.subscriptionScope(), userId: to },
     });
 
     if (subscriptions.length === 0) {
@@ -241,7 +256,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
       // an explanatory row, not silence.
       return {
         success: false,
-        error: 'No push subscriptions for this user',
+        error: this.noSubscriptionsError(),
       };
     }
 
@@ -416,7 +431,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
     );
 
     this.logger.log(
-      `Push '${eventKey}' for user ${to}: ${successCount} sent, ` +
+      `${this.channel} '${eventKey}' for user ${to}: ${successCount} sent, ` +
         `${failedCount} failed, ${prunedCount} subscription(s) pruned ` +
         `(of ${subscriptions.length}).`,
     );
