@@ -173,12 +173,10 @@ export interface BroadcastAudience {
 }
 
 /**
- * A broadcast channel key. The three user-facing notification channels plus
- * `android_app` (#312): Web Push restricted to subscriptions registered from
- * the Android app. Broadcast-only, so it is not part of `NotificationChannel`
- * (which also keys the per-user preferences).
+ * A broadcast channel key: any notification channel, including `android_app`
+ * (#312), Web Push restricted to subscriptions registered from the Android app.
  */
-export type BroadcastChannel = NotificationChannel | 'android_app';
+export type BroadcastChannel = NotificationChannel;
 
 export interface BroadcastTestResult {
   eventKey: string;

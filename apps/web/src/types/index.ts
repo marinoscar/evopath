@@ -88,8 +88,12 @@ export interface DataTableSettings {
  * channel this build has never heard of — see `CHANNEL_LABELS` in
  * `components/settings/NotificationSettings.tsx`, which falls back to the raw
  * key rather than rendering a blank label.
+ *
+ * `'android_app'` was added in #312: Web Push restricted to subscriptions
+ * registered from the Android app. The API declares it on the broadcast
+ * events, so it is both a broadcast channel and a preferences column.
  */
-export type NotificationChannel = 'email' | 'browser' | 'push';
+export type NotificationChannel = 'email' | 'browser' | 'push' | 'android_app';
 
 /**
  * One entry of the event registry, as served by `GET /api/notifications/events`.
