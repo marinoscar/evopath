@@ -258,15 +258,18 @@ export function Field({
   value,
   color,
   dim,
+  width,
 }: {
   label: string;
   value: string;
   color?: string | undefined;
   dim?: boolean | undefined;
+  /** The label column's width; defaults to the shared one. */
+  width?: number | undefined;
 }): ReactNode {
   return (
     <Box>
-      <Text dimColor>{label.padEnd(FIELD_LABEL_WIDTH)}</Text>
+      <Text dimColor>{label.padEnd(width ?? FIELD_LABEL_WIDTH)}</Text>
       <Text
         {...(color === undefined ? {} : { color })}
         {...(dim === true ? { dimColor: true } : {})}

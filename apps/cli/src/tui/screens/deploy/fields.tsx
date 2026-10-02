@@ -5,7 +5,8 @@ import { useState, type ReactNode } from 'react';
 
 import { appName, validateAppName, type AppName } from './install-model.js';
 import { displayValue, labelFor, shouldMask, type FieldSpec } from './model.js';
-import type { ToggleFlag } from './flags-model.js';
+import { DEDICATED_STEPS, type ToggleFlag } from './flags-model.js';
+import { androidConfirmValue } from './android-step-model.js';
 import { ErrorNotice, Field, Frame } from '../../layout.js';
 
 // =============================================================================
@@ -277,6 +278,9 @@ export function ConfirmStep({
     { key: 'no', label: 'No, go back', value: 'no' as const },
     { key: 'yes', label: `Yes, ${action} now`, value: 'yes' as const },
   ];
+  // Wide enough for the longest label plus a gap, so `Android app` or an
+  // env key like `POSTGRES_PASSWORD` never runs into its value.
+  const labelWidth = Math.max(10, ...[...answers.keys()].map((key) => labelFor(key).length + 2));
 
   return (
     <Frame title="Confirm" hints={['enter select', 'esc back']}>
@@ -284,7 +288,7 @@ export function ConfirmStep({
       <Box marginTop={1} flexDirection="column">
         {[...answers.entries()].map(([key, answer]) => (
           // ⚠ `displayValue`, not a local secret test. See the file header.
-          <Field key={key} label={labelFor(key)} value={displayValue(key, answer)} />
+          <Field key={key} label={labelFor(key)} value={displayValue(key, answer)} width={labelWidth} />
         ))}
       </Box>
       {notes === undefined || notes.length === 0 ? null : (
@@ -329,6 +333,11 @@ export function toggled(current: ReadonlySet<string>, flag: string): Set<string>
   return next;
 }
 
+/** The flags set on dedicated steps (the Android app step), never toggles. */
+const DEDICATED_FLAGS: ReadonlySet<string> = new Set(
+  Object.values(DEDICATED_STEPS).flatMap((entries) => entries.map((entry) => entry.flag)),
+);
+
 /**
  * The answers plus the chosen flags, as the rows a confirmation shows.
  *
@@ -336,13 +345,17 @@ export function toggled(current: ReadonlySet<string>, flag: string): Set<string>
  * and not the flags would be asking an operator to approve half of what is
  * about to run - and `--force`, `--reinstall` and `--skip-seed` are the half
  * with consequences.
+ *
+ * The Android app step's answer is its own row (`Android app`), in words, not
+ * a raw `--with-android` among the flags (#315).
  */
 export function withFlags(
   answers: ReadonlyMap<string, string>,
   chosen: ReadonlySet<string>,
 ): Map<string, string> {
   const rows = new Map(answers);
-  rows.set('__flags', [...chosen].join(' ') || 'none');
+  rows.set('__flags', [...chosen].filter((flag) => !DEDICATED_FLAGS.has(flag)).join(' ') || 'none');
+  rows.set('__android', androidConfirmValue(chosen));
   return rows;
 }
 

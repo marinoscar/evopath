@@ -38,8 +38,15 @@ export function isScreenField(key: string): boolean {
   return key.startsWith(SCREEN_FIELD_PREFIX);
 }
 
+/** Screen fields whose label is words rather than the bare key. */
+const SCREEN_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  __android: 'Android app',
+});
+
 /** The label an operator reads, with the internal prefix taken off. */
 export function labelFor(key: string): string {
+  const named = SCREEN_LABELS[key];
+  if (named !== undefined) return named;
   return key.startsWith(SCREEN_FIELD_PREFIX)
     ? key.slice(SCREEN_FIELD_PREFIX.length)
     : key;
