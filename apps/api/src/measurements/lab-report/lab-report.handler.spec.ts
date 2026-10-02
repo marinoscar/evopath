@@ -71,11 +71,11 @@ describe('LabReportHandler (H4, #188)', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('is a server-only ai.* type with a 5-minute, single-attempt profile, and registers itself', () => {
+  it('is a server-only ai.* type with a 10-minute, single-attempt profile, and registers itself', () => {
     handler.onModuleInit();
 
     expect(handler.type).toBe('ai.health.lab_report');
-    expect(handler.profile).toEqual({ maxRuntimeMs: 300_000, maxAttempts: 1 });
+    expect(handler.profile).toEqual({ maxRuntimeMs: 600_000, maxAttempts: 1 });
     expect('nodeResultSchema' in handler).toBe(false);
     expect('persistNodeResult' in handler).toBe(false);
     expect(registry.get('ai.health.lab_report')).toBe(handler);
@@ -94,6 +94,7 @@ describe('LabReportHandler (H4, #188)', () => {
       schemaName: 'lab_report',
       strict: true,
       instructions: LAB_REPORT_INSTRUCTIONS,
+      maxOutputTokens: 32_000,
     });
     expect(request.input).toEqual([
       {
