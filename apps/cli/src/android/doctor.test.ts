@@ -22,8 +22,24 @@ function fixture() {
   return { base, home, repo };
 }
 
-function fakeExec(java: string | 'missing', keytoolOk = true): ExecFn {
-  return async (command) => {
+/** `git` answers for the freshness check (#315): HEAD on main, tracking origin/main. */
+type GitAnswers = { fetch?: { code: number; stderr?: string }; counts?: string; inside?: boolean };
+
+function fakeGit(args: readonly string[], answers: GitAnswers) {
+  const ok = (stdout: string) => ({ code: 0, stdout, stderr: '' });
+  if (args.includes('--is-inside-work-tree')) {
+    return answers.inside === false ? { code: 128, stdout: '', stderr: 'fatal: not a git repository' } : ok('true\n');
+  }
+  if (args.includes('@{u}')) return ok('origin/main\n');
+  if (args.at(-1) === 'HEAD') return ok('main\n');
+  if (args[0] === 'fetch') return { stdout: '', stderr: '', ...(answers.fetch ?? { code: 0 }) };
+  if (args[0] === 'rev-list') return ok(`${answers.counts ?? '0\t0'}\n`);
+  throw new Error(`unexpected git ${args.join(' ')}`);
+}
+
+function fakeExec(java: string | 'missing', keytoolOk = true, git: GitAnswers = {}): ExecFn {
+  return async (command, args) => {
+    if (command === 'git') return fakeGit(args, git);
     if (command.endsWith('java')) {
       if (java === 'missing') throw new ToolMissingError('`java` was not found.');
       return { code: 0, stdout: '', stderr: java };
@@ -137,6 +153,59 @@ describe('runAndroidDoctor', () => {
     const none = await runAndroidDoctor({ exec: fakeExec('openjdk version "21" 2024'), env: { EVOPATHCLI_REPO_ROOT: join(repo, 'nope') }, home, exists: () => true });
     expect(byId(none.checks, 'repo')?.status).toBe('fail');
     expect(byId(none.checks, 'gradlew')?.status).toBe('skip');
+  });
+});
+
+describe('the repo.fresh check (#315)', () => {
+  async function freshCheck(git: GitAnswers) {
+    const { home, repo } = fixture();
+    const report = await runAndroidDoctor({
+      exec: fakeExec('openjdk version "21" 2024', true, git),
+      env: { ANDROID_HOME: join(home, 'sdk'), EVOPATHCLI_REPO_ROOT: repo },
+      home,
+      platform: 'linux',
+      exists: () => true,
+    });
+    return { report, check: byId(report.checks, 'repo.fresh') };
+  }
+
+  it('passes when up to date with origin/main, right after the checkout row', async () => {
+    const { report, check } = await freshCheck({});
+    expect(check).toMatchObject({ status: 'pass', label: 'Checkout up to date with origin/main', detail: 'Up to date with origin/main' });
+    expect(report.checks.map((c) => c.id).slice(0, 2)).toEqual(['repo', 'repo.fresh']);
+  });
+
+  it('warns when behind, with `git pull` as the fix -- and never fails the doctor', async () => {
+    const { report, check } = await freshCheck({ counts: '0\t4' });
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toMatch(/^4 commits behind origin\/main/);
+    expect(check?.fix).toBe('Run `git pull`.');
+    expect(byId(report.checks, 'jdk')?.status).toBe('pass');
+    expect(report.checks.filter((c) => c.status === 'fail').map((c) => c.id)).not.toContain('repo.fresh');
+  });
+
+  it('warns, explaining, when the fetch failed', async () => {
+    const { check } = await freshCheck({ fetch: { code: 128, stderr: 'fatal: unable to access: Could not resolve host' } });
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toMatch(/could not fetch: fatal: unable to access/);
+    expect(check?.detail).toMatch(/may be stale/);
+  });
+
+  it('warns, explaining, when the checkout is not a git clone', async () => {
+    const { check } = await freshCheck({ inside: false });
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toMatch(/^Not a git checkout/);
+  });
+
+  it('is skipped when there is no checkout at all', async () => {
+    const { home, repo } = fixture();
+    const report = await runAndroidDoctor({
+      exec: fakeExec('openjdk version "21" 2024'),
+      env: { EVOPATHCLI_REPO_ROOT: join(repo, 'nope') },
+      home,
+      exists: () => true,
+    });
+    expect(byId(report.checks, 'repo.fresh')?.status).toBe('skip');
   });
 });
 
