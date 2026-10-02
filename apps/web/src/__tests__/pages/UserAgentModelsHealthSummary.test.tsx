@@ -1,5 +1,5 @@
 /**
- * `/settings/ai/agents`: the "Use my health summary in training plans and coach chat" section
+ * `/settings/ai/agents`: the "Use my health data in training plans and coach chat" section
  * (H8, #192). Off by default; turning it on needs the confirmation dialog
  * (what is shared, never shared, who processes it); turning it off sends
  * `false` at once; the summary, its state and the refresh refusals; gating on
@@ -17,7 +17,7 @@ import UserAgentModelsPage from '../../pages/UserAgentModelsPage';
 import {
   HEALTH_SUMMARY_DIALOG_TITLE,
   HEALTH_SUMMARY_NOT_MEDICAL_ADVICE,
-  HEALTH_SUMMARY_NO_RAW_DATA,
+  HEALTH_SUMMARY_DATA_SCOPE,
   HEALTH_SUMMARY_SECTION_TITLE,
   HEALTH_SUMMARY_SWITCH_HELPER,
   HEALTH_SUMMARY_SWITCH_LABEL,
@@ -87,19 +87,26 @@ describe('UserAgentModelsPage: health summary opt-in', () => {
     expect(toggle).not.toBeChecked();
     expect(toggle).toBeEnabled();
     expect(within(section).getByText(HEALTH_SUMMARY_NOT_MEDICAL_ADVICE)).toBeInTheDocument();
-    expect(within(section).getByText(new RegExp(HEALTH_SUMMARY_NO_RAW_DATA.slice(0, 40)))).toBeInTheDocument();
+    expect(within(section).getByText(new RegExp(HEALTH_SUMMARY_DATA_SCOPE.slice(0, 40)))).toBeInTheDocument();
     expect(within(section).queryByRole('button', { name: 'Refresh summary' })).not.toBeInTheDocument();
   });
 
-  it('says the one consent covers both training plans and coach chat (#327)', async () => {
+  it('says the one consent covers training plans and coach chat, and that the coach can read biomarker values (#327)', async () => {
     await renderPage();
     const section = await findSection();
     expect(
-      within(section).getByLabelText('Use my health summary in training plans and coach chat'),
+      within(section).getByLabelText('Use my health data in training plans and coach chat'),
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        'Training plans use your AI health summary. Your coach can also read your summary and look up your biomarker values when you ask.',
+      ),
     ).toBeInTheDocument();
     expect(within(section).getByText(HEALTH_SUMMARY_SWITCH_HELPER)).toBeInTheDocument();
-    expect(HEALTH_SUMMARY_SWITCH_HELPER).toMatch(/not raw lab values/);
-    expect(HEALTH_SUMMARY_SWITCH_HELPER).toMatch(/coach/);
+    // Raw values are withheld from the training agents only, never claimed for the coach.
+    expect(HEALTH_SUMMARY_DATA_SCOPE).toMatch(/^The training agents receive only the written summary/);
+    expect(HEALTH_SUMMARY_DATA_SCOPE).toMatch(/coach can read the summary and, when you ask, look up your biomarker values/);
+    expect(within(section).queryByText(/your coach receive only/i)).not.toBeInTheDocument();
   });
 
   it('turns on only after the confirmation dialog, showing what is shared and who processes it', async () => {
@@ -156,12 +163,12 @@ describe('UserAgentModelsPage: health summary opt-in', () => {
     const { user } = await renderPage();
     const section = await findSection();
 
-    expect(within(section).getByText(/removes the summary from future training runs and coach chats/)).toBeInTheDocument();
+    expect(within(section).getByText(/stops your coach reading your summary or biomarker values/)).toBeInTheDocument();
     await user.click(within(section).getByLabelText(HEALTH_SUMMARY_SWITCH_LABEL));
     await waitFor(() => expect(bodies).toEqual([{ enabled: false }]));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(
-      await within(section).findByText('Turned off. The summary is removed from future training runs and coach chats.'),
+      await within(section).findByText('Turned off. Future training runs and coach chats no longer use your summary or biomarker values.'),
     ).toBeInTheDocument();
     expect(within(section).getByLabelText(HEALTH_SUMMARY_SWITCH_LABEL)).not.toBeChecked();
   });

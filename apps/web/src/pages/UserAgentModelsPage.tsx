@@ -12,7 +12,7 @@
  * (PATCH `/api/user-settings`, `If-Match` on the loaded version); the role
  * states are re-read after every save.
  *
- * The "Use my health summary in training plans and coach chat" section (H8, #192) sits at the
+ * The "Use my health data in training plans and coach chat" section (H8, #192) sits at the
  * bottom: shown only with `health_data:read` (the GET's permission), its
  * controls enabled only with `health_data:write` (the PUT/POST's). It is a
  * section of this page, not a card or a tab of its own.

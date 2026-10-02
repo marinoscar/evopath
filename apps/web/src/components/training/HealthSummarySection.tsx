@@ -1,15 +1,17 @@
 /**
- * "Use my health summary in training plans and coach chat" (H8, #192; coach
+ * "Use my health data in training plans and coach chat" (H8, #192; coach
  * chat since #327): a section of the Training agents page
  * (`/settings/ai/agents`), not a card or a tab of its own. One consent covers
- * both readers: the training agents and the AI Coach chat read the written
- * summary (narrative and training considerations), never raw lab values.
+ * both readers, with different scopes: the training agents read only the
+ * written summary (never raw lab values); the AI Coach chat reads the summary
+ * and can also look up the user's biomarker values when asked
+ * (`list_biomarkers` / `get_biomarker_values`).
  *
  * Off by default. Turning it on first shows, in a confirmation dialog, exactly
  * what the API says is shared and never shared and which model provider will
  * process it; only Confirm sends `PUT .../consent { enabled: true }`. Turning
  * it off sends `{ enabled: false }` at once. While on, the section shows the
- * newest summary verbatim (the text the training agents and coach receive), its state
+ * newest summary verbatim (the text the training agents receive), its state
  * and a "Refresh summary" button.
  *
  * Presentation only. The API decides what is shared, whether a model can
@@ -48,21 +50,26 @@ import {
 import type { RoleResolutionState } from '../../services/trainingAgents';
 import { aiCodeText, aiErrorText } from '../settings/ai/aiErrorText';
 
-export const HEALTH_SUMMARY_SWITCH_LABEL = 'Use my health summary in training plans and coach chat';
+export const HEALTH_SUMMARY_SWITCH_LABEL = 'Use my health data in training plans and coach chat';
 
 export const HEALTH_SUMMARY_SECTION_TITLE = 'Health data in training plans and coach chat';
 
-export const HEALTH_SUMMARY_DIALOG_TITLE = 'Use your health summary in training plans and coach chat?';
+export const HEALTH_SUMMARY_DIALOG_TITLE = 'Use your health data in training plans and coach chat?';
 
 export const HEALTH_SUMMARY_SWITCH_HELPER =
-  'Your AI health summary (not raw lab values) helps shape training plans and lets your coach factor in your blood work.';
+  'Training plans use your AI health summary. Your coach can also read your summary and look up your biomarker values when you ask.';
 
 export const HEALTH_SUMMARY_NOT_MEDICAL_ADVICE =
   'This is not medical advice. The summary describes training-relevant observations only; ' +
   'discuss any flagged value with a clinician.';
 
-export const HEALTH_SUMMARY_NO_RAW_DATA =
-  'The training agents and your coach receive only the written summary: no raw lab values, readings or documents are sent to them.';
+/**
+ * Exactly who reads what (#327): the training agents get the summary only;
+ * the coach gets the summary plus biomarker values it looks up on request.
+ */
+export const HEALTH_SUMMARY_DATA_SCOPE =
+  'The training agents receive only the written summary: no raw lab values, readings or documents are sent to them. ' +
+  'Your coach can read the summary and, when you ask, look up your biomarker values (your individual lab results).';
 
 /** Why a summary cannot be written in a blocking model state. */
 const MODEL_STATE_TEXT: Partial<Record<RoleResolutionState, string>> = {
@@ -151,8 +158,8 @@ export function HealthSummarySection({
       await onSetConsent(next);
       setNotice(
         next
-          ? 'Turned on. Your summary is being written.'
-          : 'Turned off. The summary is removed from future training runs and coach chats.',
+          ? 'Turned on. Your summary is being written, and your coach can now look up your biomarker values.'
+          : 'Turned off. Future training runs and coach chats no longer use your summary or biomarker values.',
       );
     } catch (err) {
       setActionError(aiErrorText(err, 'Failed to save your choice'));
@@ -204,8 +211,7 @@ export function HealthSummarySection({
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           When this is on, an AI model writes a short summary of your health data. The planner and
-          evaluator read that summary when they write and check your plan, and your coach can read it in
-          chat. {HEALTH_SUMMARY_NO_RAW_DATA}
+          evaluator read that summary when they write and check your plan. {HEALTH_SUMMARY_DATA_SCOPE}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {HEALTH_SUMMARY_NOT_MEDICAL_ADVICE}
@@ -236,7 +242,7 @@ export function HealthSummarySection({
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {enabled
-                    ? 'Turning this off stops new summaries and removes the summary from future training runs and coach chats.'
+                    ? 'Turning this off stops new summaries, removes the summary from future training runs and stops your coach reading your summary or biomarker values.'
                     : 'Off by default. You will see exactly what is shared before it is turned on.'}
                 </Typography>
                 {!canWrite && (
@@ -380,7 +386,7 @@ export function HealthSummarySection({
             {processorName
               ? `${processorName} will process the data below to write a short summary.`
               : 'The AI model provider your administrator chose will process the data below to write a short summary.'}{' '}
-            {HEALTH_SUMMARY_NO_RAW_DATA}
+            {HEALTH_SUMMARY_DATA_SCOPE}
           </DialogContentText>
 
           <Typography variant="subtitle2" component="h3">
