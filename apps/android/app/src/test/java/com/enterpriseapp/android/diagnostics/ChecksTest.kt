@@ -304,6 +304,46 @@ class ChecksTest {
         assertStatus(CheckStatus.PASS, Checks.notifications(30, permissionGranted = false, enabled = true))
         assertStatus(CheckStatus.WARN, Checks.notifications(30, permissionGranted = true, enabled = false))
         assertStatus(CheckStatus.PASS, Checks.notifications(34, permissionGranted = true, enabled = true))
+        assertEquals(CheckAction.ALLOW_NOTIFICATIONS, Checks.notifications(34, permissionGranted = false, enabled = false).action)
+        assertEquals(CheckAction.NOTIFICATION_SETTINGS, Checks.notifications(30, permissionGranted = true, enabled = false).action)
+    }
+
+    // --- notifications.channels -----------------------------------------------------------
+
+    private val general = NotificationChannelSnapshot("general", "General", 3)
+    private val updates = NotificationChannelSnapshot("app_updates", "App updates", 3)
+    private val webBlocked = NotificationChannelSnapshot("general_channel_id", "Web app", NotificationChannelSnapshot.IMPORTANCE_NONE)
+
+    @Test fun `channels pass when on and none blocked`() {
+        val check = Checks.notificationChannels(34, permissionGranted = true, enabled = true, channels = listOf(general, updates))
+        assertStatus(CheckStatus.PASS, check)
+        assertEquals(CheckIds.NOTIFICATION_CHANNELS, check.id)
+        assertEquals("notifications.channels", check.id)
+        assertNull(check.action)
+        assertEquals(2, check.data!!["channels"]!!.jsonArray.size)
+    }
+
+    @Test fun `channels warn when notifications are off for the app`() {
+        val check = Checks.notificationChannels(30, permissionGranted = true, enabled = false, channels = listOf(general))
+        assertStatus(CheckStatus.WARN, check)
+        assertEquals(CheckAction.NOTIFICATION_SETTINGS, check.action)
+    }
+
+    @Test fun `channels warn and name each blocked channel`() {
+        val low = NotificationChannelSnapshot("health_sync_progress", "Health sync in progress", 2)
+        val check = Checks.notificationChannels(34, permissionGranted = true, enabled = true, channels = listOf(general, low, webBlocked))
+        assertStatus(CheckStatus.WARN, check)
+        assertEquals(CheckAction.CHANNEL_SETTINGS, check.action)
+        assertTrue(check.detail, "\"Web app\"" in check.detail)
+        assertTrue(check.detail, "General" !in check.detail)
+        assertEquals(listOf(JsonPrimitive("general_channel_id")), check.data!!["blocked"]!!.jsonArray.toList())
+    }
+
+    @Test fun `channels skip when the permission is missing or channels cannot be read`() {
+        assertStatus(CheckStatus.SKIP, Checks.notificationChannels(33, permissionGranted = false, enabled = false, channels = listOf(webBlocked)))
+        assertStatus(CheckStatus.SKIP, Checks.notificationChannels(34, permissionGranted = true, enabled = true, channels = null))
+        // Below Android 13 the permission flag is irrelevant.
+        assertStatus(CheckStatus.WARN, Checks.notificationChannels(32, permissionGranted = false, enabled = true, channels = listOf(webBlocked)))
     }
 
     @Test fun `work scheduled`() {

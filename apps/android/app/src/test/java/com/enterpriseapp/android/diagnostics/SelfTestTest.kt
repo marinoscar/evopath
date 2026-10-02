@@ -151,6 +151,15 @@ class SelfTestTest {
         assertTrue(result.checks.all { it.label.isNotBlank() && it.detail.isNotBlank() })
     }
 
+    @Test fun `notifications channels check reads the platform`() = runBlocking {
+        assertEquals(CheckStatus.PASS, selfTest().run().check("notifications.channels").verdict)
+        platform.channels = listOf(NotificationChannelSnapshot("general", "General", NotificationChannelSnapshot.IMPORTANCE_NONE))
+        assertEquals(CheckStatus.WARN, selfTest().run().check("notifications.channels").verdict)
+        platform.notificationPermission = false
+        assertEquals(CheckStatus.SKIP, selfTest().run().check("notifications.channels").verdict)
+        assertEquals(CheckAction.ALLOW_NOTIFICATIONS, selfTest().run().check("notifications.permission").action)
+    }
+
     @Test fun `healthy phone with sources but empty types warns per empty type`() = runBlocking {
         val result = selfTest().run()
         assertEquals(CheckStatus.PASS, result.check("hc.data.steps").verdict)
