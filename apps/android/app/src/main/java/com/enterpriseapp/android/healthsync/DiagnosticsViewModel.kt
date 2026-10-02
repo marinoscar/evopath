@@ -10,6 +10,7 @@ import com.enterpriseapp.android.diagnostics.SelfTestResult
 import com.enterpriseapp.android.net.ApiResult
 import com.enterpriseapp.android.notifications.NotificationPermissionState
 import com.enterpriseapp.android.sync.LocalSyncRun
+import com.enterpriseapp.android.sync.SyncNotifications
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -124,6 +125,17 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         app.syncScheduler.ensurePeriodic()
         app.syncScheduler.syncNow(com.enterpriseapp.android.sync.SyncTrigger.MANUAL)
         _state.update { it.copy(message = "Sync started. Run the self-test again when it finishes.") }
+    }
+
+    fun sendTestNotification() {
+        val outcome = SyncNotifications.notifyTest(getApplication())
+        AppLog.i("Diagnostics", "Test notification: $outcome")
+        val message = when (outcome) {
+            SyncNotifications.TestOutcome.SENT -> "Test notification sent. If it did not appear, check the Notifications checks above."
+            SyncNotifications.TestOutcome.NOT_ALLOWED -> "Notifications are not allowed: use \"Allow notifications\" first."
+            SyncNotifications.TestOutcome.CHANNEL_BLOCKED -> "The \"General\" notification channel is blocked: allow it in the app's notification settings."
+        }
+        _state.update { it.copy(message = message) }
     }
 
     fun refreshNotifications(state: NotificationPermissionState) {

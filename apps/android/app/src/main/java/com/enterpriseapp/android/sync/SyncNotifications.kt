@@ -28,6 +28,11 @@ object SyncNotifications {
     const val BACKGROUND_ACCESS_ID = 2812
     const val CHANNEL_UPDATES = "app_updates"
     const val UPDATE_AVAILABLE_ID = 2813
+    const val CHANNEL_GENERAL = "general"
+    const val TEST_NOTIFICATION_ID = 2814
+
+    /** Result of [notifyTest]. */
+    enum class TestOutcome { SENT, NOT_ALLOWED, CHANNEL_BLOCKED }
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -47,6 +52,40 @@ object SyncNotifications {
                 description = "A new version of the app is ready to download."
             },
         )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_GENERAL, "General", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "General notices, such as the test notification from Diagnostics."
+            },
+        )
+    }
+
+    /** Diagnostics → "Send test notification": proves this phone shows the app's notifications. */
+    fun notifyTest(context: Context): TestOutcome {
+        ensureChannels(context)
+        if (!canNotify(context)) return TestOutcome.NOT_ALLOWED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            context.getSystemService(NotificationManager::class.java)?.getNotificationChannel(CHANNEL_GENERAL)?.importance ==
+            NotificationManager.IMPORTANCE_NONE
+        ) {
+            return TestOutcome.CHANNEL_BLOCKED
+        }
+        val text = "Test notification — notifications from ${Brand.name} work on this phone."
+        val notification = NotificationCompat.Builder(context, CHANNEL_GENERAL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(Brand.name)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openHealthSync(context, HealthSyncActivity.OPEN_DIAGNOSTICS, requestCode = 3))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        return try {
+            NotificationManagerCompat.from(context).notify(TEST_NOTIFICATION_ID, notification)
+            TestOutcome.SENT
+        } catch (_: SecurityException) {
+            // Notification permission revoked between the check and the call.
+            TestOutcome.NOT_ALLOWED
+        }
     }
 
     fun canNotify(context: Context): Boolean {

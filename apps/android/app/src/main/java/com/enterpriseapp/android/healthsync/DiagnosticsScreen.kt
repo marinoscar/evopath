@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.PermissionController
 import com.enterpriseapp.android.MobileApplication
 import com.enterpriseapp.android.diagnostics.CheckAction
+import com.enterpriseapp.android.diagnostics.CheckIds
 import com.enterpriseapp.android.diagnostics.CheckResult
 import com.enterpriseapp.android.diagnostics.CheckStatus
 import com.enterpriseapp.android.diagnostics.Checks
@@ -66,6 +67,9 @@ import com.enterpriseapp.android.healthconnect.SyncToggle
 import com.enterpriseapp.android.sync.LocalSyncRun
 import com.enterpriseapp.android.update.AppUpdates
 import com.enterpriseapp.android.util.Brand
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import java.time.ZoneId
 
@@ -117,6 +121,10 @@ internal fun DiagnosticsScreen(
                 DiagnosticsIntents.openNotificationSettings(context)
             }
             CheckAction.ALLOW_NOTIFICATIONS -> requestNotifications(state.notifications)
+            CheckAction.CHANNEL_SETTINGS -> {
+                vm.markActionTaken()
+                DiagnosticsIntents.openChannelSettings(context, blockedChannel(result))
+            }
             CheckAction.SYNC_NOW -> vm.syncNow()
             CheckAction.OPEN_CONNECTED_DEVICES -> server?.let { openInCustomTab(context, "$it$CONNECTED_DEVICES_PATH") }
             CheckAction.OPEN_ANDROID_APP_ADMIN -> server?.let { openInCustomTab(context, "$it$ANDROID_ADMIN_PATH") }
@@ -172,6 +180,7 @@ internal fun DiagnosticsScreen(
             enabled = state.report != null,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Copy to clipboard") }
+        OutlinedButton(onClick = vm::sendTestNotification, modifier = Modifier.fillMaxWidth()) { Text("Send test notification") }
         OutlinedButton(onClick = { confirmReset = true }, modifier = Modifier.fillMaxWidth()) { Text("Reset local sync state") }
         OutlinedButton(
             onClick = {
@@ -215,6 +224,11 @@ private fun severityOrder(status: CheckStatus) = when (status) {
     CheckStatus.PASS -> 2
     CheckStatus.SKIP -> 3
 }
+
+/** The first blocked channel the `notifications.channels` check reported, if any. */
+private fun blockedChannel(result: SelfTestResult?): String? =
+    result?.checks?.firstOrNull { it.id == CheckIds.NOTIFICATION_CHANNELS }
+        ?.data?.get("blocked")?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull
 
 /** Missing data permissions for the enabled types, plus background reading when offered. */
 private fun permissionsToRequest(context: Context, result: SelfTestResult?): Set<String> {
@@ -447,6 +461,17 @@ internal object DiagnosticsIntents {
     fun openNotificationSettings(context: Context) {
         val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         if (!tryStart(context, intent)) openAppDetails(context)
+    }
+
+    /** One channel's settings (Android 8+), or the app's notification settings without a channel. */
+    fun openChannelSettings(context: Context, channelId: String?) {
+        if (channelId != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val intent = Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+            if (tryStart(context, intent)) return
+        }
+        openNotificationSettings(context)
     }
 
     private fun openAppDetails(context: Context) {

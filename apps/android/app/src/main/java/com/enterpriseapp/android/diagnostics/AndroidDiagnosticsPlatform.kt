@@ -1,6 +1,7 @@
 package com.enterpriseapp.android.diagnostics
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -37,6 +38,12 @@ class AndroidDiagnosticsPlatform(context: Context) : DiagnosticsPlatform {
             ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     override fun notificationsEnabled(): Boolean = NotificationManagerCompat.from(appContext).areNotificationsEnabled()
+
+    override fun notificationChannels(): List<NotificationChannelSnapshot> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return emptyList()
+        val manager = appContext.getSystemService(NotificationManager::class.java) ?: return emptyList()
+        return manager.notificationChannels.map { NotificationChannelSnapshot(it.id, it.name?.toString() ?: it.id, it.importance) }
+    }
 
     override fun installedPackages(packages: Collection<String>): Set<String> {
         val pm = appContext.packageManager
