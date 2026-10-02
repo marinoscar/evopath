@@ -17,7 +17,15 @@ describe('readHealthExportResult', () => {
     expect(readHealthExportResult({ result: { ...result, rowCounts: older } })?.rowCounts).toEqual({
       ...older,
       progress_photos: 0,
+      memories: 0,
     });
+  });
+
+  // `memories` joined in #325: a result written before it reads as 0.
+  it('reads a result written before memories existed, and the memory count of a newer one', () => {
+    const before = { ...older, progress_photos: 2 };
+    expect(readHealthExportResult({ result: { ...result, rowCounts: before } })?.rowCounts.memories).toBe(0);
+    expect(readHealthExportResult({ result: { ...result, rowCounts: { ...before, memories: 3 } } })?.rowCounts.memories).toBe(3);
   });
 
   it('reads the progress photo count of a newer result', () => {

@@ -153,7 +153,7 @@ describe('HealthExportHandler', () => {
       fileName: expect.stringMatching(/\.json$/),
       mimeType: 'application/json',
       sizeBytes: uploaded!.length,
-      rowCounts: { profile: 0, body: 1, vitals: 0, labs: 0, wellness: 0, documents: 0, progress_photos: 0 },
+      rowCounts: { profile: 0, body: 1, vitals: 0, labs: 0, wellness: 0, documents: 0, progress_photos: 0, memories: 0 },
       completedAt: '2026-09-30T12:00:00.000Z',
       expiresAt: '2026-10-07T12:00:00.000Z',
     });

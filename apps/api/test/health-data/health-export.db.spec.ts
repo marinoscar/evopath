@@ -266,7 +266,7 @@ describeWithDb('health data export (real Postgres)', () => {
     });
     expect(Number(object.size)).toBe(result.sizeBytes);
     expect(await provider.exists(object.storageKey)).toBe(true);
-    expect(result.rowCounts).toEqual({ profile: 1, body: 1, vitals: 1, labs: 1, wellness: 1, documents: 1, progress_photos: 0 });
+    expect(result.rowCounts).toEqual({ profile: 1, body: 1, vitals: 1, labs: 1, wellness: 1, documents: 1, progress_photos: 0, memories: 0 });
     expect(notify).toHaveBeenCalledWith('health.export_ready', owner, { exportId: job.id, format: 'json' });
 
     const audit = await client.auditEvent.findFirstOrThrow({ where: { action: 'health:export:create', targetId: job.id } });
@@ -296,6 +296,29 @@ describeWithDb('health data export (real Postgres)', () => {
     ]);
     expect(JSON.stringify(file)).not.toMatch(/Not yours|Out of range|uploads\//);
     expect((job.payload as any).result.rowCounts.progress_photos).toBe(2);
+  });
+
+  it("exports the owner's active memories only (#325): never a deleted one or another user's", async () => {
+    await client.userMemory.createMany({
+      data: [
+        { userId: owner, content: 'User prefers to be called Ana.', category: 'preference', source: 'explicit' },
+        { userId: owner, content: 'User used to run marathons.', category: 'training_history', source: 'extracted', status: 'deleted', deletedAt: new Date() },
+        { userId: other, content: 'User is somebody else.', category: 'other', source: 'explicit' },
+      ],
+    });
+    try {
+      const job = await exportFor(owner, { datasets: ['memories'] });
+      const file = await exportedJson(job);
+
+      expect(file.datasets.memories!.map((row) => [row.category, row.content, row.source])).toEqual([
+        ['preference', 'User prefers to be called Ana.', 'explicit'],
+      ]);
+      expect(Object.keys(file.datasets.memories![0]).sort()).toEqual(['category', 'content', 'created_at', 'id', 'source']);
+      expect(JSON.stringify(file)).not.toMatch(/marathons|somebody else/);
+      expect((job.payload as any).result.rowCounts.memories).toBe(1);
+    } finally {
+      await client.userMemory.deleteMany({ where: { userId: { in: [owner, other] } } });
+    }
   });
 
   it('adds superseded revisions only with includeHistory, never those of a deleted entry', async () => {

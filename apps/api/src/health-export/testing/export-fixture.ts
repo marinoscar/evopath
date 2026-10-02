@@ -147,6 +147,15 @@ const ROWS: Record<HealthExportDataset, ExportRow[]> = {
       added_at: '2026-09-14T07:30:00.000Z',
     },
   ],
+  memories: [
+    {
+      id: '00000000-0000-4000-8000-000000000008',
+      category: 'preference',
+      content: 'User prefers to be called Bobby.',
+      source: 'explicit',
+      created_at: '2026-09-15T08:00:00.000Z',
+    },
+  ],
 };
 
 const READINGS: ExportReading[] = [
