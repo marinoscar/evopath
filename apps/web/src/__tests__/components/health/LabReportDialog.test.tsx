@@ -675,6 +675,8 @@ describe('LabReportDialog: reject unmatched (#311)', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Reject unmatched' }));
 
     await waitFor(() => expect(rejectRequests(api)).toHaveLength(1));
+    // The confirmation must be gone (its title re-counts while it closes): until then the import dialog is aria-hidden.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /not in the lab catalog\?$/ })).not.toBeInTheDocument());
     expect(await screen.findByTestId('lab-report-map-notice')).toHaveTextContent('Rejected 2 unmatched results');
     expect(await screen.findByText('Rejected (2)')).toBeInTheDocument();
     const stored = api.intakes.get('lab-intake-1')!.items;
