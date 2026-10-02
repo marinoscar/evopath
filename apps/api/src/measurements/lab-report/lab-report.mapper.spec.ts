@@ -1,5 +1,5 @@
 import { labReportFixture } from '../../../test/fixtures/lab-report/load';
-import { mapLabReportOutput, SUGGESTED_NOTE, UNMATCHED_NOTE } from './lab-report.mapper';
+import { DATE_NOT_READ_NOTE, mapLabReportOutput, SUGGESTED_NOTE, UNMATCHED_NOTE } from './lab-report.mapper';
 import { labReportOutputSchema, type LabReportOutput, type LabReportOutputResult } from './lab-report.prompt';
 import { labReportValueSchema } from './lab-report.value';
 
@@ -21,6 +21,7 @@ function result(overrides: Partial<LabReportOutputResult> = {}): LabReportOutput
     referenceHigh: null,
     labFlag: null,
     panelHint: null,
+    collectionDate: null,
     confidence: 'high',
     uncertain: false,
     note: null,
@@ -68,6 +69,7 @@ describe('mapLabReportOutput (H4, #188)', () => {
         match: 'matched',
         originalValue: 212,
         originalUnit: 'mg/dL',
+        collectionDate: '2026-09-15',
       },
     });
 
@@ -91,7 +93,7 @@ describe('mapLabReportOutput (H4, #188)', () => {
 
     expect(document).toEqual({ collectionDate: '2026-09-15', labName: 'Acme Clinical Laboratories' });
     expect(resultMeta).toEqual({
-      promptVersion: 1,
+      promptVersion: 2,
       unreadable: false,
       resultsReturned: 7,
       resultsTruncated: 0,
@@ -102,6 +104,8 @@ describe('mapLabReportOutput (H4, #188)', () => {
       converted: 1,
       collectionDateRead: true,
       collectionDateDiscarded: false,
+      distinctDates: 1,
+      resultDatesDiscarded: 0,
     });
     // Diagnostics only: no printed name or value.
     expect(JSON.stringify(resultMeta)).not.toMatch(/Lipoprotein|Acme|212/);
@@ -167,5 +171,49 @@ describe('mapLabReportOutput (H4, #188)', () => {
     expect(unreadable.drafts).toEqual([]);
     expect(unreadable.document).toEqual({ collectionDate: null, labName: null });
     expect(unreadable.resultMeta).toMatchObject({ unreadable: true, resultsReturned: 0 });
+  });
+
+  describe('per-result dates (#305)', () => {
+    const trend = (reportDate: string | null, results: LabReportOutputResult[]) =>
+      mapLabReportOutput({ readable: true, collectionDate: reportDate, labName: null, results }, [DOC], NOW);
+
+    it('keeps each cell of a trend table on its own date and counts the distinct dates', () => {
+      const { drafts, document, resultMeta } = trend('2025-11-19', [
+        result({ nameAsPrinted: 'Albumin Lvl', value: 4.6, unit: 'g/dL', collectionDate: '2025-11-19' }),
+        result({ nameAsPrinted: 'Albumin Lvl', value: 4.4, unit: 'g/dL', collectionDate: '2024-05-02' }),
+        result({ nameAsPrinted: 'Glucose Lvl', value: 92, unit: 'mg/dL', collectionDate: '2023-04-06' }),
+      ]);
+
+      expect(drafts.map((d) => (d.value as any).collectionDate)).toEqual(['2025-11-19', '2024-05-02', '2023-04-06']);
+      expect(drafts.map((d) => (d.value as any).analyteKey)).toEqual(['albumin', 'albumin', 'fasting_glucose']);
+      expect(drafts.every((d) => !d.uncertain)).toBe(true);
+      expect(document.collectionDate).toBe('2025-11-19');
+      expect(resultMeta).toMatchObject({ distinctDates: 3, resultDatesDiscarded: 0 });
+    });
+
+    it('takes the report date from the results only when every dated result shares one date', () => {
+      expect(trend(null, [result({ collectionDate: '2025-11-19' }), result({ collectionDate: '2025-11-19' }), result()]).document.collectionDate).toBe(
+        '2025-11-19',
+      );
+      expect(trend(null, [result({ collectionDate: '2025-11-19' }), result({ collectionDate: '2024-05-02' })]).document.collectionDate).toBeNull();
+      expect(trend(null, [result()]).document.collectionDate).toBeNull();
+    });
+
+    it('discards an impossible or future result date to null, flagged "Date not read"', () => {
+      const { drafts, resultMeta } = trend('2025-11-19', [
+        result({ collectionDate: '2027-03-01' }),
+        result({ collectionDate: '1983-02-30' }),
+        result({ collectionDate: '19/11/2025', note: '(CALC)' }),
+      ]);
+
+      for (const draft of drafts) {
+        expect((draft.value as any).collectionDate).toBeNull();
+        expect(draft.uncertain).toBe(true);
+        expect(draft.uncertaintyNote).toContain(DATE_NOT_READ_NOTE);
+        expect(labReportValueSchema.safeParse(draft.value).success).toBe(true);
+      }
+      expect(drafts[2].uncertaintyNote).toBe(`(CALC). ${DATE_NOT_READ_NOTE}`);
+      expect(resultMeta).toMatchObject({ distinctDates: 0, resultDatesDiscarded: 3 });
+    });
   });
 });

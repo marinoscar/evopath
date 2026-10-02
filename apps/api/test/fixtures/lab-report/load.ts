@@ -8,7 +8,8 @@ import { join } from 'node:path';
  * Clinical Laboratories" with seven results: four lipids in mg/dL (resolved
  * from printed names and aliases), `Lipoprotein (a)` (NOT in the catalog: the
  * unmatched row), fasting glucose printed in mmol/L (converted to mg/dL) and
- * HbA1c in %.
+ * HbA1c in %. Every result carries its own `collectionDate` (the report's
+ * date: a single-date report, #305).
  */
 export const LAB_REPORT_FIXTURES = ['lipid-glucose-panel'] as const;
 export type LabReportFixture = (typeof LAB_REPORT_FIXTURES)[number];

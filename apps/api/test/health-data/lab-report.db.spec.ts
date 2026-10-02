@@ -179,7 +179,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
     const intake = await client.photoIntake.findUniqueOrThrow({ where: { id: intakeId } });
     expect(intake.status).toBe('ready');
     expect(intake.context).toEqual({ collectionDate: '2026-09-15', labName: 'Acme Clinical Laboratories' });
-    expect(intake.resultMeta).toMatchObject({ promptVersion: 1, unmatched: 1, converted: 1, itemsStored: 7 });
+    expect(intake.resultMeta).toMatchObject({ promptVersion: 2, unmatched: 1, converted: 1, itemsStored: 7 });
 
     const document = await client.healthDocument.findUniqueOrThrow({ where: { id: healthDocumentId } });
     expect(document).toMatchObject({ kind: 'lab_report', mimeType: 'application/pdf', storageObjectId: object.id, retention: 'keep' });
