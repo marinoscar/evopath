@@ -257,6 +257,20 @@ The overlay [`infra/compose/fake-ai.compose.yml`](../../infra/compose/fake-ai.co
 - [ ] `coach.sweep` succeeds hourly in `/admin/settings/jobs`
 - [ ] Cost reviewed on `/admin/settings/ai/usage` after the first week
 
+## Memory
+
+The coach remembers short facts about each user (#325, [ai-memory.md](../specs/ai-memory.md)): the name they want to be called, schedule, equipment, goals, an injury their training must respect, coaching style. It is on by default and inert until AI is on.
+
+- **Where it comes from.** The user asks the coach to remember something (the chat's `remember` tool; a "Memory updated" chip with Undo appears), the user types it in **Settings > Memory**, or, while background learning is on, the `ai.memory.extract` job learns it from the user's own chat messages about five minutes after a conversation.
+- **Assign the extraction model.** `memory.extract` on `/admin/settings/ai/assignments` (needs `responses` and `structured_output`; a cheap model is fine). Without a runnable model the background job skips quietly; explicit memories still work.
+- **Policy.** System settings `memory`: `enabled` (the feature), `autoExtract` (background learning), `maxPerUser` (50 to 500, default 200), `extractDailyCapPerUser` (default 20 runs per user per UTC day), `purgeAfterDays` (how long deleted and replaced facts can be restored before `memory.purge` erases them; default 30).
+- **The user's switches** (`PATCH /api/user-settings`, `memory`): **Memory on**, **Learn automatically**, **Allow health-related memories**. With memory off the coach neither sees nor writes memories, but the user can still list, edit and delete them.
+- **What is refused.** A memory that reads as an instruction to the coach, or holds a link, email, code, password or key, card or bank details, a phone number or another person's details, is rejected (`400 MEMORY_CONTENT_REJECTED`, `details.rule`). A health fact while **Allow health-related memories** is off is `400 MEMORY_HEALTH_NOT_ALLOWED`. Over the cap, a user's own add is `409 MEMORY_LIMIT_REACHED`; background learning evicts its own oldest unpinned fact instead.
+- **Where it is used.** The coach chat, nudges and weekly review (every category), and the training planner (goal, preference, constraint/injury, schedule, equipment and training history only). Never the researcher's web searches.
+- **Monitor.** `ai.memory.extract` and `memory.purge` in `/admin/settings/jobs`; counters `app.memory.added`, `updated`, `deleted`, `noop` and `rejected` (by source, and rule for rejections). Logs carry ids and counts only, never a memory.
+- **Troubleshoot.** No facts learned: check `memory.autoExtract` (system and user), the `memory.extract` assignment, and the daily cap. `ai.memory.extract` jobs succeed with "skipped (no_model)" when no model resolves. Near-duplicates are matched with the `pg_trgm` extension the migration installs; without it the API logs once and only exact duplicates are merged.
+- **Turn it off.** For everyone: system `memory.enabled` off. Background learning only: `memory.autoExtract` off. A user's **Delete all my data** removes their memories; **Delete all memories** on the Memory page soft-deletes them (restorable until purged).
+
 ## See also
 
 - [ai-coach.md](../specs/ai-coach.md): the design, the rules, every setting and error code.

@@ -63,6 +63,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: AI platform | [docs/specs/ai-platform.md](docs/specs/ai-platform.md) |
 | Spec: AI training plans (agents, graphs, guardrails, events, limits, scenarios) | [docs/specs/ai-training-plans.md](docs/specs/ai-training-plans.md) |
 | Spec: AI Coach (accountability nudges, personas, chat, voice, weekly review, progress photos) | [docs/specs/ai-coach.md](docs/specs/ai-coach.md) |
+| Spec: AI memory (remembered user facts, write firewall, chat memory tools and frame, background extraction, read path) | [docs/specs/ai-memory.md](docs/specs/ai-memory.md) |
 | Spec: browser notifications and Web Push | [docs/specs/browser-notifications.md](docs/specs/browser-notifications.md) |
 | Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |

@@ -412,7 +412,7 @@ A user can take their health record out as JSON, CSV, Excel or a PDF report for 
 |---|---|
 | `format` | `json`, `csv` (a zip of one CSV per dataset), `xlsx` or `pdf` |
 | `from`, `to` | `YYYY-MM-DD`, real dates, inclusive, `from` not after `to`, at most 3660 days, `to` not after tomorrow (UTC) |
-| `datasets` | 1 to 6 distinct of `profile`, `body` (weight, body fat, waist), `vitals` (blood pressure, resting heart rate), `labs`, `wellness` (the four check-in scores, titled "Wellness / mood"), `documents` (an index of kept documents) |
+| `datasets` | 1 to 8 distinct of `profile`, `body` (weight, body fat, waist), `vitals` (blood pressure, resting heart rate), `labs`, `wellness` (the four check-in scores, titled "Wellness / mood"), `documents` (an index of kept documents), `progress_photos` (an index of progress photos), `memories` (the user's active AI memories: `id`, `category`, `content`, `source`, `created_at`; current state, not ranged; #325, [ai-memory.md](ai-memory.md)) |
 | `includeHistory` | Default `false`: also export superseded revisions |
 | `labUnits` | Optional, `conventional` or `si`. Omitted = the caller's profile `labUnits` (`conventional` without a profile), resolved when the export is requested and stored on the job payload |
 
