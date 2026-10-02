@@ -44,10 +44,10 @@ class UpdatePolicyTest {
 
     @Test fun `check is due when never checked`() = assertTrue(UpdatePolicy.checkDue(null, t0))
 
-    @Test fun `check is throttled for 12 hours`() {
-        assertFalse(UpdatePolicy.checkDue(t0, t0.plus(Duration.ofHours(11).plusMinutes(59))))
-        assertTrue(UpdatePolicy.checkDue(t0, t0.plus(Duration.ofHours(12))))
-        assertTrue(UpdatePolicy.checkDue(t0, t0.plus(Duration.ofDays(3))))
+    @Test fun `an app-open check is debounced for 5 minutes only`() {
+        assertFalse(UpdatePolicy.checkDue(t0, t0.plus(Duration.ofMinutes(4).plusSeconds(59))))
+        assertTrue(UpdatePolicy.checkDue(t0, t0.plus(Duration.ofMinutes(5))))
+        assertTrue(UpdatePolicy.checkDue(t0, t0.plus(Duration.ofHours(1))))
     }
 
     @Test fun `check is due when the clock moved backwards`() =
@@ -134,15 +134,17 @@ class UpdateCheckerTest {
         assertEquals(0, backend.calls)
     }
 
-    @Test fun `asks at most every 12 hours`() = runBlocking {
+    @Test fun `asks on every cold start after the 5-minute debounce`() = runBlocking {
         backend.latestResult = ApiResult.Success(release(1), 200)
         val c = checker()
         c.checkIfDue()
-        now = now.plus(Duration.ofHours(6))
+        now = now.plus(Duration.ofMinutes(2))
         assertEquals(UpdateCheckOutcome.Throttled, c.checkIfDue())
-        now = now.plus(Duration.ofHours(6))
+        now = now.plus(Duration.ofMinutes(3))
         assertEquals(UpdateCheckOutcome.UpToDate, c.checkIfDue())
-        assertEquals(2, backend.calls)
+        now = now.plus(Duration.ofMinutes(10))
+        assertEquals(UpdateCheckOutcome.UpToDate, c.checkIfDue())
+        assertEquals(3, backend.calls)
     }
 
     @Test fun `no release clears a stale offer and throttles`() = runBlocking {
@@ -154,7 +156,7 @@ class UpdateCheckerTest {
         assertNull(store.latestVersionCode)
     }
 
-    @Test fun `a network failure keeps the throttle open for the next open`() = runBlocking {
+    @Test fun `a network failure keeps the debounce open for the next open`() = runBlocking {
         backend.latestResult = ApiResult.Failure(ApiError(ApiError.Kind.NETWORK, message = "offline"))
         assertTrue(checker().checkIfDue() is UpdateCheckOutcome.Failed)
         assertNull(store.lastCheckAt)

@@ -31,7 +31,7 @@ class TwaLauncherActivity : LauncherActivity() {
             return
         }
         // Opening the app syncs Health Connect (debounced to every 15 min; no-op unless paired)
-        // and asks the server for a newer release (at most every 12 h; no-op unless paired).
+        // and asks the server for a newer release (every cold start, 5-minute debounce; no-op unless paired).
         if (savedInstanceState == null) {
             WorkManagerSyncScheduler.onAppOpen(this)
             AppUpdates.onAppOpen(this)

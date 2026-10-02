@@ -72,14 +72,17 @@ data class AvailableUpdate(
 
 /** Pure update rules (unit-tested). */
 object UpdatePolicy {
-    /** The server is asked at most this often on app open. */
-    val CHECK_INTERVAL: Duration = Duration.ofHours(12)
+    /**
+     * Every cold start asks the server (issue #299); this short debounce only collapses the
+     * launcher and Health sync opening back to back into one request.
+     */
+    val APP_OPEN_DEBOUNCE: Duration = Duration.ofMinutes(5)
 
     /** `details.reason` of the 404 the server answers when it publishes no release. */
     const val NO_RELEASE = "NO_RELEASE"
 
     /** True when never checked, the last check is [interval] old, or the clock moved backwards. */
-    fun checkDue(last: Instant?, now: Instant, interval: Duration = CHECK_INTERVAL): Boolean =
+    fun checkDue(last: Instant?, now: Instant, interval: Duration = APP_OPEN_DEBOUNCE): Boolean =
         last == null || !now.isBefore(last.plus(interval)) || now.isBefore(last)
 
     /** A release is an update only for this package and with a strictly higher versionCode. */
@@ -194,8 +197,9 @@ sealed interface UpdateCheckOutcome {
 }
 
 /**
- * Asks the server for its current release at most every [UpdatePolicy.CHECK_INTERVAL], only
- * while paired (the endpoint needs the token), and remembers a newer one for the hub.
+ * Asks the server for its current release on every app open (debounced by
+ * [UpdatePolicy.APP_OPEN_DEBOUNCE]), only while paired (the endpoint needs the token), and
+ * remembers a newer one for the hub.
  */
 class UpdateChecker(
     private val backend: ReleaseBackend,
@@ -211,7 +215,7 @@ class UpdateChecker(
 
     /**
      * First launch after an update (a different versionCode than last time): forget the
-     * offered update and the throttle, so the next open asks the server again.
+     * offered update and the debounce, so the next open asks the server again.
      */
     fun onLaunch() {
         if (store.lastSeenVersionCode != ownVersionCode) {
@@ -231,7 +235,7 @@ class UpdateChecker(
         return check(now)
     }
 
-    /** Asks the server now. A network or server failure leaves the throttle alone (retry on next open). */
+    /** Asks the server now. A network or server failure leaves the debounce alone (retry on next open). */
     suspend fun check(now: Instant = clock()): UpdateCheckOutcome {
         if (!isPaired()) return UpdateCheckOutcome.NotPaired
         return when (val result = backend.latest()) {
