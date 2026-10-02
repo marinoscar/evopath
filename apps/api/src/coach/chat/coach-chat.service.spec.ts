@@ -35,7 +35,9 @@ function call(name: string, args: unknown = {}, callId = `call_${name}`): AiOutp
   return { type: 'function_call', callId, name, arguments: JSON.stringify(args) };
 }
 
-function setup(opts: { coach?: Record<string, unknown>; policy?: Record<string, unknown>; history?: unknown[] } = {}) {
+function setup(
+  opts: { coach?: Record<string, unknown>; policy?: Record<string, unknown>; history?: unknown[]; chatClearedAt?: Date } = {},
+) {
   const requests: AiResponseRequest[] = [];
   let script: Script = [];
   let idSeq = 0;
@@ -46,7 +48,11 @@ function setup(opts: { coach?: Record<string, unknown>; policy?: Record<string, 
       findMany: jest.fn().mockResolvedValue(opts.history ?? []),
       findFirst: jest.fn().mockResolvedValue(null),
     },
-    coachState: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), upsert: jest.fn().mockResolvedValue({}) },
+    coachState: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      upsert: jest.fn().mockResolvedValue({}),
+      findUnique: jest.fn().mockResolvedValue(opts.chatClearedAt ? { chatClearedAt: opts.chatClearedAt } : null),
+    },
     workout: {
       findMany: jest.fn().mockResolvedValue([
         { name: 'Upper A', date: new Date('2026-09-30T00:00:00Z'), durationSeconds: 3600, notes: CANARY.workoutNote, exercises: [] },
@@ -364,6 +370,43 @@ describe('CoachChatService (E7.7)', () => {
     });
   });
 
+  describe('start over (#323)', () => {
+    it('reads history only after chatClearedAt', async () => {
+      const clearedAt = new Date('2026-10-01T12:00:00Z');
+      const t = setup({ chatClearedAt: clearedAt });
+      t.script([{ outputText: 'Fresh start.' }]);
+      await drain(await t.service.startTurn(USER, 'hello again'));
+
+      expect(t.prisma.coachState.findUnique).toHaveBeenCalledWith({ where: { userId: USER }, select: { chatClearedAt: true } });
+      expect(t.prisma.coachMessage.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: USER, createdAt: { gt: clearedAt } } }),
+      );
+    });
+
+    it('drops pre-clear rows from the prompt, but a pre-clear blocked turn still keeps the register supportive', async () => {
+      const t = setup();
+      const now = Date.now();
+      const rows = withStore(t, [
+        { role: 'user', body: 'before the clear', createdAt: new Date(now - 60 * 60_000) },
+        { role: 'coach', body: 'old reply', createdAt: new Date(now - 59 * 60_000) },
+        { role: 'user', body: 'distress before', data: { safety: 'distress' }, createdAt: new Date(now - 58 * 60_000) },
+      ]);
+      t.prisma.coachState.findUnique.mockResolvedValue({ chatClearedAt: new Date(now - 30 * 60_000) });
+      t.script([{ outputText: 'Here for you.' }]);
+
+      await drain(await t.service.startTurn(USER, 'new topic'));
+
+      const sent = JSON.stringify(t.requests[0].input);
+      expect(sent).not.toContain('before the clear');
+      expect(sent).not.toContain('old reply');
+      expect(sent).toContain('new topic');
+      // Safety wins: the 24-hour lookback ignores the clear.
+      expect(t.requests[0].instructions).toContain('REGISTER: SUPPORTIVE');
+      expect(t.requests[0].instructions).toContain('recently shared something serious');
+      expect(rows).toHaveLength(5);
+    });
+  });
+
   it('never-send canary: no email, name, date of birth, notes or storage ids reach the model', async () => {
     const t = setup({
       history: [{ role: 'coach', kind: 'nudge', title: 'Hi', body: 'Your hour.', data: { audio: CANARY.audioStorageId } }],
@@ -659,6 +702,31 @@ describe('CoachChatService: retryOf reuses the stored user message (review findi
     });
     expect(rows.length).toBe(before);
     expect(t.runTools).not.toHaveBeenCalled();
+  });
+
+  it('refuses a retry of a message from before a "Start over" (#323)', async () => {
+    const t = setup();
+    const rows = withStore(t);
+    const id = await failedTurn(t);
+    t.prisma.coachState.findUnique.mockResolvedValue({ chatClearedAt: new Date(rows[0].createdAt.getTime() + 1) });
+    t.runTools.mockClear();
+
+    await expect(t.service.startTurn(USER, 'hi', { retryOf: id })).rejects.toMatchObject({
+      status: 400,
+      response: { details: { reason: 'COACH_RETRY_INVALID' } },
+    });
+    expect(t.runTools).not.toHaveBeenCalled();
+  });
+
+  it('still retries a message stored after the clear', async () => {
+    const t = setup();
+    const rows = withStore(t);
+    t.prisma.coachState.findUnique.mockResolvedValue({ chatClearedAt: new Date(Date.now() - 60_000) });
+    const id = await failedTurn(t);
+    t.script([{ outputText: 'Here now.' }]);
+    const events = await drain(await t.service.startTurn(USER, 'hi', { retryOf: id }));
+    expect(events.at(-1)).toMatchObject({ type: 'done', userMessageId: id });
+    expect(rows.filter((r) => r.role === 'user')).toHaveLength(1);
   });
 
 });

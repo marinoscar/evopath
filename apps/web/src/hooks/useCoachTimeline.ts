@@ -13,6 +13,8 @@
  * - A failed older-page load keeps everything already loaded on screen.
  * - `findStoredUserTurn` re-reads the latest page (without changing what is on
  *   screen) to tell whether a chat turn cut off mid-stream was stored.
+ * - `reset` (after "Start over", #323) empties the timeline at once, drops the
+ *   cursor, and then re-reads the first page.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -36,6 +38,8 @@ export interface UseCoachTimelineReturn {
   /** An older page failed; what is loaded stays. */
   olderError: string | null;
   reload: () => Promise<void>;
+  /** Empty the timeline immediately (a "Start over"), then re-read the first page. */
+  reset: () => Promise<void>;
   loadOlder: () => Promise<void>;
   /** Append messages created on this page (a finished chat turn), in order. */
   append: (items: CoachTimelineItem[]) => void;
@@ -85,6 +89,14 @@ export function useCoachTimeline(options: { enabled?: boolean } = {}): UseCoachT
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  const reset = useCallback(async () => {
+    setNewestFirst([]);
+    setCursor(null);
+    setOlderError(null);
+    setError(null);
+    await reload();
   }, [reload]);
 
   const loadOlder = useCallback(async () => {
@@ -177,6 +189,7 @@ export function useCoachTimeline(options: { enabled?: boolean } = {}): UseCoachT
     isLoadingOlder,
     olderError,
     reload,
+    reset,
     loadOlder,
     append,
     markOpened,

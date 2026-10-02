@@ -865,6 +865,9 @@ export const handlers = [
     return HttpResponse.json({ data: { items: [], nextCursor: null } });
   }),
 
+  // "Start over" (#323): a soft clear, 204.
+  http.post(`${API_BASE}/coach/chat/clear`, () => new HttpResponse(null, { status: 204 })),
+
   http.post(`${API_BASE}/coach/messages/:id/opened`, () => new HttpResponse(null, { status: 204 })),
 
   http.post(`${API_BASE}/coach/messages/:id/feedback`, () => new HttpResponse(null, { status: 204 })),

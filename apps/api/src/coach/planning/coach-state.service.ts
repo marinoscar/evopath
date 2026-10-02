@@ -54,6 +54,7 @@ export class CoachStateService {
       streakPassesLeft: state?.streakPassesLeft ?? 0,
       nextSession: nextSessionOf(signals, today),
       unreadCount,
+      chatClearedAt: state?.chatClearedAt?.toISOString() ?? null,
     };
   }
 

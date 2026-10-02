@@ -21,6 +21,11 @@
  * with the settings; Listen stays hidden while that is unknown, and for the
  * rest of the visit once the API answers that audio is switched off. `m` is used only when it is shaped like a message id
  * and only ever matched against the caller's own timeline.
+ *
+ * START OVER (#323). The conversation menu above the timeline posts
+ * `POST /api/coach/chat/clear` after a confirmation dialog, then empties the
+ * timeline and re-reads it (the empty state shows). Disabled while a turn
+ * streams. A soft clear: the server keeps every row.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link as RouterLink } from 'react-router-dom';
@@ -28,13 +33,20 @@ import { Alert, Box, Button, Card, CardActions, CardContent, Container, Paper, S
 import { CoachHeader } from '../components/coach/CoachHeader';
 import { CoachTimeline } from '../components/coach/CoachTimeline';
 import { CoachComposer, type CoachComposerPrefill } from '../components/coach/CoachComposer';
+import { CoachStartOverMenu } from '../components/coach/CoachStartOverMenu';
 import { useCoachSettings } from '../hooks/useCoachSettings';
 import { useCoachState } from '../hooks/useCoachState';
 import { useCoachTimeline } from '../hooks/useCoachTimeline';
 import { useCoachChat } from '../hooks/useCoachChat';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDistanceUnit } from '../hooks/useDistanceUnit';
-import { coachSpeechEnabled, isCoachMessageId, type CoachTimelineItem } from '../services/coach';
+import {
+  clearCoachChat,
+  coachErrorOf,
+  coachSpeechEnabled,
+  isCoachMessageId,
+  type CoachTimelineItem,
+} from '../services/coach';
 
 /** How many older pages a deep link may load while looking for its message. */
 const DEEP_LINK_MAX_PAGES = 5;
@@ -77,7 +89,7 @@ export default function CoachPage() {
   const coachState = useCoachState();
   const timeline = useCoachTimeline();
   const online = useOnlineStatus();
-  const { append, markOpened, loadOlder, findStoredUserTurn } = timeline;
+  const { append, markOpened, loadOlder, findStoredUserTurn, reset } = timeline;
   const refreshState = coachState.refresh;
 
   const onComplete = useCallback(
@@ -89,6 +101,19 @@ export default function CoachPage() {
     [append, refreshState],
   );
   const chat = useCoachChat({ personaId: persona?.id ?? null, onComplete, findStoredTurn: findStoredUserTurn });
+
+  const dismissTurn = chat.dismiss;
+  const onStartOver = useCallback(async () => {
+    try {
+      await clearCoachChat();
+    } catch (err) {
+      throw new Error(coachErrorOf(err, 'Could not start over. Please try again.').message);
+    }
+    // A failed turn still on screen belongs to the old conversation.
+    dismissTurn();
+    await reset();
+    void refreshState();
+  }, [dismissTurn, reset, refreshState]);
 
   // A weekly review's Plan my week: put its prompt in the composer (not sent).
   const [prefill, setPrefill] = useState<CoachComposerPrefill | null>(null);
@@ -140,6 +165,10 @@ export default function CoachPage() {
             {timeline.error}
           </Alert>
         )}
+
+        <Stack direction="row" sx={{ mb: 0.5, justifyContent: 'flex-end' }}>
+          <CoachStartOverMenu disabled={chat.isStreaming || timeline.isLoading} onConfirm={onStartOver} />
+        </Stack>
 
         <Paper variant="outlined" sx={{ mb: 2, minWidth: 0, overflow: 'hidden' }}>
           {timeline.isLoading ? (

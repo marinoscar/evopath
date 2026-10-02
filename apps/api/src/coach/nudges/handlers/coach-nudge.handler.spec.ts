@@ -273,6 +273,27 @@ describe('CoachNudgeHandler', () => {
     });
   });
 
+  it('reads only coach lines written after a "Start over" for the prompt history (#323)', async () => {
+    const clearedAt = new Date('2026-09-30T08:00:00Z');
+    const t = setupNudge({
+      state: { pausedUntil: null, weeklyStreak: 3, streakPassesLeft: 1, usualWorkoutMinuteLocal: 18 * 60, chatClearedAt: clearedAt },
+    });
+    await t.handler.run('job-1', PAYLOAD, NOW);
+
+    expect(t.prisma.coachState.findUnique.mock.calls[0]).toEqual([
+      expect.objectContaining({ select: expect.objectContaining({ chatClearedAt: true }) }),
+    ]);
+    expect(t.prisma.coachMessage.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: USER, role: 'coach', createdAt: { gt: clearedAt } } }),
+    );
+  });
+
+  it('reads the full recent history when the chat was never cleared', async () => {
+    const t = setupNudge();
+    await t.handler.run('job-1', PAYLOAD, NOW);
+    expect(t.prisma.coachMessage.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: USER, role: 'coach' } }));
+  });
+
   it('ignores a job with an invalid payload', async () => {
     const t = setupNudge();
     await t.handler.process({ id: 'job-x', payload: { userId: 'nope' } } as never);

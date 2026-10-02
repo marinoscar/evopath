@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Res, UseGuards } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiProduces, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiProduces, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 
 import { AiEnabledGuard } from '../../ai/config/ai-enabled.guard';
@@ -25,6 +25,7 @@ import {
 // =============================================================================
 //
 //   POST /api/coach/chat/stream   ai:use + programs:read   one chat turn (SSE)
+//   POST /api/coach/chat/clear    ai:use                   "Start over" (204)
 //   GET  /api/coach/messages      ai:use                   the caller's timeline
 //
 // `AiEnabledGuard` at class level, like every consumer route under `/api/ai`
@@ -145,13 +146,36 @@ export class CoachChatController {
     await pipeAiSse(reply, prepend(first, iterator), disconnect);
   }
 
+  @Post('chat/clear')
+  @Auth({ permissions: [PERMISSIONS.AI_USE] })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Start the coach chat over',
+    description:
+      'Starts a fresh conversation: stamps the caller\'s `chatClearedAt` (returned by `GET /api/coach/state`) with ' +
+      'the current instant. From then on `GET /api/coach/messages` lists only messages created after it, the ' +
+      'coach chat sends the model only those as history, and nudges see only coach lines written since. A ' +
+      '`retryOf` naming a message from before the clear is 400 `COACH_RETRY_INVALID`.\n\n' +
+      'A soft clear: no message is deleted, and opening, rating or listening to an earlier message still works. ' +
+      'Coach memories (`why`, commitments), settings, streaks and the weekly review stay. A safety-blocked ' +
+      'message still keeps the coach in its supportive register for 24 hours, cleared or not. Idempotent: ' +
+      'calling it again only moves the instant forward. Works while the coach is off or paused.',
+  })
+  @ApiNoContentResponse({ description: 'The chat was cleared' })
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
+  async clear(@CurrentUser('id') userId: string): Promise<void> {
+    await this.timeline.clear(userId);
+  }
+
   @Get('messages')
   @Auth({ permissions: [PERMISSIONS.AI_USE] })
   @ApiOperation({
     summary: 'List my coach timeline',
     description:
       'The caller\'s coach messages, every kind in one timeline (nudges, chat turns, weekly reviews, ' +
-      'celebrations, photo prompts), newest first. Page with `before` = the previous page\'s `nextCursor` (a ' +
+      'celebrations, photo prompts), newest first, created after the caller\'s last "Start over" ' +
+      '(`POST /api/coach/chat/clear`). Page with `before` = the previous page\'s `nextCursor` (a ' +
       'message id); `limit` 1 to 50, default 30. Only the caller\'s own messages: a `before` that is not one of ' +
       'them is 400. Audio fields are filled only while `audioStatus` is `ready`.',
   })

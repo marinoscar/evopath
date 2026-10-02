@@ -39,6 +39,39 @@ describe('useCoachTimeline', () => {
     expect(result.current.hasMore).toBe(false);
   });
 
+  it('reset empties the timeline at once, drops the cursor, and re-reads the first page (#323)', async () => {
+    let cleared = false;
+    let resolveRead: (() => void) | null = null;
+    server.use(
+      http.get(`${API}/coach/messages`, async () => {
+        if (!cleared) return HttpResponse.json({ data: { items: [c, b], nextCursor: b.id } });
+        await new Promise<void>((resolve) => {
+          resolveRead = resolve;
+        });
+        return HttpResponse.json({ data: { items: [], nextCursor: null } });
+      }),
+    );
+    const { result } = renderHook(() => useCoachTimeline());
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    cleared = true;
+    let done: Promise<void> = Promise.resolve();
+    act(() => {
+      done = result.current.reset();
+    });
+    // Empty before the refetch answers.
+    expect(result.current.items).toEqual([]);
+    expect(result.current.hasMore).toBe(false);
+    await waitFor(() => expect(resolveRead).not.toBeNull());
+    await act(async () => {
+      resolveRead?.();
+      await done;
+    });
+    expect(result.current.items).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
   it('posts opened at most once per id and records it', async () => {
     pages();
     let posts = 0;

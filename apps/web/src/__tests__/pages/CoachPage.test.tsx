@@ -701,6 +701,122 @@ describe('CoachPage', () => {
     expect(results).toHaveNoViolations();
   });
 
+  describe('start over (#323)', () => {
+    /** The timeline answers `before` until the clear, then `after` (as the API filters by chatClearedAt). */
+    function clearableTimeline(before: CoachTimelineItem[], after: CoachTimelineItem[] = []) {
+      const clears: number[] = [];
+      let cleared = false;
+      let reads = 0;
+      server.use(
+        http.get(`${API}/coach/messages`, () => {
+          reads += 1;
+          return HttpResponse.json({ data: { items: cleared ? after : before, nextCursor: null } });
+        }),
+        http.post(`${API}/coach/chat/clear`, () => {
+          cleared = true;
+          clears.push(Date.now());
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      return { clears, reads: () => reads };
+    }
+
+    const openMenu = async (user: ReturnType<typeof userEvent.setup>) =>
+      user.click(await screen.findByRole('button', { name: 'Conversation options' }));
+
+    it('menu, confirm dialog, POST, then an empty timeline with the empty state', async () => {
+      const api = clearableTimeline([nudge, reply, oldest]);
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Newest nudge');
+      const readsBefore = api.reads();
+
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Start a fresh conversation?' });
+      expect(dialog).toHaveTextContent("Your coach won't see earlier messages. Your memories and settings stay.");
+
+      await user.click(within(dialog).getByRole('button', { name: 'Start over' }));
+
+      await waitFor(() => expect(api.clears).toHaveLength(1));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(await screen.findByTestId('coach-empty')).toBeInTheDocument();
+      expect(screen.queryByText('Newest nudge')).not.toBeInTheDocument();
+      expect(api.reads()).toBeGreaterThan(readsBefore);
+    });
+
+    it('cancel posts nothing and keeps the timeline', async () => {
+      const api = clearableTimeline([nudge, reply, oldest]);
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Newest nudge');
+
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Start a fresh conversation?' });
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(api.clears).toHaveLength(0);
+      expect(screen.getByText('Newest nudge')).toBeInTheDocument();
+    });
+
+    it('keeps the dialog open with an error when the clear fails, and clears nothing on screen', async () => {
+      server.use(
+        http.get(`${API}/coach/messages`, () => HttpResponse.json({ data: { items: [nudge], nextCursor: null } })),
+        http.post(`${API}/coach/chat/clear`, () => HttpResponse.json({ message: 'Coach unavailable' }, { status: 503 })),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Newest nudge');
+
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Start a fresh conversation?' });
+      await user.click(within(dialog).getByRole('button', { name: 'Start over' }));
+
+      expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText('Newest nudge')).toBeInTheDocument();
+    });
+
+    it('is disabled while a chat turn streams', async () => {
+      clearableTimeline([nudge, reply, oldest]);
+      const chat = controlledChat();
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Oldest read nudge');
+      expect(await screen.findByRole('button', { name: 'Conversation options' })).toBeEnabled();
+
+      await user.click(screen.getByRole('button', { name: 'How am I doing?' }));
+      await waitFor(() => expect(chat.bodies).toHaveLength(1));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Conversation options' })).toBeDisabled());
+
+      chat.push('delta', { text: 'All good.' });
+      chat.push('done', {
+        messageId: coachMessageId(40),
+        userMessageId: coachMessageId(39),
+        links: [],
+        pausedUntil: null,
+        fallback: false,
+      });
+      chat.close();
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Conversation options' })).toBeEnabled());
+    });
+
+    it('has no axe violations with the confirm dialog open', async () => {
+      clearableTimeline([nudge]);
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByText('Newest nudge');
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+      await screen.findByRole('dialog', { name: 'Start a fresh conversation?' });
+      const results = await axe(document.body, { rules: { 'color-contrast': { enabled: false } } });
+      expect(results).toHaveNoViolations();
+    });
+  });
+
   it('has no axe violations with messages and the composer', async () => {
     messagesPages({ first: { items: [nudge, reply, oldest], nextCursor: null } });
     const { container } = renderPage();

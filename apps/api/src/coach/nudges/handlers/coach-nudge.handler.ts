@@ -90,6 +90,7 @@ import {
   COACH_USER_SUBJECT_TYPE,
 } from '../../coach-job-types';
 import { recordCoachKickoff } from '../../coach-kickoff.metrics';
+import { afterChatClear } from '../../chat/coach-chat-clear';
 import { CoachContentGuard } from '../../guard/coach-content-guard.service';
 import type { CoachGuardContext, CoachGuardReason } from '../../guard/coach-content-guard';
 import { coachGoalSummaries } from '../../planning/coach-goals';
@@ -249,6 +250,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
         lastNudgeAt: true,
         nudgesToday: true,
         nudgeDayLocal: true,
+        chatClearedAt: true,
       },
     });
     // A kickoff is deferred past a pause, not dropped (`kickoffGate` below).
@@ -307,7 +309,8 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     const [signals, history, program, lastRun, goalProgress] = await Promise.all([
       this.signals.forUser(userId, { to: addDays(today, 7) }, now),
       this.prisma.coachMessage.findMany({
-        where: { userId, role: 'coach' },
+        // After a "Start over" (#323) the model sees only lines written since.
+        where: { userId, role: 'coach', ...afterChatClear(state?.chatClearedAt ?? null) },
         orderBy: { createdAt: 'desc' },
         take: NUDGE_HISTORY_LIMIT,
         select: { kind: true, moment: true, title: true, createdAt: true },
