@@ -1,12 +1,15 @@
 /**
- * "Use my health data in training plans" (H8, #192): a section of the
- * Training agents page (`/settings/ai/agents`), not a card or a tab of its own.
+ * "Use my health summary in training plans and coach chat" (H8, #192; coach
+ * chat since #327): a section of the Training agents page
+ * (`/settings/ai/agents`), not a card or a tab of its own. One consent covers
+ * both readers: the training agents and the AI Coach chat read the written
+ * summary (narrative and training considerations), never raw lab values.
  *
  * Off by default. Turning it on first shows, in a confirmation dialog, exactly
  * what the API says is shared and never shared and which model provider will
  * process it; only Confirm sends `PUT .../consent { enabled: true }`. Turning
  * it off sends `{ enabled: false }` at once. While on, the section shows the
- * newest summary verbatim (the text the training agents receive), its state
+ * newest summary verbatim (the text the training agents and coach receive), its state
  * and a "Refresh summary" button.
  *
  * Presentation only. The API decides what is shared, whether a model can
@@ -45,14 +48,21 @@ import {
 import type { RoleResolutionState } from '../../services/trainingAgents';
 import { aiCodeText, aiErrorText } from '../settings/ai/aiErrorText';
 
-export const HEALTH_SUMMARY_SWITCH_LABEL = 'Use my health data in training plans';
+export const HEALTH_SUMMARY_SWITCH_LABEL = 'Use my health summary in training plans and coach chat';
+
+export const HEALTH_SUMMARY_SECTION_TITLE = 'Health data in training plans and coach chat';
+
+export const HEALTH_SUMMARY_DIALOG_TITLE = 'Use your health summary in training plans and coach chat?';
+
+export const HEALTH_SUMMARY_SWITCH_HELPER =
+  'Your AI health summary (not raw lab values) helps shape training plans and lets your coach factor in your blood work.';
 
 export const HEALTH_SUMMARY_NOT_MEDICAL_ADVICE =
   'This is not medical advice. The summary describes training-relevant observations only; ' +
   'discuss any flagged value with a clinician.';
 
 export const HEALTH_SUMMARY_NO_RAW_DATA =
-  'The training agents receive only the written summary: no raw lab values, readings or documents are sent to them.';
+  'The training agents and your coach receive only the written summary: no raw lab values, readings or documents are sent to them.';
 
 /** Why a summary cannot be written in a blocking model state. */
 const MODEL_STATE_TEXT: Partial<Record<RoleResolutionState, string>> = {
@@ -142,7 +152,7 @@ export function HealthSummarySection({
       setNotice(
         next
           ? 'Turned on. Your summary is being written.'
-          : 'Turned off. The summary is removed from future training runs.',
+          : 'Turned off. The summary is removed from future training runs and coach chats.',
       );
     } catch (err) {
       setActionError(aiErrorText(err, 'Failed to save your choice'));
@@ -190,11 +200,12 @@ export function HealthSummarySection({
     <Card component="section" aria-labelledby={titleId} data-testid="health-summary-section">
       <CardContent>
         <Typography id={titleId} variant="h6" component="h2" gutterBottom>
-          Health data in training plans
+          {HEALTH_SUMMARY_SECTION_TITLE}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          When this is on, an AI model writes a short summary of your health data, and the planner and
-          evaluator read that summary when they write and check your plan. {HEALTH_SUMMARY_NO_RAW_DATA}
+          When this is on, an AI model writes a short summary of your health data. The planner and
+          evaluator read that summary when they write and check your plan, and your coach can read it in
+          chat. {HEALTH_SUMMARY_NO_RAW_DATA}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {HEALTH_SUMMARY_NOT_MEDICAL_ADVICE}
@@ -220,9 +231,12 @@ export function HealthSummarySection({
                   }
                   label={HEALTH_SUMMARY_SWITCH_LABEL}
                 />
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                  {HEALTH_SUMMARY_SWITCH_HELPER}
+                </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {enabled
-                    ? 'Turning this off stops new summaries and removes the summary from future training runs.'
+                    ? 'Turning this off stops new summaries and removes the summary from future training runs and coach chats.'
                     : 'Off by default. You will see exactly what is shared before it is turned on.'}
                 </Typography>
                 {!canWrite && (
@@ -272,7 +286,7 @@ export function HealthSummarySection({
                   {lastFailed && lastAttempt && (
                     <Alert severity="warning">
                       The last summary could not be written: {failureText(lastAttempt.errorCode)}
-                      {summary ? ' The training agents keep using the previous summary.' : ''}
+                      {summary ? ' The training agents and your coach keep using the previous summary.' : ''}
                     </Alert>
                   )}
 
@@ -360,7 +374,7 @@ export function HealthSummarySection({
         aria-labelledby={dialogTitleId}
         aria-describedby={dialogDescId}
       >
-        <DialogTitle id={dialogTitleId}>Use your health data in training plans?</DialogTitle>
+        <DialogTitle id={dialogTitleId}>{HEALTH_SUMMARY_DIALOG_TITLE}</DialogTitle>
         <DialogContent>
           <DialogContentText id={dialogDescId} sx={{ mb: 2 }}>
             {processorName

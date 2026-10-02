@@ -100,8 +100,26 @@ describe('coach page services', () => {
       ['tool', { name: 'get_check_ins', status: 'ok' }],
       ['delta', 'Easy '],
       ['delta', 'does it.'],
-      ['done', { messageId: 'm', userMessageId: 'u', links: [{ label: 'Go', href: '/train' }], pausedUntil: null, fallback: true }],
+      ['done', { messageId: 'm', userMessageId: 'u', links: [{ label: 'Go', href: '/train' }], pausedUntil: null, fallback: true, profileUpdated: false }],
     ]);
+  });
+
+  it('reads profileUpdated on the done frame only when it is literally true (#327)', async () => {
+    const dones: Array<Record<string, unknown>> = [];
+    for (const profileUpdated of [true, 'true', undefined]) {
+      server.use(
+        http.post(`${API}/coach/chat/stream`, () =>
+          new HttpResponse(
+            coachSseBody([
+              ['done', { messageId: 'm', userMessageId: 'u', links: [], pausedUntil: null, fallback: false, ...(profileUpdated === undefined ? {} : { profileUpdated }) }],
+            ]),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+        ),
+      );
+      await streamCoachChat('call me Sam', { onDone: (f) => dones.push({ ...f }) });
+    }
+    expect(dones.map((d) => d.profileUpdated)).toEqual([true, false, false]);
   });
 
   it('sends retryOf only when given, and reads the error frame\'s stored user message id', async () => {

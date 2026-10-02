@@ -858,6 +858,11 @@ export interface CoachChatDone {
   links: CoachChatLink[];
   pausedUntil: string | null;
   fallback: boolean;
+  /**
+   * The turn changed the user's profile (#327: the coach's display-name tool),
+   * so a cached current user is stale. Additive: absent reads as `false`.
+   */
+  profileUpdated: boolean;
 }
 
 export interface CoachChatHandlers {
@@ -961,6 +966,7 @@ export async function streamCoachChat(
             links: coachLinksOf(data.links),
             pausedUntil: typeof data.pausedUntil === 'string' ? data.pausedUntil : null,
             fallback: data.fallback === true,
+            profileUpdated: data.profileUpdated === true,
           });
           break;
         case 'memory': {

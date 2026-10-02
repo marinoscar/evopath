@@ -107,4 +107,23 @@ describe('useCoachChat', () => {
     expect(result.current.pending?.storedUserMessageId).toBeNull();
     expect(findStoredTurn).not.toHaveBeenCalled();
   });
+
+  it('calls onProfileUpdated after the turn completes only when done says profileUpdated (#327)', async () => {
+    const doneFrame = mockCoachChatFrames[mockCoachChatFrames.length - 1][1] as Record<string, unknown>;
+    chatScripts(
+      [...mockCoachChatFrames.slice(0, -1), ['done', { ...doneFrame, profileUpdated: true }]],
+      mockCoachChatFrames,
+    );
+    const onComplete = vi.fn();
+    const onProfileUpdated = vi.fn();
+    const { result } = renderHook(() => useCoachChat({ onComplete, onProfileUpdated }));
+
+    act(() => result.current.send('Call me Sam'));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onProfileUpdated).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.send('Thanks'));
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(2));
+    expect(onProfileUpdated).toHaveBeenCalledTimes(1);
+  });
 });
