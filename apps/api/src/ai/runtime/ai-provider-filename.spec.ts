@@ -1,10 +1,38 @@
 import { providerFileName } from './ai-provider-filename';
 
 describe('providerFileName (#301)', () => {
-  it('lower-cases an upper-case extension that matches the MIME type', () => {
-    expect(providerFileName('Result Trends - PANEL - Oct 1 2026.PDF', 'application/pdf')).toBe(
-      'Result Trends - PANEL - Oct 1 2026.pdf'
-    );
+  it('slugs the name and lower-cases the extension of the file a provider rejected', () => {
+    expect(
+      providerFileName('Result Trends - COMPREHENSIVE METABOLIC PANEL - Oct 1 2026.PDF', 'application/pdf')
+    ).toBe('Result_Trends_-_COMPREHENSIVE_METABOLIC_PANEL_-_Oct_1_2026.pdf');
+  });
+
+  it('replaces each run of spaces and symbols with a single underscore', () => {
+    expect(providerFileName('lab   results (copy) #2.pdf', 'application/pdf')).toBe('lab_results_copy_2.pdf');
+    expect(providerFileName('a__b  c.pdf', 'application/pdf')).toBe('a_b_c.pdf');
+  });
+
+  it('strips diacritics from accented characters', () => {
+    expect(providerFileName('Análisis de sangre.PDF', 'application/pdf')).toBe('Analisis_de_sangre.pdf');
+  });
+
+  it('falls back to "file" when the stem is only emoji or symbols', () => {
+    expect(providerFileName('\u{1F9EA}\u{1FA78}.pdf', 'application/pdf')).toBe('file.pdf');
+    expect(providerFileName('*** ### ***.PDF', 'application/pdf')).toBe('file.pdf');
+  });
+
+  it('trims leading and trailing underscores, dots and dashes from the stem', () => {
+    expect(providerFileName('  --_report_--.pdf', 'application/pdf')).toBe('report.pdf');
+  });
+
+  it('caps the stem at 100 characters and keeps the extension', () => {
+    const out = providerFileName(`${'a'.repeat(250)}.PDF`, 'application/pdf');
+    expect(out).toBe(`${'a'.repeat(100)}.pdf`);
+  });
+
+  it('does not end a capped stem in an underscore', () => {
+    const out = providerFileName(`${'a'.repeat(99)} b.pdf`, 'application/pdf');
+    expect(out).toBe(`${'a'.repeat(99)}.pdf`);
   });
 
   it('appends the canonical extension when the name has none', () => {
@@ -51,7 +79,11 @@ describe('providerFileName (#301)', () => {
     expect(providerFileName('  report.  ', 'application/pdf')).toBe('report.pdf');
   });
 
-  it('treats a leading dot as part of the name, not an extension', () => {
-    expect(providerFileName('.env', 'text/plain')).toBe('.env.txt');
+  it('treats a leading dot as part of the name, not an extension, then trims it', () => {
+    expect(providerFileName('.env', 'text/plain')).toBe('env.txt');
+  });
+
+  it('treats an extension with symbols as part of the stem', () => {
+    expect(providerFileName('report.p df', 'application/pdf')).toBe('report.p_df.pdf');
   });
 });
