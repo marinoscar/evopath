@@ -1,7 +1,9 @@
 package com.enterpriseapp.android.healthsync
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -14,21 +16,30 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import com.enterpriseapp.android.update.AppUpdates
 import com.enterpriseapp.android.update.AvailableUpdate
 import com.enterpriseapp.android.update.UpdatePolicy
 import kotlinx.coroutines.launch
 
-/** "Update available: vX" on the hub: Download opens the signed link in the browser. */
+/**
+ * "Update available: vX" on the hub: Download opens the signed link in the browser. [highlighted]
+ * outlines the card when the "new version" notification opened the hub.
+ */
 @Composable
-internal fun UpdateCard(update: AvailableUpdate, installedVersion: String) {
+internal fun UpdateCard(update: AvailableUpdate, installedVersion: String, highlighted: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var error by remember(update.releaseId) { mutableStateOf<String?>(null) }
     var showNotes by rememberSaveable { mutableStateOf(false) }
 
-    SectionCard(title = "Update available: v${update.versionName}") {
+    val outline = if (highlighted) {
+        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CardDefaults.shape)
+    } else {
+        Modifier
+    }
+    SectionCard(title = "Update available: v${update.versionName}", modifier = outline) {
         Text(
             listOfNotNull(
                 "Installed $installedVersion → ${update.versionName} (${update.versionCode})",

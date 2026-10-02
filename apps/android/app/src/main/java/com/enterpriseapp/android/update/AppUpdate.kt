@@ -7,6 +7,7 @@ import com.enterpriseapp.android.diagnostics.AppLog
 import com.enterpriseapp.android.net.ApiClient
 import com.enterpriseapp.android.net.ApiError
 import com.enterpriseapp.android.net.ApiResult
+import com.enterpriseapp.android.sync.SyncOutcome
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -72,19 +73,53 @@ data class AvailableUpdate(
 
 /** Pure update rules (unit-tested). */
 object UpdatePolicy {
-    /** The server is asked at most this often on app open. */
-    val CHECK_INTERVAL: Duration = Duration.ofHours(12)
+    /**
+     * Every cold start asks the server (issue #299); this short debounce only collapses the
+     * launcher and Health sync opening back to back into one request.
+     */
+    val APP_OPEN_DEBOUNCE: Duration = Duration.ofMinutes(5)
+
+    /** The background sync asks the server at most this often (issue #299). */
+    val BACKGROUND_INTERVAL: Duration = Duration.ofHours(6)
+
+    /** A release-notes first line longer than this stays out of the notification. */
+    const val NOTIFICATION_NOTES_MAX = 80
 
     /** `details.reason` of the 404 the server answers when it publishes no release. */
     const val NO_RELEASE = "NO_RELEASE"
 
     /** True when never checked, the last check is [interval] old, or the clock moved backwards. */
-    fun checkDue(last: Instant?, now: Instant, interval: Duration = CHECK_INTERVAL): Boolean =
+    fun checkDue(last: Instant?, now: Instant, interval: Duration = APP_OPEN_DEBOUNCE): Boolean =
         last == null || !now.isBefore(last.plus(interval)) || now.isBefore(last)
 
     /** A release is an update only for this package and with a strictly higher versionCode. */
     fun isUpdate(release: AppRelease, ownPackage: String, ownVersionCode: Long): Boolean =
         release.packageName == ownPackage && release.versionCode > ownVersionCode
+
+    /**
+     * The background check posts one notification per versionCode: only for a release newer than
+     * the installed build and newer than the last one notified, and only when the phone allows it.
+     */
+    fun shouldNotify(
+        update: AvailableUpdate,
+        ownVersionCode: Long,
+        notifiedVersionCode: Long?,
+        notificationsAllowed: Boolean,
+    ): Boolean =
+        notificationsAllowed &&
+            update.versionCode > ownVersionCode &&
+            (notifiedVersionCode == null || update.versionCode > notifiedVersionCode)
+
+    /** `<product> 0.2.0 is available`. */
+    fun notificationTitle(productName: String, update: AvailableUpdate): String =
+        "$productName ${update.versionName} is available"
+
+    /** "Tap to download the update.", plus the first line of the release notes when it is short. */
+    fun notificationText(update: AvailableUpdate): String {
+        val base = "Tap to download the update."
+        val firstLine = update.notes?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
+        return if (firstLine != null && firstLine.length <= NOTIFICATION_NOTES_MAX) "$base\n$firstLine" else base
+    }
 
     fun isNoRelease(error: ApiError): Boolean =
         error.httpStatus == 404 && (error.reason == null || error.reason == NO_RELEASE)
@@ -121,6 +156,12 @@ interface UpdateStore {
     /** The server's current release as last seen, for diagnostics. */
     var latestVersionCode: Long?
     var latestVersionName: String?
+
+    /** The last background check (separate from the app-open debounce). */
+    var lastBackgroundCheckAt: Instant?
+
+    /** The versionCode the last "new version" notification announced. */
+    var notifiedVersionCode: Long?
 }
 
 class PrefsUpdateStore(private val prefs: SharedPreferences) : UpdateStore {
@@ -165,6 +206,16 @@ class PrefsUpdateStore(private val prefs: SharedPreferences) : UpdateStore {
         get() = prefs.getString(KEY_LATEST_NAME, null)
         set(value) = edit { if (value == null) remove(KEY_LATEST_NAME) else putString(KEY_LATEST_NAME, value) }
 
+    override var lastBackgroundCheckAt: Instant?
+        get() = prefs.getLong(KEY_LAST_BACKGROUND_CHECK, 0L).takeIf { it > 0 }?.let(Instant::ofEpochMilli)
+        set(value) = edit {
+            if (value == null) remove(KEY_LAST_BACKGROUND_CHECK) else putLong(KEY_LAST_BACKGROUND_CHECK, value.toEpochMilli())
+        }
+
+    override var notifiedVersionCode: Long?
+        get() = prefs.getLong(KEY_NOTIFIED_CODE, 0L).takeIf { it > 0 }
+        set(value) = edit { if (value == null) remove(KEY_NOTIFIED_CODE) else putLong(KEY_NOTIFIED_CODE, value) }
+
     private inline fun edit(block: SharedPreferences.Editor.() -> Unit) = prefs.edit().apply(block).apply()
 
     companion object {
@@ -178,6 +229,8 @@ class PrefsUpdateStore(private val prefs: SharedPreferences) : UpdateStore {
         private const val KEY_SEEN = "last_seen_version_code"
         private const val KEY_LATEST_CODE = "latest_version_code"
         private const val KEY_LATEST_NAME = "latest_version_name"
+        private const val KEY_LAST_BACKGROUND_CHECK = "last_background_check_at"
+        private const val KEY_NOTIFIED_CODE = "notified_version_code"
 
         fun from(context: Context) =
             PrefsUpdateStore(context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
@@ -194,8 +247,9 @@ sealed interface UpdateCheckOutcome {
 }
 
 /**
- * Asks the server for its current release at most every [UpdatePolicy.CHECK_INTERVAL], only
- * while paired (the endpoint needs the token), and remembers a newer one for the hub.
+ * Asks the server for its current release on every app open (debounced by
+ * [UpdatePolicy.APP_OPEN_DEBOUNCE]), only while paired (the endpoint needs the token), and
+ * remembers a newer one for the hub.
  */
 class UpdateChecker(
     private val backend: ReleaseBackend,
@@ -211,16 +265,19 @@ class UpdateChecker(
 
     /**
      * First launch after an update (a different versionCode than last time): forget the
-     * offered update and the throttle, so the next open asks the server again.
+     * offered update and both check windows, so the next open asks the server again. A
+     * notified versionCode the installed build has reached is forgotten too.
      */
     fun onLaunch() {
         if (store.lastSeenVersionCode != ownVersionCode) {
             store.available = null
             store.lastCheckAt = null
+            store.lastBackgroundCheckAt = null
             store.lastSeenVersionCode = ownVersionCode
         } else if (store.available?.let { it.versionCode <= ownVersionCode } == true) {
             store.available = null
         }
+        if (store.notifiedVersionCode?.let { it <= ownVersionCode } == true) store.notifiedVersionCode = null
     }
 
     suspend fun checkIfDue(): UpdateCheckOutcome {
@@ -231,7 +288,25 @@ class UpdateChecker(
         return check(now)
     }
 
-    /** Asks the server now. A network or server failure leaves the throttle alone (retry on next open). */
+    /**
+     * The background sync's check: at most every [UpdatePolicy.BACKGROUND_INTERVAL] (its own
+     * window); a network or server failure leaves the window open.
+     */
+    suspend fun checkInBackgroundIfDue(): UpdateCheckOutcome {
+        onLaunch()
+        if (!isPaired()) return UpdateCheckOutcome.NotPaired
+        val now = clock()
+        if (!UpdatePolicy.checkDue(store.lastBackgroundCheckAt, now, UpdatePolicy.BACKGROUND_INTERVAL)) {
+            return UpdateCheckOutcome.Throttled
+        }
+        val outcome = check(now)
+        if (outcome !is UpdateCheckOutcome.Failed && outcome != UpdateCheckOutcome.NotPaired) {
+            store.lastBackgroundCheckAt = now
+        }
+        return outcome
+    }
+
+    /** Asks the server now. A network or server failure leaves the debounce alone (retry on next open). */
     suspend fun check(now: Instant = clock()): UpdateCheckOutcome {
         if (!isPaired()) return UpdateCheckOutcome.NotPaired
         return when (val result = backend.latest()) {
@@ -265,5 +340,45 @@ class UpdateChecker(
 
     companion object {
         private const val TAG = "Update"
+    }
+}
+
+/**
+ * After each background sync run: when paired and the server answered the sync, check for a
+ * newer release (every [UpdatePolicy.BACKGROUND_INTERVAL]) and announce it once per versionCode.
+ */
+class BackgroundUpdateCheck(
+    private val checker: UpdateChecker,
+    private val store: UpdateStore,
+    private val ownVersionCode: Long,
+    private val notificationsAllowed: () -> Boolean,
+    /** Posts the notification; false when the system refused it. */
+    private val notify: (AvailableUpdate) -> Boolean,
+) {
+    data class Result(val outcome: UpdateCheckOutcome?, val notified: Boolean)
+
+    suspend fun afterSync(outcome: SyncOutcome): Result {
+        if (!serverReachable(outcome)) return Result(null, notified = false)
+        val check = checker.checkInBackgroundIfDue()
+        if (check == UpdateCheckOutcome.NotPaired || check is UpdateCheckOutcome.Failed) return Result(check, notified = false)
+        val update = checker.available ?: return Result(check, notified = false)
+        if (!UpdatePolicy.shouldNotify(update, ownVersionCode, store.notifiedVersionCode, notificationsAllowed())) {
+            return Result(check, notified = false)
+        }
+        if (!notify(update)) return Result(check, notified = false)
+        store.notifiedVersionCode = update.versionCode
+        AppLog.i(TAG, "Notified about ${update.versionName} (${update.versionCode})")
+        return Result(check, notified = true)
+    }
+
+    companion object {
+        private const val TAG = "Update"
+
+        /**
+         * The server answered this run: it recorded it ([SyncOutcome.Completed]) or refused it
+         * ([SyncOutcome.Failed]). Unpaired, expired and retry-later runs skip the update check.
+         */
+        fun serverReachable(outcome: SyncOutcome): Boolean =
+            outcome is SyncOutcome.Completed || outcome is SyncOutcome.Failed
     }
 }

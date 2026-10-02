@@ -31,6 +31,7 @@ import com.enterpriseapp.android.sync.SyncStateStore
 import com.enterpriseapp.android.sync.WorkManagerSyncScheduler
 import com.enterpriseapp.android.update.AndroidReleaseApi
 import com.enterpriseapp.android.update.AvailableUpdate
+import com.enterpriseapp.android.update.BackgroundUpdateCheck
 import com.enterpriseapp.android.update.PrefsUpdateStore
 import com.enterpriseapp.android.update.ReleaseBackend
 import com.enterpriseapp.android.update.UpdateChecker
@@ -82,6 +83,17 @@ class MobileApplication : Application() {
         )
     }
 
+    /** Run by the sync worker after each run: the 6 h update check and its notification. */
+    val backgroundUpdateCheck: BackgroundUpdateCheck by lazy {
+        BackgroundUpdateCheck(
+            checker = updateChecker,
+            store = updateStore,
+            ownVersionCode = BuildConfig.VERSION_CODE.toLong(),
+            notificationsAllowed = { SyncNotifications.canNotify(this) },
+            notify = { SyncNotifications.notifyUpdateAvailable(this, it) },
+        )
+    }
+
     private val updateFlow = MutableStateFlow<AvailableUpdate?>(null)
 
     /** The newer release the Health sync hub offers, or null. */
@@ -107,6 +119,8 @@ class MobileApplication : Application() {
         runCatching {
             updateChecker.onLaunch()
             refreshAvailableUpdate()
+            // Installed the announced version (or the offer is gone): drop a stale notice.
+            if (updateChecker.available == null) SyncNotifications.cancelUpdateAvailable(this)
         }
         // Re-assert the hourly schedule (KEEP) in case it was lost, e.g. after an app data restore.
         if (isSyncConfigured) runCatching { syncScheduler.ensurePeriodic() }

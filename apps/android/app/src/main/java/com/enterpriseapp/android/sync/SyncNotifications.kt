@@ -15,15 +15,19 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.enterpriseapp.android.R
 import com.enterpriseapp.android.healthsync.HealthSyncActivity
+import com.enterpriseapp.android.update.AvailableUpdate
+import com.enterpriseapp.android.update.UpdatePolicy
 import com.enterpriseapp.android.util.Brand
 
-/** Notification channels and the "Re-pair" alert. */
+/** Notification channels, the "Re-pair" alert and the "new version" notice. */
 object SyncNotifications {
     const val CHANNEL_STATUS = "health_sync_status"
     const val CHANNEL_PROGRESS = "health_sync_progress"
     const val PAIRING_EXPIRED_ID = 2810
     const val PROGRESS_ID = 2811
     const val BACKGROUND_ACCESS_ID = 2812
+    const val CHANNEL_UPDATES = "app_updates"
+    const val UPDATE_AVAILABLE_ID = 2813
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -36,6 +40,11 @@ object SyncNotifications {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_PROGRESS, "Health sync in progress", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Shown briefly while a sync runs on older Android versions."
+            },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_UPDATES, "App updates", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A new version of the app is ready to download."
             },
         )
     }
@@ -94,6 +103,36 @@ object SyncNotifications {
         } catch (_: SecurityException) {
             // Notification permission revoked between the check and the call.
         }
+    }
+
+    /**
+     * "<product> 0.2.0 is available" (once per versionCode, see BackgroundUpdateCheck). Tapping it
+     * opens the Health sync hub with the update card. False when notifications are not allowed.
+     */
+    fun notifyUpdateAvailable(context: Context, update: AvailableUpdate): Boolean {
+        ensureChannels(context)
+        if (!canNotify(context)) return false
+        val text = UpdatePolicy.notificationText(update)
+        val notification = NotificationCompat.Builder(context, CHANNEL_UPDATES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(UpdatePolicy.notificationTitle(Brand.name, update))
+            .setContentText(text.lineSequence().first())
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(openHealthSync(context, HealthSyncActivity.OPEN_UPDATE, requestCode = 2))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        return try {
+            NotificationManagerCompat.from(context).notify(UPDATE_AVAILABLE_ID, notification)
+            true
+        } catch (_: SecurityException) {
+            // Notification permission revoked between the check and the call.
+            false
+        }
+    }
+
+    fun cancelUpdateAvailable(context: Context) {
+        NotificationManagerCompat.from(context).cancel(UPDATE_AVAILABLE_ID)
     }
 
     fun cancelBackgroundAccess(context: Context) {

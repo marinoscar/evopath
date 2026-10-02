@@ -111,6 +111,9 @@ class HealthSyncActivity : ComponentActivity() {
         /** Opens Connect and asks for the background-read permission. */
         const val OPEN_BACKGROUND_ACCESS = "background_access"
         const val OPEN_DIAGNOSTICS = "diagnostics"
+
+        /** Opens the hub scrolled to (and highlighting) the update card ("new version" notification). */
+        const val OPEN_UPDATE = "update"
     }
 
     private fun openWebApp() {
@@ -130,9 +133,18 @@ private fun HealthSyncApp(
 ) {
     var screen by rememberSaveable { mutableStateOf(HealthSyncScreen.Hub) }
     var requestBackground by remember { mutableStateOf(false) }
+    var highlightUpdate by rememberSaveable { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val open by pendingOpen.collectAsState()
     LaunchedEffect(open) {
         when (open) {
+            HealthSyncActivity.OPEN_UPDATE -> {
+                screen = HealthSyncScreen.Hub
+                highlightUpdate = true
+                MobileApplication.from(context).refreshAvailableUpdate()
+                scrollState.animateScrollTo(0)
+            }
             HealthSyncActivity.OPEN_BACKGROUND_ACCESS -> {
                 screen = HealthSyncScreen.Connect
                 requestBackground = true
@@ -167,7 +179,7 @@ private fun HealthSyncApp(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -175,6 +187,7 @@ private fun HealthSyncApp(
                 HealthSyncScreen.Hub -> HubScreen(
                     pairingVm = pairingVm,
                     diagnosticsVm = diagnosticsVm,
+                    highlightUpdate = highlightUpdate,
                     onNavigate = { screen = it },
                     onOpenWebApp = onOpenWebApp,
                 )
@@ -199,6 +212,7 @@ private fun HealthSyncApp(
 private fun HubScreen(
     pairingVm: PairingViewModel,
     diagnosticsVm: DiagnosticsViewModel,
+    highlightUpdate: Boolean,
     onNavigate: (HealthSyncScreen) -> Unit,
     onOpenWebApp: () -> Unit,
 ) {
@@ -211,7 +225,7 @@ private fun HubScreen(
     val appInfo = AppInfo.read(context)
 
     val update by app.availableUpdate.collectAsState()
-    update?.let { UpdateCard(it, installedVersion = "${appInfo.versionName} (${appInfo.versionCode})") }
+    update?.let { UpdateCard(it, installedVersion = "${appInfo.versionName} (${appInfo.versionCode})", highlighted = highlightUpdate) }
 
     SectionCard(title = "Server") {
         Text(serverUrl ?: "Not configured", style = MaterialTheme.typography.bodyLarge)

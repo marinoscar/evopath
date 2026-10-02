@@ -37,6 +37,15 @@ class HealthSyncWorker(context: Context, params: WorkerParameters) : CoroutineWo
         } catch (e: Exception) {
             AppLog.w(TAG, "Automatic diagnostics upload failed", e)
         }
+        // Check for a newer app version (every 6 h, paired and server reachable; never fails the work).
+        try {
+            app.backgroundUpdateCheck.afterSync(outcome)
+            app.refreshAvailableUpdate()
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.w(TAG, "Background update check failed", e)
+        }
         return result
     }
 

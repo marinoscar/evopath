@@ -149,14 +149,24 @@ The server hosts the APK releases (Admin → Settings → Android app, or the CL
 `<server>/?source=twa&appVersion=<versionName>&appVersionCode=<versionCode>` and registers its
 `appVersionCode`, so the web app and Connected devices can tell which build a phone runs.
 
-On app open (launcher or Health sync), at most every 12 hours and only while paired (the endpoint
-needs the token), `update/UpdateChecker` asks `GET /api/android-app/releases/latest`. A release
-for this package with a higher `versionCode` is remembered and the Health sync hub shows
-**Update available: vX** with its size and What's new; **Download** posts
-`/api/android-app/releases/:id/download-link` and opens the returned same-origin URL in the
-browser (`ACTION_VIEW`), which downloads the APK and hands it to the system installer. A 404
-`NO_RELEASE` clears the offer; a network failure retries on the next open. The first launch of
-a new `versionCode` clears the offer and the 12 h throttle.
+On every cold start (launcher or Health sync), debounced to one request per 5 minutes and only
+while paired (the endpoint needs the token), `update/UpdateChecker` asks
+`GET /api/android-app/releases/latest`. A release for this package with a higher `versionCode` is
+remembered and the Health sync hub shows **Update available: vX** with its size and What's new;
+**Download** posts `/api/android-app/releases/:id/download-link` and opens the returned same-origin
+URL in the browser (`ACTION_VIEW`), which downloads the APK and hands it to the system installer.
+A 404 `NO_RELEASE` clears the offer; a network failure does not consume the debounce and never
+blocks the launch. The first launch of a new `versionCode` clears the offer and both check windows.
+
+In the background, after each `HealthSyncWorker` run that reached the server (completed or
+refused, not retry-later) while paired, `update/BackgroundUpdateCheck` runs the same check at most
+every 6 hours (its own persisted window). A newer release posts **one notification per
+`versionCode`** (`notifiedVersionCode`) on the **App updates** channel (`app_updates`, default
+importance): "<product> <versionName> is available", "Tap to download the update." plus the first
+line of the release notes when it is short. Tapping it opens the Health sync hub scrolled to the
+highlighted update card. Nothing is posted for the installed or an older build, or when
+notifications are off (POST_NOTIFICATIONS on Android 13+; the `notifications.permission` check
+reports it); the notified versionCode is forgotten once that build is installed.
 
 ## Diagnostics
 
@@ -238,6 +248,7 @@ app/src/main/java/com/enterpriseapp/android/
                              DiagnosticReport, AutoDiagnostics (upload after failed runs)
   healthsync/                Health sync hub, Connect, Sync and Diagnostics screens (Compose);
                              each sub-screen's app-bar arrow and system back return to the hub
-  update/                    UpdateChecker (12 h, paired only), UpdatePolicy, release API, AppUpdates (download)
+  update/                    UpdateChecker (every launch, 5 min debounce, paired only), BackgroundUpdateCheck
+                             (6 h, one notification per version), UpdatePolicy, release API, AppUpdates
   ui/                        theme and shared Compose components
 ```

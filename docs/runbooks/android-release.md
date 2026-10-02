@@ -257,10 +257,11 @@ Without all four secrets the `release` job prints the warning "Android release s
 
 1. **Server.** Admin, then Settings, then **Android app**, section **Releases**: the new version is marked **Current**. From a shell, `evopathcli android releases` shows the same with `*`. Check the trust entry: `curl -s https://app.example.com/.well-known/assetlinks.json` lists `com.<repo>.android` with your fingerprint.
 2. **Users.** Sign in on a phone and open Settings, then **Android app** (`/settings/android-app`). It shows the version, size, notes and SHA-256, whether the installed app is up to date, and **Download APK**. The button fetches a signed link valid for 10 minutes.
-3. **Phones.** An installed, paired app learns of the update on its next open (it asks the server at most every 12 hours). There is no push notification. It shows:
+3. **Phones.** An installed, paired app learns of the update on its next launch (every launch asks the server, at most once per 5 minutes) or, while it stays closed, from its background sync (at most every 6 hours). Users see:
+   - one notification per version, "<product> <version> is available" (channel **App updates**), when notifications are allowed; tapping it opens the **Update available** card;
    - an **Update available** card on the app's **Health sync** screen, with **Download** and **What's new**;
    - the `app.update` check in **Health sync**, then **Diagnostics**: `pass` when up to date, `warn` with the new version when an update exists, `skip` when not paired or no release exists;
-   - inside the app, a banner on the web app linking to Settings, then Android app (dismissed per version);
+   - inside the app, a banner on the web app whose **Download** fetches the APK in one tap (dismissed per version);
    - on the web, Settings, then **Connected devices**: an **Update available** chip on each phone that runs an older build.
 4. Install the update from the same page. It keeps the pairing because the signing key is the same.
 
