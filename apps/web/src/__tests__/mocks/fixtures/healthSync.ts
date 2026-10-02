@@ -4,6 +4,7 @@
  * `{ data }` envelope.
  */
 import type {
+  AndroidTestNotificationResponse,
   AdminRelease,
   AndroidAppConfig,
   Device,
@@ -156,6 +157,15 @@ export const mockAndroidAppConfig: AndroidAppConfig = {
     { packageName: PACKAGE_NAME, sha256: PIXEL_SHA, deviceCount: 1, lastSeenAt: '2026-09-30T12:00:00.000Z' },
   ],
   assetLinks: [],
+  // #312: push subscriptions by platform.
+  pushSubscriptions: { androidApp: 2, browser: 5, androidAppUsers: 1 },
+};
+
+/** `POST /api/admin/android-app/test-notification` (#312): one phone, delivered. */
+export const mockAndroidTestNotificationSent: AndroidTestNotificationResponse = {
+  userId: 'admin-user-id',
+  androidSubscriptions: 1,
+  results: [{ subscriptionId: 'sub-android-1', endpointHost: 'fcm.googleapis.com', status: 'sent' }],
 };
 
 // -----------------------------------------------------------------------------
