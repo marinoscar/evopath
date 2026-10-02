@@ -131,6 +131,16 @@ describe('rerunCommand', () => {
     expect(command).toBe(`${CLI_NAME} deploy install --root /srv/elsewhere/shop --resume`);
   });
 
+  it('repeats --with-android, set on the dedicated Android step (#315)', () => {
+    const command = rerunCommand({
+      action: 'update',
+      name: 'shop',
+      values: new Map(),
+      chosen: new Set(['--no-cache', '--with-android']),
+    });
+    expect(command).toBe(`${CLI_NAME} deploy update --name shop --no-cache --with-android`);
+  });
+
   it('leaves off values the subcommand already defaults to', () => {
     const command = rerunCommand({
       action: 'doctor',

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { registerDeployCommand } from '../../../commands/deploy.js';
 import {
+  DEDICATED_STEPS,
   INSTALL_TOGGLES,
   NOT_IN_TUI,
   TOGGLES_FOR,
@@ -55,15 +56,18 @@ function covers(declared: readonly string[], flag: string): boolean {
 function checkParity(subcommand: RunnableAction, toggles: readonly ToggleFlag[]): void {
   const declared = declaredFlags(subcommand);
   const values = VALUE_FLAGS[subcommand].map((value) => value.flag);
+  // Flags set on a step of their own (#315) are reached, just not as toggles.
+  const dedicated = DEDICATED_STEPS[subcommand].map((entry) => entry.flag);
   const known = new Set([
     ...toggles.map((toggle) => toggle.flag),
     ...values,
+    ...dedicated,
     ...Object.keys(NOT_IN_TUI),
   ]);
 
   // A flag the screen offers that the subcommand does not declare is a control
   // that does nothing -- the exact quiet lie these screens exist to avoid.
-  const invented = [...toggles.map((toggle) => toggle.flag), ...values].filter(
+  const invented = [...toggles.map((toggle) => toggle.flag), ...values, ...dedicated].filter(
     (flag) => !covers(declared, flag),
   );
   expect(invented, `\`deploy ${subcommand}\` does not declare these`).toEqual([]);
@@ -153,6 +157,32 @@ describe('the deploy screens reach every flag the subcommands accept', () => {
       ]),
     );
     expect(offered('update')).not.toContain('--bootstrap-proxy');
+  });
+
+  it('--with-android is reached by the dedicated Android step, not a toggle (#315)', () => {
+    // ⚠ Moved off the toggle list on purpose: it was the last of ten generic
+    // rows and easy to miss. The parity check above counts DEDICATED_STEPS as
+    // reached, so this pins that it is THERE and nowhere else.
+    for (const action of ['install', 'update'] as const) {
+      expect(DEDICATED_STEPS[action].map((entry) => entry.flag)).toContain('--with-android');
+      expect(TOGGLES_FOR[action].map((toggle) => toggle.flag)).not.toContain('--with-android');
+    }
+    expect(NOT_IN_TUI['--with-android']).toBeUndefined();
+    // Its companions stay deliberate exclusions with their reasons.
+    expect(NOT_IN_TUI['--android-bump']).toBeDefined();
+    expect(NOT_IN_TUI['--android-notes']).toBeDefined();
+  });
+
+  it('every dedicated step names its step and a reason, and is not also a toggle or an exclusion', () => {
+    for (const action of ['doctor', 'install', 'update'] as const) {
+      for (const entry of DEDICATED_STEPS[action]) {
+        expect(entry.flag.startsWith('--'), entry.flag).toBe(true);
+        expect(entry.step.length, entry.flag).toBeGreaterThan(0);
+        expect(entry.reason.length, `${entry.flag} has no reason`).toBeGreaterThan(20);
+        expect(TOGGLES_FOR[action].map((toggle) => toggle.flag)).not.toContain(entry.flag);
+        expect(NOT_IN_TUI[entry.flag]).toBeUndefined();
+      }
+    }
   });
 
   it('every deliberate exclusion names a reason', () => {
