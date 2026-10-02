@@ -120,6 +120,24 @@ describe('AiService — storage-object inputs (#441)', () => {
       expect(h.usageEvents).toEqual([expect.objectContaining({ status: 'succeeded', operation: 'responses' })]);
     });
 
+    it('normalises the file name the provider receives: slugged, with .PDF sent as .pdf (#301)', async () => {
+      const { h, client } = setup();
+      const object = h.storage.addObject({
+        uploadedById: HARNESS_USER,
+        bytes: PDF,
+        mimeType: 'application/pdf',
+        name: 'Result Trends - PANEL - Oct 1 2026.PDF',
+      });
+
+      await client.respond({ model: HARNESS_MODEL, input: ask({ type: 'file', storageObjectId: object.id }) });
+
+      const [call] = h.fake.callsTo('responses.create');
+
+      expect(call.storageInputs).toEqual([
+        expect.objectContaining({ storageObjectId: object.id, filename: 'Result_Trends_-_PANEL_-_Oct_1_2026.pdf' }),
+      ]);
+    });
+
     it('an owned image reaches the provider as a 10-minute presigned URL that appears nowhere else', async () => {
       const { h, client, png } = setup();
       const object = png();

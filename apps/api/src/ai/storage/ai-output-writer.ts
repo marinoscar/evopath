@@ -60,7 +60,9 @@ const EXTENSIONS: Record<string, string> = {
   'audio/flac': 'flac',
   'audio/pcm': 'pcm',
   'text/plain': 'txt',
+  'text/csv': 'csv',
   'application/json': 'json',
+  'application/pdf': 'pdf',
 };
 
 /** The file extension for `mimeType`, or `bin` for one this table does not know. */
