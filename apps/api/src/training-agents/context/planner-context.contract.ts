@@ -18,6 +18,9 @@ import type { ConservativeMode } from '../guardrails/safety-screen';
 //   key can be in them (`never-send.ts`, asserted by the canary test). The
 //   one health exception is `planner.healthSummary` (H8, #192): the user's
 //   stored AI health summary TEXT, present only while they opted in. The
+//   one user-memory exception is `planner.userMemories` (#325): the user's
+//   own memory notes (training categories only), as the delimited block
+//   `MemoryContextService` renders, present only while memory is on. The
 //   "what will be sent" summary renders these same objects.
 // - SERVER ONLY: `library`, `gym`, `history` and `mode`: what the guardrails
 //   need to check and repair a plan (ids, requirement groups, recent loads).
@@ -188,6 +191,13 @@ export interface PlannerContext {
    * is on and a ready summary exists; never a raw value.
    */
   healthSummary?: TrainingHealthSummary;
+  /**
+   * The user's memory notes (#325): goal, preference, constraint/injury,
+   * schedule, equipment and training-history facts the user can see and edit,
+   * as one `<user_memories>` block with its untrusted-data preamble. Present
+   * only while memory is on and a fact exists.
+   */
+  userMemories?: string;
   currentPlan?: CompactPlan;
 }
 
@@ -214,6 +224,7 @@ export const PLANNER_CONTEXT_KEYS: readonly PlannerContextKey[] = [
   'history',
   'readiness',
   'healthSummary',
+  'userMemories',
   'bio',
   'currentPlan',
 ];

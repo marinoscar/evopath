@@ -31,6 +31,8 @@ export const HEALTH_EXPORT_DATASETS = [
   'documents',
   // E7.9 (#249): the user's progress photos.
   'progress_photos',
+  // #325: the user's AI memories.
+  'memories',
 ] as const;
 export type HealthExportDataset = (typeof HEALTH_EXPORT_DATASETS)[number];
 
@@ -67,7 +69,11 @@ export interface HealthExport {
   expiresAt: string | null;
   fileName: string | null;
   sizeBytes: number | null;
-  rowCounts: Record<HealthExportDataset, number> | null;
+  /**
+   * Rows per dataset. Partial: an export made before a dataset existed (e.g.
+   * `memories`, #325) has no key for it; read a missing key as 0.
+   */
+  rowCounts: Partial<Record<HealthExportDataset, number>> | null;
   /** A fixed message for a `failed` export, else null. */
   error: string | null;
   /** Only on `GET /:id` while `ready`; always null in the list. */
@@ -140,6 +146,7 @@ export const HEALTH_EXPORT_DATASET_LABELS: Record<HealthExportDataset, string> =
   wellness: 'Wellness / mood (check-in scores)',
   documents: 'Documents index',
   progress_photos: 'Progress photos',
+  memories: 'AI memories',
 };
 
 export const HEALTH_EXPORT_STATUS_LABELS: Record<HealthExportStatus, string> = {

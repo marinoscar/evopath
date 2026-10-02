@@ -106,6 +106,8 @@
 //                                     turn and review. A voice note
 //                                     (`audioStorageObjectId`) is collected in
 //                                     step 1 and deleted in step 3.
+//   UserMemory, UserMemoryState       userId — explicitly (#325); every remembered
+//                                     fact in any status and the extraction state
 //   CoachState                        userId — explicitly; the scheduling state
 //                                     (pause, silence, streak) restarts fresh
 //   AiRun, AiUsageEvent               userId

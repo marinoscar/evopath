@@ -4,6 +4,7 @@ import type {
   NotificationsValue,
   OnboardingValue,
   CoachSettingsValue,
+  MemorySettingsValue,
 } from '../schemas/user-settings-namespaces.schema';
 import {
   DEFAULT_MAINTENANCE_MESSAGE,
@@ -17,6 +18,7 @@ import {
   type SystemAiValue,
   type SystemTelemetryValue,
   type SystemCoachValue,
+  type SystemMemoryValue,
   type UserAiSettingsValue,
 } from '../schemas/settings.schema';
 
@@ -89,6 +91,12 @@ export interface UserSettingsValue {
    * `COACH_USER_DEFAULTS`, applied by `resolveCoachUserSettings`.
    */
   coach?: CoachSettingsValue;
+
+  /**
+   * User memory preferences (#325). Sparse: absent means
+   * `MEMORY_USER_DEFAULTS`, applied by `resolveMemoryUserSettings`.
+   */
+  memory?: MemorySettingsValue;
 }
 
 /**
@@ -202,6 +210,9 @@ export interface SystemSettingsValue {
    * `DEFAULT_SYSTEM_SETTINGS` on every read. No credential.
    */
   coach: SystemCoachValue;
+
+  /** User memory policy (#325). REQUIRED, like every namespace above. */
+  memory: SystemMemoryValue;
 }
 
 /**
@@ -467,5 +478,14 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     audioRetentionDays: 30,
     autoSilenceAfterIgnored: 3,
     inactiveStopDays: 7,
+  },
+  // User memory policy (#325). ON: inert until AI is on and the user's own
+  // `memory.enabled` (default true) allows it.
+  memory: {
+    enabled: true,
+    autoExtract: true,
+    maxPerUser: 200,
+    extractDailyCapPerUser: 20,
+    purgeAfterDays: 30,
   },
 };

@@ -164,6 +164,14 @@ export const systemSettingsResponseSchema = z.object({
     autoSilenceAfterIgnored: z.number().int(),
     inactiveStopDays: z.number().int(),
   }),
+  // #325 — the user memory policy. No credential.
+  memory: z.object({
+    enabled: z.boolean(),
+    autoExtract: z.boolean(),
+    maxPerUser: z.number().int(),
+    extractDailyCapPerUser: z.number().int(),
+    purgeAfterDays: z.number().int(),
+  }),
   updatedAt: z.iso.datetime(),
   updatedBy: z
     .object({

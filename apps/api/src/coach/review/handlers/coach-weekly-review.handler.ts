@@ -66,6 +66,7 @@ import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
 import { JobsService } from '../../../jobs/jobs.service';
+import { MemoryContextService } from '../../../memory/memory-context.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TrainingSignalsService } from '../../../programs/signals/signals.service';
 import { daysFrom } from '../../../programs/today/resolve-today';
@@ -184,6 +185,8 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
     @Optional() private readonly appMetrics: AppMetricsService = fallbackAppMetrics(),
     // Optional so a fork without activity goals (or a test) reviews without them.
     @Optional() private readonly goals?: GoalProgressService,
+    // User memory (#325): the memory block in the prose prompt. Optional: absent, none is sent.
+    @Optional() private readonly memoryContext?: MemoryContextService,
   ) {}
 
   onModuleInit(): void {
@@ -498,6 +501,7 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
     stats: WeeklyReviewStats,
     supportive: boolean,
   ): Promise<CoachWeeklyReviewProse> {
+    const memoryBlock = this.memoryContext ? await this.memoryContext.buildBlock(userId, { audience: 'coach' }) : '';
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(new Error('Coach weekly review timed out')), CALL_DEADLINE_MS);
     deadline.unref?.();
@@ -514,7 +518,7 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
             {
               type: 'message',
               role: 'user',
-              content: [{ type: 'text', text: weeklyReviewUserText(weeklyReviewPromptData(stats, supportive)) }],
+              content: [{ type: 'text', text: weeklyReviewUserText(weeklyReviewPromptData(stats, supportive), memoryBlock) }],
             },
           ],
           maxOutputTokens: COACH_WEEKLY_REVIEW_MAX_OUTPUT_TOKENS,

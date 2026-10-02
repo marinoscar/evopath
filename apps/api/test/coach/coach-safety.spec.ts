@@ -46,7 +46,7 @@ function serviceWith(coach: Record<string, unknown>, policy: Record<string, unkn
   const resolve = jest.fn();
   const prisma = {
     coachMessage: { create: jest.fn(async () => ({ id: 'm', createdAt: new Date() })) },
-    coachState: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    coachState: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), findUnique: jest.fn().mockResolvedValue(null) },
   };
   const service = new CoachChatService(
     prisma as never,

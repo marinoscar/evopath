@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Res, UseGuards } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiProduces, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiProduces, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 
 import { AiEnabledGuard } from '../../ai/config/ai-enabled.guard';
@@ -25,6 +25,7 @@ import {
 // =============================================================================
 //
 //   POST /api/coach/chat/stream   ai:use + programs:read   one chat turn (SSE)
+//   POST /api/coach/chat/clear    ai:use                   "Start over" (204)
 //   GET  /api/coach/messages      ai:use                   the caller's timeline
 //
 // `AiEnabledGuard` at class level, like every consumer route under `/api/ai`
@@ -63,7 +64,8 @@ export class CoachChatController {
       '`text/event-stream`. The coach answers in the caller\'s persona with the `coach.chat` model, the last ' +
       `${COACH_CHAT_HISTORY_LIMIT} timeline messages as history, and read-only tools over the caller's own data ` +
       '(training signals, today\'s plan, recent workouts, check-in scores, progress-photo dates and counts, the ' +
-      'last weekly review). Its one write tool pauses the coach for 1 to 14 days (`COACH_PAUSE_INVALID` to the ' +
+      'last weekly review). While memory is on it also sees your memories and can remember, forget or correct a ' +
+      'fact when you ask (`/api/memories`). Its one plan-adjacent write tool pauses the coach for 1 to 14 days (`COACH_PAUSE_INVALID` to the ' +
       'model outside that range); it never changes a plan, program or workout: a plan change is a link to ' +
       '`/train` ("Adjust today\'s workout"). Both turns are stored as timeline messages (`kind: chat`).\n\n' +
       '**Safety.** A message that mentions an urgent physical symptom, self-harm, suicidal thoughts or ' +
@@ -75,6 +77,11 @@ export class CoachChatController {
       'when a safety screen matched;\n' +
       '- `tool` — `{ name, status: "ok" | "invalid_arguments" | "unknown_tool" | "error" | "timeout" }`, one per ' +
       'tool call, while the coach works (never the arguments or the result);\n' +
+      '- `memory` — `{ op: "added" | "updated" | "deleted", memoryId, content }`, right after the `tool` frame of a ' +
+      '`remember`, `forget` or `update_memory` call that changed a memory (only while memory is on): show it with an ' +
+      'Undo (`DELETE /api/memories/{memoryId}` for `added`, `POST /api/memories/{memoryId}/restore` for `deleted`; ' +
+      '`updated` edits in place, so offer "Manage" instead). ' +
+      'A client that does not know this frame can ignore it;\n' +
       '- `delta` — `{ text }`, the reply in order (already checked by the content guard);\n' +
       '- `done` — `{ messageId, userMessageId, links: [{ label, href }], pausedUntil: string | null, fallback }`, ' +
       'last: the stored reply\'s id; `fallback` is true when the guard replaced the model\'s reply;\n' +
@@ -145,13 +152,36 @@ export class CoachChatController {
     await pipeAiSse(reply, prepend(first, iterator), disconnect);
   }
 
+  @Post('chat/clear')
+  @Auth({ permissions: [PERMISSIONS.AI_USE] })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Start the coach chat over',
+    description:
+      'Starts a fresh conversation: stamps the caller\'s `chatClearedAt` (returned by `GET /api/coach/state`) with ' +
+      'the current instant. From then on `GET /api/coach/messages` lists only messages created after it, the ' +
+      'coach chat sends the model only those as history, and nudges see only coach lines written since. A ' +
+      '`retryOf` naming a message from before the clear is 400 `COACH_RETRY_INVALID`.\n\n' +
+      'A soft clear: no message is deleted, and opening, rating or listening to an earlier message still works. ' +
+      'Coach memories (`why`, commitments), settings, streaks and the weekly review stay. A safety-blocked ' +
+      'message still keeps the coach in its supportive register for 24 hours, cleared or not. Idempotent: ' +
+      'calling it again only moves the instant forward. Works while the coach is off or paused.',
+  })
+  @ApiNoContentResponse({ description: 'The chat was cleared' })
+  @ApiResponse(UNAUTHENTICATED)
+  @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
+  async clear(@CurrentUser('id') userId: string): Promise<void> {
+    await this.timeline.clear(userId);
+  }
+
   @Get('messages')
   @Auth({ permissions: [PERMISSIONS.AI_USE] })
   @ApiOperation({
     summary: 'List my coach timeline',
     description:
       'The caller\'s coach messages, every kind in one timeline (nudges, chat turns, weekly reviews, ' +
-      'celebrations, photo prompts), newest first. Page with `before` = the previous page\'s `nextCursor` (a ' +
+      'celebrations, photo prompts), newest first, created after the caller\'s last "Start over" ' +
+      '(`POST /api/coach/chat/clear`). Page with `before` = the previous page\'s `nextCursor` (a ' +
       'message id); `limit` 1 to 50, default 30. Only the caller\'s own messages: a `before` that is not one of ' +
       'them is 400. Audio fields are filled only while `audioStatus` is `ready`.',
   })

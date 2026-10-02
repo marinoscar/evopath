@@ -212,7 +212,16 @@ describeWithDb('user.data_reset (real Postgres)', () => {
         audioStorageObjectId: audioObject.id,
       },
     });
-    await client.coachMessage.create({ data: { userId: a, role: 'user', kind: 'chat', body: 'On my way' } });
+    const chatMessage = await client.coachMessage.create({ data: { userId: a, role: 'user', kind: 'chat', body: 'On my way' } });
+    // User memory (#325): an active fact sourced from a chat message and a
+    // superseded one pointing at it (self-reference), plus the extraction state.
+    const activeMemory = await client.userMemory.create({
+      data: { userId: a, content: 'User prefers to be called Bobby.', category: 'preference', source: 'extracted', sourceMessageId: chatMessage.id },
+    });
+    await client.userMemory.create({
+      data: { userId: a, content: 'User prefers to be called Robert.', category: 'preference', source: 'extracted', status: 'superseded', supersededById: activeMemory.id },
+    });
+    await client.userMemoryState.create({ data: { userId: a, lastExtractedAt: new Date(), extractionsToday: 3 } });
     await client.coachState.create({ data: { userId: a, weeklyStreak: 2, pausedUntil: new Date(Date.now() + 86_400_000) } });
 
     // Activity goals and entries (epic #260): a goal, a manual entry and one
@@ -261,6 +270,8 @@ describeWithDb('user.data_reset (real Postgres)', () => {
     });
     await client.coachMessage.create({ data: { userId: b, role: 'coach', kind: 'chat', body: 'Hi B' } });
     await client.coachState.create({ data: { userId: b } });
+    await client.userMemory.create({ data: { userId: b, content: 'B likes squats.', category: 'preference', source: 'explicit' } });
+    await client.userMemoryState.create({ data: { userId: b } });
 
     // Step 1 collects the coach files before anything is deleted.
     const collected = await new UserDataResetHandler(
@@ -322,6 +333,8 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       ['coachMessages', await client.coachMessage.count({ where: { userId: a } })],
       ['audioObject', await client.storageObject.count({ where: { id: audioObject.id } })],
       ['coachState', await client.coachState.count({ where: { userId: a } })],
+      ['userMemories', await client.userMemory.count({ where: { userId: a } })],
+      ['userMemoryStates', await client.userMemoryState.count({ where: { userId: a } })],
       ['activityGoals', await client.activityGoal.count({ where: { userId: a } })],
       ['activityEntries', await client.activityEntry.count({ where: { userId: a } })],
       ['healthSyncDevices', await client.healthSyncDevice.count({ where: { userId: a } })],
@@ -351,6 +364,8 @@ describeWithDb('user.data_reset (real Postgres)', () => {
     expect(await client.storageObject.count({ where: { id: progressObjectB.id } })).toBe(1);
     expect(await client.coachMessage.count({ where: { userId: b } })).toBe(1);
     expect(await client.coachState.count({ where: { userId: b } })).toBe(1);
+    expect(await client.userMemory.count({ where: { userId: b } })).toBe(1);
+    expect(await client.userMemoryState.count({ where: { userId: b } })).toBe(1);
     expect(await client.activityGoal.count({ where: { userId: b } })).toBe(1);
     expect(await client.activityEntry.count({ where: { userId: b } })).toBe(1);
     expect(await client.healthSyncDevice.count({ where: { userId: b } })).toBe(1);
@@ -386,6 +401,8 @@ describeWithDb('user.data_reset (real Postgres)', () => {
       progressPhotos: 1,
       coachMessages: 2,
       coachStates: 1,
+      memories: 2,
+      memoryStates: 1,
       activityGoals: 1,
       activityEntries: 2,
       healthSyncDevices: 1,

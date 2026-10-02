@@ -593,6 +593,7 @@ describe('SystemSettingsService', () => {
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
                 coach: DEFAULT_SYSTEM_SETTINGS.coach,
+                memory: DEFAULT_SYSTEM_SETTINGS.memory,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -655,6 +656,7 @@ describe('SystemSettingsService', () => {
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
                 coach: DEFAULT_SYSTEM_SETTINGS.coach,
+                memory: DEFAULT_SYSTEM_SETTINGS.memory,
               },
             }),
           }),
@@ -1003,6 +1005,7 @@ describe('SystemSettingsService', () => {
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
                 coach: DEFAULT_SYSTEM_SETTINGS.coach,
+                memory: DEFAULT_SYSTEM_SETTINGS.memory,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -1138,6 +1141,7 @@ describe('SystemSettingsService', () => {
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
                 coach: DEFAULT_SYSTEM_SETTINGS.coach,
+                memory: DEFAULT_SYSTEM_SETTINGS.memory,
               },
             } as any,
           },
@@ -2457,6 +2461,45 @@ describe('SystemSettingsService', () => {
         ...DEFAULT_SYSTEM_SETTINGS.coach,
         allowProfanePersonas: true,
         inactiveStopDays: 14,
+      });
+    });
+  });
+
+  describe('memory policy (#325)', () => {
+    it('getMemoryPolicy returns the defaults for a missing row, a legacy row and a malformed block', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValueOnce(null);
+      expect(await service.getMemoryPolicy()).toEqual(DEFAULT_SYSTEM_SETTINGS.memory);
+
+      const { memory: _omitted, ...legacy } = DEFAULT_SYSTEM_SETTINGS;
+      mockPrisma.systemSettings.findUnique.mockResolvedValueOnce({ value: legacy as any } as any);
+      expect(await service.getMemoryPolicy()).toEqual(DEFAULT_SYSTEM_SETTINGS.memory);
+
+      mockPrisma.systemSettings.findUnique.mockResolvedValueOnce({
+        value: { memory: { ...DEFAULT_SYSTEM_SETTINGS.memory, autoExtract: false, maxPerUser: 5000 } } as any,
+      } as any);
+      const degraded = await service.getMemoryPolicy();
+      expect(degraded.autoExtract).toBe(false);
+      expect(degraded.maxPerUser).toBe(DEFAULT_SYSTEM_SETTINGS.memory.maxPerUser);
+      expect(mockPrisma.systemSettings.create).not.toHaveBeenCalled();
+    });
+
+    it('PATCH changes one memory field and keeps the others', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: { ...DEFAULT_SYSTEM_SETTINGS, memory: { ...DEFAULT_SYSTEM_SETTINGS.memory, purgeAfterDays: 7 } } as any,
+      } as any);
+      mockPrisma.systemSettings.update.mockResolvedValue({ ...mockSystemSettings, version: 2 } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.patchSettings({ memory: { autoExtract: false } }, mockUserId);
+
+      const call = mockPrisma.systemSettings.update.mock.calls[0][0] as {
+        data: { value: { memory: Record<string, unknown> } };
+      };
+      expect(call.data.value.memory).toEqual({
+        ...DEFAULT_SYSTEM_SETTINGS.memory,
+        autoExtract: false,
+        purgeAfterDays: 7,
       });
     });
   });

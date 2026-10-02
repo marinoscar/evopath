@@ -1,4 +1,4 @@
-import { NO_PROFANITY_RULE, PROFANITY_LICENSE } from '../nudges/nudge-prompt';
+import { MEMORY_NOTES_RULE, NO_PROFANITY_RULE, PROFANITY_LICENSE } from '../nudges/nudge-prompt';
 import type { RenderedPersonaStyle } from '../personas/resolve-register';
 import { WEEKLY_REVIEW_LIMITS, WEEKLY_REVIEW_MAX_WINS } from './weekly-review-schema';
 import type { WeeklyReviewStats } from './weekly-review-stats';
@@ -13,6 +13,9 @@ import type { WeeklyReviewStats } from './weekly-review-stats';
 // block as JSON (dates reduced to weekday names; no ids), the safety register
 // and the first-week / no-plan flags. The only text the user typed that is
 // sent is the titles of their own activity goals (F9), marked as data.
+//
+// MEMORY (#325): the user's memory block (`<user_memories>`, untrusted data)
+// may follow the JSON; `MEMORY_NOTES_RULE` tells the model how to treat it.
 //
 // THE PROFANITY LICENSE APPEARS ONLY FOR THE IN-APP CALL WHEN THE REGISTER IS
 // PROFANE AND NOT SUPPORTIVE. The email call always gets the clean rule
@@ -73,6 +76,7 @@ export function weeklyReviewInstructions(opts: WeeklyReviewPromptOptions): strin
     `- focus: the ONE thing to work on next week (at most ${WEEKLY_REVIEW_LIMITS.focus} characters).`,
     '- nextWeekPlanPrompt: a short first-person message the USER could send you to plan next week, e.g. "Help me ' +
       `plan next week around my schedule." (at most ${WEEKLY_REVIEW_LIMITS.nextWeekPlanPrompt} characters).`,
+    MEMORY_NOTES_RULE,
   );
 
   return lines.join('\n');
@@ -128,6 +132,8 @@ export function weeklyReviewPromptData(stats: WeeklyReviewStats, supportive: boo
   };
 }
 
-export function weeklyReviewUserText(data: WeeklyReviewPromptData): string {
-  return ['WEEKLY REVIEW DATA (JSON):', JSON.stringify(data)].join('\n');
+export function weeklyReviewUserText(data: WeeklyReviewPromptData, memoryBlock?: string): string {
+  const parts = ['WEEKLY REVIEW DATA (JSON):', JSON.stringify(data)];
+  if (memoryBlock && memoryBlock.trim().length > 0) parts.push('', memoryBlock.trim());
+  return parts.join('\n');
 }

@@ -361,3 +361,45 @@ describe('user settings parity: the coach namespace', () => {
     expect(schema.safeParse({ ...base, coach: { enabled: true, mood: 'grumpy' } }).success).toBe(false);
   });
 });
+
+// =============================================================================
+// User settings: the `memory` namespace (#325)
+// =============================================================================
+//
+// Same contract as `coach`: declared in every layer, same fields, strict. The
+// server-managed extraction watermark is deliberately NOT a field.
+describe('user settings parity: the memory namespace', () => {
+  const LAYERS: Array<[string, z.ZodObject<z.ZodRawShape>]> = [
+    ['userSettingsSchema', userSettingsSchema],
+    ['userSettingsPatchSchema', userSettingsPatchSchema],
+    ['updateUserSettingsSchema (PUT body)', updateUserSettingsSchema],
+    ['patchUserSettingsSchema (PATCH body)', patchUserSettingsSchema],
+    ['userSettingsResponseSchema (response)', userSettingsResponseSchema],
+  ];
+
+  const memoryKeys = (schema: z.ZodObject<z.ZodRawShape>) =>
+    objectKeys((schema.shape as Record<string, unknown>).memory);
+
+  it.each(LAYERS)('%s declares memory with the canonical fields', (name, schema) => {
+    const keys = memoryKeys(schema);
+
+    expect(keys).not.toBeNull();
+    expectSameKeys(keys ?? [], memoryKeys(userSettingsSchema) ?? [], `${name}: fields of "memory"`);
+    expect(keys).not.toContain('lastExtractedAt');
+  });
+
+  it.each(LAYERS)('%s keeps a valid memory namespace and rejects an unknown key inside it', (_name, schema) => {
+    const base = {
+      theme: 'system',
+      profile: { imageSource: 'none', imageObjectId: null },
+      updatedAt: '2026-10-01T00:00:00.000Z',
+      version: 1,
+    };
+
+    const ok = schema.safeParse({ ...base, memory: { enabled: false, allowHealth: true } });
+    expect(ok.success).toBe(true);
+    expect((ok.data as Record<string, unknown>).memory).toEqual({ enabled: false, allowHealth: true });
+
+    expect(schema.safeParse({ ...base, memory: { enabled: true, lastExtractedAt: '2026-10-01T00:00:00.000Z' } }).success).toBe(false);
+  });
+});

@@ -444,6 +444,12 @@ export interface UserSettings {
    * or field) means the built-in default; see `CoachSettings`.
    */
   coach?: CoachSettings;
+  /**
+   * User memory preferences (#325). Optional and sparse: absent (namespace or
+   * field) means the built-in default (`enabled`, `autoExtract` and
+   * `allowHealth` true, `disclosureSeenAt` null); see `MemorySettings`.
+   */
+  memory?: MemorySettings;
   updatedAt: string;
   version: number;
 }
@@ -486,7 +492,29 @@ export interface CoachSettings {
   preferredTime?: string | null;
 }
 
+// =============================================================================
+// User memory settings (#325)
+// =============================================================================
+
+/**
+ * `user_settings.memory`. Every field is optional; absent means the default.
+ * The extraction watermark is server-managed and is not part of this shape.
+ */
+export interface MemorySettings {
+  /** Default true: the coach may use and store memories. */
+  enabled?: boolean;
+  /** Default true: learn from chat in the background. */
+  autoExtract?: boolean;
+  /** Default true: health-related facts stated as training constraints. */
+  allowHealth?: boolean;
+  /** ISO datetime the user dismissed the disclosure, or null. */
+  disclosureSeenAt?: string | null;
+}
+
 type Nullable<T> = { [K in keyof T]?: T[K] | null };
+
+/** PATCH form of `memory`: `null` clears a field. */
+export type MemorySettingsPatch = Nullable<MemorySettings>;
 
 /**
  * PATCH form of `coach`: merged field by field server-side (and one level into
@@ -690,6 +718,8 @@ export interface UserSettingsUpdate {
   onboarding?: OnboardingSettingsPatch | null;
   /** AI Coach preferences (E7.1, #241). Field-wise merge; `null` clears a key or the namespace. */
   coach?: CoachSettingsPatch | null;
+  /** User memory preferences (#325). Field-wise merge; `null` clears a key or the namespace. */
+  memory?: MemorySettingsPatch | null;
 }
 
 /**
@@ -721,8 +751,38 @@ export interface SystemNotificationSettings {
   disabledEvents: string[];
 }
 
+/**
+ * Deployment-wide user memory policy (#325). Mirrors `systemMemorySchema`
+ * (`apps/api/src/common/schemas/settings.schema.ts`); PATCH merges it field by
+ * field.
+ */
+export interface SystemMemorySettings {
+  /** The feature's own switch; AI must also be on. */
+  enabled: boolean;
+  /** Whether the background `ai.memory.extract` job may run. */
+  autoExtract: boolean;
+  /** Active memories per user, 50–500. */
+  maxPerUser: number;
+  /** Extraction runs per user per UTC day, 1–200. */
+  extractDailyCapPerUser: number;
+  /** Days a deleted or superseded memory survives before it is purged, 1–3650. */
+  purgeAfterDays: number;
+}
+
+/** Bounds of the numeric `memory` fields, mirroring the API's schema. */
+export const SYSTEM_MEMORY_NUMBER_BOUNDS = {
+  maxPerUser: { min: 50, max: 500 },
+  extractDailyCapPerUser: { min: 1, max: 200 },
+  purgeAfterDays: { min: 1, max: 3650 },
+} as const;
+
 export interface SystemSettings {
   notifications: SystemNotificationSettings;
+  /**
+   * User memory policy (#325). Always present on a current API; optional here
+   * so a response from an older API (and fixtures predating #325) still types.
+   */
+  memory?: SystemMemorySettings;
   updatedAt: string;
   updatedBy: { id: string; email: string } | null;
   version: number;

@@ -49,6 +49,24 @@ describe('PlannerContextLoader + builder: data minimisation canary', () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
 
+  it('user memory (#325): only the training-audience block is sent, and no other canary rides along', async () => {
+    const memoryText = 'CANARY-MEMORY-FACT User trains before work.';
+    const buildBlock = jest.fn(async (_userId: string, _opts: { audience: string }) =>
+      `<user_memories>\nUser-provided notes.\n- (schedule) ${memoryText}\n</user_memories>`,
+    );
+    const loader = new PlannerContextLoader(createCanaryPrisma() as never, undefined, { buildBlock } as never);
+
+    const context = buildTrainingRunContext(await loader.load(CANARY_USER, request(), FIXTURE_NOW));
+    const sent = JSON.stringify({ planner: context.planner, researcher: context.researcher });
+
+    expect(buildBlock).toHaveBeenCalledWith(CANARY_USER, { audience: 'training' });
+    expect(context.planner.userMemories).toContain(memoryText);
+    // The researcher (web search queries) never sees a memory.
+    expect(JSON.stringify(context.researcher)).not.toContain('CANARY-MEMORY');
+    for (const token of [...CANARY_TOKENS, CANARY.bio]) expect(sent).not.toContain(token);
+    expect(sent).not.toMatch(UUID);
+  });
+
   it('the bio is sent only with includeBio', async () => {
     const loader = new PlannerContextLoader(createCanaryPrisma() as never);
     const context = buildTrainingRunContext(await loader.load(CANARY_USER, request({ includeBio: true }), FIXTURE_NOW));

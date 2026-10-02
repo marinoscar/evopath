@@ -7,6 +7,8 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { ApiError } from '../../services/api';
 import {
+  HEALTH_EXPORT_DATASETS,
+  HEALTH_EXPORT_DATASET_LABELS,
   HEALTH_EXPORT_MAX_RANGE_DAYS,
   HEALTH_EXPORT_TOO_MANY_MESSAGE,
   createHealthExport,
@@ -23,6 +25,20 @@ import {
 import { mockHealthExport } from '../mocks/fixtures/healthExports';
 
 describe('healthExport service', () => {
+  it('mirrors the API dataset list in canonical order, memories last (#325)', () => {
+    expect(HEALTH_EXPORT_DATASETS).toEqual([
+      'profile',
+      'body',
+      'vitals',
+      'labs',
+      'wellness',
+      'documents',
+      'progress_photos',
+      'memories',
+    ]);
+    expect(HEALTH_EXPORT_DATASET_LABELS.memories).toBe('AI memories');
+  });
+
   describe('rangeForPreset', () => {
     it('goes back whole months, ending today', () => {
       expect(rangeForPreset('3m', '2026-10-01')).toEqual({ from: '2026-07-01', to: '2026-10-01' });

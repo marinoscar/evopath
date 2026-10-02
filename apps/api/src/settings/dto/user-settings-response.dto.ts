@@ -6,6 +6,7 @@ import {
   notificationsSchema,
   onboardingSettingsSchema,
   coachSettingsSchema,
+  memorySettingsSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import { profileImageSourceSchema } from '../../common/schemas/settings.schema';
 
@@ -30,6 +31,8 @@ export const userSettingsResponseSchema = z.object({
   // AI Coach preferences (E7.1, #241); absent until the user stores any, and
   // the client then applies the built-in defaults.
   coach: coachSettingsSchema.optional(),
+  // User memory preferences (#325); absent until the user stores any.
+  memory: memorySettingsSchema.optional(),
   updatedAt: z.iso.datetime(),
   version: z.number(),
 });

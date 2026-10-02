@@ -110,6 +110,7 @@ describe('GET /api/coach/state (E7.4)', () => {
         programWorkoutId: '00000000-0000-4000-8000-000000000102',
       },
       unreadCount: 0,
+      chatClearedAt: null,
     });
     const prisma = t.context.prismaMock as any;
     expect(prisma.coachState.create).not.toHaveBeenCalled();
@@ -124,6 +125,7 @@ describe('GET /api/coach/state (E7.4)', () => {
       silencedAt: null,
       weeklyStreak: 5,
       streakPassesLeft: 1,
+      chatClearedAt: new Date('2026-10-01T12:00:00Z'),
     });
     prisma.coachMessage.count.mockResolvedValue(3);
 
@@ -134,6 +136,7 @@ describe('GET /api/coach/state (E7.4)', () => {
       weeklyStreak: 5,
       streakPassesLeft: 1,
       unreadCount: 3,
+      chatClearedAt: '2026-10-01T12:00:00.000Z',
     });
     expect(prisma.coachState.findUnique).toHaveBeenCalledWith({ where: { userId: HARNESS_USER } });
     expect(prisma.coachMessage.count).toHaveBeenCalledWith({

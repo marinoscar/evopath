@@ -6,6 +6,7 @@ import { AiConfigModule } from '../../ai/config/ai-config.module';
 import { AiRuntimeModule } from '../../ai/runtime/ai-runtime.module';
 import { CheckInsModule } from '../../check-ins/check-ins.module';
 import { JobsModule } from '../../jobs/jobs.module';
+import { MemoryModule } from '../../memory/memory.module';
 import { ProgramsModule } from '../../programs/programs.module';
 import { ProgressPhotosModule } from '../../progress-photos/progress-photos.module';
 import { SettingsModule } from '../../settings/settings.module';
@@ -35,6 +36,8 @@ import { CoachWeeklyReviewHandler } from './handlers/coach-weekly-review.handler
     AiRuntimeModule,
     CheckInsModule,
     JobsModule,
+    // User memory (#325): the memory block in the prompt.
+    MemoryModule,
     ProgramsModule,
     ProgressPhotosModule,
     SettingsModule,

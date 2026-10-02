@@ -5,6 +5,7 @@ import { AiAssignmentsModule } from '../../ai/assignments/ai-assignments.module'
 import { AiConfigModule } from '../../ai/config/ai-config.module';
 import { AiRuntimeModule } from '../../ai/runtime/ai-runtime.module';
 import { JobsModule } from '../../jobs/jobs.module';
+import { MemoryModule } from '../../memory/memory.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { ProgramsModule } from '../../programs/programs.module';
 import { SettingsModule } from '../../settings/settings.module';
@@ -50,6 +51,8 @@ import { CoachNudgeHandler } from './handlers/coach-nudge.handler';
     AiConfigModule,
     AiRuntimeModule,
     JobsModule,
+    // User memory (#325): the memory block in the prompt.
+    MemoryModule,
     NotificationsModule,
     ProgramsModule,
     SettingsModule,

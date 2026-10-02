@@ -162,3 +162,29 @@ describe('excludeBlockedSafetyTurns', () => {
     expect(excludeBlockedSafetyTurns(rows).map((r) => r.body)).toEqual(['nudge', 'next']);
   });
 });
+
+describe('buildCoachChatInstructions: user memory (#325)', () => {
+  const BLOCK = '<user_memories>\nUser-provided notes.\n- [m1] (preference) User prefers to be called Bobby.\n</user_memories>';
+  const base = { style: renderPersonaStyle('coach', 2, LOCKED), supportive: false, today: '2026-10-01' };
+
+  it('appends the memory block LAST, after every rule, with the memory tool guidance', () => {
+    const text = buildCoachChatInstructions({ ...base, memoryEnabled: true, memoryBlock: BLOCK });
+
+    expect(text.endsWith(BLOCK)).toBe(true);
+    expect(text.indexOf(BLOCK)).toBeGreaterThan(text.indexOf('RULES (they override the persona'));
+    expect(text).toMatch(/call remember when the user asks you to remember something/);
+    expect(text).toContain('"call me Bobby"');
+    expect(text).toContain("Got it, I'll remember that.");
+    expect(text).toMatch(/the conversation wins/);
+  });
+
+  it('without memory: no guidance and no block; memory on with nothing stored: guidance only', () => {
+    const off = buildCoachChatInstructions(base);
+    expect(off).not.toMatch(/remember/);
+    expect(off).not.toContain('<user_memories>');
+
+    const empty = buildCoachChatInstructions({ ...base, memoryEnabled: true, memoryBlock: '' });
+    expect(empty).toMatch(/call remember/);
+    expect(empty).not.toContain('<user_memories>');
+  });
+});

@@ -142,6 +142,8 @@ export interface ReviewSetupOptions {
   goals?: unknown[];
   /** `GoalProgressService.historyForGoal` per goal id (day goals). */
   goalHistory?: Record<string, unknown[]>;
+  /** The user's memory block (#325); absent: no memory service. */
+  memoryBlock?: string;
 }
 
 export function setupReview(options: ReviewSetupOptions = {}) {
@@ -209,6 +211,8 @@ export function setupReview(options: ReviewSetupOptions = {}) {
     progressForUser: jest.fn(async (_userId: string, _date?: string, _now?: Date) => options.goals ?? []),
     historyForGoal: jest.fn(async (_userId: string, goalId: string) => options.goalHistory?.[goalId] ?? []),
   };
+  const memoryContext =
+    options.memoryBlock === undefined ? undefined : { buildBlock: jest.fn(async () => options.memoryBlock as string) };
   const handler = new CoachWeeklyReviewHandler(
     registry as never,
     prisma as never,
@@ -224,8 +228,9 @@ export function setupReview(options: ReviewSetupOptions = {}) {
     reviewMetrics as never,
     appMetrics as never,
     goals as never,
+    memoryContext as never,
   );
-  return { handler, prisma, respondStructured, forUser, jobs, registry, features, signals, photos, reviewMetrics, appMetrics, goals };
+  return { handler, prisma, respondStructured, forUser, jobs, registry, features, signals, photos, reviewMetrics, appMetrics, goals, memoryContext };
 }
 
 /** The `data` (and the whole row) of the n-th persisted message. */

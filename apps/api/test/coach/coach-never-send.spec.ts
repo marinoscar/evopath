@@ -109,4 +109,23 @@ describe('coach never-send canary (ai.coach.nudge)', () => {
     }
     expect(leaks).toEqual([]);
   });
+
+  it('the user-curated memory block (#325) is the one allowed addition: it rides in, nothing else does', async () => {
+    const memory = 'MEMORY-ALLOWED-Zq90 User prefers to be called Bobby.';
+    const t = setupNudge({
+      dob: C.dob,
+      userExtras: { name: C.name, email: C.email },
+      historyExtras: { body: C.priorBody },
+      memoryBlock: `<user_memories>\nUser-provided notes.\n- (preference) ${memory}\n</user_memories>`,
+    });
+    await t.handler.run('job-canary', PAYLOAD, NOW);
+
+    const requests = t.respondStructured.mock.calls.map((call) => JSON.stringify(call[0]));
+    expect(requests.some((r) => r.includes(memory))).toBe(true);
+    for (const canary of [C.name, C.email, '1980-02-03', C.priorBody]) {
+      expect(requests.some((r) => r.includes(canary))).toBe(false);
+    }
+    // The block is read through the memory service only: no memory table access from the job itself.
+    expect(t.accessedModels.has('userMemory')).toBe(false);
+  });
 });

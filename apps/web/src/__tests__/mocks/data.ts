@@ -67,6 +67,14 @@ export const mockSystemSettings: SystemSettings = {
     browserEnabled: true,
     disabledEvents: [],
   },
+  // User memory policy (#325): the API's defaults.
+  memory: {
+    enabled: true,
+    autoExtract: true,
+    maxPerUser: 200,
+    extractDailyCapPerUser: 20,
+    purgeAfterDays: 30,
+  },
   updatedAt: '2024-01-01T00:00:00.000Z',
   updatedBy: null,
   version: 1,

@@ -28,6 +28,7 @@ export const AI_FEATURE_IDS = [
   'coach.decision',
   'coach.chat',
   'coach.voice',
+  'memory.extract',
 ] as const;
 
 export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];
@@ -35,7 +36,7 @@ export type AiFeatureId = (typeof AI_FEATURE_IDS)[number];
 /** The photo features, the ones `useVisionAvailability` resolves. */
 export type AiPhotoFeatureId = Extract<AiFeatureId, 'gym_scan' | 'workout_prefill' | 'body_metric_reading' | 'lab_report'>;
 
-export type AiFeatureGroup = 'photo' | 'training' | 'coach';
+export type AiFeatureGroup = 'photo' | 'training' | 'coach' | 'memory';
 
 export interface AiModelRef {
   provider: string;

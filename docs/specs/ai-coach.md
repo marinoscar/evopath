@@ -112,6 +112,7 @@ One row per user, created lazily by the sweep or on first settings write.
 | `usualWorkoutMinuteLocal` | int, nullable | Median start minute of the local day over 4 weeks of completed workouts. Null with fewer than 4 sessions. |
 | `weeklyStreak`, `streakPassesLeft` | int | [§2.11](#211-weekly-streak-and-passes). |
 | `lastWeeklyReviewWeek` | string, nullable | ISO week key of the last review (`2026-W40`); the dedup key. |
+| `chatClearedAt` | timestamp, nullable | The last **Start over** (#323, [§2.9](#29-chat)). The timeline, the chat history and the nudge context read only messages created after it. Null: never cleared. |
 
 #### `ProgressPhoto` (`progress_photos`)
 
@@ -323,7 +324,7 @@ When a moment is eligible, the sweep or listener enqueues `ai.coach.nudge` with 
 `ai.coach.nudge` is server-only, profile `{ maxRuntimeMs: 120000, maxAttempts: 2 }`.
 
 1. Resolve `coach.decision` with `AiFeatureModelResolver.resolve` (`apps/api/src/ai/assignments/ai-feature-model-resolver.service.ts`). The reference consumer is `apps/api/src/health-summary/health-summary.handler.ts`.
-2. Build the context ([§2.9](#29-chat) shares the builder): the compact signals, `CoachState`, the last 10 coach messages (so the model does not repeat itself), the persona card at the user's intensity, the register from `resolveRegister`, the chosen angle ([§2.8](#28-learning-loop)) and the user's `why`. A compact summary of the user's active goals (title, metric, period, counts) goes in too, plus the one goal a goal moment is about; goal titles are the user's own labels and are marked as **data** in the prompt, and entry notes never reach it.
+2. Build the context ([§2.9](#29-chat) shares the builder): the compact signals, `CoachState`, the last 10 coach messages created after `chatClearedAt` (so the model does not repeat itself; [§2.9](#29-chat) **Start over**), the persona card at the user's intensity, the register from `resolveRegister`, the chosen angle ([§2.8](#28-learning-loop)) and the user's `why`. A compact summary of the user's active goals (title, metric, period, counts) goes in too, plus the one goal a goal moment is about; goal titles are the user's own labels and are marked as **data** in the prompt, and entry notes never reach it.
 3. Call `AiService.forUser(userId, { jobId }).respondStructured` with the schema below.
 4. Run the content guard. On pass, persist and deliver ([§2.7](#27-delivery-and-audio)).
 
@@ -468,11 +469,27 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 
 ### 2.9 Chat
 
-**Routes.** `POST /api/coach/chat/stream` streams server-sent events; `GET /api/coach/messages?before=&limit=` returns the cursor-paged timeline.
+**Routes.** `POST /api/coach/chat/stream` streams server-sent events; `GET /api/coach/messages?before=&limit=` returns the cursor-paged timeline; `POST /api/coach/chat/clear` starts the conversation over (below).
 
 - **Streaming.** The handler uses `pipeAiSse` (`apps/api/src/ai/http/ai-sse.ts`) and `AiService.forUser(...).runTools`, model resolved through `coach.chat`. Web side: `postSse` in `apps/web/src/services/sse.ts` and a thread like `apps/web/src/components/ai/AiChatThread.tsx`.
 - **Nginx.** The route needs an unbuffered location block in **both** `infra/nginx/nginx.conf` and `apps/cli/src/deploy/proxy.ts` (the CLI test `apps/cli/src/deploy/proxy.test.ts` asserts each streaming location). Model the block on `location /api/ai/responses/stream`. The existing guard `apps/api/test/ai/ai-stream-nginx.spec.ts` shows the pattern; `apps/api/test/coach/coach-stream-nginx.spec.ts` asserts the coach block.
-- **History window.** The persona system prompt plus the last 20 messages of the timeline. Older turns are not sent, and neither is any row of a safety-blocked turn (below).
+- **History window.** The persona system prompt plus the last 20 messages of the timeline created after `chatClearedAt`. Older turns are not sent, and neither is any row of a safety-blocked turn (below).
+
+**Start over (#323).** `POST /api/coach/chat/clear` (`ai:use`, `AiEnabledGuard`, no body) upserts `CoachState.chatClearedAt = now` and answers **204**. It is a **soft** clear: no row is deleted, and the user's data reset still removes the rows as before ([user-data-reset.md](user-data-reset.md)). Idempotent: a second call only moves the instant forward. It works while the coach is off or paused. Code: `apps/api/src/coach/chat/coach-chat-clear.ts`.
+
+| Reader | After a clear |
+|---|---|
+| `GET /api/coach/messages` | Lists only rows with `createdAt > chatClearedAt`. A `before` cursor older than the clear is still the caller's row, so it is valid and pages into nothing. |
+| Chat history sent to the model | Only rows after the clear. |
+| `retryOf` | A row created at or before the clear is `400 COACH_RETRY_INVALID`. |
+| Nudge context (`recentCoachMessages`, [§2.6](#26-nudge-generation-and-the-content-guard)) | Only coach lines after the clear. |
+| `GET /api/coach/state` | Returns `chatClearedAt` (ISO or `null`). |
+| 24-hour safety lookback | **Ignores the clear.** A blocked safety turn before it still keeps the supportive register for its whole window: safety wins over "start over". |
+| Planner pacing and dedup, angle learning stats, engagement stats | Unchanged: a clear never resets the daily cap, the spacing gate or the bandit. |
+| `opened`, `feedback`, `audio` routes | Still work for any of the caller's messages, before or after the clear. |
+| Memories (`why`, commitments), settings, streak, `get_last_weekly_review` | Unchanged ("Your memories and settings stay"). |
+
+On `/coach` an overflow button above the timeline (**Conversation options**, `apps/web/src/components/coach/CoachStartOverMenu.tsx`) holds **Start over**, which asks "Start a fresh conversation? Your coach won't see earlier messages. Your memories and settings stay." On confirm the page posts the clear, dismisses any failed turn, empties the timeline (`useCoachTimeline().reset`) and re-reads it, so the empty state shows. The control is disabled while a turn streams or the timeline loads; a failed clear keeps the dialog open with the error.
 
 **Tools.** The seven read-only tools return minimised data. The two write tools are narrow.
 
@@ -487,8 +504,13 @@ Celebrations and reviews have no conversion target and are excluded from angle r
 | `get_goals` | read | The user's active goals in their current period: title (the user's label, data), metric, period, done, target, remaining, `daysLeft`, `hit`, `onTrack` and `streakPeriods`. No id, entry or note |
 | `pause_coach` | **write** | Sets `pausedUntil`. `days` is 1 to 14, `reason` is short text. For "I'm sick" or "on vacation". |
 | `save_commitment` | **write** | Saves the kickoff answer: `why` (at most 200 characters) and/or `preferredTime` (`HH:mm`), through `CoachSettingsService.update` (the `PUT /api/coach/settings` path). Called only after the user explicitly confirms the values; a bad value answers `COACH_COMMITMENT_INVALID` to the model. |
+| `remember` | **write** (memory) | Stores one fact about the user (`{ content, category, sensitivity }`, `source = explicit`) through `MemoryService.write`; registered only while memory is on. See [ai-memory.md §2.4](ai-memory.md#24-coach-chat-tools-and-the-memory-frame). |
+| `forget` | **write** (memory) | Soft-deletes one memory by its `[m<n>]` ref, or the best match of a short query. |
+| `update_memory` | **write** (memory) | Corrects one memory by its ref. |
 
 Plan changes are not tools. The coach proposes and links to the existing adjust flow, so the user stays in control.
+
+**Memory (#325).** While memory is on for the user, the system instructions end with the user's memory block (`<user_memories>`, an untrusted-data preamble, one `[m<n>] (category) fact` line per memory, about 1,500 tokens at most) and the rules tell the coach when to call `remember` ("call me Bobby"), to acknowledge briefly, and that the conversation wins over a note. After a model turn's reply is stored, `ai.memory.extract` is queued 5 minutes out (deduplicated per user) to learn durable facts in the background. The nudge and the weekly review prose carry the same block in their data text. Details: [ai-memory.md](ai-memory.md).
 
 **Safety screen.** Every user message passes `screenFreeText` (`apps/api/src/training-agents/guardrails/safety-screen.ts`) and a coach-specific distress screen `apps/api/src/coach/safety/distress-screen.ts`. The existing screen covers urgent physical symptoms and pain stems; it has no self-harm or eating-disorder rules, so the coach adds them.
 
@@ -512,6 +534,7 @@ Plan changes are not tools. The coach proposes and links to the existing adjust 
 |---|---|---|
 | `safety` | `{ level: 'blocked' \| 'conservative', screen: 'distress' \| 'symptom' \| 'pain' }` | First, when a screen matched |
 | `tool` | `{ name, status }` | One per tool call, while the model works; never arguments or results |
+| `memory` | `{ op: 'added' \| 'updated' \| 'deleted', memoryId, content }` | Right after the `tool` frame of a `remember`, `forget` or `update_memory` call that changed a memory (#325). Additive: a client that does not know it ignores it. Undo: `DELETE /api/memories/{memoryId}` (added) or `POST /api/memories/{memoryId}/restore` (deleted) |
 | `delta` | `{ text }` | The reply, in order |
 | `done` | `{ messageId, userMessageId, links: [{ label, href }], pausedUntil, fallback }` | Last, on success |
 | `error` | `{ code, message, userMessageId }` | Last, on a failure after streaming began or after the user's message was stored; `userMessageId` is that stored row, or `null` (never an empty string) when none was stored |
@@ -519,7 +542,7 @@ Plan changes are not tools. The coach proposes and links to the existing adjust 
 - **Guard before display.** `runTools` is not a streaming call, and a reply shown token by token could not be withdrawn if the content guard rejected it. The final text is guarded first (chat context: the nudge `body` length limit is replaced by a 1,200-character chat limit; numbers may come from tool results, the user's message and the history), then sent as `delta` frames. A failing reply is replaced by a fixed fallback line and stored with `data.fallback = true`.
 - **Preconditions are JSON errors.** The coach system switch (`403 COACH_DISABLED`), an unresolvable `coach.chat` model (`409 AI_FEATURE_UNAVAILABLE`, as for photo intake) and every refusal of the **first** model call (`429 AI_RATE_LIMITED`, key errors) are answered before the response becomes a stream, and nothing is stored. The user's message is stored once the first model call succeeds.
 - **Disconnect.** Closing the connection aborts the provider call; the partial reply is discarded (no coach row, no `data.truncated`).
-- **Retry without a second row.** Once the user's message is stored, a failure is always an `error` frame naming it (`userMessageId`), never a JSON error. The client retries with `{ text, retryOf: userMessageId }`: `text` must equal the stored body, the row must be the caller's latest user chat message, and no coach chat reply may follow it, else `400 COACH_RETRY_INVALID` (`details.code` and `details.reason`) before anything else runs. A valid retry stores no new user row (and leaves the retried row out of the history, so the model sees the message once), and its `done.userMessageId` is the retried row's id. A retry whose first model call is refused still answers JSON (the client already holds the id).
+- **Retry without a second row.** Once the user's message is stored, a failure is always an `error` frame naming it (`userMessageId`), never a JSON error. The client retries with `{ text, retryOf: userMessageId }`: `text` must equal the stored body, the row must be the caller's latest user chat message created after any `chatClearedAt`, and no coach chat reply may follow it, else `400 COACH_RETRY_INVALID` (`details.code` and `details.reason`) before anything else runs. A valid retry stores no new user row (and leaves the retried row out of the history, so the model sees the message once), and its `done.userMessageId` is the retried row's id. A retry whose first model call is refused still answers JSON (the client already holds the id).
 - **Pause reason.** `CoachState` has no column for it, so the `reason` of `pause_coach` only shapes the model's confirmation; it is never stored or logged.
 - **Plan changes** link to `/train`, where "Adjust today's workout" starts the quick adaptation; `done.links` carries the link when the reply contains it.
 - **Never-send.** The tools select only the fields they return (no ids, notes, storage keys or photo content) and the history sends only `title` and `body`; the list itself is `training-agents/context/never-send.ts` until `coach-never-send.ts` lands with the nudges.
@@ -608,6 +631,7 @@ A messaging-style page, `apps/web/src/pages/CoachPage.tsx`.
 | Header | Persona avatar and name, a weekly target ring ("2 of 3 this week"), the weekly-streak flame, the next planned session. |
 | Timeline | Cards, newest at the bottom: nudge bubbles (with `AiSpeechPlayer` when audio is `ready`), celebration cards, weekly review cards, photo prompts with a **Take photo** button, and plain chat bubbles. Thumbs up or down on each coach card. |
 | Composer | A text field plus quick replies: **Motivate me**, **I missed — now what?**, **Adjust this week**, **I'm sick**, **How am I doing?**. |
+| Conversation menu | An overflow button above the timeline with **Start over** behind a confirmation dialog ([§2.9](#29-chat), #323). |
 | Deep link | `/coach?m=<id>` scrolls to and highlights the message; `&autoplay=1` starts its audio. |
 
 #### Today
@@ -754,7 +778,8 @@ Details in `/api/docs`.
 | `GET /api/coach/personas` | `ai:use` | `@Auth`, `AiEnabledGuard` |
 | `GET /api/coach/settings`, `PUT /api/coach/settings` | `ai:use` | `@Auth`, `AiEnabledGuard` |
 | `POST /api/coach/voice-preview` | `ai:use` | `@Auth`, `AiEnabledGuard`, rate limit (10 per 10 minutes per user, per API process) |
-| `GET /api/coach/messages` | `ai:use` | `@Auth`, `AiEnabledGuard` |
+| `GET /api/coach/messages` | `ai:use` | `@Auth`, `AiEnabledGuard`; only rows after `chatClearedAt` |
+| `POST /api/coach/chat/clear` | `ai:use` | `@Auth`, `AiEnabledGuard`; no body, answers 204; idempotent soft clear (#323) |
 | `POST /api/coach/messages/:id/opened` | `ai:use` | `@Auth`, `AiEnabledGuard`; answers 204 |
 | `POST /api/coach/messages/:id/feedback` | `ai:use` | `@Auth`, `AiEnabledGuard`; answers 204 |
 | `POST /api/coach/messages/:id/audio` | `ai:use` | `@Auth`, `AiEnabledGuard`, rate limit (20 new speech runs per 10 minutes per user, per API process); answers 202 or 200 |
@@ -789,7 +814,7 @@ Every consumer route sits behind `AiEnabledGuard` plus `ai:use`. Admin routes ar
 | `COACH_PERSONA_UNKNOWN` | 400 | `personaId` is not in the registry. |
 | `COACH_MESSAGE_NOT_FOUND` | 404 | The message is not the caller's. |
 | `COACH_PAUSE_INVALID` | 400 | `pause_coach` with `days` outside 1 to 14. |
-| `COACH_RETRY_INVALID` | 400 | A chat `retryOf` that is not the caller's latest user chat message, already has a coach reply, or whose stored text differs from `text`. |
+| `COACH_RETRY_INVALID` | 400 | A chat `retryOf` that is not the caller's latest user chat message, already has a coach reply, whose stored text differs from `text`, or that was created before the last **Start over** (`chatClearedAt`). |
 | `AI_DISABLED`, `AI_RATE_LIMITED` | 403, 429 | Existing AI errors, unchanged. |
 
 The envelope's `code` is status-derived ([API.md](../API.md#errors)), so a coach code travels in `details.code`. `details.reason` repeats it, except for `COACH_PROFANITY_LOCKED`, whose `details.reason` is the failed unlock condition (`system_disabled`, `age_unverified`, `underage`, `persona_or_intensity`). `COACH_PERSONA_UNKNOWN` also carries `details.issues` naming `personaId`.
@@ -940,3 +965,4 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f fa
   - E7.13 (issue 253): end-to-end tests, visual baselines, the runbook and the doc rows.
 - Issue 259, after the epic: audio on request only (the **Listen** button, `POST /api/coach/messages/:id/audio`); nothing is spoken automatically. The as-built notes are at the end of [§2.7](#27-delivery-and-audio).
 - Epic #260 (cardio and everyday activity): the goal moments `goal_at_risk` and `goal_hit`, the `get_goals` chat tool, goals in the weekly review and its email, and the `coach.activity_recorded` job: #269.
+- Issue #323: **Start over** on `/coach` (`POST /api/coach/chat/clear`, `CoachState.chatClearedAt`, migration `20261005100000_coach_chat_cleared_at`); a soft clear, see [§2.9](#29-chat).

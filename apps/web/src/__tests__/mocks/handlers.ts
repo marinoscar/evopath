@@ -56,6 +56,7 @@ import {
   mockEmptyCoachStats,
   mockSystemCoachSettings,
 } from './fixtures/coach';
+import { mockMemory, mockMemoryListView } from './fixtures/memories';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -95,6 +96,14 @@ const mockSystemSettings = {
   notifications: {
     browserEnabled: true,
     disabledEvents: [],
+  },
+  // User memory policy (#325): the API's defaults.
+  memory: {
+    enabled: true,
+    autoExtract: true,
+    maxPerUser: 200,
+    extractDailyCapPerUser: 20,
+    purgeAfterDays: 30,
   },
   updatedAt: new Date().toISOString(),
   updatedBy: null,
@@ -865,6 +874,9 @@ export const handlers = [
     return HttpResponse.json({ data: { items: [], nextCursor: null } });
   }),
 
+  // "Start over" (#323): a soft clear, 204.
+  http.post(`${API_BASE}/coach/chat/clear`, () => new HttpResponse(null, { status: 204 })),
+
   http.post(`${API_BASE}/coach/messages/:id/opened`, () => new HttpResponse(null, { status: 204 })),
 
   http.post(`${API_BASE}/coach/messages/:id/feedback`, () => new HttpResponse(null, { status: 204 })),
@@ -1075,6 +1087,29 @@ export const handlers = [
   http.get(`${API_BASE}/storage/objects/:id`, ({ params }) => {
     return HttpResponse.json({ data: mockStorageObject({ id: String(params.id), status: 'ready' }) });
   }),
+
+  // User memory (#325): a populated list; writes echo a memory.
+  http.get(`${API_BASE}/memories`, () => {
+    return HttpResponse.json({ data: mockMemoryListView() });
+  }),
+
+  http.post(`${API_BASE}/memories`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({ data: mockMemory({ id: 'new-memory', ...body }) }, { status: 201 });
+  }),
+
+  http.patch(`${API_BASE}/memories/:id`, async ({ params, request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({ data: mockMemory({ id: String(params.id), ...body }) });
+  }),
+
+  http.post(`${API_BASE}/memories/:id/restore`, ({ params }) => {
+    return HttpResponse.json({ data: mockMemory({ id: String(params.id) }) });
+  }),
+
+  http.delete(`${API_BASE}/memories/:id`, () => new HttpResponse(null, { status: 204 })),
+
+  http.delete(`${API_BASE}/memories`, () => new HttpResponse(null, { status: 204 })),
 
   http.post(`${API_BASE}/ai/runs/:id/cancel`, ({ params }) => {
     return HttpResponse.json({

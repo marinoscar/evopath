@@ -54,6 +54,8 @@ model User {
   trainingPlanRuns            TrainingPlanRun[]
   coachMessages               CoachMessage[]
   coachState                  CoachState?
+  memories                    UserMemory[]
+  memoryState                 UserMemoryState?
   progressPhotos              ProgressPhoto[]
   workoutAdaptations          WorkoutAdaptation[]
   personalAccessTokens        PersonalAccessToken[]        @relation("UserPersonalAccessTokens")
@@ -3534,11 +3536,64 @@ model CoachMessage {
 
   user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   audioStorage StorageObject? @relation("CoachMessageAudio", fields: [audioStorageObjectId], references: [id], onDelete: SetNull)
+  memories     UserMemory[]
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([audioStorageObjectId])
   @@index([audioRunId])
   @@map("coach_messages")
+}
+
+// User memory (#325): short atomic facts the coach and training agents may read.
+// One row per fact. A `superseded` row points at its replacement; a `deleted`
+// row is soft-deleted (undo window) and hard-purged after `memory.purgeAfterDays`.
+// `user_memories_content_trgm_idx` (GIN, gin_trgm_ops) serves near-duplicate
+// detection; it is declared here only so `migrate dev` does not try to drop it.
+// The `CREATE EXTENSION pg_trgm` it needs lives only in the migration SQL.
+model UserMemory {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  content         String    @db.Text // <= 300 chars, one atomic sentence
+  category        String // goal | preference | constraint_injury | schedule | equipment | training_history | nutrition | coaching_style | other
+  source          String // explicit | extracted | user_edited
+  sensitivity     String    @default("normal") // normal | health
+  status          String    @default("active") // active | superseded | deleted
+  supersededById  String?   @map("superseded_by_id") @db.Uuid
+  sourceMessageId String?   @map("source_message_id") @db.Uuid
+  confidence      Float?
+  pinned          Boolean   @default(false)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  lastUsedAt      DateTime? @map("last_used_at") @db.Timestamptz
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  supersededBy  UserMemory?   @relation("UserMemorySupersession", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersedes    UserMemory[]  @relation("UserMemorySupersession")
+  sourceMessage CoachMessage? @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, category])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([supersededById])
+  @@index([sourceMessageId])
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin, map: "user_memories_content_trgm_idx")
+  @@map("user_memories")
+}
+
+// Server-managed memory extraction state: one row per user (userId unique).
+// Kept out of the client-writable `user_settings.memory` namespace on purpose.
+model UserMemoryState {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @unique @map("user_id") @db.Uuid
+  lastExtractedAt  DateTime? @map("last_extracted_at") @db.Timestamptz
+  extractionsToday Int       @default(0) @map("extractions_today")
+  extractionDayUtc DateTime? @map("extraction_day_utc") @db.Date
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_memory_states")
 }
 
 // AI Coach per-user scheduling state: one row per user (userId unique).
@@ -3556,6 +3611,9 @@ model CoachState {
   weeklyStreak            Int       @default(0) @map("weekly_streak")
   streakPassesLeft        Int       @default(0) @map("streak_passes_left")
   lastWeeklyReviewWeek    String?   @map("last_weekly_review_week") // ISO week key, e.g. 2026-W40
+  // "Start over" (#323): the timeline, the chat history and the nudge context
+  // read only messages created after this instant. Rows are kept (soft clear).
+  chatClearedAt           DateTime? @map("chat_cleared_at") @db.Timestamptz
   createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

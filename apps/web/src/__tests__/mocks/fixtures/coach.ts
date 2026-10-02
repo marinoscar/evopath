@@ -201,6 +201,7 @@ export function mockCoachState(overrides: Partial<CoachStateView> = {}): CoachSt
     streakPassesLeft: 1,
     nextSession: { date: '2026-10-02', name: 'Upper body A', programWorkoutId: '00000000-0000-4000-8000-0000000000aa' },
     unreadCount: 1,
+    chatClearedAt: null,
     ...overrides,
   };
 }

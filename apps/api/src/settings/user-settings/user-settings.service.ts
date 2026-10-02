@@ -76,6 +76,7 @@ export class UserSettingsService {
         ? { onboarding: value.onboarding }
         : {}),
       ...(value.coach !== undefined ? { coach: value.coach } : {}),
+      ...(value.memory !== undefined ? { memory: value.memory } : {}),
       updatedAt,
       version,
     };
@@ -257,6 +258,11 @@ export class UserSettingsService {
     const mergedCoach = this.mergeCoach(current.coach, dto.coach);
     if (mergedCoach !== undefined) {
       merged.coach = mergedCoach;
+    }
+
+    const mergedMemory = mergeFields(current.memory, dto.memory);
+    if (mergedMemory !== undefined) {
+      merged.memory = mergedMemory;
     }
 
     // Enforce the caps AFTER the merge — see assertDataTableLimit.

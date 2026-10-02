@@ -353,6 +353,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'Coach refusals carry the coach code in `details.code`.',
       },
       {
+        name: 'AI Memory',
+        description:
+          'The facts the coach and the plan agents remember about you: list, add, edit, pin, delete (with an undo ' +
+          'window) and delete all. The coach adds memories when you ask it to remember something and, when you ' +
+          'allow it, learns durable facts from your chat in the background. Turn memory, background learning and ' +
+          'health-related memories on or off with `PATCH /api/user-settings` (`memory`). Requires `ai:use` and ' +
+          'answers `403` with `details.reason: "AI_DISABLED"` while AI is disabled; owner-scoped (a foreign id is a 404).',
+      },
+      {
         name: 'AI Coach Administration',
         description:
           'The deployment-wide coach policy: the coach switch, the profane-persona unlock, spoken messages, ' +

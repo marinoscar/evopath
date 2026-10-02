@@ -41,6 +41,8 @@ export const ZERO_ROW_COUNTS: Readonly<DeletedRowCounts> = Object.freeze({
   progressPhotos: 0,
   coachMessages: 0,
   coachStates: 0,
+  memories: 0,
+  memoryStates: 0,
   activityGoals: 0,
   activityEntries: 0,
   healthSyncDevices: 0,
@@ -278,6 +280,11 @@ export async function deleteUserOwnedRows(
   // coach state also clears a pause or silence. Files (progress photos,
   // coach voice notes): collected in step 1, deleted in step 3.
   counts.progressPhotos = (await tx.progressPhoto.deleteMany({ where: { userId } })).count;
+  // User memory (#325): every fact in any status (deleted and superseded rows
+  // included) and the extraction state. Before the coach messages, which they
+  // reference with SET NULL. No object is attached.
+  counts.memories = (await tx.userMemory.deleteMany({ where: { userId } })).count;
+  counts.memoryStates = (await tx.userMemoryState.deleteMany({ where: { userId } })).count;
   counts.coachMessages = (await tx.coachMessage.deleteMany({ where: { userId } })).count;
   counts.coachStates = (await tx.coachState.deleteMany({ where: { userId } })).count;
 

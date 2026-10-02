@@ -14,7 +14,7 @@ export function mockHealthExport(overrides: Partial<HealthExport> = {}): HealthE
     format: 'pdf',
     from: '2026-07-01',
     to: '2026-10-01',
-    datasets: ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos'],
+    datasets: ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos', 'memories'],
     includeHistory: false,
     labUnits: 'conventional',
     createdAt: '2026-10-01T09:00:00.000Z',
@@ -37,7 +37,7 @@ export function mockReadyHealthExport(overrides: Partial<HealthExport> = {}): He
     expiresAt: '2026-10-08T09:00:05.000Z',
     fileName: 'app-health-2026-07-01-2026-10-01.pdf',
     sizeBytes: 48_213,
-    rowCounts: { profile: 1, body: 12, vitals: 4, labs: 0, wellness: 30, documents: 2, progress_photos: 3 },
+    rowCounts: { profile: 1, body: 12, vitals: 4, labs: 0, wellness: 30, documents: 2, progress_photos: 3, memories: 5 },
     ...overrides,
   });
 }

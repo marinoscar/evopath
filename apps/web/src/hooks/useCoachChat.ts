@@ -18,6 +18,10 @@
  * `storedUserMessageId`, and `retry()` then sends `retryOf` so the server
  * answers that row again instead of storing the text a second time.
  *
+ * MEMORY (#325). A `memory` frame (the turn added, updated or deleted a
+ * memory) is collected in `memoryUpdates`, which outlives the turn so the page
+ * can offer Undo under the reply; it is cleared when the next turn is sent.
+ *
  * Unmounting aborts the stream; the server then discards the partial reply.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -26,6 +30,7 @@ import {
   streamCoachChat,
   type CoachChatDone,
   type CoachChatFailure,
+  type CoachChatMemoryFrame,
   type CoachSafetyLevel,
   type CoachTimelineItem,
 } from '../services/coach';
@@ -65,6 +70,14 @@ export interface UseCoachChatReturn {
   send: (text: string) => void;
   retry: () => void;
   dismiss: () => void;
+  /**
+   * What the latest turn changed in memory (#325), in arrival order, one entry
+   * per memory (a later frame for the same memory replaces the earlier one).
+   * Kept after the turn completes, cleared when the next turn is sent.
+   */
+  memoryUpdates: CoachChatMemoryFrame[];
+  /** Hide one memory update (after Undo, or when the user closes it). */
+  dismissMemoryUpdate: (memoryId: string) => void;
 }
 
 let localCounter = 0;
@@ -75,6 +88,7 @@ export function useCoachChat({
   findStoredTurn,
 }: UseCoachChatOptions): UseCoachChatReturn {
   const [pending, setPending] = useState<CoachPendingTurn | null>(null);
+  const [memoryUpdates, setMemoryUpdates] = useState<CoachChatMemoryFrame[]>([]);
   const controller = useRef<AbortController | null>(null);
   const onCompleteRef = useRef(onComplete);
   const findStoredTurnRef = useRef(findStoredTurn);
@@ -134,6 +148,10 @@ export function useCoachChat({
           onSafety: (frame) => {
             safety = frame;
             if (isMounted()) setPending((current) => (current ? { ...current, safety: frame } : current));
+          },
+          onMemory: (frame) => {
+            if (abort.signal.aborted || !isMounted()) return;
+            setMemoryUpdates((current) => [...current.filter((m) => m.memoryId !== frame.memoryId), frame]);
           },
           onTool: (frame) => {
             if (isMounted()) {
@@ -219,6 +237,7 @@ export function useCoachChat({
       const trimmed = text.trim();
       if (!trimmed) return;
       if (pending?.status === 'streaming') return;
+      setMemoryUpdates([]);
       localCounter += 1;
       run({
         localId: `local-${localCounter}`,
@@ -245,5 +264,17 @@ export function useCoachChat({
     setPending(null);
   }, []);
 
-  return { pending, isStreaming: pending?.status === 'streaming', send, retry, dismiss };
+  const dismissMemoryUpdate = useCallback((memoryId: string) => {
+    setMemoryUpdates((current) => current.filter((m) => m.memoryId !== memoryId));
+  }, []);
+
+  return {
+    pending,
+    isStreaming: pending?.status === 'streaming',
+    send,
+    retry,
+    dismiss,
+    memoryUpdates,
+    dismissMemoryUpdate,
+  };
 }

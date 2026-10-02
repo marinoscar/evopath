@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import type { CoachMessage } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { afterChatClear, chatClearedAtOf, clearCoachChat } from './coach-chat-clear';
 import {
   COACH_AUDIO_STATUSES,
   type CoachTimelineItem,
@@ -19,6 +20,10 @@ import {
 // is looked up AMONG THE CALLER'S OWN rows, so another user's id (or an
 // unknown one) is a 400 invalid cursor, never a leak. Every query is
 // `where: { userId }`.
+//
+// START OVER (#323). Only rows created after `CoachState.chatClearedAt` are
+// listed (`coach-chat-clear.ts`); a `before` cursor older than the clear is
+// still the caller's own row, so it is valid and simply pages into nothing.
 // =============================================================================
 
 type Row = Pick<
@@ -97,7 +102,13 @@ export function toTimelineItem(row: Row): CoachTimelineItem {
 export class CoachTimelineService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** "Start over": stamps `chatClearedAt` (soft, idempotent). */
+  async clear(userId: string): Promise<void> {
+    await clearCoachChat(this.prisma, userId);
+  }
+
   async list(userId: string, query: CoachTimelineQuery): Promise<CoachTimelinePage> {
+    const cleared = afterChatClear(await chatClearedAtOf(this.prisma, userId));
     let older = {};
     if (query.before) {
       const cursor = await this.prisma.coachMessage.findFirst({
@@ -111,7 +122,7 @@ export class CoachTimelineService {
     }
 
     const rows = await this.prisma.coachMessage.findMany({
-      where: { userId, ...older },
+      where: { userId, ...cleared, ...older },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit + 1,
       select: COACH_TIMELINE_SELECT,

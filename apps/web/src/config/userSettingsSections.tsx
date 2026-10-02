@@ -31,6 +31,7 @@ import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import SportsOutlinedIcon from '@mui/icons-material/SportsOutlined';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import AndroidIcon from '@mui/icons-material/Android';
+import MemoryIcon from '@mui/icons-material/Memory';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -204,6 +205,21 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
           'Choose your coach persona and intensity, when it may message you, and whether it speaks.',
         Icon: SportsOutlinedIcon,
         path: '/settings/coach',
+        permission: 'ai:use',
+        feature: 'ai',
+      },
+      {
+        // #325. APPENDED as the last card of the AI group. `ai:use` is the
+        // exact string `memory/memory.controller.ts` enforces on every
+        // `/api/memories` route, all behind `AiEnabledGuard`, so
+        // `feature: 'ai'` hides the card while AI is off (CLAUDE.md AI
+        // Platform Rule 5). Its own destination rather than a section of the
+        // Coach page: a list of stored facts the user reviews and deletes is a
+        // different question from how the coach behaves.
+        title: 'Memory',
+        description: 'What your coach remembers about you',
+        Icon: MemoryIcon,
+        path: '/settings/memory',
         permission: 'ai:use',
         feature: 'ai',
       },
