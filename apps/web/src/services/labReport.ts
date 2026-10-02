@@ -1,7 +1,7 @@
 /**
  * Lab report extraction, H4 (#188): the `lab_report` kind of the photo-intake
- * kit (`services/intake.ts`) and its one helper route, as the web app sees
- * them. Design: docs/specs/health-records.md §2.10.
+ * kit (`services/intake.ts`) and its helper routes (the duplicate warning;
+ * #307: map one result and every same-named one), as the web app sees them. Design: docs/specs/health-records.md §2.10.
  *
  * A lab report (a PDF from a patient portal, or photos of the pages) is read
  * by the server into one draft item per printed result. The SERVER matches
@@ -142,6 +142,56 @@ export interface LabReportDuplicates {
 /** The duplicate warning (`health_data:read` + `intakes:read`). Apply never de-duplicates. */
 export function getLabReportDuplicates(intakeId: string): Promise<LabReportDuplicates> {
   return api.get<LabReportDuplicates>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/duplicates`);
+}
+
+/** One result the map left unchanged, with the server's reason (#307). */
+export interface LabReportMapSkipped {
+  itemId: string;
+  message: string;
+}
+
+/** `POST /api/measurements/lab-reports/:intakeId/map` (#307). */
+export interface LabReportMapResult {
+  /** Every result the server mapped: the one picked and each same-named one. */
+  items: DraftItemView<LabReportValue>[];
+  /** Same-named results it could not map (e.g. a unit the analyte does not take). */
+  skipped: LabReportMapSkipped[];
+}
+
+/**
+ * "Map once, apply to all" (#307): map one result to an analyte; the SERVER
+ * maps every other result of the intake printed under the same name (not
+ * rejected, not already mapped by the user to another analyte) in one
+ * transaction, re-normalising each like an edit. A 400 means the picked
+ * result itself could not be mapped (`intakes:write` + `health_data:write`).
+ */
+export function mapLabResult(intakeId: string, itemId: string, analyteKey: string): Promise<LabReportMapResult> {
+  return api.post<LabReportMapResult>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/map`, {
+    itemId,
+    analyteKey,
+  });
+}
+
+/**
+ * What the review says after a map: "Mapped 5 results named “Chol/HDL Ratio”
+ * to Cholesterol/HDL ratio", plus "2 could not be mapped" when the server
+ * skipped some. `null` when one result was mapped and nothing was skipped
+ * (the row itself shows it).
+ */
+export function labMappedMessage(
+  result: LabReportMapResult,
+  nameAsPrinted: string | null,
+  analyteLabel: string,
+): { message: string; severity: 'success' | 'warning' } | null {
+  const mapped = result.items.length;
+  const skipped = result.skipped.length;
+  if (mapped <= 1 && skipped === 0) return null;
+  const named = nameAsPrinted ? ` named “${nameAsPrinted}”` : '';
+  const parts: string[] = [];
+  if (mapped > 1) parts.push(`Mapped ${mapped} results${named} to ${analyteLabel}`);
+  else if (mapped === 1) parts.push(nameAsPrinted ? `Mapped “${nameAsPrinted}” to ${analyteLabel}` : `Mapped 1 result to ${analyteLabel}`);
+  if (skipped > 0) parts.push(`${skipped} could not be mapped`);
+  return { message: parts.join('. '), severity: skipped > 0 ? 'warning' : 'success' };
 }
 
 // -----------------------------------------------------------------------------

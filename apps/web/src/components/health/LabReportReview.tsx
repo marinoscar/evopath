@@ -13,9 +13,11 @@
  *
  * - Rows that need a closer look (unsure, low confidence, a suggested match,
  *   or unmatched) are highlighted (`data-attention`), never hidden.
- * - An UNMATCHED row carries a "Map to an analyte" picker: picking one sends
- *   the edit (`value.analyteKey`); the server re-matches and converts. The
- *   alternative is Reject. Unknown analytes are never silently dropped.
+ * - An UNMATCHED row carries a "Map to an analyte" picker: picking one calls
+ *   `onMapItem` (#307: the server maps every same-named result of the report
+ *   with it, re-matching and converting each), or, without it, sends the edit
+ *   (`value.analyteKey`). The alternative is Reject. Unknown analytes are
+ *   never silently dropped.
  * - Rejected rows move into "Rejected (n)" with Restore.
  */
 import { useId, useMemo, useState } from 'react';
@@ -81,6 +83,11 @@ export interface LabReportReviewProps {
   onRejectItem: (id: string) => void;
   onRestoreItem: (id: string) => void;
   onEditItem: (id: string, value: LabReportValue) => void;
+  /**
+   * #307: map an unmatched result to an analyte; the server applies it to
+   * every result printed under the same name. Absent: the map is an edit.
+   */
+  onMapItem?: (id: string, analyteKey: string) => void;
   onAddItem: (value: LabReportValue) => void;
   onAcceptAll: () => void;
   /** #305: accept every pending, high-confidence, not-uncertain result (`{ only: 'high_confidence' }`). */
@@ -136,6 +143,7 @@ export function LabReportReview({
   onRejectItem,
   onRestoreItem,
   onEditItem,
+  onMapItem,
   onAddItem,
   onAcceptAll,
   onAcceptHighConfidence,
@@ -198,7 +206,9 @@ export function LabReportReview({
           catalog={catalog}
           busy={busy}
           refused={refused.has(item.id)}
-          onMap={(analyteKey) => onEditItem(item.id, { ...item.value, analyteKey })}
+          onMap={(analyteKey) =>
+            onMapItem ? onMapItem(item.id, analyteKey) : onEditItem(item.id, { ...item.value, analyteKey })
+          }
         />
       )}
     </Box>

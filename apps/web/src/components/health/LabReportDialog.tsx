@@ -17,7 +17,9 @@
  * 4. The review: results grouped by date (#305: each result may carry its own
  *    collection date), then by panel; the report date and lab name (the
  *    intake's context) are editable; unmatched results must be mapped or
- *    rejected (Save is disabled, with the reason, until they are); the
+ *    rejected (Save is disabled, with the reason, until they are), and
+ *    mapping one maps every result printed under the same name (#307, the
+ *    server decides which; the review says how many it mapped); the
  *    duplicate warning (`GET /measurements/lab-reports/:id/duplicates`) is
  *    shown before saving and saving over it takes an explicit "Save anyway".
  *
@@ -79,7 +81,9 @@ import {
   formatLabNumber,
   getLabReportDuplicates,
   isUnresolved,
+  mapLabResult,
   labApplyRefusal,
+  labMappedMessage,
   labResultPayload,
   labSavedMessage,
   resultDate,
@@ -306,6 +310,10 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
   // can show the server's field messages; the intake is then re-read.
   const [writing, setWriting] = useState(0);
   const [writeIssues, setWriteIssues] = useState<string[] | null>(null);
+  /** #307: what the last map did, when it did more than the one row shows. */
+  const [mapNotice, setMapNotice] = useState<{ message: string; severity: 'success' | 'warning'; reasons: string[] } | null>(
+    null,
+  );
   const [applying, setApplying] = useState(false);
   const applyingRef = useRef(false);
   const [applyFailure, setApplyFailure] = useState<ApplyFailure | null>(null);
@@ -322,6 +330,7 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
     async (fallback: string, call: () => Promise<unknown>) => {
       setWriting((n) => n + 1);
       setWriteIssues(null);
+      setMapNotice(null);
       try {
         await call();
       } catch (err) {
@@ -340,6 +349,17 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
     void write('Could not save this result', () =>
       updateDraftItem(intakeId, itemId, { value: labResultPayload(value) as LabReportValue }),
     );
+  const mapItem = (itemId: string, analyteKey: string) => {
+    const printed = scan.items.find((item) => item.id === itemId)?.value.nameAsPrinted ?? null;
+    const label = catalog?.metrics.find((metric) => metric.key === analyteKey)?.label ?? analyteKey;
+    void write('Could not map this result', async () => {
+      const result = await mapLabResult(intakeId, itemId, analyteKey);
+      const notice = labMappedMessage(result, printed, label);
+      if (notice && isMounted()) {
+        setMapNotice({ ...notice, reasons: [...new Set(result.skipped.map((skip) => skip.message))] });
+      }
+    });
+  };
   const addItem = (value: LabReportValue) =>
     void write('Could not add this result', () =>
       addDraftItem(intakeId, { kind: LAB_REPORT_ITEM_KIND, value: labResultPayload(value) }),
@@ -491,10 +511,24 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
           onRejectItem={(id) => void scan.rejectItem(id)}
           onRestoreItem={(id) => void scan.restoreItem(id)}
           onEditItem={editItem}
+          onMapItem={mapItem}
           onAddItem={addItem}
           onAcceptAll={() => void scan.acceptAll()}
           onAcceptHighConfidence={() => void scan.acceptAll({ only: 'high_confidence' })}
         />
+        {mapNotice && (
+          <Alert
+            severity={mapNotice.severity}
+            data-testid="lab-report-map-notice"
+            role="status"
+            onClose={() => setMapNotice(null)}
+          >
+            {mapNotice.message}
+            {mapNotice.reasons.map((reason) => (
+              <Box key={reason}>{reason}</Box>
+            ))}
+          </Alert>
+        )}
         {writeIssues && (
           <Alert severity="error" data-testid="lab-report-write-issues" onClose={() => setWriteIssues(null)}>
             <AlertTitle>Not changed</AlertTitle>
