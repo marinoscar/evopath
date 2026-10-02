@@ -232,7 +232,7 @@ const TRIGLYCERIDE_MMOL = per(0.01129); // 88.57 mg/dL per mmol/L
 const GLUCOSE_MMOL = per(0.0555); // 18.02 mg/dL per mmol/L (180.16 g/mol)
 const IRON_UMOL = 5.585; // ug/dL per umol/L (55.85 g/mol)
 const KATAL_U = 60; // 1 ukat/L = 60 U/L (umol/min)
-/** The canonical "unit" of a unitless lab ratio (A/G, BUN/creatinine). */
+/** The canonical "unit" of a unitless lab ratio (A/G, BUN/creatinine, the lipid ratios). */
 export const RATIO = 'ratio';
 /** HbA1c: NGSP % = IFCC mmol/mol / 10.929 + 2.15 (the IFCC-NGSP master equation). */
 const HBA1C_IFCC: readonly [number, number] = [per(10.929), 2.15];
@@ -272,6 +272,25 @@ const LAB_METRICS: readonly MetricDef[] = [
     label: 'Apolipoprotein B', panel: 'lipids', unit: 'mg/dL', alt: { 'g/L': 100 }, si: ['g/L', 2],
     min: 0, max: 500, decimals: 0,
     aliases: ['ApoB', 'Apo B', 'Apo-B', 'Apolipoprotein B-100', 'Apolipoprotein B100'],
+  }),
+  // Unitless lipid ratios (#307), the same shape as the CMP ratios below.
+  lab('chol_hdl_ratio', {
+    label: 'Cholesterol/HDL ratio', panel: 'lipids', unit: RATIO,
+    min: 0, max: 30, decimals: 1,
+    aliases: [
+      'Chol/HDL Ratio', 'Chol/HDL', 'TC/HDL', 'TC/HDL Ratio', 'Cholesterol/HDL Ratio',
+      'Total Cholesterol/HDL Ratio', 'Cholesterol/HDL-C Ratio', 'Total Cholesterol/HDL-C Ratio',
+    ],
+  }),
+  lab('ldl_hdl_ratio', {
+    label: 'LDL/HDL ratio', panel: 'lipids', unit: RATIO,
+    min: 0, max: 30, decimals: 1,
+    aliases: ['LDL/HDL Ratio', 'LDL-C/HDL-C Ratio', 'LDL/HDL'],
+  }),
+  lab('tg_hdl_ratio', {
+    label: 'Triglyceride/HDL ratio', panel: 'lipids', unit: RATIO,
+    min: 0, max: 50, decimals: 1,
+    aliases: ['Triglyceride/HDL Ratio', 'TG/HDL', 'TG/HDL Ratio', 'Triglycerides/HDL Ratio'],
   }),
 
   // --- Glycemic ---------------------------------------------------------------

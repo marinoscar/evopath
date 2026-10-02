@@ -30,6 +30,9 @@ describe('lab catalog', () => {
       'triglycerides',
       'non_hdl_cholesterol',
       'apob',
+      'chol_hdl_ratio',
+      'ldl_hdl_ratio',
+      'tg_hdl_ratio',
     ],
     glycemic: ['fasting_glucose', 'hba1c', 'fasting_insulin'],
     cbc: ['hemoglobin', 'hematocrit', 'rbc_count', 'wbc_count', 'platelet_count', 'mcv'],
@@ -220,6 +223,14 @@ describe('lab catalog', () => {
       expect(unitFor('albumin_globulin_ratio', 'Ratio')?.unit).toBe('ratio');
     });
 
+    it('treats the lipid ratios as unitless lipids (#307)', () => {
+      for (const key of ['chol_hdl_ratio', 'ldl_hdl_ratio', 'tg_hdl_ratio']) {
+        expect(getMetric(key)).toMatchObject({ canonicalUnit: 'ratio', panel: 'lipids', decimals: 1, min: 0 });
+        expect(unitFor(key, 'Ratio')?.unit).toBe('ratio');
+      }
+      expect(getMetric('tg_hdl_ratio')!.max).toBeGreaterThan(getMetric('chol_hdl_ratio')!.max);
+    });
+
     it('matches lab spellings of a unit (case, u or mu for micro) for labs only', () => {
       expect(unitFor('creatinine', 'umol/l')?.unit).toBe('µmol/L');
       expect(unitFor('creatinine', 'μmol/L')?.unit).toBe('µmol/L');
@@ -311,6 +322,24 @@ describe('lab catalog', () => {
       ['B/C Ratio', 'bun_creatinine_ratio'],
       ['Sodium Lvl', 'sodium'],
       ['Potassium Lvl', 'potassium'],
+      // Lipid ratios (#307).
+      ['Chol/HDL Ratio', 'chol_hdl_ratio'],
+      ['Chol/HDL Ratio (CALC)', 'chol_hdl_ratio'],
+      ['Chol/HDL', 'chol_hdl_ratio'],
+      ['TC/HDL', 'chol_hdl_ratio'],
+      ['TC/HDL Ratio', 'chol_hdl_ratio'],
+      ['Cholesterol/HDL Ratio', 'chol_hdl_ratio'],
+      ['Total Cholesterol/HDL Ratio', 'chol_hdl_ratio'],
+      ['Cholesterol/HDL-C Ratio', 'chol_hdl_ratio'],
+      ['Total Cholesterol/HDL-C Ratio', 'chol_hdl_ratio'],
+      ['chol / hdl ratio', 'chol_hdl_ratio'],
+      ['LDL/HDL Ratio', 'ldl_hdl_ratio'],
+      ['LDL-C/HDL-C Ratio', 'ldl_hdl_ratio'],
+      ['LDL/HDL', 'ldl_hdl_ratio'],
+      ['Triglyceride/HDL Ratio', 'tg_hdl_ratio'],
+      ['Triglycerides/HDL Ratio', 'tg_hdl_ratio'],
+      ['TG/HDL', 'tg_hdl_ratio'],
+      ['TG/HDL Ratio (calc)', 'tg_hdl_ratio'],
     ])('resolves %p to %s once common qualifiers are stripped', (name, key) => {
       expect(resolveLabAnalyte(name)?.key).toBe(key);
     });
@@ -332,6 +361,9 @@ describe('lab catalog', () => {
       expect(resolveLabAnalyte('Lvl')).toBeUndefined();
       expect(resolveLabAnalyte('Serum Total Lvl')).toBeUndefined();
       expect(resolveLabAnalyte('Normal Range: 3.6 - 5.1 g/dL')).toBeUndefined();
+      // The lipid ratios never collapse onto a component analyte.
+      expect(resolveLabAnalyte('Chol/HDL Ratio')?.key).not.toBe('total_cholesterol');
+      expect(resolveLabAnalyte('HDL Ratio')).toBeUndefined();
     });
 
     it('folds case, accents, spaces and punctuation', () => {
@@ -392,6 +424,9 @@ describe('lab catalog', () => {
     it('keeps SI and conventional on one unit only where they agree', () => {
       const same = LAB_METRIC_KEYS.filter((key) => getMetric(key)!.siUnit === getMetric(key)!.canonicalUnit);
       expect(same).toEqual([
+        'chol_hdl_ratio',
+        'ldl_hdl_ratio',
+        'tg_hdl_ratio',
         'mcv',
         'alt',
         'ast',

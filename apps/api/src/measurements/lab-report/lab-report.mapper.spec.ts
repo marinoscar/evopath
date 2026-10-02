@@ -168,6 +168,27 @@ describe('mapLabReportOutput (H4, #188)', () => {
     });
   });
 
+  it('drafts the lipid ratios printed without a unit as clean, saveable lipids (#307)', () => {
+    const { drafts, resultMeta } = one(
+      result({ nameAsPrinted: 'Chol/HDL Ratio', value: 3.6, unit: null, note: '(CALC)', collectionDate: '2025-11-19' }),
+    );
+    expect(drafts[0]).toMatchObject({
+      confidence: 'high',
+      uncertain: false,
+      value: { analyteKey: 'chol_hdl_ratio', value: 3.6, unit: 'ratio', originalUnit: null, panel: 'lipids', match: 'matched' },
+    });
+    expect(resultMeta.flagged).toBe(0);
+
+    expect(one(result({ nameAsPrinted: 'TG/HDL', value: 2.1, unit: null })).drafts[0]).toMatchObject({
+      uncertain: false,
+      value: { analyteKey: 'tg_hdl_ratio', unit: 'ratio', panel: 'lipids' },
+    });
+    expect(one(result({ nameAsPrinted: 'LDL-C/HDL-C Ratio', value: 2.4, unit: null })).drafts[0]).toMatchObject({
+      uncertain: false,
+      value: { analyteKey: 'ldl_hdl_ratio', unit: 'ratio' },
+    });
+  });
+
   it('attributes a result with no valid input number to every input', () => {
     const { drafts } = mapLabReportOutput(
       { readable: true, collectionDate: null, labName: null, results: [result({ sourcePhotoIndexes: [9] })] },
