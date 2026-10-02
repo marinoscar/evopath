@@ -26,6 +26,12 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   providers: AuthProviderType[];
+  /**
+   * True once a signed-in session was lost because the server refused to
+   * refresh it (issue #295), until the next sign-in. The login page reads it to
+   * explain why the user is there; `ProtectedRoute` does the redirect.
+   */
+  sessionExpired: boolean;
   login: (provider: string, options?: LoginOptions) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -41,6 +47,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [providers, setProviders] = useState<AuthProviderType[]>([]);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const initRef = useRef(false);
@@ -58,6 +65,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
     fetchProviders();
+  }, []);
+
+  // Issue #295: when a refresh the API client attempted while holding an
+  // access token is refused (401/403), the session is gone for good: clear it
+  // so `ProtectedRoute` sends the user to /login (with `from`, so they come
+  // back) instead of every widget rendering its own "Unauthorized". The client
+  // only fires this for a page that HELD a token, so the boot-time probe on the
+  // login page or a public page never triggers it, and once the token is
+  // cleared here it cannot fire again until the next sign-in: no loop.
+  useEffect(() => {
+    return api.onSessionExpired(() => {
+      api.setAccessToken(null);
+      setUser(null);
+      setSessionExpired(true);
+    });
   }, []);
 
   // Check for existing session on mount (runs only once)
@@ -90,6 +112,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       const userData = await api.get<User>('/auth/me');
       setUser(userData);
+      setSessionExpired(false);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setUser(null);
@@ -133,6 +156,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error('Logout error:', error);
     } finally {
       setUser(null);
+      setSessionExpired(false);
       api.setAccessToken(null);
       navigate('/login');
     }
@@ -147,6 +171,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isLoading,
     isAuthenticated: !!user,
     providers,
+    sessionExpired,
     login,
     logout,
     refreshUser,

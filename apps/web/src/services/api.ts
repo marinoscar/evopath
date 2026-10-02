@@ -10,6 +10,8 @@
  */
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+import { APP_SLUG } from '@app/shared';
+
 // Issue #258, epic #254. The maintenance recogniser is imported here — and
 // nowhere near a page — because the interception is CENTRAL: see `toError`.
 import { readMaintenanceBlock, reportMaintenanceBlock } from './maintenance';
@@ -31,9 +33,20 @@ export interface BlobWithHeaders {
   headers: Headers;
 }
 
-class ApiService {
+/**
+ * The Web Lock every page of this app on one origin takes around
+ * `POST /auth/refresh` (issue #295). Derived from the shared identity so two
+ * apps built from this template never contend for each other's lock.
+ */
+export const AUTH_REFRESH_LOCK_NAME = `${APP_SLUG}-auth-refresh`;
+
+/** Called when the server definitively refused to refresh a live session. */
+export type SessionExpiredListener = () => void;
+
+export class ApiService {
   private accessToken: string | null = null;
   private refreshPromise: Promise<boolean> | null = null;
+  private sessionExpiredListeners = new Set<SessionExpiredListener>();
 
   setAccessToken(token: string | null) {
     this.accessToken = token;
@@ -41,6 +54,20 @@ class ApiService {
 
   getAccessToken(): string | null {
     return this.accessToken;
+  }
+
+  /**
+   * Subscribe to "the session is gone" (issue #295): a refresh attempted while
+   * this page HELD an access token was answered 401/403 by the server. Never
+   * fired for a page that was not signed in (the boot-time probe on the login
+   * page or any public page holds no token), nor for a network failure, so a
+   * listener can safely send the user to sign in. Returns the unsubscribe.
+   */
+  onSessionExpired(listener: SessionExpiredListener): () => void {
+    this.sessionExpiredListeners.add(listener);
+    return () => {
+      this.sessionExpiredListeners.delete(listener);
+    };
   }
 
   private async request<T>(
@@ -174,8 +201,9 @@ class ApiService {
       return this.refreshPromise;
     }
 
-    // Start a new refresh
-    this.refreshPromise = this.doRefreshToken();
+    // Start a new refresh. `refreshPromise` dedupes within THIS page; the
+    // Web Lock serialises across pages (see `refreshAcrossPages`).
+    this.refreshPromise = this.refreshAcrossPages();
 
     try {
       return await this.refreshPromise;
@@ -184,7 +212,40 @@ class ApiService {
     }
   }
 
+  /**
+   * Run the refresh under an exclusive Web Lock shared by every page of this
+   * origin (issue #295).
+   *
+   * WHY: the `refresh_token` cookie is HttpOnly, rotated on every use, and
+   * shared by every page in the browser profile: several tabs, and on Android
+   * the TWA window plus a Chrome Custom Tab (the pairing flow on `/activate`).
+   * Two pages refreshing at once would present the SAME cookie twice; the
+   * server treats a second presentation of a rotated token as theft and
+   * revokes every refresh token the user holds (reuse detection in
+   * `auth.service.ts`), signing out all of them. Serialised, the page that
+   * waited presents the NEWER cookie the first page's rotation left in the
+   * shared jar, so there is no reuse.
+   *
+   * Without `navigator.locks` (older browsers, jsdom) this is the plain
+   * in-page refresh it was before.
+   */
+  private refreshAcrossPages(): Promise<boolean> {
+    const locks =
+      typeof navigator !== 'undefined'
+        ? (navigator as Navigator & { locks?: LockManager }).locks
+        : undefined;
+    if (!locks || typeof locks.request !== 'function') {
+      return this.doRefreshToken();
+    }
+    return locks.request(AUTH_REFRESH_LOCK_NAME, { mode: 'exclusive' }, () =>
+      this.doRefreshToken(),
+    );
+  }
+
   private async doRefreshToken(): Promise<boolean> {
+    // Whether this page believed it was signed in when the refresh started:
+    // only then is a refusal "your session expired" rather than "not signed in".
+    const hadSession = this.accessToken !== null;
     try {
       const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: 'POST',
@@ -193,6 +254,9 @@ class ApiService {
 
       if (!response.ok) {
         this.accessToken = null;
+        if (hadSession && (response.status === 401 || response.status === 403)) {
+          this.notifySessionExpired();
+        }
         return false;
       }
 
@@ -211,6 +275,16 @@ class ApiService {
     } catch {
       this.accessToken = null;
       return false;
+    }
+  }
+
+  private notifySessionExpired() {
+    for (const listener of [...this.sessionExpiredListeners]) {
+      try {
+        listener();
+      } catch (error) {
+        console.error('Session-expired listener failed:', error);
+      }
     }
   }
 
