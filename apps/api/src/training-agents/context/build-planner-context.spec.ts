@@ -83,10 +83,12 @@ describe('buildTrainingRunContext', () => {
         ],
         checkIns: [{ date: '2026-09-29', energy: 4, sleepQuality: 4, soreness: 2, stress: 2 }],
         healthSummary: HEALTH_SUMMARY_FIXTURE,
+        userMemories: '<user_memories>\nUser-provided notes.\n- (schedule) User trains before work.\n</user_memories>',
       }),
     );
 
     expect(Object.keys(full.planner).sort()).toEqual([...PLANNER_CONTEXT_KEYS].sort());
+    expect(full.planner.userMemories).toContain('User trains before work.');
 
     const summary = summarizePlannerContext(full.planner);
     expect(summary.sections.map((s) => s.key)).toEqual([...PLANNER_CONTEXT_KEYS]);
@@ -96,6 +98,25 @@ describe('buildTrainingRunContext', () => {
     for (const key of ['profile', 'bodyMetrics', 'cardio', 'history', 'readiness', 'healthSummary', 'bio', 'currentPlan']) {
       expect(empty.sections.find((s) => s.key === key)?.items).toEqual([NONE_USED]);
     }
+  });
+
+  describe('the user memory notes (#325)', () => {
+    const BLOCK = '<user_memories>\nUser-provided notes.\n- (equipment) User trains at home with adjustable dumbbells.\n</user_memories>';
+
+    it('absent or empty (memory off, nothing stored): no key at all', () => {
+      expect('userMemories' in runContextFixture().planner).toBe(false);
+      expect('userMemories' in runContextFixture({ userMemories: '' }).planner).toBe(false);
+      expect('userMemories' in runContextFixture({ userMemories: null }).planner).toBe(false);
+    });
+
+    it('present: the block verbatim on the planner only, never the researcher; the summary lists the facts', () => {
+      const context = runContextFixture({ userMemories: BLOCK });
+
+      expect(context.planner.userMemories).toBe(BLOCK);
+      expect(JSON.stringify(context.researcher)).not.toContain('dumbbells');
+      const section = summarizePlannerContext(context.planner).sections.find((s) => s.key === 'userMemories');
+      expect(section?.items).toEqual(['User trains at home with adjustable dumbbells.']);
+    });
   });
 
   describe('the opt-in health summary (H8, #192)', () => {

@@ -101,9 +101,10 @@ describe('AI model assignments over HTTP (#173)', () => {
         'coach.decision': null,
         'coach.chat': null,
         'coach.voice': null,
+        'memory.extract': null,
       },
     });
-    expect(data.features.map((f: { featureId: string }) => f.featureId)).toHaveLength(12);
+    expect(data.features.map((f: { featureId: string }) => f.featureId)).toHaveLength(13);
     // E7.1 (#241): the coach features, in their own group, with their needs.
     expect(data.features.find((f: { featureId: string }) => f.featureId === 'coach.voice')).toMatchObject({
       group: 'coach',

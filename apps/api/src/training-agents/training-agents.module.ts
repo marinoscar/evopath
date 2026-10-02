@@ -6,6 +6,7 @@ import { AiCoreModule } from '../ai/core/ai-core.module';
 import { AiKeysModule } from '../ai/keys/ai-keys.module';
 import { AiRuntimeModule } from '../ai/runtime/ai-runtime.module';
 import { HealthSummaryModule } from '../health-summary/health-summary.module';
+import { MemoryModule } from '../memory/memory.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ProgramsModule } from '../programs/programs.module';
@@ -74,6 +75,9 @@ import { TrainingRunsService } from './runtime/training-runs.service';
     // H8 (#192): `HealthSummaryReader`, the one door through which the opt-in
     // health summary (and nothing else of the health record) reaches a run.
     HealthSummaryModule,
+    // #325: `MemoryContextService`, the user's memory notes for the planner
+    // (training categories only, as one delimited untrusted-data block).
+    MemoryModule,
   ],
   controllers: [TrainingModelsController, TrainingRunsController],
   providers: [

@@ -34,6 +34,8 @@ export const userDataSummarySchema = z.object({
   progressPhotos: count,
   /** AI Coach conversation: nudges, chat turns, weekly reviews. */
   coachMessages: count,
+  /** Remembered facts (#325), active ones only. Added after the first release. */
+  memories: count,
   /** Activity goals, archived ones included (epic #260). Added after the first release. */
   activityGoals: count,
   /** Activity entries: manual check-ins and workout-derived entries (epic #260). Added after the first release. */
@@ -75,6 +77,9 @@ export const userDataResetResultSchema = z.object({
   progressPhotos: count.default(0),
   coachMessages: count.default(0),
   coachStates: count.default(0),
+  /** User memory (#325): added after the first release, so an older result reads as 0. */
+  memories: count.default(0),
+  memoryStates: count.default(0),
   /** Activity goals and entries (epic #260): added after the first release, so an older result reads as 0. */
   activityGoals: count.default(0),
   activityEntries: count.default(0),

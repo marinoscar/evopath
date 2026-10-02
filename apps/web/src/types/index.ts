@@ -444,6 +444,12 @@ export interface UserSettings {
    * or field) means the built-in default; see `CoachSettings`.
    */
   coach?: CoachSettings;
+  /**
+   * User memory preferences (#325). Optional and sparse: absent (namespace or
+   * field) means the built-in default (`enabled`, `autoExtract` and
+   * `allowHealth` true, `disclosureSeenAt` null); see `MemorySettings`.
+   */
+  memory?: MemorySettings;
   updatedAt: string;
   version: number;
 }
@@ -486,7 +492,29 @@ export interface CoachSettings {
   preferredTime?: string | null;
 }
 
+// =============================================================================
+// User memory settings (#325)
+// =============================================================================
+
+/**
+ * `user_settings.memory`. Every field is optional; absent means the default.
+ * The extraction watermark is server-managed and is not part of this shape.
+ */
+export interface MemorySettings {
+  /** Default true: the coach may use and store memories. */
+  enabled?: boolean;
+  /** Default true: learn from chat in the background. */
+  autoExtract?: boolean;
+  /** Default true: health-related facts stated as training constraints. */
+  allowHealth?: boolean;
+  /** ISO datetime the user dismissed the disclosure, or null. */
+  disclosureSeenAt?: string | null;
+}
+
 type Nullable<T> = { [K in keyof T]?: T[K] | null };
+
+/** PATCH form of `memory`: `null` clears a field. */
+export type MemorySettingsPatch = Nullable<MemorySettings>;
 
 /**
  * PATCH form of `coach`: merged field by field server-side (and one level into
@@ -690,6 +718,8 @@ export interface UserSettingsUpdate {
   onboarding?: OnboardingSettingsPatch | null;
   /** AI Coach preferences (E7.1, #241). Field-wise merge; `null` clears a key or the namespace. */
   coach?: CoachSettingsPatch | null;
+  /** User memory preferences (#325). Field-wise merge; `null` clears a key or the namespace. */
+  memory?: MemorySettingsPatch | null;
 }
 
 /**

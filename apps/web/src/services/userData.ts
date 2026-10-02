@@ -33,6 +33,8 @@ export interface UserDataSummary {
   notifications?: number;
   progressPhotos?: number;
   coachMessages?: number;
+  /** Remembered facts the coach keeps about the user, active ones (#325). */
+  memories?: number;
   /** Activity goals, archived ones included (epic #260). */
   activityGoals?: number;
   /** Activity entries: manual check-ins and workout-derived entries (epic #260). */

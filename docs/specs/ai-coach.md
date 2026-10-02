@@ -504,8 +504,13 @@ On `/coach` an overflow button above the timeline (**Conversation options**, `ap
 | `get_goals` | read | The user's active goals in their current period: title (the user's label, data), metric, period, done, target, remaining, `daysLeft`, `hit`, `onTrack` and `streakPeriods`. No id, entry or note |
 | `pause_coach` | **write** | Sets `pausedUntil`. `days` is 1 to 14, `reason` is short text. For "I'm sick" or "on vacation". |
 | `save_commitment` | **write** | Saves the kickoff answer: `why` (at most 200 characters) and/or `preferredTime` (`HH:mm`), through `CoachSettingsService.update` (the `PUT /api/coach/settings` path). Called only after the user explicitly confirms the values; a bad value answers `COACH_COMMITMENT_INVALID` to the model. |
+| `remember` | **write** (memory) | Stores one fact about the user (`{ content, category, sensitivity }`, `source = explicit`) through `MemoryService.write`; registered only while memory is on. See [ai-memory.md §2.4](ai-memory.md#24-coach-chat-tools-and-the-memory-frame). |
+| `forget` | **write** (memory) | Soft-deletes one memory by its `[m<n>]` ref, or the best match of a short query. |
+| `update_memory` | **write** (memory) | Corrects one memory by its ref. |
 
 Plan changes are not tools. The coach proposes and links to the existing adjust flow, so the user stays in control.
+
+**Memory (#325).** While memory is on for the user, the system instructions end with the user's memory block (`<user_memories>`, an untrusted-data preamble, one `[m<n>] (category) fact` line per memory, about 1,500 tokens at most) and the rules tell the coach when to call `remember` ("call me Bobby"), to acknowledge briefly, and that the conversation wins over a note. After a model turn's reply is stored, `ai.memory.extract` is queued 5 minutes out (deduplicated per user) to learn durable facts in the background. The nudge and the weekly review prose carry the same block in their data text. Details: [ai-memory.md](ai-memory.md).
 
 **Safety screen.** Every user message passes `screenFreeText` (`apps/api/src/training-agents/guardrails/safety-screen.ts`) and a coach-specific distress screen `apps/api/src/coach/safety/distress-screen.ts`. The existing screen covers urgent physical symptoms and pain stems; it has no self-harm or eating-disorder rules, so the coach adds them.
 
@@ -529,6 +534,7 @@ Plan changes are not tools. The coach proposes and links to the existing adjust 
 |---|---|---|
 | `safety` | `{ level: 'blocked' \| 'conservative', screen: 'distress' \| 'symptom' \| 'pain' }` | First, when a screen matched |
 | `tool` | `{ name, status }` | One per tool call, while the model works; never arguments or results |
+| `memory` | `{ op: 'added' \| 'updated' \| 'deleted', memoryId, content }` | Right after the `tool` frame of a `remember`, `forget` or `update_memory` call that changed a memory (#325). Additive: a client that does not know it ignores it. Undo: `DELETE /api/memories/{memoryId}` (added) or `POST /api/memories/{memoryId}/restore` (deleted) |
 | `delta` | `{ text }` | The reply, in order |
 | `done` | `{ messageId, userMessageId, links: [{ label, href }], pausedUntil, fallback }` | Last, on success |
 | `error` | `{ code, message, userMessageId }` | Last, on a failure after streaming began or after the user's message was stored; `userMessageId` is that stored row, or `null` (never an empty string) when none was stored |

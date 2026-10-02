@@ -159,6 +159,9 @@ const MIGRATIONS_AT_288 = [
   // #323: `coach_states.chat_cleared_at`, the coach chat "Start over". About
   // coaching, not notifications.
   '20261005100000_coach_chat_cleared_at',
+  // #325: `user_memories`, `user_memory_states` and the pg_trgm index. About
+  // user memory, not notifications.
+  '20261005110000_user_memories',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

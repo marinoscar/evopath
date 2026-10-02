@@ -64,7 +64,8 @@ export class CoachChatController {
       '`text/event-stream`. The coach answers in the caller\'s persona with the `coach.chat` model, the last ' +
       `${COACH_CHAT_HISTORY_LIMIT} timeline messages as history, and read-only tools over the caller's own data ` +
       '(training signals, today\'s plan, recent workouts, check-in scores, progress-photo dates and counts, the ' +
-      'last weekly review). Its one write tool pauses the coach for 1 to 14 days (`COACH_PAUSE_INVALID` to the ' +
+      'last weekly review). While memory is on it also sees your memories and can remember, forget or correct a ' +
+      'fact when you ask (`/api/memories`). Its one plan-adjacent write tool pauses the coach for 1 to 14 days (`COACH_PAUSE_INVALID` to the ' +
       'model outside that range); it never changes a plan, program or workout: a plan change is a link to ' +
       '`/train` ("Adjust today\'s workout"). Both turns are stored as timeline messages (`kind: chat`).\n\n' +
       '**Safety.** A message that mentions an urgent physical symptom, self-harm, suicidal thoughts or ' +
@@ -76,6 +77,11 @@ export class CoachChatController {
       'when a safety screen matched;\n' +
       '- `tool` — `{ name, status: "ok" | "invalid_arguments" | "unknown_tool" | "error" | "timeout" }`, one per ' +
       'tool call, while the coach works (never the arguments or the result);\n' +
+      '- `memory` — `{ op: "added" | "updated" | "deleted", memoryId, content }`, right after the `tool` frame of a ' +
+      '`remember`, `forget` or `update_memory` call that changed a memory (only while memory is on): show it with an ' +
+      'Undo (`DELETE /api/memories/{memoryId}` for `added`, `POST /api/memories/{memoryId}/restore` for `deleted`; ' +
+      '`updated` edits in place, so offer "Manage" instead). ' +
+      'A client that does not know this frame can ignore it;\n' +
       '- `delta` — `{ text }`, the reply in order (already checked by the content guard);\n' +
       '- `done` — `{ messageId, userMessageId, links: [{ label, href }], pausedUntil: string | null, fallback }`, ' +
       'last: the stored reply\'s id; `fallback` is true when the guard replaced the model\'s reply;\n' +

@@ -179,6 +179,10 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'coach.audio.settle': 'Coach audio settle',
   // Daily: deletes coach voice notes older than the retention window (E7.6).
   'coach.audio.purge': 'Coach audio purge',
+  // Learns durable facts from one user's recent coach chat messages (#325).
+  'ai.memory.extract': 'AI memory extraction',
+  // Daily: erases deleted and replaced memories past the undo window (#325).
+  'memory.purge': 'Memory purge',
 };
 
 /**

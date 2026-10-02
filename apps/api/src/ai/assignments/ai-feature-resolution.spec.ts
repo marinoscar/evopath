@@ -113,6 +113,14 @@ describe('AI feature registry', () => {
     }
   });
 
+  it('memory.extract is a memory-group feature needing responses and structured_output (#325)', () => {
+    expect(AI_FEATURES['memory.extract']).toMatchObject({
+      group: 'memory',
+      needs: ['responses', 'structured_output'],
+      inputModalities: [],
+    });
+  });
+
   it('coach.voice is unusable on a model, or a provider, without audio_speech', () => {
     const supports = () => true;
     expect(featureShortfall(AI_FEATURES['coach.voice'], { provider: 'openai', capabilities: ['responses'] }, supports)).toEqual(['audio_speech']);

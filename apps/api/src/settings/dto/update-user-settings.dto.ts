@@ -11,6 +11,8 @@ import {
   onboardingPatchSchema,
   coachSettingsSchema,
   coachSettingsPatchSchema,
+  memorySettingsSchema,
+  memorySettingsPatchSchema,
 } from '../../common/schemas/user-settings-namespaces.schema';
 import {
   userProfileSettingsSchema,
@@ -40,6 +42,8 @@ export const updateUserSettingsSchema = z.object({
   // AI Coach preferences (E7.1, #241). Omit to store nothing. Strict: an
   // unknown key inside `coach` is a 400.
   coach: coachSettingsSchema.optional(),
+  // User memory preferences (#325). Omit to store nothing. Strict.
+  memory: memorySettingsSchema.optional(),
 });
 
 export class UpdateUserSettingsDto extends createZodDto(
@@ -74,6 +78,9 @@ export const patchUserSettingsSchema = z.object({
   // field; `coach: { audio: { speed: 1.25 } }` merges into the stored
   // `audio` (E7.1, #241).
   coach: coachSettingsPatchSchema.nullable().optional(),
+  // `memory: null` clears the namespace; `memory: { enabled: null }` clears one
+  // field (#325).
+  memory: memorySettingsPatchSchema.nullable().optional(),
 });
 
 export class PatchUserSettingsDto extends createZodDto(

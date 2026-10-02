@@ -582,6 +582,13 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     autoSilenceAfterIgnored: 3,
     inactiveStopDays: 7,
   },
+  memory: {
+    enabled: true,
+    autoExtract: true,
+    maxPerUser: 200,
+    extractDailyCapPerUser: 20,
+    purgeAfterDays: 30,
+  },
 };
 
 // =============================================================================

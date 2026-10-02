@@ -24,6 +24,7 @@ import {
   systemAiProviderSchema,
   systemTelemetrySchema,
   systemCoachSchema,
+  systemMemorySchema,
   AI_PROVIDER_IDS,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
@@ -35,6 +36,7 @@ import {
   type SystemAiValue,
   type SystemTelemetryValue,
   type SystemCoachValue,
+  type SystemMemoryValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -412,6 +414,12 @@ export class SystemSettingsService {
         systemCoachSchema,
         DEFAULT_SYSTEM_SETTINGS.coach,
       ),
+      // User memory policy (#325), read the same way.
+      memory: this.readNamespace(
+        root?.memory,
+        systemMemorySchema,
+        DEFAULT_SYSTEM_SETTINGS.memory,
+      ),
     };
   }
 
@@ -755,6 +763,8 @@ export class SystemSettingsService {
       // E7.1, #241. No credential; published for the same "a block a client
       // cannot GET is a block it cannot echo back in a PUT" reason.
       coach: value.coach,
+      // #325. No credential; published for the same echo-back reason.
+      memory: value.memory,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -1092,6 +1102,20 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).coach;
+  }
+
+  /**
+   * The deployment-wide user memory policy (#325). Narrow accessor like
+   * `getCoachPolicy`: it does not create the row. A missing or malformed value
+   * degrades to `DEFAULT_SYSTEM_SETTINGS.memory`.
+   */
+  async getMemoryPolicy(): Promise<SystemMemoryValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).memory;
   }
 
   /**
@@ -1574,6 +1598,17 @@ export class SystemSettingsService {
           currentValue.coach.autoSilenceAfterIgnored,
         inactiveStopDays:
           dto.coach?.inactiveStopDays ?? currentValue.coach.inactiveStopDays,
+      },
+      // #325. Every field is required and non-nullable.
+      memory: {
+        enabled: dto.memory?.enabled ?? currentValue.memory.enabled,
+        autoExtract: dto.memory?.autoExtract ?? currentValue.memory.autoExtract,
+        maxPerUser: dto.memory?.maxPerUser ?? currentValue.memory.maxPerUser,
+        extractDailyCapPerUser:
+          dto.memory?.extractDailyCapPerUser ??
+          currentValue.memory.extractDailyCapPerUser,
+        purgeAfterDays:
+          dto.memory?.purgeAfterDays ?? currentValue.memory.purgeAfterDays,
       },
     };
 

@@ -17,6 +17,7 @@ const LABELS: Record<AiFeatureId, string> = {
   'coach.decision': 'Coach decisions and weekly review',
   'coach.chat': 'Coach chat',
   'coach.voice': 'Coach voice',
+  'memory.extract': 'Memory extraction',
 };
 
 /** What each coach feature needs; mirrors `AI_FEATURES` in the API. */
@@ -24,22 +25,24 @@ const COACH_NEEDS: Partial<Record<AiFeatureId, string[]>> = {
   'coach.decision': ['responses', 'structured_output'],
   'coach.chat': ['responses', 'tools', 'streaming'],
   'coach.voice': ['audio_speech'],
+  'memory.extract': ['responses', 'structured_output'],
 };
 
 /** One feature, ready on the `mockUsableAiModels[0]` model (`openai` / `gpt-5-mini`, the caller's key). */
 export function mockFeatureView(featureId: AiFeatureId, overrides: Partial<AiFeatureView> = {}): AiFeatureView {
   const summary = featureId === 'health_summary';
   const coach = featureId.startsWith('coach.');
-  const photo = !summary && !coach && !featureId.startsWith('training.');
-  const noEffort = photo || summary || coach;
+  const memory = featureId.startsWith('memory.');
+  const photo = !summary && !coach && !memory && !featureId.startsWith('training.');
+  const noEffort = photo || summary || coach || memory;
   return {
     featureId,
     label: LABELS[featureId],
-    group: coach ? 'coach' : photo ? 'photo' : 'training',
+    group: coach ? 'coach' : memory ? 'memory' : photo ? 'photo' : 'training',
     state: 'ready',
     source: 'admin_feature',
     model: { provider: 'openai', modelId: 'gpt-5-mini', displayName: 'GPT-5 mini', keySource: 'user' },
-    needs: coach
+    needs: coach || memory
       ? (COACH_NEEDS[featureId] ?? [])
       : photo
         ? ['vision_input', 'structured_output']

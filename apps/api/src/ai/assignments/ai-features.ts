@@ -36,7 +36,7 @@ import {
 // `speak()`). See docs/specs/ai-coach.md §3.3.
 // =============================================================================
 
-export type AiFeatureGroup = 'photo' | 'training' | 'coach';
+export type AiFeatureGroup = 'photo' | 'training' | 'coach' | 'memory';
 
 export interface AiFeatureDefinition {
   readonly id: AiFeatureId;
@@ -141,6 +141,28 @@ export function trainingFeatureId(role: TrainingAgentRole): AiFeatureId {
   return `training.${role}`;
 }
 
+/**
+ * The user-memory features (#325). Not restricted to a provider; the provider
+ * port check refuses an adapter without the capability.
+ */
+function memory(
+  id: Extract<AiFeatureId, `memory.${string}`>,
+  label: string,
+  needs: readonly AiCapability[],
+): AiFeatureDefinition {
+  return {
+    id,
+    group: 'memory',
+    label,
+    needs,
+    inputModalities: [],
+    providers: null,
+    requiresWebSearch: false,
+    defaultEffort: null,
+    trainingRole: null,
+  };
+}
+
 export const AI_FEATURES: Readonly<Record<AiFeatureId, AiFeatureDefinition>> = {
   gym_scan: photo('gym_scan', 'Gym equipment scan'),
   workout_prefill: photo('workout_prefill', 'Workout prefill from a photo'),
@@ -157,6 +179,10 @@ export const AI_FEATURES: Readonly<Record<AiFeatureId, AiFeatureDefinition>> = {
   ]),
   'coach.chat': coach('coach.chat', 'Coach chat', ['responses', 'tools', 'streaming']),
   'coach.voice': coach('coach.voice', 'Coach voice', ['audio_speech']),
+  'memory.extract': memory('memory.extract', 'Memory extraction', [
+    'responses',
+    'structured_output',
+  ]),
 };
 
 /** Every feature, in `AI_FEATURE_IDS` order. */

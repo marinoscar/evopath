@@ -22,6 +22,8 @@ import {
   TELEMETRY_INSTANCE_ID_PATTERN,
   TASK_REASONING_EFFORTS,
   COACH_MAX_NUDGES_PER_DAY_CEILING_MAX,
+  MEMORY_MAX_PER_USER_MAX,
+  MEMORY_MAX_PER_USER_MIN,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -334,6 +336,15 @@ const coachSettingsSchema = z.object({
   inactiveStopDays: z.number().int().min(1).max(90),
 });
 
+// User memory policy on the wire (#325). Bounds mirror `systemMemorySchema`.
+const memorySettingsSchema = z.object({
+  enabled: z.boolean(),
+  autoExtract: z.boolean(),
+  maxPerUser: z.number().int().min(MEMORY_MAX_PER_USER_MIN).max(MEMORY_MAX_PER_USER_MAX),
+  extractDailyCapPerUser: z.number().int().min(1).max(200),
+  purgeAfterDays: z.number().int().min(1).max(3650),
+});
+
 // Full replacement (PUT)
 export const updateSystemSettingsSchema = z.object({
   // REQUIRED. A PUT that omits it is a 400 and
@@ -359,6 +370,8 @@ export const updateSystemSettingsSchema = z.object({
   telemetry: telemetrySettingsSchema.optional(),
   // E7.1, #241 — optional for the same reason, carried forward the same way.
   coach: coachSettingsSchema.optional(),
+  // #325 — optional for the same reason, carried forward the same way.
+  memory: memorySettingsSchema.optional(),
 });
 
 export class UpdateSystemSettingsDto extends createZodDto(
@@ -593,6 +606,21 @@ export const patchSystemSettingsSchema = z.object({
       audioRetentionDays: z.number().int().min(1).max(3650).optional(),
       autoSilenceAfterIgnored: z.number().int().min(1).max(20).optional(),
       inactiveStopDays: z.number().int().min(1).max(90).optional(),
+    })
+    .optional(),
+  // #325. Optional at the namespace level and field by field inside.
+  memory: z
+    .object({
+      enabled: z.boolean().optional(),
+      autoExtract: z.boolean().optional(),
+      maxPerUser: z
+        .number()
+        .int()
+        .min(MEMORY_MAX_PER_USER_MIN)
+        .max(MEMORY_MAX_PER_USER_MAX)
+        .optional(),
+      extractDailyCapPerUser: z.number().int().min(1).max(200).optional(),
+      purgeAfterDays: z.number().int().min(1).max(3650).optional(),
     })
     .optional(),
 });

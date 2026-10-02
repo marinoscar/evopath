@@ -49,7 +49,7 @@ const datasetsSchema = z
       '(blood pressure, resting heart rate), `labs` (blood work with reference ranges and flags), ' +
       '`wellness` (the daily check-in scores, "Wellness / mood"), `documents` (an index of kept ' +
       'documents, metadata only) and `progress_photos` (an index of progress photos: day, pose, note, ' +
-      'type and size, metadata only).',
+      'type and size, metadata only) and `memories` (your active memories: category, text, source, date added).',
   });
 
 /** Days from `from` to `to`, inclusive of neither end. */
@@ -108,6 +108,8 @@ const rowCountsSchema = z
       z.ZodNumber
     >),
     progress_photos: z.number().int().nonnegative().default(0),
+    // #325: added after `progress_photos`; an older result reads as 0.
+    memories: z.number().int().nonnegative().default(0),
   })
   .meta({ description: 'Rows written per dataset (0 for one not selected; `profile` is 0 or 1).' });
 

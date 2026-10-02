@@ -90,7 +90,7 @@ export const aiFeaturesViewSchema = z.object({
   features: z.array(
     featureResolutionSchema.extend({
       label: z.string(),
-      group: z.enum(['photo', 'training', 'coach']),
+      group: z.enum(['photo', 'training', 'coach', 'memory']),
     }),
   ),
 });

@@ -7,6 +7,7 @@ import { DEFAULT_SYSTEM_SETTINGS } from '../../common/types/settings.types';
 import { aggregateSignals } from '../../programs/signals/aggregate-signals';
 import { SAFETY_STOP_GUIDANCE } from '../../training-agents/guardrails/safety-keywords';
 import { containsProfanity } from '../guard/coach-content-guard';
+import { MemoryRefs } from '../../memory/memory-context.service';
 import { COACH_PAUSE_INVALID } from './coach-chat-errors';
 import { COACH_ADJUST_PATH, COACH_CHAT_SAFETY_LOOKBACK_MS } from './coach-chat-prompt';
 import { COACH_DISTRESS_REPLY } from './coach-chat-safety';
@@ -17,6 +18,7 @@ import { COACH_CHAT_FALLBACK_REPLY, CoachChatService, StepChannel, chunkText, ty
 // =============================================================================
 
 const USER = '11111111-1111-4111-8111-111111111111';
+const MEMORY_ID = '88888888-8888-4888-8888-888888888888';
 
 // Canaries in every never-send source the turn could touch.
 const CANARY = {
@@ -36,7 +38,7 @@ function call(name: string, args: unknown = {}, callId = `call_${name}`): AiOutp
 }
 
 function setup(
-  opts: { coach?: Record<string, unknown>; policy?: Record<string, unknown>; history?: unknown[]; chatClearedAt?: Date } = {},
+  opts: { coach?: Record<string, unknown>; policy?: Record<string, unknown>; history?: unknown[]; chatClearedAt?: Date; memory?: boolean } = {},
 ) {
   const requests: AiResponseRequest[] = [];
   let script: Script = [];
@@ -107,6 +109,21 @@ function setup(
     }),
   };
   const metrics = { turn: jest.fn(), safetyHit: jest.fn(), toolCall: jest.fn(), error: jest.fn() };
+  // User memory (#325): one note shown as [m1]; the writer and the extraction enqueue.
+  const memoryContext = {
+    forChat: jest.fn(async () => ({
+      enabled: true,
+      block: '<user_memories>\nUser-provided notes.\n- [m1] (preference) User prefers to be called Bobby.\n</user_memories>',
+      refs: new MemoryRefs(new Map([['m1', MEMORY_ID]])),
+    })),
+  };
+  const memories = {
+    write: jest.fn(async (_u: string, input: any) => ({ op: 'added', memory: { id: 'mem-new', content: input.content }, evictedIds: [] })),
+    update: jest.fn(),
+    softDelete: jest.fn(async () => ({ id: MEMORY_ID, content: 'User prefers to be called Bobby.' })),
+    findBestMatch: jest.fn(),
+  };
+  const memoryExtraction = { afterChatTurn: jest.fn(async () => true) };
   const appMetrics = { coachGuardRejection: jest.fn() };
 
   const service = new CoachChatService(
@@ -122,9 +139,15 @@ function setup(
     photos as never,
     metrics as never,
     appMetrics as never,
+    undefined,
+    undefined,
+    ...(opts.memory ? [memoryContext as never, memories as never, memoryExtraction as never] : []),
   );
 
   return {
+    memoryContext,
+    memories,
+    memoryExtraction,
     service,
     prisma,
     runTools,
@@ -788,3 +811,74 @@ describe('StepChannel', () => {
     })()).rejects.toThrow('boom');
   });
 });
+
+describe('CoachChatService: user memory (#325)', () => {
+  it('puts the memory block and the memory rules in the instructions, registers the memory tools, never an id', async () => {
+    const t = setup({ memory: true });
+    t.script([{ outputText: 'Hey Bobby.' }]);
+    await drain(await t.service.startTurn(USER, 'hi'));
+
+    const req = t.requests[0];
+    expect(req.instructions).toContain('<user_memories>');
+    expect(req.instructions).toContain('- [m1] (preference) User prefers to be called Bobby.');
+    expect(req.instructions).toMatch(/call remember when the user asks you to remember something/);
+    expect(req.instructions).toContain("Got it, I'll remember that.");
+    expect(req.instructions).not.toContain(MEMORY_ID);
+    expect((req.tools ?? []).map((tool: any) => tool.name)).toEqual(expect.arrayContaining(['remember', 'forget', 'update_memory']));
+  });
+
+  it('without memory (off, or no service) the prompt has no block and no memory tools', async () => {
+    const t = setup();
+    t.script([{ outputText: 'Hello.' }]);
+    await drain(await t.service.startTurn(USER, 'hi'));
+    expect(t.requests[0].instructions).not.toContain('<user_memories>');
+    expect(t.requests[0].instructions).not.toMatch(/call remember/);
+    expect((t.requests[0].tools ?? []).map((tool: any) => tool.name)).not.toContain('remember');
+
+    const off = setup({ memory: true });
+    off.memoryContext.forChat.mockResolvedValueOnce({ enabled: false, block: '', refs: new MemoryRefs() });
+    off.script([{ outputText: 'Hello.' }]);
+    await drain(await off.service.startTurn(USER, 'hi'));
+    expect((off.requests[0].tools ?? []).map((tool: any) => tool.name)).not.toContain('remember');
+  });
+
+  it('remember: a memory frame follows its tool frame, with the id for the client and the content', async () => {
+    const t = setup({ memory: true });
+    t.script([
+      { output: [call('remember', { content: 'User prefers to be called Bobby.', category: 'preference', sensitivity: null })] },
+      { outputText: "Got it, I'll remember that." },
+    ]);
+    const events = await drain(await t.service.startTurn(USER, 'Call me Bobby'));
+
+    expect(events.slice(0, 2)).toEqual([
+      { type: 'tool', name: 'remember', status: 'ok' },
+      { type: 'memory', op: 'added', memoryId: 'mem-new', content: 'User prefers to be called Bobby.' },
+    ]);
+    expect(t.memories.write).toHaveBeenCalledWith(USER, expect.objectContaining({ source: 'explicit' }), 'agent');
+    expect(events[events.length - 1]).toMatchObject({ type: 'done' });
+    // The tool result the model saw carried a ref, not the id.
+    expect(JSON.stringify(t.requests[1].input)).toContain('"memoryRef\\":\\"m2');
+    expect(JSON.stringify(t.requests[1].input)).not.toContain('mem-new');
+  });
+
+  it('forget by ref emits a deleted frame', async () => {
+    const t = setup({ memory: true });
+    t.script([{ output: [call('forget', { memoryId: 'm1', query: null })] }, { outputText: 'Done, forgotten.' }]);
+    const events = await drain(await t.service.startTurn(USER, 'Forget my nickname'));
+
+    expect(events).toContainEqual({ type: 'memory', op: 'deleted', memoryId: MEMORY_ID, content: 'User prefers to be called Bobby.' });
+    expect(t.memories.softDelete).toHaveBeenCalledWith(USER, MEMORY_ID);
+  });
+
+  it('queues the background extraction once the reply is stored; not after a safety turn', async () => {
+    const t = setup({ memory: true });
+    t.script([{ outputText: 'Hello.' }]);
+    await drain(await t.service.startTurn(USER, 'hi'));
+    expect(t.memoryExtraction.afterChatTurn).toHaveBeenCalledWith(USER);
+
+    const safety = setup({ memory: true });
+    await drain(await safety.service.startTurn(USER, 'I want to kill myself'));
+    expect(safety.memoryExtraction.afterChatTurn).not.toHaveBeenCalled();
+  });
+});
+

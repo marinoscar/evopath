@@ -54,6 +54,7 @@ const TITLES: Record<PlannerContextKey, string> = {
   history: 'Training history (last 6 weeks)',
   readiness: 'Readiness (7-day averages)',
   healthSummary: 'Health summary (opt-in)',
+  userMemories: 'Your memories',
   bio: 'Bio',
   currentPlan: 'Current plan',
 };
@@ -158,12 +159,22 @@ function itemsFor(key: PlannerContextKey, context: PlannerContext): { items: str
       return { items: ['Energy, sleep quality, soreness and stress scores only (no notes)'], count: context.readiness.days };
     case 'healthSummary':
       return context.healthSummary ? { items: healthSummaryItems(context.healthSummary) } : { items: [NONE_USED] };
+    case 'userMemories':
+      return context.userMemories ? { items: memoryItems(context.userMemories) } : { items: [NONE_USED] };
     case 'bio':
       return { items: context.bio ? [`"${context.bio}"`] : [NONE_USED] };
     case 'currentPlan':
       if (!context.currentPlan) return { items: [NONE_USED] };
       return { items: ['The plan being revised (exercises by key, sets, reps, loads)'], count: context.currentPlan.weeks.length };
   }
+}
+
+/** The memory notes as the panel shows them: one item per fact, without the delimiters or the ref markers. */
+export function memoryItems(block: string): string[] {
+  return block
+    .split('\n')
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).replace(/^\[m\d+\]\s*/, '').replace(/^\([a-z_]+\)\s*/, ''));
 }
 
 /**

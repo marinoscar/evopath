@@ -20,6 +20,9 @@
 //   - progress photos (E7.9, #249): an index, metadata only, like documents
 //     (day, pose, note, type, size). The images stay in storage, readable by
 //     their owner through the signed download; no writer embeds them.
+//   - memories (#325): the user's ACTIVE memories (deleted and replaced ones
+//     are never exported): id, category, content, source, created_at. Like
+//     the profile, current state, so not ranged.
 //
 // Range: `from`..`to` are calendar dates, inclusive, in UTC. A daily wellness
 // score is matched on its `localDate` (the user's day), every other reading
@@ -239,6 +242,14 @@ export function datasetColumns(dataset: HealthExportDataset): ExportColumn[] {
         { key: 'size_bytes', header: 'Size (bytes)', numeric: true },
         { key: 'added_at', header: 'Added at (UTC)' },
       ];
+    case 'memories':
+      return [
+        { key: 'id', header: 'Memory id' },
+        { key: 'category', header: 'Category' },
+        { key: 'content', header: 'Memory' },
+        { key: 'source', header: 'Source' },
+        { key: 'created_at', header: 'Added at (UTC)' },
+      ];
   }
 }
 
@@ -300,7 +311,7 @@ export async function collectHealthExport(
   );
   const metricKeys = measurementDatasets.flatMap((dataset) => metricsOf(dataset).map((metric) => metric.key));
 
-  const [user, profileRow, measurementRows, documentRows, photoRows] = await Promise.all([
+  const [user, profileRow, measurementRows, documentRows, photoRows, memoryRows] = await Promise.all([
     db.user.findUnique({ where: { id: userId }, select: { displayName: true, providerDisplayName: true } }),
     selected.has('profile') ? db.healthProfile.findUnique({ where: { userId } }) : Promise.resolve(null),
     metricKeys.length === 0
@@ -356,6 +367,13 @@ export async function collectHealthExport(
           orderBy: [{ localDate: 'asc' }, { createdAt: 'asc' }],
         })
       : Promise.resolve([]),
+    selected.has('memories')
+      ? db.userMemory.findMany({
+          where: { userId, status: 'active' },
+          select: { id: true, category: true, content: true, source: true, createdAt: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        })
+      : Promise.resolve([]),
   ]);
 
   const rows = includeHistory ? await withoutDeletedHistory(db, userId, measurementRows) : measurementRows;
@@ -379,7 +397,14 @@ export async function collectHealthExport(
     dataset,
     title: HEALTH_EXPORT_DATASET_TITLES[dataset],
     columns: datasetColumns(dataset),
-    rows: datasetRows(dataset, { profile, rows, documents: documentRows, labUnits, photos: photoRows }),
+    rows: datasetRows(dataset, {
+      profile,
+      rows,
+      documents: documentRows,
+      labUnits,
+      photos: photoRows,
+      memories: memoryRows,
+    }),
   }));
 
   const rowCounts = Object.fromEntries(HEALTH_EXPORT_DATASETS.map((dataset) => [dataset, 0])) as Record<
@@ -456,6 +481,7 @@ interface RowSources {
     createdAt: Date;
     storageObject: { mimeType: string; size: bigint | number } | null;
   }>;
+  memories: Array<{ id: string; category: string; content: string; source: string; createdAt: Date }>;
 }
 
 function datasetRows(dataset: HealthExportDataset, sources: RowSources): ExportRow[] {
@@ -500,6 +526,14 @@ function datasetRows(dataset: HealthExportDataset, sources: RowSources): ExportR
         mime_type: photo.storageObject?.mimeType ?? null,
         size_bytes: photo.storageObject ? Number(photo.storageObject.size) : null,
         added_at: photo.createdAt.toISOString(),
+      }));
+    case 'memories':
+      return sources.memories.map((memory) => ({
+        id: memory.id,
+        category: memory.category,
+        content: memory.content,
+        source: memory.source,
+        created_at: memory.createdAt.toISOString(),
       }));
   }
 }

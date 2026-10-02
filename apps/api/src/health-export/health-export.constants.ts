@@ -44,6 +44,7 @@ export const HEALTH_EXPORT_DATASETS = [
   'wellness',
   'documents',
   'progress_photos',
+  'memories',
 ] as const;
 export type HealthExportDataset = (typeof HEALTH_EXPORT_DATASETS)[number];
 
@@ -56,6 +57,7 @@ export const HEALTH_EXPORT_DATASET_TITLES: Record<HealthExportDataset, string> =
   wellness: 'Wellness / mood',
   documents: 'Documents',
   progress_photos: 'Progress photos',
+  memories: 'Memories',
 };
 
 /** The file's extension and stored MIME type, per format. */

@@ -79,6 +79,7 @@ import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
 import { JobsService } from '../../../jobs/jobs.service';
+import { MemoryContextService } from '../../../memory/memory-context.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TrainingSignalsService } from '../../../programs/signals/signals.service';
 import { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
@@ -183,6 +184,8 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
     // Optional so a fork without activity goals (or a test) writes nudges without them.
     @Optional() private readonly goals?: GoalProgressService,
+    // User memory (#325): the memory block in the prompt. Optional: absent, none is sent.
+    @Optional() private readonly memoryContext?: MemoryContextService,
   ) {}
 
   onModuleInit(): void {
@@ -383,7 +386,8 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     let fallbackCause = 'no_model';
     if (model) {
       try {
-        generated = await this.generate(userId, jobId, model, style, context, angle, settings.why, guardContext);
+        const memoryBlock = this.memoryContext ? await this.memoryContext.buildBlock(userId, { audience: 'coach' }) : '';
+        generated = await this.generate(userId, jobId, model, style, context, angle, settings.why, guardContext, memoryBlock);
         fallbackCause = 'guard_rejected';
       } catch (err) {
         const aiError = err instanceof AiError ? err : null;
@@ -500,6 +504,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     angle: CoachAngle | null,
     why: string | null,
     guardContext: CoachGuardContext,
+    memoryBlock = '',
   ): Promise<Generated> {
     const result: Generated = { output: null, declined: false, declineReason: null, regenerations: 0, lastReasons: [] };
     const instructions = nudgeInstructions({
@@ -533,7 +538,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
                 content: [
                   {
                     type: 'text',
-                    text: nudgeUserText(context.promptData, why, attempt === 2 ? result.lastReasons : undefined),
+                    text: nudgeUserText(context.promptData, why, attempt === 2 ? result.lastReasons : undefined, memoryBlock),
                   },
                 ],
               },

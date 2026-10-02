@@ -7,10 +7,12 @@ import { createGetProgressPhotoSummaryTool } from './get-progress-photo-summary.
 import { createGetRecentWorkoutsTool } from './get-recent-workouts.tool';
 import { createGetTodayPlanTool } from './get-today-plan.tool';
 import { createGetTrainingSignalsTool } from './get-training-signals.tool';
+import { COACH_CHAT_MEMORY_TOOL_NAMES, createForgetTool, createRememberTool, createUpdateMemoryTool } from './memory.tools';
 import { createPauseCoachTool } from './pause-coach.tool';
 import { createSaveCommitmentTool } from './save-commitment.tool';
 
 export * from './coach-chat-tool.types';
+export { COACH_CHAT_MEMORY_TOOL_NAMES } from './memory.tools';
 
 /**
  * The coach chat's tool list (spec §2.9; add one per spec §4.4). Seven read
@@ -30,10 +32,17 @@ export const COACH_CHAT_TOOL_NAMES = [
   'save_commitment',
 ] as const;
 
-export type CoachChatToolName = (typeof COACH_CHAT_TOOL_NAMES)[number];
+export type CoachChatToolName = (typeof COACH_CHAT_TOOL_NAMES)[number] | (typeof COACH_CHAT_MEMORY_TOOL_NAMES)[number];
 
-/** The tools for one turn. `actions` collects what the write tool did. */
+/**
+ * The tools for one turn. `actions` collects what the write tools did. The
+ * three memory tools (`remember`, `forget`, `update_memory`; #325) follow the
+ * list only while `deps.memory` is present (memory on for the user).
+ */
 export function createCoachChatTools(deps: CoachChatToolDeps, actions: CoachChatTurnActions): AiDefinedTool[] {
+  const memoryTools = deps.memory
+    ? [createRememberTool(deps, actions), createForgetTool(deps, actions), createUpdateMemoryTool(deps, actions)]
+    : [];
   return [
     createGetTrainingSignalsTool(deps),
     createGetTodayPlanTool(deps),
@@ -44,5 +53,6 @@ export function createCoachChatTools(deps: CoachChatToolDeps, actions: CoachChat
     createGetGoalsTool(deps),
     createPauseCoachTool(deps, actions),
     createSaveCommitmentTool(deps, actions),
+    ...memoryTools,
   ] as AiDefinedTool[];
 }

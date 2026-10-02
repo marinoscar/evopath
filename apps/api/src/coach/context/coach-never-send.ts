@@ -12,7 +12,10 @@ import { NEVER_SEND, type NeverSendEntry } from '../../training-agents/context/n
 // the nudge job reads and asserts none reaches the request.
 //
 // `coach.why` is NOT on this list: it is text the user wrote FOR the coach
-// (spec §3.1), and it is delimited in the prompt as data.
+// (spec §3.1), and it is delimited in the prompt as data. Neither are the
+// user's memories (#325, docs/specs/ai-memory.md): user-curated facts the user
+// sees and edits in Settings > Memory, sent as one delimited `<user_memories>`
+// block marked as untrusted data, with `[m<n>]` refs instead of ids.
 // =============================================================================
 
 export const COACH_NEVER_SEND: readonly NeverSendEntry[] = [

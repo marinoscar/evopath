@@ -59,6 +59,7 @@ import { AdminFactoryResetModule } from './admin-factory-reset/admin-factory-res
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { CoachPlanningModule } from './coach/planning/coach-planning.module';
 import { CoachModule } from './coach/coach.module';
+import { MemoryModule } from './memory/memory.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -349,6 +350,11 @@ import configuration from './config/configuration';
     // `/api/admin/coach/*` (`ai_config:*`, reachable while AI is off). Later
     // coach stories add their sub-modules inside `CoachModule`, not here.
     CoachModule,
+
+    // User memory (#325): `/api/memories` (`ai:use`, behind `AiEnabledGuard`),
+    // the `ai.memory.extract` job (server-only) and the daily `memory.purge`.
+    // The coach and the training agents import it for the read path.
+    MemoryModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

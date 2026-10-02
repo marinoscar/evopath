@@ -80,6 +80,7 @@ const DELETED_CATEGORIES: Array<{
   { key: 'notifications', singular: 'notification', plural: 'notifications', detail: 'Your notification history.' },
   { key: 'progressPhotos', singular: 'progress photo', plural: 'progress photos', detail: 'Progress photos you saved for your coach.' },
   { key: 'coachMessages', singular: 'coach message', plural: 'coach messages', detail: 'Your AI Coach conversation, nudges and weekly reviews.' },
+  { key: 'memories', singular: 'memory', plural: 'memories', detail: 'Facts your AI Coach remembered about you.' },
   { key: 'activityGoals', singular: 'activity goal', plural: 'activity goals', detail: 'Your goals, archived ones included.' },
   { key: 'activityEntries', singular: 'activity entry', plural: 'activity entries', detail: 'Check-ins and the activity counted toward your goals.' },
   { key: 'healthSyncDevices', singular: 'connected phone', plural: 'connected phones', detail: 'Phones paired to sync Health Connect activity; their tokens are revoked.' },

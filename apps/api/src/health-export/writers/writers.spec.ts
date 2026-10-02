@@ -66,7 +66,15 @@ describe('health export writers', () => {
       expect(parsed.exportedAt).toBe('2026-09-30T12:00:00.000Z');
       expect(parsed.range).toEqual({ from: '2026-09-01', to: '2026-09-30' });
       expect(parsed.profile).toMatchObject({ dateOfBirth: '1990-05-01', ageYears: 36, sexAtBirth: 'female' });
-      expect(Object.keys(parsed.datasets)).toEqual(['body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos']);
+      expect(Object.keys(parsed.datasets)).toEqual(['body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos', 'memories']);
+      // Memories (#325): the active facts, metadata only: id, category, text, source, date added.
+      expect(parsed.datasets.memories[0]).toEqual({
+        id: '00000000-0000-4000-8000-000000000008',
+        category: 'preference',
+        content: 'User prefers to be called Bobby.',
+        source: 'explicit',
+        created_at: '2026-09-15T08:00:00.000Z',
+      });
       // Progress photos are an index: day, pose, note, type, size. Never the image or its storage id.
       expect(parsed.datasets.progress_photos[0]).toEqual({
         id: '00000000-0000-4000-8000-000000000007',
@@ -104,10 +112,10 @@ describe('health export writers', () => {
       const zip = await JSZip.loadAsync(await streamToBuffer(csvZipExportStream(exportFixture())));
 
       expect(Object.keys(zip.files).sort()).toEqual(
-        ['body.csv', 'documents.csv', 'labs.csv', 'profile.csv', 'progress_photos.csv', 'vitals.csv', 'wellness.csv'].sort(),
+        ['body.csv', 'documents.csv', 'labs.csv', 'memories.csv', 'profile.csv', 'progress_photos.csv', 'vitals.csv', 'wellness.csv'].sort(),
       );
 
-      for (const dataset of ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos'] as const) {
+      for (const dataset of ['profile', 'body', 'vitals', 'labs', 'wellness', 'documents', 'progress_photos', 'memories'] as const) {
         const bytes = await zip.file(`${dataset}.csv`)!.async('nodebuffer');
         expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
 
@@ -166,6 +174,7 @@ describe('health export writers', () => {
         'Wellness - mood',
         'Documents',
         'Progress photos',
+        'Memories',
       ]);
 
       const body = workbook.getWorksheet('Body')!;

@@ -54,6 +54,7 @@ export const PDF_SECTIONS = {
   wellness: HEALTH_EXPORT_DATASET_TITLES.wellness,
   documents: 'Documents',
   progressPhotos: HEALTH_EXPORT_DATASET_TITLES.progress_photos,
+  memories: HEALTH_EXPORT_DATASET_TITLES.memories,
 } as const;
 
 const PANEL_LABELS: Record<LabPanel, string> = {
@@ -468,6 +469,27 @@ function writeProgressPhotos(report: Report, data: HealthExportData): void {
   );
 }
 
+function writeMemories(report: Report, data: HealthExportData): void {
+  report.heading(PDF_SECTIONS.memories);
+  const table = data.tables.find((candidate) => candidate.dataset === 'memories');
+  if (!table || table.rows.length === 0) {
+    report.empty('No memories.');
+    return;
+  }
+  report.table(
+    [
+      { header: 'Category', width: 110 },
+      { header: 'Memory', width: 300 },
+      { header: 'Added', width: 85 },
+    ],
+    table.rows.map((row) => [
+      capitalise(String(row.category ?? '').replace(/_/g, ' ')),
+      String(row.content ?? ''),
+      String(row.created_at ?? '').slice(0, 10),
+    ]),
+  );
+}
+
 function writeFooters(doc: PDFKit.PDFDocument): void {
   const range = doc.bufferedPageRange();
   for (let index = range.start; index < range.start + range.count; index += 1) {
@@ -514,6 +536,7 @@ export function renderPdfReport(doc: PDFKit.PDFDocument, data: HealthExportData)
   if (selected.has('wellness')) writeWellness(report, readings, data.range.to);
   if (selected.has('documents')) writeDocuments(report, data);
   if (selected.has('progress_photos')) writeProgressPhotos(report, data);
+  if (selected.has('memories')) writeMemories(report, data);
 
   writeFooters(doc);
   doc.end();

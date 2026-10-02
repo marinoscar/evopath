@@ -74,7 +74,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     forEachOperation(document, (_operation, path, method) => {
       if (under(path, '/api/admin/ai') || under(path, '/api/admin/coach')) {
         adminAiRoutes.push({ path, method: method.toUpperCase() });
-      } else if (under(path, '/api/ai') || under(path, '/api/coach')) {
+      } else if (under(path, '/api/ai') || under(path, '/api/coach') || under(path, '/api/memories')) {
         aiRoutes.push({ path, method: method.toUpperCase() });
       }
     });
@@ -107,6 +107,9 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
         // #259: on-demand Listen and its poll.
         { path: '/api/coach/messages/{id}/audio', method: 'POST' },
         { path: '/api/coach/messages/{id}/audio', method: 'GET' },
+        // #325: user memory is kill-switched like every AI consumer route.
+        { path: '/api/memories', method: 'GET' },
+        { path: '/api/memories/{id}/restore', method: 'POST' },
       ]),
     );
     expect(adminAiRoutes).toEqual(expect.arrayContaining([{ path: '/api/admin/coach/settings', method: 'PUT' }]));
@@ -230,6 +233,8 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.coach.nudge': null,
       // E7.10 (#250): one user's weekly review; filled in per-test.
       'ai.coach.weekly_review': null,
+      // #325: background memory extraction for one user; filled in per-test.
+      'ai.memory.extract': null,
     };
 
     let registry: JobHandlerRegistry;
@@ -759,6 +764,33 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       expect(app.harness.fake.calls).toEqual([]);
       expect(prisma.coachMessage.create).not.toHaveBeenCalled();
       expect(prisma.coachState.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('ai.memory.extract: disabled makes zero provider calls, reads no chat and writes no memory, job does not throw', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const handler = registry.get('ai.memory.extract');
+      expect(handler).toBeDefined();
+      const prisma = app.context.prismaMock as any;
+      prisma.coachMessage.findMany.mockClear();
+      prisma.userMemory.create.mockClear();
+      prisma.userMemoryState.upsert.mockClear();
+
+      await expect(
+        handler!.process({
+          id: 'job-kill-switch',
+          type: 'ai.memory.extract',
+          subjectType: 'user',
+          subjectId: HARNESS_USER,
+          attempts: 1,
+          payload: { userId: HARNESS_USER },
+        } as never),
+      ).resolves.toBeUndefined();
+
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(prisma.coachMessage.findMany).not.toHaveBeenCalled();
+      expect(prisma.userMemory.create).not.toHaveBeenCalled();
+      expect(prisma.userMemoryState.upsert).not.toHaveBeenCalled();
     });
 
     it('ai.catalog.refresh: disabled never reaches the provider registry', async () => {
