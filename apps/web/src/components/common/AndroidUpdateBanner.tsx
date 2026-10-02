@@ -3,8 +3,9 @@
  *
  * Shown ONLY inside the Android app's Trusted Web Activity, when the build
  * the TWA launch URL reported (`appVersionCode`, captured by `utils/twa.ts`)
- * is older than the release this server hosts. It links to the Android app
- * page, where the user downloads the update.
+ * is older than the release this server hosts. Its primary action downloads
+ * that release straight away (#299, the same signed-link flow as the Android
+ * app page's `DownloadApkButton`); a secondary "Details" link opens the page.
  *
  * It asks nothing of the API outside the TWA: the installed version is read
  * from `sessionStorage` first, and only when there is one does the hook fetch
@@ -19,12 +20,13 @@
  */
 import { useState } from 'react';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
-import { Alert, Button, IconButton } from '@mui/material';
+import { Alert, Box, Button, IconButton } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useLatestRelease } from '../../hooks/useHealthSync';
 import { ANDROID_APP_SETTINGS_PATH } from '../../services/healthSync';
 import { androidStorageKey } from '../../utils/androidIdentity';
 import { getInstalledAppVersion } from '../../utils/twa';
+import { DownloadApkButton } from '../settings/androidApp/DownloadApkButton';
 
 export const ANDROID_UPDATE_DISMISSED_KEY = androidStorageKey('androidUpdate.dismissedVersionCode');
 
@@ -64,20 +66,21 @@ export function AndroidUpdateBanner() {
   return (
     <Alert
       severity="info"
-      sx={{ mb: 2 }}
+      sx={{ mb: 2, '& .MuiAlert-message': { flexGrow: 1, minWidth: 0 } }}
       data-testid="android-update-banner"
       action={
-        <>
-          <Button color="inherit" size="small" component={RouterLink} to={ANDROID_APP_SETTINGS_PATH}>
-            Update
-          </Button>
-          <IconButton color="inherit" size="small" aria-label="Dismiss update notice" onClick={dismiss}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </>
+        <IconButton color="inherit" size="small" aria-label="Dismiss update notice" onClick={dismiss}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
       }
     >
       Android app {release.versionName} is available.
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 1 }}>
+        <DownloadApkButton release={release} compact />
+        <Button color="inherit" size="small" component={RouterLink} to={ANDROID_APP_SETTINGS_PATH} sx={{ minHeight: 36 }}>
+          Details
+        </Button>
+      </Box>
     </Alert>
   );
 }

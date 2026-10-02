@@ -3,6 +3,11 @@
  * NAVIGATES to it: a real navigation, not a blob, is what lets Chrome and the
  * TWA on Android download the file natively and hand it to the installer.
  * The link is minted per click because it expires after ten minutes.
+ *
+ * `compact` (#299) is the in-TWA update banner's variant: a small button
+ * labelled with the version, and an error that offers a Retry. It renders as
+ * a fragment so the banner's wrapping action row lays the button out next to
+ * its siblings and drops the error onto a line of its own.
  */
 import { useState } from 'react';
 import { Alert, Box, Button, CircularProgress } from '@mui/material';
@@ -19,9 +24,20 @@ interface DownloadApkButtonProps {
   emphasized?: boolean;
   /** Draw it quietly (the installed build is already current). */
   quiet?: boolean;
+  /** Draw it small, labelled "Download v<versionName>", with a Retry on error (the update banner). */
+  compact?: boolean;
 }
 
-export function DownloadApkButton({ release, emphasized = false, quiet = false }: DownloadApkButtonProps) {
+export function compactDownloadLabel(versionName: string): string {
+  return `Download v${versionName}`;
+}
+
+export function DownloadApkButton({
+  release,
+  emphasized = false,
+  quiet = false,
+  compact = false,
+}: DownloadApkButtonProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useIsMounted();
@@ -38,6 +54,38 @@ export function DownloadApkButton({ release, emphasized = false, quiet = false }
       if (isMounted()) setBusy(false);
     }
   };
+
+  if (compact) {
+    const label = compactDownloadLabel(release.versionName);
+    return (
+      <>
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={busy ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />}
+          disabled={busy}
+          aria-busy={busy}
+          onClick={() => void download()}
+          sx={{ minHeight: 36 }}
+        >
+          {label}
+        </Button>
+        {error && (
+          <Alert
+            severity="error"
+            sx={{ flexBasis: '100%', order: 1 }}
+            action={
+              <Button color="inherit" size="small" onClick={() => void download()} disabled={busy}>
+                Retry
+              </Button>
+            }
+          >
+            {error}
+          </Alert>
+        )}
+      </>
+    );
+  }
 
   return (
     <Box>

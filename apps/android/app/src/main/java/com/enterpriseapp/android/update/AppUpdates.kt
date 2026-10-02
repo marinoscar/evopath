@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 object AppUpdates {
     private const val TAG = "Update"
 
-    /** Called from the launcher and the Health sync screen; asks the server at most every 12 h. */
+    /** Called from the launcher and the Health sync screen; asks the server on every cold start (5-minute debounce). */
     fun onAppOpen(context: Context) {
         val app = MobileApplication.from(context)
         app.appScope.launch {
