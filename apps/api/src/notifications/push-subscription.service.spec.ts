@@ -352,7 +352,51 @@ describe('PushSubscriptionService', () => {
       expect(result.platform).toBe('android_app');
     });
 
-    it('defaults platform to browser when the caller omits it (update branch too)', async () => {
+    // #318: the tag is sticky upward. The TWA and a Chrome tab share one
+    // endpoint, so a `browser` re-post must never downgrade `android_app`.
+    it('a browser re-post of an existing android_app endpoint keeps android_app', async () => {
+      const service = enabledService();
+      // The row as Postgres returns it after the upsert: still android_app.
+      mockPrisma.pushSubscription.upsert.mockResolvedValue({
+        id: 'sub-1',
+        endpoint: ENDPOINT,
+        platform: 'android_app',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      } as never);
+
+      const result = await service.subscribe(
+        USER_ID,
+        subscribeDto({ platform: 'browser' }),
+        'ua',
+      );
+
+      const [args] = mockPrisma.pushSubscription.upsert.mock.calls[0] as [
+        { create: { platform: string }; update: Record<string, unknown> },
+      ];
+      // The update branch never writes platform for a browser post...
+      expect(args.update).not.toHaveProperty('platform');
+      // ...and the response reports the STORED value, not the posted one.
+      expect(result.platform).toBe('android_app');
+    });
+
+    it('an android_app post upgrades an existing browser endpoint', async () => {
+      const service = enabledService();
+      mockPrisma.pushSubscription.upsert.mockResolvedValue({
+        id: 'sub-1',
+        endpoint: ENDPOINT,
+        platform: 'android_app',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      } as never);
+
+      await service.subscribe(USER_ID, subscribeDto({ platform: 'android_app' }), 'ua');
+
+      const [args] = mockPrisma.pushSubscription.upsert.mock.calls[0] as [
+        { update: { platform?: string } },
+      ];
+      expect(args.update.platform).toBe('android_app');
+    });
+
+    it('a new endpoint is created with the posted platform (browser by default)', async () => {
       const service = enabledService();
       mockPrisma.pushSubscription.upsert.mockResolvedValue({
         id: 'sub-1',
@@ -362,11 +406,14 @@ describe('PushSubscriptionService', () => {
       } as never);
 
       await service.subscribe(USER_ID, subscribeDto({ platform: undefined }), 'ua');
+      await service.subscribe(USER_ID, subscribeDto({ platform: 'browser' }), 'ua');
 
-      const [args] = mockPrisma.pushSubscription.upsert.mock.calls[0] as [
-        { update: { platform: string } },
-      ];
-      expect(args.update.platform).toBe('browser');
+      const calls = mockPrisma.pushSubscription.upsert.mock.calls as unknown as [
+        { create: { platform: string }; update: Record<string, unknown> },
+      ][];
+      expect(calls[0][0].create.platform).toBe('browser');
+      expect(calls[1][0].create.platform).toBe('browser');
+      expect(calls[0][0].update).not.toHaveProperty('platform');
     });
   });
 

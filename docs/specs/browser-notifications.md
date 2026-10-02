@@ -273,8 +273,13 @@ and answers 409 while no key pair is active. Deleting a user cascades.
 **Platform tag.** `platform` is `browser` (the default) or `android_app`, held
 to those two values by a CHECK constraint in migration SQL. The web app sends
 `android_app` when it subscribes from inside the Android app's Trusted Web
-Activity. Re-posting an existing endpoint updates the tag, so a subscription
-first made in a browser tab is re-tagged once the app opens the same profile.
+Activity. The tag is sticky upward (#318): re-posting an existing endpoint as
+`android_app` re-tags a subscription first made in a browser tab, but a
+`browser` re-post never downgrades an `android_app` row. The app's Trusted Web
+Activity shares Chrome's profile, which holds one subscription per origin, so
+the app and a Chrome tab post the same endpoint; once Chrome delegates the
+origin to the app, the app shows every notification from it. Unsubscribing
+still deletes the row.
 The `android_app` channel and the Android app admin page
 (`/admin/settings/android`: counts and a test notification) read it.
 

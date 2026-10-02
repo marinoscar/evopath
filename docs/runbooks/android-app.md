@@ -181,7 +181,9 @@ the phone only when all of these hold:
 3. **The web view subscribed from inside the app.** Open the app, then
    Settings, then Notifications, and turn notifications on. A subscription made
    inside the app is tagged `android_app`; one made earlier in a browser tab on
-   the same profile is re-tagged when the app subscribes again.
+   the same profile is re-tagged when the app subscribes again. The tag then
+   sticks: using the site in a Chrome tab afterwards does not turn it back into
+   `browser`, because the app and Chrome share that one subscription.
 
 **Test on the phone.** Update the app to 0.1.3 or later first (earlier builds lack
 these steps).

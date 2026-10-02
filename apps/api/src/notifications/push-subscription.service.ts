@@ -138,9 +138,16 @@ export class PushSubscriptionService {
         expirationTime,
         userAgent: userAgent ?? null,
         failureCount: 0,
-        // #312: the same endpoint re-registered from inside the Android app
-        // (or back in a plain browser) moves to the reported platform.
-        platform,
+        // #312, #318: the tag is sticky UPWARD. A browser profile holds one
+        // push subscription per origin, and the Android app's TWA shares
+        // Chrome's profile, so the app and a plain Chrome tab post the SAME
+        // endpoint (as `android_app` and `browser` respectively, on every
+        // boot). Once Chrome delegates the origin to the app, every
+        // notification from it is shown by the app, so a later `browser`
+        // re-post must not downgrade the row. Only `android_app` is ever
+        // written here; folding it into this single upsert keeps it atomic
+        // (no read-then-write race). Unsubscribe still deletes the row.
+        ...(platform === 'android_app' ? { platform } : {}),
       },
       create: {
         userId,
@@ -154,7 +161,7 @@ export class PushSubscriptionService {
     });
 
     this.logger.log(
-      `Upserted push subscription ${subscription.id} (${platform}) for user ${userId}`,
+      `Upserted push subscription ${subscription.id} (${subscription.platform}) for user ${userId}`,
     );
 
     return {
