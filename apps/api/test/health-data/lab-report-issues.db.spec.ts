@@ -128,7 +128,7 @@ describeWithDb('lab report issues route (real Postgres)', () => {
 
     // Accept everything: apply refuses the unmatched result first, naming exactly the route's UNMATCHED items.
     await intakes.acceptAll(userId, intakeId, PERMS);
-    const conflict = await intakes.apply(userId, intakeId, PERMS).catch((e) => e);
+    const conflict: any = await intakes.apply(userId, intakeId, PERMS).catch((e: any) => e);
     expect(conflict).toBeInstanceOf(ConflictException);
     const routeUnmatched = before.items.filter((i) => i.issues.some((x) => x.code === 'UNMATCHED')).map((i) => i.itemId);
     expect(conflict.getResponse().details.itemIds).toEqual(routeUnmatched);
@@ -136,7 +136,7 @@ describeWithDb('lab report issues route (real Postgres)', () => {
     // Reject it: apply's 400 issues are exactly the route's.
     await intakes.updateItem(userId, intakeId, unmatched.id, { status: 'rejected' }, PERMS);
     const after = await issuesService.find(userId, intakeId);
-    const refused = await intakes.apply(userId, intakeId, PERMS).catch((e) => e);
+    const refused: any = await intakes.apply(userId, intakeId, PERMS).catch((e: any) => e);
     expect(refused).toBeInstanceOf(BadRequestException);
 
     const fromApply = (refused.getResponse().details.issues as Array<{ path: string; message: string }>)
