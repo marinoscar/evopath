@@ -51,6 +51,7 @@ interface FakeSubscriptionRow {
   auth: string;
   expirationTime: Date | null;
   userAgent: string | null;
+  platform?: string;
   failureCount: number;
   createdAt: Date;
   updatedAt: Date;
@@ -276,6 +277,43 @@ describe('Push subscriptions integration (#229)', () => {
         p256dh: 'new-key',
         auth: 'new-secret',
       });
+    });
+
+    // ------------------------------------------------------------------------
+    // Platform tag (#312)
+    // ------------------------------------------------------------------------
+
+    it('defaults platform to browser, and re-subscribing from the Android app moves it to android_app', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      const first = await request(context.app.getHttpServer())
+        .post('/api/notifications/push/subscriptions')
+        .set(authHeader(viewer.accessToken))
+        .send(subscribeBody())
+        .expect(201);
+      expect(first.body.data.platform).toBe('browser');
+
+      const second = await request(context.app.getHttpServer())
+        .post('/api/notifications/push/subscriptions')
+        .set(authHeader(viewer.accessToken))
+        .send(subscribeBody({ platform: 'android_app' }))
+        .expect(201);
+      expect(second.body.data.platform).toBe('android_app');
+
+      expect(subscriptionsByEndpoint.size).toBe(1);
+      expect(subscriptionsByEndpoint.get(ENDPOINT_A)?.platform).toBe('android_app');
+    });
+
+    it('rejects an unknown platform with 400', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(context.app.getHttpServer())
+        .post('/api/notifications/push/subscriptions')
+        .set(authHeader(viewer.accessToken))
+        .send(subscribeBody({ platform: 'ios_app' }))
+        .expect(400);
+
+      expect(prismaMock.pushSubscription.upsert).not.toHaveBeenCalled();
     });
 
     // ------------------------------------------------------------------------

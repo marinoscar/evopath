@@ -492,6 +492,9 @@ export class NotificationsController {
       '(the same browser instance) updates the existing row in place — including moving it to a ' +
       'different `userId` when the same browser subscribes while signed in as someone else — ' +
       'rather than creating a duplicate. See `PushSubscriptionService.subscribe`.\n\n' +
+      '**`platform`** (optional, default `browser`) tags the surface that subscribed: the Android ' +
+      'app\'s web view sends `android_app`, which the `android_app` notification channel targets. ' +
+      'Re-subscribing the same endpoint with a different value updates it (#312).\n\n' +
       '`User-Agent` is read from the request header, not a body field, since the browser already ' +
       'sends it on every request with zero client code required and a client-supplied value could ' +
       'be spoofed to no benefit.\n\n' +
@@ -522,6 +525,7 @@ export class NotificationsController {
     return {
       id: subscription.id,
       endpoint: subscription.endpoint,
+      platform: subscription.platform,
       createdAt: subscription.createdAt.toISOString(),
     };
   }
