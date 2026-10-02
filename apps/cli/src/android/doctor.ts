@@ -15,6 +15,7 @@ import {
   sdkLayout,
   type SdkLocation,
 } from './sdk.js';
+import { resolveBuildServerUrl } from './server-url.js';
 import { readVersion } from './version.js';
 
 // =============================================================================
@@ -41,7 +42,8 @@ export type AndroidCheckId =
   | 'build-tools'
   | 'licenses'
   | 'keystore'
-  | 'fingerprint';
+  | 'fingerprint'
+  | 'server';
 
 export interface AndroidCheck {
   id: AndroidCheckId;
@@ -200,7 +202,26 @@ export async function runAndroidDoctor(ctx: AndroidDoctorContext = {}): Promise<
     }
   }
 
+  // ---- The server the APK is tied to (#318) ------------------------------------
+  // NEVER `fail`: an APK without a server still installs and runs; only its
+  // notifications show as Chrome's instead of the app's.
+  checks.push(serverCheck(resolveBuildServerUrl(undefined, { env, ...(ctx.home !== undefined ? { home: ctx.home } : {}) }).serverUrl));
+
   return { checks, ok: checks.every((check) => check.status !== 'fail'), sdk, repoRoot };
+}
+
+/** `server` (#318): which server a build without `--server-url` is tied to. */
+export function serverCheck(serverUrl: string | undefined): AndroidCheck {
+  const label = 'Server URL for builds';
+  return serverUrl === undefined
+    ? {
+        id: 'server',
+        label,
+        status: 'warn',
+        detail: 'Not logged in: a build without --server-url gets no server, and Chrome shows its notifications instead of the app',
+        fix: `Run \`${CLI_NAME} login\`, or pass --server-url https://<server> to \`android build\` / \`android release\`.`,
+      }
+    : { id: 'server', label, status: 'pass', detail: `${serverUrl} (the logged-in server; --server-url overrides it)` };
 }
 
 /**

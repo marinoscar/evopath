@@ -44,6 +44,7 @@ function built(versionName: string, versionCode: number): BuildResult {
     apkPath: `/out/${versionName}.apk`,
     metadataPath: `/out/${versionName}.json`,
     verified: true,
+    server: { serverUrl: 'https://app.example.com', source: 'flag' as const },
     metadata: {
       packageName: 'p',
       versionName,

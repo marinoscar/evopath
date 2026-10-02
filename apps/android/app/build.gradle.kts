@@ -1,3 +1,4 @@
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -68,6 +69,26 @@ val appVersionCode: Int = (appProp("versionCode") ?: versionProp("versionCode") 
 val defaultServerUrl = ((project.findProperty("app.serverUrl") ?: project.findProperty("$identityToken.serverUrl")) as String?)
     ?.trim().orEmpty()
 
+/**
+ * The host the TWA launcher's https intent-filter claims (manifest placeholder `twaHost`).
+ * Chrome delegates a site's Web Push notifications to this app only when the app has a
+ * VIEW + BROWSABLE activity for that site's URLs, so the filter must name the server's host,
+ * which is known only from `app.serverUrl` at build time. Without one the filter names a host
+ * that never matches and notifications stay Chrome's own.
+ */
+val unsetTwaHost = "invalid.example"
+val twaHost: String = defaultServerUrl.takeIf { it.isNotEmpty() }
+    ?.let { url -> runCatching { URI(if ("://" in url) url else "https://$url").host }.getOrNull() }
+    ?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+    ?: unsetTwaHost
+if (twaHost == unsetTwaHost) {
+    logger.warn(
+        "${project.path}: no usable app.serverUrl; the launcher's https intent-filter names $unsetTwaHost, " +
+            "so the browser will not delegate the web app's notifications to this build. " +
+            "Pass -Papp.serverUrl=https://<server> to enable notification delegation.",
+    )
+}
+
 fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 // Release signing comes only from the environment (CI secrets, or a local shell).
@@ -93,6 +114,8 @@ android {
         buildConfigField("String", "DEFAULT_SERVER_URL", quoted(defaultServerUrl))
         buildConfigField("String", "PRODUCT_NAME", quoted(appProductName))
         buildConfigField("String", "DEEP_LINK_SCHEME", quoted(deepLinkScheme))
+        // The host the launcher's https intent-filter claims (empty-server builds: "invalid.example").
+        buildConfigField("String", "TWA_HOST", quoted(twaHost))
         // Prefix of SharedPreferences files and other on-device names. Equal to the applicationId's
         // middle segment, so it never changes for an installed app (renaming it would lose pairing).
         buildConfigField("String", "STORAGE_PREFIX", quoted(identityToken))
@@ -104,6 +127,7 @@ android {
         resValue("color", "brand_background", backgroundColor)
         resValue("color", "ic_launcher_background", themeColor)
         manifestPlaceholders["deepLinkScheme"] = deepLinkScheme
+        manifestPlaceholders["twaHost"] = twaHost
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

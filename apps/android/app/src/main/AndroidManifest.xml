@@ -59,7 +59,8 @@
         android:theme="@style/Theme.App"
         tools:targetApi="36">
 
-        <!-- Trusted Web Activity launcher: opens ${server}/?source=twa, or the setup screen when no server is set.
+        <!-- Trusted Web Activity launcher: opens ${server}/?source=twa (or an incoming https link on the server's
+             host), or the setup screen when no server is set.
              Started directly by the app's own screens; the launcher icon goes through the alias below. -->
         <activity
             android:name=".TwaLauncherActivity"
@@ -113,6 +114,20 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Required for Web Push delegation: Chrome hands a site's notifications to this app's
+                 DelegationService only when the app has a VIEW + BROWSABLE activity for that site's
+                 https URLs (and resolves the service worker scope through it at notify time). No path
+                 restriction, so the scope "/" matches. ${twaHost} is the host of app.serverUrl at build
+                 time (app/build.gradle.kts); without a server URL it is a host that never matches. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="${twaHost}" />
             </intent-filter>
         </activity-alias>
 

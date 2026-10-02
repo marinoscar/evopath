@@ -61,4 +61,26 @@ object ServerUrls {
         "${server.trimEnd('/')}/?source=twa" +
             "&appVersion=${URLEncoder.encode(versionName, Charsets.UTF_8.name())}" +
             "&appVersionCode=$versionCode"
+
+    /**
+     * The URL the TWA opens for a launch intent whose data is [incoming] (an https link the
+     * launcher's intent-filter caught, or null for the launcher icon). A link on the configured
+     * [server]'s origin (https, same host and port) opens at that page, with the same launch
+     * parameters as [twaLaunchUrl] (replacing any the link carried); anything else, including a
+     * link to another host, opens the server's start URL instead.
+     */
+    fun twaLaunchUrlFor(server: String, incoming: String?, versionName: String, versionCode: Long): String {
+        val fallback = twaLaunchUrl(server, versionName, versionCode)
+        val link = incoming?.trim()?.takeIf { it.isNotEmpty() }?.toHttpUrlOrNull() ?: return fallback
+        val origin = server.trim().toHttpUrlOrNull() ?: return fallback
+        if (!link.isHttps || !origin.isHttps || !link.host.equals(origin.host, ignoreCase = true) || link.port != origin.port) {
+            return fallback
+        }
+        return link.newBuilder()
+            .setQueryParameter("source", "twa")
+            .setQueryParameter("appVersion", versionName)
+            .setQueryParameter("appVersionCode", versionCode.toString())
+            .build()
+            .toString()
+    }
 }

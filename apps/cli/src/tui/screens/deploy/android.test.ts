@@ -30,6 +30,7 @@ function deps(publish: AndroidStepDeps['publish']): AndroidStepDeps {
       apkPath: '/out/a.apk',
       metadataPath: '/out/a.json',
       verified: true,
+      server: { serverUrl: 'https://app.example.com', source: 'flag' as const },
       metadata: { packageName: 'p', versionName: '1.0.6', versionCode: 6, signingSha256: '', fileSha256: '', sizeBytes: 1, builtAt: '', gitSha: null },
     }),
     publish,

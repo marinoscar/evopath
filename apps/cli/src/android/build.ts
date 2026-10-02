@@ -10,6 +10,7 @@ import { fingerprintToHex, readCertificateSha256, readSigningConfig, signingEnv 
 import { apkFileName, buildMetadata, metadataPathFor, readGitSha, writeMetadata, type ApkMetadata } from './metadata.js';
 import { androidProjectDir, distDir, extraGradleArgs, requireRepoRoot, versionPropertiesPath } from './paths.js';
 import { resolveSdk, sdkLayout } from './sdk.js';
+import { builtForLine, NO_SERVER_URL_WARNING, resolveBuildServerUrl, type BuildServerUrl } from './server-url.js';
 import { readVersion } from './version.js';
 
 // =============================================================================
@@ -17,6 +18,7 @@ import { readVersion } from './version.js';
 // =============================================================================
 
 export interface BuildOptions {
+  /** The server the app is tied to; defaults to the stored login's server (#318). */
   serverUrl?: string | undefined;
   debug?: boolean | undefined;
   /** Refuse to build from a checkout behind its remote (#315); by default that is a warning. */
@@ -37,6 +39,8 @@ export interface BuildResult {
   metadataPath: string;
   metadata: ApkMetadata;
   verified: boolean;
+  /** The server URL the APK was built for, and where it came from (#318). */
+  server: BuildServerUrl;
 }
 
 /** `Signer #1 certificate SHA-256 digest: <hex>` from `apksigner verify --print-certs`. */
@@ -88,6 +92,11 @@ export async function runBuild(options: BuildOptions, ctx: BuildContext): Promis
     ctx.log(`Note: ${describeFreshness(freshness)}.`);
   }
 
+  // ⚠ The server decides which host the app claims links for, and so whether
+  // Chrome delegates Web Push to it (#318). Warned before Gradle, never fatal.
+  const server = resolveBuildServerUrl(options.serverUrl, { env, ...(ctx.home !== undefined ? { home: ctx.home } : {}) });
+  if (server.serverUrl === undefined) ctx.log(NO_SERVER_URL_WARNING);
+
   const childEnv: NodeJS.ProcessEnv = {
     ...env,
     ANDROID_HOME: sdk.root,
@@ -99,7 +108,7 @@ export async function runBuild(options: BuildOptions, ctx: BuildContext): Promis
     debug,
     versionName: version.versionName,
     versionCode: version.versionCode,
-    serverUrl: options.serverUrl,
+    serverUrl: server.serverUrl,
     extra: extraGradleArgs(env),
   });
   ctx.log(`Building ${debug ? 'debug' : 'release'} ${version.versionName} (${version.versionCode}) with Gradle…`);
@@ -155,9 +164,11 @@ export async function runBuild(options: BuildOptions, ctx: BuildContext): Promis
     versionCode: version.versionCode,
     signingSha256,
     gitSha: await readGitSha(exec, repoRoot),
+    serverUrl: server.serverUrl ?? null,
   });
   const metadataPath = metadataPathFor(apkPath);
   writeMetadata(metadataPath, metadata);
+  ctx.log(builtForLine(server));
 
-  return { apkPath, metadataPath, metadata, verified: actual !== undefined };
+  return { apkPath, metadataPath, metadata, verified: actual !== undefined, server };
 }

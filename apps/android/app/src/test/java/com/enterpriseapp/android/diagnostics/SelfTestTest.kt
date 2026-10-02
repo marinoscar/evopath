@@ -44,12 +44,18 @@ class FakePlatform : DiagnosticsPlatform {
     var workError: Exception? = null
     var installed: Set<String> = emptySet()
     var channels: List<NotificationChannelSnapshot> = listOf(NotificationChannelSnapshot("general", "General", 3))
+    var browsableHosts: Set<String> = setOf("app.example.com")
+    var browsableQueries = mutableListOf<String>()
     override fun appInfo() = app
     override fun device() = DeviceSnapshot("samsung", "SM-S921B", "16", 36, "America/Costa_Rica")
     override fun isIgnoringBatteryOptimizations() = battery
     override fun notificationPermissionGranted() = notificationPermission
     override fun notificationsEnabled() = notificationsOn
     override fun notificationChannels() = channels
+    override fun opensBrowsableUrl(url: String): Boolean {
+        browsableQueries += url
+        return url.removePrefix("https://").substringBefore('/').substringBefore(':') in browsableHosts
+    }
     override suspend fun periodicWork(): WorkSnapshot? = workError?.let { throw it } ?: work
     override fun installedPackages(packages: Collection<String>) = installed.filterTo(linkedSetOf()) { it in packages }
 }
@@ -123,6 +129,7 @@ class SelfTestTest {
         state = state,
         history = history,
         releases = releases,
+        twaHost = "app.example.com",
         clock = { now },
         zone = { zone },
         networkTimeoutMs = networkTimeoutMs,
@@ -143,10 +150,10 @@ class SelfTestTest {
         assertEquals(HcDataType.SYNCED.map { "hc.data.${it.key}" }, ids.filter { it.startsWith("hc.data.") })
         assertEquals(
             listOf(
-                "battery.optimization", "notifications.permission", "notifications.channels", "work.scheduled", "sync.last",
-                "sync.delivery", "timezone.match", "twa.verification",
+                "battery.optimization", "notifications.permission", "notifications.channels", "notifications.delegation",
+                "work.scheduled", "sync.last", "sync.delivery", "timezone.match", "twa.verification",
             ),
-            ids.takeLast(8),
+            ids.takeLast(9),
         )
         assertTrue(result.checks.all { it.label.isNotBlank() && it.detail.isNotBlank() })
     }
@@ -158,6 +165,15 @@ class SelfTestTest {
         platform.notificationPermission = false
         assertEquals(CheckStatus.SKIP, selfTest().run().check("notifications.channels").verdict)
         assertEquals(CheckAction.ALLOW_NOTIFICATIONS, selfTest().run().check("notifications.permission").action)
+    }
+
+    @Test fun `notifications delegation check asks Android about the server's root url`() = runBlocking {
+        assertEquals(CheckStatus.PASS, selfTest().run().check("notifications.delegation").verdict)
+        assertEquals(listOf("https://app.example.com/"), platform.browsableQueries)
+        platform.browsableHosts = emptySet()
+        assertEquals(CheckStatus.WARN, selfTest().run().check("notifications.delegation").verdict)
+        serverUrl = null
+        assertEquals(CheckStatus.SKIP, selfTest().run().check("notifications.delegation").verdict)
     }
 
     @Test fun `healthy phone with sources but empty types warns per empty type`() = runBlocking {

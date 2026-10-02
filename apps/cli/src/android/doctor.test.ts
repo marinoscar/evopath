@@ -4,9 +4,10 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { formatAndroidDoctorReport, runAndroidDoctor, sdkFixesNeeded, type AndroidCheck } from './doctor.js';
+import { formatAndroidDoctorReport, runAndroidDoctor, sdkFixesNeeded, serverCheck, type AndroidCheck } from './doctor.js';
 import type { ExecFn } from './exec.js';
 import { ToolMissingError } from './exec.js';
+import { saveCredentials } from '../config.js';
 import { writeSigningConfig } from './keystore.js';
 
 const FINGERPRINT = Array.from({ length: 32 }, () => 'AB').join(':');
@@ -62,6 +63,7 @@ describe('runAndroidDoctor', () => {
     const keystore = join(home, 'release.jks');
     writeFileSync(keystore, 'x');
     writeSigningConfig({ keystorePath: keystore, keyAlias: 'a', storePassword: 'p', keyPassword: 'p' }, { home });
+    saveCredentials({ serverUrl: 'https://app.example.com', token: 'pat_x' }, { home, env: {} });
 
     const report = await runAndroidDoctor({
       exec: fakeExec('openjdk version "21.0.1" 2024'),
@@ -230,5 +232,20 @@ describe('formatAndroidDoctorReport', () => {
     expect(plain).toContain('At least one check failed.');
     expect(plain).not.toContain('\u001B[');
     expect(formatAndroidDoctorReport(report, { colour: true })).toContain('\u001B[31m✗');
+  });
+});
+
+describe('serverCheck (#318)', () => {
+  it('passes with the logged-in server and warns (never fails) without one', () => {
+    expect(serverCheck('https://app.example.com')).toMatchObject({ id: 'server', status: 'pass' });
+    const none = serverCheck(undefined);
+    expect(none.status).toBe('warn');
+    expect(none.fix).toMatch(/login.*--server-url/);
+  });
+
+  it('runAndroidDoctor warns when not logged in', async () => {
+    const { home, repo } = fixture();
+    const report = await runAndroidDoctor({ exec: fakeExec('openjdk version "21" 2024'), env: { EVOPATHCLI_REPO_ROOT: repo }, home, exists: () => true });
+    expect(byId(report.checks, 'server')?.status).toBe('warn');
   });
 });

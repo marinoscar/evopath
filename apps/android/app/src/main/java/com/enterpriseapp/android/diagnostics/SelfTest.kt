@@ -1,5 +1,6 @@
 package com.enterpriseapp.android.diagnostics
 
+import com.enterpriseapp.android.BuildConfig
 import com.enterpriseapp.android.auth.TokenStore
 import com.enterpriseapp.android.healthconnect.AppLabels
 import com.enterpriseapp.android.healthconnect.HcAvailability
@@ -50,6 +51,12 @@ interface DiagnosticsPlatform {
 
     /** Every notification channel the app created (empty below Android 8). */
     fun notificationChannels(): List<NotificationChannelSnapshot>
+
+    /**
+     * Whether a VIEW + BROWSABLE intent for [url] resolves to an activity of this app (the
+     * condition for Chrome to delegate the site's notifications to it).
+     */
+    fun opensBrowsableUrl(url: String): Boolean
 
     /** The unique periodic sync work, or null when none exists. */
     suspend fun periodicWork(): WorkSnapshot?
@@ -131,6 +138,8 @@ class SelfTest(
     private val history: SyncHistoryStore,
     /** Server releases for `app.update`; null skips the check (not wired). */
     private val releases: ReleaseBackend? = null,
+    /** The host the launcher's https intent-filter claims (`BuildConfig.TWA_HOST`). */
+    private val twaHost: String = BuildConfig.TWA_HOST,
     private val clock: () -> Instant = Instant::now,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
     private val networkTimeoutMs: Long = DiagnosticsLimits.NETWORK_TIMEOUT_MS,
@@ -233,6 +242,13 @@ class SelfTest(
                     safe { platform.notificationPermissionGranted() } ?: false,
                     safe { platform.notificationsEnabled() } ?: false,
                     safe { platform.notificationChannels() },
+                ),
+            )
+            add(
+                Checks.notificationDelegation(
+                    url,
+                    twaHost,
+                    url?.let { server -> safe { platform.opensBrowsableUrl("${server.trimEnd('/')}/") } },
                 ),
             )
             add(Checks.workScheduled(configured, work, zoneId))

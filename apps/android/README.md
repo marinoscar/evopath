@@ -71,7 +71,7 @@ Each property can be given with the neutral `app.` prefix or with the repository
 |---|---|---|
 | `app.versionName` | `version.properties` | `versionName` |
 | `app.versionCode` | `version.properties` | `versionCode` |
-| `app.serverUrl` | empty | Server baked into `BuildConfig.DEFAULT_SERVER_URL`. Empty shows a first-run setup screen. |
+| `app.serverUrl` | empty | Server baked into `BuildConfig.DEFAULT_SERVER_URL`. Empty shows a first-run setup screen. Its host is also the manifest placeholder `twaHost` (and `BuildConfig.TWA_HOST`), which notification delegation needs; see [Notifications](#notifications). |
 | `app.applicationId`, `app.productName`, `app.deepLinkScheme` | from `identity.json` | Override one derived identity value (rarely needed). |
 
 Example: `./gradlew assembleDebug -Papp.serverUrl=https://app.example.com`.
@@ -183,6 +183,19 @@ Two kinds of notification reach the phone, and both need the same Android permis
   (not exported, since only the app's own PendingIntent starts it, with the translucent
   `Theme.App.Invisible`); without it the request fails and delegated push stays blocked. The
   library creates a channel per name the browser passes (id `<name>_channel_id`).
+- **The launcher must claim the server's https URLs.** Chrome delegates a site's notifications to a
+  TWA only when the package has an activity with a `VIEW` + `BROWSABLE` intent-filter matching the
+  site's https URL: when it verifies the origin it checks that such an intent resolves to the
+  package, and when a push arrives the androidx connection pool resolves the service worker's scope
+  (`/`) the same way. Without it the notifications still appear, but as Chrome's. The launcher alias
+  therefore carries an `android:autoVerify="true"` filter for `https://${twaHost}` with no path
+  restriction. `twaHost` is the host of `app.serverUrl` at build time (`app/build.gradle.kts`,
+  parsed with `java.net.URI`); a build without a server URL uses `invalid.example`, which never
+  matches, and Gradle warns. So one APK delegates notifications for **one** server: build it with
+  that server's URL. Incoming links on the configured server's origin open that page in the TWA
+  (with the usual `source=twa`, `appVersion`, `appVersionCode`); links to any other host open the
+  start URL (`ServerUrls.twaLaunchUrlFor`). Chrome re-reads delegation when it next verifies the
+  origin: after installing or updating, force-stop Chrome, then open the app once.
 - **Native notifications** from Health sync, on the app's own channels: `health_sync_status`
   (Re-pair, background access), `health_sync_progress`, `app_updates` and `general` ("General":
   the diagnostics test notification).
@@ -209,7 +222,9 @@ notification — notifications from <product> work on this phone." on the Genera
 action's message says when notifications are not allowed or the channel is blocked. The
 `notifications.channels` check warns when notifications are off for the app or any channel it
 created (its own or a delegated one) is blocked (`IMPORTANCE_NONE`); its action opens that
-channel's settings. Delegated Web Push is tested end to end from the server: Admin → Android app →
+channel's settings. The `notifications.delegation` check asks Android whether a `VIEW` +
+`BROWSABLE` intent for `<server>/` resolves to this app, and warns, naming the build's host and the
+server's, when it does not. Delegated Web Push is tested end to end from the server: Admin → Android app →
 **Send test notification**.
 
 ## Diagnostics
@@ -239,6 +254,7 @@ Store, Re-pair, the web's Connected devices page…). Actions also has **Send te
 | `battery.optimization` | Battery optimization | `isIgnoringBatteryOptimizations` |
 | `notifications.permission` | Notifications | POST_NOTIFICATIONS (Android 13+) and notifications enabled; action **Allow notifications** (system dialog, or notification settings once denied for good) |
 | `notifications.channels` | Notification channels | notifications enabled and no channel the app created blocked (`IMPORTANCE_NONE`); skip while the permission is missing; `data.channels`, `data.blocked` |
+| `notifications.delegation` | Web app notifications | `queryIntentActivities(VIEW + BROWSABLE, <server>/, this package)` resolves, so Chrome can delegate the web app's notifications; warn when the build's `TWA_HOST` is another host (or unset); skip without a server; the detail says to force-stop Chrome and open the app once after installing; `data.buildHost`, `data.serverHost`, `data.handled` |
 | `work.scheduled` | Hourly sync scheduled | the unique periodic work's state and next run |
 | `sync.last` | Last sync | last local run: warn when older than 3 h, failed, partial or skipped |
 | `sync.delivery` | Data delivery | last run: per type read vs sent (drops), per table sent vs accepted (`created + updated + unchanged`); flags `skipped` |

@@ -74,6 +74,48 @@ class ServerUrlsTest {
             "https://app.example.com:8443/?source=twa&appVersion=1.0+beta%261&appVersionCode=12",
             ServerUrls.twaLaunchUrl("https://app.example.com:8443", "1.0 beta&1", 12),
         )
+
+    // --- twaLaunchUrlFor: incoming https links ------------------------------------------------
+
+    private val start = "https://app.example.com/?source=twa&appVersion=1.1.1&appVersionCode=7"
+
+    private fun launch(incoming: String?, server: String = "https://app.example.com") =
+        ServerUrls.twaLaunchUrlFor(server, incoming, "1.1.1", 7)
+
+    @Test fun `no incoming link opens the start url`() {
+        assertEquals(start, launch(null))
+        assertEquals(start, launch(""))
+    }
+
+    @Test fun `a link on the server host opens that page with the launch parameters`() {
+        assertEquals(
+            "https://app.example.com/workouts/42?tab=sets&source=twa&appVersion=1.1.1&appVersionCode=7#top",
+            launch("https://app.example.com/workouts/42?tab=sets#top"),
+        )
+        assertEquals(start, launch("https://app.example.com/"))
+        assertEquals(start, launch("https://APP.example.com"))
+    }
+
+    @Test fun `launch parameters in the link are replaced, not duplicated`() =
+        assertEquals(
+            "https://app.example.com/coach?source=twa&appVersion=1.1.1&appVersionCode=7",
+            launch("https://app.example.com/coach?source=web&appVersionCode=1"),
+        )
+
+    @Test fun `links to another origin open the start url`() {
+        assertEquals(start, launch("https://evil.example.net/workouts"))
+        assertEquals(start, launch("https://sub.app.example.com/"))
+        assertEquals(start, launch("http://app.example.com/workouts"))
+        assertEquals(start, launch("https://app.example.com:8443/workouts"))
+        assertEquals(start, launch("example-android://health-sync"))
+        assertEquals(start, launch("not a url"))
+    }
+
+    @Test fun `a non-default port must match the configured server`() =
+        assertEquals(
+            "https://app.example.com:8443/a?source=twa&appVersion=1.1.1&appVersionCode=7",
+            launch("https://app.example.com:8443/a", server = "https://app.example.com:8443"),
+        )
 }
 
 class ServerConfigTest {
