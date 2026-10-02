@@ -129,7 +129,9 @@ Never commit the keystore or its passwords. `*.jks` and `*.keystore` are git-ign
    evopathcli android release --bump patch --notes "What changed"
    ```
 
-   `--bump` is `patch` (default), `minor` or `major`. `--server-url <url>` bakes a default server address into the app (otherwise the app asks on first run). `--no-commit` skips the commit.
+   `--bump` is `patch` (default), `minor` or `major`. `--server-url <url>` bakes the server address into the app; without it the CLI uses the server you are logged in to. `--no-commit` skips the commit.
+
+   > **One APK, one server host.** The app claims links, and so receives Web Push notifications as itself, only for the host it was built for. An APK built for another server, or for none (not logged in, no `--server-url`: the build warns), still installs and runs, but Chrome shows its notifications instead of the app. Check the `Built for <url>` line; `publish` warns when it differs from the upload target.
 3. The command bumps `version.properties`, builds and signs the APK, uploads it as the current release and commits the version file as `chore(android): release <versionName> (<versionCode>)`. You should see `Published <version> (<code>) - now the current release`, the release id, the download page URL and the commit line. It writes `dist/android/<app slug>-android-<versionName>.apk` and its `.json` metadata.
 
 If the build or the upload fails, nothing is committed, and the CLI says the version was bumped locally. Fix the cause, then continue with `android build` and `android publish` ([6.2](#62-step-by-step)). Running `release` again would bump a second time.
