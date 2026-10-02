@@ -257,6 +257,24 @@ describe('usePhotoIntake', () => {
     expect(result.current.intake?.status).toBe('applied');
   });
 
+  it('accepts only the high-confidence items when asked, adopting what the server returned', async () => {
+    script([intake('ready', { items: [item('a'), item('b', { confidence: 'low' })] })]);
+    const bodies: unknown[] = [];
+    server.use(
+      http.post('*/api/intakes/:id/items/accept-all', async ({ request }) => {
+        const text = await request.text();
+        bodies.push(text ? JSON.parse(text) : null);
+        return HttpResponse.json({ data: [item('a', { status: 'accepted', userVerified: true })] });
+      }),
+    );
+    const { result } = renderHook(() => usePhotoIntake<{ name: string }>('in-1', { intervalMs: FAST }));
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    await act(async () => result.current.acceptAll({ only: 'high_confidence' }));
+    expect(bodies).toEqual([{ only: 'high_confidence' }]);
+    expect(result.current.items.map((entry) => entry.status)).toEqual(['accepted', 'pending']);
+  });
+
   it('surfaces a refused apply (pending items) as error', async () => {
     script([intake('ready', { items: [item('a')] })]);
     server.use(

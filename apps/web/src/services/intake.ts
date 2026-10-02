@@ -238,8 +238,27 @@ export async function deleteDraftItem(id: string, itemId: string): Promise<void>
   await api.delete<void>(`${base(id)}/items/${encodeURIComponent(itemId)}`);
 }
 
-export async function acceptAllDraftItems<TValue = unknown>(id: string): Promise<DraftItemView<TValue>[]> {
-  return api.post<DraftItemView<TValue>[]>(`${base(id)}/items/accept-all`);
+/**
+ * Which pending items "accept all" takes (#305). `high_confidence`: pending,
+ * confidence `high` and not flagged uncertain. The server decides which items
+ * qualify; the browser only names the filter.
+ */
+export type AcceptAllFilter = 'high_confidence';
+
+export interface AcceptAllOptions {
+  /** Absent: every pending item (the original behaviour). */
+  only?: AcceptAllFilter;
+}
+
+export async function acceptAllDraftItems<TValue = unknown>(
+  id: string,
+  options: AcceptAllOptions = {},
+): Promise<DraftItemView<TValue>[]> {
+  const path = `${base(id)}/items/accept-all`;
+  // No body without a filter, so the request stays what it always was.
+  return options.only
+    ? api.post<DraftItemView<TValue>[]>(path, { only: options.only })
+    : api.post<DraftItemView<TValue>[]>(path);
 }
 
 /** Apply the accepted items; resolves with the kind's own result. */
