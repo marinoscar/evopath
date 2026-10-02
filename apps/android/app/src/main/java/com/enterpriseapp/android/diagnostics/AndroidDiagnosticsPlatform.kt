@@ -3,7 +3,9 @@ package com.enterpriseapp.android.diagnostics
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import androidx.core.app.NotificationManagerCompat
@@ -43,6 +45,20 @@ class AndroidDiagnosticsPlatform(context: Context) : DiagnosticsPlatform {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return emptyList()
         val manager = appContext.getSystemService(NotificationManager::class.java) ?: return emptyList()
         return manager.notificationChannels.map { NotificationChannelSnapshot(it.id, it.name?.toString() ?: it.id, it.importance) }
+    }
+
+    override fun opensBrowsableUrl(url: String): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .setPackage(appContext.packageName)
+        val pm = appContext.packageManager
+        val matches = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
+        } else {
+            @Suppress("DEPRECATION")
+            pm.queryIntentActivities(intent, 0)
+        }
+        return matches.isNotEmpty()
     }
 
     override fun installedPackages(packages: Collection<String>): Set<String> {

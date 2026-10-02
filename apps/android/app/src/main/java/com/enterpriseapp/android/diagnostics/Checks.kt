@@ -25,6 +25,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -48,6 +49,7 @@ object CheckIds {
     const val BATTERY = "battery.optimization"
     const val NOTIFICATIONS = "notifications.permission"
     const val NOTIFICATION_CHANNELS = "notifications.channels"
+    const val NOTIFICATION_DELEGATION = "notifications.delegation"
     const val WORK_SCHEDULED = "work.scheduled"
     const val SYNC_LAST = "sync.last"
     const val SYNC_DELIVERY = "sync.delivery"
@@ -74,6 +76,7 @@ object CheckLabels {
     const val BATTERY = "Battery optimization"
     const val NOTIFICATIONS = "Notifications"
     const val NOTIFICATION_CHANNELS = "Notification channels"
+    const val NOTIFICATION_DELEGATION = "Web app notifications"
     const val WORK_SCHEDULED = "Hourly sync scheduled"
     const val SYNC_LAST = "Last sync"
     const val SYNC_DELIVERY = "Data delivery"
@@ -719,6 +722,55 @@ object Checks {
             data = data,
         )
     }
+
+    /** How to make Chrome re-read the delegation after installing or updating the app. */
+    const val DELEGATION_REFRESH = "Force-stop Chrome, then open the app once."
+
+    /**
+     * Whether Chrome can hand the web app's notifications to this app. Chrome delegates a site's
+     * Web Push to a TWA only when the app has a VIEW + BROWSABLE activity for the site's https
+     * URLs; the launcher's filter names [buildHost] (`BuildConfig.TWA_HOST`, the host of the
+     * server URL the APK was built with). [handled] is whether Android resolves `<url>/` to this
+     * app (null when it could not be asked).
+     */
+    fun notificationDelegation(url: String?, buildHost: String, handled: Boolean?): CheckResult {
+        val id = CheckIds.NOTIFICATION_DELEGATION
+        val label = CheckLabels.NOTIFICATION_DELEGATION
+        if (url == null) return CheckResult.of(id, label, CheckStatus.SKIP, "No server address is set.")
+        val serverHost = url.toHttpUrlOrNull()?.host ?: url.substringAfter("://").substringBefore('/').substringBefore(':')
+        if (handled == null) {
+            return CheckResult.of(id, label, CheckStatus.SKIP, "Could not ask Android which app opens $serverHost links.")
+        }
+        val data = buildJsonObject {
+            put("buildHost", buildHost)
+            put("serverHost", serverHost)
+            put("handled", handled)
+        }
+        if (handled) {
+            return CheckResult.of(
+                id, label, CheckStatus.PASS,
+                "This app opens links for $serverHost, so Chrome can show the web app's notifications as this app's. " +
+                    "If they still appear as Chrome's after installing or updating: $DELEGATION_REFRESH",
+                data = data,
+            )
+        }
+        val why = if (buildHost == UNSET_TWA_HOST) {
+            "This build was made without a server URL, so it opens no links for $serverHost"
+        } else {
+            "This build opens links for $buildHost, but the server is $serverHost"
+        }
+        return CheckResult.of(
+            id, label, CheckStatus.WARN,
+            "$why: Chrome will show notifications as its own. Rebuild the app with this server's URL. " +
+                "After installing it: $DELEGATION_REFRESH",
+            remedy = "Rebuild the app with this server's URL (android build --server-url $url), install it, " +
+                "then force-stop Chrome and open the app once.",
+            data = data,
+        )
+    }
+
+    /** `BuildConfig.TWA_HOST` of a build made without a server URL (app/build.gradle.kts). */
+    const val UNSET_TWA_HOST = "invalid.example"
 
     fun workScheduled(configured: Boolean, work: Probe<WorkSnapshot?>, zone: ZoneId): CheckResult {
         val id = CheckIds.WORK_SCHEDULED
