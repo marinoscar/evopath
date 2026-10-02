@@ -77,7 +77,7 @@ describe('mapLabReportOutput (H4, #188)', () => {
     expect(drafts[4]).toMatchObject({
       uncertain: true,
       uncertaintyNote: UNMATCHED_NOTE,
-      value: { analyteKey: null, nameAsPrinted: 'Lipoprotein (a)', value: 32, unit: 'nmol/L', match: 'unmatched', panel: null },
+      value: { analyteKey: null, nameAsPrinted: 'Apolipoprotein A1', value: 152, unit: 'mg/dL', match: 'unmatched', panel: null },
     });
 
     // Glucose printed in mmol/L is drafted in mg/dL, the printed pair kept.
@@ -127,7 +127,7 @@ describe('mapLabReportOutput (H4, #188)', () => {
     expect(resultMeta.suggested).toBe(1);
 
     // An invented key is not trusted: unmatched.
-    expect(one(result({ nameAsPrinted: 'Lp(a)', matchedKey: 'lipoprotein_a' })).drafts[0].value).toMatchObject({
+    expect(one(result({ nameAsPrinted: 'Apo A1', matchedKey: 'apolipoprotein_a1' })).drafts[0].value).toMatchObject({
       analyteKey: null,
       match: 'unmatched',
     });

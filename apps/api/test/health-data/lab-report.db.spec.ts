@@ -198,7 +198,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
       'fasting_glucose',
       'hba1c',
     ]);
-    expect(drafts[4]).toMatchObject({ uncertain: true, value: { nameAsPrinted: 'Lipoprotein (a)', match: 'unmatched' } });
+    expect(drafts[4]).toMatchObject({ uncertain: true, value: { nameAsPrinted: 'Apolipoprotein A1', match: 'unmatched' } });
     expect(drafts[5].value).toMatchObject({ value: 97.2973, unit: 'mg/dL', originalValue: 5.4, originalUnit: 'mmol/L' });
     expect(await client.measurement.count({ where: { userId } })).toBe(0);
   });
@@ -206,7 +206,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
   it('refuses apply while the unmatched row is unresolved, then saves one lab entry with range, flag and provenance', async () => {
     const userId = await makeUser('apply');
     const { intakeId, object, healthDocumentId } = await importReport(userId, 'apply');
-    const unmatched = await byName(intakeId, 'Lipoprotein (a)');
+    const unmatched = await byName(intakeId, 'Apolipoprotein A1');
 
     await intakes.acceptAll(userId, intakeId, PERMS);
     const refused = (await intakes.apply(userId, intakeId, PERMS).catch((error: unknown) => error)) as ConflictException;
@@ -262,7 +262,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
   it('an unmatched row mapped to a catalog key by the user is saved as user_mapped', async () => {
     const userId = await makeUser('mapped');
     const { intakeId } = await importReport(userId, 'mapped');
-    const unmatched = await byName(intakeId, 'Lipoprotein (a)');
+    const unmatched = await byName(intakeId, 'Apolipoprotein A1');
 
     const edited = await intakes.updateItem(
       userId,
@@ -278,7 +278,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
 
     const apob = await client.measurement.findFirstOrThrow({ where: { userId, metricKey: 'apob' } });
     expect(apob).toMatchObject({ value: 90, unit: 'mg/dL', origin: 'ai' });
-    expect(apob.sourceRef).toMatchObject({ match: 'user_mapped', userEdited: true, nameAsPrinted: 'Lipoprotein (a)' });
+    expect(apob.sourceRef).toMatchObject({ match: 'user_mapped', userEdited: true, nameAsPrinted: 'Apolipoprotein A1' });
     expect(await client.measurement.count({ where: { userId } })).toBe(7);
   });
 
@@ -287,7 +287,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
     const first = await importReport(userId, 'first');
     const ldl = await byName(first.intakeId, 'LDL Chol Calc');
     await intakes.updateItem(userId, first.intakeId, ldl.id, { value: { ...(ldl.value as object), value: 140 } }, PERMS);
-    await intakes.updateItem(userId, first.intakeId, (await byName(first.intakeId, 'Lipoprotein (a)')).id, { status: 'rejected' }, PERMS);
+    await intakes.updateItem(userId, first.intakeId, (await byName(first.intakeId, 'Apolipoprotein A1')).id, { status: 'rejected' }, PERMS);
     await intakes.acceptAll(userId, first.intakeId, PERMS);
     await intakes.apply(userId, first.intakeId, PERMS);
 
@@ -323,7 +323,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
   it('saves one entry per collection date and checks duplicates on each result\'s own date (#305)', async () => {
     const userId = await makeUser('dates');
     const first = await importReport(userId, 'dates-first');
-    await intakes.updateItem(userId, first.intakeId, (await byName(first.intakeId, 'Lipoprotein (a)')).id, { status: 'rejected' }, PERMS);
+    await intakes.updateItem(userId, first.intakeId, (await byName(first.intakeId, 'Apolipoprotein A1')).id, { status: 'rejected' }, PERMS);
 
     // The user moves HDL to an earlier collection date; an item edit can set and clear the date.
     const hdl = await byName(first.intakeId, 'HDL Cholesterol');
@@ -386,7 +386,7 @@ describeWithDb('lab report extraction (real Postgres)', () => {
   it('delete after processing: apply enqueues the purge, the job erases the file, provenance and documentDate stay', async () => {
     const userId = await makeUser('purge');
     const { intakeId, object, healthDocumentId } = await importReport(userId, 'purge', false);
-    await intakes.updateItem(userId, intakeId, (await byName(intakeId, 'Lipoprotein (a)')).id, { status: 'rejected' }, PERMS);
+    await intakes.updateItem(userId, intakeId, (await byName(intakeId, 'Apolipoprotein A1')).id, { status: 'rejected' }, PERMS);
     await intakes.acceptAll(userId, intakeId, PERMS);
     const result = (await intakes.apply(userId, intakeId, PERMS)) as { entryId: string };
 
