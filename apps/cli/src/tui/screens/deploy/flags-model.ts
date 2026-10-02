@@ -21,7 +21,9 @@
  *
  * Flags deliberately NOT offered, each for a stated reason, are listed in
  * `NOT_IN_TUI` below -- an explicit exclusion the parity test reads, rather
- * than a silent omission it would have to tolerate.
+ * than a silent omission it would have to tolerate. Flags offered by a step
+ * of their OWN rather than as a toggle are listed in `DEDICATED_STEPS`, which
+ * the parity test (and the re-run command) read the same way.
  * =============================================================================
  */
 
@@ -127,12 +129,6 @@ export const INSTALL_TOGGLES: readonly ToggleFlag[] = [
     label: 'Do not bump the version',
     help: 'Deploy the current version: no manifest write, no commit, no push.',
   },
-  {
-    flag: '--with-android',
-    option: 'withAndroid',
-    label: 'Publish the Android APK if newer',
-    help: 'After a healthy deploy: doctor, build and publish the APK to https://<domain> when the local version is newer. Needs a login with system_settings:write; anything missing is skipped with its fix, never failing the deploy.',
-  },
 ];
 
 export const UPDATE_TOGGLES: readonly ToggleFlag[] = [
@@ -189,11 +185,6 @@ export const UPDATE_TOGGLES: readonly ToggleFlag[] = [
     option: 'maintenance',
     label: 'Serve a maintenance page during the risky part',
     help: 'From just before the build until just after the restart, instead of whatever the stop/migrate/restart window looks like underneath.',
-  },  {
-    flag: '--with-android',
-    option: 'withAndroid',
-    label: 'Publish the Android APK if newer',
-    help: 'After a healthy deploy: doctor, build and publish the APK to https://<domain> when the local version is newer. Needs a login with system_settings:write; anything missing is skipped with its fix, never failing the deploy.',
   },
 ];
 
@@ -221,6 +212,42 @@ export const NOT_IN_TUI: Readonly<Record<string, string>> = Object.freeze({
     'The Android screen bumps the version (with a preview of old → new); the deploy screen publishes the version as it is, so one place owns version changes.',
   '--android-notes':
     'Release notes are asked on the Android screen\'s Publish and Release actions; the deploy screen publishes without notes.',
+});
+
+/** The Android step's flag: build and publish the APK after a healthy deploy. */
+export const WITH_ANDROID_FLAG = '--with-android';
+
+/** A flag a screen asks on a step of its own, instead of as a toggle. */
+export interface DedicatedStepFlag {
+  /** Exactly as the subcommand declares it, so the parity test can match. */
+  flag: string;
+  /** The step that sets it, as named in its frame title. */
+  step: string;
+  /** Why it earned a step rather than a row in the toggle list. */
+  reason: string;
+}
+
+const ANDROID_STEP: DedicatedStepFlag = {
+  flag: WITH_ANDROID_FLAG,
+  step: 'Android app',
+  reason:
+    'Building and publishing the APK is a second deliverable, not a tweak to this one: it was the last of ten ' +
+    'generic toggles and easy to miss (#315). Its own step asks yes/no with the context needed to decide -- the ' +
+    'checkout version, the published release, the toolchain pre-flight -- and remembers the answer per deployment.',
+};
+
+/**
+ * Flags each screen sets on a DEDICATED step, outside the toggle list.
+ *
+ * ⚠ AN EXPLICIT LIST, LIKE `NOT_IN_TUI`. The parity test counts these as
+ * reached, and `rerunCommand` prints them when chosen, so a flag moved onto
+ * its own step is neither reported missing nor lost from the re-run command.
+ * The chosen set still carries the flag string, exactly as a toggle would.
+ */
+export const DEDICATED_STEPS: Readonly<Record<RunnableAction, readonly DedicatedStepFlag[]>> = Object.freeze({
+  doctor: [],
+  install: [ANDROID_STEP],
+  update: [ANDROID_STEP],
 });
 
 /** The options object a set of chosen toggles produces. */

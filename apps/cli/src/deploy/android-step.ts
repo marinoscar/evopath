@@ -47,13 +47,17 @@ import { checkoutPathFor } from './version-step.js';
 // ⚠ IT NEVER PROMPTS, in any mode: every decision comes from the flags, so a
 // `--non-interactive` (or cron) deploy cannot hang on it.
 //
-// WHICH CHECKOUT. The operator's own checkout (the directory the CLI runs in,
-// or `<CLI>_REPO_ROOT`) first; otherwise the deployment's checkout, which
-// holds the revision just deployed. `--android-bump` is refused in the
-// deployment's checkout: an uncommitted version.properties there makes the
-// next `deploy update` refuse a dirty tree. In the operator's checkout the
-// bump goes through `runRelease`, so version.properties is committed only
-// after the upload succeeded.
+// WHICH CHECKOUT (#315). Without `--android-bump`: the DEPLOYMENT's checkout
+// (`<deployRoot>/repo`) when it holds apps/android -- the deploy has just
+// moved it to the revision now being served, so the APK is built from the
+// same revision as the web app it wraps. Otherwise the operator's own
+// checkout (the directory the CLI runs in, or `<CLI>_REPO_ROOT`).
+//
+// With `--android-bump` the operator's own checkout comes first, as before:
+// `--android-bump` is refused in the deployment's checkout, because an
+// uncommitted version.properties there makes the next `deploy update` refuse
+// a dirty tree. In the operator's checkout the bump goes through `runRelease`,
+// so version.properties is committed only after the upload succeeded.
 // =============================================================================
 
 export const ANDROID_BUMP_PARTS: readonly BumpPart[] = ['patch', 'minor', 'major'];
@@ -63,10 +67,24 @@ export interface DeployAndroidOptions {
   notes?: string | undefined;
 }
 
+/** Which checkout the APK is (or would be) built from, and why. */
+export interface AndroidBuildSource {
+  repoRoot: string;
+  kind: 'deployment' | 'own';
+}
+
 export type AndroidStepOutcome =
-  | { status: 'published'; version: AppVersion; releaseId: string; serverUrl: string; commit?: string | undefined; detail: string }
-  | { status: 'skipped'; reason: string; fix?: string | undefined }
-  | { status: 'failed'; reason: string; fix?: string | undefined };
+  | {
+      status: 'published';
+      version: AppVersion;
+      releaseId: string;
+      serverUrl: string;
+      commit?: string | undefined;
+      detail: string;
+      source?: AndroidBuildSource | undefined;
+    }
+  | { status: 'skipped'; reason: string; fix?: string | undefined; source?: AndroidBuildSource | undefined }
+  | { status: 'failed'; reason: string; fix?: string | undefined; source?: AndroidBuildSource | undefined };
 
 export interface AndroidStepInput {
   /** The deployment's public domain; none means there is no URL to publish to. */
@@ -133,6 +151,30 @@ export function publicUrlFor(domain: string | undefined): string | undefined {
   return trimmed === undefined || trimmed === '' ? undefined : `https://${trimmed.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
 }
 
+/**
+ * The checkout the Android step builds from; see WHICH CHECKOUT above.
+ * `undefined` when neither checkout holds apps/android.
+ */
+export function androidBuildSource(
+  deployRoot: string,
+  findOwn: () => string | undefined,
+  bump: BumpPart | undefined = undefined,
+): AndroidBuildSource | undefined {
+  const deployCheckout = checkoutPathFor(deployRoot);
+  const deployHasAndroid = existsSync(join(deployCheckout, ANDROID_APP_DIR));
+  if (bump === undefined && deployHasAndroid) return { repoRoot: deployCheckout, kind: 'deployment' };
+  const own = findOwn();
+  if (own !== undefined) {
+    return { repoRoot: own, kind: resolve(own) === resolve(deployCheckout) ? 'deployment' : 'own' };
+  }
+  return deployHasAndroid ? { repoRoot: deployCheckout, kind: 'deployment' } : undefined;
+}
+
+/** `the deployment's checkout (/opt/…/repo)`, for report lines. */
+export function describeBuildSource(source: AndroidBuildSource): string {
+  return `${source.kind === 'deployment' ? "the deployment's checkout" : 'your own checkout'} (${source.repoRoot})`;
+}
+
 const label = (version: AppVersion) => `${version.versionName} (code ${version.versionCode})`;
 
 export async function runDeployAndroidStep(
@@ -158,16 +200,26 @@ async function decide(input: AndroidStepInput, deps: AndroidStepDeps, log: (line
       fix: `${CLI_NAME} login --server <url> && ${CLI_NAME} android release`,
     };
   }
-  const loginFix = `${CLI_NAME} login --server ${url}`;
-
-  const deployCheckout = checkoutPathFor(input.deployRoot);
-  const own = deps.findRepoRoot();
-  const repoRoot = own ?? (existsSync(join(deployCheckout, ANDROID_APP_DIR)) ? deployCheckout : undefined);
-  if (repoRoot === undefined) {
+  const bump = input.options.bump;
+  const source = androidBuildSource(input.deployRoot, deps.findRepoRoot, bump);
+  if (source === undefined) {
     return { status: 'skipped', reason: `no ${ANDROID_APP_DIR} checkout found`, fix: `cd <your checkout> && ${CLI_NAME} android release` };
   }
+  const outcome = await decideFrom(source, url, input, deps, log);
+  return { ...outcome, source };
+}
+
+async function decideFrom(
+  source: AndroidBuildSource,
+  url: string,
+  input: AndroidStepInput,
+  deps: AndroidStepDeps,
+  log: (line: string) => void,
+): Promise<AndroidStepOutcome> {
+  const loginFix = `${CLI_NAME} login --server ${url}`;
+  const repoRoot = source.repoRoot;
   const bump = input.options.bump;
-  if (bump !== undefined && resolve(repoRoot) === resolve(deployCheckout)) {
+  if (bump !== undefined && source.kind === 'deployment') {
     return {
       status: 'skipped',
       reason:
@@ -177,6 +229,7 @@ async function decide(input: AndroidStepInput, deps: AndroidStepDeps, log: (line
     };
   }
 
+  log(`Building from ${describeBuildSource(source)}.`);
   log(`Checking the Android release on ${url}…`);
   const status = await deps.getReleaseStatus({ repoRoot, serverUrl: url });
   const { login } = status;
@@ -279,21 +332,33 @@ function published(version: AppVersion, result: PublishedApk, serverUrl: string,
   };
 }
 
-/** The deploy report's lines for the outcome: one summary line, then the fix. */
+/**
+ * The deploy report's lines for the outcome: one summary line, then which
+ * checkout was (or would have been) built (#315), then the fix.
+ */
 export function androidReportLines(outcome: AndroidStepOutcome): string[] {
+  const indent = '             ';
+  const from = outcome.source === undefined ? [] : [`${indent}built from ${describeBuildSource(outcome.source)}`];
+  const checkout = outcome.source === undefined ? [] : [`${indent}checkout: ${describeBuildSource(outcome.source)}`];
   switch (outcome.status) {
     case 'published':
       return [
         `Android APK  ${outcome.detail}`,
-        ...(outcome.commit === undefined ? [] : [`             version.properties: ${outcome.commit}`]),
+        ...from,
+        ...(outcome.commit === undefined ? [] : [`${indent}version.properties: ${outcome.commit}`]),
       ];
     case 'skipped':
-      return [`Android APK  skipped: ${outcome.reason}`, ...(outcome.fix === undefined ? [] : [`             fix: ${outcome.fix}`])];
+      return [
+        `Android APK  skipped: ${outcome.reason}`,
+        ...checkout,
+        ...(outcome.fix === undefined ? [] : [`${indent}fix: ${outcome.fix}`]),
+      ];
     case 'failed':
       return [
         `Android APK  failed: ${outcome.reason.split('\n')[0] ?? outcome.reason}`,
-        ...(outcome.fix === undefined ? [] : [`             fix: ${outcome.fix}`]),
-        '             (the deploy itself succeeded)',
+        ...checkout,
+        ...(outcome.fix === undefined ? [] : [`${indent}fix: ${outcome.fix}`]),
+        `${indent}(the deploy itself succeeded)`,
       ];
   }
 }

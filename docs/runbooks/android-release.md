@@ -49,7 +49,9 @@ The keystore, `version.properties` and the version rules ([section 5](#5-version
 - **An account with `system_settings:write`.** Only the Admin role holds it.
 - **The deployment reachable over HTTPS** from your machine and from the phones.
 
-`doctor` checks, in order: the `apps/android` checkout, the Gradle wrapper, `version.properties`, the JDK, the SDK and its parts, the release keystore and its SHA-256. It exits 6 when any check fails. `--json` prints the report on stdout.
+`doctor` checks, in order: the `apps/android` checkout, whether that checkout is up to date with its upstream branch or `origin/main` (`repo.fresh`), the Gradle wrapper, `version.properties`, the JDK, the SDK and its parts, the release keystore and its SHA-256. It exits 6 when any check fails. `--json` prints the report on stdout.
+
+**Build from the latest `main`.** An APK contains only what your checkout holds: built from a checkout behind `origin/main`, it leaves out the commits you have not pulled, and publishing it makes that the current release. `repo.fresh` runs `git fetch` (10-second timeout) and compares. It warns when you are behind, with `git pull` as the fix (`git checkout main && git pull` when you are on another branch without an upstream). It also warns when the fetch failed (it then compares with the last-known remote ref, which may be stale), on a detached HEAD, and outside a git clone. It never fails and never changes your files. `android build` makes the same check before Gradle runs and prints `⚠ Your checkout is N commit(s) behind origin/main — the APK will not include them. Run: git pull`. Pass `--require-up-to-date` to `android build` or `android release` to stop instead of warning; `release` checks it before bumping the version. The deploy step builds from the deployment's checkout, which the deploy has just updated, so there the check normally passes.
 
 ## 3. Log in the CLI
 
@@ -120,7 +122,7 @@ Never commit the keystore or its passwords. `*.jks` and `*.keystore` are git-ign
 
 ### 6.1 One shot
 
-1. `evopathcli android doctor --fix`, then `evopathcli login --server https://app.example.com` ([sections 2 and 3](#2-prerequisites)). The release command checks the login and the keystore before it bumps anything.
+1. `git pull` on `main`, `evopathcli android doctor --fix`, then `evopathcli login --server https://app.example.com` ([sections 2 and 3](#2-prerequisites)). Doctor's `repo.fresh` row warns if the checkout is still behind. The release command checks the login and the keystore before it bumps anything.
 2. Run:
 
    ```bash
@@ -191,7 +193,9 @@ evopathcli deploy update --with-android --android-bump patch --android-notes "Wh
 
 `deploy install` takes the same flags. `--android-bump` (`patch`, `minor`, `major`) and `--android-notes` need `--with-android`; a typo is rejected before the deploy starts.
 
-After the deploy is healthy, the step takes the deployment's public domain as the server URL, finds a checkout, compares the local `versionCode` with the server's current release and, when the local one is higher, runs the doctor, builds with that URL baked in and publishes as current. With `--android-bump` the bump is committed only after the upload succeeded.
+After the deploy is healthy, the step takes the deployment's public domain as the server URL, picks a checkout, compares its `versionCode` with the server's current release and, when the checkout's is higher, runs the doctor, builds with that URL baked in and publishes as current. With `--android-bump` the bump is committed only after the upload succeeded.
+
+**Which checkout is built.** Without `--android-bump`, the deployment's own checkout (`<deploy root>/repo`) when it holds `apps/android`. The deploy has just moved it to the revision now being served, so the APK matches the web app it wraps. Otherwise the checkout you run the CLI in (or `EVOPATHCLI_REPO_ROOT`). With `--android-bump`, your own checkout comes first, and the bump is refused in the deployment's checkout (see the VPS caveat). The summary names the checkout under the `Android APK` line: `built from the deployment's checkout (<path>)`, or `checkout: <which> (<path>)` when the step skipped.
 
 **It never fails the deploy.** Every outcome is a line in the deploy summary, and the deploy's exit code is decided before the step runs. It never prompts, so it is safe with `--non-interactive` and from cron. `--json` adds an `android` field with the outcome.
 
@@ -210,9 +214,24 @@ After the deploy is healthy, the step takes the deployment's public domain as th
 | Skipped | `skipped: could not read the current release` | The server did not answer | `evopathcli android releases` |
 | Failed | `failed: build failed ...` or `upload failed ...`, then `(the deploy itself succeeded)` | Gradle or the upload failed | `evopathcli android build ...` then `android publish`, as printed |
 
-**VPS caveat.** Most VPS hosts have no JDK or Android SDK, so the step skips there. Run `evopathcli android doctor --fix` on the host first, or publish from your workstation with `evopathcli android release`. The step prefers the checkout you run the CLI in (or `EVOPATHCLI_REPO_ROOT`) and falls back to the deployment's own checkout. It refuses `--android-bump` in the deployment's checkout, because an uncommitted `version.properties` there would make the next `deploy update` refuse a dirty tree. The login must exist on the machine that runs the deploy. See [deploy to a VPS](deploy-to-vps.md).
+**VPS caveat.** Most VPS hosts have no JDK or Android SDK, so the step skips there. Run `evopathcli android doctor --fix` on the host first, or publish from your workstation with `evopathcli android release`. It refuses `--android-bump` in the deployment's checkout, because an uncommitted `version.properties` there would make the next `deploy update` refuse a dirty tree. The login must exist on the machine that runs the deploy. See [deploy to a VPS](deploy-to-vps.md).
 
-The terminal menu's Install and Update screens offer the same step as the toggle **Publish the Android APK if newer**. The toggle has no bump or notes; use the Android screen for those.
+### 8.1 From the terminal menu
+
+The terminal menu's **Deploy → Update** and **Deploy → Install** screens ask on a step of their own, **Android app**, after the options step and before **Confirm**. It offers two choices:
+
+- **No — web app only**
+- **Yes — also build and publish the Android APK (if its version is newer than the published one)**, which adds `--with-android` to the run
+
+Above the choices the step shows:
+
+| Row | What it shows |
+|---|---|
+| checkout | The version in the deployment's checkout (`apps/android/version.properties`). The update may bring a newer one. |
+| published | The server's current release, read with the stored login for `https://<domain>`. Without a login it shows `not logged in to https://<domain>` and the `evopathcli login --server https://<domain>` command. No answer within a few seconds reads as unreachable. |
+| preflight | `android doctor` against the checkout the build will use: a pass/fail summary, then each failed or warning check with its fix. It runs in the background; you can choose before it finishes. |
+
+Esc goes back to the options. The **Confirm** screen shows an **Android app** row: `build and publish if newer` or `not included`. The answer is remembered per deployment (`~/.evopathcli/deploy-preferences.json`) and selected the next time; a deployment whose checkout has no `apps/android` opens on **No**. The step has no bump or notes; use the Android screen ([section 7](#7-release-from-the-terminal-menu)) for those.
 
 ## 9. Release from the web admin page
 
@@ -301,6 +320,8 @@ Roll back:
 | `No release keystore is configured` | None created or imported | `evopathcli android keystore init` or `import <file>` |
 | `Could not find apps/android in this directory or any parent` | Not run inside the repository | `cd` into it, or set `EVOPATHCLI_REPO_ROOT` |
 | `doctor` shows red rows, exit 6 | A prerequisite is missing | JDK: install it with the printed command. SDK, platform, build-tools, licences: `evopathcli android doctor --fix`. Gradle wrapper: restore `apps/android/gradlew` from git. `version.properties`: fix the file. Keystore: `keystore init` or `import`. |
+| `⚠ Your checkout is N commit(s) behind origin/main` (build), or doctor warns on `repo.fresh` | Commits on the remote are not in your checkout, so the APK would leave them out | `git pull` (or `git checkout main && git pull`), then build. With `--require-up-to-date` the build or release stops here instead of warning |
+| doctor's `repo.fresh` says `could not fetch` | Offline, or git has no credentials for the remote | Fix the network or credentials and re-run; until then the comparison uses the last-known remote ref |
 | `release` failed after "Version bumped" | Build or publish failed; the bump is uncommitted | Fix the cause, then `android build` and `android publish`; do not run `release` again (it bumps twice). Or revert `apps/android/version.properties` |
 | Release is current but the TWA shows an address bar | The trust list was full, so the key was not added | Remove stale entries at Admin, then Settings, then Android app, trust the new one ([Android app runbook](android-app.md#63-trust-the-build-on-the-server)) |
 | Phones are paired but the Doctor warns `android.releases` | No release is current | Make one current ([section 12](#12-roll-back)) or publish |

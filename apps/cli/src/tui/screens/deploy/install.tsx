@@ -9,6 +9,7 @@ import type { DeployHooks } from '../../../deploy/hooks.js';
 import { runInstall } from '../../../deploy/install.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { findGitRoot } from '../../../deploy/repo.js';
+import { writeAndroidPreference } from '../../../deploy/preferences.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
 import {
   advancedDefaults,
@@ -29,6 +30,8 @@ import {
   withFlags,
 } from './fields.js';
 import { publishAndroidAfterDeploy } from './android.js';
+import { AndroidAppStep, type AndroidStepDeps } from './android-step.js';
+import { defaultAndroidChoice, withAndroidChoice } from './android-step-model.js';
 import { INSTALL_TOGGLES, optionsFromToggles, VALUE_FLAGS } from './flags-model.js';
 import {
   decideResume,
@@ -85,6 +88,10 @@ import { rerunCommand } from './run-model.js';
 // still telling the pipeline underneath to require answers for the wider set
 // it never showed -- a guaranteed failure the operator had no way to avoid.
 //
+// THE ANDROID APP STEP (#315) follows the options: --with-android is asked on
+// a step of its own, with the context needed to answer it, rather than as a
+// row in the toggle list.
+//
 // ⚠ RESUME IS DECIDED, NOT ASKED. See `decideResume` and `NOT_IN_TUI` in
 // flags-model.ts: whether the collected answers still match the file is a fact
 // this screen knows and an operator should not have to assert.
@@ -94,6 +101,8 @@ export interface InstallScreenProps {
   onDone: () => void;
   /** The deployment this host already has, offered as the default name. */
   located: string | undefined;
+  /** Test seam for the Android app step's context lookups. */
+  androidStepDeps?: AndroidStepDeps | undefined;
 }
 
 /** The name, resolved, and where it runs: fixed once the Advanced step is done. */
@@ -113,6 +122,7 @@ type Step =
       state: DeployState | undefined;
     }
   | { kind: 'flags'; target: Target }
+  | { kind: 'android'; target: Target }
   | { kind: 'questions'; target: Target; fields: readonly FieldSpec[] }
   | {
       kind: 'confirm';
@@ -122,15 +132,19 @@ type Step =
       resume: ResumeDecision;
     };
 
-export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNode {
+export function InstallScreen({ onDone, located, androidStepDeps }: InstallScreenProps): ReactNode {
   const [step, setStep] = useState<Step>({ kind: 'name' });
   // The values already on disk for the RESOLVED deployment. Held in state
   // rather than recomputed, because `reconcileSeed` must be able to retract it.
   const [seed, setSeed] = useState<Seed>(EMPTY_SEED);
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
-  // Off while a text field owns the keyboard, on everywhere else - including
-  // during the run, where Esc is the two-press cancel.
-  const escapeActive = step.kind !== 'name' && step.kind !== 'questions' && step.kind !== 'advanced';
+  // This session's answer on the Android step, once given: what it reopens on.
+  const [androidAnswer, setAndroidAnswer] = useState<boolean | undefined>(undefined);
+  // Off while a text field owns the keyboard, and on the Android step (its Esc
+  // goes back to the options, not out of the screen); on everywhere else -
+  // including during the run, where Esc is the two-press cancel.
+  const escapeActive =
+    step.kind !== 'name' && step.kind !== 'questions' && step.kind !== 'advanced' && step.kind !== 'android';
   const run = useDeployRun({ onEscape: onDone, escapeActive });
 
   if (run.phase.kind !== 'idle') return <RunFrame action="install" run={run} />;
@@ -197,6 +211,30 @@ export function InstallScreen({ onDone, located }: InstallScreenProps): ReactNod
           setChosen((current) => toggled(current, flag));
         }}
         onContinue={() => {
+          setStep({ kind: 'android', target: step.target });
+        }}
+      />
+    );
+  }
+
+  if (step.kind === 'android') {
+    const deployRoot = step.target.settings.deployRoot;
+    return (
+      <AndroidAppStep
+        title={`Install — ${step.target.name.display} · Android app`}
+        deployRoot={deployRoot}
+        domain={step.target.state?.domain}
+        initialYes={androidAnswer ?? defaultAndroidChoice(deployRoot)}
+        deps={androidStepDeps}
+        versionNote="as checked out now; the install checks out the app first and may bring a newer one"
+        onBack={() => {
+          setStep({ kind: 'flags', target: step.target });
+        }}
+        onChoose={(yes) => {
+          setAndroidAnswer(yes);
+          setChosen((current) => withAndroidChoice(current, yes));
+          // Best effort: a preference that cannot be written is just not remembered.
+          writeAndroidPreference(deployRoot, yes);
           const target = step.target;
           setStep({
             kind: 'questions',
@@ -497,11 +535,9 @@ async function performInstall(
 
   // ⚠ `--all` is dropped before it reaches the pipeline; see the comment at
   // its call site below for why.
-  // `--with-android` is not a pipeline option: it runs after the pipeline.
-  const { all: _reviewEveryVariable, withAndroid: _withAndroid, ...pipelineToggles } = optionsFromToggles(
-    INSTALL_TOGGLES,
-    chosen,
-  );
+  // `--with-android` (the Android step) is not a toggle and not a pipeline
+  // option: it runs after the pipeline, below.
+  const { all: _reviewEveryVariable, ...pipelineToggles } = optionsFromToggles(INSTALL_TOGGLES, chosen);
 
   const result = await runInstall({
     deployRoot: target.settings.deployRoot,

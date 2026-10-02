@@ -131,7 +131,7 @@ describe('runDeployAndroidStep', () => {
     const outcome = await runDeployAndroidStep(input({ options: { bump: 'minor' } }), d);
     expect(calls).toEqual(['doctor', 'bump:minor', 'build', 'publish:/out/1.0.6.apk:', 'commit']);
     expect(outcome).toMatchObject({ status: 'published', version: { versionName: '1.1.0', versionCode: 7 } });
-    expect(androidReportLines(outcome)[1]).toContain('committed abc123');
+    expect(androidReportLines(outcome).join('\n')).toContain('committed abc123');
   });
 
   it('--android-bump is compared AFTER the bump: a server at the old code is still published to', async () => {
@@ -163,6 +163,45 @@ describe('runDeployAndroidStep', () => {
     expect(d.getReleaseStatus).toHaveBeenCalledWith({ repoRoot: join(deployRoot, 'repo'), serverUrl: URL });
   });
 
+  // #315: the deployment's checkout was just moved to the deployed revision,
+  // so the APK built from it matches the web app it wraps.
+  it('prefers the deployment checkout over your own when it holds apps/android', async () => {
+    const deployRoot = mkdtempSync(join(tmpdir(), 'android-step-deploy-'));
+    mkdirSync(join(deployRoot, 'repo', 'apps', 'android'), { recursive: true });
+    const { deps: d } = deps();
+    const outcome = await runDeployAndroidStep(input({ deployRoot }), d);
+    expect(d.getReleaseStatus).toHaveBeenCalledWith({ repoRoot: join(deployRoot, 'repo'), serverUrl: URL });
+    expect(outcome).toMatchObject({ status: 'published', source: { kind: 'deployment', repoRoot: join(deployRoot, 'repo') } });
+    expect(androidReportLines(outcome)).toContain(`             built from the deployment's checkout (${join(deployRoot, 'repo')})`);
+  });
+
+  it('uses your own checkout when the deployment checkout has no apps/android', async () => {
+    const { deps: d } = deps();
+    const outcome = await runDeployAndroidStep(input(), d);
+    expect(d.getReleaseStatus).toHaveBeenCalledWith({ repoRoot: REPO, serverUrl: URL });
+    expect(outcome).toMatchObject({ source: { kind: 'own', repoRoot: REPO } });
+    expect(androidReportLines(outcome)).toContain(`             built from your own checkout (${REPO})`);
+  });
+
+  it('--android-bump keeps building from your own checkout even when the deployment has one', async () => {
+    const deployRoot = mkdtempSync(join(tmpdir(), 'android-step-deploy-'));
+    mkdirSync(join(deployRoot, 'repo', 'apps', 'android'), { recursive: true });
+    const { calls, deps: d } = deps();
+    const outcome = await runDeployAndroidStep(input({ deployRoot, options: { bump: 'patch' } }), d);
+    expect(d.getReleaseStatus).toHaveBeenCalledWith({ repoRoot: REPO, serverUrl: URL });
+    expect(calls).toContain('bump:patch');
+    expect(outcome).toMatchObject({ status: 'published', source: { kind: 'own' } });
+  });
+
+  it('a skip names the checkout it would have built', async () => {
+    const { deps: d } = deps({
+      getReleaseStatus: async () => status({ local: { versionName: '1.0.5', versionCode: 5 }, newerLocally: false }),
+    });
+    const lines = androidReportLines(await runDeployAndroidStep(input(), d));
+    expect(lines[0]).toMatch(/^Android APK {2}skipped: /);
+    expect(lines).toContain(`             checkout: your own checkout (${REPO})`);
+  });
+
   it('no toolchain → warns with the doctor fix and does not build', async () => {
     const { calls, deps: d } = deps({
       doctor: async () => ({
@@ -172,7 +211,7 @@ describe('runDeployAndroidStep', () => {
       }),
     });
     const outcome = await runDeployAndroidStep(input(), d);
-    expect(outcome).toEqual({ status: 'skipped', reason: 'the Android toolchain is not ready (JDK 17+)', fix: 'Install a JDK 17.' });
+    expect(outcome).toMatchObject({ status: 'skipped', reason: 'the Android toolchain is not ready (JDK 17+)', fix: 'Install a JDK 17.' });
     expect(calls).toEqual([]);
   });
 

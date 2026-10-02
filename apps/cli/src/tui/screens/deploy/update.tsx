@@ -4,6 +4,7 @@ import { assertMovesForward, currentVersion, suggestNext } from '../../../deploy
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
+import { writeAndroidPreference } from '../../../deploy/preferences.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
 import { runUpdate } from '../../../deploy/update.js';
 import { checkoutPathFor } from '../../../deploy/version-step.js';
@@ -26,6 +27,8 @@ import {
   withFlags,
 } from './fields.js';
 import { publishAndroidAfterDeploy } from './android.js';
+import { AndroidAppStep, type AndroidStepDeps } from './android-step.js';
+import { defaultAndroidChoice, withAndroidChoice } from './android-step-model.js';
 import { optionsFromToggles, UPDATE_TOGGLES } from './flags-model.js';
 import type { AppName } from './install-model.js';
 import type { FieldSpec } from './model.js';
@@ -37,8 +40,9 @@ import { rerunCommand } from './run-model.js';
 // =============================================================================
 //
 // `runUpdate`, with the flags the subcommand accepts actually reachable:
-// --ref as a question, and --force/--no-cache/--skip-seed/--skip-proxy from
-// UPDATE_TOGGLES. The screen this replaces offered none of them, so the one
+// --ref as a question, --force/--no-cache/--skip-seed/--skip-proxy from
+// UPDATE_TOGGLES, and --with-android on its own "Android app" step between
+// the options and the confirmation (#315). The screen this replaces offered none of them, so the one
 // thing an operator most often wants from a TUI update - rebuild without the
 // layer cache, because the build is reusing something stale - could only be
 // had by leaving the TUI.
@@ -54,6 +58,8 @@ export interface UpdateScreenProps {
   onDone: () => void;
   /** The deployment this host already has, offered as the default name. */
   located: string | undefined;
+  /** Test seam for the Android app step's context lookups. */
+  androidStepDeps?: AndroidStepDeps | undefined;
 }
 
 /** The name, resolved, and where it runs: fixed once the Advanced step is done. */
@@ -73,14 +79,19 @@ type Step =
     }
   | { kind: 'questions'; target: Target; fields: readonly FieldSpec[] }
   | { kind: 'flags'; target: Target; answers: ReadonlyMap<string, string> }
+  | { kind: 'android'; target: Target; answers: ReadonlyMap<string, string> }
   | { kind: 'confirm'; target: Target; answers: ReadonlyMap<string, string> };
 
-export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode {
+export function UpdateScreen({ onDone, located, androidStepDeps }: UpdateScreenProps): ReactNode {
   const [step, setStep] = useState<Step>({ kind: 'name' });
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
-  // Off while a text field owns the keyboard, on everywhere else - including
-  // during the run, where Esc is the two-press cancel.
-  const escapeActive = step.kind !== 'name' && step.kind !== 'questions' && step.kind !== 'advanced';
+  // This session's answer on the Android step, once given: what it reopens on.
+  const [androidAnswer, setAndroidAnswer] = useState<boolean | undefined>(undefined);
+  // Off while a text field owns the keyboard, and on the Android step (its Esc
+  // goes back to the options, not out of the screen); on everywhere else -
+  // including during the run, where Esc is the two-press cancel.
+  const escapeActive =
+    step.kind !== 'name' && step.kind !== 'questions' && step.kind !== 'advanced' && step.kind !== 'android';
   const run = useDeployRun({ onEscape: onDone, escapeActive });
 
   if (run.phase.kind !== 'idle') return <RunFrame action="update" run={run} />;
@@ -152,6 +163,30 @@ export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode 
           setChosen((current) => toggled(current, flag));
         }}
         onContinue={() => {
+          setStep({ kind: 'android', target: step.target, answers: step.answers });
+        }}
+      />
+    );
+  }
+
+  if (step.kind === 'android') {
+    const deployRoot = step.target.settings.deployRoot;
+    return (
+      <AndroidAppStep
+        title={`Update — ${step.target.name.display} · Android app`}
+        deployRoot={deployRoot}
+        domain={step.target.state?.domain}
+        initialYes={androidAnswer ?? defaultAndroidChoice(deployRoot)}
+        deps={androidStepDeps}
+        versionNote="as checked out now; the update may bring a newer one"
+        onBack={() => {
+          setStep({ kind: 'flags', target: step.target, answers: step.answers });
+        }}
+        onChoose={(yes) => {
+          setAndroidAnswer(yes);
+          setChosen((current) => withAndroidChoice(current, yes));
+          // Best effort: a preference that cannot be written is just not remembered.
+          writeAndroidPreference(deployRoot, yes);
           setStep({ kind: 'confirm', target: step.target, answers: step.answers });
         }}
       />
@@ -169,7 +204,7 @@ export function UpdateScreen({ onDone, located }: UpdateScreenProps): ReactNode 
         chosen,
       )}
       onNo={() => {
-        setStep({ kind: 'flags', target: step.target, answers: step.answers });
+        setStep({ kind: 'android', target: step.target, answers: step.answers });
       }}
       onYes={() => {
         const target = step.target;
@@ -265,8 +300,9 @@ export async function performUpdate(
 ): Promise<string[]> {
   const ref = answers.get('__ref') ?? '';
   const appVersion = answers.get('__app_version') ?? '';
-  // `--with-android` is not a pipeline option: it runs after the pipeline.
-  const { withAndroid: _withAndroid, ...pipelineToggles } = optionsFromToggles(UPDATE_TOGGLES, chosen);
+  // `--with-android` (the Android step) is not a toggle and not a pipeline
+  // option: it runs after the pipeline, below.
+  const pipelineToggles = optionsFromToggles(UPDATE_TOGGLES, chosen);
 
   const result = await runUpdate({
     deployRoot: target.settings.deployRoot,

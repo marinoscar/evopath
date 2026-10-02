@@ -5,9 +5,10 @@ import {
   type AndroidStepDeps,
 } from '../../../deploy/android-step.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
+import { WITH_ANDROID_FLAG } from './flags-model.js';
 
 // =============================================================================
-// The deploy screens' "Publish the Android APK if newer" toggle  (issue #292)
+// The deploy screens' Android app step  (issues #292, #315)
 // =============================================================================
 //
 // The same `runDeployAndroidStep` the `--with-android` flag runs, after the
@@ -16,7 +17,7 @@ import type { DeployHooks } from '../../../deploy/hooks.js';
 // into the FAILED frame.
 // =============================================================================
 
-export const WITH_ANDROID_FLAG = '--with-android';
+export { WITH_ANDROID_FLAG };
 
 export async function publishAndroidAfterDeploy(
   chosen: ReadonlySet<string>,

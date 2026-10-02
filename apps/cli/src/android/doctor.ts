@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { CLI_NAME } from '../branding.js';
 import { formatError } from '../errors.js';
 import { exec as defaultExec, type ExecFn } from './exec.js';
+import { describeFreshness, FALLBACK_REF, freshnessFix, checkGitFreshness, type GitFreshness } from './git-freshness.js';
 import { gradlewPath } from './gradle.js';
 import { MIN_JAVA_MAJOR, jdkBinary, jdkInstallHint, parseJavaVersion } from './java.js';
 import { keystorePath, readCertificateSha256, readSigningConfig } from './keystore.js';
@@ -30,6 +31,7 @@ export type AndroidCheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
 export type AndroidCheckId =
   | 'repo'
+  | 'repo.fresh'
   | 'gradlew'
   | 'version'
   | 'jdk'
@@ -85,9 +87,11 @@ export async function runAndroidDoctor(ctx: AndroidDoctorContext = {}): Promise<
       detail: 'Not found in this directory or any parent',
       fix: `Run from inside the repository, or set ${REPO_ROOT_ENV_VAR}.`,
     });
+    checks.push({ id: 'repo.fresh', label: `Checkout up to date with ${FALLBACK_REF}`, status: 'skip', detail: 'No checkout' });
     checks.push({ id: 'gradlew', label: 'Gradle wrapper', status: 'skip', detail: 'No checkout' });
   } else {
     checks.push({ id: 'repo', label: 'apps/android checkout', status: 'pass', detail: androidProjectDir(repoRoot) });
+    checks.push(freshnessCheck(await checkGitFreshness(repoRoot, { exec, env })));
     const wrapper = gradlewPath(androidProjectDir(repoRoot), platform);
     checks.push(
       exists(wrapper)
@@ -197,6 +201,31 @@ export async function runAndroidDoctor(ctx: AndroidDoctorContext = {}): Promise<
   }
 
   return { checks, ok: checks.every((check) => check.status !== 'fail'), sdk, repoRoot };
+}
+
+/**
+ * `repo.fresh` (#315): an APK built from a checkout behind its remote leaves
+ * out the commits it is missing. NEVER `fail`: being behind is a reason to
+ * pull, not proof the toolchain is broken, and offline machines must still
+ * pass the doctor.
+ */
+export function freshnessCheck(freshness: GitFreshness): AndroidCheck {
+  const label = `Checkout up to date with ${freshness.ref ?? FALLBACK_REF}`;
+  const detail = describeFreshness(freshness);
+  switch (freshness.state) {
+    case 'up_to_date':
+      return freshness.fetchError === undefined
+        ? { id: 'repo.fresh', label, status: 'pass', detail }
+        : { id: 'repo.fresh', label, status: 'warn', detail, fix: 'Check the network or your git credentials, then re-run the doctor.' };
+    case 'behind':
+      return { id: 'repo.fresh', label, status: 'warn', detail: `${detail} — an APK built now leaves them out`, fix: `Run \`${freshnessFix(freshness)}\`.` };
+    case 'detached':
+      return { id: 'repo.fresh', label, status: 'warn', detail, fix: `Check out a branch: \`git checkout ${FALLBACK_REF.split('/')[1] ?? 'main'}\`.` };
+    case 'not_git':
+      return { id: 'repo.fresh', label, status: 'warn', detail, fix: 'Build from a git clone so the APK can be traced to a commit.' };
+    case 'unknown':
+      return { id: 'repo.fresh', label, status: 'warn', detail };
+  }
 }
 
 /** Which SDK fixes a report calls for. */

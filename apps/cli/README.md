@@ -496,7 +496,8 @@ Options:
   --no-version-bump        Deploy the current version: no write, no commit,
                            no push
   --with-android           After a healthy deploy, build and publish the
-                           Android APK if the local version is newer
+                           Android APK if its version is newer than the
+                           published one
   --android-bump <part>    With --with-android: bump the APK version first
                            (patch, minor or major)
   --android-notes <text>   With --with-android: release notes for the
@@ -616,7 +617,8 @@ Options:
   --no-version-bump        Deploy the current version: no write, no commit,
                            no push
   --with-android           After a healthy deploy, build and publish the
-                           Android APK if the local version is newer
+                           Android APK if its version is newer than the
+                           published one
   --android-bump <part>    With --with-android: bump the APK version first
                            (patch, minor or major)
   --android-notes <text>   With --with-android: release notes for the
@@ -641,8 +643,11 @@ After the deploy succeeded and the app is healthy, the CLI:
 
 1. Takes the deployment's URL from its domain (`https://<domain>`). No domain:
    skipped.
-2. Uses the checkout you run the command from (or `EVOPATHCLI_REPO_ROOT`),
-   else the deployment's own checkout (`<root>/repo`).
+2. Picks the checkout to build from. Without `--android-bump`: the
+   deployment's own checkout (`<root>/repo`) when it holds `apps/android`. The
+   deploy has just moved it to the revision now being served, so the APK
+   matches the web app. Otherwise the checkout you run the command from (or
+   `EVOPATHCLI_REPO_ROOT`). With `--android-bump`: your own checkout first.
 3. Checks the stored login is for **that** URL and that the account has
    `system_settings:write` (`GET /api/auth/me`), and reads the server's
    current release (`GET /api/android-app/releases/latest`).
@@ -656,8 +661,9 @@ After the deploy succeeded and the app is healthy, the CLI:
    succeeded, as `android release` does.
 
 The summary gains an `Android APK` line: `published <version> (code N) to
-<url>`, `skipped: <reason>` or `failed: <reason>`, followed by the command
-that fixes it. For example, a missing login prints
+<url>`, `skipped: <reason>` or `failed: <reason>`, then the checkout that was
+built (`built from the deployment's checkout (<path>)`, or `checkout: ...`
+when skipped), then the command that fixes it. For example, a missing login prints
 `fix: evopathcli login --server https://app.example.com`. `--json` adds an
 `android` field with the same outcome.
 
@@ -669,9 +675,45 @@ is a usage error, reported before the deploy starts.
 
 Most VPS hosts have no JDK or Android SDK. Run `evopathcli android doctor --fix`
 there first, or publish from your workstation with `evopathcli android release`.
-The TUI's Install and Update screens offer the same step as the toggle
-**Publish the Android APK if newer** (without a bump or notes; use the Android
-screen for those).
+#### In the interactive menu
+
+The TUI's **Deploy → Update** and **Deploy → Install** screens ask about the
+Android app on a step of their own, **Android app**, right after the options
+step and before **Confirm**:
+
+```
+Update — my-app · Android app
+
+Include the Android app in this deploy?
+
+checkout  1.0.6 (code 6)
+          as checked out now; the update may bring a newer one
+published 1.0.5 (code 5) on https://app.example.com
+preflight ✔ all 12 checks passed
+          builds from the deployment's checkout (/opt/infra/apps/my-app/repo)
+
+> No — web app only
+  Yes — also build and publish the Android APK (if its version is newer than the published one)
+```
+
+- **checkout** is `apps/android/version.properties` in the deployment's
+  checkout.
+- **published** is the server's current release, read with your stored login
+  for `https://<domain>`. Without a login for that URL it says so and shows
+  the `evopathcli login --server https://<domain>` command. A server that does
+  not answer within a few seconds reads as unreachable.
+- **preflight** runs `android doctor` against the checkout the build will use
+  and lists each failed check with its fix. It runs in the background. You can
+  choose before it finishes.
+
+**Yes** adds `--with-android` to the run; **No** leaves it off. Esc goes back
+to the options. The **Confirm** screen shows the answer as an **Android app**
+row (`build and publish if newer` or `not included`).
+
+The answer is remembered per deployment in
+`~/.evopathcli/deploy-preferences.json` and is selected the next time. When
+the deployment's checkout has no `apps/android`, the step opens on **No**. The
+step has no bump or notes; use the Android screen for those.
 
 ### Checking status
 
@@ -1230,17 +1272,17 @@ repository (it walks up to the directory holding `apps/android`).
 
 | Command | What it does |
 |---|---|
-| `android doctor [--fix] [--json]` | Checks JDK 17+, the Android SDK (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `~/.evopathcli/android-sdk`, then Android Studio's default), cmdline-tools, `platforms;android-36`, `build-tools;36.0.0`, accepted licences, `apps/android/gradlew`, `version.properties`, the keystore and its SHA-256. Prints ✓/⚠/✗ rows with a fix each; exits 6 if any check fails. `--fix` downloads Google's cmdline-tools zip into the SDK directory (`~/.evopathcli/android-sdk` unless `ANDROID_HOME` names one), accepts the licences and installs platform-tools, the platform and build-tools. The JDK is never installed for you; doctor prints the OS-specific command. |
+| `android doctor [--fix] [--json]` | Checks JDK 17+, the Android SDK (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `~/.evopathcli/android-sdk`, then Android Studio's default), cmdline-tools, `platforms;android-36`, `build-tools;36.0.0`, accepted licences, `apps/android/gradlew`, `version.properties`, the keystore and its SHA-256, and `repo.fresh`: whether the checkout is up to date with its upstream branch (or `origin/main` when it has none). That check runs `git fetch` with a 10-second timeout, then compares; it warns when the checkout is behind (fix: `git pull`, or `git checkout main && git pull` off `main`), when the fetch failed (it then compares with the last-known remote ref, which may be stale), on a detached HEAD or outside a git clone. It never fails, and it never pulls or touches your files. Prints ✓/⚠/✗ rows with a fix each; exits 6 if any check fails. `--fix` downloads Google's cmdline-tools zip into the SDK directory (`~/.evopathcli/android-sdk` unless `ANDROID_HOME` names one), accepts the licences and installs platform-tools, the platform and build-tools. The JDK is never installed for you; doctor prints the OS-specific command. |
 | `android keystore init [--alias a] [--dname dn]` | Creates `~/.evopathcli/android/release.jks` (RSA 4096, valid 100 years). The password comes from `ANDROID_KEYSTORE_PASSWORD`, a prompt, or is generated. Refuses to replace an existing keystore. |
 | `android keystore import <file> [--alias a]` | Copies an existing keystore in. Passwords come from `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_PASSWORD` (key password defaults to the store password) or a prompt, and are verified with keytool before anything is saved. |
 | `android keystore show` | Prints the keystore path, alias and certificate SHA-256. Never prints passwords. |
 | `android keystore secrets` | Prints the four GitHub Actions secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) on stdout, **including the passwords**, with a warning on stderr. |
 | `android version [--bump patch\|minor\|major] [--set x.y.z] [--code n] [--json]` | Shows or edits `apps/android/version.properties`. Every bump or set increments `versionCode` by one, or sets `--code` (which must increase: Android refuses downgrades). A missing file is created at `0.1.0` / `1`. |
-| `android build [--server-url URL] [--debug]` | Runs `gradlew assembleRelease` (`gradlew.bat` on Windows) with the signing environment from your keystore and `-Pevopath.versionName/versionCode` from `version.properties`, verifies the signature with `apksigner` when present, and writes `dist/android/<app>-android-<versionName>.apk` plus a `.json` with `packageName`, `versionName`, `versionCode`, `signingSha256`, `fileSha256`, `sizeBytes`, `builtAt` and `gitSha`. `--debug` builds the debug-signed variant (`-debug.apk`). |
+| `android build [--server-url URL] [--debug] [--require-up-to-date]` | Before Gradle, checks the checkout against its upstream (or `origin/main`) as doctor's `repo.fresh` does. When it is behind it prints `⚠ Your checkout is N commit(s) behind origin/main — the APK will not include them. Run: git pull` and builds anyway; `--require-up-to-date` makes that an error exit instead, before anything is built. Then runs `gradlew assembleRelease` (`gradlew.bat` on Windows) with the signing environment from your keystore and `-Pevopath.versionName/versionCode` from `version.properties`, verifies the signature with `apksigner` when present, and writes `dist/android/<app>-android-<versionName>.apk` plus a `.json` with `packageName`, `versionName`, `versionCode`, `signingSha256`, `fileSha256`, `sizeBytes`, `builtAt` and `gitSha`. `--debug` builds the debug-signed variant (`-debug.apk`). |
 | `android publish [apk] [--notes text] [--no-current] [--force]` | Uploads the APK (default: the one for the current `versionName`) and its metadata to `POST /api/admin/android-app/releases` with your logged-in credential (needs `system_settings:write`). `--no-current` uploads without making it the current release; `--force` makes it current even when its `versionCode` is not newer. A duplicate or not-newer `versionCode` answers with a pointer to `android version --bump patch`. |
 | `android releases [--json]` | Lists the server's releases, newest first; `*` marks the current one. |
 | `android releases current <id>` | Makes a release current (rollback is allowed). |
-| `android release [--bump patch] [--notes text] [--server-url URL] [--no-commit]` | Bumps the version, builds, publishes, then commits `apps/android/version.properties` alone as `chore(android): release <versionName> (<versionCode>)`. Skips the commit with `--no-commit` or outside a git repository. If the build or the upload fails nothing is committed, and the CLI tells you the version was bumped locally. |
+| `android release [--bump patch] [--notes text] [--server-url URL] [--no-commit] [--require-up-to-date]` | Bumps the version, builds, publishes, then commits `apps/android/version.properties` alone as `chore(android): release <versionName> (<versionCode>)`. Skips the commit with `--no-commit` or outside a git repository. If the build or the upload fails nothing is committed, and the CLI tells you the version was bumped locally. `--require-up-to-date` refuses a checkout behind its remote before the bump, as `build` does. |
 
 The full release procedure (versioning, every route, rollback, troubleshooting)
 is the [Android release runbook](../../docs/runbooks/android-release.md); the
