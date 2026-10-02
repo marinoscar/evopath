@@ -787,13 +787,100 @@ const LAB_BY_NAME: ReadonlyMap<string, MetricDef> = (() => {
 })();
 
 /**
+ * Words labs and portals wrap around an analyte name without changing what it
+ * names ("Glucose Lvl", "Creatinine, Serum", "Albumin (calc)"), as folded
+ * token sequences. Tried only at either END of the name, and only kept when
+ * what remains still resolves, so "Total cholesterol" and "Bilirubin, Total"
+ * (catalog names in their own right) are never stripped.
+ */
+const LAB_NAME_QUALIFIERS: ReadonlyArray<readonly string[]> = [
+  ['whole', 'blood'],
+  ['lvl'],
+  ['level'],
+  ['serum'],
+  ['ser'],
+  ['plasma'],
+  ['blood'],
+  ['bld'],
+  ['total'],
+  ['calc'],
+  ['calculated'],
+];
+
+/** "Normal Range: 65 - 99 mg/dL" or "Reference range ..." printed in the name cell, and everything after it. */
+const PRINTED_RANGE_SUFFIX = /\b(normal|reference|ref\.?)\s*(range|interval)?\s*:.*$/i;
+
+function analyteTokens(name: string): string[] {
+  return name
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9%]+/)
+    .filter((token) => token.length > 0);
+}
+
+const startsWithSeq = (tokens: readonly string[], seq: readonly string[]) =>
+  seq.length < tokens.length && seq.every((token, i) => tokens[i] === token);
+const endsWithSeq = (tokens: readonly string[], seq: readonly string[]) =>
+  seq.length < tokens.length && seq.every((token, i) => tokens[tokens.length - seq.length + i] === token);
+
+/**
+ * The shortest-stripping qualifier fallback: every way of removing qualifier
+ * tokens from the ends of `tokens`, fewest removals first, until one resolves.
+ */
+function resolveWithoutQualifiers(tokens: readonly string[]): MetricDef | undefined {
+  let frontier: string[][] = [[...tokens]];
+  const seen = new Set<string>([tokens.join(' ')]);
+
+  while (frontier.length > 0) {
+    const next: string[][] = [];
+    for (const current of frontier) {
+      for (const qualifier of LAB_NAME_QUALIFIERS) {
+        const candidates: string[][] = [];
+        if (startsWithSeq(current, qualifier)) candidates.push(current.slice(qualifier.length));
+        if (endsWithSeq(current, qualifier)) candidates.push(current.slice(0, current.length - qualifier.length));
+
+        for (const candidate of candidates) {
+          const key = candidate.join(' ');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const match = LAB_BY_NAME.get(candidate.join(''));
+          if (match) return match;
+          next.push(candidate);
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  return undefined;
+}
+
+/**
  * The lab analyte a report's name refers to: its key, its label or one of its
- * aliases, compared with {@link foldAnalyteName}. Undefined when none matches
- * (never a guess).
+ * aliases, compared with {@link foldAnalyteName}. When that exact lookup
+ * fails, it retries without a printed "Normal Range: ..." tail and without
+ * common qualifiers at either end of the name ("Lvl", "Level", "Serum",
+ * "Plasma", "Blood", "Total", "(calc)", ...; {@link LAB_NAME_QUALIFIERS}),
+ * keeping a stripped form only when it resolves. Undefined when nothing
+ * matches (never a guess: an analyte the catalog lacks stays unmatched).
  */
 export function resolveLabAnalyte(name: string): MetricDef | undefined {
   const folded = foldAnalyteName(name);
-  return folded === '' ? undefined : LAB_BY_NAME.get(folded);
+  if (folded === '') return undefined;
+
+  const exact = LAB_BY_NAME.get(folded);
+  if (exact) return exact;
+
+  const withoutRange = name.replace(PRINTED_RANGE_SUFFIX, '');
+  if (withoutRange !== name) {
+    const bare = foldAnalyteName(withoutRange);
+    const match = bare === '' ? undefined : LAB_BY_NAME.get(bare);
+    if (match) return match;
+  }
+
+  const tokens = analyteTokens(withoutRange);
+  return tokens.length > 1 ? resolveWithoutQualifiers(tokens) : undefined;
 }
 
 export interface MetricCatalogView {

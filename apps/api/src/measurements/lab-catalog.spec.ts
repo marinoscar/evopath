@@ -249,6 +249,48 @@ describe('lab catalog', () => {
       expect(resolveLabAnalyte('energy')).toBeUndefined();
     });
 
+    it.each([
+      ['Albumin Lvl', 'albumin'],
+      ['Glucose Lvl', 'fasting_glucose'],
+      ['Glucose Level', 'fasting_glucose'],
+      ['Creatinine Lvl', 'creatinine'],
+      ['Creatinine, Ser', 'creatinine'],
+      ['Albumin (calc)', 'albumin'],
+      ['Albumin (Calculated)', 'albumin'],
+      ['Albumin, Serum', 'albumin'],
+      ['Plasma Glucose', 'fasting_glucose'],
+      ['Hemoglobin, Whole Blood', 'hemoglobin'],
+      ['Bld Urea Nitrogen', 'bun'],
+      ['Ferritin Lvl, Serum', 'ferritin'],
+      ['Testosterone, Total Lvl', 'testosterone_total'],
+      ['Testosterone Free Lvl', 'testosterone_free'],
+      ['Total Bilirubin Lvl', 'total_bilirubin'],
+      ['Albumin Lvl Normal Range: 3.6 - 5.1 g/dL', 'albumin'],
+      ['Glucose Lvl\nNormal Range: 65 - 99 mg/dL', 'fasting_glucose'],
+    ])('resolves %p to %s once common qualifiers are stripped', (name, key) => {
+      expect(resolveLabAnalyte(name)?.key).toBe(key);
+    });
+
+    it('keeps catalog names that contain a qualifier word on their own key', () => {
+      expect(resolveLabAnalyte('Total Cholesterol')?.key).toBe('total_cholesterol');
+      expect(resolveLabAnalyte('Cholesterol, Total')?.key).toBe('total_cholesterol');
+      expect(resolveLabAnalyte('Bilirubin, Total')?.key).toBe('total_bilirubin');
+      expect(resolveLabAnalyte('Total Testosterone')?.key).toBe('testosterone_total');
+      expect(resolveLabAnalyte('Total Iron Binding Capacity')?.key).toBe('tibc');
+      expect(resolveLabAnalyte('Blood Urea Nitrogen')?.key).toBe('bun');
+      expect(resolveLabAnalyte('Serum Iron')?.key).toBe('serum_iron');
+    });
+
+    it('never guesses after stripping: analytes the catalog lacks stay unmatched', () => {
+      expect(resolveLabAnalyte('Calcium Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Total Protein')).toBeUndefined();
+      expect(resolveLabAnalyte('Protein, Total Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Albumin/Globulin Ratio')).toBeUndefined();
+      expect(resolveLabAnalyte('Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Serum Total Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Normal Range: 3.6 - 5.1 g/dL')).toBeUndefined();
+    });
+
     it('folds case, accents, spaces and punctuation', () => {
       expect(foldAnalyteName('LDL-C')).toBe('ldlc');
       expect(foldAnalyteName('Hémoglobine A1c')).toBe('hemoglobinea1c');
