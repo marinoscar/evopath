@@ -62,6 +62,7 @@ import {
 import { StorageObjectReferences } from './storage-object-references';
 import {
   INTAKE_ERROR_MESSAGE_MAX,
+  type AcceptAllItemsInput,
   type AnalyzeIntakeInput,
   type AttachPhotoInput,
   type CreateDraftItemInput,
@@ -1070,17 +1071,31 @@ export class IntakeService {
     await this.prisma.draftItem.deleteMany({ where: { id: itemId, intakeId, origin: 'user' } });
   }
 
-  /** Accepts every `pending` item; returns the items it changed. */
-  async acceptAll(userId: string, intakeId: string, permissions?: CallerPermissions): Promise<DraftItemViewData[]> {
+  /**
+   * Accepts every `pending` item, or with `only: 'high_confidence'` only the
+   * pending items read with `confidence: high` and not `uncertain` (#305);
+   * returns the items it changed. Kind-agnostic.
+   */
+  async acceptAll(
+    userId: string,
+    intakeId: string,
+    permissions?: CallerPermissions,
+    filter?: AcceptAllItemsInput,
+  ): Promise<DraftItemViewData[]> {
     const intake = await this.findOwnedFor(userId, intakeId, 'write', permissions);
 
     if (intake.status === 'applied') {
       throw stateConflict(intake.status, 'accept items of');
     }
 
+    const eligible: Prisma.DraftItemWhereInput =
+      filter?.only === 'high_confidence'
+        ? { status: 'pending', confidence: 'high', uncertain: false }
+        : { status: 'pending' };
+
     const items = await this.prisma.$transaction(async (tx) => {
       const pending = await tx.draftItem.findMany({
-        where: { intakeId, status: 'pending' },
+        where: { intakeId, ...eligible },
         select: { id: true },
       });
       const ids = pending.map((row) => row.id);
@@ -1088,7 +1103,7 @@ export class IntakeService {
       if (ids.length === 0) return [];
 
       await tx.draftItem.updateMany({
-        where: { id: { in: ids }, intakeId, status: 'pending' },
+        where: { id: { in: ids }, intakeId, ...eligible },
         data: { status: 'accepted', userVerified: true },
       });
 

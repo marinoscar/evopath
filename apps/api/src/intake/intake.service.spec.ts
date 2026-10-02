@@ -896,6 +896,33 @@ describe('IntakeService', () => {
       });
       expect(items).toEqual([expect.objectContaining({ id: ITEM, status: 'accepted', userVerified: true })]);
     });
+
+    it("only: 'high_confidence' accepts just the pending items read with high confidence and no doubt (#305)", async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.draftItem.findMany
+        .mockResolvedValueOnce([{ id: ITEM }] as never)
+        .mockResolvedValueOnce([itemRow({ status: 'accepted', confidence: 'high', userVerified: true })] as never);
+
+      await service.acceptAll(USER, INTAKE, undefined, { only: 'high_confidence' });
+
+      const eligible = { status: 'pending', confidence: 'high', uncertain: false };
+      expect(prisma.draftItem.findMany).toHaveBeenNthCalledWith(1, { where: { intakeId: INTAKE, ...eligible }, select: { id: true } });
+      expect(prisma.draftItem.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: [ITEM] }, intakeId: INTAKE, ...eligible },
+        data: { status: 'accepted', userVerified: true },
+      });
+    });
+
+    it('changes nothing when no item matches the filter, and refuses an applied intake', async () => {
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow() as never);
+      prisma.draftItem.findMany.mockResolvedValueOnce([] as never);
+
+      await expect(service.acceptAll(USER, INTAKE, undefined, { only: 'high_confidence' })).resolves.toEqual([]);
+      expect(prisma.draftItem.updateMany).not.toHaveBeenCalled();
+
+      prisma.photoIntake.findFirst.mockResolvedValue(intakeRow({ status: 'applied' }) as never);
+      await expect(service.acceptAll(USER, INTAKE, undefined, { only: 'high_confidence' })).rejects.toBeInstanceOf(ConflictException);
+    });
   });
 
   // ---------------------------------------------------------------------------
