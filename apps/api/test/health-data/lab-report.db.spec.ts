@@ -35,7 +35,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 
 import type { AiService } from '../../src/ai/runtime/ai.service';
@@ -318,6 +318,69 @@ describeWithDb('lab report extraction (real Postgres)', () => {
     // Another user's intake is a 404.
     const stranger = await makeUser('stranger');
     await expect(duplicates.find(stranger, second.intakeId)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('saves one entry per collection date and checks duplicates on each result\'s own date (#305)', async () => {
+    const userId = await makeUser('dates');
+    const first = await importReport(userId, 'dates-first');
+    await intakes.updateItem(userId, first.intakeId, (await byName(first.intakeId, 'Lipoprotein (a)')).id, { status: 'rejected' }, PERMS);
+
+    // The user moves HDL to an earlier collection date; an item edit can set and clear the date.
+    const hdl = await byName(first.intakeId, 'HDL Cholesterol');
+    const moved = await intakes.updateItem(
+      userId,
+      first.intakeId,
+      hdl.id,
+      { value: { ...(hdl.value as object), collectionDate: '2025-11-19' } },
+      PERMS,
+    );
+    expect(moved.value).toMatchObject({ collectionDate: '2025-11-19' });
+    const tc = await byName(first.intakeId, 'Cholesterol, Total');
+    const cleared = await intakes.updateItem(userId, first.intakeId, tc.id, { value: { ...(tc.value as object), collectionDate: null } }, PERMS);
+    expect(cleared.value).toMatchObject({ collectionDate: null });
+    await expect(
+      intakes.updateItem(userId, first.intakeId, tc.id, { value: { ...(tc.value as object), collectionDate: '2999-01-01' } }, PERMS),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    await intakes.acceptAll(userId, first.intakeId, PERMS);
+    const result = (await intakes.apply(userId, first.intakeId, PERMS)) as {
+      entryId: string;
+      entryIds: string[];
+      entries: Array<{ entryId: string; collectionDate: string | null; items: unknown[] }>;
+      measuredAtSource: string;
+      documentDate: string;
+    };
+
+    expect(result.entries.map((e) => [e.collectionDate, e.items.length])).toEqual([
+      ['2026-09-15', 5],
+      ['2025-11-19', 1],
+    ]);
+    expect(result).toMatchObject({ entryId: result.entries[0].entryId, measuredAtSource: 'collection_date', documentDate: '2026-09-15' });
+    expect(result.entryIds).toHaveLength(2);
+
+    const rows = await client.measurement.findMany({ where: { userId } });
+    expect(rows).toHaveLength(6);
+    const hdlRow = rows.find((r) => r.metricKey === 'hdl_cholesterol')!;
+    expect(hdlRow).toMatchObject({ entryId: result.entries[1].entryId, measuredAt: new Date('2025-11-19T12:00:00.000Z') });
+    expect(hdlRow.sourceRef).toMatchObject({ collectionDate: '2025-11-19', userEdited: true });
+    expect(rows.filter((r) => r.entryId === result.entries[0].entryId).every((r) => r.measuredAt.getTime() === COLLECTED_AT.getTime())).toBe(true);
+    const document = await client.healthDocument.findUniqueOrThrow({ where: { id: first.healthDocumentId } });
+    expect(document.documentDate).toEqual(new Date('2026-09-15T00:00:00.000Z'));
+
+    // A second import: HDL on the report date has no saved twin that day...
+    const second = await importReport(userId, 'dates-second');
+    const before = await duplicates.find(userId, second.intakeId);
+    expect(before.duplicates.map((d) => d.analyteKey)).not.toContain('hdl_cholesterol');
+    expect(before.duplicates.every((d) => d.checkedDate === '2026-09-15')).toBe(true);
+
+    // ...until it is dated like the saved one.
+    const hdl2 = await byName(second.intakeId, 'HDL Cholesterol');
+    await intakes.updateItem(userId, second.intakeId, hdl2.id, { value: { ...(hdl2.value as object), collectionDate: '2025-11-19' } }, PERMS);
+    const after = await duplicates.find(userId, second.intakeId);
+    expect(after.duplicates.find((d) => d.analyteKey === 'hdl_cholesterol')).toMatchObject({
+      checkedDate: '2025-11-19',
+      matches: [expect.objectContaining({ measurementId: hdlRow.id })],
+    });
   });
 
   it('delete after processing: apply enqueues the purge, the job erases the file, provenance and documentDate stay', async () => {
