@@ -108,7 +108,7 @@ describe('LabReportDialog: upload and read', () => {
     expect(await screen.findByTestId('lab-report-review')).toBeInTheDocument();
     expect(screen.getAllByTestId('lab-result-row')).toHaveLength(7);
     expect(screen.getByRole('textbox', { name: 'Laboratory' })).toHaveValue('Acme Clinical Laboratories');
-    expect(screen.getByLabelText('Collection date')).toHaveValue('2026-09-15');
+    expect(screen.getByLabelText('Report date')).toHaveValue('2026-09-15');
   });
 });
 

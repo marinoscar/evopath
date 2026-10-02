@@ -1,6 +1,9 @@
 /**
- * The lab report review, H4 (#188): every printed result grouped by panel,
- * each with Accept / Edit / Reject, plus "Accept all" and "Add missing value".
+ * The lab report review, H4 (#188): every printed result grouped by the date
+ * it is saved on (#305: a trend report prints one column per collection date),
+ * newest first, then by panel, each with Accept / Edit / Reject. The bulk
+ * actions sit above the list: "Accept all", "Accept high confidence" (#305)
+ * and "Add missing value".
  *
  * Why not `AiDraftReview`: it lists items in one flat `sortOrder` list, and a
  * 30-row blood panel reads by panel. This component keeps the kit's row
@@ -15,7 +18,7 @@
  *   alternative is Reject. Unknown analytes are never silently dropped.
  * - Rejected rows move into "Rejected (n)" with Restore.
  */
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -31,14 +34,22 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { Add as AddIcon, DoneAll as AcceptAllIcon, ExpandMore as ExpandIcon } from '@mui/icons-material';
+import {
+  Add as AddIcon,
+  DoneAll as AcceptAllIcon,
+  ExpandMore as ExpandIcon,
+  Verified as HighConfidenceIcon,
+} from '@mui/icons-material';
 import { DraftItemRow } from '../intake';
 import type { DraftItemView } from '../../services/intake';
 import type { MetricCatalog } from '../../services/health';
 import {
   LAB_PANEL_LABELS,
   emptyLabResult,
+  formatLabDate,
+  groupByDate,
   groupByPanel,
+  isHighConfidencePending,
   isUnresolved,
   needsAttention,
   type LabReportValue,
@@ -47,6 +58,13 @@ import { AnalytePicker, LabResultEditor, LabResultView } from './LabResultValue'
 import { DEFAULT_LAB_UNITS, labUnitsNote, type LabUnits } from '../../utils/labUnits';
 
 export const ADD_MISSING_VALUE_LABEL = 'Add missing value';
+export const ACCEPT_HIGH_CONFIDENCE_LABEL = 'Accept high confidence';
+
+/** "Nov 19, 2025 · 17 results", or the undated group's heading. */
+export function dateGroupHeading(date: string | null, count: number): string {
+  const results = `${count} ${count === 1 ? 'result' : 'results'}`;
+  return date ? `${formatLabDate(date)} · ${results}` : `No date · ${results}, saved with today’s date`;
+}
 
 export interface LabReportReviewProps {
   items: DraftItemView<LabReportValue>[];
@@ -57,12 +75,16 @@ export interface LabReportReviewProps {
   busy?: boolean;
   /** Item ids the server last refused as unresolved (shown with an error border). */
   refusedIds?: readonly string[];
+  /** #305: the report date (the intake context); a result without its own date is saved on it. */
+  reportDate?: string | null;
   onAcceptItem: (id: string) => void;
   onRejectItem: (id: string) => void;
   onRestoreItem: (id: string) => void;
   onEditItem: (id: string, value: LabReportValue) => void;
   onAddItem: (value: LabReportValue) => void;
   onAcceptAll: () => void;
+  /** #305: accept every pending, high-confidence, not-uncertain result (`{ only: 'high_confidence' }`). */
+  onAcceptHighConfidence: () => void;
 }
 
 function MapStrip({
@@ -109,13 +131,16 @@ export function LabReportReview({
   labUnits = DEFAULT_LAB_UNITS,
   busy = false,
   refusedIds = [],
+  reportDate = null,
   onAcceptItem,
   onRejectItem,
   onRestoreItem,
   onEditItem,
   onAddItem,
   onAcceptAll,
+  onAcceptHighConfidence,
 }: LabReportReviewProps) {
+  const idPrefix = useId();
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState<LabReportValue>(emptyLabResult);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -129,11 +154,12 @@ export function LabReportReview({
   const rejected = ordered.filter((item) => item.status === 'rejected');
   const pending = active.filter((item) => item.status === 'pending');
   const lowPending = pending.filter((item) => item.confidence === 'low').length;
-  const groups = groupByPanel(active);
+  const highPending = pending.filter(isHighConfidencePending).length;
+  const dateGroups = groupByDate(active, reportDate);
   const refused = new Set(refusedIds);
 
   const renderValue = (item: DraftItemView<LabReportValue>) => (
-    <LabResultView value={item.value} catalog={catalog} labUnits={labUnits} />
+    <LabResultView value={item.value} catalog={catalog} labUnits={labUnits} reportDate={reportDate} />
   );
   const renderEditor = ({ value, onChange }: { value: LabReportValue; onChange: (value: LabReportValue) => void }) => (
     <LabResultEditor value={value} onChange={onChange} catalog={catalog} labUnits={labUnits} />
@@ -183,27 +209,37 @@ export function LabReportReview({
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }} data-testid="lab-units-note">
         {labUnitsNote(labUnits)}. Edits are saved in the unit you pick.
       </Typography>
-      {active.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {rejected.length > 0 ? 'Every result was rejected.' : 'No results were read.'} Add anything that is missing below.
-        </Typography>
-      ) : (
-        <Stack spacing={3} sx={{ mb: 2 }}>
-          {groups.map((group) => {
-            const headingId = `lab-panel-${group.panel}`;
-            return (
-              <Box component="section" key={group.panel} aria-labelledby={headingId} data-testid="lab-panel" data-panel={group.panel}>
-                <Typography id={headingId} variant="subtitle1" component="h3" sx={{ fontWeight: 600, mb: 1 }}>
-                  {LAB_PANEL_LABELS[group.panel]} ({group.items.length})
-                </Typography>
-                <Stack spacing={1.5} role="list" aria-labelledby={headingId}>
-                  {group.items.map(row)}
-                </Stack>
-              </Box>
-            );
-          })}
-        </Stack>
-      )}
+
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        useFlexGap
+        sx={{ mb: 2, flexWrap: { sm: 'wrap' } }}
+        data-testid="lab-review-toolbar"
+      >
+        <Button variant="contained" startIcon={<AcceptAllIcon />} onClick={acceptAll} disabled={busy || pending.length === 0}>
+          Accept all ({pending.length})
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<HighConfidenceIcon />}
+          onClick={onAcceptHighConfidence}
+          disabled={busy || highPending === 0}
+        >
+          {ACCEPT_HIGH_CONFIDENCE_LABEL} ({highPending})
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setNewValue(emptyLabResult());
+            setAdding(true);
+          }}
+          disabled={busy || adding}
+        >
+          {ADD_MISSING_VALUE_LABEL}
+        </Button>
+      </Stack>
 
       {adding && (
         <Box
@@ -233,22 +269,56 @@ export function LabReportReview({
         </Box>
       )}
 
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
-        <Button variant="contained" startIcon={<AcceptAllIcon />} onClick={acceptAll} disabled={busy || pending.length === 0}>
-          Accept all ({pending.length})
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setNewValue(emptyLabResult());
-            setAdding(true);
-          }}
-          disabled={busy || adding}
-        >
-          {ADD_MISSING_VALUE_LABEL}
-        </Button>
-      </Stack>
+      {active.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {rejected.length > 0 ? 'Every result was rejected.' : 'No results were read.'} Add anything that is missing above.
+        </Typography>
+      ) : (
+        <Stack spacing={3} sx={{ mb: 2 }}>
+          {dateGroups.map((dateGroup, dateIndex) => {
+            const dateHeadingId = `${idPrefix}-date-${dateIndex}`;
+            return (
+              <Box
+                component="section"
+                key={dateGroup.date ?? 'undated'}
+                aria-labelledby={dateHeadingId}
+                data-testid="lab-date-group"
+                data-date={dateGroup.date ?? ''}
+              >
+                <Typography
+                  id={dateHeadingId}
+                  variant="subtitle1"
+                  component="h3"
+                  sx={{ fontWeight: 700, mb: 1.5, pb: 0.5, borderBottom: 1, borderColor: 'divider' }}
+                >
+                  {dateGroupHeading(dateGroup.date, dateGroup.items.length)}
+                </Typography>
+                <Stack spacing={2}>
+                  {groupByPanel(dateGroup.items).map((group) => {
+                    const headingId = `${dateHeadingId}-panel-${group.panel}`;
+                    return (
+                      <Box
+                        component="section"
+                        key={group.panel}
+                        aria-labelledby={headingId}
+                        data-testid="lab-panel"
+                        data-panel={group.panel}
+                      >
+                        <Typography id={headingId} variant="subtitle2" component="h4" sx={{ fontWeight: 600, mb: 1 }}>
+                          {LAB_PANEL_LABELS[group.panel]} ({group.items.length})
+                        </Typography>
+                        <Stack spacing={1.5} role="list" aria-labelledby={headingId}>
+                          {group.items.map(row)}
+                        </Stack>
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              </Box>
+            );
+          })}
+        </Stack>
+      )}
 
       {rejected.length > 0 && (
         <Accordion disableGutters variant="outlined">
