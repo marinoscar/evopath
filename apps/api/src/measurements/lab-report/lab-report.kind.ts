@@ -24,6 +24,7 @@ import {
   labReportValueSchema,
   matchOf,
   measuredAtFor,
+  effectiveCollectionDate,
   sameLabResult,
   toCanonicalLabValue,
   type LabReportContext,
@@ -37,7 +38,8 @@ import {
 // "Import a lab report": the user attaches a lab report PDF or photos of its
 // pages, `ai.health.lab_report` drafts one item per printed result (matched to
 // the lab catalog and converted to canonical units by the SERVER), the user
-// reviews them, and `apply` saves the accepted ones as ONE lab entry.
+// reviews them, and `apply` saves the accepted ones as ONE lab entry PER
+// COLLECTION DATE (a trend report carries several dates, #305).
 //
 // UNMATCHED RESULTS ARE NEVER DROPPED. An accepted result without an
 // `analyteKey` refuses the whole apply with 409 `UNRESOLVED_ANALYTES`
@@ -50,13 +52,19 @@ import {
 // value outside the hard bounds and reversed limits with a 400 naming the
 // field. An ANALYZER write is never refused (the mapper flags it).
 //
-// APPLY runs inside the intake module's transaction; a throw rolls back the
-// entry and the status flip, so the intake stays `ready`. `measuredAt` is the
-// context's `collectionDate` (noon UTC, never later than now), else the time
-// of apply (`measuredAtSource: 'apply_time'` in the result and
-// `collectionDate: null` in each row's provenance). The intake's health
-// documents get `documentDate` = the collection date. Retention is honoured by
-// the intake module after `apply` (the purge jobs of H1).
+// APPLY runs inside the intake module's transaction; a throw rolls back
+// every entry and the status flip, so the intake stays `ready`. Accepted
+// items are GROUPED by their effective date (`effectiveCollectionDate`: the
+// item's own `collectionDate`, else the context's report date, else none)
+// and each group is saved as one lab entry: `measuredAt` is noon UTC of that
+// date (never later than now), or the time of apply for the undated group.
+// `MAX_LAB_READINGS_PER_ENTRY` and "one analyte once" hold PER GROUP, and
+// their refusals name the date. `measuredAtSource` is `collection_date` when
+// every group is dated, `apply_time` when none is, `mixed` otherwise; each
+// row's provenance carries its group's `collectionDate` (null = apply time).
+// The intake's health documents get `documentDate` = the newest group date.
+// Retention is honoured by the intake module after `apply` (the purge jobs
+// of H1).
 //
 // PERMISSIONS. `requiredPermissions` adds `health_data:read` / `:write` to
 // the intake routes' `intakes:*`.
@@ -64,15 +72,38 @@ import {
 // ⚠ Never log or echo a value: messages name the item, the field and the rule.
 // =============================================================================
 
+/** One lab entry `apply` wrote: the results of one collection date. */
+export interface LabReportAppliedEntry {
+  entryId: string;
+  /** The date the entry's results are dated with; null = the time of apply. */
+  collectionDate: string | null;
+  items: MeasurementEntry['items'];
+}
+
 /** What `POST /api/intakes/:id/apply` answers for this kind. */
 export interface LabReportApplyResult {
-  /** The new lab entry, or null when every item was rejected. */
+  /** The first entry of `entries` (the newest date), or null when every item was rejected. Kept for older clients. */
   entryId: string | null;
+  /** Every entry written, in `entries` order. */
+  entryIds: string[];
+  /** One entry per collection date, newest date first, the undated one (apply time) last. */
+  entries: LabReportAppliedEntry[];
+  /** Every saved row, across `entries`, in their order. */
   items: MeasurementEntry['items'];
-  /** `collection_date` when the results are dated with the report's collection date, `apply_time` otherwise. */
-  measuredAtSource: 'collection_date' | 'apply_time' | null;
-  /** The collection date written to the intake's health documents, or null. */
+  /**
+   * `collection_date` when every entry is dated with a collection date,
+   * `apply_time` when none is, `mixed` when some are; null when nothing was saved.
+   */
+  measuredAtSource: 'collection_date' | 'mixed' | 'apply_time' | null;
+  /** The (newest) collection date written to the intake's health documents, or null. */
   documentDate: string | null;
+}
+
+type CheckedResult = { item: DraftItem; value: LabReportValue };
+
+interface DateGroup {
+  collectionDate: string | null;
+  results: CheckedResult[];
 }
 
 interface ApplyIssue {
@@ -143,66 +174,79 @@ export class LabReportIntakeKind implements IntakeKind<LabReportContext, LabRepo
     }
 
     if (accepted.length === 0) {
-      return { entryId: null, items: [], measuredAtSource: null, documentDate: null };
+      return { entryId: null, entryIds: [], entries: [], items: [], measuredAtSource: null, documentDate: null };
     }
 
-    const results = this.checkAccepted(accepted);
-    const collectionDate = context?.collectionDate ?? null;
+    const groups = this.checkAccepted(accepted, context);
     const labName = context?.labName ?? null;
-    const measuredAt = collectionDate ? measuredAtFor(collectionDate) : new Date();
+    const now = new Date();
+    const prepared = groups.map((group) => {
+      const measuredAt = group.collectionDate ? measuredAtFor(group.collectionDate, now) : now;
+      const parsed = createMeasurementEntrySchema.safeParse({
+        measuredAt: measuredAt.toISOString(),
+        readings: group.results.map(({ value }) => ({
+          metricKey: value.analyteKey!,
+          value: value.value!,
+          unit: value.unit!,
+          method: 'lab',
+          referenceLow: value.referenceLow,
+          referenceHigh: value.referenceHigh,
+          referenceText: value.referenceText,
+          flag: value.flag,
+        })),
+      });
 
-    const parsed = createMeasurementEntrySchema.safeParse({
-      measuredAt: measuredAt.toISOString(),
-      readings: results.map(({ value }) => ({
-        metricKey: value.analyteKey!,
-        value: value.value!,
-        unit: value.unit!,
-        method: 'lab',
-        referenceLow: value.referenceLow,
-        referenceHigh: value.referenceHigh,
-        referenceText: value.referenceText,
-        flag: value.flag,
-      })),
+      if (!parsed.success) {
+        // Defence in depth: `checkAccepted` enforces the same rules with messages about the items.
+        throw validationFailed(
+          parsed.error.issues.map((issue) => ({ path: issue.path.map(String).join('.'), message: issue.message })),
+        );
+      }
+
+      return { group, input: parsed.data };
     });
 
-    if (!parsed.success) {
-      // Defence in depth: `checkAccepted` enforces the same rules with messages about the items.
-      throw validationFailed(
-        parsed.error.issues.map((issue) => ({ path: issue.path.map(String).join('.'), message: issue.message })),
+    const entries: LabReportAppliedEntry[] = [];
+    for (const { group, input } of prepared) {
+      const document = { collectionDate: group.collectionDate, labName };
+      const provenance = group.results.map(({ item, value }) =>
+        provenanceOf(intake.id, item, value, healthDocumentOf(item, healthDocuments), document),
       );
+      const entry = await this.measurements.createEntryInTransaction(tx, userId, input, provenance);
+      entries.push({ entryId: entry.entryId, collectionDate: group.collectionDate, items: entry.items });
     }
 
-    const document = { collectionDate, labName };
-    const provenance = results.map(({ item, value }) =>
-      provenanceOf(intake.id, item, value, healthDocumentOf(item, healthDocuments), document),
-    );
-
-    const entry = await this.measurements.createEntryInTransaction(tx, userId, parsed.data, provenance);
-
-    if (collectionDate && healthDocuments.length > 0) {
+    // Groups are ordered newest date first, so the first dated one is the newest.
+    const documentDate = groups.find((group) => group.collectionDate !== null)?.collectionDate ?? null;
+    if (documentDate && healthDocuments.length > 0) {
       await tx.healthDocument.updateMany({
         where: { id: { in: healthDocuments.map((doc) => doc.id) }, userId },
-        data: { documentDate: new Date(`${collectionDate}T00:00:00.000Z`), version: { increment: 1 } },
+        data: { documentDate: new Date(`${documentDate}T00:00:00.000Z`), version: { increment: 1 } },
       });
     }
 
+    const dated = entries.filter((entry) => entry.collectionDate !== null).length;
+
     return {
-      entryId: entry.entryId,
-      items: entry.items,
-      measuredAtSource: collectionDate ? 'collection_date' : 'apply_time',
-      documentDate: collectionDate && healthDocuments.length > 0 ? collectionDate : null,
+      entryId: entries[0].entryId,
+      entryIds: entries.map((entry) => entry.entryId),
+      entries,
+      items: entries.flatMap((entry) => entry.items),
+      measuredAtSource: dated === entries.length ? 'collection_date' : dated === 0 ? 'apply_time' : 'mixed',
+      documentDate: documentDate && healthDocuments.length > 0 ? documentDate : null,
     };
   }
 
   /**
-   * Every accepted item parsed and checked, then the set. Unmatched results
-   * refuse first (409, with every unresolved item id); then every other issue
-   * at once (400), so the review can show each.
+   * Every accepted item parsed and checked, then grouped by effective date
+   * and each group checked. Unmatched results refuse first (409, with every
+   * unresolved item id); then every other issue at once (400), so the review
+   * can show each. Groups come back newest date first, the undated one last.
    */
-  private checkAccepted(accepted: readonly DraftItem[]): Array<{ item: DraftItem; value: LabReportValue }> {
+  private checkAccepted(accepted: readonly DraftItem[], context: LabReportContext): DateGroup[] {
     const issues: ApplyIssue[] = [];
     const unresolved: string[] = [];
-    const results: Array<{ item: DraftItem; value: LabReportValue }> = [];
+    const results: CheckedResult[] = [];
 
     for (const item of accepted) {
       const parsed = labReportValueSchema.safeParse(item.value);
@@ -239,29 +283,42 @@ export class LabReportIntakeKind implements IntakeKind<LabReportContext, LabRepo
       });
     }
 
-    const seen = new Set<string>();
-    for (const { item, value } of results) {
-      if (seen.has(value.analyteKey!)) {
-        issues.push({
-          path: `items.${item.id}.value.analyteKey`,
-          message: `${analyteLabel(value.analyteKey!)} is accepted more than once; reject one of them`,
-        });
-      }
-      seen.add(value.analyteKey!);
+    const byDate = new Map<string | null, CheckedResult[]>();
+    for (const result of results) {
+      const date = effectiveCollectionDate(result.value, context);
+      byDate.set(date, [...(byDate.get(date) ?? []), result]);
     }
 
-    if (results.length > MAX_LAB_READINGS_PER_ENTRY) {
-      issues.push({
-        path: 'items',
-        message: `One report saves at most ${MAX_LAB_READINGS_PER_ENTRY} results; reject ${results.length - MAX_LAB_READINGS_PER_ENTRY} of them`,
-      });
+    const groups: DateGroup[] = [...byDate.entries()]
+      .map(([collectionDate, grouped]) => ({ collectionDate, results: grouped }))
+      .sort((a, b) => newestFirst(a.collectionDate, b.collectionDate));
+
+    for (const group of groups) {
+      const when = group.collectionDate ? `on ${group.collectionDate}` : 'without a collection date';
+      const seen = new Set<string>();
+      for (const { item, value } of group.results) {
+        if (seen.has(value.analyteKey!)) {
+          issues.push({
+            path: `items.${item.id}.value.analyteKey`,
+            message: `${analyteLabel(value.analyteKey!)} is accepted more than once ${when}; reject one of them or change its date`,
+          });
+        }
+        seen.add(value.analyteKey!);
+      }
+
+      if (group.results.length > MAX_LAB_READINGS_PER_ENTRY) {
+        issues.push({
+          path: 'items',
+          message: `One collection date saves at most ${MAX_LAB_READINGS_PER_ENTRY} results; ${group.results.length} are accepted ${when}, reject ${group.results.length - MAX_LAB_READINGS_PER_ENTRY} of them`,
+        });
+      }
     }
 
     if (issues.length > 0) {
       throw validationFailed(issues);
     }
 
-    return results;
+    return groups;
   }
 }
 
@@ -327,6 +384,14 @@ function healthDocumentOf(
     if (match) return match.id;
   }
   return documents[0]?.id ?? null;
+}
+
+/** Dates newest first, null (no date) last. */
+function newestFirst(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return b.localeCompare(a);
 }
 
 function validationFailed(issues: ApplyIssue[]): BadRequestException {

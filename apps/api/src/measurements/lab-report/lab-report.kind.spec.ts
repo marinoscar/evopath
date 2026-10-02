@@ -270,7 +270,110 @@ describe('LabReportIntakeKind (H4, #188)', () => {
     });
 
     it('answers an empty result when every item was rejected', async () => {
-      await expect(apply([])).resolves.toEqual({ entryId: null, items: [], measuredAtSource: null, documentDate: null });
+      await expect(apply([])).resolves.toEqual({
+        entryId: null,
+        entryIds: [],
+        entries: [],
+        items: [],
+        measuredAtSource: null,
+        documentDate: null,
+      });
+    });
+
+    describe('multi-date reports (#305)', () => {
+      const albumin = (date: string | null, value = 4.4) =>
+        labReportValueSchema.parse({
+          analyteKey: 'albumin',
+          nameAsPrinted: 'Albumin Lvl',
+          value,
+          unit: 'g/dL',
+          panel: 'cmp',
+          match: 'matched',
+          collectionDate: date,
+        });
+
+      it('writes one entry per effective date, newest first, each dated with its own date', async () => {
+        const old = item(albumin('2023-04-06', 4.2));
+        const newest = item(albumin('2025-11-19', 4.6));
+        const reportDated = item(glucose()); // no own date: the report date 2026-09-15
+        const sugarOld = item(glucose({ collectionDate: '2023-04-06' }));
+
+        const result = await apply([old, newest, reportDated, sugarOld]);
+
+        const rows = created();
+        expect(new Set(rows.map((r) => r.entryId)).size).toBe(3);
+        const byItem = (id: string) => rows.find((r) => r.sourceRef.draftItemId === id);
+        expect(byItem(old.id)).toMatchObject({ measuredAt: new Date('2023-04-06T12:00:00.000Z'), value: 4.2 });
+        expect(byItem(old.id).sourceRef).toMatchObject({ collectionDate: '2023-04-06', labName: 'Acme' });
+        expect(byItem(sugarOld.id).entryId).toBe(byItem(old.id).entryId);
+        expect(byItem(newest.id)).toMatchObject({ measuredAt: new Date('2025-11-19T12:00:00.000Z') });
+        expect(byItem(reportDated.id)).toMatchObject({ measuredAt: new Date('2026-09-15T12:00:00.000Z') });
+        expect(byItem(reportDated.id).sourceRef).toMatchObject({ collectionDate: '2026-09-15' });
+
+        expect(result.entries.map((e) => e.collectionDate)).toEqual(['2026-09-15', '2025-11-19', '2023-04-06']);
+        expect(result.entries.map((e) => e.items.length)).toEqual([1, 1, 2]);
+        expect(result.entryIds).toEqual(result.entries.map((e) => e.entryId));
+        expect(result.entryId).toBe(result.entries[0].entryId);
+        expect(result.items).toHaveLength(4);
+        expect(result).toMatchObject({ measuredAtSource: 'collection_date', documentDate: '2026-09-15' });
+        expect(prisma.healthDocument.updateMany).toHaveBeenCalledTimes(1);
+        expect(prisma.healthDocument.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({ data: { documentDate: new Date('2026-09-15T00:00:00.000Z'), version: { increment: 1 } } }),
+        );
+      });
+
+      it('saves undated results at apply time in their own entry, last, as mixed; the document gets the newest date', async () => {
+        const before = Date.now();
+        const result = await apply([item(albumin(null)), item(albumin('2024-05-02')), item(albumin('2025-11-19'))], { labName: null });
+
+        expect(result.entries.map((e) => e.collectionDate)).toEqual(['2025-11-19', '2024-05-02', null]);
+        const undated = created().find((r) => r.entryId === result.entries[2].entryId);
+        expect(undated.measuredAt.getTime()).toBeGreaterThanOrEqual(before);
+        expect(undated.sourceRef).toMatchObject({ collectionDate: null });
+        expect(result).toMatchObject({ measuredAtSource: 'mixed', documentDate: '2025-11-19' });
+      });
+
+      it('allows the same analyte on different dates, refuses it twice on one date naming the date', async () => {
+        await expect(apply([item(albumin('2025-11-19')), item(albumin('2024-05-02'))])).resolves.toMatchObject({
+          entryIds: [expect.any(String), expect.any(String)],
+        });
+
+        const twice = item(albumin('2025-11-19', 4.5));
+        const error = await apply([item(albumin('2025-11-19')), twice, item(albumin('2024-05-02'))]).catch((e) => e);
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect(error.getResponse().details.issues).toEqual([
+          {
+            path: `items.${twice.id}.value.analyteKey`,
+            message: 'Albumin is accepted more than once on 2025-11-19; reject one of them or change its date',
+          },
+        ]);
+
+        // An item without its own date joins the report-date group.
+        const sameAsReport = item(glucose({ collectionDate: '2026-09-15' }));
+        const clash = await apply([item(glucose()), sameAsReport]).catch((e) => e);
+        expect(clash.getResponse().details.issues[0]).toMatchObject({ path: `items.${sameAsReport.id}.value.analyteKey` });
+        expect(created()).toHaveLength(2); // only the first, valid apply wrote
+      });
+
+      it('applies the 40-result cap per date, naming the date', async () => {
+        const keys = ['total_cholesterol', 'ldl_cholesterol', 'hdl_cholesterol', 'triglycerides'];
+        const dates = Array.from({ length: 11 }, (_, i) => `2025-0${(i % 9) + 1}-1${Math.floor(i / 9)}`);
+        // 44 results over 11 dates (4 per date): allowed, though more than 40 in total.
+        const spread = dates.flatMap((date) =>
+          keys.map((key) => item(labReportValueSchema.parse({ analyteKey: key, value: 100, unit: 'mg/dL', collectionDate: date }))),
+        );
+        await expect(apply(spread)).resolves.toMatchObject({ items: expect.any(Array) });
+        expect(created()).toHaveLength(44);
+
+        const crowded = Array.from({ length: 41 }, () =>
+          item(labReportValueSchema.parse({ analyteKey: 'albumin', value: 4, unit: 'g/dL', collectionDate: '2025-11-19' })),
+        );
+        const error = await apply(crowded).catch((e) => e);
+        const messages = error.getResponse().details.issues.map((i: any) => i.message);
+        expect(messages).toContain(
+          'One collection date saves at most 40 results; 41 are accepted on 2025-11-19, reject 1 of them',
+        );
+      });
     });
   });
 
