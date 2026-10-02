@@ -512,7 +512,7 @@ Usage by node and role, the key-source labels, "tokens, not currency" and the ru
 
 Issue #192 (H8). The planner and the evaluator can take the user's health status into account through one AI-written summary, never through raw values. The summary itself is specified in [health-records.md §2.14](health-records.md#214-ai-health-summary-for-the-training-planner); this section owns how the agents use it.
 
-- **Consent.** "Use my health data in training plans" is per user, off by default (`health_summary_settings`, no row is off). It is set with `PUT /api/ai/training/health-summary/consent` and audited (`health_summary:consent`).
+- **Consent.** "Use my health data in training plans and coach chat" (training plans use the AI health summary; the coach chat may read the summary and look up biomarker values, [ai-coach.md §2.9](ai-coach.md#29-chat)) is per user, off by default (`health_summary_settings`, no row is off). It is set with `PUT /api/ai/training/health-summary/consent` and audited (`health_summary:consent`).
 - **The one door.** `HealthSummaryReader.forTraining(userId)` (`apps/api/src/health-summary/health-summary.reader.ts`) returns the newest `ready` summary's narrative, training considerations and `dataAsOf`, and only while the consent is on. It reads no measurement. `PlannerContextLoader` and `EvaluationContextLoader` call it; nothing else in a run reads health data beyond what §2.4 already lists.
 - **Where it goes.** `PlannerContext.healthSummary` and `EvaluatorProfile.healthSummary`, each optional and omitted (never null) when absent. With the consent off, a request is byte-identical to one built without the feature (canary test). The critic and the researcher never receive it.
 - **G0.** `FreeTextSafetyScreen` screens the summary's narrative and every consideration with the urgent-symptom rules, for every run kind. A match records the run `blocked_safety` with no job and no provider call. The context builders screen it again and drop a summary that would block, for a summary written between the screen and the job.
@@ -535,7 +535,7 @@ Issue #192 (H8). The planner and the evaluator can take the user's health status
 | `ai.limits` | `/admin/settings/ai` | Platform request and output caps; apply to every agent call |
 | `ai.training.maxRunTokens` in an adapt run | User settings | Lowers the adapt run's cap (`ADAPTATION_MAX_RUN_TOKENS`, 120,000) and never raises it |
 | `programs.autonomy` | Plan header column | `autonomous` (default) or `ask_first` |
-| `health_summary_settings.enabled` | `PUT /api/ai/training/health-summary/consent` | "Use my health data in training plans", per user, off by default ([§2.14](#214-the-opt-in-health-summary)) |
+| `health_summary_settings.enabled` | `PUT /api/ai/training/health-summary/consent` | "Use my health data in training plans and coach chat", per user, off by default ([§2.14](#214-the-opt-in-health-summary)) |
 | `ai.assignments.features.health_summary` | `/admin/settings/ai/assignments` | The model that writes the health summary; grouped with the training agents |
 
 Role resolution states (`GET /api/ai/training/models`, from the feature resolver): `ready`, `auto` (runnable), and the blocking `no_key`, `no_models`, `missing_capability`, `web_search_disabled`, `ai_disabled`. A run that needs a blocked role is refused at start with `409 TRAINING_ROLE_UNAVAILABLE`.

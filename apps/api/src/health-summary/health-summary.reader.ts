@@ -19,9 +19,9 @@ import { HEALTH_CONSIDERATION_SEVERITIES } from './health-summary.prompt';
 // fixed number of rows, newest first.
 //
 // `forTraining` is the ONLY door through which health data reaches a
-// training agent: the stored summary's narrative and considerations, and
-// only while the user's consent is on and a `ready` summary exists. It never
-// reads a measurement.
+// training agent or the coach chat (`get_health_summary`, #327): the stored
+// summary's narrative and considerations, and only while the user's consent
+// is on and a `ready` summary exists. It never reads a measurement.
 // =============================================================================
 
 /** Row caps per read (newest first). */
@@ -64,7 +64,10 @@ export class HealthSummaryReader {
     return this.prisma;
   }
 
-  /** Whether the user's "Use my health data in training plans" consent is on (no row = off). */
+  /**
+   * Whether the user's "Use my health data in training plans and coach chat" consent is on (no row = off).
+   * It also gates the coach chat's biomarker tools (`list_biomarkers`, `get_biomarker_values`, #327).
+   */
   async consentOn(userId: string): Promise<boolean> {
     const row = await this.db.healthSummarySetting.findUnique({ where: { userId }, select: { enabled: true } });
     return row?.enabled === true;

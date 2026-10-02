@@ -156,7 +156,7 @@ A spelling the rules cannot derive is declared per analyte in `unitAliases` (pri
 - An edit (a new revision) copies range and flag forward unless the body changes them; `null` clears one. The range rule is checked on the merged reading.
 - `GET /api/measurements` lists lab rows only with `category=lab` or a lab `metricKey`; the default list and `latest` stay body and vital. `series` accepts a lab key.
 - Values, ranges and notes never reach a log line or an issue message; the delete audit row carries the reading count only.
-- Lab results are on the training agents' never-send list (`labs` in `apps/api/src/training-agents/context/never-send.ts`): the context loaders select metric keys explicitly, and the data-minimisation canary seeds lab rows with range context to prove it.
+- Lab results are on the training agents' never-send list (`labs` in `apps/api/src/training-agents/context/never-send.ts`): the context loaders select metric keys explicitly, and the data-minimisation canary seeds lab rows with range context to prove it. The one documented exception is the AI Coach chat, which may look up biomarker values through its consent-gated `list_biomarkers` and `get_biomarker_values` tools (#327, [ai-coach.md §2.9](ai-coach.md#29-chat)); nudges and the weekly review stay excluded.
 
 Lab report PDFs and page photos are read into these rows by the `lab_report` intake kind ([2.10](#210-lab-report-extraction)).
 
@@ -476,10 +476,10 @@ An opt-in, AI-written summary of the user's health data that the training planne
 
 **Consent.**
 
-- "Use my health data in training plans", per user, **off by default**. Stored in `health_summary_settings` (`enabled`, `consented_at`); no row is off. It has its own table rather than a key of `user_settings.value` because a change is audited and has side effects that the generic settings `PATCH` would bypass.
+- "Use my health data in training plans and coach chat", per user, **off by default**. Scope (#327): training plans use the AI health summary (the planner and evaluator, through `HealthSummaryReader.forTraining`); the AI Coach chat may read the health summary (`get_health_summary`, same door) and look up biomarker values (`list_biomarkers`, `get_biomarker_values`: individual lab results with date, unit, numeric range and flag, never a document, file name or note; [ai-coach.md §2.9](ai-coach.md#29-chat)). Raw lab values never reach the training agents. Stored in `health_summary_settings` (`enabled`, `consented_at`); no row is off. It has its own table rather than a key of `user_settings.value` because a change is audited and has side effects that the generic settings `PATCH` would bypass.
 - `PUT /api/ai/training/health-summary/consent` with `{ enabled }` turns it on or off and writes the audit row `health_summary:consent` (`meta: { enabled }`, no health data).
-- **On:** a summary is queued at once, and later training runs include it.
-- **Off:** the pending summary job is deleted, a job already running stores nothing (it re-reads the consent), and later runs omit the summary. The stored history is kept for the owner to see.
+- **On:** a summary is queued at once; later training runs use it, and the coach chat may read it and look up biomarker values.
+- **Off:** the pending summary job is deleted, a job already running stores nothing (it re-reads the consent), later training runs omit the summary, and the coach chat can read neither the summary nor biomarker values. The stored history is kept for the owner to see.
 - Every `GET` response carries what turning it on shares (`sharing.shared`), what it never shares (`sharing.neverShared`) and which model provider will process it (`sharing.processor`, from the `health_summary` feature's resolution), so the toggle can show them before the user decides.
 
 **The digest** (`health-summary/health-digest.ts`, pure, server-only). The summary job's model input, copied field by field from an allow-list:
@@ -548,7 +548,7 @@ The view (`HealthSummaryView`, wrapped in `{ data }`):
 
 **Observability.** Metrics `app.health.summary.generations` (outcome `ready`, `rejected`, `failed`, `skipped`, `deferred`), `app.health.summary.duration`, `app.health.summary.regenerations`, `app.health.summary.post_check_rejections` and `app.health.summary.tokens` (`token_type`); see [telemetry.md](telemetry.md). The job's span carries `health_summary.outcome`, the regeneration and rejection counts and the token totals. The gateway records the call in `ai_runs` and `ai_usage_events` as for every AI call.
 
-**Web.** The opt-in lives as a "Health data in training plans" section at the bottom of `/settings/ai/agents` (`apps/web/src/components/training/HealthSummarySection.tsx`, wired in `pages/UserAgentModelsPage.tsx`).
+**Web.** The opt-in lives as a "Health data in training plans and coach chat" section at the bottom of `/settings/ai/agents` (`apps/web/src/components/training/HealthSummarySection.tsx`, wired in `pages/UserAgentModelsPage.tsx`).
 
 - The switch is off by default. Turning it on opens a confirmation dialog that lists the data shared, the data never shared and the processing provider (from `sharing`); turning it off is immediate.
 - It shows the narrative and the considerations (Info or Caution; a conservative one reads "Turns on conservative mode").
@@ -565,7 +565,7 @@ The view (`HealthSummaryView`, wrapped in `{ data }`):
 - **Permissions.** No permission of its own. The intake routes are gated by `intakes:*` plus the kind's `health_data:read` and `health_data:write`; the documents API (2.11) by `health_data:read` (reads, download) and `health_data:write` (rename, delete); the export routes (2.13) by `health_data:read`. The health summary routes (2.14) require `ai:use` plus `health_data:read` (view) or `health_data:write` (consent, refresh).
 - **Job types.** `health.document.purge`, `ai.health.lab_report`, `ai.health.summary`, `health.export` and `health.export.purge`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
 - **AI features.** `lab_report`, assigned a model by the administrator at `/admin/settings/ai` like the other photo features; `health_summary`, grouped with the training agents.
-- **Per-user setting.** "Use my health data in training plans" (`health_summary_settings`), off by default; no system setting.
+- **Per-user setting.** "Use my health data in training plans and coach chat" (`health_summary_settings`), off by default; no system setting.
 - **Lab report routes.** `GET /api/measurements/lab-reports/:intakeId/duplicates` and `GET .../issues` require `health_data:read` and `intakes:read`; `POST .../map` and `POST .../reject-unmatched` require `health_data:write` and `intakes:write`.
 - **Audit actions.** `health:document:delete`, `health:export:create`, `health_summary:consent`.
 - **Metrics.** `app.health.documents.purges`, `app.health.documents.downloads`, `app.health.documents.deletes`, `app.health.exports`, `app.health.export.duration`, `app.health.export.size`; `app.health.summary.*` (2.14).
@@ -740,7 +740,7 @@ In a running app, with AI on:
 7. With the fake AI provider, create a `lab_report` intake, attach a PDF and analyze: seven results appear, `Apolipoprotein A1` unmatched. Accept all and apply: 409 `UNRESOLVED_ANALYTES`. Reject it and apply: one lab entry dated 2026-09-15 (`entries` has one element), glucose in mg/dL. A second import of the same report lists five duplicates at `GET /api/measurements/lab-reports/<id>/duplicates`.
 8. `GET /api/health/documents` lists the report and the scale photo with their value counts. `GET …/:id/download` returns a URL that opens the file for 5 minutes. `DELETE …/:id` with the item's `version` as `If-Match` queues `health.document.purge`. Once it ran, the item shows `fileAvailable: false` and its readings report `fileDeleted: true`. A second `DELETE` removes the item.
 9. `POST /api/health/exports` with `{"format":"pdf","from":"2026-01-01","to":"2026-09-30","datasets":["profile","labs","wellness"]}`: a `health.export` job runs, a "Your health export is ready" notification arrives, and `GET /api/health/exports/{id}` returns `ready` with a download URL whose file ends with the "Not a medical record." footer. The audit log holds `health:export:create` with row counts only.
-10. At `/settings/ai/agents`, switch on "Health data in training plans" and confirm the dialog: `PUT /api/ai/training/health-summary/consent` returns `enabled: true`, an `ai.health.summary` job runs and the narrative appears. The audit log holds `health_summary:consent` with `meta.enabled` only. Switch it off: the change is immediate.
+10. At `/settings/ai/agents`, switch on "Use my health data in training plans and coach chat" and confirm the dialog: `PUT /api/ai/training/health-summary/consent` returns `enabled: true`, an `ai.health.summary` job runs and the narrative appears. The audit log holds `health_summary:consent` with `meta.enabled` only. Switch it off: the change is immediate.
 
 ## History
 

@@ -9,7 +9,13 @@
 // `COACH_COMMITMENT_INVALID`: `save_commitment` with nothing to save, a `why`
 // over 200 characters or a `preferredTime` that is not `HH:mm` (E7.12). Also a
 // tool result for the model, never an HTTP error.
+//
+// `COACH_DISPLAY_NAME_INVALID`: `set_display_name` with a name that is empty,
+// over 60 characters, or not a plain name (digits, symbols, a link, an email
+// or instruction-like text; #327). A tool result for the model too.
 // =============================================================================
+
+export const COACH_DISPLAY_NAME_INVALID = 'COACH_DISPLAY_NAME_INVALID';
 
 export const COACH_COMMITMENT_INVALID = 'COACH_COMMITMENT_INVALID';
 

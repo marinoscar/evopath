@@ -1,6 +1,6 @@
 /**
  * The opt-in AI health summary (H8, #192): "Use my health data in training
- * plans", as the web app sees it (`/api/ai/training/health-summary`).
+ * plans and coach chat" (#327), as the web app sees it (`/api/ai/training/health-summary`).
  *
  * Every route sits behind the AI kill switch and `ai:use`; reading also needs
  * `health_data:read`, changing the consent or refreshing `health_data:write`.

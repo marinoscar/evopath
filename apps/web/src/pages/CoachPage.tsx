@@ -41,6 +41,7 @@ import { useCoachTimeline } from '../hooks/useCoachTimeline';
 import { useCoachChat } from '../hooks/useCoachChat';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDistanceUnit } from '../hooks/useDistanceUnit';
+import { useAuth } from '../contexts/AuthContext';
 import {
   clearCoachChat,
   coachErrorOf,
@@ -101,7 +102,16 @@ export default function CoachPage() {
     },
     [append, refreshState],
   );
-  const chat = useCoachChat({ personaId: persona?.id ?? null, onComplete, findStoredTurn: findStoredUserTurn });
+  // The coach may rename the user (#327): re-read the cached current user so
+  // the AppBar and menus show the new display name.
+  const { refreshUser } = useAuth();
+  const onProfileUpdated = useCallback(() => void refreshUser(), [refreshUser]);
+  const chat = useCoachChat({
+    personaId: persona?.id ?? null,
+    onComplete,
+    findStoredTurn: findStoredUserTurn,
+    onProfileUpdated,
+  });
 
   const dismissTurn = chat.dismiss;
   const onStartOver = useCallback(async () => {

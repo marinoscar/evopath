@@ -180,6 +180,21 @@ function reject(rule: MemoryRejectionRule): MemoryContentCheck {
   return { ok: false, rule, message: MESSAGES[rule] };
 }
 
+/** Whether text addresses the assistant (the `instruction` rule's patterns). Reused by the coach's `set_display_name`. */
+export function addressesAssistant(text: string): boolean {
+  return INSTRUCTION_PATTERNS.some((p) => p.test(text));
+}
+
+/** Whether text starts with an imperative verb (the `instruction` rule's other half). */
+export function startsImperative(text: string): boolean {
+  return IMPERATIVE_START.test(text);
+}
+
+/** Whether text contains a link or a domain (the `url` rule). */
+export function containsUrl(text: string): boolean {
+  return URL_PATTERNS.some((p) => p.test(text));
+}
+
 /** Validates (and tidies) one memory's content. */
 export function checkMemoryContent(raw: string): MemoryContentCheck {
   if (typeof raw !== 'string') return reject('length');

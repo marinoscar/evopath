@@ -22,6 +22,10 @@
  * memory) is collected in `memoryUpdates`, which outlives the turn so the page
  * can offer Undo under the reply; it is cleared when the next turn is sent.
  *
+ * PROFILE (#327). A `done` frame with `profileUpdated: true` (the coach changed
+ * the user's display name) calls `onProfileUpdated`, so the page can re-read
+ * the cached current user.
+ *
  * Unmounting aborts the stream; the server then discards the partial reply.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -62,6 +66,11 @@ export interface UseCoachChatOptions {
    * `null`. Without it a cut-off turn is treated as not stored.
    */
   findStoredTurn?: (text: string) => Promise<string | null>;
+  /**
+   * The finished turn changed the user's profile (`done.profileUpdated`,
+   * #327): re-read whatever caches the current user.
+   */
+  onProfileUpdated?: () => void;
 }
 
 export interface UseCoachChatReturn {
@@ -86,18 +95,21 @@ export function useCoachChat({
   personaId = null,
   onComplete,
   findStoredTurn,
+  onProfileUpdated,
 }: UseCoachChatOptions): UseCoachChatReturn {
   const [pending, setPending] = useState<CoachPendingTurn | null>(null);
   const [memoryUpdates, setMemoryUpdates] = useState<CoachChatMemoryFrame[]>([]);
   const controller = useRef<AbortController | null>(null);
   const onCompleteRef = useRef(onComplete);
   const findStoredTurnRef = useRef(findStoredTurn);
+  const onProfileUpdatedRef = useRef(onProfileUpdated);
   const isMounted = useIsMounted();
 
   useEffect(() => {
     onCompleteRef.current = onComplete;
     findStoredTurnRef.current = findStoredTurn;
-  }, [onComplete, findStoredTurn]);
+    onProfileUpdatedRef.current = onProfileUpdated;
+  }, [onComplete, findStoredTurn, onProfileUpdated]);
 
   useEffect(() => () => controller.current?.abort(), []);
 
@@ -209,6 +221,7 @@ export function useCoachChat({
             ];
             setPending(null);
             onCompleteRef.current(items, done);
+            if (done.profileUpdated) onProfileUpdatedRef.current?.();
           },
           onError: (frame) =>
             fail({ kind: 'other', message: frame.message }, frame.userMessageId ?? turn.storedUserMessageId),

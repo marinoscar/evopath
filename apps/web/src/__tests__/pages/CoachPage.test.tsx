@@ -10,7 +10,9 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
+import { useContext } from 'react';
 import { render } from '../utils/test-utils';
+import { AuthContext } from '../../contexts/AuthContext';
 import { installIntersectionObserver } from '../utils/intersectionObserver';
 import { server } from '../mocks/server';
 import CoachPage from '../../pages/CoachPage';
@@ -370,6 +372,52 @@ describe('CoachPage', () => {
       expect(screen.getByRole('link', { name: "Adjust today's workout" })).toHaveAttribute('href', '/train');
       // The send buttons are enabled again.
       expect(screen.getByRole('button', { name: 'Motivate me' })).not.toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('re-reads the current user after a turn whose done frame says profileUpdated (#327)', async () => {
+      const refreshUser = vi.fn().mockResolvedValue(undefined);
+      function WithRefreshSpy() {
+        const outer = useContext(AuthContext);
+        if (!outer) return null;
+        return (
+          <AuthContext.Provider value={{ ...outer, refreshUser }}>
+            <CoachPage />
+          </AuthContext.Provider>
+        );
+      }
+      const doneBase = { links: [], pausedUntil: null, fallback: false };
+      let turn = 0;
+      server.use(
+        http.post(`${API}/coach/chat/stream`, () => {
+          turn += 1;
+          return new HttpResponse(
+            coachSseBody([
+              ['delta', { text: `Reply ${turn}` }],
+              [
+                'done',
+                {
+                  ...doneBase,
+                  messageId: coachMessageId(850 + turn * 2),
+                  userMessageId: coachMessageId(849 + turn * 2),
+                  ...(turn === 1 ? { profileUpdated: true } : {}),
+                },
+              ],
+            ]),
+            { headers: { 'Content-Type': 'text/event-stream' } },
+          );
+        }),
+      );
+      const user = userEvent.setup();
+      render(<WithRefreshSpy />, { wrapperOptions: { route: '/coach', aiEnabled: true } });
+      await screen.findByText('Oldest read nudge');
+
+      await user.type(screen.getByRole('textbox', { name: 'Message your coach' }), 'Call me Sam{Enter}');
+      expect(await screen.findByText('Reply 1')).toBeInTheDocument();
+      await waitFor(() => expect(refreshUser).toHaveBeenCalledTimes(1));
+
+      await user.type(screen.getByRole('textbox', { name: 'Message your coach' }), 'Thanks{Enter}');
+      expect(await screen.findByText('Reply 2')).toBeInTheDocument();
+      expect(refreshUser).toHaveBeenCalledTimes(1);
     });
 
     it('sends typed text from the composer', async () => {

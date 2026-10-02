@@ -83,8 +83,10 @@ export class CoachChatController {
       '`updated` edits in place, so offer "Manage" instead). ' +
       'A client that does not know this frame can ignore it;\n' +
       '- `delta` — `{ text }`, the reply in order (already checked by the content guard);\n' +
-      '- `done` — `{ messageId, userMessageId, links: [{ label, href }], pausedUntil: string | null, fallback }`, ' +
-      'last: the stored reply\'s id; `fallback` is true when the guard replaced the model\'s reply;\n' +
+      '- `done` — `{ messageId, userMessageId, links: [{ label, href }], pausedUntil: string | null, fallback, ' +
+      'profileUpdated? }`, last: the stored reply\'s id; `fallback` is true when the guard replaced the model\'s ' +
+      'reply; `profileUpdated` is present and `true` only when the coach saved your profile name this turn ' +
+      '(`set_display_name`): refresh the signed-in user (`GET /api/auth/me`);\n' +
       '- `error` — `{ code, message, userMessageId }` (an `AI_*` code or `INTERNAL_ERROR`), last, when the turn ' +
       'failed after streaming began or after your message was stored; no reply is stored. `userMessageId` is the ' +
       'stored message (null when none was stored): send it back as `retryOf` with the same `text` to retry without ' +
