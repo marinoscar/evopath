@@ -8,7 +8,10 @@ import {
   hasActivePushSubscription,
   ACTIVE_PUSH_SUBSCRIPTION_CACHE_MS,
   resetPushSubscriptionStateForTests,
+  currentPushPlatform,
+  ANDROID_APP_PUSH_REGISTERED_KEY,
 } from '../../services/pushSubscription';
+import { TWA_SESSION_KEY } from '../../utils/twa';
 import { subscribePushNotifications, unsubscribePushNotifications } from '../../services/api';
 import { requestBrowserNotificationPermission } from '../../services/browserNotifications';
 import type { NotificationConfigResponse } from '../../types';
@@ -244,6 +247,102 @@ describe('syncPushSubscription', () => {
     });
   });
 
+  describe('platform (#312)', () => {
+    const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/abc';
+
+    function enterTwa(): void {
+      window.sessionStorage.setItem(TWA_SESSION_KEY, '1');
+    }
+
+    function grantedWith(pushManager: FakePushManager): void {
+      setPermission('granted');
+      setPushManagerGlobal(true);
+      setServiceWorker({ ready: Promise.resolve({ pushManager }) });
+    }
+
+    beforeEach(() => {
+      window.sessionStorage.clear();
+      window.localStorage.removeItem(ANDROID_APP_PUSH_REGISTERED_KEY);
+    });
+
+    afterEach(() => {
+      window.sessionStorage.clear();
+      window.localStorage.removeItem(ANDROID_APP_PUSH_REGISTERED_KEY);
+    });
+
+    it('reports browser outside the TWA and android_app inside it', () => {
+      expect(currentPushPlatform()).toBe('browser');
+      enterTwa();
+      expect(currentPushPlatform()).toBe('android_app');
+    });
+
+    it('subscribes with platform browser outside the TWA', async () => {
+      const created = makeSubscription({ endpoint: ENDPOINT });
+      grantedWith(makePushManager({ subscribe: vi.fn().mockResolvedValue(created) }));
+
+      await syncPushSubscription(VAPID_KEY);
+
+      expect(mockSubscribe).toHaveBeenCalledTimes(1);
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...created.toJSON(), platform: 'browser' });
+      expect(window.localStorage.getItem(ANDROID_APP_PUSH_REGISTERED_KEY)).toBeNull();
+    });
+
+    it('subscribes with platform android_app inside the TWA and remembers the endpoint', async () => {
+      enterTwa();
+      const created = makeSubscription({ endpoint: ENDPOINT });
+      grantedWith(makePushManager({ subscribe: vi.fn().mockResolvedValue(created) }));
+      mockSubscribe.mockResolvedValue({ id: 's', endpoint: ENDPOINT, createdAt: 'x', platform: 'android_app' });
+
+      await syncPushSubscription(VAPID_KEY);
+
+      expect(mockSubscribe).toHaveBeenCalledTimes(1);
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...created.toJSON(), platform: 'android_app' });
+      expect(window.localStorage.getItem(ANDROID_APP_PUSH_REGISTERED_KEY)).toBe(ENDPOINT);
+    });
+
+    it('re-registers an existing browser subscription once as android_app, then never again', async () => {
+      enterTwa();
+      const existing = makeSubscription({ endpoint: ENDPOINT, keyBytes: urlBase64ToUint8Array(VAPID_KEY) });
+      grantedWith(makePushManager({ getSubscription: vi.fn().mockResolvedValue(existing) }));
+      mockSubscribe
+        .mockResolvedValueOnce({ id: 's', endpoint: ENDPOINT, createdAt: 'x', platform: 'browser' })
+        .mockResolvedValue({ id: 's', endpoint: ENDPOINT, createdAt: 'x', platform: 'android_app' });
+
+      await syncPushSubscription(VAPID_KEY);
+
+      expect(mockSubscribe).toHaveBeenCalledTimes(2);
+      for (const call of mockSubscribe.mock.calls) {
+        expect(call[0]).toEqual({ ...existing.toJSON(), platform: 'android_app' });
+      }
+      expect(window.localStorage.getItem(ANDROID_APP_PUSH_REGISTERED_KEY)).toBe(ENDPOINT);
+
+      // The next boot posts once (the ordinary idempotent upsert), with no retry
+      // even if the server still answered browser.
+      mockSubscribe.mockClear();
+      mockSubscribe.mockResolvedValue({ id: 's', endpoint: ENDPOINT, createdAt: 'x', platform: 'browser' });
+      await syncPushSubscription(VAPID_KEY);
+      expect(mockSubscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('still syncs when storage throws', async () => {
+      enterTwa();
+      const existing = makeSubscription({ endpoint: ENDPOINT, keyBytes: urlBase64ToUint8Array(VAPID_KEY) });
+      grantedWith(makePushManager({ getSubscription: vi.fn().mockResolvedValue(existing) }));
+      vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await syncPushSubscription(VAPID_KEY);
+
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...existing.toJSON(), platform: 'android_app' });
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('subscribing', () => {
     it('subscribes with userVisibleOnly: true and the decoded key, then POSTs toJSON()', async () => {
       const expectedBytes = urlBase64ToUint8Array(VAPID_KEY);
@@ -263,7 +362,7 @@ describe('syncPushSubscription', () => {
       expect(arg.userVisibleOnly).toBe(true);
       expect(Array.from(arg.applicationServerKey as Uint8Array)).toEqual(Array.from(expectedBytes));
 
-      expect(mockSubscribe).toHaveBeenCalledWith(newSubscription.toJSON());
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...newSubscription.toJSON(), platform: 'browser' });
     });
 
     it('only POSTs — no unsubscribe, no resubscribe — when an existing subscription already uses this key', async () => {
@@ -278,7 +377,7 @@ describe('syncPushSubscription', () => {
 
       expect(existing.unsubscribe).not.toHaveBeenCalled();
       expect(pushManager.subscribe).not.toHaveBeenCalled();
-      expect(mockSubscribe).toHaveBeenCalledWith(existing.toJSON());
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...existing.toJSON(), platform: 'browser' });
     });
 
     it('unsubscribes and resubscribes on a definite key mismatch (VAPID rotation)', async () => {
@@ -297,7 +396,7 @@ describe('syncPushSubscription', () => {
 
       expect(existing.unsubscribe).toHaveBeenCalledTimes(1);
       expect(pushManager.subscribe).toHaveBeenCalledTimes(1);
-      expect(mockSubscribe).toHaveBeenCalledWith(resubscribed.toJSON());
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...resubscribed.toJSON(), platform: 'browser' });
     });
 
     it('keeps the existing subscription when options.applicationServerKey is null (browser does not expose it)', async () => {
@@ -311,7 +410,7 @@ describe('syncPushSubscription', () => {
 
       expect(existing.unsubscribe).not.toHaveBeenCalled();
       expect(pushManager.subscribe).not.toHaveBeenCalled();
-      expect(mockSubscribe).toHaveBeenCalledWith(existing.toJSON());
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...existing.toJSON(), platform: 'browser' });
     });
 
     it('keeps the existing subscription when it exposes no options object at all', async () => {
@@ -324,7 +423,7 @@ describe('syncPushSubscription', () => {
       await syncPushSubscription(VAPID_KEY);
 
       expect(pushManager.subscribe).not.toHaveBeenCalled();
-      expect(mockSubscribe).toHaveBeenCalledWith(existing.toJSON());
+      expect(mockSubscribe).toHaveBeenCalledWith({ ...existing.toJSON(), platform: 'browser' });
     });
   });
 
