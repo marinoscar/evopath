@@ -163,13 +163,17 @@ describe('the context lines', () => {
         { id: 'jdk', label: 'JDK 17+', status: 'fail', detail: 'not found', fix: 'Install a JDK 17.' },
       ],
     };
-    expect(doctorLines(report, { repoRoot: '/r', kind: 'deployment' })).toEqual([
-      "✖ 1 of 2 checks failed for the deployment's checkout (/r) — publishing would be skipped",
+    expect(doctorLines(report)).toEqual([
+      '✖ 1 of 2 checks failed — publishing would be skipped',
       '  ✖ JDK 17+: not found',
       '    → Install a JDK 17.',
     ]);
-    expect(doctorLines({ ...report, ok: true, checks: [report.checks[0]!] }, { repoRoot: '/r', kind: 'own' })[0]).toBe(
-      '✔ 1/1 checks passed for your own checkout (/r)',
-    );
+    expect(doctorLines({ ...report, ok: true, checks: [report.checks[0]!] })).toEqual(['✔ all 1 checks passed']);
+    const warned = { ...report, ok: true, checks: [report.checks[0]!, { id: 'repo.fresh' as const, label: 'Fresh', status: 'warn' as const, detail: '2 commits behind origin/main', fix: 'Run `git pull`.' }] };
+    expect(doctorLines(warned)).toEqual([
+      '✔ all 2 checks passed (1 with a warning)',
+      '  ! Fresh: 2 commits behind origin/main',
+      '    → Run `git pull`.',
+    ]);
   });
 });

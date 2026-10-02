@@ -110,7 +110,7 @@ export function AndroidAppStep({
     void (async () => {
       try {
         const report = await resolved.doctor(source.repoRoot);
-        if (isMounted()) setPreflight({ kind: 'done', lines: doctorLines(report, source), ok: report.ok });
+        if (isMounted()) setPreflight({ kind: 'done', lines: doctorLines(report), ok: report.ok });
       } catch (error) {
         if (isMounted()) setPreflight({ kind: 'error', message: error instanceof Error ? error.message : String(error) });
       }

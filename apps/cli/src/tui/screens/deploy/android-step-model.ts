@@ -6,7 +6,7 @@ import { ANDROID_APP_DIR, versionPropertiesPath } from '../../../android/paths.j
 import type { ReleaseStatus } from '../../../android/release-status.js';
 import { readVersion } from '../../../android/version.js';
 import { CLI_NAME } from '../../../branding.js';
-import { describeBuildSource, publicUrlFor, type AndroidBuildSource } from '../../../deploy/android-step.js';
+import { publicUrlFor } from '../../../deploy/android-step.js';
 import { readAndroidPreference } from '../../../deploy/preferences.js';
 import { checkoutPathFor } from '../../../deploy/version-step.js';
 import { WITH_ANDROID_FLAG } from './flags-model.js';
@@ -157,14 +157,13 @@ export async function lookupReleaseLine(
 }
 
 /** The pre-flight's summary: one headline, then each failed check with its fix. */
-export function doctorLines(report: AndroidDoctorReport, source: AndroidBuildSource): string[] {
+export function doctorLines(report: AndroidDoctorReport): string[] {
   const failed = report.checks.filter((check) => check.status === 'fail');
   const warned = report.checks.filter((check) => check.status === 'warn');
-  const where = `for ${describeBuildSource(source)}`;
   const head = report.ok
-    ? `✔ ${report.checks.length - warned.length}/${report.checks.length} checks passed ${where}` +
-      (warned.length === 0 ? '' : ` (${warned.length} warning${warned.length === 1 ? '' : 's'})`)
-    : `✖ ${failed.length} of ${report.checks.length} checks failed ${where} — publishing would be skipped`;
+    ? `✔ all ${report.checks.length} checks passed` +
+      (warned.length === 0 ? '' : ` (${warned.length} with a warning)`)
+    : `✖ ${failed.length} of ${report.checks.length} checks failed — publishing would be skipped`;
   return [
     head,
     ...[...failed, ...warned].flatMap((check) => [

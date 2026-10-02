@@ -158,7 +158,8 @@ describe('AndroidAppStep', () => {
       expect(frame).toContain('checkout  1.0.6 (code 6)');
       expect(frame).toContain('the update may bring a newer one');
       expect(frame).toContain(`published 1.0.5 (code 5) on ${URL}`);
-      expect(frame).toContain("✖ 1 of 2 checks failed for the deployment's checkout");
+      expect(frame).toContain('preflight ✖ 1 of 2 checks failed — publishing would be skipped');
+      expect(frame).toContain("builds from the deployment's checkout");
       expect(frame).toContain('JDK 17+: not found');
       expect(frame).toContain('→ Install a JDK 17.');
     } finally {
