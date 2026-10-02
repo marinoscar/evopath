@@ -19,6 +19,10 @@
  *   (`value.analyteKey`). The alternative is Reject. Unknown analytes are
  *   never silently dropped.
  * - Rejected rows move into "Rejected (n)" with Restore.
+ * - #308: a result the server reports as ALREADY SAVED (same analyte, day and
+ *   value) carries an "Already saved · <date>" badge (text and an icon, never
+ *   colour alone) with Skip (rejects it, persisted) and Save again (a choice
+ *   the dialog keeps for the session). The dialog owns the decisions.
  */
 import { useId, useMemo, useState } from 'react';
 import {
@@ -28,6 +32,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -38,6 +43,7 @@ import {
 } from '@mui/material';
 import {
   Add as AddIcon,
+  ContentCopy as AlreadySavedIcon,
   DoneAll as AcceptAllIcon,
   ExpandMore as ExpandIcon,
   Verified as HighConfidenceIcon,
@@ -60,6 +66,13 @@ import { AnalytePicker, LabResultEditor, LabResultView } from './LabResultValue'
 import { DEFAULT_LAB_UNITS, labUnitsNote, type LabUnits } from '../../utils/labUnits';
 
 export const ADD_MISSING_VALUE_LABEL = 'Add missing value';
+export const SKIP_DUPLICATE_LABEL = 'Skip';
+export const SAVE_AGAIN_LABEL = 'Save again';
+
+/** "Already saved · Nov 19, 2025", or without the date when it is not known. */
+export function alreadySavedLabel(date: string | null): string {
+  return date ? `Already saved · ${formatLabDate(date)}` : 'Already saved';
+}
 export const ACCEPT_HIGH_CONFIDENCE_LABEL = 'Accept high confidence';
 
 /** "Nov 19, 2025 · 17 results", or the undated group's heading. */
@@ -92,6 +105,80 @@ export interface LabReportReviewProps {
   onAcceptAll: () => void;
   /** #305: accept every pending, high-confidence, not-uncertain result (`{ only: 'high_confidence' }`). */
   onAcceptHighConfidence: () => void;
+  /**
+   * #308: the results already saved (the duplicate check), by item id, with
+   * the day they were saved on (`YYYY-MM-DD`, `null` when unknown).
+   */
+  duplicateDates?: ReadonlyMap<string, string | null>;
+  /** #308: duplicates the user chose to save again this session. */
+  keptDuplicateIds?: ReadonlySet<string>;
+  /** #308: Skip a duplicate (the dialog rejects it). */
+  onSkipDuplicate?: (id: string) => void;
+  /** #308: Save a duplicate again. */
+  onKeepDuplicate?: (id: string) => void;
+}
+
+function DuplicateStrip({
+  item,
+  date,
+  kept,
+  busy,
+  onSkip,
+  onKeep,
+}: {
+  item: DraftItemView<LabReportValue>;
+  date: string | null;
+  kept: boolean;
+  busy: boolean;
+  onSkip?: () => void;
+  onKeep?: () => void;
+}) {
+  const badgeId = useId();
+  const printed = item.value.nameAsPrinted ?? 'this result';
+  return (
+    <Stack
+      direction={{ xs: 'column', sm: 'row' }}
+      spacing={1}
+      useFlexGap
+      sx={{ mt: 1, alignItems: { xs: 'stretch', sm: 'center' }, flexWrap: 'wrap' }}
+      data-testid="lab-result-duplicate"
+      data-decision={kept ? 'keep' : 'undecided'}
+    >
+      <Chip
+        id={badgeId}
+        icon={<AlreadySavedIcon />}
+        label={kept ? `${alreadySavedLabel(date)} · will be saved again` : alreadySavedLabel(date)}
+        color="info"
+        variant="outlined"
+        size="small"
+        sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, maxWidth: '100%' }}
+        data-testid="lab-result-already-saved"
+      />
+      <Stack direction="row" spacing={1}>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={onSkip}
+          disabled={busy || !onSkip}
+          aria-label={`${SKIP_DUPLICATE_LABEL} ${printed}`}
+          aria-describedby={badgeId}
+        >
+          {SKIP_DUPLICATE_LABEL}
+        </Button>
+        <Button
+          size="small"
+          variant={kept ? 'contained' : 'outlined'}
+          onClick={onKeep}
+          disabled={busy || !onKeep}
+          aria-pressed={kept}
+          aria-label={`${SAVE_AGAIN_LABEL} ${printed}`}
+          aria-describedby={badgeId}
+        >
+          {SAVE_AGAIN_LABEL}
+        </Button>
+      </Stack>
+    </Stack>
+  );
 }
 
 function MapStrip({
@@ -147,6 +234,10 @@ export function LabReportReview({
   onAddItem,
   onAcceptAll,
   onAcceptHighConfidence,
+  duplicateDates,
+  keptDuplicateIds,
+  onSkipDuplicate,
+  onKeepDuplicate,
 }: LabReportReviewProps) {
   const idPrefix = useId();
   const [adding, setAdding] = useState(false);
@@ -197,6 +288,7 @@ export function LabReportReview({
       data-item-id={item.id}
       data-attention={needsAttention(item) ? 'true' : 'false'}
       data-unresolved={isUnresolved(item) ? 'true' : 'false'}
+      data-duplicate={duplicateDates?.has(item.id) && item.status !== 'rejected' ? 'true' : 'false'}
       sx={needsAttention(item) && item.status !== 'rejected' ? { borderLeft: 4, borderColor: 'warning.main', pl: 1 } : undefined}
     >
       <DraftItemRow<LabReportValue> item={item} {...rowProps} />
@@ -209,6 +301,16 @@ export function LabReportReview({
           onMap={(analyteKey) =>
             onMapItem ? onMapItem(item.id, analyteKey) : onEditItem(item.id, { ...item.value, analyteKey })
           }
+        />
+      )}
+      {duplicateDates?.has(item.id) && item.status !== 'rejected' && (
+        <DuplicateStrip
+          item={item}
+          date={duplicateDates.get(item.id) ?? null}
+          kept={keptDuplicateIds?.has(item.id) ?? false}
+          busy={busy}
+          onSkip={onSkipDuplicate ? () => onSkipDuplicate(item.id) : undefined}
+          onKeep={onKeepDuplicate ? () => onKeepDuplicate(item.id) : undefined}
         />
       )}
     </Box>
