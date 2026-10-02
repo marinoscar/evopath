@@ -25,6 +25,8 @@
  *    day and value) is marked on its row with Skip (rejects it) or Save
  *    again (kept for this session); a short bar offers "Skip all" and "Save
  *    all again". Save is blocked, with the reason, until each has a decision.
+ *    #311: "Reject unmatched" (toolbar, and in the save hint) rejects every
+ *    result not mapped to an analyte after a confirmation.
  *
  * The server decides everything: matching, conversion, validation, whether
  * apply may run, and the provenance it writes. Full-screen below `sm` through
@@ -84,11 +86,13 @@ import {
   getLabReportDuplicates,
   isUnresolved,
   mapLabResult,
+  rejectUnmatchedLabResults,
   sameNamedOthers,
   labApplyRefusal,
   labEditChange,
   labMappedMessage,
   labPropagatedMessage,
+  labRejectedUnmatchedMessage,
   labResultPayload,
   labSavedMessage,
   resultDate,
@@ -102,7 +106,7 @@ import { useMeasurementCatalog } from '../../hooks/useMeasurementCatalog';
 import { useLabUnits } from '../../hooks/useLabUnits';
 import type { LabUnits } from '../../utils/labUnits';
 import { useIsMounted } from '../../hooks/useIsMounted';
-import { LabReportReview } from './LabReportReview';
+import { LabReportReview, REJECT_UNMATCHED_LABEL, RejectUnmatchedConfirm } from './LabReportReview';
 
 export const LAB_REPORT_TITLE = 'Import lab report';
 export const LAB_REPORT_HELPER_TEXT =
@@ -416,6 +420,15 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
       showMapNotice(labMappedMessage(result, printed, label), result);
     });
   };
+  // #311: reject every unmatched result at once; the server picks them.
+  const [rejectUnmatchedOpen, setRejectUnmatchedOpen] = useState(false);
+  const rejectUnmatched = () =>
+    void write('Could not reject the unmatched results', async () => {
+      const result = await rejectUnmatchedLabResults(intakeId);
+      if (isMounted()) {
+        setMapNotice({ message: labRejectedUnmatchedMessage(result.items.length), severity: 'success', reasons: [] });
+      }
+    });
   const addItem = (value: LabReportValue) =>
     void write('Could not add this result', () =>
       addDraftItem(intakeId, { kind: LAB_REPORT_ITEM_KIND, value: labResultPayload(value) }),
@@ -635,6 +648,7 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
           keptDuplicateIds={keptIds}
           onSkipDuplicate={skipDuplicate}
           onKeepDuplicate={keepDuplicate}
+          onRejectUnmatched={rejectUnmatched}
         />
         {mapNotice && (
           <Alert
@@ -668,7 +682,8 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
           </Alert>
         )}
         {applyFailure?.kind === 'error' && <FailureNotice error={applyFailure.error} onRetry={() => void apply()} />}
-        <Typography variant="body2" color="text.secondary" id={hintId} aria-live="polite" data-testid="lab-report-save-hint">
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
+          <Typography variant="body2" color="text.secondary" id={hintId} aria-live="polite" data-testid="lab-report-save-hint">
           {unresolved > 0
             ? `${unresolved} ${unresolved === 1 ? 'result is' : 'results are'} not in the lab catalog: map ${unresolved === 1 ? 'it' : 'each'} to an analyte or reject ${unresolved === 1 ? 'it' : 'them'} before saving`
             : undecidedDuplicates.length > 0
@@ -678,7 +693,29 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
               : accepted === 0
                 ? 'Accept at least one result to save, or discard this report'
                 : `${accepted} ${accepted === 1 ? 'result' : 'results'} will be saved`}
-        </Typography>
+          </Typography>
+          {unresolved > 0 && (
+            <Button
+              size="small"
+              color="error"
+              onClick={() => setRejectUnmatchedOpen(true)}
+              disabled={busy}
+              sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, flexShrink: 0 }}
+              data-testid="lab-report-hint-reject-unmatched"
+            >
+              {REJECT_UNMATCHED_LABEL} ({unresolved})
+            </Button>
+          )}
+        </Stack>
+        <RejectUnmatchedConfirm
+          open={rejectUnmatchedOpen}
+          count={unresolved}
+          onCancel={() => setRejectUnmatchedOpen(false)}
+          onConfirm={() => {
+            setRejectUnmatchedOpen(false);
+            rejectUnmatched();
+          }}
+        />
       </Stack>
     );
   } else if (status === 'applied') {

@@ -19,6 +19,9 @@
  *   (`value.analyteKey`). The alternative is Reject. Unknown analytes are
  *   never silently dropped.
  * - Rejected rows move into "Rejected (n)" with Restore.
+ * - #311: "Reject unmatched (n)" rejects every result not mapped to an
+ *   analyte at once, after a confirmation (`RejectUnmatchedConfirm`, shared
+ *   with the dialog's save hint).
  * - #308: a result the server reports as ALREADY SAVED (same analyte, day and
  *   value) carries an "Already saved · <date>" badge (text and an icon, never
  *   colour alone) with Skip (rejects it, persisted) and Save again (a choice
@@ -45,6 +48,7 @@ import {
   Add as AddIcon,
   ContentCopy as AlreadySavedIcon,
   DoneAll as AcceptAllIcon,
+  RemoveDone as RejectUnmatchedIcon,
   ExpandMore as ExpandIcon,
   Verified as HighConfidenceIcon,
 } from '@mui/icons-material';
@@ -66,7 +70,41 @@ import { AnalytePicker, LabResultEditor, LabResultView } from './LabResultValue'
 import { DEFAULT_LAB_UNITS, labUnitsNote, type LabUnits } from '../../utils/labUnits';
 
 export const ADD_MISSING_VALUE_LABEL = 'Add missing value';
+export const REJECT_UNMATCHED_LABEL = 'Reject unmatched';
 export const SKIP_DUPLICATE_LABEL = 'Skip';
+
+/** #311: the confirmation before rejecting every unmatched result. */
+export function RejectUnmatchedConfirm({
+  open,
+  count,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  count: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const titleId = useId();
+  return (
+    <Dialog open={open} onClose={onCancel} aria-labelledby={titleId}>
+      <DialogTitle id={titleId}>
+        Reject {count} {count === 1 ? 'result that is' : 'results that are'} not in the lab catalog?
+      </DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          {count === 1 ? 'It can be restored from Rejected.' : 'They can be restored one by one from Rejected.'}
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant="contained" color="error" onClick={onConfirm}>
+          {REJECT_UNMATCHED_LABEL}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 export const SAVE_AGAIN_LABEL = 'Save again';
 
 /** "Already saved · Nov 19, 2025", or without the date when it is not known. */
@@ -116,6 +154,8 @@ export interface LabReportReviewProps {
   onSkipDuplicate?: (id: string) => void;
   /** #308: Save a duplicate again. */
   onKeepDuplicate?: (id: string) => void;
+  /** #311: reject every result not mapped to an analyte (the toolbar button is shown only with it). */
+  onRejectUnmatched?: () => void;
 }
 
 function DuplicateStrip({
@@ -238,11 +278,13 @@ export function LabReportReview({
   keptDuplicateIds,
   onSkipDuplicate,
   onKeepDuplicate,
+  onRejectUnmatched,
 }: LabReportReviewProps) {
   const idPrefix = useId();
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState<LabReportValue>(emptyLabResult);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rejectUnmatchedOpen, setRejectUnmatchedOpen] = useState(false);
 
   const photoNames = useMemo(
     () => new Map(photos.map((photo) => [photo.storageObjectId, photo.name] as const)),
@@ -254,6 +296,7 @@ export function LabReportReview({
   const pending = active.filter((item) => item.status === 'pending');
   const lowPending = pending.filter((item) => item.confidence === 'low').length;
   const highPending = pending.filter(isHighConfidencePending).length;
+  const unmatched = ordered.filter(isUnresolved).length;
   const dateGroups = groupByDate(active, reportDate);
   const refused = new Set(refusedIds);
 
@@ -340,6 +383,17 @@ export function LabReportReview({
         >
           {ACCEPT_HIGH_CONFIDENCE_LABEL} ({highPending})
         </Button>
+        {onRejectUnmatched && unmatched > 0 && (
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<RejectUnmatchedIcon />}
+            onClick={() => setRejectUnmatchedOpen(true)}
+            disabled={busy}
+          >
+            {REJECT_UNMATCHED_LABEL} ({unmatched})
+          </Button>
+        )}
         <Button
           variant="outlined"
           startIcon={<AddIcon />}
@@ -444,6 +498,16 @@ export function LabReportReview({
           </AccordionDetails>
         </Accordion>
       )}
+
+      <RejectUnmatchedConfirm
+        open={rejectUnmatchedOpen}
+        count={unmatched}
+        onCancel={() => setRejectUnmatchedOpen(false)}
+        onConfirm={() => {
+          setRejectUnmatchedOpen(false);
+          onRejectUnmatched?.();
+        }}
+      />
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} aria-labelledby="lab-accept-all-title">
         <DialogTitle id="lab-accept-all-title">Accept all {pending.length} results?</DialogTitle>

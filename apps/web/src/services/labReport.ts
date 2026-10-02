@@ -178,6 +178,27 @@ export function mapLabResult(intakeId: string, itemId: string, change: LabReport
   });
 }
 
+/** `POST /api/measurements/lab-reports/:intakeId/reject-unmatched` (#311). */
+export interface LabReportRejectUnmatchedResult {
+  /** The results the server rejected. */
+  items: DraftItemView<LabReportValue>[];
+}
+
+/**
+ * Reject every result of the intake that is not mapped to an analyte (#311).
+ * The SERVER picks them (not rejected, `analyteKey` null; a suggested match is
+ * left alone). Each can be restored one by one.
+ */
+export function rejectUnmatchedLabResults(intakeId: string): Promise<LabReportRejectUnmatchedResult> {
+  return api.post<LabReportRejectUnmatchedResult>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/reject-unmatched`);
+}
+
+/** "Rejected 3 unmatched results". */
+export function labRejectedUnmatchedMessage(count: number): string {
+  if (count === 0) return 'No unmatched results to reject';
+  return `Rejected ${count} unmatched ${count === 1 ? 'result' : 'results'}`;
+}
+
 /** A printed name as the review compares it: trimmed, lower-case, single spaces. The server decides. */
 export function foldPrintedName(name: string | null | undefined): string {
   return (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
