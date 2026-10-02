@@ -8,8 +8,10 @@ import { ApiDataResponse } from '../../common/decorators/api-data-response.decor
 import { ErrorDto } from '../../common/dto/error.dto';
 import { LabReportDuplicatesDto } from './dto/lab-report-duplicates.dto';
 import { LabResultMapView, MapLabResultDto } from './dto/lab-report-map.dto';
+import { LabReportRejectUnmatchedView } from './dto/lab-report-reject-unmatched.dto';
 import { LabReportDuplicatesService } from './lab-report-duplicates.service';
 import { LabReportMapService } from './lab-report-map.service';
+import { LabReportRejectUnmatchedService } from './lab-report-reject-unmatched.service';
 
 // =============================================================================
 // /api/measurements/lab-reports — lab-report review helpers (H4, #188)
@@ -25,7 +27,11 @@ import { LabReportMapService } from './lab-report-map.service';
 //     every same-named result of the report (`LabReportMapService`). It edits draft
 //     items as `PATCH /api/intakes/:id/items/:itemId` does, so it requires
 //     what that route requires for a lab report: `intakes:write` and the
-//     kind's `health_data:write`.
+//     kind's `health_data:write`;
+//   - "reject unmatched" (#311): rejects, in one call, every result the
+//     catalog could not match (`analyteKey: null`), as the item PATCH
+//     `{ status: 'rejected' }` would (`LabReportRejectUnmatchedService`), so
+//     each can be restored. Same permissions as "map once".
 // =============================================================================
 
 @ApiTags('Measurements')
@@ -34,6 +40,7 @@ export class LabReportController {
   constructor(
     private readonly duplicates: LabReportDuplicatesService,
     private readonly mapping: LabReportMapService,
+    private readonly rejecting: LabReportRejectUnmatchedService,
   ) {}
 
   @Get(':intakeId/duplicates')
@@ -99,5 +106,32 @@ export class LabReportController {
     @Body() dto: MapLabResultDto,
   ) {
     return this.mapping.map(userId, intakeId, dto);
+  }
+
+  @Post(':intakeId/reject-unmatched')
+  @Auth({ permissions: [PERMISSIONS.HEALTH_DATA_WRITE, PERMISSIONS.INTAKES_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reject every lab result that matched no catalog analyte',
+    description:
+      'For a `lab_report` intake under review. No body. Rejects every `result` item of the intake that is not ' +
+      'already rejected and whose value has `analyteKey: null` (unmatched); a "suggested", matched or user-mapped ' +
+      'result carries a key and is untouched. Each is written as `PATCH /api/intakes/:id/items/:itemId` ' +
+      '`{ status: "rejected" }` writes it (only `status` changes), so the same PATCH with `{ status: "pending" }` ' +
+      'restores it. Returns the results it rejected (an empty list when there was none). One transaction.',
+  })
+  @ApiParam({ name: 'intakeId', type: String, format: 'uuid' })
+  @ApiDataResponse(LabReportRejectUnmatchedView, { description: 'The results now rejected (possibly none)' })
+  @ApiResponse({ status: 400, description: 'Validation error: intakeId is not a UUID', type: ErrorDto })
+  @ApiResponse({ status: 401, description: 'Not authenticated', type: ErrorDto })
+  @ApiResponse({ status: 403, description: 'Missing health_data:write or intakes:write', type: ErrorDto })
+  @ApiResponse({ status: 404, description: 'No lab_report intake with this id for the caller', type: ErrorDto })
+  @ApiResponse({
+    status: 409,
+    description: 'The intake status forbids editing its items (`details.reason`: `ALREADY_APPLIED`)',
+    type: ErrorDto,
+  })
+  rejectUnmatched(@CurrentUser('id') userId: string, @Param('intakeId', ParseUUIDPipe) intakeId: string) {
+    return this.rejecting.rejectUnmatched(userId, intakeId);
   }
 }
