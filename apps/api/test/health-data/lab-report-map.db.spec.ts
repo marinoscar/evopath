@@ -13,6 +13,10 @@
 //     differently named result are left exactly as they were;
 //   - a twin whose unit the analyte refuses is skipped (and unchanged);
 //   - the mapped results then apply as one entry per date;
+//   - a unit misread on five dates: the user re-reads one in mmol/L with the
+//     item PATCH, then the map call (with the new analyte and unit, as the
+//     web sends them) re-reads the other four; the clicked one is a no-op;
+//     a sibling whose number the user corrected is untouched;
 //   - another user's intake is a 404, a key outside the lab catalog a 400,
 //     an applied intake a 409.
 //
@@ -166,6 +170,69 @@ describeWithDb('lab report map once (real Postgres)', () => {
     const conflict = await mapping.map(userId, intakeId, { itemId: twins[0].id, analyteKey: 'chol_hdl_ratio' }).catch((e) => e);
     expect(conflict).toBeInstanceOf(ConflictException);
     expect(conflict.getResponse()).toMatchObject({ details: { reason: 'ALREADY_APPLIED' } });
+  });
+
+  it('a unit misread on five dates: one PATCH plus the map call re-reads the other four, not the re-numbered one', async () => {
+    const userId = await makeUser('unit');
+    const intakeId = await makeIntake(userId);
+    const printed = [5.4, 5.6, 5.1, 5.9, 6.2];
+
+    const twins = [];
+    for (const [i, collectionDate] of DATES.entries()) {
+      twins.push(
+        await draft(intakeId, {
+          analyteKey: 'fasting_glucose',
+          nameAsPrinted: 'Glucose Lvl',
+          value: printed[i],
+          unit: 'mg/dL',
+          originalValue: printed[i],
+          originalUnit: 'mg/dL',
+          referenceLow: 3.9,
+          referenceHigh: 5.5,
+          panel: 'glycemic',
+          match: 'matched',
+          collectionDate,
+        }),
+      );
+    }
+    // The user corrected the NUMBER of another same-named result (kept in mg/dL).
+    const renumbered = await draft(intakeId, {
+      analyteKey: 'fasting_glucose',
+      nameAsPrinted: 'Glucose Lvl',
+      value: 5.0,
+      unit: 'mg/dL',
+      originalValue: 5.0,
+      originalUnit: 'mg/dL',
+      match: 'matched',
+      collectionDate: '2024-06-01',
+    });
+    await intakes.updateItem(userId, intakeId, renumbered.id, { value: { ...(renumbered.value as object), value: 95 } }, PERMS);
+    const renumberedBefore = await row(renumbered.id);
+
+    // The web: PATCH the clicked result to mmol/L, then propagate with the new values.
+    const clicked = twins[0];
+    await intakes.updateItem(userId, intakeId, clicked.id, { value: { ...(clicked.value as object), unit: 'mmol/L' } }, PERMS);
+    const clickedBefore = await row(clicked.id);
+    expect((clickedBefore.value as LabReportValue).value).toBeCloseTo(5.4 / 0.0555, 2);
+
+    const answer = await mapping.map(userId, intakeId, { itemId: clicked.id, analyteKey: 'fasting_glucose', unit: 'mmol/L' });
+
+    expect(answer.skipped).toEqual([]);
+    expect(answer.items.map((item) => item.id)).toEqual(twins.map((t) => t.id));
+    for (const [i, twin] of twins.entries()) {
+      const stored = (await row(twin.id)).value as LabReportValue;
+      expect(stored).toMatchObject({ analyteKey: 'fasting_glucose', unit: 'mg/dL', originalValue: printed[i], originalUnit: 'mg/dL' });
+      expect(stored.value!).toBeCloseTo(printed[i] / 0.0555, 2);
+      expect(stored.referenceLow!).toBeCloseTo(3.9 / 0.0555, 2);
+      expect(stored.referenceHigh!).toBeCloseTo(5.5 / 0.0555, 2);
+    }
+    // The clicked one already read in mmol/L: its value is what the PATCH stored.
+    expect(((await row(clicked.id)).value as LabReportValue).value).toBe((clickedBefore.value as LabReportValue).value);
+    expect(await row(renumbered.id)).toEqual(renumberedBefore);
+
+    // Calling again changes nothing (every twin already reads in mmol/L).
+    const again = await mapping.map(userId, intakeId, { itemId: clicked.id, unit: 'mmol/L' });
+    expect(again.items.map((item) => item.id)).toEqual([clicked.id]);
   });
 
   it("404s on another user's intake and 400s on a key outside the lab catalog, changing nothing", async () => {

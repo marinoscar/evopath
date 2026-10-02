@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { draftItemViewSchema } from '../../../intake/dto/intake.dto';
 import { isLabMetric } from '../../metric-registry';
+import { LAB_UNIT_MAX } from '../lab-report.value';
 
 // =============================================================================
 // POST /api/measurements/lab-reports/:intakeId/map — body and response (#307)
@@ -10,15 +11,31 @@ import { isLabMetric } from '../../metric-registry';
 
 export const mapLabResultSchema = z
   .object({
-    itemId: z.uuid().meta({ description: 'The draft result the user mapped (a `result` item of this intake).' }),
+    itemId: z.uuid().meta({ description: 'The draft result the user corrected (a `result` item of this intake).' }),
     analyteKey: z
       .string()
       .min(1)
       .max(64)
       .refine(isLabMetric, { message: 'analyteKey must be a lab analyte key from GET /api/measurements/metrics' })
+      .optional()
       .meta({ description: 'The lab catalog key (category `lab`) to map the result, and every same-named result, to.' }),
+    unit: z
+      .string()
+      .trim()
+      .min(1)
+      .max(LAB_UNIT_MAX)
+      .optional()
+      .meta({
+        description:
+          'The unit the result, and every same-named result of the same analyte printed with the same unit, is ' +
+          're-read in: each printed number is kept and reinterpreted in this unit, then converted to canonical.',
+      }),
   })
-  .strict();
+  .strict()
+  .refine((body) => body.analyteKey !== undefined || body.unit !== undefined, {
+    message: 'At least one of analyteKey or unit is required',
+  })
+  .meta({ description: 'The correction to propagate: an analyte, a unit, or both (the analyte first).' });
 
 export class MapLabResultDto extends createZodDto(mapLabResultSchema) {}
 export type MapLabResultInput = z.output<typeof mapLabResultSchema>;

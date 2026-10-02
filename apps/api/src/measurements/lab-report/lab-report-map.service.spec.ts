@@ -101,7 +101,7 @@ describe('LabReportMapService (#307)', () => {
 
     expect(answer.skipped).toEqual([]);
     expect(answer.items.map((i) => i.id).sort()).toEqual(rows.map((r) => r.id).sort());
-    expect(answer.items[0].id).toBe(rows[2].id);
+    expect(answer.items.map((i) => i.id)).toEqual(rows.map((r) => r.id)); // review order
     for (const row of rows) {
       const stored = store.get(row.id)!;
       expect(valueOf(stored)).toMatchObject({ analyteKey: 'chol_hdl_ratio', unit: 'ratio', panel: 'lipids', match: 'matched', value: 3.6 });
@@ -213,5 +213,89 @@ describe('LabReportMapService (#307)', () => {
     const answer = await service.map(USER_ID, INTAKE_ID, { itemId: clicked.id, analyteKey: 'chol_hdl_ratio' });
     expect(answer.items.map((i) => i.id)).toEqual([clicked.id]);
     expect(answer.items[0].value).toMatchObject({ nameAsPrinted: 'Cholesterol/HDL ratio', unit: 'ratio' });
+  });
+
+  describe('unit (re-read every same-named result printed with the same unit)', () => {
+    // The model read "mg/dL" where the report printed mmol/L; mg/dL is canonical, so nothing was converted.
+    const misread = (n: number, overrides: Partial<LabReportValue> = {}) =>
+      labReportValueSchema.parse({
+        analyteKey: 'fasting_glucose',
+        nameAsPrinted: 'Glucose',
+        value: n,
+        unit: 'mg/dL',
+        originalValue: n,
+        originalUnit: 'mg/dL',
+        referenceLow: 3.9,
+        referenceHigh: 5.5,
+        panel: 'glycemic',
+        match: 'matched',
+        ...overrides,
+      });
+
+    it('re-reads the clicked result and its misread twins in the new unit, leaving re-numbered and differently printed ones', async () => {
+      const twins = [5.4, 5.6, 5.1].map((n) => item(misread(n)));
+      const renumbered = item(misread(99, { originalValue: 5.3 }), { originalAiValue: misread(5.3) as unknown as Prisma.JsonValue });
+      const printedRight = item(misread(100.9, { originalValue: 5.6, originalUnit: 'mmol/L' }));
+      const otherAnalyte = item(misread(5.4, { analyteKey: 'hba1c', unit: '%', originalUnit: 'mg/dL', match: 'user_mapped' }));
+      const { service, store } = setup([...twins, renumbered, printedRight, otherAnalyte]);
+
+      const answer = await service.map(USER_ID, INTAKE_ID, { itemId: twins[1].id, unit: 'mmol/L' });
+
+      expect(answer.items.map((i) => i.id)).toEqual(twins.map((t) => t.id));
+      expect(answer.skipped).toEqual([]);
+      for (const [i, n] of [5.4, 5.6, 5.1].entries()) {
+        const stored = valueOf(store.get(twins[i].id)!);
+        expect(stored).toMatchObject({ unit: 'mg/dL', originalValue: n, originalUnit: 'mg/dL' });
+        expect(stored.value!).toBeCloseTo(n / 0.0555, 2);
+        expect(stored.referenceLow!).toBeCloseTo(3.9 / 0.0555, 2);
+      }
+      for (const untouched of [renumbered, printedRight, otherAnalyte]) {
+        expect(store.get(untouched.id)!.value).toEqual(untouched.value);
+      }
+    });
+
+    it('is a no-op for a clicked result that already reads in the unit, still listing it', async () => {
+      const clicked = item(misread(5.4, { value: 5.4 / 0.0555 }), { originalAiValue: misread(5.4) as unknown as Prisma.JsonValue });
+      // Its value as stored by the PATCH (canonical, rounded).
+      const patched = { ...valueOf(clicked), value: Math.round((5.4 / 0.0555) * 1e4) / 1e4 };
+      clicked.value = patched as unknown as Prisma.JsonValue;
+      const twin = item(misread(5.6));
+      const { service, tx } = setup([clicked, twin]);
+
+      const answer = await service.map(USER_ID, INTAKE_ID, { itemId: clicked.id, unit: 'mmol/L' });
+
+      expect(answer.items.map((i) => [i.id, i.userVerified])).toEqual([
+        [clicked.id, false],
+        [twin.id, true],
+      ]);
+      expect(tx.draftItem.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('maps then re-reads in one call, and skips a twin the new unit puts out of bounds', async () => {
+      const unmatched = (n: number) => labReportValueSchema.parse({ nameAsPrinted: 'Glu', value: n, unit: 'mg/dL', originalValue: n, originalUnit: 'mg/dL' });
+      const clicked = item(unmatched(5.4));
+      const huge = item(unmatched(150));
+      const { service, store } = setup([clicked, huge]);
+
+      const answer = await service.map(USER_ID, INTAKE_ID, { itemId: clicked.id, analyteKey: 'fasting_glucose', unit: 'mmol/L' });
+
+      expect(answer.items.map((i) => i.id)).toEqual([clicked.id]);
+      expect(answer.skipped).toEqual([{ itemId: huge.id, message: expect.stringContaining('outside the allowed range') }]);
+      expect(valueOf(store.get(clicked.id)!)).toMatchObject({ analyteKey: 'fasting_glucose', unit: 'mg/dL', match: 'matched' });
+      expect(store.get(huge.id)!.value).toEqual(huge.value);
+    });
+
+    it('answers the 400 when the clicked result cannot take the unit', async () => {
+      const clicked = item(misread(5.4));
+      const { service } = setup([clicked]);
+      await expect(service.map(USER_ID, INTAKE_ID, { itemId: clicked.id, unit: 'furlongs' })).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('requires an analyteKey or a unit in the body', () => {
+      const itemId = '44444444-4444-4444-8444-000000000001';
+      expect(mapLabResultSchema.safeParse({ itemId }).success).toBe(false);
+      expect(mapLabResultSchema.safeParse({ itemId, unit: 'mmol/L' }).success).toBe(true);
+      expect(mapLabResultSchema.safeParse({ itemId, unit: '  ' }).success).toBe(false);
+    });
   });
 });

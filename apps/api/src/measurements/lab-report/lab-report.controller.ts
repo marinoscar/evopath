@@ -21,8 +21,8 @@ import { LabReportMapService } from './lab-report-map.service';
 //   - the duplicate warning the review shows before apply. It reads an intake
 //     (`intakes:read`) and the caller's lab results (`health_data:read`), so
 //     it requires both;
-//   - "map once" (#307): mapping one result to an analyte maps every
-//     same-named result of the report (`LabReportMapService`). It edits draft
+//   - "map once" (#307): correcting one result's analyte or unit corrects
+//     every same-named result of the report (`LabReportMapService`). It edits draft
 //     items as `PATCH /api/intakes/:id/items/:itemId` does, so it requires
 //     what that route requires for a lab report: `intakes:write` and the
 //     kind's `health_data:write`.
@@ -61,24 +61,28 @@ export class LabReportController {
   @Auth({ permissions: [PERMISSIONS.HEALTH_DATA_WRITE, PERMISSIONS.INTAKES_WRITE] })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Map a lab result, and every result printed with the same name, to an analyte',
+    summary: 'Apply a lab result correction (analyte, unit) to every result printed with the same name',
     description:
-      'For a `lab_report` intake under review: sets `analyteKey` on the given result and on every other result of ' +
-      'the intake whose printed name is the same (ignoring case, accents, spaces and punctuation), except rejected ' +
-      'results and results the user already mapped to a different analyte. Each is written as ' +
+      'For a `lab_report` intake under review. Body `{ itemId, analyteKey?, unit? }`, at least one of the two. ' +
+      '`analyteKey`: sets the analyte on the given result and on every other result of the intake whose printed ' +
+      'name is the same (ignoring case, accents, spaces and punctuation), except rejected results and results the ' +
+      'user already mapped to a different analyte. `unit` (applied after the analyte): re-reads the printed number ' +
+      'of the given result, and of every same-named, not rejected result of the same analyte that was printed with ' +
+      'the same unit and that nobody re-read or re-numbered since, in that unit. Each changed result is written as ' +
       '`PATCH /api/intakes/:id/items/:itemId` would write it (converted to the canonical unit, `match` recomputed, ' +
-      '`userVerified` set, `originalAiValue` kept on the first edit); `status` is unchanged. A same-named result ' +
-      'that edit would refuse (e.g. its unit is not allowed for the analyte) is left unchanged and listed in ' +
-      '`skipped`; a refusal of the given result itself is the 400. One transaction.',
+      '`userVerified` set, `originalAiValue` kept on the first edit); `status` is unchanged. A result already ' +
+      'carrying the correction (the given one after its own PATCH) is unchanged but still listed. A same-named ' +
+      'result the edit would refuse (e.g. a unit its analyte does not allow, a value outside its bounds) is left ' +
+      'unchanged and listed in `skipped`; a refusal of the given result itself is the 400. One transaction.',
   })
   @ApiParam({ name: 'intakeId', type: String, format: 'uuid' })
   @ApiBody({ type: MapLabResultDto })
-  @ApiDataResponse(LabResultMapView, { description: 'The results now mapped, and the same-named ones left unchanged' })
+  @ApiDataResponse(LabResultMapView, { description: 'The results now corrected, and the same-named ones left unchanged' })
   @ApiResponse({
     status: 400,
     description:
-      'Validation error: intakeId or itemId is not a UUID, analyteKey is not a lab catalog key, or the given result ' +
-      'cannot take that analyte (`details.issues` names each field)',
+      'Validation error: intakeId or itemId is not a UUID, neither analyteKey nor unit is given, analyteKey is not a ' +
+      'lab catalog key, or the given result cannot take the correction (`details.issues` names each field)',
     type: ErrorDto,
   })
   @ApiResponse({ status: 401, description: 'Not authenticated', type: ErrorDto })
