@@ -143,6 +143,7 @@ Start with the self-test under **Diagnostics** on the phone. Each failing or war
 | `battery.optimization` | Warns | Battery restrictions stop the hourly worker | Android Settings, then Apps, then `<product>`, then Battery: Unrestricted. |
 | `notifications.permission` | Warns | Notifications are off | Tap the check's **Allow notifications** action, or you will miss the "Re-pair" and background-access prompts. |
 | `notifications.channels` | Warns: notifications are off for the app, or a channel it created is blocked. Skip while the permission is missing (Android 13+) | Android notification settings turn off the app or one channel (including channels the web view's Web Push uses) | Tap the check's action to open the blocked channel's settings and turn it on; **Send test notification** confirms. |
+| `notifications.delegation` | Warns: "This build opens links for `<host>`, but the server is `<host>`" (or "made without a server URL") | The APK was built for another server, or without `--server-url`, so Chrome cannot hand the web app's notifications to the app and shows them as its own | Rebuild with this server's URL (CLI `android build --server-url https://<server>`, or Gradle `-Papp.serverUrl=`), install it, then force-stop Chrome and open the app once ([Notifications](#notifications)). |
 | `work.scheduled` | Warns: waiting for network | The worker is scheduled but blocked on its network constraint | Connect to the internet. |
 | `work.scheduled` | Fails | The worker is not scheduled (the app was force-stopped, or its work was cancelled) | Open the app and **Sync now**; re-pair if not paired. |
 | `sync.last` | Warns: older than 3 hours, failed, partial or skipped | The worker is blocked (battery, no network), the last run failed, or some types could not be read | Fix `battery.optimization`, then **Sync now**; read the run's error under Connected devices. |
@@ -182,6 +183,11 @@ the phone only when all of these hold:
    Settings, then Notifications, and turn notifications on. A subscription made
    inside the app is tagged `android_app`; one made earlier in a browser tab on
    the same profile is re-tagged when the app subscribes again.
+4. **The APK was built for this server.** Chrome shows a site's notifications
+   as the app's only when the app claims that site's https links, and the app
+   claims exactly the host of the server URL it was built with. Build it with
+   `--server-url https://<server>` (CLI) or `-Papp.serverUrl=https://<server>`
+   (Gradle). The self-test reports this under `notifications.delegation`.
 
 **Test on the phone.** Update the app to 0.1.3 or later first (earlier builds lack
 these steps).
@@ -209,6 +215,30 @@ removed and the app must subscribe again). Two answers mean nothing was sent:
 Android Settings, then Apps, then `<product>`, then Notifications (or one of its
 channels is set to off); the phone's self-test check `notifications.channels`
 reports this. Battery restrictions can also delay delivery.
+
+**Notifications appear as Chrome's, not the app's** (Chrome's icon and name,
+"Site settings" in the notification menu):
+
+1. Run the self-test. If `notifications.delegation` warns, the APK was built
+   for another server or without a server URL: rebuild it with this server's
+   URL (CLI `android build --server-url https://<server>`, version 1.1.1 or
+   later of the app) and install it over the old one.
+2. Refresh the delegation: Android Settings, then Apps, then Chrome, then
+   **Force stop**; then open the app once. Chrome re-reads which app handles
+   the site when it next verifies the origin.
+3. Verify in Chrome: Settings, then Site settings, then Notifications. The
+   server's site should be listed as managed by the app, not allowed or blocked
+   by Chrome itself. If Chrome still lists it as its own, clear that entry and
+   repeat step 2.
+4. Still Chrome's: capture logcat while opening the app and sending a test
+   notification, filtered to the delegation tags:
+
+   ```bash
+   adb logcat | grep -E 'TWAClient|TWAConnectionPool|PermissionUpdater|WebappRegistrar'
+   ```
+
+   `Package does not handle Browsable Intents for the origin` means the
+   installed build does not claim this server's host (back to step 1).
 
 **Broadcasts.** The broadcast composer has an **Android app** channel: Web Push
 to Android app subscriptions only. **Push** already includes phones, so
