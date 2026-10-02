@@ -191,7 +191,9 @@ evopathcli deploy update --with-android --android-bump patch --android-notes "Wh
 
 `deploy install` takes the same flags. `--android-bump` (`patch`, `minor`, `major`) and `--android-notes` need `--with-android`; a typo is rejected before the deploy starts.
 
-After the deploy is healthy, the step takes the deployment's public domain as the server URL, finds a checkout, compares the local `versionCode` with the server's current release and, when the local one is higher, runs the doctor, builds with that URL baked in and publishes as current. With `--android-bump` the bump is committed only after the upload succeeded.
+After the deploy is healthy, the step takes the deployment's public domain as the server URL, picks a checkout, compares its `versionCode` with the server's current release and, when the checkout's is higher, runs the doctor, builds with that URL baked in and publishes as current. With `--android-bump` the bump is committed only after the upload succeeded.
+
+**Which checkout is built.** Without `--android-bump`, the deployment's own checkout (`<deploy root>/repo`) when it holds `apps/android`. The deploy has just moved it to the revision now being served, so the APK matches the web app it wraps. Otherwise the checkout you run the CLI in (or `EVOPATHCLI_REPO_ROOT`). With `--android-bump`, your own checkout comes first, and the bump is refused in the deployment's checkout (see the VPS caveat). The summary names the checkout under the `Android APK` line: `built from the deployment's checkout (<path>)`, or `checkout: <which> (<path>)` when the step skipped.
 
 **It never fails the deploy.** Every outcome is a line in the deploy summary, and the deploy's exit code is decided before the step runs. It never prompts, so it is safe with `--non-interactive` and from cron. `--json` adds an `android` field with the outcome.
 
@@ -210,9 +212,24 @@ After the deploy is healthy, the step takes the deployment's public domain as th
 | Skipped | `skipped: could not read the current release` | The server did not answer | `evopathcli android releases` |
 | Failed | `failed: build failed ...` or `upload failed ...`, then `(the deploy itself succeeded)` | Gradle or the upload failed | `evopathcli android build ...` then `android publish`, as printed |
 
-**VPS caveat.** Most VPS hosts have no JDK or Android SDK, so the step skips there. Run `evopathcli android doctor --fix` on the host first, or publish from your workstation with `evopathcli android release`. The step prefers the checkout you run the CLI in (or `EVOPATHCLI_REPO_ROOT`) and falls back to the deployment's own checkout. It refuses `--android-bump` in the deployment's checkout, because an uncommitted `version.properties` there would make the next `deploy update` refuse a dirty tree. The login must exist on the machine that runs the deploy. See [deploy to a VPS](deploy-to-vps.md).
+**VPS caveat.** Most VPS hosts have no JDK or Android SDK, so the step skips there. Run `evopathcli android doctor --fix` on the host first, or publish from your workstation with `evopathcli android release`. It refuses `--android-bump` in the deployment's checkout, because an uncommitted `version.properties` there would make the next `deploy update` refuse a dirty tree. The login must exist on the machine that runs the deploy. See [deploy to a VPS](deploy-to-vps.md).
 
-The terminal menu's Install and Update screens offer the same step as the toggle **Publish the Android APK if newer**. The toggle has no bump or notes; use the Android screen for those.
+### 8.1 From the terminal menu
+
+The terminal menu's **Deploy → Update** and **Deploy → Install** screens ask on a step of their own, **Android app**, after the options step and before **Confirm**. It offers two choices:
+
+- **No — web app only**
+- **Yes — also build and publish the Android APK (if its version is newer than the published one)**, which adds `--with-android` to the run
+
+Above the choices the step shows:
+
+| Row | What it shows |
+|---|---|
+| checkout | The version in the deployment's checkout (`apps/android/version.properties`). The update may bring a newer one. |
+| published | The server's current release, read with the stored login for `https://<domain>`. Without a login it shows `not logged in to https://<domain>` and the `evopathcli login --server https://<domain>` command. No answer within a few seconds reads as unreachable. |
+| preflight | `android doctor` against the checkout the build will use: a pass/fail summary, then each failed or warning check with its fix. It runs in the background; you can choose before it finishes. |
+
+Esc goes back to the options. The **Confirm** screen shows an **Android app** row: `build and publish if newer` or `not included`. The answer is remembered per deployment (`~/.evopathcli/deploy-preferences.json`) and selected the next time; a deployment whose checkout has no `apps/android` opens on **No**. The step has no bump or notes; use the Android screen ([section 7](#7-release-from-the-terminal-menu)) for those.
 
 ## 9. Release from the web admin page
 
