@@ -110,6 +110,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   browser: 'In-app',
   email: 'Email',
   push: 'Push',
+  android_app: 'Android app',
 };
 
 /**

@@ -30,7 +30,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '../../utils/test-utils';
-import { BroadcastComposer } from '../../../components/admin/BroadcastComposer';
+import { ANDROID_APP_CHANNEL_HELPER, BroadcastComposer } from '../../../components/admin/BroadcastComposer';
 import type { NotificationConfigResponse } from '../../../types';
 
 vi.mock('../../../hooks/useNotificationConfig', () => ({
@@ -54,12 +54,15 @@ const onSubmit = vi.fn();
 const onSendTest = vi.fn();
 const onClose = vi.fn();
 
-function renderComposer(overrides: { audience?: number | null; isWorking?: boolean } = {}) {
+function renderComposer(
+  overrides: { audience?: number | null; isWorking?: boolean; androidAppSubscriptions?: number | null } = {},
+) {
   return render(
     <BroadcastComposer
       open
       onClose={onClose}
       audience={overrides.audience === undefined ? 1284 : overrides.audience}
+      androidAppSubscriptions={overrides.androidAppSubscriptions}
       isWorking={overrides.isWorking ?? false}
       onSubmit={onSubmit}
       onSendTest={onSendTest}
@@ -380,6 +383,57 @@ describe('BroadcastComposer', () => {
 
       expect(screen.queryByText(/must point inside this application/i)).not.toBeInTheDocument();
       expect(submitButton()).toBeEnabled();
+    });
+  });
+
+  // =========================================================================
+  // Android app channel (#312)
+  // =========================================================================
+
+  describe('Android app channel', () => {
+    const androidCheckbox = () => screen.getByRole('checkbox', { name: /^android app/i });
+
+    it('offers Android app next to Push, with helper text, unselected by default', () => {
+      renderComposer();
+
+      expect(androidCheckbox()).toBeEnabled();
+      expect(androidCheckbox()).not.toBeChecked();
+      expect(screen.getByTestId('android-app-channel-helper')).toHaveTextContent(ANDROID_APP_CHANNEL_HELPER);
+    });
+
+    it('shows the Android app subscription estimate when the audience read has one', () => {
+      renderComposer({ androidAppSubscriptions: 37 });
+
+      expect(screen.getByTestId('android-app-channel-helper')).toHaveTextContent('(37 subscriptions)');
+    });
+
+    it('shows no count when the estimate is unknown', () => {
+      renderComposer({ androidAppSubscriptions: null });
+
+      expect(screen.getByTestId('android-app-channel-helper')).not.toHaveTextContent(/subscription/);
+    });
+
+    it('sends android_app in the channels payload', async () => {
+      const user = userEvent.setup();
+      renderComposer();
+      await compose(user);
+
+      await user.click(androidCheckbox());
+      await user.click(submitButton());
+      const confirmation = await screen.findByRole('dialog', { name: /send this to everyone/i });
+      expect(confirmation).toHaveTextContent(/android app/i);
+      await user.click(within(confirmation).getByRole('button', { name: /send broadcast/i }));
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+      expect(onSubmit.mock.calls[0][0].channels).toEqual(['browser', 'email', 'android_app']);
+    });
+
+    it('is disabled, like Push, when the deployment has no push channel', () => {
+      setConfig({ browserEnabled: true, pushEnabled: false, vapidPublicKey: null });
+      renderComposer();
+
+      expect(androidCheckbox()).toBeDisabled();
+      expect(androidCheckbox()).not.toBeChecked();
     });
   });
 

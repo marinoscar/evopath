@@ -37,7 +37,7 @@ import {
 } from './fixtures/telemetry';
 import { mockHealthProfileEmpty } from './fixtures/health';
 import { mockHealthDocumentList } from './fixtures/healthDocuments';
-import { mockAndroidAppConfig } from './fixtures/healthSync';
+import { mockAndroidAppConfig, mockAndroidTestNotificationSent } from './fixtures/healthSync';
 import { mockLatestEmpty, mockMeasurement, mockMetricCatalog } from './fixtures/measurements';
 import { mockDocumentDownload } from './fixtures/biomarkers';
 import { mockTodayCheckInEmpty } from './fixtures/checkIns';
@@ -165,6 +165,11 @@ export const handlers = [
 
   http.get(`${API_BASE}/admin/android-app/releases`, () => {
     return HttpResponse.json({ data: [] });
+  }),
+
+  // Android app test notification (#312): one subscription, delivered.
+  http.post(`${API_BASE}/admin/android-app/test-notification`, () => {
+    return HttpResponse.json({ data: mockAndroidTestNotificationSent });
   }),
 
   // Sleep (#283 scope update): no nights recorded.

@@ -143,6 +143,8 @@ export default function BroadcastsPage() {
   // The audience count. `null` until `GET /audience` resolves — see the
   // composer, which prints "all active users" rather than a zero for that case.
   const [audience, setAudience] = useState<number | null>(null);
+  // #312: Android app push subscriptions, from the same read. `null` = unknown.
+  const [androidAppSubscriptions, setAndroidAppSubscriptions] = useState<number | null>(null);
 
   const [detail, setDetail] = useState<BroadcastDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -192,14 +194,22 @@ export default function BroadcastsPage() {
     let canceled = false;
     void getBroadcastAudience()
       .then((result) => {
-        if (!canceled) setAudience(result.activeUsers);
+        if (!canceled) {
+          setAudience(result.activeUsers);
+          setAndroidAppSubscriptions(
+            typeof result.androidAppSubscriptions === 'number' ? result.androidAppSubscriptions : null,
+          );
+        }
       })
       .catch(() => {
         // Deliberately silent, and deliberately left as `null`. A failed count
         // must not block composing — the composer degrades to "all active
         // users", which is true — and an error banner about a number nobody
         // asked for would be noise over a form.
-        if (!canceled) setAudience(null);
+        if (!canceled) {
+          setAudience(null);
+          setAndroidAppSubscriptions(null);
+        }
       });
     return () => {
       canceled = true;
@@ -470,6 +480,7 @@ export default function BroadcastsPage() {
           open={composerOpen}
           onClose={() => setComposerOpen(false)}
           audience={audience}
+          androidAppSubscriptions={androidAppSubscriptions}
           isWorking={actions.isWorking}
           onSubmit={async (body) => {
             const result = await actions.create(body);

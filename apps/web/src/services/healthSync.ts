@@ -191,11 +191,39 @@ export interface ReportedApp extends TrustedApp {
   lastSeenAt: string | null;
 }
 
+/** Web Push subscriptions by platform (#312), as `GET /api/admin/android-app` counts them. */
+export interface AndroidPushSubscriptionCounts {
+  androidApp: number;
+  browser: number;
+  /** Distinct users with at least one `android_app` subscription. */
+  androidAppUsers: number;
+}
+
 export interface AndroidAppConfig {
   trustedApps: TrustedApp[];
   reportedApps: ReportedApp[];
   /** The Digital Asset Links statements `/.well-known/assetlinks.json` serves. */
   assetLinks: unknown;
+  /** Absent from an API older than #312. */
+  pushSubscriptions?: AndroidPushSubscriptionCounts;
+}
+
+/** One subscription's outcome in a test send (#312). `gone` was pruned (HTTP 404/410). */
+export interface AndroidTestNotificationResult {
+  subscriptionId: string;
+  endpointHost: string;
+  status: 'sent' | 'failed' | 'gone';
+  error?: string;
+}
+
+export type AndroidTestNotificationReason = 'NO_ANDROID_SUBSCRIPTION' | 'PUSH_NOT_CONFIGURED';
+
+/** `POST /api/admin/android-app/test-notification` response (#312). */
+export interface AndroidTestNotificationResponse {
+  userId: string;
+  androidSubscriptions: number;
+  results: AndroidTestNotificationResult[];
+  reason?: AndroidTestNotificationReason;
 }
 
 /**
@@ -294,6 +322,17 @@ export function getAndroidAppConfig() {
 /** `PUT /api/admin/android-app` — replaces the trusted apps list. */
 export function putAndroidAppConfig(trustedApps: TrustedApp[]) {
   return api.put<AndroidAppConfig>('/admin/android-app', { trustedApps });
+}
+
+/**
+ * `POST /api/admin/android-app/test-notification` (#312): a Web Push to the
+ * `android_app` subscriptions of `userId`, or of the caller when omitted.
+ */
+export function sendAndroidTestNotification(userId?: string) {
+  return api.post<AndroidTestNotificationResponse>(
+    '/admin/android-app/test-notification',
+    userId ? { userId } : {},
+  );
 }
 
 const releasePath = (id: string) => `/admin/android-app/releases/${encodeURIComponent(id)}`;

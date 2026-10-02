@@ -611,6 +611,16 @@ describe('BroadcastsPage', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it('passes the Android app subscription estimate from the audience read to the composer (#312)', async () => {
+    mockGetAudience.mockResolvedValue({ activeUsers: 1284, androidAppSubscriptions: 3 });
+    const user = userEvent.setup();
+    renderPage(READ_WRITE);
+
+    await user.click(await screen.findByRole('button', { name: /new broadcast/i }));
+
+    expect(await screen.findByText(/\(3 subscriptions\)/)).toBeInTheDocument();
+  });
+
   // =========================================================================
   // Polling
   // =========================================================================

@@ -17,6 +17,9 @@
  *
  * Issue #287 adds the Releases section (`AndroidReleasesSection`): the APKs
  * this server hosts, under the same route and the same write gate.
+ *
+ * Issue #312 adds the Notifications section (`AndroidNotificationsSection`):
+ * Android app push subscription counts and a test send, same write gate.
  */
 import { useCallback, useState, type FormEvent } from 'react';
 import {
@@ -46,6 +49,7 @@ import {
 } from '../../services/healthSync';
 import { formatRelativeTime } from '../../utils/relativeTime';
 import { AndroidReleasesSection } from '../../components/admin/androidApp/AndroidReleasesSection';
+import { AndroidNotificationsSection } from '../../components/admin/androidApp/AndroidNotificationsSection';
 
 /** Mirrors the `Android app` card in `config/adminSections.tsx`, word for word. */
 export const ANDROID_APP_TITLE = 'Android app';
@@ -233,6 +237,9 @@ export default function AndroidAppPage() {
         {/* #287: the APKs this server hosts. Upload and make-current can
             trust the signer server-side, so they re-read the config. */}
         <AndroidReleasesSection canWrite={canWrite} config={config} onTrustMayHaveChanged={onTrustMayHaveChanged} />
+
+        {/* #312: Android app push subscriptions and a test send. */}
+        <AndroidNotificationsSection canWrite={canWrite} config={config} />
 
         <Paper variant="outlined" sx={{ p: 2 }} component="section" aria-labelledby="assetlinks-title">
           <Typography variant="h6" component="h2" id="assetlinks-title" gutterBottom>
