@@ -37,6 +37,7 @@ enum class CheckAction(val label: String) {
     OPEN_CONNECTED_DEVICES("Open Connected devices"),
     OPEN_ANDROID_APP_ADMIN("Open Admin → Android app"),
     GET_UPDATE("Get the update"),
+    OPEN_SYNC_SETTINGS("Open Sync settings"),
 }
 
 /**

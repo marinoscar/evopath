@@ -179,8 +179,8 @@ Connected devices page…). Verdicts are pure functions in `diagnostics/Checks.k
 | `hc.connection` | Health Connect connection | live `getGrantedPermissions` within 10 s (exception class and message on failure) |
 | `hc.permissions` | Health Connect permissions | every permission of the enabled types; lists the missing ones |
 | `hc.background` | Background access | feature available and granted (else the hourly sync cannot read while closed) |
-| `hc.sources` | Apps feeding Health Connect | union of source apps over every readable type, last 30 days; warn when none |
-| `hc.data.<type>` | `<Type> in Health Connect` | per synced type: fail when denied, warn when granted but no record in 30 days (names the likely source app's setting), pass with count (`1000+` when capped), latest record and sources |
+| `hc.sources` | Apps feeding Health Connect | union of source apps over every readable type, last 30 days; warn when none (the remedy names the installed known source apps) |
+| `hc.data.<type>` | `<Type> in Health Connect` | per synced type: fail when denied, warn when granted but no record in 30 days, pass with count (`1000+` when capped), latest record and sources; `data.remedyApps` (see below) |
 | `battery.optimization` | Battery optimization | `isIgnoringBatteryOptimizations` |
 | `notifications.permission` | Notifications | POST_NOTIFICATIONS (Android 13+) and notifications enabled |
 | `work.scheduled` | Hourly sync scheduled | the unique periodic work's state and next run |
@@ -188,6 +188,18 @@ Connected devices page…). Verdicts are pure functions in `diagnostics/Checks.k
 | `sync.delivery` | Data delivery | last run: per type read vs sent (drops), per table sent vs accepted (`created + updated + unchanged`); flags `skipped` |
 | `timezone.match` | Time zone | phone zone vs the Health Profile zone (`userTimezone`) |
 | `twa.verification` | Full-screen web app (Digital Asset Links) | `<server>/.well-known/assetlinks.json` lists this package and signing SHA-256 |
+
+**Source-aware remedies.** Health Connect offers no API to ask which apps may write a type, so
+`diagnostics/RemedyApps.select` (pure) derives the candidates for each type: apps that wrote it
+(the inventory's data origins), then apps already feeding Health Connect other types whose entry
+in the capability table `healthconnect/KnownSourceApps.kt` includes it, then other installed
+capable apps (installed = visible to the PackageManager through the manifest `<queries>`). The
+no-records remedy names up to three ("Open Oura and allow Heart rate variability to be shared to
+Health Connect: Health Connect → App permissions → Oura → Allowed to write → Heart rate
+variability. Then Sync now."); with none it says no app on the phone writes the type and its
+action opens the Sync screen to switch it off. Every `hc.data.<type>` check reports them as
+`data.remedyApps: [{ packageName, appLabel, reason: wrote_data | installed_capable }]`. The table
+is best-effort; extend it with a row and a matching `<queries>` entry.
 
 **Report** (`DiagnosticReport`, uploaded with `POST /api/health-sync/devices/:id/diagnostics`,
 or shared/copied as JSON): `{ generatedAt, summary, app { versionName, versionCode, packageName, signingSha256,
@@ -224,7 +236,8 @@ app/src/main/java/com/enterpriseapp/android/
                              HealthSyncWorker + WorkManagerSyncScheduler, notifications
   diagnostics/               AppLog (rolling redacted log), Checks (verdicts), SelfTest (runner),
                              DiagnosticReport, AutoDiagnostics (upload after failed runs)
-  healthsync/                Health sync hub, Connect, Sync and Diagnostics screens (Compose)
+  healthsync/                Health sync hub, Connect, Sync and Diagnostics screens (Compose);
+                             each sub-screen's app-bar arrow and system back return to the hub
   update/                    UpdateChecker (12 h, paired only), UpdatePolicy, release API, AppUpdates (download)
   ui/                        theme and shared Compose components
 ```

@@ -114,6 +114,7 @@ internal fun DiagnosticsScreen(
             CheckAction.SYNC_NOW -> vm.syncNow()
             CheckAction.OPEN_CONNECTED_DEVICES -> server?.let { openInCustomTab(context, "$it$CONNECTED_DEVICES_PATH") }
             CheckAction.OPEN_ANDROID_APP_ADMIN -> server?.let { openInCustomTab(context, "$it$ANDROID_ADMIN_PATH") }
+            CheckAction.OPEN_SYNC_SETTINGS -> onNavigate(HealthSyncScreen.Sync)
             CheckAction.GET_UPDATE -> {
                 AppUpdates.checkNow(context)
                 onNavigate(HealthSyncScreen.Hub)
