@@ -225,7 +225,7 @@ A lab report the user receives as a PDF (a patient portal) or on paper (photogra
 
 **Multi-date reports.** A report is either one date or a trend table (analytes as rows, collection dates as columns). The prompt has the model identify the layout and emit one result per analyte and date cell, each with that cell's `collectionDate`; empty cells are skipped.
 
-**Non-results and wrapped units (prompt version 3, `LAB_REPORT_PROMPT_VERSION`).** A cell that prints no result ("NOT APPLICABLE", "SEE NOTE", "TNP", "Cancelled", "Pending", "N/A", `--`) is never emitted, and a unit that wraps onto the next line of a cell ("mL/min/" over "1.73m2", "x10E3/" over "uL") is joined into one unit and never leaks into `referenceText`. The mapper backs the prompt: `isNonResult` drops any result with no number whose printed text says there is none, and `resultMeta.nonResultsDropped` counts them, so they never block apply with "no numeric value". A non-numeric result that is a result ("negative", "<0.5") is kept. `resultsTruncated` counts only the cap on results returned. Printed demographics (birth date, age) and order, print or report-generated dates are never a result date, and a date is never invented.
+**Non-results and wrapped units (prompt version 3, `LAB_REPORT_PROMPT_VERSION`).** A cell that prints no result ("NOT APPLICABLE", "SEE NOTE", "TNP", "Cancelled", "Pending", "N/A", `--`) is never emitted, and a unit that wraps onto the next line of a cell ("mL/min/" over "1.73m2", "x10E3/" over "uL") is joined into one unit and never leaks into `referenceText`. The mapper backs the prompt: `isNonResult` drops any result with no number whose printed text says there is none, and `resultMeta.nonResultsDropped` counts them, so they never block apply with "no numeric value". A non-result is empty text, or text that starts with a non-result phrase ("NOT APPLICABLE (CALC)", "N/A*"), or contains one as a whole token with nothing that reads like a result; this holds for matched and unmatched analytes alike. A genuine qualitative result ("negative", "<0.5", ">90", "trace") is kept. `resultsTruncated` counts only the cap on results returned. Printed demographics (birth date, age) and order, print or report-generated dates are never a result date, and a date is never invented.
 
 **Context** (`labReportContextSchema`, strict, optional): `collectionDate`, the **report date** (`YYYY-MM-DD`, a real date, not before 1900, not after tomorrow UTC), and `labName` (at most 120 characters). The report date is a fallback: it dates only the results without their own date. The job sets it to the model's report-level date when valid, else to the one date every dated result shares, else leaves it. The job overwrites a field only when it read one; a field it could not read keeps the intake's value.
 
@@ -260,7 +260,8 @@ On every user write, `normalizeValue` recomputes `match` from the printed name a
 **Apply** (inside the intake transaction; a throw rolls everything back):
 
 - Accepted items are grouped by **effective date**: the item's own `collectionDate`, else the report date, else none (the time of apply). One lab entry is written per group, each row `method: 'lab'`, with `referenceLow`, `referenceHigh`, `referenceText` and `flag`.
-- Other refusals, all at once as a 400 with `details.issues`: no numeric value, a unit or value the analyte does not allow, reversed limits, the same analyte accepted twice **within one date group**, more than 150 results (`MAX_LAB_READINGS_PER_ENTRY`) in one date group. The caps and the duplicate rule apply per date, and their messages name the date.
+- Other refusals, all at once as a 400 with `details.issues` (one entry per issue, its path naming the item and field): no numeric value, a unit or value the analyte does not allow, reversed limits, the same analyte accepted twice **within one date group**, more than 150 results (`MAX_LAB_READINGS_PER_ENTRY`) in one date group. The caps and the duplicate rule apply per date, and their messages name the date. A duplicate is reported on **every** occurrence, not only the second, and its message reads "<analyte> appears more than once on <date>; reject one of them or change its date". Messages name the analyte, the field and the rule, never a value.
+- The checks are one function, `labApplyIssues` (`lab-report-issues.ts`), shared by apply and the issues route below. See the issue codes there.
 - `measuredAt` of an entry is its date at noon UTC (never later than now); the undated group is the time of apply.
 - `measuredAtSource` is `collection_date` when every entry is dated, `apply_time` when none is and `mixed` otherwise.
 - Every health document of the intake gets `documentDate` = the newest dated group's date.
@@ -276,10 +277,29 @@ On every user write, `normalizeValue` recomputes `match` from the printed name a
 
 **Reject unmatched (`POST /api/measurements/lab-reports/:intakeId/reject-unmatched`).** No body; response `{ items }`, the results it rejected (empty when none). It rejects, in one transaction under the same lock, every non-rejected `result` item whose `analyteKey` is null. A suggested, matched or user-mapped result carries a key and is never touched. Only `status` changes, so the review's restore (`PATCH /api/intakes/:id/items/:itemId` with `{ status: 'pending' }`) works on it. Same guards, 404 and 409 as the map route (`lab-report-reject-unmatched.service.ts`).
 
+**Issues (`GET /api/measurements/lab-reports/:intakeId/issues`).** Answers `{ items: [{ itemId, issues: [{ code, field, message }] }] }`: every non-rejected result (pending or accepted) with at least one issue, in review order, checked as if all were accepted. Apply and the route share `labApplyIssues`, so the route lists what apply would refuse before the user presses Save. Guarded by `health_data:read` and `intakes:read`; another user's intake, or one of another kind, is 404.
+
+| Code | Meaning | `field` |
+|---|---|---|
+| `INVALID_RESULT` | The stored value is not a lab result | null |
+| `UNMATCHED` | No catalog analyte | `analyteKey` |
+| `UNIT_NOT_ALLOWED` | A unit the analyte does not allow | `unit` |
+| `NO_VALUE` | No numeric value | `value` |
+| `OUT_OF_RANGE` | Outside the analyte's hard bounds | `value` |
+| `REFERENCE_ORDER` | `referenceLow` above `referenceHigh` | `referenceLow` |
+| `DUPLICATE_ON_DATE` | The same analyte more than once on one effective date; reported on every such result | `analyteKey` |
+| `DATE_CAP` | More than 150 results on one effective date; listed on each of them | null |
+
+Apply maps the issues to its two refusals: any `UNMATCHED` is the 409 `UNRESOLVED_ANALYTES`; otherwise any other issue is the 400 with `details.issues`. An unmatched result takes no part in the per-date checks.
+
 **Review UI** (`apps/web/src/components/health/LabReportReview.tsx`, `LabReportDialog.tsx`). Results are grouped by effective date, newest first, each group headed by its date and result count; the undated group comes last and says it is saved with today's date. Two bulk buttons sit above the list: "Accept all" (with a confirmation while low-confidence results are pending) and "Accept high confidence" (`POST /api/intakes/:id/items/accept-all` with `{ "only": "high_confidence" }`: pending, confidence `high`, not `uncertain`; disabled at zero). Each row shows its date and the item editor has a date field that sets or clears it. The header field is the **Report date**, used for results without their own date; the optional laboratory name stays beside it. After apply the message counts the entries ("Saved 85 results on 5 dates").
 
 - **Mapping.** An unmatched row carries a "Map to an analyte" picker. Picking an analyte calls the map route, so every same-named result is mapped, and the review says "Mapped N results named “…” to <analyte>" (plus a count of the ones that could not be mapped). An edit that changes a row's analyte or unit saves the row with the item `PATCH`, then calls the map route with the change when same-named results exist, and says "Updated N other results named “…”".
 - **Reject unmatched.** A "Reject unmatched (n)" button sits in the top toolbar beside the two accept buttons, and the "not in the lab catalog" save hint offers the same action. Both ask "Reject N results that are not in the lab catalog?" first. A rejected row can still be restored.
+- **Needs attention.** A row with an issue from the issues route carries a "Needs attention" badge. Its reasons appear on tap or click, plus a hover tooltip on pointer devices.
+- **Filter bar.** A sticky bar above the list has a search box (matches the printed name, the analyte label, its aliases and the panel) and single-select chips: Needs attention, Unmatched, Already saved, Pending. It shows "Showing X of Y" and a "Clear filters" action, and an empty state when nothing matches. The bulk actions are unaffected by the filters: they act on the whole report.
+- **Not saved yet.** The "Not saved yet" panel (the refusal from a Save attempt) links each reason to its row and has "Show rows that need attention", which applies the Needs attention filter.
+- **Save hint.** The save hint has a show-rows button that does the same.
 - **Already-saved results.** A row that repeats a saved result carries an "Already saved" badge (with the saved date) and two choices: **Skip** rejects the draft (persisted, so nothing is written) and **Save again** keeps it (a choice held for the review session). A compact bar replaces the list of duplicates ("N results are already saved") with **Skip all** and **Save all N again**. Save is blocked, with the hint "Decide on N already-saved results", until each duplicate has a decision; there is no "Save anyway". A decision can be changed before saving, and a skipped row can be restored. The route has no bulk reject, so Skip all rejects each row with one item `PATCH`.
 
 **Provenance** (`measurements.source_ref`, `lab-report-source-ref.ts`):
@@ -546,7 +566,7 @@ The view (`HealthSummaryView`, wrapped in `{ data }`):
 - **Job types.** `health.document.purge`, `ai.health.lab_report`, `ai.health.summary`, `health.export` and `health.export.purge`, permanent, server-only; listed in [ARCHITECTURE.md](../ARCHITECTURE.md) and [job-queue.md](job-queue.md).
 - **AI features.** `lab_report`, assigned a model by the administrator at `/admin/settings/ai` like the other photo features; `health_summary`, grouped with the training agents.
 - **Per-user setting.** "Use my health data in training plans" (`health_summary_settings`), off by default; no system setting.
-- **Lab report routes.** `GET /api/measurements/lab-reports/:intakeId/duplicates` requires `health_data:read` and `intakes:read`; `POST .../map` and `POST .../reject-unmatched` require `health_data:write` and `intakes:write`.
+- **Lab report routes.** `GET /api/measurements/lab-reports/:intakeId/duplicates` and `GET .../issues` require `health_data:read` and `intakes:read`; `POST .../map` and `POST .../reject-unmatched` require `health_data:write` and `intakes:write`.
 - **Audit actions.** `health:document:delete`, `health:export:create`, `health_summary:consent`.
 - **Metrics.** `app.health.documents.purges`, `app.health.documents.downloads`, `app.health.documents.deletes`, `app.health.exports`, `app.health.export.duration`, `app.health.export.size`; `app.health.summary.*` (2.14).
 - **Download link lifetime.** A constant, `HEALTH_DOCUMENT_DOWNLOAD_TTL_SECONDS` (300).
@@ -569,6 +589,7 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 | `POST /api/intakes` with `kind: 'lab_report'` | A lab report intake (2.10); apply may answer 409 `UNRESOLVED_ANALYTES` and writes one entry per collection date |
 | `POST /api/intakes/:id/items/accept-all` | Optional body `{ "only": "high_confidence" }` accepts only confident, certain pending items (any intake kind) |
 | `GET /api/measurements/lab-reports/:intakeId/duplicates` | The duplicate warning for a lab report under review |
+| `GET /api/measurements/lab-reports/:intakeId/issues` | `{ items: [{ itemId, issues: [{ code, field, message }] }] }`: what apply would refuse, per non-rejected result (2.10) |
 | `POST /api/measurements/lab-reports/:intakeId/map` | `{ itemId, analyteKey?, unit? }` → `{ items, skipped }`: maps or re-reads a result and its same-named results (2.10) |
 | `POST /api/measurements/lab-reports/:intakeId/reject-unmatched` | → `{ items }`: rejects every result with no analyte; restore through the item `PATCH` (2.10) |
 | `GET /api/health/documents`, `GET /api/health/documents/:id` | The caller's documents, with value counts and file state (2.11) |
@@ -739,3 +760,4 @@ In a running app, with AI on:
 - #309: the expanded lab catalog (92 analytes: CBC indices, differential percentage and absolute, metabolic, kidney, lipid, glycemic, thyroid and hormone extras, `lipoprotein_a` in nmol/L), the differential naming rule and the per-date cap raised to 150.
 - #310: the unit normaliser and per-analyte `unitAliases`, lab report prompt version 3 (wrapped units joined, non-result cells never emitted) and the mapper's `nonResultsDropped`.
 - #311: `POST /api/measurements/lab-reports/:intakeId/reject-unmatched` and the review's "Reject unmatched (n)" action.
+- #317: `GET /api/measurements/lab-reports/:intakeId/issues` and the shared `labApplyIssues`, the wider mapper non-result rule, and the review's Needs attention badges, filter bar and attention links.

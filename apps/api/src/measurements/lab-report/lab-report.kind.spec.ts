@@ -261,7 +261,12 @@ describe('LabReportIntakeKind (H4, #188)', () => {
 
       expect(error).toBeInstanceOf(BadRequestException);
       const issues = error.getResponse().details.issues;
-      expect(issues.map((i: any) => i.path)).toEqual([`items.${noNumber.id}.value.value`, `items.${twice.id}.value.analyteKey`]);
+      // The repeated analyte is reported on each of its results (#317).
+      expect(issues.map((i: any) => i.path)).toEqual([
+        `items.${noNumber.id}.value.value`,
+        `items.${noNumber.id}.value.analyteKey`,
+        `items.${twice.id}.value.analyteKey`,
+      ]);
       expect(JSON.stringify(issues)).not.toContain('97.2973');
 
       const many = Array.from({ length: 151 }, () => item(glucose()));
@@ -338,20 +343,21 @@ describe('LabReportIntakeKind (H4, #188)', () => {
           entryIds: [expect.any(String), expect.any(String)],
         });
 
+        const first = item(albumin('2025-11-19'));
         const twice = item(albumin('2025-11-19', 4.5));
-        const error = await apply([item(albumin('2025-11-19')), twice, item(albumin('2024-05-02'))]).catch((e) => e);
+        const error = await apply([first, twice, item(albumin('2024-05-02'))]).catch((e) => e);
         expect(error).toBeInstanceOf(BadRequestException);
-        expect(error.getResponse().details.issues).toEqual([
-          {
-            path: `items.${twice.id}.value.analyteKey`,
-            message: 'Albumin is accepted more than once on 2025-11-19; reject one of them or change its date',
-          },
-        ]);
+        expect(error.getResponse().details.issues).toEqual(
+          [first, twice].map(({ id }) => ({
+            path: `items.${id}.value.analyteKey`,
+            message: 'Albumin appears more than once on 2025-11-19; reject one of them or change its date',
+          })),
+        );
 
         // An item without its own date joins the report-date group.
         const sameAsReport = item(glucose({ collectionDate: '2026-09-15' }));
         const clash = await apply([item(glucose()), sameAsReport]).catch((e) => e);
-        expect(clash.getResponse().details.issues[0]).toMatchObject({ path: `items.${sameAsReport.id}.value.analyteKey` });
+        expect(clash.getResponse().details.issues[1]).toMatchObject({ path: `items.${sameAsReport.id}.value.analyteKey` });
         expect(created()).toHaveLength(2); // only the first, valid apply wrote
       });
 
@@ -372,7 +378,7 @@ describe('LabReportIntakeKind (H4, #188)', () => {
         const error = await apply(crowded).catch((e) => e);
         const messages = error.getResponse().details.issues.map((i: any) => i.message);
         expect(messages).toContain(
-          'One collection date saves at most 150 results; 151 are accepted on 2025-11-19, reject 1 of them',
+          'One collection date saves at most 150 results; 151 are listed on 2025-11-19, reject 1 of them',
         );
       });
     });

@@ -6,6 +6,7 @@ import { JobsModule } from '../jobs/jobs.module';
 import { BiomarkersController } from './biomarkers/biomarkers.controller';
 import { BiomarkersService } from './biomarkers/biomarkers.service';
 import { LabReportDuplicatesService } from './lab-report/lab-report-duplicates.service';
+import { LabReportIssuesService } from './lab-report/lab-report-issues.service';
 import { LabReportMapService } from './lab-report/lab-report-map.service';
 import { LabReportRejectUnmatchedService } from './lab-report/lab-report-reject-unmatched.service';
 import { LabReportController } from './lab-report/lab-report.controller';
@@ -46,6 +47,7 @@ import { BodyMetricReadingIntakeKind } from './photo/body-metric-reading.kind';
     LabReportIntakeKind,
     LabReportHandler,
     LabReportDuplicatesService,
+    LabReportIssuesService,
     LabReportMapService,
     LabReportRejectUnmatchedService,
     BiomarkersService,

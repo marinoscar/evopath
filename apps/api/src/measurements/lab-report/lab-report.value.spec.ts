@@ -135,10 +135,12 @@ describe('lab_report value (H4, #188)', () => {
       expect(labResultProblems(value({ unit: 'furlongs' }), { requireValue: true }).map((p) => p.field)).toEqual(['unit']);
       expect(labResultProblems(value({ value: null }), { requireValue: true }).map((p) => p.field)).toEqual(['value']);
       expect(labResultProblems(value({ value: null }), { requireValue: false })).toEqual([]);
-      expect(labResultProblems(value({ value: 99999 }), { requireValue: true })[0]).toMatchObject({ field: 'value' });
+      expect(labResultProblems(value({ value: 99999 }), { requireValue: true })[0]).toMatchObject({ code: 'OUT_OF_RANGE', field: 'value' });
+      expect(labResultProblems(value({ unit: 'furlongs' }), { requireValue: true })[0].code).toBe('UNIT_NOT_ALLOWED');
+      expect(labResultProblems(value({ value: null }), { requireValue: true })[0].code).toBe('NO_VALUE');
       expect(labResultProblems(value({ value: 99999 }), { requireValue: true })[0].message).not.toContain('99999');
       expect(labResultProblems(value({ referenceLow: 100, referenceHigh: 70 }), { requireValue: true })).toEqual([
-        { field: 'referenceLow', message: 'referenceLow must not be higher than referenceHigh' },
+        { code: 'REFERENCE_ORDER', field: 'referenceLow', message: 'referenceLow must not be higher than referenceHigh' },
       ]);
       expect(labResultProblems(value({ analyteKey: null }), { requireValue: true })).toEqual([]);
     });

@@ -7,9 +7,11 @@ import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { ErrorDto } from '../../common/dto/error.dto';
 import { LabReportDuplicatesDto } from './dto/lab-report-duplicates.dto';
+import { LabReportIssuesView } from './dto/lab-report-issues.dto';
 import { LabResultMapView, MapLabResultDto } from './dto/lab-report-map.dto';
 import { LabReportRejectUnmatchedView } from './dto/lab-report-reject-unmatched.dto';
 import { LabReportDuplicatesService } from './lab-report-duplicates.service';
+import { LabReportIssuesService } from './lab-report-issues.service';
 import { LabReportMapService } from './lab-report-map.service';
 import { LabReportRejectUnmatchedService } from './lab-report-reject-unmatched.service';
 
@@ -23,6 +25,10 @@ import { LabReportRejectUnmatchedService } from './lab-report-reject-unmatched.s
 //   - the duplicate warning the review shows before apply. It reads an intake
 //     (`intakes:read`) and the caller's lab results (`health_data:read`), so
 //     it requires both;
+//   - the "Needs attention" check (#317): what apply would refuse for each
+//     result not rejected, from the same function apply runs
+//     (`LabReportIssuesService`, `labApplyIssues`). A read, so the same
+//     permissions as the duplicate warning;
 //   - "map once" (#307): correcting one result's analyte or unit corrects
 //     every same-named result of the report (`LabReportMapService`). It edits draft
 //     items as `PATCH /api/intakes/:id/items/:itemId` does, so it requires
@@ -39,6 +45,7 @@ import { LabReportRejectUnmatchedService } from './lab-report-reject-unmatched.s
 export class LabReportController {
   constructor(
     private readonly duplicates: LabReportDuplicatesService,
+    private readonly issues: LabReportIssuesService,
     private readonly mapping: LabReportMapService,
     private readonly rejecting: LabReportRejectUnmatchedService,
   ) {}
@@ -62,6 +69,28 @@ export class LabReportController {
   @ApiResponse({ status: 404, description: 'No lab_report intake with this id for the caller' })
   findDuplicates(@CurrentUser('id') userId: string, @Param('intakeId', ParseUUIDPipe) intakeId: string) {
     return this.duplicates.find(userId, intakeId);
+  }
+
+  @Get(':intakeId/issues')
+  @Auth({ permissions: [PERMISSIONS.HEALTH_DATA_READ, PERMISSIONS.INTAKES_READ] })
+  @ApiOperation({
+    summary: 'List what apply would refuse for each lab result under review',
+    description:
+      'For a `lab_report` intake under review: every result that is not rejected (pending or accepted) is checked ' +
+      'as if all of them were accepted, by the same check `POST /api/intakes/:id/apply` runs on the accepted ones. ' +
+      'Returns only the results with at least one issue, in review order, each with `{ code, field, message }`. ' +
+      'Codes: `UNMATCHED`, `UNIT_NOT_ALLOWED`, `NO_VALUE`, `OUT_OF_RANGE`, `REFERENCE_ORDER`, `DUPLICATE_ON_DATE` ' +
+      '(listed on each result of the repeated analyte), `DATE_CAP` (listed on each result of the over-full date), ' +
+      '`INVALID_RESULT`. Messages never carry a value. Read-only.',
+  })
+  @ApiParam({ name: 'intakeId', type: String, format: 'uuid' })
+  @ApiDataResponse(LabReportIssuesView, { description: 'The results apply would refuse (possibly none)' })
+  @ApiResponse({ status: 400, description: 'Validation error: intakeId is not a UUID', type: ErrorDto })
+  @ApiResponse({ status: 401, description: 'Not authenticated', type: ErrorDto })
+  @ApiResponse({ status: 403, description: 'Missing health_data:read or intakes:read', type: ErrorDto })
+  @ApiResponse({ status: 404, description: 'No lab_report intake with this id for the caller', type: ErrorDto })
+  findIssues(@CurrentUser('id') userId: string, @Param('intakeId', ParseUUIDPipe) intakeId: string) {
+    return this.issues.find(userId, intakeId);
   }
 
   @Post(':intakeId/map')
