@@ -59,8 +59,54 @@ export const androidAppResponseSchema = z.object({
   reportedApps: z.array(reportedAppSchema),
   /** Exactly the body `GET /.well-known/assetlinks.json` serves. */
   assetLinks: z.array(assetLinkStatementSchema),
+  /**
+   * Web Push subscriptions by platform (#312): how many were registered from
+   * inside the Android app, how many from browsers, and how many distinct
+   * users have at least one Android app subscription.
+   */
+  pushSubscriptions: z.object({
+    androidApp: z.number().int(),
+    browser: z.number().int(),
+    androidAppUsers: z.number().int(),
+  }),
 });
 
 export class AndroidAppResponseDto extends createZodDto(androidAppResponseSchema) {}
 export type AndroidAppResponse = z.infer<typeof androidAppResponseSchema>;
 export type ReportedAndroidApp = z.infer<typeof reportedAppSchema>;
+export type PushSubscriptionCounts = AndroidAppResponse['pushSubscriptions'];
+
+// -----------------------------------------------------------------------------
+// `POST /api/admin/android-app/test-notification` (issue #312)
+// -----------------------------------------------------------------------------
+
+export const androidAppTestNotificationSchema = z.object({
+  /** Whose Android app subscriptions to push to. Absent means the caller. */
+  userId: z.uuid().optional().describe('Target user; defaults to the caller.'),
+});
+
+export class AndroidAppTestNotificationDto extends createZodDto(androidAppTestNotificationSchema) {}
+
+export const androidAppTestNotificationResponseSchema = z.object({
+  /** The user the test went to. */
+  userId: z.uuid(),
+  /** How many Android app subscriptions that user has (before any pruning). */
+  androidSubscriptions: z.number().int(),
+  /** One row per Android app subscription a send was attempted to. */
+  results: z.array(
+    z.object({
+      subscriptionId: z.uuid(),
+      /** The push service host, e.g. `fcm.googleapis.com`. Never the full endpoint. */
+      endpointHost: z.string(),
+      /** `gone`: the push service answered 404/410 and the subscription was removed. */
+      status: z.enum(['sent', 'failed', 'gone']),
+      error: z.string().optional(),
+    }),
+  ),
+  /** Present when nothing was sent, and why. */
+  reason: z.enum(['NO_ANDROID_SUBSCRIPTION', 'PUSH_NOT_CONFIGURED']).optional(),
+});
+
+export class AndroidAppTestNotificationResponseDto extends createZodDto(
+  androidAppTestNotificationResponseSchema,
+) {}
