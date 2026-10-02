@@ -33,6 +33,8 @@ enum class CheckAction(val label: String) {
     UPDATE_HEALTH_CONNECT("Install or update Health Connect"),
     BATTERY_SETTINGS("Battery settings"),
     NOTIFICATION_SETTINGS("Notification settings"),
+    ALLOW_NOTIFICATIONS("Allow notifications"),
+    CHANNEL_SETTINGS("Open channel settings"),
     SYNC_NOW("Sync now"),
     OPEN_CONNECTED_DEVICES("Open Connected devices"),
     OPEN_ANDROID_APP_ADMIN("Open Admin → Android app"),

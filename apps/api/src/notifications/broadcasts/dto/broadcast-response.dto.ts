@@ -127,7 +127,7 @@ export class BroadcastDto extends createZodDto(broadcastSchema) {}
  * type for the whole argument; this shape is just `(channel, status) -> count`.
  */
 export const broadcastDeliveryCountSchema = z.object({
-  /** `email`, `browser` or `push`. A string, because the column is one. */
+  /** `email`, `browser`, `push` or `android_app`. A string, because the column is one. */
   channel: z.string(),
   /** `queued`, `sent` or `failed`. */
   status: z.string(),
@@ -205,6 +205,12 @@ export const broadcastAudienceSchema = z.object({
    * scheduled broadcast's actual audience is whoever exists then.
    */
   activeUsers: z.number().int(),
+  /**
+   * Android app push subscriptions held by that same audience (#312): how
+   * many devices the `android_app` channel would reach. Optional in the
+   * schema so an older client and an older server stay compatible.
+   */
+  androidAppSubscriptions: z.number().int().optional(),
 });
 
 export class BroadcastAudienceDto extends createZodDto(broadcastAudienceSchema) {}

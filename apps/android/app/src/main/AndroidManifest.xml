@@ -159,6 +159,17 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Android 13+: asks for POST_NOTIFICATIONS when the PWA requests notification permission inside the
+             TWA. androidbrowserhelper's DelegationService (NotificationDelegationExtraCommandHandler, registered
+             by its constructor) hands the browser a PendingIntent to this activity; without this entry the
+             request fails and delegated Web Push stays blocked. It draws nothing (translucent) and is started
+             only through that app-owned PendingIntent, so it is not exported. -->
+        <activity
+            android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.App.Invisible" />
+
         <!-- Lets the PWA's notifications and other trusted features be delegated to this app. -->
         <service
             android:name="com.google.androidbrowserhelper.trusted.DelegationService"

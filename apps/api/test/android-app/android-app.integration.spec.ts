@@ -13,6 +13,7 @@
 // =============================================================================
 
 import request from 'supertest';
+import { WebPushError } from 'web-push';
 
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
 import { AndroidAppController } from '../../src/android-app/android-app.controller';
@@ -21,6 +22,7 @@ import {
   ANDROID_APP_TRUSTED_APPS_UPDATED_ACTION,
 } from '../../src/android-app/android-app.schema';
 import { MaintenanceModeService } from '../../src/common/maintenance/maintenance-mode.service';
+import { PushConfigService } from '../../src/notifications/push-config.service';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {
   authHeader,
@@ -31,7 +33,16 @@ import {
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 
+// `sendNotification` mocked, the real `WebPushError` kept for the prune path.
+jest.mock('web-push', () => {
+  const actual = jest.requireActual('web-push');
+  return { ...actual, sendNotification: jest.fn() };
+});
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const webpush = jest.requireMock('web-push') as { sendNotification: jest.Mock };
+
 const ADMIN_ROUTE = '/api/admin/android-app';
+const TEST_ROUTE = '/api/admin/android-app/test-notification';
 const ASSET_LINKS_ROUTE = '/api/well-known/assetlinks.json';
 
 const SHA_A = Array.from({ length: 32 }, () => 'AB').join(':');
@@ -69,6 +80,7 @@ describe('Android app trust API (Integration)', () => {
       },
     );
     prisma.healthSyncDevice.groupBy.mockResolvedValue([]);
+    prisma.pushSubscription.groupBy.mockResolvedValue([] as never);
   });
 
   const server = () => context.app.getHttpServer();
@@ -107,7 +119,12 @@ describe('Android app trust API (Integration)', () => {
     it('returns an empty state in the { data } envelope when nothing is stored or reported', async () => {
       const { body } = await request(server()).get(ADMIN_ROUTE).set(await adminAuth()).expect(200);
 
-      expect(body.data).toEqual({ trustedApps: [], reportedApps: [], assetLinks: [] });
+      expect(body.data).toEqual({
+        trustedApps: [],
+        reportedApps: [],
+        assetLinks: [],
+        pushSubscriptions: { androidApp: 0, browser: 0, androidAppUsers: 0 },
+      });
     });
 
     it('lists reported apps from active devices, flagged against the trusted list', async () => {
@@ -244,6 +261,136 @@ describe('Android app trust API (Integration)', () => {
       } finally {
         maintenance.setInMemoryOverride(null);
       }
+    });
+  });
+
+  // ===========================================================================
+  // POST /api/admin/android-app/test-notification (#312)
+  // ===========================================================================
+
+  describe('POST /api/admin/android-app/test-notification', () => {
+    const ACTIVE = { publicKey: 'pub', privateKey: 'priv', subject: 'mailto:ops@example.org' };
+
+    const androidSub = (id: string, endpoint: string, userId: string) => ({
+      id,
+      userId,
+      endpoint,
+      p256dh: 'p',
+      auth: 'a',
+      platform: 'android_app',
+      failureCount: 0,
+      lastSuccessAt: null,
+      expirationTime: null,
+      userAgent: null,
+      createdAt: new Date('2026-10-01T00:00:00Z'),
+      updatedAt: new Date('2026-10-01T00:00:00Z'),
+    });
+
+    beforeEach(() => {
+      webpush.sendNotification.mockReset();
+      context.prismaMock.pushSubscription.findMany.mockResolvedValue([]);
+      context.prismaMock.auditEvent.create.mockResolvedValue({} as never);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('declares system_settings:write', () => {
+      expect(Reflect.getMetadata(PERMISSIONS_KEY, AndroidAppController.prototype.testNotification)).toEqual([
+        'system_settings:write',
+      ]);
+    });
+
+    it('refuses unauthenticated callers, viewers and contributors', async () => {
+      await request(server()).post(TEST_ROUTE).send({}).expect(401);
+
+      for (const user of [await createMockViewerUser(context), await createMockContributorUser(context)]) {
+        await request(server()).post(TEST_ROUTE).set(authHeader(user.accessToken)).send({}).expect(403);
+      }
+
+      expect(webpush.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('rejects a userId that is not a uuid with 400', async () => {
+      await request(server()).post(TEST_ROUTE).set(await adminAuth()).send({ userId: 'nope' }).expect(400);
+    });
+
+    it('answers PUSH_NOT_CONFIGURED (200) when no VAPID key pair is active', async () => {
+      jest.spyOn(context.module.get(PushConfigService), 'resolveActiveVapidConfig').mockResolvedValue(null);
+      const admin = await createMockAdminUser(context);
+
+      const { body } = await request(server())
+        .post(TEST_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .send({})
+        .expect(200);
+
+      expect(body.data).toEqual({
+        userId: admin.id,
+        androidSubscriptions: 0,
+        results: [],
+        reason: 'PUSH_NOT_CONFIGURED',
+      });
+      expect(webpush.sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('answers NO_ANDROID_SUBSCRIPTION (200) for a caller with no Android app subscription, and audits it', async () => {
+      jest.spyOn(context.module.get(PushConfigService), 'resolveActiveVapidConfig').mockResolvedValue(ACTIVE);
+      const admin = await createMockAdminUser(context);
+
+      const { body } = await request(server())
+        .post(TEST_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .send({})
+        .expect(200);
+
+      expect(body.data).toEqual({
+        userId: admin.id,
+        androidSubscriptions: 0,
+        results: [],
+        reason: 'NO_ANDROID_SUBSCRIPTION',
+      });
+      expect(context.prismaMock.pushSubscription.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: admin.id, platform: 'android_app' } }),
+      );
+      expect(context.prismaMock.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ action: 'android_app.test_notification.sent', actorUserId: admin.id }),
+      });
+    });
+
+    it('reports sent and gone, pruning the gone subscription', async () => {
+      jest.spyOn(context.module.get(PushConfigService), 'resolveActiveVapidConfig').mockResolvedValue(ACTIVE);
+      const admin = await createMockAdminUser(context);
+      context.prismaMock.pushSubscription.findMany.mockResolvedValue([
+        androidSub('11111111-1111-4111-8111-111111111111', 'https://fcm.googleapis.com/fcm/send/a', admin.id),
+        androidSub('22222222-2222-4222-8222-222222222222', 'https://fcm.googleapis.com/fcm/send/b', admin.id),
+      ] as never);
+      context.prismaMock.pushSubscription.update.mockResolvedValue({} as never);
+      context.prismaMock.pushSubscription.delete.mockResolvedValue({} as never);
+      webpush.sendNotification
+        .mockResolvedValueOnce({ statusCode: 201, body: '', headers: {} })
+        .mockRejectedValueOnce(new WebPushError('gone', 410, {}, 'expired', 'https://fcm.googleapis.com/fcm/send/b'));
+
+      const { body } = await request(server())
+        .post(TEST_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .send({})
+        .expect(200);
+
+      expect(body.data.androidSubscriptions).toBe(2);
+      expect(body.data.reason).toBeUndefined();
+      expect(body.data.results).toEqual([
+        { subscriptionId: '11111111-1111-4111-8111-111111111111', endpointHost: 'fcm.googleapis.com', status: 'sent' },
+        expect.objectContaining({
+          subscriptionId: '22222222-2222-4222-8222-222222222222',
+          endpointHost: 'fcm.googleapis.com',
+          status: 'gone',
+        }),
+      ]);
+      expect(context.prismaMock.pushSubscription.delete).toHaveBeenCalledWith({
+        where: { id: '22222222-2222-4222-8222-222222222222' },
+      });
     });
   });
 });

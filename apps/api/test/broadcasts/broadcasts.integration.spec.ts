@@ -107,6 +107,7 @@ describe('Admin broadcasts API (Integration)', () => {
     prisma.auditEvent.create.mockResolvedValue({});
     // The audience count and the start job the create path enqueues.
     prisma.user.count.mockResolvedValue(1284);
+    prisma.pushSubscription.count.mockResolvedValue(37);
     prisma.job.create.mockResolvedValue({ id: 'job-1' });
   });
 
@@ -130,7 +131,7 @@ describe('Admin broadcasts API (Integration)', () => {
       // malformed UUID. Asserting THE COUNT RAN — the number, and the audience
       // predicate behind it — is what makes this a route-order test rather
       // than a status-code coincidence.
-      expect(response.body.data).toEqual({ activeUsers: 1284 });
+      expect(response.body.data).toEqual({ activeUsers: 1284, androidAppSubscriptions: 37 });
       const where = prisma.user.count.mock.calls[0][0].where;
       expect(where.isActive).toBe(true);
       expect(where.createdAt.lte).toBeInstanceOf(Date);
@@ -284,6 +285,10 @@ describe('Admin broadcasts API (Integration)', () => {
         'critical over email only — no durable in-app record would exist (#321)',
         { ...VALID_BODY, critical: true, channels: ['email'] },
       ],
+      [
+        'critical over the Android app only — the browser rule still applies (#312)',
+        { ...VALID_BODY, critical: true, channels: ['android_app'] },
+      ],
       ['a body past the 2000-character ceiling', { ...VALID_BODY, body: 'x'.repeat(2001) }],
       ['a ctaLabel with no link to point at', { ...VALID_BODY, ctaLabel: 'Read more' }],
       ['a title past the 120-character ceiling', { ...VALID_BODY, title: 'x'.repeat(121) }],
@@ -318,6 +323,20 @@ describe('Admin broadcasts API (Integration)', () => {
 
       // And the key is DERIVED, never taken from the client.
       expect(response.body.data.broadcast.eventKey).toBe('admin.broadcast_critical');
+    });
+
+    it('accepts the android_app channel, alone or with push, and stores it (#312)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      for (const channels of [['android_app'], ['browser', 'push', 'android_app']]) {
+        const response = await request(server())
+          .post('/api/admin/broadcasts')
+          .set(authHeader(admin.accessToken))
+          .send({ ...VALID_BODY, channels })
+          .expect(201);
+
+        expect(response.body.data.broadcast.channels).toEqual(channels);
+      }
     });
 
     it('ignores an eventKey supplied by the client', async () => {

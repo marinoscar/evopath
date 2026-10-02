@@ -141,7 +141,8 @@ Start with the self-test under **Diagnostics** on the phone. Each failing or war
 | `hc.data.<type>` | Warns: granted, no records, "None of the apps on this phone write …" | No installed app known to write that type (for example HRV with only Samsung Health, which does not write it) | Install an app that records it, or, if you do not track it, tap **Open Sync settings** and switch the type off. |
 | `hc.data.<type>` | Skip: switched off | The type is switched off on the Sync screen | Nothing to fix; switch it on to sync it. |
 | `battery.optimization` | Warns | Battery restrictions stop the hourly worker | Android Settings, then Apps, then `<product>`, then Battery: Unrestricted. |
-| `notifications.permission` | Warns | Notifications are off | Allow notifications, or you will miss the "Re-pair" and background-access prompts. |
+| `notifications.permission` | Warns | Notifications are off | Tap the check's **Allow notifications** action, or you will miss the "Re-pair" and background-access prompts. |
+| `notifications.channels` | Warns: notifications are off for the app, or a channel it created is blocked. Skip while the permission is missing (Android 13+) | Android notification settings turn off the app or one channel (including channels the web view's Web Push uses) | Tap the check's action to open the blocked channel's settings and turn it on; **Send test notification** confirms. |
 | `work.scheduled` | Warns: waiting for network | The worker is scheduled but blocked on its network constraint | Connect to the internet. |
 | `work.scheduled` | Fails | The worker is not scheduled (the app was force-stopped, or its work was cancelled) | Open the app and **Sync now**; re-pair if not paired. |
 | `sync.last` | Warns: older than 3 hours, failed, partial or skipped | The worker is blocked (battery, no network), the last run failed, or some types could not be read | Fix `battery.optimization`, then **Sync now**; read the run's error under Connected devices. |
@@ -163,6 +164,56 @@ Server-side symptoms:
 | Upload answers 409 `RELEASE_VERSION_EXISTS` or `RELEASE_VERSION_NOT_NEWER` | The `versionCode` was already published, or is not above the current release | Bump the version, rebuild and publish again ([release runbook](android-release.md#13-troubleshooting)). |
 | Upload answers 503 `storage_not_configured` | Object storage is not configured | Configure it at Admin, then Settings, then Storage ([release runbook](android-release.md#13-troubleshooting)). |
 | The Doctor warns `android.releases` | Phones are paired but no release is current | Publish one ([release runbook](android-release.md)). |
+
+### Notifications
+
+The app shows the deployment's Web Push notifications (announcements, coach
+nudges, anything the user enabled at Settings, then Notifications). They reach
+the phone only when all of these hold:
+
+1. **Web Push is configured.** Admin, then Settings, then Push shows an enabled
+   key pair. Without it nothing is sent anywhere.
+2. **Android allows notifications for the app.** On Android 13 and later the
+   app asks once, on the first visit to its Health sync screen; the
+   **Notifications** row there shows the status and offers **Allow**, or
+   **Open settings** when the permission was denied for good. The phone
+   self-test reports the same under `notifications.permission`.
+3. **The web view subscribed from inside the app.** Open the app, then
+   Settings, then Notifications, and turn notifications on. A subscription made
+   inside the app is tagged `android_app`; one made earlier in a browser tab on
+   the same profile is re-tagged when the app subscribes again.
+
+**Test on the phone.** Update the app to 0.1.3 or later first (earlier builds lack
+these steps).
+
+1. Allow notifications from the hub prompt, or the **Notifications** row on the
+   Health sync screen.
+2. Open Diagnostics, then Actions, then **Send test notification**. It posts a
+   local notification and says so when notifications or its channel are blocked.
+3. Run the self-test: `notifications.channels` names any blocked channel and its
+   action opens that channel's settings.
+4. Then test the push path from the server (below).
+
+**Test from the server.** Admin, then Settings, then Android app shows how many
+Android app subscriptions exist (and for how many users) and has **Send test
+notification**. The answer lists each of the user's Android app subscriptions
+as `sent`, `failed` or `gone` (the push service no longer knows it; it was
+removed and the app must subscribe again). Two answers mean nothing was sent:
+
+| Reason | Meaning | Fix |
+|---|---|---|
+| `NO_ANDROID_SUBSCRIPTION` | The user has no subscription registered from inside the app | On the phone: open the app, Settings, Notifications, enable, then allow notifications for the app when Android asks. |
+| `PUSH_NOT_CONFIGURED` | No active VAPID key pair | Configure Web Push at Admin, then Settings, then Push. |
+
+`sent` but nothing appears on the phone: the app's notifications are off in
+Android Settings, then Apps, then `<product>`, then Notifications (or one of its
+channels is set to off); the phone's self-test check `notifications.channels`
+reports this. Battery restrictions can also delay delivery.
+
+**Broadcasts.** The broadcast composer has an **Android app** channel: Web Push
+to Android app subscriptions only. **Push** already includes phones, so
+selecting both sends each device one notification, not two. The audience
+estimate shows how many Android app subscriptions the broadcast would reach.
 
 ## 11. Summary checklist
 

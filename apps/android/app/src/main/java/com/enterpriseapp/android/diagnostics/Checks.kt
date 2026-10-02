@@ -47,6 +47,7 @@ object CheckIds {
     const val HC_DATA_PREFIX = "hc.data."
     const val BATTERY = "battery.optimization"
     const val NOTIFICATIONS = "notifications.permission"
+    const val NOTIFICATION_CHANNELS = "notifications.channels"
     const val WORK_SCHEDULED = "work.scheduled"
     const val SYNC_LAST = "sync.last"
     const val SYNC_DELIVERY = "sync.delivery"
@@ -72,6 +73,7 @@ object CheckLabels {
     const val HC_SOURCES = "Apps feeding Health Connect"
     const val BATTERY = "Battery optimization"
     const val NOTIFICATIONS = "Notifications"
+    const val NOTIFICATION_CHANNELS = "Notification channels"
     const val WORK_SCHEDULED = "Hourly sync scheduled"
     const val SYNC_LAST = "Last sync"
     const val SYNC_DELIVERY = "Data delivery"
@@ -79,6 +81,20 @@ object CheckLabels {
     const val TWA_VERIFICATION = "Full-screen web app (Digital Asset Links)"
 
     fun hcData(type: HcDataType) = "${type.label} in Health Connect"
+}
+
+/** One notification channel the app created (its own, or one the web app's delegated notifications use). */
+data class NotificationChannelSnapshot(
+    val id: String,
+    val name: String,
+    /** NotificationManager.IMPORTANCE_* (0 = IMPORTANCE_NONE: the user blocked the channel). */
+    val importance: Int,
+) {
+    val blocked: Boolean get() = importance == IMPORTANCE_NONE
+
+    companion object {
+        const val IMPORTANCE_NONE = 0
+    }
 }
 
 /** Periodic work as WorkManager sees it. */
@@ -633,7 +649,7 @@ object Checks {
                 id, label, CheckStatus.WARN,
                 "The notification permission is not granted: you will miss \"Re-pair\" and background-access prompts.",
                 remedy = "Allow notifications for ${Brand.name}.",
-                action = CheckAction.NOTIFICATION_SETTINGS,
+                action = CheckAction.ALLOW_NOTIFICATIONS,
             )
             !enabled -> CheckResult.of(
                 id, label, CheckStatus.WARN,
@@ -643,6 +659,65 @@ object Checks {
             )
             else -> CheckResult.of(id, label, CheckStatus.PASS, "Notifications are allowed.")
         }
+    }
+
+    /**
+     * Notifications switched on for the app, and no channel it uses blocked (IMPORTANCE_NONE).
+     * Skipped while POST_NOTIFICATIONS is missing on Android 13+ (`notifications.permission` reports that);
+     * [channels] is null when they could not be read.
+     */
+    fun notificationChannels(
+        sdkInt: Int,
+        permissionGranted: Boolean,
+        enabled: Boolean,
+        channels: List<NotificationChannelSnapshot>?,
+    ): CheckResult {
+        val id = CheckIds.NOTIFICATION_CHANNELS
+        val label = CheckLabels.NOTIFICATION_CHANNELS
+        if (sdkInt >= 33 && !permissionGranted) {
+            return CheckResult.of(id, label, CheckStatus.SKIP, "The notification permission is not granted (see Notifications).")
+        }
+        if (!enabled) {
+            return CheckResult.of(
+                id, label, CheckStatus.WARN,
+                "Notifications are turned off for ${Brand.name}: no notification can appear, including the web app's.",
+                remedy = "Turn notifications on in Android Settings → Apps → ${Brand.name} → Notifications.",
+                action = CheckAction.NOTIFICATION_SETTINGS,
+            )
+        }
+        if (channels == null) {
+            return CheckResult.of(id, label, CheckStatus.SKIP, "Notifications are on; the channels could not be read.")
+        }
+        val blocked = channels.filter { it.blocked }
+        val data = buildJsonObject {
+            putJsonArray("channels") {
+                channels.forEach { c ->
+                    add(
+                        buildJsonObject {
+                            put("id", c.id)
+                            put("name", c.name)
+                            put("importance", c.importance)
+                        },
+                    )
+                }
+            }
+            putJsonArray("blocked") { blocked.forEach { add(JsonPrimitive(it.id)) } }
+        }
+        if (blocked.isNotEmpty()) {
+            val names = blocked.joinToString(", ") { "\"${it.name}\"" }
+            return CheckResult.of(
+                id, label, CheckStatus.WARN,
+                "${blocked.size} notification channel${if (blocked.size == 1) " is" else "s are"} blocked: $names. Those notifications never appear.",
+                remedy = "Allow the channel in Android Settings → Apps → ${Brand.name} → Notifications.",
+                action = CheckAction.CHANNEL_SETTINGS,
+                data = data,
+            )
+        }
+        return CheckResult.of(
+            id, label, CheckStatus.PASS,
+            "Notifications are on and none of the ${channels.size} channel${if (channels.size == 1) "" else "s"} is blocked.",
+            data = data,
+        )
     }
 
     fun workScheduled(configured: Boolean, work: Probe<WorkSnapshot?>, zone: ZoneId): CheckResult {

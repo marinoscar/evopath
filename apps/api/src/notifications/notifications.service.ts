@@ -8,6 +8,7 @@ import {
 import { describeThrown } from './describe-thrown';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import {
+  collapseOverlappingChannels,
   findEvent,
   type NotificationChannel,
   type NotificationEventDef,
@@ -1115,6 +1116,12 @@ export class NotificationsService implements OnModuleDestroy {
       const requested = new Set(options.channels);
       channels = channels.filter((channel) => requested.has(channel));
     }
+
+    // #312: `push` already covers every `android_app` subscription, so a
+    // dispatch holding both drops `android_app` — each subscription is pushed
+    // once. After preferences and narrowing, so a user who muted `push` still
+    // gets `android_app`. See `collapseOverlappingChannels`.
+    channels = collapseOverlappingChannels(channels);
 
     if (channels.length === 0) {
       // Every channel muted — or narrowed away to nothing by `options.channels`

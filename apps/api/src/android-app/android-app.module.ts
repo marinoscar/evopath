@@ -8,6 +8,7 @@ import { AndroidReleasesDoctorCheck } from './doctor/android-releases.doctor-che
 import { AndroidReleaseAdminController } from './releases/android-release-admin.controller';
 import { AndroidReleaseController } from './releases/android-release.controller';
 import { AndroidReleaseService } from './releases/android-release.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 
 // =============================================================================
@@ -28,10 +29,13 @@ import { StorageProvidersModule } from '../storage/providers/storage-providers.m
 // routes, the user's latest-release and download-link routes and the public
 // signed download. `StorageProvidersModule` (not `StorageModule`, which would
 // pull in the queue) supplies the object storage the APKs live in.
+//
+// Notifications (issue #312): `NotificationsModule` supplies
+// `AndroidAppPushService` for the admin test notification.
 // =============================================================================
 
 @Module({
-  imports: [StorageProvidersModule],
+  imports: [StorageProvidersModule, NotificationsModule],
   controllers: [AndroidAppController, AssetLinksController, AndroidReleaseAdminController, AndroidReleaseController],
   providers: [AndroidAppService, AndroidAssetLinksDoctorCheck, AndroidReleasesDoctorCheck, AndroidReleaseService],
   exports: [AndroidAppService, AndroidReleaseService],

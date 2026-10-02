@@ -85,7 +85,8 @@ describe('NOTIFICATION_CHANNEL_SENDERS: push is unconditionally registered (#355
     it('registers exactly one sender per channel — no duplicate push entry', () => {
       const channels = channelsOf(context);
       expect(channels.filter((c) => c === 'push')).toHaveLength(1);
-      expect(channels.sort()).toEqual(['browser', 'email', 'push']);
+      // `android_app` (#312) is the push sender scoped to Android app subscriptions.
+      expect(channels.sort()).toEqual(['android_app', 'browser', 'email', 'push']);
     });
   });
 });

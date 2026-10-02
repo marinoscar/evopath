@@ -470,6 +470,31 @@ describe('NotificationSettings component', () => {
     expect(onToggle).toHaveBeenCalledWith('email', WELCOME, false);
   });
 
+  it('labels the android_app channel toggle "Android app", not the raw key (#312)', () => {
+    const broadcast: NotificationEventDef = {
+      key: 'admin.broadcast',
+      label: 'Announcements',
+      description: 'Messages an administrator sends to every user.',
+      channels: ['browser', 'email', 'push', 'android_app'],
+      declaredChannels: ['browser', 'email', 'push', 'android_app'],
+      defaultEnabled: true,
+      mandatory: false,
+    };
+    render(
+      <NotificationSettings
+        events={[broadcast]}
+        preferences={undefined}
+        onToggle={onToggle}
+        browserCapability="granted"
+      />,
+    );
+
+    expect(
+      screen.getByRole('switch', { name: 'Android app notifications for Announcements' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('android_app')).not.toBeInTheDocument();
+  });
+
   describe('mandatory events', () => {
     it('renders visibly locked, with the "Always on" chip and the reason', () => {
       render(

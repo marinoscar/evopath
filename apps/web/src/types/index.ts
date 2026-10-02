@@ -88,8 +88,12 @@ export interface DataTableSettings {
  * channel this build has never heard of — see `CHANNEL_LABELS` in
  * `components/settings/NotificationSettings.tsx`, which falls back to the raw
  * key rather than rendering a blank label.
+ *
+ * `'android_app'` was added in #312: Web Push restricted to subscriptions
+ * registered from the Android app. The API declares it on the broadcast
+ * events, so it is both a broadcast channel and a preferences column.
  */
-export type NotificationChannel = 'email' | 'browser' | 'push';
+export type NotificationChannel = 'email' | 'browser' | 'push' | 'android_app';
 
 /**
  * One entry of the event registry, as served by `GET /api/notifications/events`.
@@ -376,13 +380,24 @@ export interface PushSubscriptionPayload {
     p256dh: string;
     auth: string;
   };
+  /**
+   * Where this subscription lives (#312): `android_app` from inside the
+   * Android app's TWA, `browser` otherwise. Optional on the wire; the API
+   * defaults to `browser`, and re-posting an endpoint updates it.
+   */
+  platform?: PushPlatform;
 }
+
+/** The two kinds of Web Push subscription the API tells apart (#312). */
+export type PushPlatform = 'browser' | 'android_app';
 
 /** `POST /api/notifications/push/subscriptions` response. */
 export interface PushSubscriptionResponse {
   id: string;
   endpoint: string;
   createdAt: string;
+  /** Absent from an API older than #312. */
+  platform?: PushPlatform;
 }
 
 export interface UserSettings {

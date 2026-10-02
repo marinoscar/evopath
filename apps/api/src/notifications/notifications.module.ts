@@ -7,6 +7,8 @@ import { SettingsModule } from '../settings/settings.module';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { PushNotificationChannel } from './channels/push-notification.channel';
+import { AndroidAppNotificationChannel } from './channels/android-app-notification.channel';
+import { AndroidAppPushService } from './android-app-push.service';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationStoreService } from './notification-store.service';
@@ -176,6 +178,11 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
     // one admin route, and it deliberately bypasses `notify()` (a test is not
     // a notification; see its header), so no other feature should reach it.
     PushTestService,
+    // #312: the Android app test notification. EXPORTED — it backs
+    // `POST /api/admin/android-app/test-notification` in `AndroidAppModule`,
+    // and is the one door that module gets into the push sender (it reuses
+    // `PushTestService.sendToSubscriptions`, which stays internal).
+    AndroidAppPushService,
     EmailNotificationChannel,
     BrowserNotificationChannel,
     // #288's queue listener (epic #254). A PROVIDER AND NOT AN EXPORT, and it
@@ -186,6 +193,9 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
     // listener rather than a `notify()` inside `JobTerminalService`.
     JobFailureNotifier,
     PushNotificationChannel,
+    // #312: Web Push to Android app subscriptions only (a `PushNotificationChannel`
+    // subclass with a narrower subscription scope).
+    AndroidAppNotificationChannel,
     // Doctor check (#634): validates the active VAPID pair, never sends.
     PushVapidDoctorCheck,
     {
@@ -194,11 +204,13 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
         email: EmailNotificationChannel,
         browser: BrowserNotificationChannel,
         push: PushNotificationChannel,
-      ): NotificationChannelSender[] => [email, browser, push],
+        androidApp: AndroidAppNotificationChannel,
+      ): NotificationChannelSender[] => [email, browser, push, androidApp],
       inject: [
         EmailNotificationChannel,
         BrowserNotificationChannel,
         PushNotificationChannel,
+        AndroidAppNotificationChannel,
       ],
     },
   ],
@@ -211,6 +223,6 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
   // if there is no way around it. `PushConfigService` is different in kind —
   // it is the admin configuration surface itself, not a delivery internal — so
   // it is exported like `NotificationsService`.
-  exports: [NotificationsService, PushConfigService],
+  exports: [NotificationsService, PushConfigService, AndroidAppPushService],
 })
 export class NotificationsModule {}

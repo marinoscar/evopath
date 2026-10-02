@@ -193,6 +193,9 @@ const CHANNEL_LABELS: Record<NotificationChannel, string> = {
   // deployment has push off, and notes when this device has not granted
   // permission. Rows appear only for events that declare `push`.
   push: 'Push',
+  // Web Push to subscriptions registered from the Android app (#312),
+  // declared on the broadcast events.
+  android_app: 'Android app',
 };
 
 function channelLabel(channel: NotificationChannel): string {

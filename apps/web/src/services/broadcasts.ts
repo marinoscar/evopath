@@ -165,7 +165,18 @@ export interface BroadcastCreateResult {
 
 export interface BroadcastAudience {
   activeUsers: number;
+  /**
+   * Web Push subscriptions registered from the Android app (#312): the reach
+   * of the `android_app` channel. Absent from an API older than #312.
+   */
+  androidAppSubscriptions?: number;
 }
+
+/**
+ * A broadcast channel key: any notification channel, including `android_app`
+ * (#312), Web Push restricted to subscriptions registered from the Android app.
+ */
+export type BroadcastChannel = NotificationChannel;
 
 export interface BroadcastTestResult {
   eventKey: string;
@@ -194,7 +205,7 @@ export interface CreateBroadcastRequest {
   body: string;
   link?: string;
   ctaLabel?: string;
-  channels: NotificationChannel[];
+  channels: BroadcastChannel[];
   scheduledFor?: string;
   critical: boolean;
 }

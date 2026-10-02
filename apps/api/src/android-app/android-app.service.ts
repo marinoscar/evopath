@@ -12,7 +12,12 @@ import {
   type TrustedAndroidApp,
   trustedAppKey,
 } from './android-app.schema';
-import type { AndroidAppResponse, ReportedAndroidApp, UpdateAndroidAppInput } from './dto/android-app.dto';
+import type {
+  AndroidAppResponse,
+  PushSubscriptionCounts,
+  ReportedAndroidApp,
+  UpdateAndroidAppInput,
+} from './dto/android-app.dto';
 
 // =============================================================================
 // AndroidAppService (issue #279, epic #276)
@@ -111,15 +116,40 @@ export class AndroidAppService {
       .sort((a, b) => b.deviceCount - a.deviceCount || a.packageName.localeCompare(b.packageName) || a.sha256.localeCompare(b.sha256));
   }
 
+  /**
+   * Web Push subscriptions by platform (#312). Read directly, like the
+   * reported apps above: two grouped SELECTs over `push_subscriptions`, which
+   * the notifications module owns the writes to.
+   */
+  async getPushSubscriptionCounts(): Promise<PushSubscriptionCounts> {
+    const [byPlatform, androidUsers] = await Promise.all([
+      this.prisma.pushSubscription.groupBy({ by: ['platform'], _count: { _all: true } }),
+      this.prisma.pushSubscription.groupBy({ by: ['userId'], where: { platform: 'android_app' } }),
+    ]);
+
+    let androidApp = 0;
+    let browser = 0;
+    for (const row of byPlatform) {
+      if (row.platform === 'android_app') androidApp += row._count._all;
+      else browser += row._count._all;
+    }
+
+    return { androidApp, browser, androidAppUsers: androidUsers.length };
+  }
+
   /** `GET /api/admin/android-app`. */
   async describe(): Promise<AndroidAppResponse> {
     const trustedApps = await this.getTrustedApps();
-    const reportedApps = await this.getReportedApps(trustedApps);
+    const [reportedApps, pushSubscriptions] = await Promise.all([
+      this.getReportedApps(trustedApps),
+      this.getPushSubscriptionCounts(),
+    ]);
 
     return {
       trustedApps,
       reportedApps,
       assetLinks: buildAssetLinks(trustedApps),
+      pushSubscriptions,
     };
   }
 

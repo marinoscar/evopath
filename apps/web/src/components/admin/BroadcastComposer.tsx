@@ -101,8 +101,7 @@ import {
   isoToLocalInput,
   localInputToIso,
 } from '../../services/broadcasts';
-import type { CreateBroadcastRequest } from '../../services/broadcasts';
-import type { NotificationChannel } from '../../types';
+import type { BroadcastChannel, CreateBroadcastRequest } from '../../services/broadcasts';
 import { useNotificationConfig } from '../../hooks/useNotificationConfig';
 import { channelLabel } from '../../pages/Admin/broadcastsTable';
 
@@ -112,10 +111,16 @@ import { channelLabel } from '../../pages/Admin/broadcastsTable';
  * In-app first because it is the only one that leaves a record the recipient
  * can go back and read, and the only one a critical broadcast may not omit.
  */
-const CHANNEL_ORDER: NotificationChannel[] = ['browser', 'email', 'push'];
+const CHANNEL_ORDER: BroadcastChannel[] = ['browser', 'email', 'push', 'android_app'];
 
 /** Default selection for a fresh composition: the durable row plus mail. */
-const DEFAULT_CHANNELS: NotificationChannel[] = ['browser', 'email'];
+const DEFAULT_CHANNELS: BroadcastChannel[] = ['browser', 'email'];
+
+/** The channels that ride on Web Push, and so need it configured (#312 adds `android_app`). */
+const PUSH_CHANNELS: readonly BroadcastChannel[] = ['push', 'android_app'];
+
+/** Shown under the Android app checkbox (#312). */
+export const ANDROID_APP_CHANNEL_HELPER = 'Push notification to phones running the Android app';
 
 /**
  * `sanitizeLink`'s forbidden set, restated from the DTO: C0 controls, space,
@@ -159,6 +164,11 @@ interface BroadcastComposerProps {
   onClose: () => void;
   /** `null` until `GET /audience` resolves — never rendered as 0. */
   audience: number | null;
+  /**
+   * Android app push subscriptions from `GET /audience` (#312); `null`/absent
+   * when unknown, and then no count is shown.
+   */
+  androidAppSubscriptions?: number | null;
   isWorking: boolean;
   /** Resolves truthy when the broadcast was queued; the composer then closes. */
   onSubmit: (body: CreateBroadcastRequest) => Promise<boolean>;
@@ -170,6 +180,7 @@ export function BroadcastComposer({
   open,
   onClose,
   audience,
+  androidAppSubscriptions = null,
   isWorking,
   onSubmit,
   onSendTest,
@@ -190,7 +201,7 @@ export function BroadcastComposer({
   const [link, setLink] = useState('');
   const [linkTouched, setLinkTouched] = useState(false);
   const [ctaLabel, setCtaLabel] = useState('');
-  const [channels, setChannels] = useState<NotificationChannel[]>(DEFAULT_CHANNELS);
+  const [channels, setChannels] = useState<BroadcastChannel[]>(DEFAULT_CHANNELS);
   const [critical, setCritical] = useState(false);
   const [timing, setTiming] = useState<'now' | 'later'>('now');
   const [scheduleInput, setScheduleInput] = useState('');
@@ -229,11 +240,16 @@ export function BroadcastComposer({
     setChannels((current) => (current.includes('browser') ? current : [...current, 'browser']));
   }, [critical]);
 
-  /** Push cannot be selected on a deployment that has no push channel at all. */
+  /**
+   * Push (and Android app, which is push) cannot be selected on a deployment
+   * that has no push channel at all.
+   */
   useEffect(() => {
     if (!pushUnavailable) return;
     setChannels((current) =>
-      current.includes('push') ? current.filter((channel) => channel !== 'push') : current,
+      current.some((channel) => PUSH_CHANNELS.includes(channel))
+        ? current.filter((channel) => !PUSH_CHANNELS.includes(channel))
+        : current,
     );
   }, [pushUnavailable]);
 
@@ -279,7 +295,7 @@ export function BroadcastComposer({
     critical,
   };
 
-  const toggleChannel = (channel: NotificationChannel) => {
+  const toggleChannel = (channel: BroadcastChannel) => {
     setChannels((current) =>
       current.includes(channel)
         ? current.filter((entry) => entry !== channel)
@@ -422,7 +438,7 @@ export function BroadcastComposer({
                 <FormLabel component="legend">Channels</FormLabel>
                 <FormGroup row>
                   {CHANNEL_ORDER.map((channel) => {
-                    const isPush = channel === 'push';
+                    const isPush = PUSH_CHANNELS.includes(channel);
                     const lockedByCritical = channel === 'browser' && critical;
                     const disabled = (isPush && pushUnavailable) || lockedByCritical;
                     const tooltip = isPush && pushUnavailable
@@ -445,7 +461,29 @@ export function BroadcastComposer({
                                 disabled={disabled}
                               />
                             }
-                            label={channelLabel(channel)}
+                            label={
+                              channel === 'android_app' ? (
+                                <Box component="span" sx={{ display: 'block' }}>
+                                  <Box component="span" sx={{ display: 'block' }}>
+                                    {channelLabel(channel)}
+                                  </Box>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    component="span"
+                                    sx={{ display: 'block' }}
+                                    data-testid="android-app-channel-helper"
+                                  >
+                                    {ANDROID_APP_CHANNEL_HELPER}
+                                    {typeof androidAppSubscriptions === 'number'
+                                      ? ` (${androidAppSubscriptions.toLocaleString()} subscription${androidAppSubscriptions === 1 ? '' : 's'})`
+                                      : ''}
+                                  </Typography>
+                                </Box>
+                              ) : (
+                                channelLabel(channel)
+                              )
+                            }
                           />
                         </span>
                       </Tooltip>
