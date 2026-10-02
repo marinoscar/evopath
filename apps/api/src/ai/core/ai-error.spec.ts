@@ -264,7 +264,7 @@ describe('aiErrorLogDetails (#301)', () => {
 
     expect(aiErrorLogDetails(err)).toBe(
       'status=400 providerCode="invalid_value" providerType="invalid_request_error" ' +
-        'param="input[0].content[1]" providerRequestId="req_1"',
+        'param="input[0].content[1]" providerRequestId="req_1" providerMessage="bad key [redacted]"',
     );
   });
 
@@ -279,5 +279,70 @@ describe('aiErrorLogDetails (#301)', () => {
 
     expect(line).not.toContain('\n');
     expect(line.length).toBeLessThan(160);
+  });
+
+  describe('providerMessage', () => {
+    const invalid = (cause?: unknown) =>
+      new AiError('AI_INVALID_REQUEST', 'rejected', { cause, details: { status: 400 } });
+
+    it('appends the cause message for AI_INVALID_REQUEST', () => {
+      const message = "400 Invalid file data: 'file_id'. Expected a file with an application/pdf MIME type.";
+
+      expect(aiErrorLogDetails(invalid(new Error(message)))).toBe(
+        `status=400 providerMessage=${JSON.stringify(message)}`,
+      );
+    });
+
+    it('never puts the message into the public body', () => {
+      const err = invalid(new Error('400 some provider text'));
+      aiErrorLogDetails(err);
+
+      expect(JSON.stringify(err.toJSON())).not.toContain('some provider text');
+    });
+
+    it('redacts key-like tokens, Bearer credentials and URLs', () => {
+      const line = aiErrorLogDetails(
+        invalid(
+          new Error(
+            `400 bad ${SECRET} rk-abcdef123 pk-live_ABCDEF sess-xyz*abc12 ` +
+              'Authorization: Bearer abc.def.ghi see https://bucket.example.test/o?X-Amz-Signature=deadbeef and http://x.test/y',
+          ),
+        ),
+      );
+
+      expect(line).not.toContain(SECRET);
+      expect(line).not.toMatch(/\b(sk|rk|pk|sess)-/);
+      expect(line).not.toContain('abc.def.ghi');
+      expect(line).not.toContain('X-Amz-Signature');
+      expect(line).not.toContain('http');
+      expect(line).toContain('[redacted]');
+    });
+
+    it('collapses newlines and runs of whitespace to single spaces', () => {
+      expect(aiErrorLogDetails(invalid(new Error('400 first\n\n  second\tthird')))).toBe(
+        'status=400 providerMessage="400 first second third"',
+      );
+    });
+
+    it('caps the message at 300 characters', () => {
+      expect(aiErrorLogDetails(invalid(new Error('x'.repeat(1000))))).toBe(
+        `status=400 providerMessage="${'x'.repeat(300)}"`,
+      );
+    });
+
+    it('is not included for AI_KEY_INVALID', () => {
+      const err = new AiError('AI_KEY_INVALID', 'bad key', {
+        cause: new Error('401 Incorrect API key provided: sk-pr****abcd'),
+        details: { status: 401 },
+      });
+
+      expect(aiErrorLogDetails(err)).toBe('status=401');
+    });
+
+    it('adds nothing without a cause, or with a non-Error or empty-message cause', () => {
+      expect(aiErrorLogDetails(invalid())).toBe('status=400');
+      expect(aiErrorLogDetails(invalid('400 a string cause'))).toBe('status=400');
+      expect(aiErrorLogDetails(invalid(new Error('')))).toBe('status=400');
+    });
   });
 });
