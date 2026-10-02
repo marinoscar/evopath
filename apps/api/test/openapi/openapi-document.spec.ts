@@ -261,6 +261,7 @@ describe('OpenAPI document', () => {
         'patch /api/measurements/entries/{entryId}',
         'post /api/measurements',
         'post /api/measurements/lab-reports/{intakeId}/map',
+        'post /api/measurements/lab-reports/{intakeId}/reject-unmatched',
       ]);
 
       for (const { method, path, operation } of measurementOps) {
