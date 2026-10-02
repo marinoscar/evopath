@@ -251,7 +251,7 @@ export function registerDeployCommand(
       'Release version to deploy (default: a patch bump of the current one)',
     )
     .option('--no-version-bump', 'Deploy the current version: no write, no commit, no push')
-    .option('--with-android', 'After a healthy deploy, build and publish the Android APK if the local version is newer')
+    .option('--with-android', 'After a healthy deploy, build and publish the Android APK if its version is newer than the published one')
     .option('--android-bump <part>', 'With --with-android: bump the APK version first (patch, minor or major)')
     .option('--android-notes <text>', 'With --with-android: release notes for the published APK')
     .option('--json', 'Print a machine-readable result on stdout')
@@ -278,12 +278,15 @@ export function registerDeployCommand(
         'you pass --repo/--ref, so a fork deploys itself with no configuration.',
         '',
         '--with-android, after a healthy deploy, publishes the Android APK to',
-        'https://<domain> when the local apps/android version is newer than the',
+        'https://<domain> when the apps/android version is newer than the',
         'server\'s current release: doctor, build, publish (as the current',
         `release). It needs \`${CLI_NAME} login --server https://<domain>\` by an`,
         'account with system_settings:write, a JDK, the Android SDK and the',
         'release keystore. Anything missing is reported with its fix and',
-        'skipped; it never fails the deploy or changes its exit code.',
+        'skipped; it never fails the deploy or changes its exit code. The APK is',
+        'built from the deployment\'s own checkout (just moved to the deployed',
+        'revision) when it holds apps/android, else from this checkout;',
+        '--android-bump always bumps and builds in this checkout.',
       ].join('\n'),
     )
     .action(async (options: InstallCommandOptions) => {
@@ -323,7 +326,7 @@ export function registerDeployCommand(
       'Release version to deploy (default: a patch bump of the current one)',
     )
     .option('--no-version-bump', 'Deploy the current version: no write, no commit, no push')
-    .option('--with-android', 'After a healthy deploy, build and publish the Android APK if the local version is newer')
+    .option('--with-android', 'After a healthy deploy, build and publish the Android APK if its version is newer than the published one')
     .option('--android-bump <part>', 'With --with-android: bump the APK version first (patch, minor or major)')
     .option('--android-notes <text>', 'With --with-android: release notes for the published APK')
     .option(
@@ -362,12 +365,15 @@ export function registerDeployCommand(
         'own.',
         '',
         '--with-android, after a healthy deploy, publishes the Android APK to',
-        'https://<domain> when the local apps/android version is newer than the',
+        'https://<domain> when the apps/android version is newer than the',
         'server\'s current release: doctor, build, publish (as the current',
         `release). It needs \`${CLI_NAME} login --server https://<domain>\` by an`,
         'account with system_settings:write, a JDK, the Android SDK and the',
         'release keystore. Anything missing is reported with its fix and',
-        'skipped; it never fails the deploy or changes its exit code.',
+        'skipped; it never fails the deploy or changes its exit code. The APK is',
+        'built from the deployment\'s own checkout (just moved to the deployed',
+        'revision) when it holds apps/android, else from this checkout;',
+        '--android-bump always bumps and builds in this checkout.',
       ].join('\n'),
     )
     .action(async (options: UpdateCommandOptions) => {
