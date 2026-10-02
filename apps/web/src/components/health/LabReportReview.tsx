@@ -73,7 +73,11 @@ export const ADD_MISSING_VALUE_LABEL = 'Add missing value';
 export const REJECT_UNMATCHED_LABEL = 'Reject unmatched';
 export const SKIP_DUPLICATE_LABEL = 'Skip';
 
-/** #311: the confirmation before rejecting every unmatched result. */
+/**
+ * #311: the confirmation before rejecting every unmatched result. It keeps
+ * the count it opened with: once confirmed, the count drops to 0 while the
+ * dialog fades out, and the title must not flash "Reject 0 results…".
+ */
 export function RejectUnmatchedConfirm({
   open,
   count,
@@ -86,14 +90,17 @@ export function RejectUnmatchedConfirm({
   onConfirm: () => void;
 }) {
   const titleId = useId();
+  // Follows `count` only while open (state adjusted during render, not in an effect).
+  const [shown, setShown] = useState(count);
+  if (open && shown !== count) setShown(count);
   return (
     <Dialog open={open} onClose={onCancel} aria-labelledby={titleId}>
       <DialogTitle id={titleId}>
-        Reject {count} {count === 1 ? 'result that is' : 'results that are'} not in the lab catalog?
+        Reject {shown} {shown === 1 ? 'result that is' : 'results that are'} not in the lab catalog?
       </DialogTitle>
       <DialogContent>
         <DialogContentText>
-          {count === 1 ? 'It can be restored from Rejected.' : 'They can be restored one by one from Rejected.'}
+          {shown === 1 ? 'It can be restored from Rejected.' : 'They can be restored one by one from Rejected.'}
         </DialogContentText>
       </DialogContent>
       <DialogActions>

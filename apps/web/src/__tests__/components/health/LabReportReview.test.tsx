@@ -5,12 +5,13 @@
  * unit, and an edit is sent in whatever unit the user picks. Conventional is
  * the default and leaves the output as it was. #307: the map picker calls
  * `onMapItem` when given, else edits the one result. #308: the already-saved
- * badge with Skip and Save again.
+ * badge with Skip and Save again. #311: the reject-unmatched confirmation
+ * keeps its count while it closes.
  */
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import { render, screen, within } from '../../utils/test-utils';
-import { LabReportReview, alreadySavedLabel } from '../../../components/health/LabReportReview';
+import { render, screen, waitFor, within } from '../../utils/test-utils';
+import { LabReportReview, RejectUnmatchedConfirm, alreadySavedLabel } from '../../../components/health/LabReportReview';
 import type { LabUnits } from '../../../utils/labUnits';
 import { labItem, labValue, mockLabCatalog } from '../../mocks/fixtures/labReportIntake';
 
@@ -222,5 +223,25 @@ describe('LabReportReview: already-saved results (#308)', () => {
     expect(screen.getByTestId('lab-result-already-saved')).toHaveTextContent('Already saved · will be saved again');
     expect(screen.getByRole('button', { name: 'Save again Glucose' })).toHaveAttribute('aria-pressed', 'true');
     expect(alreadySavedLabel(null)).toBe('Already saved');
+  });
+});
+
+describe('RejectUnmatchedConfirm (#311)', () => {
+  it('keeps the count it opened with while it closes', async () => {
+    const props = { onCancel: vi.fn(), onConfirm: vi.fn() };
+    const { rerender } = render(<RejectUnmatchedConfirm open count={2} {...props} />);
+    expect(screen.getByRole('dialog', { name: 'Reject 2 results that are not in the lab catalog?' })).toBeInTheDocument();
+
+    // Confirmed: the results are rejected (count 0) while the dialog fades out.
+    rerender(<RejectUnmatchedConfirm open={false} count={0} {...props} />);
+    expect(screen.getByText('Reject 2 results that are not in the lab catalog?')).toBeInTheDocument();
+    expect(screen.queryByText(/Reject 0 results/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/not in the lab catalog\?$/)).not.toBeInTheDocument());
+
+    // Opened again later: the new count.
+    rerender(<RejectUnmatchedConfirm open count={1} {...props} />);
+    expect(screen.getByRole('dialog', { name: 'Reject 1 result that is not in the lab catalog?' })).toHaveTextContent(
+      'It can be restored from Rejected.',
+    );
   });
 });
