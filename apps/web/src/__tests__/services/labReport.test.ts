@@ -3,7 +3,8 @@
  * helpers (panel grouping, attention, unresolved, alias search, range text)
  * and how a refused apply is read; #305: per-result dates (grouping, the
  * effective date, the edit payload), the high-confidence count and the
- * saved message for several entries; #307: the map route and its message.
+ * saved message for several entries; #307: the map route and its message;
+ * #317: the issues route, the attention reasons and the review's search.
  */
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
@@ -15,6 +16,14 @@ import {
   emptyLabResult,
   formatLabDate,
   getLabReportDuplicates,
+  getLabReportIssues,
+  issuesByItem,
+  labAttentionReasons,
+  labResultMatches,
+  attentionLabel,
+  foldSearchText,
+  UNMATCHED_REASON,
+  DUPLICATE_REASON,
   groupByDate,
   groupByPanel,
   isHighConfidencePending,
@@ -111,7 +120,18 @@ describe('labReport service', () => {
           ],
         }),
       ),
-    ).toEqual({ kind: 'issues', messages: ['HDL cholesterol has no numeric value; enter one or reject it'] });
+    ).toEqual({
+      kind: 'issues',
+      messages: ['HDL cholesterol has no numeric value; enter one or reject it'],
+      issues: [
+        { itemId: 'a', message: 'HDL cholesterol has no numeric value; enter one or reject it' },
+        { itemId: 'b', message: 'HDL cholesterol has no numeric value; enter one or reject it' },
+      ],
+    });
+    // #317: an issue about the report as a whole names no result.
+    expect(
+      labApplyRefusal(new ApiError('x', 400, 'VALIDATION_ERROR', { issues: [{ path: 'items', message: 'Too many results on one date' }] })),
+    ).toMatchObject({ kind: 'issues', issues: [{ itemId: null, message: 'Too many results on one date' }] });
     const other = new Error('offline');
     expect(labApplyRefusal(other)).toEqual({ kind: 'other', error: other });
   });
@@ -269,5 +289,65 @@ describe('labReport service', () => {
     expect(result.items).toEqual([rejected]);
     expect(labRejectedUnmatchedMessage(3)).toBe('Rejected 3 unmatched results');
     expect(labRejectedUnmatchedMessage(1)).toBe('Rejected 1 unmatched result');
+  });
+
+  describe('needs attention (#317)', () => {
+    it('reads the issues route for an intake into a map by item', async () => {
+      let path = '';
+      server.use(
+        http.get('*/api/measurements/lab-reports/:id/issues', ({ request }) => {
+          path = new URL(request.url).pathname;
+          return HttpResponse.json({
+            data: {
+              items: [
+                { itemId: 'i-1', issues: [{ code: 'NO_VALUE', field: 'value', message: 'BUN/creatinine ratio has no numeric value; enter one or reject it' }] },
+                { itemId: 'i-2', issues: [] },
+              ],
+            },
+          });
+        }),
+      );
+      const result = await getLabReportIssues('a b');
+      expect(path).toBe('/api/measurements/lab-reports/a%20b/issues');
+      const map = issuesByItem(result);
+      expect([...map.keys()]).toEqual(['i-1']);
+      expect(map.get('i-1')?.[0].code).toBe('NO_VALUE');
+    });
+
+    it('lists the reasons a row needs attention, without repeats, and none for a rejected row', () => {
+      const unmatched = labItem(labValue({ analyteKey: null, nameAsPrinted: 'Lp(a)', match: 'unmatched' }));
+      expect(
+        labAttentionReasons(unmatched, {
+          issues: [
+            { code: 'UNMATCHED', field: 'analyteKey', message: 'Lp(a) is not in the lab catalog' },
+            { code: 'NO_VALUE', field: 'value', message: 'No value' },
+            { code: 'NO_VALUE', field: 'value', message: 'No value' },
+          ],
+          undecidedDuplicate: true,
+        }),
+      ).toEqual([
+        { code: 'UNMATCHED', message: UNMATCHED_REASON },
+        { code: 'ALREADY_SAVED', message: DUPLICATE_REASON },
+        { code: 'NO_VALUE', message: 'No value' },
+      ]);
+      const matched = labItem(labValue({ analyteKey: 'hba1c' }));
+      expect(labAttentionReasons(matched, {})).toEqual([]);
+      expect(labAttentionReasons({ ...unmatched, status: 'rejected' }, { undecidedDuplicate: true })).toEqual([]);
+      expect(attentionLabel(1)).toBe('Needs attention');
+      expect(attentionLabel(2)).toBe('Needs attention · 2');
+    });
+
+    it('searches the printed name, the analyte label and aliases and the panel, ignoring case and accents', () => {
+      const catalog = { metrics: LAB_METRICS, methods: [] };
+      const glucose = labValue({ analyteKey: 'fasting_glucose', nameAsPrinted: 'Glucosa en ayunas', panel: 'glycemic' });
+      expect(labResultMatches(glucose, '', catalog)).toBe(true);
+      expect(labResultMatches(glucose, 'GLUCOSA', catalog)).toBe(true);
+      expect(labResultMatches(glucose, 'fpg', catalog)).toBe(true); // alias
+      expect(labResultMatches(glucose, 'fasting', catalog)).toBe(true); // label
+      expect(labResultMatches(glucose, 'glycemic', catalog)).toBe(true); // panel
+      expect(labResultMatches(glucose, 'ldl', catalog)).toBe(false);
+      expect(labResultMatches(labValue({ nameAsPrinted: 'Hémoglobine' }), 'hemoglobine', catalog)).toBe(true);
+      expect(foldSearchText('  Créatinine ')).toBe('creatinine');
+    });
   });
 });
