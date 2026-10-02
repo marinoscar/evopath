@@ -12,7 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOkResponse, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AiEnabledGuard } from '../ai/config/ai-enabled.guard';
 import { Auth } from '../auth/decorators/auth.decorator';
@@ -22,6 +22,7 @@ import { PERMISSIONS } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { ErrorDto } from '../common/dto/error.dto';
 import {
+  AcceptAllItemsDto,
   AnalyzeIntakeDto,
   AttachPhotoDto,
   CreateDraftItemDto,
@@ -283,17 +284,27 @@ export class IntakesController {
   @Auth({ permissions: [PERMISSIONS.INTAKES_WRITE] })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Accept every pending item',
-    description: 'Every `pending` item becomes `accepted` and `userVerified`. Returns the items it changed.',
+    summary: 'Accept every pending item, or only the high-confidence ones',
+    description:
+      'Every `pending` item becomes `accepted` and `userVerified`. With the optional body ' +
+      '`{ "only": "high_confidence" }`, only the pending items with `confidence: high` and ' +
+      '`uncertain: false` are accepted; the rest stay pending. An absent or empty body accepts every ' +
+      'pending item. Works for every intake kind. Returns the items it changed.',
   })
   @ApiParam(ID_PARAM)
+  @ApiBody({ type: AcceptAllItemsDto, required: false })
   @ApiDataResponse(DraftItemView, { isArray: true, description: 'The items that were accepted' })
+  @ApiResponse({ status: 400, description: 'Validation error: an unknown `only` filter or an extra key', type: ErrorDto })
   @ApiResponse(UNAUTHENTICATED)
   @ApiResponse(NO_WRITE)
   @ApiResponse(NOT_FOUND)
   @ApiResponse(STATE_CONFLICT)
-  acceptAll(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.intakes.acceptAll(user.id, id, user.permissions);
+  acceptAll(
+    @CurrentUser() user: RequestUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AcceptAllItemsDto,
+  ) {
+    return this.intakes.acceptAll(user.id, id, user.permissions, dto);
   }
 
   @Patch(':id/items/:itemId')

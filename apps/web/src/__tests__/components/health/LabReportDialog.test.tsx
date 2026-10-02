@@ -3,7 +3,8 @@
  * `/api/intakes` for the `lab_report` kind: the upload step with the
  * keep-or-delete choice, the review grouped by panel, highlighting, the
  * unmatched gate and mapping, edits, the report details, the duplicate
- * warning with "Save anyway", apply, and an axe pass on the review.
+ * warning with "Save anyway", apply, and an axe pass on the review; #305: a
+ * multi-date report, "Accept high confidence" and a save over several dates.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -29,6 +30,8 @@ import {
   cholesterolDuplicate,
   labIntake,
   labIntakeApi,
+  labItem,
+  labValue,
   panelItems,
   type LabIntakeApiOptions,
 } from '../../mocks/fixtures/labReportIntake';
@@ -108,7 +111,7 @@ describe('LabReportDialog: upload and read', () => {
     expect(await screen.findByTestId('lab-report-review')).toBeInTheDocument();
     expect(screen.getAllByTestId('lab-result-row')).toHaveLength(7);
     expect(screen.getByRole('textbox', { name: 'Laboratory' })).toHaveValue('Acme Clinical Laboratories');
-    expect(screen.getByLabelText('Collection date')).toHaveValue('2026-09-15');
+    expect(screen.getByLabelText('Report date')).toHaveValue('2026-09-15');
   });
 });
 
@@ -270,5 +273,68 @@ describe('LabReportDialog: review', () => {
     await screen.findByTestId('lab-report-duplicates');
     const results = await axe(dialog(), { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
+  });
+});
+
+/** A trend report: glucose and cholesterol on three dates; no report date read. */
+function trendIntake() {
+  const dates = ['2023-04-06', '2024-05-01', '2025-11-19'];
+  const items = dates.flatMap((date, index) => [
+    labItem(labValue({ analyteKey: 'fasting_glucose', nameAsPrinted: 'Glucose Lvl', value: 90 + index, unit: 'mg/dL', panel: 'glycemic', collectionDate: date })),
+    labItem(
+      labValue({ analyteKey: 'total_cholesterol', nameAsPrinted: 'Cholesterol', value: 180 + index, unit: 'mg/dL', panel: 'lipids', collectionDate: date }),
+      index === 0 ? { confidence: 'low' } : {},
+    ),
+  ]);
+  return labIntake('ready', { items, photos: PHOTOS, context: { collectionDate: null, labName: null } });
+}
+
+describe('LabReportDialog: multi-date report (#305)', () => {
+  it('groups by date, accepts the high-confidence results, and saves one entry per date', async () => {
+    const { api, user, onSaved } = setup({ existing: [trendIntake()] });
+    await screen.findByTestId('lab-report-review');
+
+    expect(screen.getAllByTestId('lab-date-group').map((group) => group.getAttribute('data-date'))).toEqual([
+      '2025-11-19',
+      '2024-05-01',
+      '2023-04-06',
+    ]);
+    expect(screen.getByLabelText('Report date')).toHaveValue('');
+    expect(screen.getByTestId('lab-report-details')).toHaveTextContent('Each result uses its own date');
+
+    await user.click(within(dialog()).getByRole('button', { name: 'Accept high confidence (5)' }));
+    await waitFor(() => expect(within(dialog()).getByRole('button', { name: 'Accept high confidence (0)' })).toBeDisabled());
+    const acceptAll = api.requests.filter((request) => request.path.endsWith('/items/accept-all'));
+    expect(acceptAll.map((request) => request.body)).toEqual([{ only: 'high_confidence' }]);
+    expect(screen.getByTestId('lab-report-save-hint')).toHaveTextContent('1 result needs a decision before saving');
+
+    await user.click(within(dialog()).getByRole('button', { name: 'Accept all (1)' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Accept all 1 results?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Accept all' }));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.click(saveButton());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const result = onSaved.mock.calls[0][0];
+    expect(result.entryIds).toHaveLength(3);
+    expect(result.measuredAtSource).toBe('collection_date');
+    expect(result.entries.map((entry: { collectionDate: string }) => entry.collectionDate)).toEqual([
+      '2025-11-19',
+      '2024-05-01',
+      '2023-04-06',
+    ]);
+    expect(await screen.findByText('Saved 6 results on 3 dates')).toBeInTheDocument();
+  });
+
+  it('says the report date is used for results without their own date', async () => {
+    const intake = readyIntake();
+    intake.items[0] = { ...intake.items[0], value: { ...intake.items[0].value, collectionDate: '2026-09-01' } };
+    setup({ existing: [intake] });
+    await screen.findByTestId('lab-report-review');
+    expect(screen.getByTestId('lab-report-details')).toHaveTextContent('Used for results without their own date');
+    expect(screen.getAllByTestId('lab-date-group').map((group) => group.getAttribute('data-date'))).toEqual([
+      '2026-09-15',
+      '2026-09-01',
+    ]);
   });
 });

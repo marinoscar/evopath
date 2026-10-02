@@ -44,6 +44,13 @@ describe('lab catalog', () => {
       'bun',
       'sodium',
       'potassium',
+      'calcium',
+      'chloride',
+      'co2',
+      'total_protein',
+      'globulin',
+      'albumin_globulin_ratio',
+      'bun_creatinine_ratio',
     ],
     thyroid: ['tsh', 'free_t4', 'free_t3'],
     iron: ['ferritin', 'serum_iron', 'tibc', 'transferrin_saturation'],
@@ -147,6 +154,12 @@ describe('lab catalog', () => {
       ['bun', 14, 'mmol/L', 5.0, 1],
       ['sodium', 140, 'mEq/L', 140, 0],
       ['potassium', 4.2, 'mEq/L', 4.2, 1],
+      ['calcium', 10, 'mmol/L', 2.5, 2],
+      ['calcium', 9.4, 'mmol/L', 2.35, 2],
+      ['chloride', 102, 'mEq/L', 102, 0],
+      ['co2', 25, 'mEq/L', 25, 0],
+      ['total_protein', 7.2, 'g/L', 72, 0],
+      ['globulin', 2.6, 'g/L', 26, 0],
       ['tsh', 2.5, 'µIU/mL', 2.5, 2],
       ['free_t4', 1.2, 'pmol/L', 15.4, 1],
       ['free_t3', 3.2, 'pmol/L', 4.9, 1],
@@ -190,6 +203,21 @@ describe('lab catalog', () => {
           }
         }
       }
+    });
+
+    it('matches the "mMol/L" spelling of a portal printout for every mmol/L analyte (#305)', () => {
+      for (const key of ['sodium', 'potassium', 'chloride', 'co2', 'fasting_glucose', 'calcium']) {
+        expect(unitFor(key, 'mMol/L')?.unit).toBe('mmol/L');
+        expect(unitFor(key, ' MMOL/L ')?.unit).toBe('mmol/L');
+      }
+      expect(toCanonical('sodium', 140, 'mMol/L')).toBe(140);
+      expect(toCanonical('calcium', 2.5, 'mMol/L').toFixed(1)).toBe('10.0');
+    });
+
+    it('treats the A/G and BUN/creatinine ratios as unitless (#305)', () => {
+      expect(getMetric('albumin_globulin_ratio')!.canonicalUnit).toBe('ratio');
+      expect(getMetric('bun_creatinine_ratio')!.canonicalUnit).toBe('ratio');
+      expect(unitFor('albumin_globulin_ratio', 'Ratio')?.unit).toBe('ratio');
     });
 
     it('matches lab spellings of a unit (case, u or mu for micro) for labs only', () => {
@@ -247,6 +275,63 @@ describe('lab catalog', () => {
       expect(resolveLabAnalyte('Lipoprotein(a)')).toBeUndefined();
       expect(resolveLabAnalyte('weight')).toBeUndefined();
       expect(resolveLabAnalyte('energy')).toBeUndefined();
+    });
+
+    it.each([
+      ['Albumin Lvl', 'albumin'],
+      ['Glucose Lvl', 'fasting_glucose'],
+      ['Glucose Level', 'fasting_glucose'],
+      ['Creatinine Lvl', 'creatinine'],
+      ['Creatinine, Ser', 'creatinine'],
+      ['Albumin (calc)', 'albumin'],
+      ['Albumin (Calculated)', 'albumin'],
+      ['Albumin, Serum', 'albumin'],
+      ['Plasma Glucose', 'fasting_glucose'],
+      ['Hemoglobin, Whole Blood', 'hemoglobin'],
+      ['Bld Urea Nitrogen', 'bun'],
+      ['Ferritin Lvl, Serum', 'ferritin'],
+      ['Testosterone, Total Lvl', 'testosterone_total'],
+      ['Testosterone Free Lvl', 'testosterone_free'],
+      ['Total Bilirubin Lvl', 'total_bilirubin'],
+      ['Albumin Lvl Normal Range: 3.6 - 5.1 g/dL', 'albumin'],
+      ['Glucose Lvl\nNormal Range: 65 - 99 mg/dL', 'fasting_glucose'],
+      // The rest of a CMP trend table (#305).
+      ['Calcium Lvl', 'calcium'],
+      ['Chloride Lvl', 'chloride'],
+      ['CO2 Lvl', 'co2'],
+      ['Bicarbonate', 'co2'],
+      ['HCO3', 'co2'],
+      ['Total CO2', 'co2'],
+      ['Total Protein', 'total_protein'],
+      ['Protein, Total Lvl', 'total_protein'],
+      ['Globulin (calc)', 'globulin'],
+      ['Albumin/Globulin Ratio', 'albumin_globulin_ratio'],
+      ['A/G Ratio (CALC)', 'albumin_globulin_ratio'],
+      ['BUN/Creatinine Ratio', 'bun_creatinine_ratio'],
+      ['B/C Ratio', 'bun_creatinine_ratio'],
+      ['Sodium Lvl', 'sodium'],
+      ['Potassium Lvl', 'potassium'],
+    ])('resolves %p to %s once common qualifiers are stripped', (name, key) => {
+      expect(resolveLabAnalyte(name)?.key).toBe(key);
+    });
+
+    it('keeps catalog names that contain a qualifier word on their own key', () => {
+      expect(resolveLabAnalyte('Total Cholesterol')?.key).toBe('total_cholesterol');
+      expect(resolveLabAnalyte('Cholesterol, Total')?.key).toBe('total_cholesterol');
+      expect(resolveLabAnalyte('Bilirubin, Total')?.key).toBe('total_bilirubin');
+      expect(resolveLabAnalyte('Total Testosterone')?.key).toBe('testosterone_total');
+      expect(resolveLabAnalyte('Total Iron Binding Capacity')?.key).toBe('tibc');
+      expect(resolveLabAnalyte('Blood Urea Nitrogen')?.key).toBe('bun');
+      expect(resolveLabAnalyte('Serum Iron')?.key).toBe('serum_iron');
+    });
+
+    it('never guesses after stripping: analytes the catalog lacks stay unmatched', () => {
+      expect(resolveLabAnalyte('Calcium, Ionized')).toBeUndefined();
+      expect(resolveLabAnalyte('Protein, Urine')).toBeUndefined();
+      expect(resolveLabAnalyte('Magnesium Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Serum Total Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Normal Range: 3.6 - 5.1 g/dL')).toBeUndefined();
     });
 
     it('folds case, accents, spaces and punctuation', () => {
@@ -314,6 +399,10 @@ describe('lab catalog', () => {
         'egfr',
         'sodium',
         'potassium',
+        'chloride',
+        'co2',
+        'albumin_globulin_ratio',
+        'bun_creatinine_ratio',
         'tsh',
         'transferrin_saturation',
         'hs_crp',

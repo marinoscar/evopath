@@ -22,8 +22,9 @@ import { labReportValueSchema, sameLabResult, type LabReportValue } from './lab-
 // a converted value (glucose in mmol/L) keeps its source. `userEdited` says
 // whether the saved result differs from `aiDraft` (analyte, canonical value,
 // range or flag); `originalAiValue` (the drafted canonical value) is present
-// only when it does. `collectionDate` is null when the report had none and
-// the result was dated at apply time. `MeasurementsService.updateEntry`
+// only when it does. `collectionDate` is the date the row's entry is dated
+// with (the result's own date, else the report date, #305); null when it had
+// neither and was dated at apply time. `MeasurementsService.updateEntry`
 // recomputes `userEdited` when a later edit changes the value.
 // =============================================================================
 

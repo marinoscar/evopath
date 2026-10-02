@@ -50,6 +50,7 @@ function renderReview(labUnits?: LabUnits) {
       onEditItem={onEditItem}
       onAddItem={onAddItem}
       onAcceptAll={vi.fn()}
+      onAcceptHighConfidence={vi.fn()}
     />,
   );
   return { user, onAddItem, onEditItem };

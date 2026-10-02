@@ -217,6 +217,31 @@ export const updateDraftItemSchema = z
 export class UpdateDraftItemDto extends createZodDto(updateDraftItemSchema) {}
 export type UpdateDraftItemInput = z.output<typeof updateDraftItemSchema>;
 
+/** `POST /api/intakes/:id/items/accept-all` filters (#305). */
+export const ACCEPT_ALL_FILTERS = ['high_confidence'] as const;
+export type AcceptAllFilter = (typeof ACCEPT_ALL_FILTERS)[number];
+
+/** An absent (or null) body is the empty filter: every pending item. */
+export const acceptAllItemsSchema = z.preprocess(
+  (body) => (body === undefined || body === null ? {} : body),
+  z
+    .object({
+      only: z
+        .enum(ACCEPT_ALL_FILTERS)
+        .optional()
+        .meta({
+          description:
+            'Accept only a subset of the pending items. `high_confidence`: pending items with `confidence: high` ' +
+            'and `uncertain: false`. Omitted: every pending item.',
+        }),
+    })
+    .strict()
+    .meta({ description: 'Optional. An absent or empty body accepts every pending item.' }),
+);
+
+export class AcceptAllItemsDto extends createZodDto(acceptAllItemsSchema) {}
+export type AcceptAllItemsInput = z.output<typeof acceptAllItemsSchema>;
+
 // -----------------------------------------------------------------------------
 // Responses
 // -----------------------------------------------------------------------------

@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
 import { labReportFixture } from '../../../test/fixtures/lab-report/load';
-import { LAB_METRIC_KEYS } from '../metric-registry';
+import { getMetric, LAB_METRIC_KEYS } from '../metric-registry';
 import {
+  labCatalogLines,
   LAB_REPORT_INSTRUCTIONS,
   LAB_REPORT_MAX_RESULTS,
+  LAB_REPORT_PROMPT_VERSION,
   labReportOutputSchema,
   labReportUserText,
 } from './lab-report.prompt';
@@ -19,8 +21,23 @@ describe('lab report prompt (H4, #188)', () => {
     expect(LAB_REPORT_INSTRUCTIONS).toContain('or null when you are not sure');
   });
 
-  it('lists every catalog key for the matchedKey hint', () => {
-    for (const key of LAB_METRIC_KEYS) expect(LAB_REPORT_INSTRUCTIONS).toContain(key);
+  it('lists every catalog key with its label and aliases for the matchedKey hint', () => {
+    for (const key of LAB_METRIC_KEYS) expect(LAB_REPORT_INSTRUCTIONS).toContain(`- ${key} — ${getMetric(key)!.label}`);
+    expect(labCatalogLines()).toHaveLength(LAB_METRIC_KEYS.length);
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('- albumin — Albumin (ALB, Serum albumin)');
+  });
+
+  it('handles multi-date layouts and never takes a date it should not (#305)', () => {
+    expect(LAB_REPORT_PROMPT_VERSION).toBe(2);
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('First identify the layout of the document');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('a trend or cumulative table');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('one per filled (analyte, date) cell on a trend table');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('Skip empty cells');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('Never use a date of birth');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('never invent or guess a date');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('nameAsPrinted is the analyte name only');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('set value to the number alone and keep the annotation in note');
+    expect(LAB_REPORT_INSTRUCTIONS).toContain('Never derive a flag by comparing the value with the range');
   });
 
   it('parses the fixture, refuses extra keys and more than the result cap', () => {
@@ -33,10 +50,14 @@ describe('lab report prompt (H4, #188)', () => {
     // Strict structured output: every key required (null when absent).
     const shape = z.toJSONSchema(labReportOutputSchema) as any;
     expect(shape.required).toEqual(['readable', 'collectionDate', 'labName', 'results']);
+    expect(shape.properties.results.items.required).toContain('collectionDate');
+    expect(shape.properties.results.items.additionalProperties).toBe(false);
+    expect(LAB_REPORT_MAX_RESULTS).toBe(250);
   });
 
   it('carries no user data in the user text', () => {
-    expect(labReportUserText(1, true)).toBe('Transcribe every lab result printed in this lab report document.');
-    expect(labReportUserText(3, false)).toBe('Transcribe every lab result printed in these 3 lab report pages.');
+    expect(labReportUserText(1, true)).toMatch(/^Transcribe every lab result printed in this lab report document\. /);
+    expect(labReportUserText(3, false)).toMatch(/^Transcribe every lab result printed in these 3 lab report pages\. /);
+    expect(labReportUserText(1, true)).toContain('several collection dates');
   });
 });

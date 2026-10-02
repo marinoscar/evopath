@@ -30,6 +30,7 @@ import {
   getIntake,
   updateDraftItem,
   updateIntakeRetainFiles,
+  type AcceptAllOptions,
   type DraftItemView,
   type PhotoIntakePhotoView,
   type PhotoIntakeView,
@@ -79,7 +80,8 @@ export interface UsePhotoIntakeReturn<TValue = unknown, TContext = unknown> {
   addItem: (kind: string, value: TValue) => Promise<void>;
   /** User items only; an AI item is rejected instead. */
   deleteItem: (itemId: string) => Promise<void>;
-  acceptAll: () => Promise<void>;
+  /** Every pending item, or only the high-confidence ones (`{ only: 'high_confidence' }`, #305). */
+  acceptAll: (options?: AcceptAllOptions) => Promise<void>;
   /** Resolves with the kind's result, or `undefined` when the API refused. */
   apply: <TResult = unknown>() => Promise<TResult | undefined>;
   discard: () => Promise<boolean>;
@@ -273,9 +275,9 @@ export function usePhotoIntake<TValue = unknown, TContext = unknown>(
     [intakeId, run, isMounted],
   );
 
-  const acceptAll = useCallback(async () => {
+  const acceptAll = useCallback(async (options?: AcceptAllOptions) => {
     if (!intakeId) return;
-    const result = await run('Could not accept the items', () => acceptAllDraftItems<TValue>(intakeId));
+    const result = await run('Could not accept the items', () => acceptAllDraftItems<TValue>(intakeId, options));
     if (result.ok) for (const item of result.value) replaceItem(item);
   }, [intakeId, run, replaceItem]);
 

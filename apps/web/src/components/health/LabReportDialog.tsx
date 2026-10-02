@@ -14,8 +14,9 @@
  * 2. Resume the newest unfinished lab report intake, or start one.
  * 3. Up to ten files (a PDF counts as one, up to 20 pages), the keep-or-delete
  *    choice, the disclosure, and Read.
- * 4. The review: results grouped by panel; the collection date and lab name
- *    (the intake's context) are editable; unmatched results must be mapped or
+ * 4. The review: results grouped by date (#305: each result may carry its own
+ *    collection date), then by panel; the report date and lab name (the
+ *    intake's context) are editable; unmatched results must be mapped or
  *    rejected (Save is disabled, with the reason, until they are); the
  *    duplicate warning (`GET /measurements/lab-reports/:id/duplicates`) is
  *    shown before saving and saving over it takes an explicit "Save anyway".
@@ -80,6 +81,8 @@ import {
   isUnresolved,
   labApplyRefusal,
   labResultPayload,
+  labSavedMessage,
+  resultDate,
   type LabReportApplyResult,
   type LabReportContext,
   type LabReportDuplicate,
@@ -144,15 +147,18 @@ function Starting({ label }: { label: string }) {
 }
 
 // -----------------------------------------------------------------------------
-// The report's own fields: collection date and lab name (the intake context)
+// The report's own fields: report date and lab name (the intake context)
 // -----------------------------------------------------------------------------
 
 function ReportDetails({
   context,
+  allDated,
   disabled,
   onSave,
 }: {
   context: LabReportContext | null;
+  /** #305: every result carries its own date, so the report date is not used. */
+  allDated: boolean;
   disabled: boolean;
   onSave: (next: LabReportContext) => void;
 }) {
@@ -179,12 +185,18 @@ function ReportDetails({
           id={`${id}-date`}
           type="date"
           size="small"
-          label="Collection date"
+          label="Report date"
           value={date}
           disabled={disabled}
           onChange={(event) => setDate(event.target.value)}
           onBlur={() => commit(date, lab)}
-          helperText={date ? 'Results are saved on this date' : 'Not read: results are saved with today’s date'}
+          helperText={
+            allDated
+              ? 'Each result uses its own date'
+              : date
+                ? 'Used for results without their own date'
+                : 'Not read: results without their own date are saved with today’s date'
+          }
           slotProps={{ inputLabel: { shrink: true } }}
           sx={{ width: { xs: '100%', sm: 200 } }}
         />
@@ -341,7 +353,14 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
     () =>
       JSON.stringify([
         intake?.context ?? null,
-        items.map((item) => [item.id, item.status, item.value.analyteKey, item.value.value, item.value.unit]),
+        items.map((item) => [
+          item.id,
+          item.status,
+          item.value.analyteKey,
+          item.value.value,
+          item.value.unit,
+          resultDate(item.value),
+        ]),
       ]),
     [intake?.context, items],
   );
@@ -434,6 +453,9 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
   const pending = items.filter((item) => item.status === 'pending').length;
   const accepted = items.filter((item) => item.status === 'accepted').length;
   const unresolved = items.filter(isUnresolved).length;
+  const kept = items.filter((item) => item.status !== 'rejected');
+  const allDated = kept.length > 0 && kept.every((item) => resultDate(item.value) !== null);
+  const reportDate = intake?.context?.collectionDate ?? null;
   const hintId = `${intakeId}-save-hint`;
 
   let body;
@@ -456,7 +478,7 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
   } else if (status === 'ready') {
     body = (
       <Stack spacing={2}>
-        <ReportDetails context={intake.context} disabled={busy} onSave={saveContext} />
+        <ReportDetails context={intake.context} allDated={allDated} disabled={busy} onSave={saveContext} />
         <LabReportReview
           items={items}
           photos={intake.photos}
@@ -464,12 +486,14 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
           labUnits={labUnits}
           busy={busy}
           refusedIds={refusedIds}
+          reportDate={reportDate}
           onAcceptItem={(id) => void scan.acceptItem(id)}
           onRejectItem={(id) => void scan.rejectItem(id)}
           onRestoreItem={(id) => void scan.restoreItem(id)}
           onEditItem={editItem}
           onAddItem={addItem}
           onAcceptAll={() => void scan.acceptAll()}
+          onAcceptHighConfidence={() => void scan.acceptAll({ only: 'high_confidence' })}
         />
         {writeIssues && (
           <Alert severity="error" data-testid="lab-report-write-issues" onClose={() => setWriteIssues(null)}>
@@ -654,8 +678,7 @@ export function LabReportDialog({ open, onClose, onSaved, pollIntervalMs }: LabR
 
   const onApplied = (result: LabReportApplyResult) => {
     onSaved(result);
-    const count = result.items.length;
-    setSavedMessage(count > 0 ? `Saved ${count} lab ${count === 1 ? 'result' : 'results'} to Health` : 'Nothing was saved');
+    setSavedMessage(labSavedMessage(result));
     onClose();
   };
 

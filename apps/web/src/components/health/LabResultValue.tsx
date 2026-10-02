@@ -16,15 +16,18 @@ import {
   LAB_FLAG_LABELS,
   LAB_NAME_MAX,
   analyteMatches,
+  formatLabDate,
   formatLabNumber,
   labMetrics,
   referenceRangeText,
+  resultDate,
   type LabFlag,
   type LabReportValue,
 } from '../../services/labReport';
 import { parseDecimal, withUnit } from '../../utils/measurementUnits';
 import { formatLabValue } from '../../utils/biomarkers';
 import { DEFAULT_LAB_UNITS, convertLabRange, labDisplay, labDisplayUnit, type LabUnits } from '../../utils/labUnits';
+import { localDateIn } from '../../utils/localDates';
 
 function findAnalyte(catalog: MetricCatalog | null, key: string | null): MetricDef | undefined {
   if (!key) return undefined;
@@ -52,19 +55,30 @@ const MATCH_LABEL: Record<LabReportValue['match'], string | null> = {
   unmatched: 'Not in catalog',
 };
 
+/** "Nov 19, 2025", "Report date (Sep 15, 2026)" or "No date: saved with today’s date" (#305). */
+export function labResultDateText(value: Pick<LabReportValue, 'collectionDate'>, reportDate: string | null | undefined): string {
+  const own = resultDate(value);
+  if (own) return formatLabDate(own);
+  if (reportDate) return `Report date (${formatLabDate(reportDate)})`;
+  return 'No date: saved with today’s date';
+}
+
 /**
- * `renderValue`: the printed name, the analyte it is saved as, value, range and
- * flag. A canonical value is SHOWN in the `labUnits` preference (#234); what
- * is saved does not change.
+ * `renderValue`: the printed name, the analyte it is saved as, value, range,
+ * flag and the date it is saved on. A canonical value is SHOWN in the
+ * `labUnits` preference (#234); what is saved does not change.
  */
 export function LabResultView({
   value,
   catalog,
   labUnits = DEFAULT_LAB_UNITS,
+  reportDate,
 }: {
   value: LabReportValue;
   catalog: MetricCatalog | null;
   labUnits?: LabUnits;
+  /** The report date a result without its own date is saved on; omit to hide the date line. */
+  reportDate?: string | null;
 }) {
   const analyte = findAnalyte(catalog, value.analyteKey);
   const printed = value.nameAsPrinted ?? analyte?.label ?? 'Unnamed result';
@@ -111,6 +125,11 @@ export function LabResultView({
         {range && <span> · Range {range}</span>}
         {value.value !== null && value.valueText && <span> · “{value.valueText}”</span>}
       </Typography>
+      {reportDate !== undefined && (
+        <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }} data-testid="lab-result-date">
+          {labResultDateText(value, reportDate)}
+        </Typography>
+      )}
       {(value.flag || matchLabel) && (
         <Stack component="span" direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.5 }}>
           <LabFlagChip flag={value.flag} />
@@ -222,7 +241,8 @@ export interface LabResultEditorProps {
 
 /**
  * `renderEditor`: analyte, value and unit (any unit the analyte accepts; the
- * server converts), reference range, the printed range text and the flag.
+ * server converts), reference range, the printed range text, the flag and the
+ * result's own collection date (#305; empty: the report date applies).
  */
 export function LabResultEditor({ value, onChange, catalog, labUnits = DEFAULT_LAB_UNITS }: LabResultEditorProps) {
   const id = useId();
@@ -237,6 +257,8 @@ export function LabResultEditor({ value, onChange, catalog, labUnits = DEFAULT_L
   };
 
   const unitValue = analyte ? (units.some((unit) => unit.unit === value.unit) ? value.unit! : '') : (value.unit ?? '');
+  // A browser hint only; the server refuses a future date.
+  const today = localDateIn(null);
 
   return (
     <Stack spacing={1.5} data-testid="lab-result-editor">
@@ -321,6 +343,17 @@ export function LabResultEditor({ value, onChange, catalog, labUnits = DEFAULT_L
           ))}
         </TextField>
       </Stack>
+      <TextField
+        id={`${id}-date`}
+        type="date"
+        size="small"
+        label="Date collected"
+        value={resultDate(value) ?? ''}
+        onChange={(event) => onChange({ ...value, collectionDate: event.target.value === '' ? null : event.target.value })}
+        helperText="Leave empty to use the report date"
+        slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: today } }}
+        sx={{ width: { xs: '100%', sm: 220 } }}
+      />
     </Stack>
   );
 }

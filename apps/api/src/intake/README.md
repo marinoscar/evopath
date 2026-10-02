@@ -45,6 +45,7 @@ draft --analyze--> scanning --replaceAiDrafts--> ready --apply--> applied
 - Items can be added and edited in any status except `applied`.
 - `PATCH /api/intakes/:id` replaces the `context` (for example a source hint the analyzer reads) in `draft`, `ready` and `failed`; the kind validates it as on create. It answers 409 `INVALID_INTAKE_STATUS` while the intake is `scanning` or `applied`. Photos and items are untouched.
 - `apply` needs no `pending` item; accepted items reach the kind, rejected ones do not.
+- `POST /api/intakes/:id/items/accept-all` accepts every pending item. An optional body `{ "only": "high_confidence" }` accepts only pending items with `confidence: 'high'` and `uncertain: false`; an absent or empty body keeps the default. It is kind-agnostic and works for every kind.
 
 ## Registered Kinds
 
@@ -55,10 +56,12 @@ draft --analyze--> scanning --replaceAiDrafts--> ready --apply--> applied
 | `gym_equipment` | `gyms/intake/` | `ai.equipment.scan` | `gym_scan` | image | none |
 | `workout_prefill` | `workouts/intake/` | `ai.workout.prefill` | `workout_prefill` | image | none |
 
-`lab_report` ([health-records.md 2.10](../../../../docs/specs/health-records.md#210-lab-report-extraction)) shows two
+`lab_report` ([health-records.md 2.10](../../../../docs/specs/health-records.md#210-lab-report-extraction)) shows three
 patterns the others do not: the analyzer fills document-level fields into the
-context (`replaceAiDrafts`' `context`), and `apply` refuses with a kind-specific
-409 (`UNRESOLVED_ANALYTES`) instead of dropping what the server could not match.
+context (`replaceAiDrafts`' `context`), `apply` refuses with a kind-specific
+409 (`UNRESOLVED_ANALYTES`) instead of dropping what the server could not match,
+and `apply` writes several entries (one per collection date) and answers
+`entryIds` and `entries` beside `entryId`.
 
 ## Adding a Kind
 

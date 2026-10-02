@@ -581,6 +581,47 @@ describe('/api/intakes over HTTP (E3.1)', () => {
       expect(prisma.draftItem.deleteMany).toHaveBeenCalledTimes(1);
     });
 
+    describe('POST accept-all (#305 filter)', () => {
+      const path = `/api/intakes/${INTAKE}/items/accept-all`;
+
+      beforeEach(() => {
+        prisma.draftItem.findMany
+          .mockResolvedValueOnce([{ id: ITEM }] as never)
+          .mockResolvedValueOnce([itemRow({ status: 'accepted', userVerified: true })] as never);
+      });
+
+      const acceptedWhere = () => (prisma.draftItem.updateMany as jest.Mock).mock.calls[0][0].where;
+
+      it('with no body accepts every pending item', async () => {
+        const res = await request(server()).post(path).set(authHeader(tokens.contributor)).expect(200);
+
+        expect(res.body.data).toEqual([expect.objectContaining({ id: ITEM, status: 'accepted' })]);
+        expect(acceptedWhere()).toEqual({ id: { in: [ITEM] }, intakeId: INTAKE, status: 'pending' });
+      });
+
+      it('with an empty body accepts every pending item', async () => {
+        await call('post', path, tokens.contributor, {}).expect(200);
+
+        expect(prisma.draftItem.findMany).toHaveBeenNthCalledWith(1, { where: { intakeId: INTAKE, status: 'pending' }, select: { id: true } });
+        expect(acceptedWhere()).toEqual({ id: { in: [ITEM] }, intakeId: INTAKE, status: 'pending' });
+      });
+
+      it('with only: high_confidence accepts only pending, high-confidence, certain items', async () => {
+        await call('post', path, tokens.contributor, { only: 'high_confidence' }).expect(200);
+
+        const eligible = { status: 'pending', confidence: 'high', uncertain: false };
+        expect(prisma.draftItem.findMany).toHaveBeenNthCalledWith(1, { where: { intakeId: INTAKE, ...eligible }, select: { id: true } });
+        expect(acceptedWhere()).toEqual({ id: { in: [ITEM] }, intakeId: INTAKE, ...eligible });
+      });
+
+      it('refuses an unknown filter or an extra key with 400, accepting nothing', async () => {
+        await call('post', path, tokens.contributor, { only: 'medium_confidence' }).expect(400);
+        await call('post', path, tokens.contributor, { only: 'high_confidence', status: 'accepted' }).expect(400);
+
+        expect(prisma.draftItem.updateMany).not.toHaveBeenCalled();
+      });
+    });
+
     it('apply with a pending item answers 400 PENDING_ITEMS with the count', async () => {
       prisma.draftItem.count.mockResolvedValue(3);
 

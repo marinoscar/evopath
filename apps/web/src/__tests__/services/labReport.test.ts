@@ -1,7 +1,9 @@
 /**
  * `services/labReport.ts` (H4, #188): the duplicates route, the presentation
  * helpers (panel grouping, attention, unresolved, alias search, range text)
- * and how a refused apply is read.
+ * and how a refused apply is read; #305: per-result dates (grouping, the
+ * effective date, the edit payload), the high-confidence count and the
+ * saved message for several entries.
  */
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
@@ -9,13 +11,20 @@ import { server } from '../mocks/server';
 import { ApiError } from '../../services/api';
 import {
   analyteMatches,
+  effectiveDate,
+  emptyLabResult,
+  formatLabDate,
   getLabReportDuplicates,
+  groupByDate,
   groupByPanel,
+  isHighConfidencePending,
   isUnresolved,
   labApplyRefusal,
   labResultPayload,
+  labSavedMessage,
   needsAttention,
   referenceRangeText,
+  type LabReportValue,
 } from '../../services/labReport';
 import { LAB_METRICS, labItem, labValue, panelItems } from '../mocks/fixtures/labReportIntake';
 
@@ -97,5 +106,60 @@ describe('labReport service', () => {
     ).toEqual({ kind: 'issues', messages: ['HDL cholesterol has no numeric value; enter one or reject it'] });
     const other = new Error('offline');
     expect(labApplyRefusal(other)).toEqual({ kind: 'other', error: other });
+  });
+
+  describe('per-result dates (#305)', () => {
+    const dated = (date: string | null, name: string) => labItem(labValue({ nameAsPrinted: name, collectionDate: date }));
+
+    it('groups by effective date, newest first, the undated group last', () => {
+      const items = [dated('2023-04-06', 'a'), dated(null, 'b'), dated('2025-11-19', 'c'), dated('2023-04-06', 'd')];
+      expect(groupByDate(items, null).map((g) => [g.date, g.items.map((i) => i.value.nameAsPrinted)])).toEqual([
+        ['2025-11-19', ['c']],
+        ['2023-04-06', ['a', 'd']],
+        [null, ['b']],
+      ]);
+      // With a report date, an undated result joins that date's group.
+      expect(groupByDate(items, '2025-11-19').map((g) => [g.date, g.items.length])).toEqual([
+        ['2025-11-19', 2],
+        ['2023-04-06', 2],
+      ]);
+    });
+
+    it('reads a draft from before #305 (no collectionDate) as undated', () => {
+      const old = { ...labValue({}) } as Partial<LabReportValue>;
+      delete old.collectionDate;
+      expect(effectiveDate(old as LabReportValue, '2026-09-15')).toBe('2026-09-15');
+      expect(effectiveDate(old as LabReportValue, null)).toBeNull();
+      expect(labResultPayload(old as LabReportValue).collectionDate).toBeNull();
+    });
+
+    it('sends the date on an edit and starts an added value without one', () => {
+      expect(labResultPayload(labValue({ collectionDate: '2024-01-02' }))).toMatchObject({ collectionDate: '2024-01-02' });
+      expect(emptyLabResult().collectionDate).toBeNull();
+    });
+
+    it('formats a calendar date without moving it', () => {
+      expect(formatLabDate('2025-11-19')).toBe('Nov 19, 2025');
+      expect(formatLabDate('not a date')).toBe('not a date');
+    });
+  });
+
+  it('counts only pending, high-confidence, sure results as high confidence', () => {
+    const base = labValue({});
+    expect(isHighConfidencePending(labItem(base))).toBe(true);
+    expect(isHighConfidencePending(labItem(base, { confidence: 'medium' }))).toBe(false);
+    expect(isHighConfidencePending(labItem(base, { uncertain: true }))).toBe(false);
+    expect(isHighConfidencePending(labItem(base, { status: 'accepted' }))).toBe(false);
+  });
+
+  it('says how many results and dates were saved', () => {
+    const items = (n: number) => Array.from({ length: n }, () => ({}) as never);
+    expect(labSavedMessage({ items: [] })).toBe('Nothing was saved');
+    expect(labSavedMessage({ items: items(7) })).toBe('Saved 7 lab results to Health');
+    expect(labSavedMessage({ items: items(1), entries: [{ entryId: 'e', collectionDate: null, items: [] }] })).toBe(
+      'Saved 1 lab result to Health',
+    );
+    const entries = Array.from({ length: 5 }, (_, i) => ({ entryId: `e${i}`, collectionDate: `2025-0${i + 1}-01`, items: [] }));
+    expect(labSavedMessage({ items: items(85), entries })).toBe('Saved 85 results on 5 dates');
   });
 });

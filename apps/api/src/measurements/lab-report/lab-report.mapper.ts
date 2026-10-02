@@ -38,12 +38,20 @@ import {
 // DOUBT. A matched result with no number, a unit the analyte does not allow,
 // or a value outside the hard bounds is kept, flagged uncertain and low.
 //
+// DATES (#305). Each result keeps its own `collectionDate` (one column of a
+// trend table) when it is a valid date (`isCollectionDate`); an impossible or
+// future one is discarded to null, the draft flagged uncertain with the note
+// "Date not read" (it then falls back to the report date). The REPORT date
+// (the context's `collectionDate`) is the model's report-level date when
+// valid; else the one date every dated result shares; else null.
+//
 // `resultMeta` is diagnostics only: counts and the prompt version, never a
 // value, a name, a prompt or a document byte.
 // =============================================================================
 
 export const UNMATCHED_NOTE = 'Not in the lab catalog: map it to an analyte or reject it';
 export const SUGGESTED_NOTE = "Matched from the AI's suggestion: confirm the analyte";
+export const DATE_NOT_READ_NOTE = 'Date not read: set the collection date or keep the report date';
 
 export interface LabReportMapResult {
   drafts: AiDraftInput[];
@@ -61,6 +69,10 @@ export interface LabReportMapResult {
     converted: number;
     collectionDateRead: boolean;
     collectionDateDiscarded: boolean;
+    /** How many different per-result collection dates were read (#305). */
+    distinctDates: number;
+    /** Per-result dates discarded as impossible or in the future. */
+    resultDatesDiscarded: number;
   };
 }
 
@@ -78,6 +90,7 @@ const finite = (value: number | null): number | null => (value !== null && Numbe
 export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly string[], now: Date = new Date()): LabReportMapResult {
   const results = output.readable ? output.results.slice(0, LAB_REPORT_MAX_RESULTS) : [];
   const counts = { unmatched: 0, suggested: 0, flagged: 0, hintsIgnored: 0, converted: 0 };
+  let resultDatesDiscarded = 0;
 
   const drafts = results.map((result): AiDraftInput => {
     const nameAsPrinted = text(result.nameAsPrinted, 120) ?? '?';
@@ -107,6 +120,14 @@ export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly s
 
     if (result.note && result.note.trim().length > 0) notes.unshift(result.note.trim());
 
+    const printedResultDate = text(result.collectionDate, 10);
+    const collectionDate = printedResultDate && isCollectionDate(printedResultDate, now) ? printedResultDate : null;
+    if (printedResultDate !== null && collectionDate === null) {
+      resultDatesDiscarded += 1;
+      uncertain = true;
+      notes.push(DATE_NOT_READ_NOTE);
+    }
+
     const unit = text(result.unit, LAB_UNIT_MAX);
     const value = finite(result.value);
     const printed: LabReportValue = {
@@ -123,6 +144,7 @@ export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly s
       flag: result.labFlag ?? null,
       panel: panelHint(result.panelHint),
       match,
+      collectionDate,
     };
 
     const saved = toCanonicalLabValue(printed);
@@ -160,8 +182,12 @@ export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly s
     };
   });
 
+  const resultDates = new Set(
+    drafts.map((draft) => (draft.value as LabReportValue).collectionDate).filter((date): date is string => date !== null),
+  );
   const printedDate = text(output.collectionDate, 10);
-  const collectionDate = printedDate && isCollectionDate(printedDate, now) ? printedDate : null;
+  const reportDate = printedDate && isCollectionDate(printedDate, now) ? printedDate : null;
+  const collectionDate = reportDate ?? (resultDates.size === 1 ? [...resultDates][0] : null);
 
   return {
     drafts,
@@ -176,7 +202,9 @@ export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly s
       resultsTruncated: output.readable ? Math.max(0, output.results.length - results.length) : 0,
       ...counts,
       collectionDateRead: output.readable && collectionDate !== null,
-      collectionDateDiscarded: output.readable && printedDate !== null && collectionDate === null,
+      collectionDateDiscarded: output.readable && printedDate !== null && reportDate === null,
+      distinctDates: resultDates.size,
+      resultDatesDiscarded,
     },
   };
 }

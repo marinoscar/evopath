@@ -9,6 +9,11 @@
  * and HbA1c. An edit re-matches like `normalizeValue` (a key the printed name
  * does not resolve to is `user_mapped`); apply refuses accepted unmatched
  * results with 409 `UNRESOLVED_ANALYTES`. Every request is recorded.
+ *
+ * #305: accept-all honours `{ only: 'high_confidence' }`, and apply writes one
+ * entry per effective date (the result's own date, else the report date, else
+ * the time of apply), answering `entryIds`, `entries` and `measuredAtSource`
+ * (`collection_date`, `mixed` or `apply_time`).
  */
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
@@ -115,6 +120,7 @@ export function labValue(overrides: Partial<LabReportValue>): LabReportValue {
     referenceText: null,
     flag: null,
     panel: null,
+    collectionDate: null,
     match: 'matched',
     ...overrides,
   };
@@ -401,10 +407,13 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
 
     http.post('*/api/intakes/:id/items/accept-all', async ({ request, params }) => {
       const id = String(params.id);
-      await record(request, `/api/intakes/${id}/items/accept-all`);
+      const body = (await record(request, `/api/intakes/${id}/items/accept-all`)) as { only?: string } | undefined;
       const intake = state.intakes.get(id);
       if (!intake) return notFound();
-      const changed = intake.items.filter((item) => item.status === 'pending');
+      const highOnly = body?.only === 'high_confidence';
+      const changed = intake.items.filter(
+        (item) => item.status === 'pending' && (!highOnly || (item.confidence === 'high' && !item.uncertain)),
+      );
       for (const item of changed) {
         item.status = 'accepted';
         item.userVerified = true;
@@ -438,21 +447,39 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
       }
       intake.status = 'applied';
       state.applied += 1;
-      const collectionDate = intake.context?.collectionDate ?? null;
-      const items = accepted.map((item) =>
-        mockMeasurement(item.value.analyteKey!, item.value.value ?? 0, {
-          entryId: 'entry-lab-1',
-          unit: item.value.unit ?? '',
-          method: 'lab',
-          origin: item.origin === 'ai' ? 'ai' : 'manual',
-        }),
-      );
+      const reportDate = intake.context?.collectionDate ?? null;
+      // One entry per effective date, newest first, the undated one last.
+      const byDate = new Map<string | null, typeof accepted>();
+      for (const item of accepted) {
+        const date = item.value.collectionDate ?? reportDate;
+        byDate.set(date, [...(byDate.get(date) ?? []), item]);
+      }
+      const dates = [...byDate.keys()].sort((a, b) => (a === null ? 1 : b === null ? -1 : b.localeCompare(a)));
+      const entries = dates.map((date, index) => {
+        const entryId = `entry-lab-${index + 1}`;
+        return {
+          entryId,
+          collectionDate: date,
+          items: byDate.get(date)!.map((item) =>
+            mockMeasurement(item.value.analyteKey!, item.value.value ?? 0, {
+              entryId,
+              unit: item.value.unit ?? '',
+              method: 'lab',
+              origin: item.origin === 'ai' ? 'ai' : 'manual',
+            }),
+          ),
+        };
+      });
+      const dated = entries.filter((entry) => entry.collectionDate !== null).length;
       return HttpResponse.json({
         data: {
-          entryId: items.length ? 'entry-lab-1' : null,
-          items,
-          measuredAtSource: collectionDate ? 'collection_date' : 'apply_time',
-          documentDate: collectionDate,
+          entryId: entries[0]?.entryId ?? null,
+          entryIds: entries.map((entry) => entry.entryId),
+          entries,
+          items: entries.flatMap((entry) => entry.items),
+          measuredAtSource:
+            entries.length === 0 ? null : dated === entries.length ? 'collection_date' : dated === 0 ? 'apply_time' : 'mixed',
+          documentDate: entries.find((entry) => entry.collectionDate !== null)?.collectionDate ?? reportDate,
         },
       });
     }),

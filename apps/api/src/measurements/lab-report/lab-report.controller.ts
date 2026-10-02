@@ -29,7 +29,7 @@ export class LabReportController {
     description:
       'For a `lab_report` intake under review: each draft result that is not rejected, is matched to a ' +
       'catalog analyte and has a number, and equals an active saved lab result of the caller with the ' +
-      "same analyte, on the same UTC day (the intake's `context.collectionDate`, else today) and with the " +
+      "same analyte, on the same UTC day (the result's own `collectionDate`, else the intake's `context.collectionDate`, else today) and with the " +
       'same canonical value. A warning for the review only; `POST /api/intakes/:id/apply` never ' +
       'de-duplicates. Results applied from this intake are not reported.',
   })

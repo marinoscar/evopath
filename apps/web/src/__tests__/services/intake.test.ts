@@ -60,6 +60,7 @@ describe('services/intake', () => {
     await updateDraftItem('in-1', 'it-1', { status: 'rejected' });
     await deleteDraftItem('in-1', 'it-1');
     await acceptAllDraftItems('in-1');
+    await acceptAllDraftItems('in-1', { only: 'high_confidence' });
     await applyIntake('in-1');
     await discardIntake('in-1');
 
@@ -74,6 +75,7 @@ describe('services/intake', () => {
       ['PATCH', '/intakes/in-1/items/it-1', { status: 'rejected' }],
       ['DELETE', '/intakes/in-1/items/it-1', null],
       ['POST', '/intakes/in-1/items/accept-all', null],
+      ['POST', '/intakes/in-1/items/accept-all', { only: 'high_confidence' }],
       ['POST', '/intakes/in-1/apply', null],
       ['DELETE', '/intakes/in-1', null],
     ]);

@@ -13,7 +13,7 @@ import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { RateLimitError } from '../../jobs/rate-limit.error';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { LAB_REPORT_SPAN_ATTRIBUTES, LabReportHandler } from './lab-report.handler';
-import { LAB_REPORT_INSTRUCTIONS, labReportOutputSchema } from './lab-report.prompt';
+import { LAB_REPORT_INSTRUCTIONS, labReportOutputSchema, labReportUserText } from './lab-report.prompt';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const INTAKE_ID = '33333333-3333-4333-8333-333333333333';
@@ -71,11 +71,11 @@ describe('LabReportHandler (H4, #188)', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('is a server-only ai.* type with a 5-minute, single-attempt profile, and registers itself', () => {
+  it('is a server-only ai.* type with a 10-minute, single-attempt profile, and registers itself', () => {
     handler.onModuleInit();
 
     expect(handler.type).toBe('ai.health.lab_report');
-    expect(handler.profile).toEqual({ maxRuntimeMs: 300_000, maxAttempts: 1 });
+    expect(handler.profile).toEqual({ maxRuntimeMs: 600_000, maxAttempts: 1 });
     expect('nodeResultSchema' in handler).toBe(false);
     expect('persistNodeResult' in handler).toBe(false);
     expect(registry.get('ai.health.lab_report')).toBe(handler);
@@ -94,13 +94,14 @@ describe('LabReportHandler (H4, #188)', () => {
       schemaName: 'lab_report',
       strict: true,
       instructions: LAB_REPORT_INSTRUCTIONS,
+      maxOutputTokens: 32_000,
     });
     expect(request.input).toEqual([
       {
         type: 'message',
         role: 'user',
         content: [
-          { type: 'text', text: 'Transcribe every lab result printed in this lab report document.' },
+          { type: 'text', text: labReportUserText(1, true) },
           { type: 'text', text: 'Photo 1 (PDF document):' },
           { type: 'file', storageObjectId: PDF },
         ],
@@ -118,7 +119,7 @@ describe('LabReportHandler (H4, #188)', () => {
     expect(drafts).toHaveLength(7);
     expect(drafts.filter((d: any) => d.value.analyteKey === null)).toHaveLength(1);
     expect(options.context).toEqual({ collectionDate: '2026-09-15', labName: 'Acme Clinical Laboratories' });
-    expect(options.resultMeta).toMatchObject({ promptVersion: 1, unmatched: 1, converted: 1 });
+    expect(options.resultMeta).toMatchObject({ promptVersion: 2, unmatched: 1, converted: 1 });
 
     expect(span.setAttribute).toHaveBeenCalledWith('intake.input_kind', 'pdf');
     expect(span.setAttribute).toHaveBeenCalledWith(LAB_REPORT_SPAN_ATTRIBUTES.inputCount, 1);
@@ -138,14 +139,20 @@ describe('LabReportHandler (H4, #188)', () => {
       }),
     );
     respondStructured.mockResolvedValue({
-      parsed: labReportOutputSchema.parse({ ...labReportFixture('lipid-glucose-panel'), collectionDate: null, labName: 'Read lab' }),
+      // No date anywhere (neither the report's nor a result's): the user's date stays.
+      parsed: labReportOutputSchema.parse({
+        ...labReportFixture('lipid-glucose-panel'),
+        collectionDate: null,
+        labName: 'Read lab',
+        results: labReportFixture('lipid-glucose-panel').results.map((r: object) => ({ ...r, collectionDate: null })),
+      }),
     });
 
     await handler.process(job());
 
     expect(intakes.replaceAiDrafts.mock.calls[0][2].context).toEqual({ collectionDate: '2026-09-01', labName: 'Read lab' });
     const content = respondStructured.mock.calls[0][0].input[0].content;
-    expect(content[0].text).toBe('Transcribe every lab result printed in these 2 lab report pages.');
+    expect(content[0].text).toBe(labReportUserText(2, false));
     expect(content.filter((part: any) => part.type === 'image')).toHaveLength(2);
   });
 

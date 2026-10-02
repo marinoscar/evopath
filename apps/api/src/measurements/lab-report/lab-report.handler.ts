@@ -12,10 +12,16 @@
 // call is made with the user's own provider key (or the org key), and no AI
 // key may ever reach a worker node (CLAUDE.md AI rule 3).
 //
-// PROFILE `{ maxRuntimeMs: 5 min, maxAttempts: 1 }`. A report of several
-// pages takes longer than one display photo; a model call is neither
-// idempotent nor free, so a failure is not retried (the user retries). A
-// provider throttle DEFERS the job instead.
+// PROFILE `{ maxRuntimeMs: 10 min, maxAttempts: 1 }`. A trend report can
+// carry up to `LAB_REPORT_MAX_RESULTS` (250) results, which a reasoning model
+// may take well over five minutes to write (#305); the call's own deadline
+// follows the profile. A model call is neither idempotent nor free, so a
+// failure is not retried (the user retries). A provider throttle DEFERS the
+// job instead.
+//
+// OUTPUT BUDGET. The call asks for `LAB_REPORT_MAX_OUTPUT_TOKENS` (32k) so a
+// long answer is not cut off by a provider's small default; the AI runtime
+// still clamps it to the deployment cap and the model's own maximum.
 //
 // MATCHING is the server's (`lab-report.mapper.ts`): the printed name is
 // resolved against the lab catalog, the model's key is only a fallback hint,
@@ -72,7 +78,13 @@ export const LAB_REPORT_SPAN_ATTRIBUTES = {
   unmatchedCount: 'lab_report.unmatched_count',
 } as const;
 
-const MAX_RUNTIME_MS = 5 * 60_000;
+const MAX_RUNTIME_MS = 10 * 60_000;
+
+/**
+ * Room for 250 results of structured JSON (~120 tokens each) plus reasoning.
+ * Clamped by the runtime to the deployment cap and the model's maximum.
+ */
+export const LAB_REPORT_MAX_OUTPUT_TOKENS = 32_000;
 
 /** The model call's own deadline: a little inside the job's, so the intake records it cleanly. */
 const CALL_DEADLINE_MS = MAX_RUNTIME_MS - 15_000;
@@ -203,6 +215,7 @@ export class LabReportHandler implements JobHandler, OnModuleInit {
           schemaName: LAB_REPORT_SCHEMA_NAME,
           strict: true,
           instructions: LAB_REPORT_INSTRUCTIONS,
+          maxOutputTokens: LAB_REPORT_MAX_OUTPUT_TOKENS,
           input: [{ type: 'message', role: 'user', content }],
         },
         { signal: controller.signal },
