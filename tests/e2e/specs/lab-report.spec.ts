@@ -117,7 +117,7 @@ test.describe('Health: import a lab report with the fake vision provider', () =>
     await expect(review.getByTestId('lab-panel')).toHaveCount(2);
     await expect(review.getByRole('heading', { name: 'Lipids (5)' })).toBeVisible();
     await expect(review.getByRole('heading', { name: 'Glycemic (2)' })).toBeVisible();
-    await expect(dialog.getByLabel('Collection date')).toHaveValue('2026-09-15');
+    await expect(dialog.getByLabel('Report date')).toHaveValue('2026-09-15');
     await expect(dialog.getByRole('textbox', { name: 'Laboratory' })).toHaveValue('Acme Clinical Laboratories');
 
     // Glucose was converted to the canonical unit; the printed value is kept.
