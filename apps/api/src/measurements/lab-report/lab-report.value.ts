@@ -32,10 +32,17 @@ import {
 //     nothing and the model's own key suggestion is a valid catalog key; shown
 //     uncertain for the user to confirm), `user_mapped` (a user edit set a key
 //     the printed name does not resolve to) or `unmatched`.
+//   - `collectionDate` is the result's OWN specimen date (#305): a trend or
+//     cumulative report prints one column per collection date, so one intake
+//     carries the same analyte on several dates. Null = the result uses the
+//     report date (the context's `collectionDate`), else the time of apply.
+//     Validated like the context date; a draft stored before the field
+//     existed parses with it null.
 //
-// The document-level fields (collection date, lab name) live on the intake's
+// The document-level fields (report date, lab name) live on the intake's
 // CONTEXT, so the user can correct them with `PATCH /api/intakes/:id`; the
-// analyzer job fills them from the report.
+// analyzer job fills them from the report. `effectiveCollectionDate` is the
+// one rule that combines the two.
 //
 // Pure data and pure functions (no Nest, no Prisma).
 //
@@ -122,6 +129,18 @@ export const labReportValueSchema = z
       .enum(LAB_MATCH_STATUSES)
       .default('unmatched')
       .meta({ description: 'How `analyteKey` was found. Recomputed by the server on every user write.' }),
+    collectionDate: z
+      .string()
+      .refine((text) => isCollectionDate(text), {
+        message: 'collectionDate must be a date YYYY-MM-DD, not before 1900-01-01 and not in the future',
+      })
+      .nullable()
+      .default(null)
+      .meta({
+        description:
+          "The result's own specimen collection date (`YYYY-MM-DD`), e.g. one column of a trend report. " +
+          "Null = the intake context's `collectionDate` applies, else the time of apply.",
+      }),
   })
   .strict();
 
@@ -160,7 +179,11 @@ export const labReportContextSchema = z
       })
       .nullable()
       .optional()
-      .meta({ description: 'The specimen collection date; the saved results are dated with it. Filled by the analyzer.' }),
+      .meta({
+        description:
+          'The report date (specimen collection date): results without their own `collectionDate` are dated with it. ' +
+          'Filled by the analyzer.',
+      }),
     labName: z
       .string()
       .trim()
@@ -189,6 +212,17 @@ export function measuredAtFor(date: string, now: Date = new Date()): Date {
 export function utcDay(date: string): { start: Date; end: Date } {
   const start = new Date(`${date}T00:00:00.000Z`);
   return { start, end: new Date(start.getTime() + DAY_MS) };
+}
+
+/**
+ * The date a result is saved under: its own `collectionDate`, else the
+ * report date from the context, else null (dated at apply time).
+ */
+export function effectiveCollectionDate(
+  value: Pick<LabReportValue, 'collectionDate'>,
+  context: LabReportContext | null | undefined,
+): string | null {
+  return value.collectionDate ?? context?.collectionDate ?? null;
 }
 
 /** Today as `YYYY-MM-DD` (UTC). */
@@ -308,11 +342,13 @@ export function canonicalLabValueOf(value: Pick<LabReportValue, 'analyteKey' | '
 }
 
 /**
- * Whether two results say the same thing: same analyte, same canonical value,
- * same reference limits, text and flag. Used for `userEdited`.
+ * Whether two results say the same thing: same analyte, same collection date,
+ * same canonical value, same reference limits, text and flag. Used for
+ * `userEdited` (moving a result to another date is an edit).
  */
 export function sameLabResult(a: LabReportValue, b: LabReportValue): boolean {
   if (a.analyteKey !== b.analyteKey) return false;
+  if ((a.collectionDate ?? null) !== (b.collectionDate ?? null)) return false;
 
   const left = canonicalLabValueOf(a);
   const right = canonicalLabValueOf(b);

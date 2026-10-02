@@ -1,4 +1,5 @@
 import {
+  effectiveCollectionDate,
   isCollectionDate,
   labReportContextSchema,
   labReportValueSchema,
@@ -31,7 +32,25 @@ describe('lab_report value (H4, #188)', () => {
         flag: null,
         panel: null,
         match: 'unmatched',
+        collectionDate: null,
       });
+    });
+
+    it('carries a per-result collection date, validated like the report date; old drafts parse without it (#305)', () => {
+      expect(labReportValueSchema.parse({ analyteKey: 'albumin', collectionDate: '2025-11-19' }).collectionDate).toBe('2025-11-19');
+      expect(labReportValueSchema.parse({ analyteKey: 'albumin', collectionDate: null }).collectionDate).toBeNull();
+      expect(labReportValueSchema.parse({ analyteKey: 'albumin' }).collectionDate).toBeNull();
+      expect(labReportValueSchema.safeParse({ collectionDate: '2025-02-30' }).success).toBe(false);
+      expect(labReportValueSchema.safeParse({ collectionDate: '1899-12-31' }).success).toBe(false);
+      expect(labReportValueSchema.safeParse({ collectionDate: '2999-01-01' }).success).toBe(false);
+      expect(labReportValueSchema.safeParse({ collectionDate: 'Nov 19, 2025' }).success).toBe(false);
+    });
+
+    it('effectiveCollectionDate: own date, else the report date, else null', () => {
+      expect(effectiveCollectionDate({ collectionDate: '2025-11-19' }, { collectionDate: '2026-01-01' })).toBe('2025-11-19');
+      expect(effectiveCollectionDate({ collectionDate: null }, { collectionDate: '2026-01-01' })).toBe('2026-01-01');
+      expect(effectiveCollectionDate({ collectionDate: null }, {})).toBeNull();
+      expect(effectiveCollectionDate({ collectionDate: null }, undefined)).toBeNull();
     });
 
     it('accepts only lab analyte keys, known flags and panels, and no extra key', () => {
@@ -131,12 +150,14 @@ describe('lab_report value (H4, #188)', () => {
     expect(matchOf(null, 'LDL-C')).toBe('unmatched');
   });
 
-  it('sameLabResult compares analyte, canonical value, range and flag', () => {
+  it('sameLabResult compares analyte, collection date, canonical value, range and flag', () => {
     const a = value({ referenceLow: 70, referenceHigh: 99 });
     expect(sameLabResult(a, { ...a })).toBe(true);
     expect(sameLabResult(a, { ...a, value: 5.3827, unit: 'mmol/L', referenceLow: 3.885, referenceHigh: 5.4945 })).toBe(false);
     expect(sameLabResult(a, { ...a, value: 98 })).toBe(false);
     expect(sameLabResult(a, { ...a, flag: 'high' })).toBe(false);
     expect(sameLabResult(a, { ...a, analyteKey: 'hba1c' })).toBe(false);
+    expect(sameLabResult(a, { ...a, collectionDate: '2025-11-19' })).toBe(false);
+    expect(sameLabResult({ ...a, collectionDate: '2025-11-19' }, { ...a, collectionDate: '2025-11-19' })).toBe(true);
   });
 });

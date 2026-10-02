@@ -123,6 +123,7 @@ export function mapLabReportOutput(output: LabReportOutput, photoIds: readonly s
       flag: result.labFlag ?? null,
       panel: panelHint(result.panelHint),
       match,
+      collectionDate: null,
     };
 
     const saved = toCanonicalLabValue(printed);
