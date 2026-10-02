@@ -11,7 +11,9 @@ import com.google.androidbrowserhelper.trusted.LauncherActivity
 
 /**
  * Launcher entry point: opens the PWA at `${server}/?source=twa&appVersion=…&appVersionCode=…`
- * in a Trusted Web Activity.
+ * in a Trusted Web Activity, or, for an https link on the server's host (the manifest's VIEW
+ * filter, which also lets the browser delegate the web app's notifications), at that link with
+ * the same parameters.
  * When no server is configured yet it shows [SetupActivity] instead.
  *
  * The manifest's DEFAULT_URL is only a placeholder; the real URL comes from ServerConfig, so
@@ -40,6 +42,9 @@ class TwaLauncherActivity : LauncherActivity() {
 
     override fun getLaunchingUrl(): Uri {
         val server = serverUrl ?: return super.getLaunchingUrl()
-        return Uri.parse(ServerUrls.twaLaunchUrl(server, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()))
+        // An https link on the server's host (the launcher's VIEW filter) opens at that page;
+        // the launcher icon, or a link to any other host, opens the start URL.
+        val incoming = intent?.data?.toString()
+        return Uri.parse(ServerUrls.twaLaunchUrlFor(server, incoming, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong()))
     }
 }

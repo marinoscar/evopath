@@ -346,6 +346,38 @@ class ChecksTest {
         assertStatus(CheckStatus.WARN, Checks.notificationChannels(32, permissionGranted = false, enabled = true, channels = listOf(webBlocked)))
     }
 
+    // --- notifications.delegation ---------------------------------------------------------
+
+    @Test fun `delegation passes when the app opens the server's links`() {
+        val check = Checks.notificationDelegation("https://app.example.com", "app.example.com", handled = true)
+        assertStatus(CheckStatus.PASS, check)
+        assertEquals("notifications.delegation", check.id)
+        assertTrue(check.detail, Checks.DELEGATION_REFRESH in check.detail)
+        assertEquals(JsonPrimitive("app.example.com"), check.data!!["serverHost"])
+        assertEquals(JsonPrimitive(true), check.data!!["handled"])
+    }
+
+    @Test fun `delegation warns and names both hosts when the build is for another server`() {
+        val check = Checks.notificationDelegation("https://app.example.com:8443", "other.example.org", handled = false)
+        assertStatus(CheckStatus.WARN, check)
+        assertTrue(check.detail, check.detail.startsWith("This build opens links for other.example.org, but the server is app.example.com:"))
+        assertTrue(check.detail, "Chrome will show notifications as its own" in check.detail)
+        assertTrue(check.detail, Checks.DELEGATION_REFRESH in check.detail)
+        assertTrue(check.remedy!!, "--server-url https://app.example.com:8443" in check.remedy!!)
+        assertEquals(JsonPrimitive("other.example.org"), check.data!!["buildHost"])
+    }
+
+    @Test fun `delegation warns that a build without a server url opens no links`() {
+        val check = Checks.notificationDelegation("https://app.example.com", Checks.UNSET_TWA_HOST, handled = false)
+        assertStatus(CheckStatus.WARN, check)
+        assertTrue(check.detail, check.detail.startsWith("This build was made without a server URL"))
+    }
+
+    @Test fun `delegation skips without a server or an answer`() {
+        assertStatus(CheckStatus.SKIP, Checks.notificationDelegation(null, "app.example.com", handled = null))
+        assertStatus(CheckStatus.SKIP, Checks.notificationDelegation("https://app.example.com", "app.example.com", handled = null))
+    }
+
     @Test fun `work scheduled`() {
         val next = Instant.parse("2026-10-01T19:00:00Z")
         val ok = Checks.workScheduled(true, Probe.Ok(WorkSnapshot("ENQUEUED", next), 1), zone)
