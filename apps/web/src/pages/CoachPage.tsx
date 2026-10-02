@@ -34,6 +34,7 @@ import { CoachHeader } from '../components/coach/CoachHeader';
 import { CoachTimeline } from '../components/coach/CoachTimeline';
 import { CoachComposer, type CoachComposerPrefill } from '../components/coach/CoachComposer';
 import { CoachStartOverMenu } from '../components/coach/CoachStartOverMenu';
+import { CoachMemoryUpdates } from '../components/coach/CoachMemoryUpdates';
 import { useCoachSettings } from '../hooks/useCoachSettings';
 import { useCoachState } from '../hooks/useCoachState';
 import { useCoachTimeline } from '../hooks/useCoachTimeline';
@@ -201,6 +202,9 @@ export default function CoachPage() {
             />
           )}
         </Paper>
+
+        {/* #325: what the latest turn changed in memory, with Undo / Manage. */}
+        <CoachMemoryUpdates updates={chat.memoryUpdates} onDismiss={chat.dismissMemoryUpdate} />
 
         <CoachComposer onSend={chat.send} busy={chat.isStreaming} offline={!online} prefill={prefill} />
       </Box>

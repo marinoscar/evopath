@@ -85,6 +85,8 @@ const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
 const UserNotificationsPage = lazy(() => import('./pages/UserNotificationsPage'));
 // AI Coach settings (E7.3, #243).
 const UserCoachSettingsPage = lazy(() => import('./pages/UserCoachSettingsPage'));
+// User memory (#325).
+const UserMemorySettingsPage = lazy(() => import('./pages/UserMemorySettingsPage'));
 const CoachAdminPage = lazy(() => import('./pages/Admin/CoachAdminPage'));
 const UserTokensPage = lazy(() => import('./pages/UserTokensPage'));
 // Issue #202 — the per-user factory reset (Danger Zone).
@@ -449,6 +451,23 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <UserCoachSettingsPage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* #325. Gated exactly like `/settings/coach`: `ai:use` (the
+                      string `memory.controller.ts` enforces and the `Memory`
+                      card declares) plus AI being on, since every memory
+                      route sits behind `AiEnabledGuard`. */}
+                  <Route
+                    path="/settings/memory"
+                    element={
+                      <RequirePermission
+                        permission="ai:use"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <UserMemorySettingsPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }

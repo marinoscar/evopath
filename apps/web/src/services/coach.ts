@@ -871,8 +871,30 @@ export interface CoachChatHandlers {
    * sends `retryOf` instead of storing the text again), `null` when it did not.
    */
   onError?: (frame: CoachChatErrorFrame) => void;
+  /**
+   * The turn changed what the coach remembers (#325): a `memory` frame. A
+   * frame without a usable `op` or `memoryId` is ignored.
+   */
+  onMemory?: (frame: CoachChatMemoryFrame) => void;
   /** Any frame at all (including unknown events): the stream did start. */
   onAnyFrame?: (event: string) => void;
+}
+
+export type CoachChatMemoryOp = 'added' | 'updated' | 'deleted';
+
+/** A `memory` frame on the chat stream (#325). */
+export interface CoachChatMemoryFrame {
+  op: CoachChatMemoryOp;
+  memoryId: string;
+  content: string;
+}
+
+/** The frame's data as a `CoachChatMemoryFrame`, or null when malformed. */
+export function parseCoachMemoryFrame(data: Record<string, unknown>): CoachChatMemoryFrame | null {
+  const op = data.op;
+  if (op !== 'added' && op !== 'updated' && op !== 'deleted') return null;
+  if (typeof data.memoryId !== 'string' || data.memoryId === '') return null;
+  return { op, memoryId: data.memoryId, content: typeof data.content === 'string' ? data.content : '' };
 }
 
 export interface CoachChatErrorFrame {
@@ -941,6 +963,11 @@ export async function streamCoachChat(
             fallback: data.fallback === true,
           });
           break;
+        case 'memory': {
+          const frame = parseCoachMemoryFrame(data);
+          if (frame) handlers.onMemory?.(frame);
+          break;
+        }
         case 'error':
           handlers.onError?.({
             code: typeof data.code === 'string' ? data.code : 'ERROR',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
@@ -82,6 +82,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     '/settings/ai/agents': 'ai:use',
     // E7.3 (#243): the exact string `coach-settings.controller.ts` enforces.
     '/settings/coach': 'ai:use',
+    // #325: the exact string `memory/memory.controller.ts` enforces.
+    '/settings/memory': 'ai:use',
     // #283 (epic #276): the exact string the health-sync controller's reads enforce.
     '/settings/connected-devices': 'goals:read',
   };
@@ -222,8 +224,8 @@ describe('USER_SETTINGS_SECTIONS - Coach card (E7.3, #243)', () => {
   const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
   const ai = USER_SETTINGS_SECTIONS.find((section) => section.label === 'AI');
 
-  it('is appended after Training agents, the last card of the AI group', () => {
-    expect(ai?.cards.map((card) => card.title)).toEqual(['Training agents', 'Coach']);
+  it('is appended after Training agents (later cards append after it)', () => {
+    expect(ai?.cards.map((card) => card.title).slice(0, 2)).toEqual(['Training agents', 'Coach']);
   });
 
   it('declares ai:use and the ai feature gate', () => {
@@ -345,5 +347,57 @@ describe('USER_SETTINGS_SECTIONS - Android app card (#287)', () => {
   it('is routed in App.tsx without a permission gate', () => {
     const app = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../App.tsx'), 'utf8');
     expect(app).toMatch(/<Route path="\/settings\/android-app" element=\{<AndroidAppDownloadPage \/>\} \/>/);
+  });
+});
+
+/**
+ * #325. The Memory card is APPENDED as the last card of the `AI` group, gated
+ * on `ai:use` (the literal string `memory/memory.controller.ts` enforces) and
+ * hidden while AI is off.
+ */
+describe('USER_SETTINGS_SECTIONS - Memory card (#325)', () => {
+  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  const MEMORY_CONTROLLER = resolve(API_SRC, 'memory/memory.controller.ts');
+  const ai = USER_SETTINGS_SECTIONS.find((section) => section.label === 'AI');
+
+  it('is appended after Coach, as the last card of the AI group', () => {
+    expect(ai?.cards.map((card) => card.title)).toEqual(['Training agents', 'Coach', 'Memory']);
+  });
+
+  it('declares its title, description, path, ai:use and the ai feature gate', () => {
+    const card = ai?.cards.find((c) => c.path === '/settings/memory');
+    expect(card).toMatchObject({
+      title: 'Memory',
+      description: 'What your coach remembers about you',
+      permission: 'ai:use',
+      feature: 'ai',
+    });
+  });
+
+  // The API half of #325 is built in parallel; until its controller is on
+  // disk in this tree the literal-string check cannot run, and is skipped
+  // rather than weakened.
+  it.skipIf(!existsSync(MEMORY_CONTROLLER))(
+    'matches the permission memory.controller.ts enforces on every route',
+    () => {
+      const controller = readFileSync(MEMORY_CONTROLLER, 'utf8');
+      const auths = controller.match(/@Auth\(\{ permissions: \[PERMISSIONS\.[A-Z_]+\] \}\)/g) ?? [];
+      expect(auths.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(auths)).toEqual(new Set(['@Auth({ permissions: [PERMISSIONS.AI_USE] })']));
+      expect(controller).toContain('AiEnabledGuard');
+    },
+  );
+
+  it('titles /settings/memory "Memory" while AI is on and is hidden while AI is off or without ai:use', () => {
+    expect(
+      settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/memory', { ai: true }),
+    ).toBe('Memory');
+    const titles = (features: Record<string, boolean>, perms: string[]) =>
+      visibleSettingsSections(USER_SETTINGS_SECTIONS, (p) => perms.includes(p), '', features).flatMap((s) =>
+        s.cards.map((c) => c.title),
+      );
+    expect(titles({ ai: true }, ['ai:use'])).toContain('Memory');
+    expect(titles({ ai: false }, ['ai:use'])).not.toContain('Memory');
+    expect(titles({ ai: true }, [])).not.toContain('Memory');
   });
 });
