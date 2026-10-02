@@ -14,6 +14,11 @@
  * entry per effective date (the result's own date, else the report date, else
  * the time of apply), answering `entryIds`, `entries` and `measuredAtSource`
  * (`collection_date`, `mixed` or `apply_time`).
+ *
+ * #307: `POST /api/measurements/lab-reports/:id/map` maps the picked result
+ * and every same-named one (folded name; not rejected; not user-mapped to
+ * another analyte), skipping a result `mapRefusal` refuses (a 400 when that
+ * is the picked one), and answers `{ items, skipped }`.
  */
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
@@ -91,6 +96,8 @@ export const LAB_METRICS: MetricDef[] = [
     siUnit: 'µmol/L',
   }),
   lab('tsh', 'TSH', 'thyroid', 'mIU/L', [{ unit: 'µIU/mL', factor: 1 }], ['Thyrotropin', 'Thyroid stimulating hormone']),
+  // #307: a unitless ratio. Only some of the API's aliases, so a printed "Chol/HDL Ratio" stays unmatched here.
+  lab('chol_hdl_ratio', 'Cholesterol/HDL ratio', 'lipids', 'ratio', [], ['TC/HDL'], { max: 30 }),
 ];
 
 /** `GET /api/measurements/metrics` with the lab analytes appended. */
@@ -215,6 +222,13 @@ export interface LabIntakeApiOptions {
   duplicates?: (intake: PhotoIntakeView<LabReportValue, LabReportContext>) => LabReportDuplicate[];
   /** A refusal for an item PATCH, answered once. */
   itemPatchError?: { status: number; body: unknown };
+  /** #307: a refusal for the map route, answered once. */
+  mapError?: { status: number; body: unknown };
+  /**
+   * #307: why the server's write path would refuse mapping this result (the
+   * map skips it, or answers 400 for the picked one); default never.
+   */
+  mapRefusal?: (item: DraftItemView<LabReportValue>, metric: MetricDef) => string | null;
   /** The name the server reports for an attached file. */
   photoName?: string;
 }
@@ -225,6 +239,8 @@ export interface LabIntakeApiState {
   created: { kind: string; retainFiles?: boolean }[];
   itemPatches: { itemId: string; body: Record<string, unknown> }[];
   itemPosts: { kind: string; value: Partial<LabReportValue> }[];
+  /** #307: every map request, with the item ids the server mapped and skipped. */
+  maps: { itemId: string; analyteKey: string; mapped: string[]; skipped: string[] }[];
   intakePatches: { id: string; body: Record<string, unknown> }[];
   duplicateChecks: number;
   applied: number;
@@ -237,11 +253,13 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
     created: [],
     itemPatches: [],
     itemPosts: [],
+    maps: [],
     intakePatches: [],
     duplicateChecks: 0,
     applied: 0,
   };
   let itemPatchError = options.itemPatchError;
+  let mapError = options.mapError;
   let uploads = 0;
 
   const view = (id: string) => {
@@ -482,6 +500,64 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
           documentDate: entries.find((entry) => entry.collectionDate !== null)?.collectionDate ?? reportDate,
         },
       });
+    }),
+
+    http.post('*/api/measurements/lab-reports/:intakeId/map', async ({ request, params }) => {
+      const id = String(params.intakeId);
+      const body = (await record(request, `/api/measurements/lab-reports/${id}/map`)) as { itemId: string; analyteKey: string };
+      const intake = state.intakes.get(id);
+      const clicked = intake?.items.find((entry) => entry.id === body.itemId);
+      if (!intake || !clicked) return notFound();
+      if (mapError) {
+        const refusal = mapError;
+        mapError = undefined;
+        return HttpResponse.json(refusal.body, { status: refusal.status });
+      }
+      const metric = LAB_METRICS.find((m) => m.key === body.analyteKey);
+      if (!metric) {
+        return HttpResponse.json(
+          { code: 'BAD_REQUEST', message: 'Validation failed', details: { issues: [{ path: 'analyteKey', message: 'Not a lab analyte' }] } },
+          { status: 400 },
+        );
+      }
+      const fold = (name: string | null) => (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const targets = intake.items.filter(
+        (item) =>
+          item.id === clicked.id ||
+          (fold(item.value.nameAsPrinted) === fold(clicked.value.nameAsPrinted) &&
+            item.status !== 'rejected' &&
+            !(item.value.match === 'user_mapped' && item.value.analyteKey !== null && item.value.analyteKey !== body.analyteKey)),
+      );
+      const refusal = (item: DraftItemView<LabReportValue>) => options.mapRefusal?.(item, metric) ?? null;
+      const clickedRefusal = refusal(clicked);
+      if (clickedRefusal) {
+        return HttpResponse.json(
+          { code: 'BAD_REQUEST', message: 'Validation failed', details: { issues: [{ path: 'value.unit', message: clickedRefusal }] } },
+          { status: 400 },
+        );
+      }
+      const mapped: DraftItemView<LabReportValue>[] = [];
+      const skipped: { itemId: string; message: string }[] = [];
+      for (const item of targets) {
+        const reason = refusal(item);
+        if (reason) {
+          skipped.push({ itemId: item.id, message: reason });
+          continue;
+        }
+        if (item.origin === 'ai' && item.originalAiValue === null) item.originalAiValue = item.value;
+        item.value = normalize({ analyteKey: body.analyteKey }, item.value);
+        item.userVerified = true;
+        item.uncertain = false;
+        item.uncertaintyNote = null;
+        mapped.push(item);
+      }
+      state.maps.push({
+        itemId: body.itemId,
+        analyteKey: body.analyteKey,
+        mapped: mapped.map((item) => item.id),
+        skipped: skipped.map((skip) => skip.itemId),
+      });
+      return HttpResponse.json({ data: { items: mapped, skipped } });
     }),
 
     http.get('*/api/measurements/lab-reports/:intakeId/duplicates', async ({ request, params }) => {

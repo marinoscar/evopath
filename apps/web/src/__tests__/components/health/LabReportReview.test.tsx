@@ -3,7 +3,8 @@
  * drafts are SHOWN in the preferred unit with their ranges, the review says
  * which unit system it uses, a newly chosen analyte pre-selects the preferred
  * unit, and an edit is sent in whatever unit the user picks. Conventional is
- * the default and leaves the output as it was.
+ * the default and leaves the output as it was. #307: the map picker calls
+ * `onMapItem` when given, else edits the one result.
  */
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -115,5 +116,45 @@ describe('LabReportReview: lab units', () => {
     await user.type(within(add).getByRole('combobox', { name: 'Analyte' }), 'LDL');
     await user.click(await screen.findByRole('option', { name: /^LDL cholesterol/ }));
     expect(within(add).getByRole('combobox', { name: 'Unit' })).toHaveTextContent('mg/dL');
+  });
+});
+
+describe('LabReportReview: map an unmatched result (#307)', () => {
+  const unmatched = () =>
+    labItem(labValue({ nameAsPrinted: 'Chol/HDL Ratio', value: 3.9, unit: null, panel: 'lipids', match: 'unmatched' }), {
+      sourcePhotoIds: [],
+    });
+  const handlers = () => ({
+    onAcceptItem: vi.fn(),
+    onRejectItem: vi.fn(),
+    onRestoreItem: vi.fn(),
+    onEditItem: vi.fn(),
+    onAddItem: vi.fn(),
+    onAcceptAll: vi.fn(),
+    onAcceptHighConfidence: vi.fn(),
+  });
+  const pick = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.type(screen.getByRole('combobox', { name: 'Map “Chol/HDL Ratio” to an analyte' }), 'TC/HDL');
+    await user.click(await screen.findByRole('option', { name: /Cholesterol\/HDL ratio/ }));
+  };
+
+  it('calls onMapItem with the item and the analyte, not an edit', async () => {
+    const item = unmatched();
+    const props = handlers();
+    const onMapItem = vi.fn();
+    const user = userEvent.setup();
+    render(<LabReportReview items={[item]} photos={[]} catalog={mockLabCatalog} {...props} onMapItem={onMapItem} />);
+    await pick(user);
+    expect(onMapItem).toHaveBeenCalledWith(item.id, 'chol_hdl_ratio');
+    expect(props.onEditItem).not.toHaveBeenCalled();
+  });
+
+  it('without onMapItem, the map is an edit of the one result', async () => {
+    const item = unmatched();
+    const props = handlers();
+    const user = userEvent.setup();
+    render(<LabReportReview items={[item]} photos={[]} catalog={mockLabCatalog} {...props} />);
+    await pick(user);
+    expect(props.onEditItem).toHaveBeenCalledWith(item.id, expect.objectContaining({ analyteKey: 'chol_hdl_ratio' }));
   });
 });

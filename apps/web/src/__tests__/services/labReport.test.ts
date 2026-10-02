@@ -3,7 +3,7 @@
  * helpers (panel grouping, attention, unresolved, alias search, range text)
  * and how a refused apply is read; #305: per-result dates (grouping, the
  * effective date, the edit payload), the high-confidence count and the
- * saved message for several entries.
+ * saved message for several entries; #307: the map route and its message.
  */
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
@@ -20,7 +20,9 @@ import {
   isHighConfidencePending,
   isUnresolved,
   labApplyRefusal,
+  labMappedMessage,
   labResultPayload,
+  mapLabResult,
   labSavedMessage,
   needsAttention,
   referenceRangeText,
@@ -161,5 +163,41 @@ describe('labReport service', () => {
     );
     const entries = Array.from({ length: 5 }, (_, i) => ({ entryId: `e${i}`, collectionDate: `2025-0${i + 1}-01`, items: [] }));
     expect(labSavedMessage({ items: items(85), entries })).toBe('Saved 85 results on 5 dates');
+  });
+
+  it('maps a result through the map route and unwraps the envelope (#307)', async () => {
+    let path = '';
+    let body: unknown;
+    const mapped = labItem(labValue({ analyteKey: 'chol_hdl_ratio', nameAsPrinted: 'Chol/HDL Ratio', match: 'user_mapped' }));
+    server.use(
+      http.post('*/api/measurements/lab-reports/:id/map', async ({ request }) => {
+        path = new URL(request.url).pathname;
+        body = await request.json();
+        return HttpResponse.json({ data: { items: [mapped], skipped: [{ itemId: 'x', message: 'nope' }] } });
+      }),
+    );
+    const result = await mapLabResult('a b', 'item-1', 'chol_hdl_ratio');
+    expect(path).toBe('/api/measurements/lab-reports/a%20b/map');
+    expect(body).toEqual({ itemId: 'item-1', analyteKey: 'chol_hdl_ratio' });
+    expect(result.items).toEqual([mapped]);
+    expect(result.skipped).toEqual([{ itemId: 'x', message: 'nope' }]);
+  });
+
+  it('says how many same-named results were mapped and how many were not (#307)', () => {
+    const items = (n: number) => Array.from({ length: n }, () => labItem(labValue({})));
+    const skipped = (n: number) => Array.from({ length: n }, (_, i) => ({ itemId: `s${i}`, message: 'unit' }));
+    const label = 'Cholesterol/HDL ratio';
+    expect(labMappedMessage({ items: items(1), skipped: [] }, 'Chol/HDL Ratio', label)).toBeNull();
+    expect(labMappedMessage({ items: items(5), skipped: [] }, 'Chol/HDL Ratio', label)).toEqual({
+      message: 'Mapped 5 results named “Chol/HDL Ratio” to Cholesterol/HDL ratio',
+      severity: 'success',
+    });
+    expect(labMappedMessage({ items: items(1), skipped: skipped(2) }, 'Chol/HDL Ratio', label)).toEqual({
+      message: 'Mapped “Chol/HDL Ratio” to Cholesterol/HDL ratio. 2 could not be mapped',
+      severity: 'warning',
+    });
+    expect(labMappedMessage({ items: items(3), skipped: skipped(1) }, null, label)?.message).toBe(
+      'Mapped 3 results to Cholesterol/HDL ratio. 1 could not be mapped',
+    );
   });
 });

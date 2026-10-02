@@ -4,7 +4,8 @@
  * keep-or-delete choice, the review grouped by panel, highlighting, the
  * unmatched gate and mapping, edits, the report details, the duplicate
  * warning with "Save anyway", apply, and an axe pass on the review; #305: a
- * multi-date report, "Accept high confidence" and a save over several dates.
+ * multi-date report, "Accept high confidence" and a save over several dates;
+ * #307: mapping one result maps every same-named one, with the feedback.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -35,6 +36,7 @@ import {
   panelItems,
   type LabIntakeApiOptions,
 } from '../../mocks/fixtures/labReportIntake';
+import type { LabReportValue } from '../../../services/labReport';
 
 const reader: MockUser = {
   ...mockUser,
@@ -164,9 +166,15 @@ describe('LabReportDialog: review', () => {
     await user.type(picker, 'apo b');
     await user.click(await screen.findByRole('option', { name: /Apolipoprotein B/ }));
 
-    await waitFor(() => expect(api.itemPatches).toHaveLength(1));
-    expect(api.itemPatches[0].body).toMatchObject({ value: { analyteKey: 'apob', nameAsPrinted: 'Lipoprotein (a)', value: 32 } });
-    expect(api.itemPatches[0].body.value).not.toHaveProperty('match');
+    // #307: the map route, not an item PATCH; one result mapped needs no extra message.
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.maps[0]).toMatchObject({ analyteKey: 'apob', mapped: [api.maps[0].itemId], skipped: [] });
+    expect(api.requests.find((request) => request.path.endsWith('/map'))?.body).toEqual({
+      itemId: rowFor('Lipoprotein (a)').getAttribute('data-item-id'),
+      analyteKey: 'apob',
+    });
+    expect(api.itemPatches).toHaveLength(0);
+    expect(screen.queryByTestId('lab-report-map-notice')).not.toBeInTheDocument();
 
     await waitFor(() => expect(rowFor('Lipoprotein (a)')).toHaveAttribute('data-unresolved', 'false'));
     expect(within(rowFor('Lipoprotein (a)')).getByText('Mapped by you')).toBeInTheDocument();
@@ -336,5 +344,116 @@ describe('LabReportDialog: multi-date report (#305)', () => {
       '2026-09-15',
       '2026-09-01',
     ]);
+  });
+});
+
+/** A trend report printing "Chol/HDL Ratio" (not in the mock catalog) on five dates, plus distractors. */
+function ratioIntake() {
+  const dates = ['2021-03-01', '2022-03-01', '2023-03-01', '2024-03-01', '2025-03-01'];
+  const ratio = (date: string, value: number, extra = {}, overrides: Partial<LabReportValue> = {}) =>
+    labItem(
+      labValue({
+        nameAsPrinted: 'Chol/HDL Ratio',
+        value,
+        unit: null,
+        panel: 'lipids',
+        match: 'unmatched',
+        collectionDate: date,
+        referenceText: '(CALC)',
+        ...overrides,
+      }),
+      { uncertain: true, uncertaintyNote: 'Not in the lab catalog: map it to an analyte or reject it', ...extra },
+    );
+  const items = [
+    ...dates.map((date, index) => ratio(date, 3.5 + index / 10)),
+    // Rejected: left alone.
+    ratio('2020-03-01', 4.2, { status: 'rejected' }),
+    // Already mapped by the user to another analyte: left alone.
+    ratio('2019-03-01', 4.4, {}, { analyteKey: 'hdl_cholesterol', match: 'user_mapped' }),
+    // A different printed name: left alone.
+    labItem(labValue({ nameAsPrinted: 'LDL/HDL Ratio', value: 2.1, unit: null, panel: 'lipids', match: 'unmatched', collectionDate: dates[0] }), {
+      uncertain: true,
+    }),
+  ];
+  return labIntake('ready', { items, photos: PHOTOS, context: { collectionDate: null, labName: null } });
+}
+
+const ratioRows = () =>
+  screen
+    .getAllByTestId('lab-result-row')
+    .filter((row) => within(row).queryAllByTestId('lab-result-value')[0]?.textContent?.startsWith('Chol/HDL Ratio'));
+
+describe('LabReportDialog: map once for every same-named result (#307)', () => {
+  it('mapping one of several same-named results maps all of them and says how many', async () => {
+    const { api, user } = setup({ existing: [ratioIntake()] });
+    await screen.findByTestId('lab-report-review');
+    // Five unmatched plus the one the user mapped elsewhere (the rejected one sits in "Rejected").
+    expect(ratioRows().filter((row) => row.getAttribute('data-unresolved') === 'true')).toHaveLength(5);
+
+    const first = ratioRows().find((row) => row.getAttribute('data-unresolved') === 'true')!;
+    const picker = within(first).getByRole('combobox', { name: 'Map “Chol/HDL Ratio” to an analyte' });
+    await user.type(picker, 'TC/HDL');
+    await user.click(await screen.findByRole('option', { name: /Cholesterol\/HDL ratio/ }));
+
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.maps[0].analyteKey).toBe('chol_hdl_ratio');
+    expect(api.maps[0].mapped).toHaveLength(5);
+    expect(api.itemPatches).toHaveLength(0);
+
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Mapped 5 results named “Chol/HDL Ratio” to Cholesterol/HDL ratio');
+    expect(notice).not.toHaveTextContent('could not be mapped');
+
+    // Every same-named row is resolved after the re-read; the distractors are not touched.
+    await waitFor(() =>
+      expect(ratioRows().filter((row) => row.getAttribute('data-unresolved') === 'true')).toHaveLength(0),
+    );
+    const intake = api.intakes.get('lab-intake-1')!;
+    const byName = (name: string) => intake.items.filter((item) => item.value.nameAsPrinted === name);
+    expect(byName('Chol/HDL Ratio').filter((item) => item.value.analyteKey === 'chol_hdl_ratio')).toHaveLength(5);
+    expect(byName('Chol/HDL Ratio').find((item) => item.status === 'rejected')?.value.analyteKey).toBeNull();
+    expect(byName('Chol/HDL Ratio').filter((item) => item.value.analyteKey === 'hdl_cholesterol')).toHaveLength(1);
+    expect(byName('LDL/HDL Ratio')[0].value.analyteKey).toBeNull();
+    expect(screen.getByTestId('lab-report-save-hint')).toHaveTextContent('1 result is not in the lab catalog');
+  });
+
+  it('says how many could not be mapped, with the reason', async () => {
+    const reason = 'unit mg/dL is not allowed for Cholesterol/HDL ratio';
+    const intake = ratioIntake();
+    // The last same-named result was printed with a unit the ratio does not take.
+    intake.items[4] = { ...intake.items[4], value: { ...intake.items[4].value, unit: 'mg/dL' } };
+    const { api, user } = setup({
+      existing: [intake],
+      mapRefusal: (item, metric) => (item.value.unit && item.value.unit !== metric.canonicalUnit ? reason : null),
+    });
+    await screen.findByTestId('lab-report-review');
+
+    const row = ratioRows().find((candidate) => candidate.getAttribute('data-item-id') === intake.items[0].id)!;
+    await user.type(within(row).getByRole('combobox', { name: 'Map “Chol/HDL Ratio” to an analyte' }), 'TC/HDL');
+    await user.click(await screen.findByRole('option', { name: /Cholesterol\/HDL ratio/ }));
+
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.maps[0].skipped).toEqual([intake.items[4].id]);
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Mapped 4 results named “Chol/HDL Ratio” to Cholesterol/HDL ratio. 1 could not be mapped');
+    expect(notice).toHaveTextContent(reason);
+    expect(notice.className).toMatch(/Warning/);
+    await waitFor(() => expect(screen.getByTestId('lab-report-save-hint')).toHaveTextContent('2 results are not in the lab catalog'));
+  });
+
+  it("shows the server's message when the picked result itself cannot be mapped", async () => {
+    const message = 'unit nmol/L is not allowed for Apolipoprotein B';
+    const { user } = await openReview({
+      mapError: {
+        status: 400,
+        body: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: { issues: [{ path: 'value.unit', message }] } },
+      },
+    });
+    const picker = within(rowFor('Lipoprotein (a)')).getByRole('combobox', { name: 'Map “Lipoprotein (a)” to an analyte' });
+    await user.type(picker, 'apo b');
+    await user.click(await screen.findByRole('option', { name: /Apolipoprotein B/ }));
+    expect(await screen.findByTestId('lab-report-write-issues')).toHaveTextContent(message);
+    expect(screen.queryByTestId('lab-report-map-notice')).not.toBeInTheDocument();
+    expect(rowFor('Lipoprotein (a)')).toHaveAttribute('data-unresolved', 'true');
   });
 });
