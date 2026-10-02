@@ -5,7 +5,15 @@ import { type DraftItem, Prisma } from '@prisma/client';
 
 import { stateConflict, toDraftItemView, IntakeService } from '../../intake/intake.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { foldAnalyteName, fromCanonical, getMetric, MetricRegistryError, toCanonical, unitFor } from '../metric-registry';
+import {
+  foldAnalyteName,
+  fromCanonical,
+  getMetric,
+  MetricRegistryError,
+  normalizeLabUnit,
+  toCanonical,
+  unitFor,
+} from '../metric-registry';
 import type { LabResultMap, MapLabResultInput } from './dto/lab-report-map.dto';
 import { LAB_REPORT_ITEM_KIND, LAB_REPORT_KIND, labReportValueSchema, type LabReportValue } from './lab-report.value';
 
@@ -246,7 +254,7 @@ function printedUnitOf(item: DraftItem, value: Value): string | null {
 }
 
 function sameUnit(a: string | null, b: string | null): boolean {
-  const fold = (unit: string | null) => (unit === null ? null : unit.trim().toLowerCase().replace(/[µμ]/g, 'u'));
+  const fold = (unit: string | null) => (unit === null ? null : normalizeLabUnit(unit));
   return fold(a) === fold(b);
 }
 

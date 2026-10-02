@@ -9,6 +9,7 @@ import {
   LAB_METRIC_KEYS,
   LAB_PANELS,
   MEASUREMENT_METHODS,
+  normalizeLabUnit,
   resolveLabAnalyte,
   toCanonical,
   toDisplayUnit,
@@ -274,6 +275,70 @@ describe('lab catalog', () => {
         expect(unitFor(key, 'Ratio')?.unit).toBe('ratio');
       }
       expect(getMetric('tg_hdl_ratio')!.max).toBeGreaterThan(getMetric('chol_hdl_ratio')!.max);
+    });
+
+    // key | printed unit | the catalog unit it is (#310)
+    it.each([
+      ['alp', 'unit/L', 'U/L'],
+      ['ast', 'Units/L', 'U/L'],
+      ['alt', 'IU/L', 'IU/L'],
+      ['alt', 'u/l', 'U/L'],
+      ['wbc_count', 'K/uL', '10^3/µL'],
+      ['wbc_count', 'K/µL', '10^3/µL'],
+      ['wbc_count', 'x10E3/uL', '10^3/µL'],
+      ['wbc_count', '10*3/uL', '10^3/µL'],
+      ['wbc_count', 'X10(3)/uL', '10^3/µL'],
+      ['wbc_count', 'x10^3/uL', '10^3/µL'],
+      ['wbc_count', 'Thousand/uL', '10^3/µL'],
+      ['wbc_count', 'thou/µL', '10^3/µL'],
+      ['wbc_count', '10E9/L', '10^9/L'],
+      ['wbc_count', 'K/mm3', '10^3/µL'],
+      ['platelet_count', 'K/uL', '10^3/µL'],
+      ['platelet_count', 'x10E3/uL', '10^3/µL'],
+      ['neutrophils_abs', 'x10E3/uL', '10^3/µL'],
+      ['rbc_count', 'M/uL', '10^6/µL'],
+      ['rbc_count', 'x10E6/uL', '10^6/µL'],
+      ['rbc_count', 'Million/uL', '10^6/µL'],
+      ['rbc_count', 'mil/µL', '10^6/µL'],
+      ['rbc_count', 'x10E12/L', '10^12/L'],
+      ['egfr', 'mL/min/1.73m2', 'mL/min/1.73m²'],
+      ['egfr', 'mL/min/1.73 m2', 'mL/min/1.73m²'],
+      ['egfr', 'mL/min/1.73m^2', 'mL/min/1.73m²'],
+      ['egfr', 'ML/MIN/1.73M2', 'mL/min/1.73m²'],
+      ['egfr', 'mL/min/', 'mL/min/1.73m²'],
+      ['egfr', 'mL/min', 'mL/min/1.73m²'],
+      ['egfr', ' mL / min ', 'mL/min/1.73m²'],
+      ['sodium', 'mMol/L', 'mmol/L'],
+      ['creatinine', 'umol/L', 'µmol/L'],
+      ['fasting_insulin', 'uIU/mL', 'µIU/mL'],
+      ['fasting_insulin', 'μIU/mL', 'µIU/mL'],
+    ])('reads %s printed in %p as %p (#310)', (key, printed, unit) => {
+      expect(unitFor(key, printed)?.unit).toBe(unit);
+    });
+
+    it.each([
+      ['alt', 'units'],
+      ['wbc_count', 'M/uL'],
+      ['rbc_count', 'K/uL'],
+      ['egfr', 'mL/h'],
+      ['creatinine', 'mL/min'],
+      ['hemoglobin', 'K/uL'],
+    ])('does not read %s printed in %p as any of its units (#310)', (key, printed) => {
+      expect(unitFor(key, printed)).toBeUndefined();
+    });
+
+    it('never folds two units of one lab analyte together, nor an alias onto a missing unit (#310)', () => {
+      for (const key of LAB_METRIC_KEYS) {
+        const metric = getMetric(key)!;
+        const folded = metric.units.map((unit) => normalizeLabUnit(unit.unit));
+        expect(new Set(folded).size).toBe(folded.length);
+        for (const [spelling, target] of Object.entries(metric.unitAliases ?? {})) {
+          expect(metric.units.map((unit) => unit.unit)).toContain(target);
+          expect(folded).not.toContain(normalizeLabUnit(spelling));
+        }
+      }
+      expect(toCanonical('egfr', 78, 'mL/min/')).toBe(78);
+      expect(toCanonical('wbc_count', 6.1, 'x10E3/uL')).toBe(6.1);
     });
 
     it('matches lab spellings of a unit (case, u or mu for micro) for labs only', () => {

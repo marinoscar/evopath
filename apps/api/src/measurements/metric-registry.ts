@@ -124,6 +124,14 @@ export interface MetricDef {
    * conventional agree (U/L, mmol/L electrolytes, %).
    */
   siUnit?: string;
+  /**
+   * Lab analytes only (#310): other printed spellings of a unit that
+   * {@link normalizeLabUnit} cannot derive (`mL/min` for eGFR's
+   * `mL/min/1.73m²`, a unit wrapped onto the next line of a PDF), printed
+   * spelling -> one of `units`. Matched by {@link unitFor}; never published
+   * as a unit to pick.
+   */
+  unitAliases?: Readonly<Record<string, string>>;
 }
 
 const BODY_WEIGHT_METHODS = ['unspecified', 'scale', 'smart_scale', 'clinical', 'other'] as const;
@@ -191,6 +199,8 @@ interface LabSpec {
   max: number;
   decimals: number;
   aliases: readonly string[];
+  /** Printed unit spellings the normaliser cannot derive, -> one of the units (#310). */
+  unitAliases?: Readonly<Record<string, string>>;
 }
 
 function lab(key: string, spec: LabSpec): MetricDef {
@@ -204,6 +214,11 @@ function lab(key: string, spec: LabSpec): MetricDef {
 
   if (spec.si && !alternatives.some((unit) => unit.unit === spec.si![0])) {
     throw new Error(`Lab ${key}: SI unit ${spec.si[0]} is not one of its units`);
+  }
+  for (const target of Object.values(spec.unitAliases ?? {})) {
+    if (target !== spec.unit && !alternatives.some((unit) => unit.unit === target)) {
+      throw new Error(`Lab ${key}: unit alias target ${target} is not one of its units`);
+    }
   }
 
   return {
@@ -222,6 +237,7 @@ function lab(key: string, spec: LabSpec): MetricDef {
     panel: spec.panel,
     aliases: spec.aliases,
     siUnit: spec.si?.[0] ?? spec.unit,
+    ...(spec.unitAliases ? { unitAliases: spec.unitAliases } : {}),
   };
 }
 
@@ -513,6 +529,8 @@ const LAB_METRICS: readonly MetricDef[] = [
   }),
   lab('egfr', {
     label: 'eGFR', panel: 'cmp', unit: 'mL/min/1.73m²',
+    // A PDF often wraps "mL/min/1.73m2" after "mL/min/" (the slash survives or not).
+    unitAliases: { 'mL/min': 'mL/min/1.73m²' },
     min: 0, max: 250, decimals: 0,
     aliases: ['Estimated GFR', 'Estimated glomerular filtration rate', 'GFR estimated', 'eGFR non-African American', 'eGFR CKD-EPI'],
   }),
@@ -981,12 +999,46 @@ export function unitFor(key: string, unit: string): MetricUnitDef | undefined {
   const exact = metric.units.find((candidate) => candidate.unit === unit);
   if (exact || metric.category !== 'lab') return exact;
 
-  const wanted = foldUnit(unit);
-  return metric.units.find((candidate) => foldUnit(candidate.unit) === wanted);
+  const wanted = normalizeLabUnit(unit);
+  const match = metric.units.find((candidate) => normalizeLabUnit(candidate.unit) === wanted);
+  if (match) return match;
+
+  const alias = Object.entries(metric.unitAliases ?? {}).find(([spelling]) => normalizeLabUnit(spelling) === wanted);
+  return alias ? metric.units.find((candidate) => candidate.unit === alias[1]) : undefined;
 }
 
-function foldUnit(unit: string): string {
-  return unit.trim().toLowerCase().replace(/[\u00b5\u03bc]/g, 'u');
+/**
+ * A lab unit in comparable form (#310): what {@link unitFor} compares, on
+ * both sides, for lab analytes. Folds what labs and portals print for the
+ * same unit:
+ *   - case, whitespace, compatibility forms (`²` -> `2`), a trailing `/`;
+ *   - micro: `µ`, `μ` and `u`;
+ *   - `unit`/`units` -> `U` (`unit/L` is `U/L`);
+ *   - powers of ten: `10^3`, `10*3`, `10E3`, `x10E3`, `x10^3`, `X10(3)`;
+ *   - counts per microlitre: `K`, `thou`, `thousand` -> `10^3`, and `M`,
+ *     `mil`, `million` -> `10^6`, per `µL` (or the same `mm3`/`cumm`);
+ *   - `m^2` -> `m2`.
+ * The result is a comparison key, never shown or stored.
+ */
+export function normalizeLabUnit(unit: string): string {
+  let folded = unit
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\u00b5\u03bc]/g, 'u')
+    .replace(/\u00d7/g, 'x')
+    .replace(/\s+/g, '')
+    .replace(/\/+$/, '');
+
+  folded = folded
+    .replace(/(^|[^a-z])units?(?![a-z])/g, '$1u')
+    .replace(/x?10(?:\^|\*{1,2}|e)\(?(\d+)\)?/g, '10^$1')
+    .replace(/x?10\((\d+)\)/g, '10^$1')
+    .replace(/m\^2/g, 'm2')
+    .replace(/\/(?:mm3|cumm)$/, '/ul')
+    .replace(/^(?:k|thou|thous|thousand)\/ul$/, '10^3/ul')
+    .replace(/^(?:m|mil|mill|million)\/ul$/, '10^6/ul');
+
+  return folded;
 }
 
 export function roundCanonical(value: number): number {
