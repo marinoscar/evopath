@@ -2,8 +2,9 @@
  * `LabReportDialog` (H4, #188) over the intake kit and a stateful MSW
  * `/api/intakes` for the `lab_report` kind: the upload step with the
  * keep-or-delete choice, the review grouped by panel, highlighting, the
- * unmatched gate and mapping, edits, the report details, the duplicate
- * warning with "Save anyway", apply, and an axe pass on the review; #305: a
+ * unmatched gate and mapping, edits, the report details, apply, and an axe
+ * pass on the review; #308: already-saved results decided row by row or with
+ * the bar's "Skip all" / "Save all again"; #305: a
  * multi-date report, "Accept high confidence" and a save over several dates;
  * #307: mapping one result maps every same-named one, and an analyte or unit
  * edit is carried to them, with the feedback.
@@ -23,13 +24,14 @@ import {
   LAB_REPORT_HELPER_TEXT,
   LAB_REPORT_TITLE,
   LabReportDialog,
-  SAVE_ANYWAY_LABEL,
+  SKIP_ALL_LABEL,
 } from '../../../components/health/LabReportDialog';
 import { clearPhotoUrlCache } from '../../../components/intake/StoragePhotoThumb';
 import { RETAIN_FILES_LABEL } from '../../../components/intake';
 import { resetMeasurementCatalogCache } from '../../../hooks/useMeasurementCatalog';
 import {
   cholesterolDuplicate,
+  duplicatesOf,
   labIntake,
   labIntakeApi,
   labItem,
@@ -259,29 +261,10 @@ describe('LabReportDialog: review', () => {
     expect(api.intakePatches[0].body).toEqual({ context: { collectionDate: '2026-09-15', labName: 'Beta Labs' } });
   });
 
-  it('warns about duplicates before saving and saves only after an explicit "Save anyway"', async () => {
-    const { api, user, onSaved } = await openReview({ duplicates: cholesterolDuplicate });
-
-    const warning = await screen.findByTestId('lab-report-duplicates');
-    expect(warning).toHaveTextContent('Some of these results are already saved');
-    expect(warning).toHaveTextContent('Total cholesterol 212 mg/dL');
-    expect(within(warning).queryByRole('button', { name: SAVE_ANYWAY_LABEL })).not.toBeInTheDocument();
-
-    await user.click(within(rowFor('Lipoprotein (a)')).getByRole('button', { name: 'Reject' }));
-    await user.click(within(dialog()).getByRole('button', { name: 'Accept all (6)' }));
-    await waitFor(() => expect(saveButton()).toBeEnabled());
-    await user.click(saveButton());
-
-    const confirm = await within(screen.getByTestId('lab-report-duplicates')).findByRole('button', { name: SAVE_ANYWAY_LABEL });
-    expect(api.applied).toBe(0);
-    await user.click(confirm);
-    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(api.applied).toBe(1);
-  });
-
   it('has no axe violations on the review', async () => {
     await openReview({ duplicates: cholesterolDuplicate });
     await screen.findByTestId('lab-report-duplicates');
+    expect(screen.getByTestId('lab-result-already-saved')).toBeInTheDocument();
     const results = await axe(dialog(), { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
   });
@@ -542,5 +525,116 @@ describe('LabReportDialog: an edit is carried to same-named results (#307)', () 
     const notice = await screen.findByTestId('lab-report-map-notice');
     expect(notice).toHaveTextContent('Updated 1 other result named “Glucose Lvl”. 1 could not be updated');
     expect(notice).toHaveTextContent(reason);
+  });
+});
+
+describe('LabReportDialog: already-saved results (#308)', () => {
+  const hint = () => screen.getByTestId('lab-report-save-hint');
+  const bar = () => screen.getByTestId('lab-report-duplicates');
+
+  /** Resolve the unmatched row and accept the rest, so only the duplicate decisions block Save. */
+  async function resolveRest(user: ReturnType<typeof userEvent.setup>, accept: string) {
+    await user.click(within(rowFor('Lipoprotein (a)')).getByRole('button', { name: 'Reject' }));
+    await user.click(within(dialog()).getByRole('button', { name: accept }));
+  }
+
+  it('marks each duplicate row with the date and blocks Save until it is decided; Save again lets it save', async () => {
+    const { api, user, onSaved } = await openReview({ duplicates: cholesterolDuplicate });
+    const row = rowFor('Cholesterol, Total');
+    await waitFor(() => expect(row).toHaveAttribute('data-duplicate', 'true'));
+    expect(within(row).getByTestId('lab-result-already-saved')).toHaveTextContent('Already saved · Sep 15, 2026');
+    expect(rowFor('HDL Cholesterol')).toHaveAttribute('data-duplicate', 'false');
+    expect(bar()).toHaveTextContent('1 result is already saved');
+    // The long list and "Save anyway" are gone.
+    expect(screen.queryByText(/Saving creates a second copy/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save anyway' })).not.toBeInTheDocument();
+
+    await resolveRest(user, 'Accept all (6)');
+    await waitFor(() => expect(hint()).toHaveTextContent('Decide on 1 already-saved result: skip it or save it again'));
+    expect(saveButton()).toBeDisabled();
+
+    await user.click(within(row).getByRole('button', { name: 'Save again Cholesterol, Total' }));
+    expect(within(row).getByRole('button', { name: 'Save again Cholesterol, Total' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(row).getByTestId('lab-result-already-saved')).toHaveTextContent('will be saved again');
+    expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 will be saved again');
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(hint()).toHaveTextContent('6 results will be saved');
+
+    await user.click(saveButton());
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(api.applied).toBe(1);
+  });
+
+  it('Skip rejects the duplicate (persisted); Restore makes it undecided again', async () => {
+    const { api, user } = await openReview({ duplicates: cholesterolDuplicate });
+    const row = rowFor('Cholesterol, Total');
+    const id = row.getAttribute('data-item-id')!;
+    await waitFor(() => expect(row).toHaveAttribute('data-duplicate', 'true'));
+
+    await user.click(within(row).getByRole('button', { name: 'Skip Cholesterol, Total' }));
+    await waitFor(() => expect(api.itemPatches).toContainEqual({ itemId: id, body: { status: 'rejected' } }));
+    await screen.findByText('Rejected (1)');
+    await waitFor(() => expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument());
+    expect(await screen.findByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 skipped');
+
+    await user.click(screen.getByText('Rejected (1)'));
+    await user.click(within(rowFor('Cholesterol, Total')).getByRole('button', { name: 'Restore' }));
+    await waitFor(() => expect(rowFor('Cholesterol, Total')).toHaveAttribute('data-duplicate', 'true'));
+    expect(bar()).toHaveTextContent('1 result is already saved');
+    expect(screen.queryByTestId('lab-report-duplicate-summary')).not.toBeInTheDocument();
+  });
+
+  it('"Skip all" rejects every duplicate, one after another', async () => {
+    const { api, user } = await openReview({ duplicates: duplicatesOf('total_cholesterol', 'hdl_cholesterol', 'triglycerides') });
+    await waitFor(() => expect(bar()).toHaveTextContent('3 results are already saved'));
+    const ids = ['Cholesterol, Total', 'HDL Cholesterol', 'Triglycerides'].map((name) => rowFor(name).getAttribute('data-item-id'));
+
+    await user.click(within(bar()).getByRole('button', { name: `${SKIP_ALL_LABEL} 3` }));
+    await waitFor(() => expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument());
+    expect(api.itemPatches.filter((patch) => patch.body.status === 'rejected').map((patch) => patch.itemId)).toEqual(ids);
+    expect(await screen.findByText('Rejected (3)')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('3 skipped'));
+
+    await resolveRest(user, 'Accept all (3)');
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+  });
+
+  it('"Save all again" keeps every duplicate; one can still be skipped after', async () => {
+    const { user } = await openReview({ duplicates: duplicatesOf('total_cholesterol', 'hdl_cholesterol', 'triglycerides') });
+    await waitFor(() => expect(bar()).toHaveTextContent('3 results are already saved'));
+    await user.click(within(bar()).getByRole('button', { name: 'Save all 3 again' }));
+    expect(screen.queryByTestId('lab-report-duplicates')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('3 will be saved again');
+
+    await user.click(within(rowFor('HDL Cholesterol')).getByRole('button', { name: 'Skip HDL Cholesterol' }));
+    await waitFor(() => expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 skipped · 2 will be saved again'));
+
+    await resolveRest(user, 'Accept all (5)');
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+  });
+
+  it('drops a decision once the result is no longer a duplicate', async () => {
+    let reported = true;
+    const { user } = await openReview({ duplicates: (intake) => (reported ? cholesterolDuplicate(intake) : []) });
+    const row = rowFor('Cholesterol, Total');
+    await waitFor(() => expect(row).toHaveAttribute('data-duplicate', 'true'));
+    await user.click(within(row).getByRole('button', { name: 'Save again Cholesterol, Total' }));
+    expect(screen.getByTestId('lab-report-duplicate-summary')).toHaveTextContent('1 will be saved again');
+
+    // An edit changes what would be saved; the re-check no longer reports it.
+    reported = false;
+    await user.click(within(rowFor('HDL Cholesterol')).getByRole('button', { name: 'Accept' }));
+    await waitFor(() => expect(rowFor('Cholesterol, Total')).toHaveAttribute('data-duplicate', 'false'));
+    expect(screen.queryByTestId('lab-report-duplicate-summary')).not.toBeInTheDocument();
+
+    // Reported again later: undecided, not silently kept.
+    reported = true;
+    await user.click(within(rowFor('Glucose')).getByRole('button', { name: 'Accept' }));
+    await waitFor(() => expect(bar()).toHaveTextContent('1 result is already saved'));
+    expect(within(rowFor('Cholesterol, Total')).getByRole('button', { name: 'Save again Cholesterol, Total' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 });

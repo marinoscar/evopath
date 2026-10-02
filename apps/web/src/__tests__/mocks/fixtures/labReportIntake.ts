@@ -639,3 +639,29 @@ export function cholesterolDuplicate(intake: PhotoIntakeView<LabReportValue, Lab
     },
   ];
 }
+
+/**
+ * #308: the server reporting every non-rejected result of these analytes as
+ * already saved (same analyte, day and value), saved on 2026-09-15.
+ */
+export function duplicatesOf(...keys: string[]) {
+  return (intake: PhotoIntakeView<LabReportValue, LabReportContext>): LabReportDuplicate[] =>
+    intake.items
+      .filter((item) => item.status !== 'rejected' && item.value.analyteKey && keys.includes(item.value.analyteKey))
+      .map((item, index) => ({
+        itemId: item.id,
+        analyteKey: item.value.analyteKey!,
+        value: item.value.value ?? 0,
+        unit: item.value.unit ?? '',
+        matches: [
+          {
+            measurementId: `m-dup-${index}`,
+            entryId: 'e-dup',
+            measuredAt: '2026-09-15T12:00:00.000Z',
+            origin: 'ai',
+            healthDocumentId: 'doc-old',
+            intakeId: 'lab-intake-old',
+          },
+        ],
+      }));
+}

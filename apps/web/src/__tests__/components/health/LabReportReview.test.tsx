@@ -4,12 +4,13 @@
  * which unit system it uses, a newly chosen analyte pre-selects the preferred
  * unit, and an edit is sent in whatever unit the user picks. Conventional is
  * the default and leaves the output as it was. #307: the map picker calls
- * `onMapItem` when given, else edits the one result.
+ * `onMapItem` when given, else edits the one result. #308: the already-saved
+ * badge with Skip and Save again.
  */
 import { describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { render, screen, within } from '../../utils/test-utils';
-import { LabReportReview } from '../../../components/health/LabReportReview';
+import { LabReportReview, alreadySavedLabel } from '../../../components/health/LabReportReview';
 import type { LabUnits } from '../../../utils/labUnits';
 import { labItem, labValue, mockLabCatalog } from '../../mocks/fixtures/labReportIntake';
 
@@ -156,5 +157,70 @@ describe('LabReportReview: map an unmatched result (#307)', () => {
     render(<LabReportReview items={[item]} photos={[]} catalog={mockLabCatalog} {...props} />);
     await pick(user);
     expect(props.onEditItem).toHaveBeenCalledWith(item.id, expect.objectContaining({ analyteKey: 'chol_hdl_ratio' }));
+  });
+});
+
+describe('LabReportReview: already-saved results (#308)', () => {
+  const handlers = () => ({
+    onAcceptItem: vi.fn(),
+    onRejectItem: vi.fn(),
+    onRestoreItem: vi.fn(),
+    onEditItem: vi.fn(),
+    onAddItem: vi.fn(),
+    onAcceptAll: vi.fn(),
+    onAcceptHighConfidence: vi.fn(),
+  });
+
+  it('labels the badge with text, and only on non-rejected duplicate rows', async () => {
+    const dup = glucose();
+    const rejected = labItem(labValue({ analyteKey: 'hba1c', nameAsPrinted: 'A1c', value: 6, unit: '%', panel: 'glycemic' }), {
+      status: 'rejected',
+      sourcePhotoIds: [],
+    });
+    const onSkipDuplicate = vi.fn();
+    const onKeepDuplicate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <LabReportReview
+        items={[dup, hba1c(), rejected]}
+        photos={[]}
+        catalog={mockLabCatalog}
+        {...handlers()}
+        duplicateDates={new Map([[dup.id, '2025-11-19'], [rejected.id, null]])}
+        onSkipDuplicate={onSkipDuplicate}
+        onKeepDuplicate={onKeepDuplicate}
+      />,
+    );
+    const badges = screen.getAllByTestId('lab-result-already-saved');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent('Already saved · Nov 19, 2025');
+    expect(rowFor('Glucose')).toHaveAttribute('data-duplicate', 'true');
+    expect(rowFor('Hemoglobin A1c')).toHaveAttribute('data-duplicate', 'false');
+
+    await user.click(screen.getByRole('button', { name: 'Skip Glucose' }));
+    expect(onSkipDuplicate).toHaveBeenCalledWith(dup.id);
+    const again = screen.getByRole('button', { name: 'Save again Glucose' });
+    expect(again).toHaveAttribute('aria-pressed', 'false');
+    await user.click(again);
+    expect(onKeepDuplicate).toHaveBeenCalledWith(dup.id);
+  });
+
+  it('shows a kept duplicate as pressed, saying it will be saved again', () => {
+    const dup = glucose();
+    render(
+      <LabReportReview
+        items={[dup]}
+        photos={[]}
+        catalog={mockLabCatalog}
+        {...handlers()}
+        duplicateDates={new Map([[dup.id, null]])}
+        keptDuplicateIds={new Set([dup.id])}
+        onSkipDuplicate={vi.fn()}
+        onKeepDuplicate={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('lab-result-already-saved')).toHaveTextContent('Already saved · will be saved again');
+    expect(screen.getByRole('button', { name: 'Save again Glucose' })).toHaveAttribute('aria-pressed', 'true');
+    expect(alreadySavedLabel(null)).toBe('Already saved');
   });
 });
