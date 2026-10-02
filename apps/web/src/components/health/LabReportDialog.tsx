@@ -18,8 +18,9 @@
  *    collection date), then by panel; the report date and lab name (the
  *    intake's context) are editable; unmatched results must be mapped or
  *    rejected (Save is disabled, with the reason, until they are), and
- *    mapping one maps every result printed under the same name (#307, the
- *    server decides which; the review says how many it mapped); the
+ *    mapping one maps every result printed under the same name, and an edit
+ *    of the analyte or unit is carried to them too (#307, the server decides
+ *    which; the review says how many it changed); the
  *    duplicate warning (`GET /measurements/lab-reports/:id/duplicates`) is
  *    shown before saving and saving over it takes an explicit "Save anyway".
  *
@@ -82,14 +83,18 @@ import {
   getLabReportDuplicates,
   isUnresolved,
   mapLabResult,
+  sameNamedOthers,
   labApplyRefusal,
+  labEditChange,
   labMappedMessage,
+  labPropagatedMessage,
   labResultPayload,
   labSavedMessage,
   resultDate,
   type LabReportApplyResult,
   type LabReportContext,
   type LabReportDuplicate,
+  type LabReportMapResult,
   type LabReportValue,
 } from '../../services/labReport';
 import { useMeasurementCatalog } from '../../hooks/useMeasurementCatalog';
@@ -345,19 +350,41 @@ function LabReportSession({ intakeId, pollIntervalMs, vision, catalog, labUnits,
     [isMounted, scan],
   );
 
-  const editItem = (itemId: string, value: LabReportValue) =>
-    void write('Could not save this result', () =>
-      updateDraftItem(intakeId, itemId, { value: labResultPayload(value) as LabReportValue }),
-    );
+  const showMapNotice = (notice: { message: string; severity: 'success' | 'warning' } | null, result: LabReportMapResult) => {
+    if (notice && isMounted()) setMapNotice({ ...notice, reasons: [...new Set(result.skipped.map((skip) => skip.message))] });
+  };
+
+  // #307: an edit that changes the analyte or the unit is carried to every
+  // other result printed under the same name (the server picks which).
+  const editItem = (itemId: string, value: LabReportValue) => {
+    const previous = scan.items.find((item) => item.id === itemId);
+    const change = previous ? labEditChange(previous.value, value) : null;
+    const carry = previous && change && sameNamedOthers(scan.items, previous).length > 0 ? change : null;
+    const printed = previous?.value.nameAsPrinted ?? null;
+    void write('Could not save this result', async () => {
+      await updateDraftItem(intakeId, itemId, { value: labResultPayload(value) as LabReportValue });
+      if (!carry) return;
+      try {
+        const result = await mapLabResult(intakeId, itemId, carry);
+        showMapNotice(labPropagatedMessage(result, itemId, printed), result);
+      } catch {
+        // The edit itself was saved; only carrying it over failed.
+        if (isMounted()) {
+          setMapNotice({
+            message: `Saved. The other results${printed ? ` named “${printed}”` : ''} could not be updated`,
+            severity: 'warning',
+            reasons: [],
+          });
+        }
+      }
+    });
+  };
   const mapItem = (itemId: string, analyteKey: string) => {
     const printed = scan.items.find((item) => item.id === itemId)?.value.nameAsPrinted ?? null;
     const label = catalog?.metrics.find((metric) => metric.key === analyteKey)?.label ?? analyteKey;
     void write('Could not map this result', async () => {
-      const result = await mapLabResult(intakeId, itemId, analyteKey);
-      const notice = labMappedMessage(result, printed, label);
-      if (notice && isMounted()) {
-        setMapNotice({ ...notice, reasons: [...new Set(result.skipped.map((skip) => skip.message))] });
-      }
+      const result = await mapLabResult(intakeId, itemId, { analyteKey });
+      showMapNotice(labMappedMessage(result, printed, label), result);
     });
   };
   const addItem = (value: LabReportValue) =>

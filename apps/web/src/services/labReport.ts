@@ -158,18 +158,59 @@ export interface LabReportMapResult {
   skipped: LabReportMapSkipped[];
 }
 
+/** What `mapLabResult` carries to every same-named result: at least one of the two. */
+export type LabReportMapChange = { analyteKey: string; unit?: string } | { analyteKey?: string; unit: string };
+
 /**
- * "Map once, apply to all" (#307): map one result to an analyte; the SERVER
- * maps every other result of the intake printed under the same name (not
- * rejected, not already mapped by the user to another analyte) in one
- * transaction, re-normalising each like an edit. A 400 means the picked
- * result itself could not be mapped (`intakes:write` + `health_data:write`).
+ * "Map once, apply to all" (#307): set the analyte and/or the unit of one
+ * result; the SERVER applies the same change to every other result of the
+ * intake printed under the same name (it picks which: not rejected, not
+ * already changed by the user another way) in one transaction,
+ * re-normalising each like an edit. The given result is a no-op when it
+ * already carries the change. A 400 means the given result itself could not
+ * take it (`intakes:write` + `health_data:write`).
  */
-export function mapLabResult(intakeId: string, itemId: string, analyteKey: string): Promise<LabReportMapResult> {
+export function mapLabResult(intakeId: string, itemId: string, change: LabReportMapChange): Promise<LabReportMapResult> {
   return api.post<LabReportMapResult>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/map`, {
     itemId,
-    analyteKey,
+    ...(change.analyteKey !== undefined ? { analyteKey: change.analyteKey } : {}),
+    ...(change.unit !== undefined ? { unit: change.unit } : {}),
   });
+}
+
+/** A printed name as the review compares it: trimmed, lower-case, single spaces. The server decides. */
+export function foldPrintedName(name: string | null | undefined): string {
+  return (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * The other results of the review printed under the same name as `item`
+ * that are not rejected: whether an edit is worth carrying over (#307).
+ */
+export function sameNamedOthers<T extends Pick<DraftItemView<LabReportValue>, 'id' | 'status' | 'value'>>(
+  items: readonly T[],
+  item: Pick<DraftItemView<LabReportValue>, 'id' | 'value'>,
+): T[] {
+  const name = foldPrintedName(item.value.nameAsPrinted);
+  if (!name) return [];
+  return items.filter(
+    (other) => other.id !== item.id && other.status !== 'rejected' && foldPrintedName(other.value.nameAsPrinted) === name,
+  );
+}
+
+/**
+ * The change an edit makes that same-named results should share: the analyte
+ * and/or the unit when they differ from before; `null` when neither changed.
+ */
+export function labEditChange(
+  previous: Pick<LabReportValue, 'analyteKey' | 'unit'>,
+  next: Pick<LabReportValue, 'analyteKey' | 'unit'>,
+): LabReportMapChange | null {
+  const analyteKey = next.analyteKey && next.analyteKey !== previous.analyteKey ? next.analyteKey : undefined;
+  const unit = next.unit && next.unit !== previous.unit ? next.unit : undefined;
+  if (analyteKey !== undefined) return { analyteKey, ...(unit !== undefined ? { unit } : {}) };
+  if (unit !== undefined) return { unit };
+  return null;
 }
 
 /**
@@ -191,6 +232,26 @@ export function labMappedMessage(
   if (mapped > 1) parts.push(`Mapped ${mapped} results${named} to ${analyteLabel}`);
   else if (mapped === 1) parts.push(nameAsPrinted ? `Mapped “${nameAsPrinted}” to ${analyteLabel}` : `Mapped 1 result to ${analyteLabel}`);
   if (skipped > 0) parts.push(`${skipped} could not be mapped`);
+  return { message: parts.join('. '), severity: skipped > 0 ? 'warning' : 'success' };
+}
+
+/**
+ * What the review says after an edit was carried to same-named results:
+ * "Updated 4 other results named “Glucose”", plus "1 could not be updated".
+ * `null` when no other result changed and none was skipped.
+ */
+export function labPropagatedMessage(
+  result: LabReportMapResult,
+  editedId: string,
+  nameAsPrinted: string | null,
+): { message: string; severity: 'success' | 'warning' } | null {
+  const others = result.items.filter((item) => item.id !== editedId).length;
+  const skipped = result.skipped.length;
+  if (others === 0 && skipped === 0) return null;
+  const named = nameAsPrinted ? ` named “${nameAsPrinted}”` : '';
+  const parts: string[] = [];
+  if (others > 0) parts.push(`Updated ${others} other ${others === 1 ? 'result' : 'results'}${named}`);
+  if (skipped > 0) parts.push(`${skipped} could not be updated`);
   return { message: parts.join('. '), severity: skipped > 0 ? 'warning' : 'success' };
 }
 
