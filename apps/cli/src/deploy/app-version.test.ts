@@ -268,10 +268,13 @@ describe('writeVersion', () => {
 
   describe('against the real repository lockfile', () => {
     it('updates every workspace entry, and touches nothing else in the file', () => {
+      // A target that can never equal the repository's own version: a fixed
+      // literal broke the day a release reached it.
+      const target = '999.0.0';
       const dir = makeCheckout(realLockfileVersion());
       writeFileSync(join(dir, 'package-lock.json'), REAL_LOCKFILE);
 
-      const result = writeVersion(dir, '1.2.3');
+      const result = writeVersion(dir, target);
 
       expect(result.changed).toContain('package-lock.json');
 
@@ -285,8 +288,8 @@ describe('writeVersion', () => {
       };
 
       for (const path of WORKSPACE_PATHS) {
-        expect(original.packages[path]?.version).not.toBe('1.2.3');
-        expect(updated.packages[path]?.version).toBe('1.2.3');
+        expect(original.packages[path]?.version).not.toBe(target);
+        expect(updated.packages[path]?.version).toBe(target);
       }
 
       // No unrelated dependency version changed: patch a deep clone of the
@@ -297,7 +300,7 @@ describe('writeVersion', () => {
       for (const path of WORKSPACE_PATHS) {
         const entry = expected.packages[path];
         if (entry === undefined) throw new Error(`fixture missing ${path}`);
-        entry.version = '1.2.3';
+        entry.version = target;
       }
       expect(updated).toEqual(expected);
     });
