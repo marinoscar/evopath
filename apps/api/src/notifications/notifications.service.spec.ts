@@ -670,7 +670,27 @@ describe('NotificationsService', () => {
       await service.notify('admin.broadcast', USER_ID, {});
       await service.flush();
 
-      expect(browserContextChannels()).toEqual(['email', 'browser']);
+      // `android_app` (#312) survives: with `push` muted it no longer
+      // overlaps anything, so it is the user's remaining push route.
+      expect(browserContextChannels()).toEqual(['email', 'browser', 'android_app']);
+    });
+
+    it('collapses android_app into push when both survive (#312)', async () => {
+      await service.notify('admin.broadcast', USER_ID, {}, {
+        channels: ['browser', 'push', 'android_app'],
+      });
+      await service.flush();
+
+      expect(browserContextChannels()).toEqual(['browser', 'push']);
+    });
+
+    it('keeps android_app when it is the only push channel requested (#312)', async () => {
+      await service.notify('admin.broadcast', USER_ID, {}, {
+        channels: ['browser', 'android_app'],
+      });
+      await service.flush();
+
+      expect(browserContextChannels()).toEqual(['browser', 'android_app']);
     });
 
     it('reflects the NotifyOptions.channels intersection', async () => {

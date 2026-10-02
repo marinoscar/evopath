@@ -187,6 +187,7 @@ describe('PushSubscriptionService', () => {
         auth: 'auth-secret',
         expirationTime: null,
         userAgent: 'test-agent',
+        platform: 'browser',
       });
     });
 
@@ -308,7 +309,7 @@ describe('PushSubscriptionService', () => {
       expect(args.create.userAgent).toBeNull();
     });
 
-    it('returns only id, endpoint and createdAt — not the keys or userId', async () => {
+    it('returns only id, endpoint, platform and createdAt — not the keys or userId', async () => {
       const service = enabledService();
       const createdAt = new Date('2026-03-01T00:00:00.000Z');
       mockPrisma.pushSubscription.upsert.mockResolvedValue({
@@ -317,12 +318,55 @@ describe('PushSubscriptionService', () => {
         endpoint: ENDPOINT,
         p256dh: 'p256dh-key',
         auth: 'auth-secret',
+        platform: 'browser',
         createdAt,
       } as never);
 
       const result = await service.subscribe(USER_ID, subscribeDto(), 'ua');
 
-      expect(result).toEqual({ id: 'sub-1', endpoint: ENDPOINT, createdAt });
+      expect(result).toEqual({ id: 'sub-1', endpoint: ENDPOINT, platform: 'browser', createdAt });
+    });
+
+    // #312: the platform tag.
+    it('stores platform android_app on both branches when the Android app subscribes', async () => {
+      const service = enabledService();
+      mockPrisma.pushSubscription.upsert.mockResolvedValue({
+        id: 'sub-1',
+        endpoint: ENDPOINT,
+        platform: 'android_app',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      } as never);
+
+      const result = await service.subscribe(
+        USER_ID,
+        subscribeDto({ platform: 'android_app' }),
+        'ua',
+      );
+
+      const [args] = mockPrisma.pushSubscription.upsert.mock.calls[0] as [
+        { create: { platform: string }; update: { platform: string } },
+      ];
+      expect(args.create.platform).toBe('android_app');
+      // Re-subscribing an existing browser endpoint from inside the app moves it.
+      expect(args.update.platform).toBe('android_app');
+      expect(result.platform).toBe('android_app');
+    });
+
+    it('defaults platform to browser when the caller omits it (update branch too)', async () => {
+      const service = enabledService();
+      mockPrisma.pushSubscription.upsert.mockResolvedValue({
+        id: 'sub-1',
+        endpoint: ENDPOINT,
+        platform: 'browser',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      } as never);
+
+      await service.subscribe(USER_ID, subscribeDto({ platform: undefined }), 'ua');
+
+      const [args] = mockPrisma.pushSubscription.upsert.mock.calls[0] as [
+        { update: { platform: string } },
+      ];
+      expect(args.update.platform).toBe('browser');
     });
   });
 

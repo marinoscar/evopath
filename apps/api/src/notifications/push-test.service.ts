@@ -169,7 +169,7 @@ export class PushTestService {
     });
 
     const results: PushTestSendResult[] = active
-      ? await this.sendAll(active, subscriptions, payload)
+      ? await this.sendToSubscriptions(active, subscriptions, payload)
       : subscriptions.map(() => ({
           status: 'skipped',
           statusCode: null,
@@ -387,7 +387,16 @@ export class PushTestService {
   // 4. Delivery
   // ---------------------------------------------------------------------------
 
-  private async sendAll(
+  /**
+   * Send one payload to each subscription and report per-subscription
+   * outcomes, in input order. A 404/410 prunes the row (`pruned`); a success
+   * credits `lastSuccessAt`. Never throws for a failed send.
+   *
+   * PUBLIC since #312: the Android app test notification
+   * (`AndroidAppPushService`) reuses this sender rather than growing a second
+   * copy of the send-and-prune logic.
+   */
+  async sendToSubscriptions(
     active: ActiveVapidConfig,
     subscriptions: readonly PushSubscription[],
     payload: string,
@@ -566,7 +575,7 @@ export function isValidVapidSubject(subject: string): boolean {
   }
 }
 
-function endpointHost(endpoint: string): string {
+export function endpointHost(endpoint: string): string {
   try {
     return new URL(endpoint).hostname;
   } catch {

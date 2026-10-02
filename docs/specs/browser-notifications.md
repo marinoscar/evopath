@@ -116,13 +116,20 @@ service drains in-flight detached dispatches for up to 5 seconds
 (`SHUTDOWN_DRAIN_MS`). Call it after the triggering write has committed and
 outside any `$transaction`.
 
-### 2.3 The three channels
+### 2.3 The channels
 
 | Channel | Sender | What it does |
 |---|---|---|
 | `email` | `channels/email-notification.channel.ts` | Renders the template mapped in `EVENT_EMAIL_TEMPLATES` and sends it over the configured transport (SMTP settings at `/admin/settings/email`, or SES). A missing mapping is a recorded failure. |
 | `browser` | `channels/browser-notification.channel.ts` | Writes a `notifications` row (the inbox), then publishes it to the user's SSE stream with a server-computed `toast` flag and a `pushed` flag (§2.12). Titles and bodies are truncated (`MAX_TITLE_LENGTH`, `MAX_BODY_LENGTH`); `link` goes through `sanitizeLink` (root-relative only). |
 | `push` | `channels/push-notification.channel.ts` | Writes its own `notifications` row, then sends an encrypted Web Push message to each of the user's `push_subscriptions` (§2.7). |
+| `android_app` | `channels/android-app-notification.channel.ts` | The `push` sender restricted to subscriptions whose `platform` is `android_app`, the ones registered from inside the Android app. Only the two broadcast events declare it. |
+
+When a dispatch resolves to both `push` and `android_app`,
+`collapseOverlappingChannels` (`notification-events.ts`) drops `android_app`
+after preferences and narrowing: `push` already reaches every subscription, so
+each one is pushed once and the delivery log records `push`. A user who muted
+`push` for the event still gets `android_app`.
 
 `EVENT_BROWSER_TEMPLATES` maps an event to `{ title, body, link? }`. The push
 channel reads the same map; without an entry the registry's `label` and
@@ -259,9 +266,17 @@ or its action changes. Rotate and remove both break every existing
 subscription: a `PushSubscription` is bound to the key it was created under.
 
 **Subscriptions.** `push_subscriptions` rows (`endpoint` unique, `p256dh`,
-`auth`, `expirationTime`, `userAgent`, `failureCount`, `lastSuccessAt`).
-`POST /api/notifications/push/subscriptions` upserts by `endpoint` and answers
-409 while no key pair is active. Deleting a user cascades.
+`auth`, `expirationTime`, `userAgent`, `failureCount`, `lastSuccessAt`,
+`platform`). `POST /api/notifications/push/subscriptions` upserts by `endpoint`
+and answers 409 while no key pair is active. Deleting a user cascades.
+
+**Platform tag.** `platform` is `browser` (the default) or `android_app`, held
+to those two values by a CHECK constraint in migration SQL. The web app sends
+`android_app` when it subscribes from inside the Android app's Trusted Web
+Activity. Re-posting an existing endpoint updates the tag, so a subscription
+first made in a browser tab is re-tagged once the app opens the same profile.
+The `android_app` channel and the Android app admin page
+(`/admin/settings/android`: counts and a test notification) read it.
 
 **Sending.** The push channel is always registered, like `email`: an
 unconfigured deployment produces an honest `failed` delivery row an
@@ -600,7 +615,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 | `GET /api/notifications/unread-count` | Unread count | authenticated |
 | `POST /api/notifications/:id/read` | Mark one read | authenticated |
 | `POST /api/notifications/read-all` | Mark all read | authenticated |
-| `POST /api/notifications/push/subscriptions` | Register (upsert) a push subscription; 409 with no active key pair | authenticated |
+| `POST /api/notifications/push/subscriptions` | Register (upsert) a push subscription, with optional `platform` (`browser` default, `android_app`); 409 with no active key pair | authenticated |
 | `DELETE /api/notifications/push/subscriptions` | Remove a push subscription; 204, 404 if not the caller's | authenticated |
 | `GET /api/admin/push-config` | Config plus masked `privateKeyStatus` | `push:read` |
 | `PUT /api/admin/push-config` | Set `{ enabled, subject }` | `push:write` |
@@ -608,6 +623,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 | `POST /api/admin/push-config/rotate` | Replace key pair (`ROTATE`) | `push:write` |
 | `DELETE /api/admin/push-config` | Remove credential and row (`REMOVE`) | `push:write` |
 | `POST /api/admin/push-config/test` | Test push to the caller's own devices, with diagnostics | `push:write` |
+| `POST /api/admin/android-app/test-notification` | Test push to a user's Android app subscriptions (`{ userId? }`, default the caller); per-subscription `sent`/`failed`/`gone`, or a `reason` (`NO_ANDROID_SUBSCRIPTION`, `PUSH_NOT_CONFIGURED`) | `system_settings:write` |
 
 ## 4. Extending it in a fork
 
@@ -752,6 +768,8 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
 - Issue #521: `GET /api/notifications/events` gains `declaredChannels`, so the
   admin policy page keeps listing an event whose browser delivery it
   suppressed.
+- Issue #312: `push_subscriptions.platform`, the `android_app` channel, and the
+  Android app test notification.
 - Issue #183 removed the `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
   `VAPID_SUBJECT` environment-variable fallback, matching how object storage
   (#377) and SES's AWS credential (#585) were retired once their own admin UI

@@ -875,6 +875,14 @@ model PushSubscription {
   // subscription has never had one.
   lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz
 
+  // Which surface registered this subscription (#312): `browser` (a regular
+  // browser tab or installed PWA) or `android_app` (the Android app's Trusted
+  // Web Activity). Lets the `android_app` notification channel target the
+  // phone app alone. Re-subscribing the same endpoint updates it. A CHECK
+  // constraint in the migration SQL limits the values (Prisma cannot express
+  // one); see PUSH_SUBSCRIPTION_PLATFORMS in push-subscription.dto.ts.
+  platform String @default("browser")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 

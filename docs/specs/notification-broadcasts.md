@@ -37,10 +37,20 @@ declares:
 
 ```ts
 { key: 'admin.broadcast',          label: 'Announcements',
-  channels: ['email', 'browser', 'push'], defaultEnabled: true }
+  channels: ['email', 'browser', 'push', 'android_app'], defaultEnabled: true }
 { key: 'admin.broadcast_critical', label: 'Important announcements',
-  channels: ['email', 'browser', 'push'], defaultEnabled: true, mandatory: true }
+  channels: ['email', 'browser', 'push', 'android_app'], defaultEnabled: true, mandatory: true }
 ```
+
+**The Android app channel.** `android_app` (#312) is Web Push to the
+subscriptions registered from inside the Android app
+(`push_subscriptions.platform = 'android_app'`) and to no others; `push` still
+means every subscription, phones included. Selecting both is allowed and pushes
+each subscription once: the dispatcher's `collapseOverlappingChannels` drops
+`android_app` when `push` also survived the recipient's preferences, so the
+delivery log shows `push` for that recipient. A recipient who muted `push` for
+announcements still gets `android_app`. Like `push`, it writes its own in-app
+row.
 
 The only difference is who may mute them. The composer's `critical` flag
 chooses the key; the server derives `eventKey` and ignores any client-supplied
@@ -77,7 +87,7 @@ value. Both appear on `/settings/notifications` automatically: a toggle for
 | `body` | Trimmed, 1–2,000 chars (`BROADCAST_BODY_MAX`). Plain text. |
 | `link` | Optional, ≤ 500 chars, root-relative: starts with `/`, not `//` or `/\`, no spaces or control characters. |
 | `ctaLabel` | Optional, 1–40 chars; requires `link`. |
-| `channels` | At least one of `email`, `browser`, `push`; no duplicates. |
+| `channels` | At least one of `email`, `browser`, `push`, `android_app`; no duplicates. |
 | `scheduledFor` | Optional ISO-8601 with offset; must be in the future. |
 | `critical` | Boolean, default `false`. `critical: true` without `browser` in `channels` is a 400. |
 
@@ -89,8 +99,8 @@ Create returns `{ broadcast, warnings }`. The only warning today fires when
 `browser` was selected while the deployment-wide browser kill switch is off,
 and it says one of two things depending on the broadcast's importance: for
 `admin.broadcast` (non-critical), the in-app row is not written at all and the
-bell never shows it — unless `push` is also selected and the recipient has an
-active subscription, which writes its own in-app row; for
+bell never shows it — unless `push` or `android_app` is also selected and the
+recipient has a matching subscription, which writes its own in-app row; for
 `admin.broadcast_critical` (mandatory), the row is still written and reaches
 the bell, only the OS toast is withheld. That is a warning, not a 400, because
 scheduling for after the switch is flipped back is legitimate.
@@ -410,7 +420,7 @@ No settings namespace and no environment variables of its own. It depends on:
 
 | Method and route | Purpose | Permission |
 |---|---|---|
-| `GET /api/admin/broadcasts/audience` | Count of users a broadcast would reach now (`activeUsers`) | `broadcasts:read` |
+| `GET /api/admin/broadcasts/audience` | Count of users a broadcast would reach now (`activeUsers`), plus `androidAppSubscriptions`: Android app push subscriptions held by that same audience | `broadcasts:read` |
 | `POST /api/admin/broadcasts/test` | Send this composition to yourself; no broadcast row, no job | `broadcasts:write` |
 | `GET /api/admin/broadcasts` | List (`page`, `pageSize` ≤ 100, `status`) | `broadcasts:read` |
 | `POST /api/admin/broadcasts` | Create and queue; 201 `{ broadcast, warnings }` | `broadcasts:write` |
@@ -564,3 +574,6 @@ Manual:
   warning — a non-critical broadcast gets no in-app row while browser
   notifications are disabled, unless `push` is also selected and the
   recipient has a subscription; a critical one always gets its row.
+- #312: the `android_app` channel (Android app subscriptions only, collapsed
+  into `push` when both are selected) and `androidAppSubscriptions` on the
+  audience estimate.

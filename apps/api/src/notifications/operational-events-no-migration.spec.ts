@@ -153,6 +153,9 @@ const MIGRATIONS_AT_288 = [
   // `health_sync_devices.app_version_code`. About Android releases, not
   // notifications.
   '20261003120000_add_android_app_releases',
+  // #312: push_subscriptions.platform, tagging Android-app subscriptions. A
+  // delivery-target column, not a per-event schema or a new notification.
+  '20261004100000_add_push_subscription_platform',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

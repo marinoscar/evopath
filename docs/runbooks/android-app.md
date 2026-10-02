@@ -164,6 +164,45 @@ Server-side symptoms:
 | Upload answers 503 `storage_not_configured` | Object storage is not configured | Configure it at Admin, then Settings, then Storage ([release runbook](android-release.md#13-troubleshooting)). |
 | The Doctor warns `android.releases` | Phones are paired but no release is current | Publish one ([release runbook](android-release.md)). |
 
+### Notifications
+
+The app shows the deployment's Web Push notifications (announcements, coach
+nudges, anything the user enabled at Settings, then Notifications). They reach
+the phone only when all of these hold:
+
+1. **Web Push is configured.** Admin, then Settings, then Push shows an enabled
+   key pair. Without it nothing is sent anywhere.
+2. **Android allows notifications for the app.** On Android 13 and later the
+   app asks once, on the first visit to its Health sync screen; the
+   **Notifications** row there shows the status and offers **Allow**, or
+   **Open settings** when the permission was denied for good. The phone
+   self-test reports the same under `notifications.permission`.
+3. **The web view subscribed from inside the app.** Open the app, then
+   Settings, then Notifications, and turn notifications on. A subscription made
+   inside the app is tagged `android_app`; one made earlier in a browser tab on
+   the same profile is re-tagged when the app subscribes again.
+
+**Test from the server.** Admin, then Settings, then Android app shows how many
+Android app subscriptions exist (and for how many users) and has **Send test
+notification**. The answer lists each of the user's Android app subscriptions
+as `sent`, `failed` or `gone` (the push service no longer knows it; it was
+removed and the app must subscribe again). Two answers mean nothing was sent:
+
+| Reason | Meaning | Fix |
+|---|---|---|
+| `NO_ANDROID_SUBSCRIPTION` | The user has no subscription registered from inside the app | On the phone: open the app, Settings, Notifications, enable, then allow notifications for the app when Android asks. |
+| `PUSH_NOT_CONFIGURED` | No active VAPID key pair | Configure Web Push at Admin, then Settings, then Push. |
+
+`sent` but nothing appears on the phone: the app's notifications are off in
+Android Settings, then Apps, then `<product>`, then Notifications (or one of its
+channels is set to off); the phone's self-test check `notifications.channels`
+reports this. Battery restrictions can also delay delivery.
+
+**Broadcasts.** The broadcast composer has an **Android app** channel: Web Push
+to Android app subscriptions only. **Push** already includes phones, so
+selecting both sends each device one notification, not two. The audience
+estimate shows how many Android app subscriptions the broadcast would reach.
+
 ## 11. Summary checklist
 
 - [ ] A release published and current ([release runbook](android-release.md), which covers the keystore backup)

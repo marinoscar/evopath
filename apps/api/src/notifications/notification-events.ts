@@ -106,10 +106,37 @@
  * live user preferences, which is the one shape of change this registry
  * exists to avoid.
  */
-export const NOTIFICATION_CHANNELS = ['email', 'browser', 'push'] as const;
+// `android_app` (#312) is Web Push restricted to subscriptions registered from
+// inside the Android app (`push_subscriptions.platform = 'android_app'`);
+// `push` keeps meaning every subscription. Only the broadcast events declare
+// it. When a dispatch resolves to both, `collapseOverlappingChannels` drops
+// `android_app` so no subscription is pushed twice.
+export const NOTIFICATION_CHANNELS = ['email', 'browser', 'push', 'android_app'] as const;
 
 /** A delivery channel. See {@link NOTIFICATION_CHANNELS}. */
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+/**
+ * Remove channels another channel in the same dispatch already covers (#312).
+ *
+ * `push` sends to EVERY subscription a user holds, `android_app` only to the
+ * ones registered from inside the Android app, so `android_app` is a subset
+ * of `push`: with both, every Android app subscription would be pushed twice
+ * and two inbox rows written. `android_app` is dropped, `push` reaches each
+ * subscription once and the delivery log labels it `push`, the channel that
+ * actually sent. A user who muted `push` for the event keeps `android_app`
+ * (it is decided after preferences), which is the point of a separate key.
+ *
+ * Returns a fresh array; order is preserved.
+ */
+export function collapseOverlappingChannels(
+  channels: readonly NotificationChannel[],
+): NotificationChannel[] {
+  if (channels.includes('push') && channels.includes('android_app')) {
+    return channels.filter((channel) => channel !== 'android_app');
+  }
+  return [...channels];
+}
 
 /**
  * One notification event, fully described for every surface that dispatches,
@@ -290,10 +317,11 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     label: 'Announcements',
     description:
       'Occasional messages an administrator sends to everyone using this application.',
-    // All three channels: a broadcast has no shape of its own, so the medium is
+    // Every channel: a broadcast has no shape of its own, so the medium is
     // the admin's choice per send — expressed as a NARROWING of this list (see
     // `NotifyOptions` in notification.types.ts), never as a widening of it.
-    channels: ['email', 'browser', 'push'],
+    // `android_app` (#312) is the Android-app-only slice of `push`.
+    channels: ['email', 'browser', 'push', 'android_app'],
     defaultEnabled: true,
   },
   {
@@ -301,7 +329,7 @@ export const NOTIFICATION_EVENTS: NotificationEventDef[] = [
     label: 'Important announcements',
     description:
       'Messages an administrator has marked as important — service interruptions, security notices and anything else everyone needs to see. These cannot be turned off.',
-    channels: ['email', 'browser', 'push'],
+    channels: ['email', 'browser', 'push', 'android_app'],
     defaultEnabled: true,
     // A service interruption or a security notice nobody receives is the
     // failure this flag exists for, and it is the same argument

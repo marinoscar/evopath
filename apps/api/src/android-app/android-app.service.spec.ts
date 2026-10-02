@@ -2,8 +2,13 @@ import { AndroidAppService } from './android-app.service';
 
 const SHA = Array.from({ length: 32 }, () => 'AB').join(':');
 
-function setup(stored: unknown, groups: unknown[] = []) {
+function setup(stored: unknown, groups: unknown[] = [], pushGroups: { platform?: unknown[]; users?: unknown[] } = {}) {
   const prisma = {
+    pushSubscription: {
+      groupBy: jest.fn().mockImplementation(async (args: { by: string[] }) =>
+        args.by[0] === 'platform' ? (pushGroups.platform ?? []) : (pushGroups.users ?? []),
+      ),
+    },
     systemSettings: {
       findUnique: jest.fn().mockResolvedValue(stored === undefined ? null : { value: stored }),
       upsert: jest.fn().mockResolvedValue({}),
@@ -16,6 +21,29 @@ function setup(stored: unknown, groups: unknown[] = []) {
 }
 
 describe('AndroidAppService', () => {
+  // #312
+  it('counts push subscriptions by platform and distinct Android app users', async () => {
+    const { service } = setup(undefined, [], {
+      platform: [
+        { platform: 'browser', _count: { _all: 4 } },
+        { platform: 'android_app', _count: { _all: 3 } },
+      ],
+      users: [{ userId: 'u1' }, { userId: 'u2' }],
+    });
+
+    await expect(service.getPushSubscriptionCounts()).resolves.toEqual({
+      androidApp: 3,
+      browser: 4,
+      androidAppUsers: 2,
+    });
+  });
+
+  it('describe() includes zero counts when nobody has subscribed', async () => {
+    await expect(setup(undefined).service.describe()).resolves.toMatchObject({
+      pushSubscriptions: { androidApp: 0, browser: 0, androidAppUsers: 0 },
+    });
+  });
+
   it('reads nothing stored as no trusted apps', async () => {
     await expect(setup(undefined).service.getTrustedApps()).resolves.toEqual([]);
   });

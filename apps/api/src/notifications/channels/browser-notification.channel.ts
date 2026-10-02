@@ -633,7 +633,8 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
       // attempted, not that it succeeded or that this browser holds a
       // subscription; the client combines it with its own subscription state
       // to avoid a duplicate OS toast. Independent of `toast`.
-      pushed: context.channels.includes('push'),
+      // `android_app` (#312) is Web Push too, to the app's own subscriptions.
+      pushed: context.channels.includes('push') || context.channels.includes('android_app'),
     });
 
     // Event key and connection count only — no title, no body, no link. The

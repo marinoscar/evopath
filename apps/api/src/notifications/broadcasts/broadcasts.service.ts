@@ -143,12 +143,20 @@ export class BroadcastsService {
    * frozen when the fan-out starts, so for a SCHEDULED broadcast this is an
    * estimate — an honest one, and the only one available at compose time.
    */
-  async audience(): Promise<{ activeUsers: number }> {
-    const activeUsers = await this.prisma.user.count({
-      where: audienceWhere(new Date()),
-    });
+  async audience(): Promise<{ activeUsers: number; androidAppSubscriptions: number }> {
+    const where = audienceWhere(new Date());
 
-    return { activeUsers };
+    // `androidAppSubscriptions` (#312): Android app push subscriptions held by
+    // that same audience — the reach of the `android_app` channel. Same
+    // predicate, same cutoff, nested under the subscription's user.
+    const [activeUsers, androidAppSubscriptions] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.pushSubscription.count({
+        where: { platform: 'android_app', user: where },
+      }),
+    ]);
+
+    return { activeUsers, androidAppSubscriptions };
   }
 
   /** Newest first, paginated, optionally filtered by status. */
@@ -614,7 +622,9 @@ export class BroadcastsService {
           ];
         }
 
-        const pushNote = dto.channels.includes('push')
+        // `android_app` (#312) is a push channel too, with its own inbox row.
+        const pushNote =
+          dto.channels.includes('push') || dto.channels.includes('android_app')
           ? ' Recipients with push notifications enabled on a device still get an in-app ' +
             'entry from the push delivery.'
           : '';

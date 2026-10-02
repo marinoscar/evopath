@@ -15,6 +15,16 @@ import { z } from 'zod';
 // =============================================================================
 
 /**
+ * The surfaces a push subscription can come from (#312). `browser` is a
+ * regular browser tab or installed PWA; `android_app` is the Android app's
+ * Trusted Web Activity, which the `android_app` notification channel targets.
+ * Mirrors the CHECK constraint on `push_subscriptions.platform`.
+ */
+export const PUSH_SUBSCRIPTION_PLATFORMS = ['browser', 'android_app'] as const;
+
+export type PushSubscriptionPlatform = (typeof PUSH_SUBSCRIPTION_PLATFORMS)[number];
+
+/**
  * Body of `POST /api/notifications/push/subscriptions`.
  *
  * Matches the browser's `PushSubscription.toJSON()` shape exactly —
@@ -39,9 +49,19 @@ export const pushSubscribeSchema = z.object({
    * `timestamptz`, not a raw number.
    */
   expirationTime: z.number().nullable().optional(),
+
+  /**
+   * Which surface is subscribing (#312). Absent means `browser`. The Android
+   * app's web view sends `android_app`; re-subscribing the same endpoint with
+   * a different value updates the stored one.
+   */
+  platform: z
+    .enum(PUSH_SUBSCRIPTION_PLATFORMS)
+    .default('browser')
+    .describe('Which surface registered this subscription; defaults to `browser`.'),
 });
 
-export type PushSubscribeRequest = z.infer<typeof pushSubscribeSchema>;
+export type PushSubscribeRequest = z.input<typeof pushSubscribeSchema>;
 
 export class PushSubscribeDto extends createZodDto(pushSubscribeSchema) {}
 
@@ -49,6 +69,8 @@ export class PushSubscribeDto extends createZodDto(pushSubscribeSchema) {}
 export const pushSubscriptionResponseSchema = z.object({
   id: z.uuid(),
   endpoint: z.string(),
+  /** The stored platform (#312). */
+  platform: z.enum(PUSH_SUBSCRIPTION_PLATFORMS),
   createdAt: z.iso.datetime(),
 });
 
