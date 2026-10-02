@@ -73,6 +73,12 @@ export interface LabReportValue {
   referenceText: string | null;
   flag: LabFlag | null;
   panel: LabPanel | null;
+  /**
+   * #305: the date this result was collected (`YYYY-MM-DD`), read per result
+   * from a multi-date (trend) report. `null` (or absent on a draft read before
+   * #305): the report date applies.
+   */
+  collectionDate: string | null;
   /** Server-owned: recomputed on every write. */
   match: LabMatchStatus;
 }
@@ -86,13 +92,24 @@ export interface LabReportContext {
 
 export const LAB_NAME_MAX = 120;
 
+/** One lab entry the apply wrote: the results of one collection date (#305). */
+export interface LabReportApplyEntry {
+  entryId: string;
+  /** `null`: saved at the time of apply. */
+  collectionDate: string | null;
+  items: MeasurementDto[];
+}
+
 /** `POST /api/intakes/:id/apply` for this kind. */
 export interface LabReportApplyResult {
-  /** `null` when every item was rejected. */
+  /** `null` when every item was rejected. The first entry, kept for older callers. */
   entryId: string | null;
+  /** #305: every entry written, one per collection date. Absent from an older server. */
+  entryIds?: string[];
+  entries?: LabReportApplyEntry[];
   items: MeasurementDto[];
-  /** `apply_time` when the report had no collection date. */
-  measuredAtSource: 'collection_date' | 'apply_time' | null;
+  /** `mixed` when some date groups were dated and some saved at apply time. */
+  measuredAtSource: 'collection_date' | 'mixed' | 'apply_time' | null;
   documentDate: string | null;
 }
 
@@ -180,6 +197,7 @@ export function emptyLabResult(): LabReportValue {
     referenceText: null,
     flag: null,
     panel: null,
+    collectionDate: null,
     match: 'unmatched',
   };
 }
@@ -202,7 +220,69 @@ export function labResultPayload(value: LabReportValue): Partial<LabReportValue>
     referenceHigh: value.referenceHigh,
     referenceText: value.referenceText,
     flag: value.flag,
+    collectionDate: value.collectionDate ?? null,
   };
+}
+
+// -----------------------------------------------------------------------------
+// Per-result dates (#305): a trend report prints one column per collection date
+// -----------------------------------------------------------------------------
+
+/** The result's own date, `null` when it has none (or the draft predates #305). */
+export function resultDate(value: Pick<LabReportValue, 'collectionDate'>): string | null {
+  return value.collectionDate ?? null;
+}
+
+/** The date the result is saved on: its own, else the report date, else `null` (the time of saving). */
+export function effectiveDate(value: Pick<LabReportValue, 'collectionDate'>, reportDate: string | null | undefined): string | null {
+  return resultDate(value) ?? reportDate ?? null;
+}
+
+/**
+ * Items grouped by {@link effectiveDate}, newest date first; the undated
+ * group (saved at the time of saving) last. Items keep their order.
+ */
+export function groupByDate<T extends { value: Pick<LabReportValue, 'collectionDate'> }>(
+  items: readonly T[],
+  reportDate: string | null | undefined,
+): { date: string | null; items: T[] }[] {
+  const groups = new Map<string | null, T[]>();
+  for (const item of items) {
+    const date = effectiveDate(item.value, reportDate);
+    const group = groups.get(date);
+    if (group) group.push(item);
+    else groups.set(date, [item]);
+  }
+  return [...groups.entries()]
+    .map(([date, grouped]) => ({ date, items: grouped }))
+    .sort((a, b) => (a.date === b.date ? 0 : a.date === null ? 1 : b.date === null ? -1 : a.date < b.date ? 1 : -1));
+}
+
+/** "Nov 19, 2025" for a `YYYY-MM-DD`, as a calendar date (no time zone can move it). */
+export function formatLabDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * The item "Accept high confidence" takes: pending, read with high confidence
+ * and not flagged uncertain. Mirrors the server's filter for the count only;
+ * the server picks the items.
+ */
+export function isHighConfidencePending(item: Pick<DraftItemView<unknown>, 'status' | 'confidence' | 'uncertain'>): boolean {
+  return item.status === 'pending' && item.confidence === 'high' && !item.uncertain;
+}
+
+/** What the snackbar says after a save: "Saved 85 results on 5 dates" for several entries. */
+export function labSavedMessage(result: Pick<LabReportApplyResult, 'items' | 'entries'>): string {
+  const count = result.items.length;
+  if (count === 0) return 'Nothing was saved';
+  const entries = result.entries?.length ?? 0;
+  if (entries > 1) return `Saved ${count} ${count === 1 ? 'result' : 'results'} on ${entries} dates`;
+  return `Saved ${count} lab ${count === 1 ? 'result' : 'results'} to Health`;
 }
 
 /** True when `query` matches the analyte's key, label or one of its aliases (case-insensitive). */
