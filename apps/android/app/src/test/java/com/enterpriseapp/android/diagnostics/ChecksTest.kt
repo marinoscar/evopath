@@ -17,6 +17,9 @@ import com.enterpriseapp.android.update.AppRelease
 import com.enterpriseapp.android.util.AppInfo
 import com.enterpriseapp.android.util.Brand
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -226,6 +229,35 @@ class ChecksTest {
         assertStatus(CheckStatus.SKIP, Checks.hcData(HcDataType.SLEEP, true, null, emptyList(), zone))
     }
 
+    @Test fun `hc data remedy names up to three apps, or none and opens the Sync screen`() {
+        val apps = listOf(
+            RemedyApp("com.ouraring.oura", "Oura", RemedyApp.WROTE_DATA),
+            RemedyApp("com.garmin.android.apps.connectmobile", "Garmin Connect", RemedyApp.INSTALLED_CAPABLE),
+            RemedyApp("com.fitbit.FitbitMobile", "Fitbit", RemedyApp.INSTALLED_CAPABLE),
+            RemedyApp("com.withings.wiscale2", "Withings", RemedyApp.INSTALLED_CAPABLE),
+        )
+        val named = Checks.hcData(HcDataType.HRV, true, entry(HcDataType.HRV, 0), apps, zone)
+        assertEquals(
+            "Open Oura (or Garmin Connect, or Fitbit) and allow Heart rate variability to be shared to Health Connect: " +
+                "Health Connect → App permissions → Oura → Allowed to write → Heart rate variability. Then Sync now.",
+            named.remedy,
+        )
+        val reported = named.data!!["remedyApps"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(4, reported.size)
+        assertEquals(setOf("packageName", "appLabel", "reason"), reported.first().keys)
+        assertEquals("wrote_data", (reported.first()["reason"] as JsonPrimitive).content)
+        assertEquals("installed_capable", (reported.last()["reason"] as JsonPrimitive).content)
+
+        val none = Checks.hcData(HcDataType.RESTING_HEART_RATE, true, entry(HcDataType.RESTING_HEART_RATE, 0), emptyList(), zone)
+        assertStatus(CheckStatus.WARN, none)
+        assertEquals(
+            "None of the apps on this phone write resting heart rate to Health Connect. If you don't track it, turn Heart rate off on the Sync screen.",
+            none.remedy,
+        )
+        assertEquals(CheckAction.OPEN_SYNC_SETTINGS, none.action)
+        assertTrue(none.data!!["remedyApps"]!!.jsonArray.isEmpty())
+    }
+
     @Test fun `source aggregation unions packages across types`() {
         val inventory = listOf(
             entry(HcDataType.STEPS, 30, sources = listOf(
@@ -253,6 +285,10 @@ class ChecksTest {
         val check = Checks.hcSources(true, inventory, emptyList(), zone)
         assertStatus(CheckStatus.WARN, check)
         assertTrue(check.detail.startsWith("No app wrote anything"))
+        assertTrue(check.remedy!!, check.remedy!!.startsWith("Turn on sharing to Health Connect in the app that records your health data"))
+        assertTrue("no hardcoded example", !check.remedy!!.contains("Samsung"))
+        val named = Checks.hcSources(true, inventory, emptyList(), zone, listOf("Samsung Health", "Oura"))
+        assertTrue(named.remedy!!, named.remedy!!.startsWith("Turn on sharing to Health Connect in Samsung Health or Oura"))
         assertStatus(CheckStatus.SKIP, Checks.hcSources(true, listOf(entry(HcDataType.STEPS, 0, InventoryEntry.DENIED)), emptyList(), zone))
         assertStatus(CheckStatus.SKIP, Checks.hcSources(false, null, emptyList(), zone))
     }

@@ -166,6 +166,33 @@ class SelfTestTest {
         assertEquals(CheckStatus.WARN, result.check("twa.verification").verdict) // "[]"
     }
 
+    @Test fun `hc data remedies use evidence, installed capable apps and the capability table`() = runBlocking {
+        platform.installed = setOf("com.sec.android.app.shealth", "com.ouraring.oura")
+        val result = selfTest().run()
+        // HRV: Samsung Health cannot write it, Oura (installed, feeding sleep) can.
+        val hrv = result.check("hc.data.hrv")
+        assertEquals(CheckStatus.WARN, hrv.verdict)
+        assertTrue(hrv.remedy!!, hrv.remedy!!.startsWith("Open Oura and allow Heart rate variability"))
+        val hrvApps = hrv.data!!["remedyApps"]!!.jsonArray.map { (it.jsonObject["packageName"] as JsonPrimitive).content }
+        assertEquals(listOf("com.ouraring.oura"), hrvApps)
+        // Steps: Samsung Health wrote them; Oura is installed and capable.
+        val steps = result.check("hc.data.steps").data!!["remedyApps"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("com.sec.android.app.shealth", "com.ouraring.oura"), steps.map { (it["packageName"] as JsonPrimitive).content })
+        assertEquals(listOf("wrote_data", "installed_capable"), steps.map { (it["reason"] as JsonPrimitive).content })
+        // Blood pressure: only Samsung Health among them.
+        assertTrue(result.check("hc.data.blood_pressure").remedy!!.startsWith("Open Samsung Health and allow Blood pressure"))
+    }
+
+    @Test fun `a type no app on the phone can write gets the none remedy`() = runBlocking {
+        gateway.inventories.remove(HcDataType.SLEEP) // Oura feeds nothing now
+        platform.installed = setOf("com.sec.android.app.shealth")
+        val result = selfTest().run()
+        val hrv = result.check("hc.data.hrv")
+        assertEquals(CheckStatus.WARN, hrv.verdict)
+        assertTrue(hrv.remedy!!, hrv.remedy!!.startsWith("None of the apps on this phone write heart rate variability"))
+        assertEquals(CheckAction.OPEN_SYNC_SETTINGS, hrv.action)
+    }
+
     @Test fun `Health Connect enabled but nothing shared is caught`() = runBlocking {
         gateway.inventories.clear()
         val result = selfTest().run()
@@ -317,6 +344,8 @@ class SelfTestTest {
         val work = json["work"]!!.jsonObject
         assertEquals("ENQUEUED", (work["state"] as JsonPrimitive).content)
         assertEquals("2026-10-01T19:00:00Z", (work["nextRunAt"] as JsonPrimitive).content)
+        val weightCheck = json["checks"]!!.jsonArray.map { it.jsonObject }.single { (it["id"] as JsonPrimitive).content == "hc.data.weight" }
+        assertTrue("remedyApps" in weightCheck["data"]!!.jsonObject)
         val check = json["checks"]!!.jsonArray.first().jsonObject
         assertEquals(setOf("id", "label", "status", "detail"), check.keys - setOf("remedy", "data"))
         assertNull("the phone-only action is not serialized", check["action"])
