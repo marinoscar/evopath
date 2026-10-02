@@ -17,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -81,6 +83,7 @@ class HealthSyncActivity : ComponentActivity() {
                     diagnosticsVm = diagnosticsVm,
                     pendingOpen = pendingOpen,
                     onOpenWebApp = ::openWebApp,
+                    onExit = ::finish,
                 )
             }
         }
@@ -123,6 +126,7 @@ private fun HealthSyncApp(
     diagnosticsVm: DiagnosticsViewModel,
     pendingOpen: MutableStateFlow<String?>,
     onOpenWebApp: () -> Unit,
+    onExit: () -> Unit,
 ) {
     var screen by rememberSaveable { mutableStateOf(HealthSyncScreen.Hub) }
     var requestBackground by remember { mutableStateOf(false) }
@@ -137,6 +141,9 @@ private fun HealthSyncApp(
         }
         if (open != null) pendingOpen.value = null
     }
+    // Every sub-screen returns to the hub (system back and the app-bar arrow alike); on the hub,
+    // back leaves Health sync (the system default, and the arrow calls [onExit]).
+    val goBack: () -> Unit = { if (screen == HealthSyncScreen.Hub) onExit() else screen = HealthSyncScreen.Hub }
     BackHandler(enabled = screen != HealthSyncScreen.Hub) { screen = HealthSyncScreen.Hub }
 
     Scaffold(
@@ -144,8 +151,8 @@ private fun HealthSyncApp(
             TopAppBar(
                 title = { Text(screen.title) },
                 navigationIcon = {
-                    if (screen != HealthSyncScreen.Hub) {
-                        TextButton(onClick = { screen = HealthSyncScreen.Hub }) { Text("Back") }
+                    IconButton(onClick = goBack) {
+                        Icon(BackArrow, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

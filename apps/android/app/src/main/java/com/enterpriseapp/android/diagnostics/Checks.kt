@@ -467,7 +467,17 @@ object Checks {
         }
     }
 
-    fun hcSources(available: Boolean, inventory: List<InventoryEntry>?, sources: List<SourceSummary>, zone: ZoneId): CheckResult {
+    /**
+     * [installedKnown] are the labels of installed apps from `KnownSourceApps`: the empty-sources
+     * remedy names them (or stays generic when there are none).
+     */
+    fun hcSources(
+        available: Boolean,
+        inventory: List<InventoryEntry>?,
+        sources: List<SourceSummary>,
+        zone: ZoneId,
+        installedKnown: List<String> = emptyList(),
+    ): CheckResult {
         val id = CheckIds.HC_SOURCES
         val label = CheckLabels.HC_SOURCES
         if (!available || inventory == null) return CheckResult.of(id, label, CheckStatus.SKIP, "Health Connect could not be read.")
@@ -495,7 +505,7 @@ object Checks {
             return CheckResult.of(
                 id, label, CheckStatus.WARN,
                 "No app wrote anything readable into Health Connect in the last 30 days. $HISTORY_NOTE",
-                remedy = "Turn on sharing to Health Connect in your source app (for example Samsung Health → Settings → Health Connect), then run the self-test again.",
+                remedy = sourcesRemedy(installedKnown),
                 action = CheckAction.OPEN_HEALTH_CONNECT,
                 data = data,
             )
@@ -506,17 +516,40 @@ object Checks {
         return CheckResult.of(id, label, CheckStatus.PASS, "${sources.size} app${if (sources.size == 1) "" else "s"} in the last 30 days: $text.", data = data)
     }
 
-    /** The app most likely to be the user's source, for remedies ("Open Samsung Health → …"). */
-    fun likelySourceApp(sources: List<SourceSummary>): String =
-        sources.firstOrNull { it.packageName !in HEALTH_CONNECT_PACKAGES }?.appLabel ?: "your source app (for example Samsung Health)"
+    private fun sourcesRemedy(installedKnown: List<String>): String {
+        val apps = installedKnown.take(MAX_REMEDY_APPS)
+        if (apps.isEmpty()) {
+            return "Turn on sharing to Health Connect in the app that records your health data (in its settings, or Health Connect → App permissions → the app → Allowed to write), then run the self-test again."
+        }
+        val names = when (apps.size) {
+            1 -> apps[0]
+            else -> apps.dropLast(1).joinToString(", ") + " or " + apps.last()
+        }
+        return "Turn on sharing to Health Connect in $names (in the app's settings, or Health Connect → App permissions → the app → Allowed to write), then run the self-test again."
+    }
 
-    private val HEALTH_CONNECT_PACKAGES = setOf("com.google.android.apps.healthdata", "com.android.healthconnect.controller")
+    /** At most this many apps are named in one remedy (all of them stay in `data.remedyApps`). */
+    private const val MAX_REMEDY_APPS = 3
+
+    /**
+     * Remedy for a granted type with no records: names the apps that can supply it
+     * ([remedyApps], from `RemedyApps.select`), or says none can and points at the Sync switch.
+     */
+    fun missingDataRemedy(type: HcDataType, remedyApps: List<RemedyApp>): String {
+        if (remedyApps.isEmpty()) {
+            val toggle = SyncToggle.forType(type).label
+            return "None of the apps on this phone write ${type.label.lowercase()} to Health Connect. If you don't track it, turn $toggle off on the Sync screen."
+        }
+        val labels = remedyApps.map { it.appLabel }.take(MAX_REMEDY_APPS)
+        return "Open ${RemedyApps.orList(labels)} and allow ${type.label} to be shared to Health Connect: " +
+            "Health Connect → App permissions → ${labels.first()} → Allowed to write → ${type.label}. Then Sync now."
+    }
 
     fun hcData(
         type: HcDataType,
         enabled: Boolean,
         entry: InventoryEntry?,
-        likelySource: String,
+        remedyApps: List<RemedyApp>,
         zone: ZoneId,
     ): CheckResult {
         val id = CheckIds.hcData(type)
@@ -527,6 +560,15 @@ object Checks {
                 put("recordCount30d", it.recordCount30d)
                 put("capped", it.capped)
                 put("latestRecordAt", it.latestRecordAt)
+                putJsonArray("remedyApps") {
+                    remedyApps.forEach { app ->
+                        add(buildJsonObject {
+                            put("packageName", app.packageName)
+                            put("appLabel", app.appLabel)
+                            put("reason", app.reason)
+                        })
+                    }
+                }
             }
         }
         if (entry == null || entry.permission == InventoryEntry.UNKNOWN) {
@@ -554,8 +596,8 @@ object Checks {
             entry.recordCount30d == 0 -> CheckResult.of(
                 id, label, CheckStatus.WARN,
                 "Permission granted but no ${type.label.lowercase()} records in the last 30 days: the source app is probably not sharing to Health Connect. $HISTORY_NOTE",
-                remedy = "Open $likelySource → Settings → Health Connect and allow ${type.label} (or Android Settings → Health Connect → App permissions → $likelySource → allow ${type.label}), then Sync now.",
-                action = CheckAction.OPEN_HEALTH_CONNECT,
+                remedy = missingDataRemedy(type, remedyApps),
+                action = if (remedyApps.isEmpty()) CheckAction.OPEN_SYNC_SETTINGS else CheckAction.OPEN_HEALTH_CONNECT,
                 data = data,
             )
             else -> CheckResult.of(
