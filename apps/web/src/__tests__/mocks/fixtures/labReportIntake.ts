@@ -25,6 +25,12 @@
  *
  * #311: `POST /api/measurements/lab-reports/:id/reject-unmatched` rejects
  * every non-rejected result with no analyte and answers `{ items }`.
+ *
+ * #317: `GET /api/measurements/lab-reports/:id/issues` answers what apply
+ * would refuse per non-rejected result: by default `UNMATCHED` (no analyte)
+ * and `NO_VALUE` (an analyte but no number), or what `issues` says. Apply
+ * answers `400 details.issues` (paths `items.<id>.…`) while `applyIssues`
+ * returns any.
  */
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
@@ -33,6 +39,7 @@ import type { MetricCatalog, MetricDef } from '../../../services/health';
 import type {
   LabReportContext,
   LabReportDuplicate,
+  LabReportItemIssues,
   LabReportValue,
 } from '../../../services/labReport';
 import { mockMeasurement, mockMetricCatalog } from './measurements';
@@ -237,6 +244,10 @@ export interface LabIntakeApiOptions {
   mapRefusal?: (item: DraftItemView<LabReportValue>, metric: MetricDef) => string | null;
   /** The name the server reports for an attached file. */
   photoName?: string;
+  /** #317: what the issues route answers (default: `defaultLabIssues`). */
+  issues?: (intake: PhotoIntakeView<LabReportValue, LabReportContext>) => LabReportItemIssues[];
+  /** #317: issues apply refuses with (400 `details.issues`) after the pending check; none by default. */
+  applyIssues?: (intake: PhotoIntakeView<LabReportValue, LabReportContext>) => { path: string; message: string }[];
 }
 
 export interface LabIntakeApiState {
@@ -249,6 +260,8 @@ export interface LabIntakeApiState {
   maps: { itemId: string; analyteKey?: string; unit?: string; mapped: string[]; skipped: string[] }[];
   intakePatches: { id: string; body: Record<string, unknown> }[];
   duplicateChecks: number;
+  /** #317: how many times the issues route was read. */
+  issueChecks: number;
   applied: number;
 }
 
@@ -262,6 +275,7 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
     maps: [],
     intakePatches: [],
     duplicateChecks: 0,
+    issueChecks: 0,
     applied: 0,
   };
   let itemPatchError = options.itemPatchError;
@@ -457,6 +471,13 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
           { status: 400 },
         );
       }
+      const refusals = options.applyIssues?.(intake) ?? [];
+      if (refusals.length > 0) {
+        return HttpResponse.json(
+          { code: 'VALIDATION_ERROR', message: 'Validation failed', details: { issues: refusals } },
+          { status: 400 },
+        );
+      }
       const accepted = intake.items.filter((item) => item.status === 'accepted');
       const unresolved = accepted.filter((item) => !item.value.analyteKey).map((item) => item.id);
       if (unresolved.length > 0) {
@@ -607,6 +628,15 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
       });
     }),
 
+    http.get('*/api/measurements/lab-reports/:intakeId/issues', async ({ request, params }) => {
+      const id = String(params.intakeId);
+      await record(request, `/api/measurements/lab-reports/${id}/issues`);
+      const intake = state.intakes.get(id);
+      if (!intake) return notFound();
+      state.issueChecks += 1;
+      return HttpResponse.json({ data: { items: (options.issues ?? defaultLabIssues)(intake) } });
+    }),
+
     http.post('*/api/storage/objects', async () => {
       uploads += 1;
       return HttpResponse.json(
@@ -677,4 +707,23 @@ export function duplicatesOf(...keys: string[]) {
           },
         ],
       }));
+}
+
+/**
+ * #317: what the issues route reports by default: a result with no analyte is
+ * `UNMATCHED`, one with an analyte but no number is `NO_VALUE`.
+ */
+export function defaultLabIssues(intake: PhotoIntakeView<LabReportValue, LabReportContext>): LabReportItemIssues[] {
+  return intake.items
+    .filter((item) => item.status !== 'rejected')
+    .map((item) => {
+      const name = item.value.nameAsPrinted ?? 'This result';
+      const issues = !item.value.analyteKey
+        ? [{ code: 'UNMATCHED', field: 'analyteKey', message: `${name} is not in the lab catalog; map it or reject it` }]
+        : item.value.value === null
+          ? [{ code: 'NO_VALUE', field: 'value', message: `${name} has no numeric value; enter one or reject it` }]
+          : [];
+      return { itemId: item.id, issues };
+    })
+    .filter((entry) => entry.issues.length > 0);
 }

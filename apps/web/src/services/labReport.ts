@@ -144,6 +144,42 @@ export function getLabReportDuplicates(intakeId: string): Promise<LabReportDupli
   return api.get<LabReportDuplicates>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/duplicates`);
 }
 
+/**
+ * #317: why `apply` would refuse a result if it were accepted, as the server
+ * words it. `code` is one of `UNMATCHED`, `UNIT_NOT_ALLOWED`, `NO_VALUE`,
+ * `OUT_OF_RANGE`, `REFERENCE_ORDER`, `DUPLICATE_ON_DATE`, `DATE_CAP` or
+ * `INVALID_RESULT` (an unknown code is shown by its message all the same).
+ */
+export interface LabReportIssue {
+  code: string;
+  field: string | null;
+  message: string;
+}
+
+/** The issues of one result. Only results with at least one are listed. */
+export interface LabReportItemIssues {
+  itemId: string;
+  issues: LabReportIssue[];
+}
+
+/** `GET /api/measurements/lab-reports/:intakeId/issues` (#317). */
+export interface LabReportIssues {
+  items: LabReportItemIssues[];
+}
+
+/**
+ * What apply would refuse, per result (#317): the same check apply runs, over
+ * every result not rejected, so the review can point at the rows before Save.
+ */
+export function getLabReportIssues(intakeId: string): Promise<LabReportIssues> {
+  return api.get<LabReportIssues>(`/measurements/lab-reports/${encodeURIComponent(intakeId)}/issues`);
+}
+
+/** The issues route as a map from item id to its issues. */
+export function issuesByItem(result: LabReportIssues): Map<string, LabReportIssue[]> {
+  return new Map(result.items.filter((entry) => entry.issues.length > 0).map((entry) => [entry.itemId, entry.issues] as const));
+}
+
 /** One result the map left unchanged, with the server's reason (#307). */
 export interface LabReportMapSkipped {
   itemId: string;
@@ -314,6 +350,77 @@ export function needsAttention(item: DraftItemView<LabReportValue>): boolean {
   );
 }
 
+/** #317: the reason shown for a result not in the lab catalog. */
+export const UNMATCHED_REASON = 'Not in the lab catalog: map it or reject it';
+/** #317: the reason shown for a result already saved that has no decision yet. */
+export const DUPLICATE_REASON = 'Already saved: skip it or save it again';
+
+/** One reason a row needs attention before saving (#317). */
+export interface LabAttentionReason {
+  /** The server's issue code, or `UNMATCHED` / `ALREADY_SAVED` for the review's own two. */
+  code: string;
+  message: string;
+}
+
+/**
+ * #317: why a row needs attention before saving: not in the catalog, already
+ * saved with no decision yet, or what the server says apply would refuse
+ * (`GET …/issues`). Rejected rows need none. Presentation only: the server
+ * decides at apply; this just lists what it said, without repeats.
+ */
+export function labAttentionReasons(
+  item: Pick<DraftItemView<LabReportValue>, 'status' | 'value'>,
+  context: { issues?: readonly LabReportIssue[]; undecidedDuplicate?: boolean },
+): LabAttentionReason[] {
+  if (item.status === 'rejected') return [];
+  const reasons: LabAttentionReason[] = [];
+  const unresolved = isUnresolved(item);
+  if (unresolved) reasons.push({ code: 'UNMATCHED', message: UNMATCHED_REASON });
+  if (context.undecidedDuplicate) reasons.push({ code: 'ALREADY_SAVED', message: DUPLICATE_REASON });
+  for (const issue of context.issues ?? []) {
+    // The catalog reason is already said, in the review's words.
+    if (issue.code === 'UNMATCHED' && unresolved) continue;
+    if (reasons.some((reason) => reason.message === issue.message)) continue;
+    reasons.push({ code: issue.code, message: issue.message });
+  }
+  return reasons;
+}
+
+/** "Needs attention", or "Needs attention · 2" with more than one reason. */
+export function attentionLabel(count: number): string {
+  return count > 1 ? `Needs attention · ${count}` : 'Needs attention';
+}
+
+/** Lower-case without accents, for the review's search ("Hémoglobine" finds "hemoglobine"). */
+export function foldSearchText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * #317: whether the review's search matches a result: a case- and
+ * accent-insensitive substring of the printed name, the analyte's label and
+ * catalog aliases, or the panel's label. An empty query matches everything.
+ */
+export function labResultMatches(
+  value: Pick<LabReportValue, 'analyteKey' | 'nameAsPrinted' | 'panel'>,
+  query: string,
+  catalog: MetricCatalog | null,
+): boolean {
+  const needle = foldSearchText(query);
+  if (!needle) return true;
+  const metric = value.analyteKey ? catalog?.metrics.find((entry) => entry.key === value.analyteKey) : undefined;
+  const haystack = [
+    value.nameAsPrinted ?? '',
+    ...(metric ? [metric.label, ...(metric.aliases ?? [])] : []),
+    LAB_PANEL_LABELS[panelOf(value)],
+  ];
+  return haystack.some((text) => foldSearchText(text).includes(needle));
+}
+
 /** An empty result for "Add missing value". */
 export function emptyLabResult(): LabReportValue {
   return {
@@ -438,10 +545,16 @@ export function referenceRangeText(value: Pick<LabReportValue, 'referenceLow' | 
   return value.referenceText || null;
 }
 
+/** One reason a refused apply gave, with the result it is about when the path names one (`items.<id>.…`). */
+export interface LabApplyIssue {
+  itemId: string | null;
+  message: string;
+}
+
 /** What a refused apply means, in a form the review can act on. */
 export type LabApplyRefusal =
   | { kind: 'unresolved'; itemIds: string[] }
-  | { kind: 'issues'; messages: string[] }
+  | { kind: 'issues'; messages: string[]; issues: LabApplyIssue[] }
   | { kind: 'pending' }
   | { kind: 'other'; error: unknown };
 
@@ -456,10 +569,17 @@ export function labApplyRefusal(err: unknown): LabApplyRefusal {
     }
     if (err.status === 400 && reason === 'PENDING_ITEMS') return { kind: 'pending' };
     if (err.status === 400 && Array.isArray(details.issues)) {
-      const messages = details.issues
-        .map((issue) => (issue && typeof issue === 'object' ? (issue as { message?: unknown }).message : undefined))
-        .filter((message): message is string => typeof message === 'string');
-      if (messages.length > 0) return { kind: 'issues', messages: [...new Set(messages)] };
+      const issues: LabApplyIssue[] = [];
+      for (const raw of details.issues as unknown[]) {
+        if (!raw || typeof raw !== 'object') continue;
+        const { message, path } = raw as { message?: unknown; path?: unknown };
+        if (typeof message !== 'string') continue;
+        const itemId = typeof path === 'string' ? (/^items\.([^.]+)/.exec(path)?.[1] ?? null) : null;
+        if (!issues.some((issue) => issue.itemId === itemId && issue.message === message)) issues.push({ itemId, message });
+      }
+      if (issues.length > 0) {
+        return { kind: 'issues', messages: [...new Set(issues.map((issue) => issue.message))], issues };
+      }
     }
   }
   return { kind: 'other', error: err };

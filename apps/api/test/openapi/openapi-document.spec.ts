@@ -254,6 +254,7 @@ describe('OpenAPI document', () => {
         'get /api/health/biomarkers/summary',
         'get /api/measurements',
         'get /api/measurements/lab-reports/{intakeId}/duplicates',
+        'get /api/measurements/lab-reports/{intakeId}/issues',
         'get /api/measurements/latest',
         'get /api/measurements/metrics',
         'get /api/measurements/series',

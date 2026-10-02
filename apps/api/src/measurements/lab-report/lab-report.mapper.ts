@@ -21,11 +21,17 @@ import {
 //
 // Pure. Every result the model returned becomes ONE pending AI draft: nothing
 // is auto-accepted and nothing is dropped, an unrecognised analyte included.
-// The one exception (#310): a NON-RESULT, a cell with no number whose printed
-// text says there is none ("NOT APPLICABLE", "SEE NOTE:", "TNP", "Pending",
-// ...; {@link isNonResult}), is not a result at all. It is dropped and
-// counted in `resultMeta.nonResultsDropped`, so it never blocks apply with
-// "no numeric value". A non-numeric RESULT ("negative", "<0.5") is kept.
+// The one exception (#310, #317): a NON-RESULT, a cell with no number that
+// either printed nothing or whose printed text says there is none, is not a
+// result at all ({@link isNonResult}). It is dropped and counted in
+// `resultMeta.nonResultsDropped`, so it never blocks apply with "no numeric
+// value". "Says there is none": the text STARTS with a non-result phrase
+// ("NOT APPLICABLE (CALC)", "SEE NOTE: (CALC)", "N/A*", "TNP", "Pending"),
+// or CONTAINS one as a whole token while carrying nothing that reads like a
+// result (no digit, `<`, `>` or qualitative word such as "negative",
+// "trace", "detected"). A non-numeric RESULT ("negative", "<0.5", ">90",
+// "trace") is kept. The rule is the same for a matched analyte (every catalog
+// analyte is numeric) and an unmatched one.
 //
 // MATCHING. The analyte is resolved on the SERVER from the printed name
 // (`resolveLabAnalyte`: key, label or alias, folded). The model's
@@ -40,7 +46,7 @@ import {
 // to the canonical unit (value and reference limits), keeping the printed
 // value and unit in `originalValue`/`originalUnit`.
 //
-// DOUBT. A matched result with no number, a unit the analyte does not allow,
+// DOUBT. A matched result with no number (but a qualitative text), a unit the analyte does not allow,
 // or a value outside the hard bounds is kept, flagged uncertain and low.
 //
 // DATES (#305). Each result keeps its own `collectionDate` (one column of a
@@ -58,18 +64,34 @@ export const UNMATCHED_NOTE = 'Not in the lab catalog: map it to an analyte or r
 export const SUGGESTED_NOTE = "Matched from the AI's suggestion: confirm the analyte";
 export const DATE_NOT_READ_NOTE = 'Date not read: set the collection date or keep the report date';
 
-/**
- * What a lab prints in a cell that holds no result (#310), compared
- * case-insensitively on the trimmed text without trailing punctuation.
- */
-const NON_RESULT_TEXT =
-  /^(?:not applicable|n\/?a|see note|see notes|see comment|see comments|see below|tnp|test not performed|not performed|not done|cancel+ed|pending|in progress|to follow|qns|quantity not sufficient|[-\u2013\u2014]+)$/i;
+/** What a lab prints in a cell that holds no result (#310), as one alternation. */
+const NON_RESULT_PHRASE =
+  '(?:not applicable|n\\/?a|see notes?|see comments?|see below|tnp|test not performed|not performed|not done|cancel+ed|pending|in progress|to follow|qns|quantity not sufficient)';
 
-/** Whether a model result is a non-result: no number, and printed text that says there is none. */
+/** The text starts with a non-result phrase, as a whole word ("N/A*", "SEE NOTE: (CALC)"). */
+const NON_RESULT_PREFIX = new RegExp(`^${NON_RESULT_PHRASE}(?![a-z0-9])`, 'i');
+
+/** The text contains a non-result phrase as a whole token anywhere ("(CALC) see note"). */
+const NON_RESULT_TOKEN = new RegExp(`(?:^|[^a-z0-9])${NON_RESULT_PHRASE}(?![a-z0-9])`, 'i');
+
+/** Only dashes: an empty cell. */
+const DASHES = /^[-\u2013\u2014]+$/;
+
+/** Something that reads like a qualitative or bounded result, which a contained token must not override. */
+const RESULT_LIKE =
+  /[0-9<>]|\b(?:negative|positive|neg|pos|trace|detected|reactive|nonreactive|non-reactive|normal|abnormal|present|absent|nil|equivocal|indeterminate|borderline)\b/i;
+
+/**
+ * Whether a model result is a non-result (#310, #317): no number, and the
+ * printed text is empty or says there is none (starts with a non-result
+ * phrase, or contains one as a token and nothing result-like).
+ */
 export function isNonResult(result: Pick<LabReportOutput['results'][number], 'value' | 'valueText'>): boolean {
   if (finite(result.value) !== null) return false;
-  const printed = result.valueText?.trim().replace(/[\s.:;,]+$/, '') ?? '';
-  return printed !== '' && NON_RESULT_TEXT.test(printed);
+  const printed = result.valueText?.trim().replace(/^[\s*#([]+/, '').replace(/[\s.:;,*]+$/, '') ?? '';
+  if (printed === '' || DASHES.test(printed)) return true;
+  if (NON_RESULT_PREFIX.test(printed)) return true;
+  return NON_RESULT_TOKEN.test(printed) && !RESULT_LIKE.test(printed);
 }
 
 export interface LabReportMapResult {
@@ -92,7 +114,7 @@ export interface LabReportMapResult {
     distinctDates: number;
     /** Per-result dates discarded as impossible or in the future. */
     resultDatesDiscarded: number;
-    /** Cells that printed no result ("NOT APPLICABLE", "SEE NOTE:"), dropped (#310). */
+    /** Cells that printed no result (nothing, "NOT APPLICABLE", "SEE NOTE: (CALC)"), dropped (#310, #317). */
     nonResultsDropped: number;
   };
 }

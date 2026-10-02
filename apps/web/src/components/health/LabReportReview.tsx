@@ -26,8 +26,16 @@
  *   value) carries an "Already saved · <date>" badge (text and an icon, never
  *   colour alone) with Skip (rejects it, persisted) and Save again (a choice
  *   the dialog keeps for the session). The dialog owns the decisions.
+ * - #317: a row that would stop the save (not in the catalog, already saved
+ *   with no decision, or what the server's issues route says apply would
+ *   refuse) carries a "Needs attention" badge. Tapping it shows the reasons
+ *   inline; a pointer that hovers also gets them in a tooltip. A filter bar
+ *   searches the results (printed name, analyte, aliases, panel) and narrows
+ *   them to one status. Filters only change what is shown: the bulk actions
+ *   still act on every result. The dialog can ask the review to reveal a row
+ *   or to apply a filter (`request`).
  */
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -36,20 +44,30 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogContentText,
   DialogTitle,
+  IconButton,
+  InputAdornment,
   Stack,
+  TextField,
+  Tooltip,
   Typography,
+  useMediaQuery,
 } from '@mui/material';
 import {
   Add as AddIcon,
+  Check as SelectedIcon,
+  Close as ClearIcon,
   ContentCopy as AlreadySavedIcon,
   DoneAll as AcceptAllIcon,
+  ReportProblemOutlined as AttentionIcon,
   RemoveDone as RejectUnmatchedIcon,
   ExpandMore as ExpandIcon,
+  Search as SearchIcon,
   Verified as HighConfidenceIcon,
 } from '@mui/icons-material';
 import { DraftItemRow } from '../intake';
@@ -63,7 +81,12 @@ import {
   groupByPanel,
   isHighConfidencePending,
   isUnresolved,
+  attentionLabel,
+  labAttentionReasons,
+  labResultMatches,
   needsAttention,
+  type LabAttentionReason,
+  type LabReportIssue,
   type LabReportValue,
 } from '../../services/labReport';
 import { AnalytePicker, LabResultEditor, LabResultView } from './LabResultValue';
@@ -120,11 +143,43 @@ export function alreadySavedLabel(date: string | null): string {
 }
 export const ACCEPT_HIGH_CONFIDENCE_LABEL = 'Accept high confidence';
 
-/** "Nov 19, 2025 · 17 results", or the undated group's heading. */
-export function dateGroupHeading(date: string | null, count: number): string {
-  const results = `${count} ${count === 1 ? 'result' : 'results'}`;
+/**
+ * "Nov 19, 2025 · 17 results", or the undated group's heading. With `total`
+ * (a filter is on): "Nov 19, 2025 · 3 of 17 results".
+ */
+export function dateGroupHeading(date: string | null, count: number, total?: number): string {
+  const shown = total === undefined ? count : total;
+  const results = `${total === undefined ? '' : `${count} of `}${shown} ${shown === 1 ? 'result' : 'results'}`;
   return date ? `${formatLabDate(date)} · ${results}` : `No date · ${results}, saved with today’s date`;
 }
+
+export const SEARCH_PLACEHOLDER = 'Search results (e.g. RBC)';
+export const CLEAR_FILTERS_LABEL = 'Clear filters';
+export const NO_MATCH_TEXT = 'No results match';
+
+/** #317: the one status filter the review applies at a time (with the search). */
+export type LabReviewFilter = 'attention' | 'unmatched' | 'duplicate' | 'pending';
+
+export const LAB_REVIEW_FILTER_LABELS: Record<LabReviewFilter, string> = {
+  attention: 'Needs attention',
+  unmatched: 'Unmatched',
+  duplicate: 'Already saved',
+  pending: 'Pending',
+};
+
+const LAB_REVIEW_FILTERS = Object.keys(LAB_REVIEW_FILTER_LABELS) as LabReviewFilter[];
+
+/**
+ * #317: what the dialog asks of the review: reveal one row (scroll to it,
+ * highlight it briefly, show its reasons) or apply a status filter. A new
+ * `seq` makes the same request again.
+ */
+export type LabReviewRequest = { seq: number } & ({ type: 'reveal'; itemId: string } | { type: 'filter'; filter: LabReviewFilter });
+
+/** How long a revealed row stays highlighted. */
+const HIGHLIGHT_MS = 2000;
+/** The search waits this long after the last keystroke. */
+const SEARCH_DEBOUNCE_MS = 150;
 
 export interface LabReportReviewProps {
   items: DraftItemView<LabReportValue>[];
@@ -163,6 +218,193 @@ export interface LabReportReviewProps {
   onKeepDuplicate?: (id: string) => void;
   /** #311: reject every result not mapped to an analyte (the toolbar button is shown only with it). */
   onRejectUnmatched?: () => void;
+  /** #317: what the server says apply would refuse, by item id (`GET …/issues`). */
+  issues?: ReadonlyMap<string, readonly LabReportIssue[]>;
+  /** #317: reveal a row or apply a filter (from the dialog's save hint or error panel). */
+  request?: LabReviewRequest | null;
+}
+
+/**
+ * #317: the "Needs attention" badge. It is a button: a tap or a click shows
+ * the reasons inline under it (touch has no hover); where the pointer can
+ * hover, a tooltip shows them too while they are collapsed.
+ */
+function AttentionBadge({
+  printed,
+  reasons,
+  expanded,
+  canHover,
+  onToggle,
+}: {
+  printed: string;
+  reasons: LabAttentionReason[];
+  expanded: boolean;
+  canHover: boolean;
+  onToggle: () => void;
+}) {
+  const listId = useId();
+  const list = (
+    <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+      {reasons.map((reason) => (
+        <Typography component="li" variant="body2" key={`${reason.code}-${reason.message}`}>
+          {reason.message}
+        </Typography>
+      ))}
+    </Box>
+  );
+  return (
+    <Box sx={{ mb: 1 }} data-testid="lab-result-attention">
+      <Tooltip
+        describeChild
+        title={canHover && !expanded ? list : ''}
+        disableFocusListener
+        disableTouchListener
+        placement="bottom-start"
+      >
+        <Chip
+          icon={<AttentionIcon />}
+          label={
+            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
+              {attentionLabel(reasons.length)}
+              <ExpandIcon
+                fontSize="small"
+                sx={{ transition: 'transform 150ms', transform: expanded ? 'rotate(180deg)' : 'none', mr: -0.5 }}
+              />
+            </Box>
+          }
+          color="warning"
+          variant="outlined"
+          size="small"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-controls={listId}
+          aria-label={`${attentionLabel(reasons.length)}: ${printed}`}
+          sx={{ maxWidth: '100%', fontWeight: 600 }}
+          data-testid="lab-result-attention-badge"
+        />
+      </Tooltip>
+      <Collapse in={expanded}>
+        <Box
+          id={listId}
+          sx={{ mt: 0.75, px: 1.25, py: 0.75, borderLeft: 2, borderColor: 'warning.main', bgcolor: 'action.hover', borderRadius: 1 }}
+          data-testid="lab-result-attention-reasons"
+        >
+          {list}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+function FilterBar({
+  query,
+  onQueryChange,
+  filter,
+  onFilterChange,
+  counts,
+  shown,
+  total,
+  active,
+  onClear,
+}: {
+  query: string;
+  onQueryChange: (query: string) => void;
+  filter: LabReviewFilter | null;
+  onFilterChange: (filter: LabReviewFilter | null) => void;
+  counts: Record<LabReviewFilter, number>;
+  shown: number;
+  total: number;
+  active: boolean;
+  onClear: () => void;
+}) {
+  return (
+    <Box
+      role="search"
+      aria-label="Filter results"
+      sx={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 2,
+        bgcolor: 'background.paper',
+        // The dialog's paper overlay in dark mode, so the bar matches what scrolls under it.
+        backgroundImage: 'var(--Paper-overlay)',
+        pt: 0.5,
+        pb: 1,
+        mb: 2,
+        borderBottom: 1,
+        borderColor: 'divider',
+      }}
+      data-testid="lab-review-filters"
+    >
+      <TextField
+        size="small"
+        fullWidth
+        value={query}
+        placeholder={SEARCH_PLACEHOLDER}
+        onChange={(event) => onQueryChange(event.target.value)}
+        slotProps={{
+          htmlInput: { 'aria-label': 'Search results' },
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+            endAdornment: query ? (
+              <InputAdornment position="end">
+                <IconButton size="small" edge="end" aria-label="Clear search" onClick={() => onQueryChange('')}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ) : null,
+          },
+        }}
+      />
+      <Stack
+        direction="row"
+        spacing={1}
+        useFlexGap
+        role="group"
+        aria-label="Show only"
+        sx={{
+          mt: 1,
+          // One scrolling row on a phone; wrapped from `sm` up.
+          flexWrap: { xs: 'nowrap', sm: 'wrap' },
+          overflowX: { xs: 'auto', sm: 'visible' },
+          pb: { xs: 0.5, sm: 0 },
+          '& > *': { flexShrink: 0 },
+        }}
+      >
+        {LAB_REVIEW_FILTERS.map((key) => {
+          const selected = filter === key;
+          return (
+            <Chip
+              key={key}
+              size="small"
+              label={`${LAB_REVIEW_FILTER_LABELS[key]} (${counts[key]})`}
+              icon={selected ? <SelectedIcon /> : undefined}
+              variant={selected ? 'filled' : 'outlined'}
+              color={selected ? 'primary' : 'default'}
+              onClick={() => onFilterChange(selected ? null : key)}
+              disabled={!selected && counts[key] === 0}
+              aria-pressed={selected}
+              data-testid={`lab-review-filter-${key}`}
+            />
+          );
+        })}
+      </Stack>
+      <Stack direction="row" spacing={1} sx={{ mt: 0.75, alignItems: 'center', justifyContent: 'space-between', minHeight: 30 }}>
+        <Typography variant="body2" color="text.secondary" aria-live="polite" data-testid="lab-review-showing">
+          Showing {shown} of {total} {total === 1 ? 'result' : 'results'}
+        </Typography>
+        {active && (
+          <Button size="small" onClick={onClear} sx={{ flexShrink: 0 }}>
+            {CLEAR_FILTERS_LABEL}
+          </Button>
+        )}
+      </Stack>
+    </Box>
+  );
 }
 
 function DuplicateStrip({
@@ -286,12 +528,37 @@ export function LabReportReview({
   onSkipDuplicate,
   onKeepDuplicate,
   onRejectUnmatched,
+  issues,
+  request = null,
 }: LabReportReviewProps) {
   const idPrefix = useId();
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState<LabReportValue>(emptyLabResult);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectUnmatchedOpen, setRejectUnmatchedOpen] = useState(false);
+  // #317: reasons are hidden until the badge is tapped; a hover pointer also gets a tooltip.
+  const canHover = useMediaQuery('(hover: hover)');
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [scrollToId, setScrollToId] = useState<string | null>(null);
+  const [rejectedOpen, setRejectedOpen] = useState(false);
+  const [queryInput, setQueryInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<LabReviewFilter | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (queryInput === query) return;
+    const timer = setTimeout(() => setQuery(queryInput), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [queryInput, query]);
+
+  const clearFilters = () => {
+    setQueryInput('');
+    setQuery('');
+    setFilter(null);
+  };
 
   const photoNames = useMemo(
     () => new Map(photos.map((photo) => [photo.storageObjectId, photo.name] as const)),
@@ -306,6 +573,79 @@ export function LabReportReview({
   const unmatched = ordered.filter(isUnresolved).length;
   const dateGroups = groupByDate(active, reportDate);
   const refused = new Set(refusedIds);
+
+  // #317: what each row needs before saving, and the filters over them.
+  const isDuplicate = (item: DraftItemView<LabReportValue>) => item.status !== 'rejected' && (duplicateDates?.has(item.id) ?? false);
+  const reasonsById = new Map(
+    ordered.map((item) => [
+      item.id,
+      labAttentionReasons(item, {
+        issues: issues?.get(item.id),
+        undecidedDuplicate: isDuplicate(item) && !(keptDuplicateIds?.has(item.id) ?? false),
+      }),
+    ]),
+  );
+  const reasonsOf = (item: DraftItemView<LabReportValue>) => reasonsById.get(item.id) ?? [];
+  const STATUS_TEST: Record<LabReviewFilter, (item: DraftItemView<LabReportValue>) => boolean> = {
+    attention: (item) => reasonsOf(item).length > 0,
+    unmatched: isUnresolved,
+    duplicate: isDuplicate,
+    pending: (item) => item.status === 'pending',
+  };
+  const counts = Object.fromEntries(
+    LAB_REVIEW_FILTERS.map((key) => [key, active.filter(STATUS_TEST[key]).length]),
+  ) as Record<LabReviewFilter, number>;
+  const filtering = filter !== null || query.trim() !== '';
+  const isShown = (item: DraftItemView<LabReportValue>) =>
+    (filter === null || STATUS_TEST[filter](item)) && labResultMatches(item.value, query, catalog);
+  const shownActive = active.filter(isShown);
+  const shownRejected = rejected.filter(isShown);
+
+  // #317: the dialog asks to reveal a row or to apply a filter. Read through a
+  // ref so the request is handled once, not again whenever the items change.
+  const latest = useRef({ ordered, isShown });
+  latest.current = { ordered, isShown };
+  useEffect(() => {
+    if (!request) return;
+    if (request.type === 'filter') {
+      setQueryInput('');
+      setQuery('');
+      setFilter(request.filter);
+      filtersRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
+    const item = latest.current.ordered.find((entry) => entry.id === request.itemId);
+    if (!item) return;
+    if (!latest.current.isShown(item)) {
+      setQueryInput('');
+      setQuery('');
+      setFilter(null);
+    }
+    if (item.status === 'rejected') setRejectedOpen(true);
+    setExpandedIds((current) => new Set([...current, item.id]));
+    setHighlightId(item.id);
+    setScrollToId(item.id);
+    const timer = setTimeout(() => setHighlightId((current) => (current === item.id ? null : current)), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [request]);
+  // After the render that shows the row (filters cleared): scroll to it and move focus there.
+  useEffect(() => {
+    if (!scrollToId) return;
+    const target = [...(rootRef.current?.querySelectorAll<HTMLElement>('[data-testid="lab-result-row"]') ?? [])].find(
+      (element) => element.getAttribute('data-item-id') === scrollToId,
+    );
+    target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    target?.focus({ preventScroll: true });
+    setScrollToId(null);
+  }, [scrollToId]);
+
+  const toggleReasons = (id: string) =>
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const renderValue = (item: DraftItemView<LabReportValue>) => (
     <LabResultView value={item.value} catalog={catalog} labUnits={labUnits} reportDate={reportDate} />
@@ -330,44 +670,70 @@ export function LabReportReview({
     else onAcceptAll();
   };
 
-  const row = (item: DraftItemView<LabReportValue>) => (
-    <Box
-      role="listitem"
-      key={item.id}
-      data-testid="lab-result-row"
-      data-item-id={item.id}
-      data-attention={needsAttention(item) ? 'true' : 'false'}
-      data-unresolved={isUnresolved(item) ? 'true' : 'false'}
-      data-duplicate={duplicateDates?.has(item.id) && item.status !== 'rejected' ? 'true' : 'false'}
-      sx={needsAttention(item) && item.status !== 'rejected' ? { borderLeft: 4, borderColor: 'warning.main', pl: 1 } : undefined}
-    >
-      <DraftItemRow<LabReportValue> item={item} {...rowProps} />
-      {isUnresolved(item) && (
-        <MapStrip
-          item={item}
-          catalog={catalog}
-          busy={busy}
-          refused={refused.has(item.id)}
-          onMap={(analyteKey) =>
-            onMapItem ? onMapItem(item.id, analyteKey) : onEditItem(item.id, { ...item.value, analyteKey })
-          }
-        />
-      )}
-      {duplicateDates?.has(item.id) && item.status !== 'rejected' && (
-        <DuplicateStrip
-          item={item}
-          date={duplicateDates.get(item.id) ?? null}
-          kept={keptDuplicateIds?.has(item.id) ?? false}
-          busy={busy}
-          onSkip={onSkipDuplicate ? () => onSkipDuplicate(item.id) : undefined}
-          onKeep={onKeepDuplicate ? () => onKeepDuplicate(item.id) : undefined}
-        />
-      )}
-    </Box>
-  );
+  const row = (item: DraftItemView<LabReportValue>) => {
+    const reasons = reasonsOf(item);
+    // A closer look (unsure, low confidence, a suggested match) or something to fix before saving.
+    const attention = needsAttention(item) || reasons.length > 0;
+    const highlighted = highlightId === item.id;
+    return (
+      <Box
+        role="listitem"
+        key={item.id}
+        tabIndex={-1}
+        data-testid="lab-result-row"
+        data-item-id={item.id}
+        data-attention={attention ? 'true' : 'false'}
+        data-blocking={reasons.length > 0 ? 'true' : 'false'}
+        data-unresolved={isUnresolved(item) ? 'true' : 'false'}
+        data-duplicate={isDuplicate(item) ? 'true' : 'false'}
+        data-highlighted={highlighted ? 'true' : undefined}
+        sx={{
+          borderRadius: 1,
+          outline: '2px solid transparent',
+          outlineOffset: 2,
+          transition: 'outline-color 300ms, background-color 300ms',
+          '&:focus': { outline: '2px solid transparent' },
+          ...(attention && item.status !== 'rejected' ? { borderLeft: 4, borderColor: 'warning.main', pl: 1 } : {}),
+          ...(highlighted ? { outlineColor: (theme) => theme.palette.warning.main, bgcolor: 'action.hover' } : {}),
+        }}
+      >
+        {reasons.length > 0 && (
+          <AttentionBadge
+            printed={item.value.nameAsPrinted ?? 'this result'}
+            reasons={reasons}
+            expanded={expandedIds.has(item.id)}
+            canHover={canHover}
+            onToggle={() => toggleReasons(item.id)}
+          />
+        )}
+        <DraftItemRow<LabReportValue> item={item} {...rowProps} />
+        {isUnresolved(item) && (
+          <MapStrip
+            item={item}
+            catalog={catalog}
+            busy={busy}
+            refused={refused.has(item.id)}
+            onMap={(analyteKey) =>
+              onMapItem ? onMapItem(item.id, analyteKey) : onEditItem(item.id, { ...item.value, analyteKey })
+            }
+          />
+        )}
+        {duplicateDates?.has(item.id) && item.status !== 'rejected' && (
+          <DuplicateStrip
+            item={item}
+            date={duplicateDates.get(item.id) ?? null}
+            kept={keptDuplicateIds?.has(item.id) ?? false}
+            busy={busy}
+            onSkip={onSkipDuplicate ? () => onSkipDuplicate(item.id) : undefined}
+            onKeep={onKeepDuplicate ? () => onKeepDuplicate(item.id) : undefined}
+          />
+        )}
+      </Box>
+    );
+  };
 
   return (
-    <Box data-testid="lab-report-review">
+    <Box data-testid="lab-report-review" ref={rootRef}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }} data-testid="lab-units-note">
         {labUnitsNote(labUnits)}. Edits are saved in the unit you pick.
       </Typography>
@@ -442,14 +808,47 @@ export function LabReportReview({
         </Box>
       )}
 
+      {ordered.length > 0 && (
+        <Box ref={filtersRef}>
+          <FilterBar
+            query={queryInput}
+            onQueryChange={(next) => {
+              setQueryInput(next);
+              if (next === '') setQuery('');
+            }}
+            filter={filter}
+            onFilterChange={setFilter}
+            counts={counts}
+            shown={shownActive.length + shownRejected.length}
+            total={ordered.length}
+            active={filtering || queryInput !== ''}
+            onClear={clearFilters}
+          />
+        </Box>
+      )}
+
       {active.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {rejected.length > 0 ? 'Every result was rejected.' : 'No results were read.'} Add anything that is missing above.
         </Typography>
+      ) : shownActive.length === 0 ? (
+        <Box
+          sx={{ textAlign: 'center', py: 3, mb: 2, border: 1, borderStyle: 'dashed', borderColor: 'divider', borderRadius: 1 }}
+          data-testid="lab-review-no-match"
+        >
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            {NO_MATCH_TEXT}
+          </Typography>
+          <Button size="small" variant="outlined" onClick={clearFilters}>
+            {CLEAR_FILTERS_LABEL}
+          </Button>
+        </Box>
       ) : (
         <Stack spacing={3} sx={{ mb: 2 }}>
           {dateGroups.map((dateGroup, dateIndex) => {
             const dateHeadingId = `${idPrefix}-date-${dateIndex}`;
+            const shownInDate = dateGroup.items.filter(isShown);
+            if (shownInDate.length === 0) return null;
             return (
               <Box
                 component="section"
@@ -464,11 +863,15 @@ export function LabReportReview({
                   component="h3"
                   sx={{ fontWeight: 700, mb: 1.5, pb: 0.5, borderBottom: 1, borderColor: 'divider' }}
                 >
-                  {dateGroupHeading(dateGroup.date, dateGroup.items.length)}
+                  {filtering
+                    ? dateGroupHeading(dateGroup.date, shownInDate.length, dateGroup.items.length)
+                    : dateGroupHeading(dateGroup.date, dateGroup.items.length)}
                 </Typography>
                 <Stack spacing={2}>
                   {groupByPanel(dateGroup.items).map((group) => {
                     const headingId = `${dateHeadingId}-panel-${group.panel}`;
+                    const shownInPanel = group.items.filter(isShown);
+                    if (shownInPanel.length === 0) return null;
                     return (
                       <Box
                         component="section"
@@ -478,10 +881,11 @@ export function LabReportReview({
                         data-panel={group.panel}
                       >
                         <Typography id={headingId} variant="subtitle2" component="h4" sx={{ fontWeight: 600, mb: 1 }}>
-                          {LAB_PANEL_LABELS[group.panel]} ({group.items.length})
+                          {LAB_PANEL_LABELS[group.panel]} (
+                          {filtering ? `${shownInPanel.length} of ${group.items.length}` : group.items.length})
                         </Typography>
                         <Stack spacing={1.5} role="list" aria-labelledby={headingId}>
-                          {group.items.map(row)}
+                          {shownInPanel.map(row)}
                         </Stack>
                       </Box>
                     );
@@ -493,14 +897,16 @@ export function LabReportReview({
         </Stack>
       )}
 
-      {rejected.length > 0 && (
-        <Accordion disableGutters variant="outlined">
+      {shownRejected.length > 0 && (
+        <Accordion disableGutters variant="outlined" expanded={rejectedOpen} onChange={(_, open) => setRejectedOpen(open)}>
           <AccordionSummary expandIcon={<ExpandIcon />}>
-            <Typography variant="subtitle2">Rejected ({rejected.length})</Typography>
+            <Typography variant="subtitle2">
+              Rejected ({filtering ? `${shownRejected.length} of ${rejected.length}` : rejected.length})
+            </Typography>
           </AccordionSummary>
           <AccordionDetails>
             <Stack spacing={1.5} role="list" aria-label="Rejected results">
-              {rejected.map(row)}
+              {shownRejected.map(row)}
             </Stack>
           </AccordionDetails>
         </Accordion>

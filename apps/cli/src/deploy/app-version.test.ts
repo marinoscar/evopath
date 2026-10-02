@@ -268,10 +268,11 @@ describe('writeVersion', () => {
 
   describe('against the real repository lockfile', () => {
     it('updates every workspace entry, and touches nothing else in the file', () => {
-      // A target that can never equal the repository's own version: a fixed
-      // literal broke the day a release reached it.
-      const target = '999.0.0';
-      const dir = makeCheckout(realLockfileVersion());
+      const current = realLockfileVersion();
+      // Derived from the repo's own version so it always differs, however far releases bump it.
+      const parsed = parseSemVer(current);
+      const target = parsed === undefined ? `${current}-test.1` : `${parsed.major + 1}.0.0`;
+      const dir = makeCheckout(current);
       writeFileSync(join(dir, 'package-lock.json'), REAL_LOCKFILE);
 
       const result = writeVersion(dir, target);
