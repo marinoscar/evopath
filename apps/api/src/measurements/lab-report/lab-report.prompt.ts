@@ -44,7 +44,7 @@ export const LAB_REPORT_PROMPT_VERSION = 3;
 
 /**
  * The most results one answer may carry: a trend table of ~20 analytes over
- * ~10 dates. More than one lab entry holds (`MAX_LAB_READINGS_PER_ENTRY`, 40,
+ * ~10 dates. More than one lab entry holds (`MAX_LAB_READINGS_PER_ENTRY`, 150,
  * per collection date), so a long report is shown whole and the user rejects
  * what they do not want saved.
  */

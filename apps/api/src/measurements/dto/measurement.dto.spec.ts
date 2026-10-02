@@ -194,7 +194,7 @@ describe('lab readings (H3, #187)', () => {
   it('accepts a whole report in one entry, beyond the six-reading body limit', () => {
     const readings = LAB_KEYS.map((metricKey) => ({ metricKey, value: 1 + (metricKey === 'hba1c' ? 4 : 0) + (metricKey === 'hemoglobin' ? 12 : 0) }));
     expect(createMeasurementEntrySchema.safeParse({ readings }).success).toBe(true);
-    expect(MAX_LAB_READINGS_PER_ENTRY).toBe(40);
+    expect(MAX_LAB_READINGS_PER_ENTRY).toBe(150);
   });
 
   it('still refuses seven body/vital readings with the six-reading message', () => {
@@ -219,7 +219,7 @@ describe('lab readings (H3, #187)', () => {
     ['a non-numeric limit', { readings: [{ metricKey: 'tsh', value: 2, referenceHigh: '4.5' }] }, 'readings.0.referenceHigh'],
     ['a unit the analyte does not allow', { readings: [{ metricKey: 'ldl_cholesterol', value: 2, unit: 'g/L' }] }, 'readings.0.unit'],
     ['a value outside the hard bounds', { readings: [{ metricKey: 'sodium', value: 20 }] }, 'readings.0.value'],
-    ['41 lab readings', { readings: Array.from({ length: 41 }, () => ({ metricKey: 'tsh', value: 2 })) }, 'readings'],
+    ['151 lab readings', { readings: Array.from({ length: 151 }, () => ({ metricKey: 'tsh', value: 2 })) }, 'readings'],
   ])('refuses %s, naming the field', (_case, body, path) => {
     expect(issuePaths(createMeasurementEntrySchema.safeParse(body))).toContain(path);
   });
