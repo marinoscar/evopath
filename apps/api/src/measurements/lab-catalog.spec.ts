@@ -33,9 +33,33 @@ describe('lab catalog', () => {
       'chol_hdl_ratio',
       'ldl_hdl_ratio',
       'tg_hdl_ratio',
+      'vldl_cholesterol',
+      'lipoprotein_a',
     ],
-    glycemic: ['fasting_glucose', 'hba1c', 'fasting_insulin'],
-    cbc: ['hemoglobin', 'hematocrit', 'rbc_count', 'wbc_count', 'platelet_count', 'mcv'],
+    glycemic: ['fasting_glucose', 'hba1c', 'fasting_insulin', 'eag', 'c_peptide'],
+    cbc: [
+      'hemoglobin',
+      'hematocrit',
+      'rbc_count',
+      'wbc_count',
+      'platelet_count',
+      'mcv',
+      'mch',
+      'mchc',
+      'rdw',
+      'mpv',
+      'neutrophils_pct',
+      'lymphocytes_pct',
+      'monocytes_pct',
+      'eosinophils_pct',
+      'basophils_pct',
+      'neutrophils_abs',
+      'lymphocytes_abs',
+      'monocytes_abs',
+      'eosinophils_abs',
+      'basophils_abs',
+      'immature_granulocytes_pct',
+    ],
     cmp: [
       'alt',
       'ast',
@@ -54,8 +78,18 @@ describe('lab catalog', () => {
       'globulin',
       'albumin_globulin_ratio',
       'bun_creatinine_ratio',
+      'anion_gap',
+      'direct_bilirubin',
+      'ggt',
+      'magnesium',
+      'phosphorus',
+      'ldh',
+      'amylase',
+      'lipase',
+      'uacr',
+      'cystatin_c',
     ],
-    thyroid: ['tsh', 'free_t4', 'free_t3'],
+    thyroid: ['tsh', 'free_t4', 'free_t3', 'total_t4', 'total_t3', 'tpo_antibodies'],
     iron: ['ferritin', 'serum_iron', 'tibc', 'transferrin_saturation'],
     other: [
       'vitamin_d_25oh',
@@ -65,6 +99,17 @@ describe('lab catalog', () => {
       'testosterone_free',
       'cortisol',
       'uric_acid',
+      'folate',
+      'zinc',
+      'psa',
+      'estradiol',
+      'shbg',
+      'dhea_s',
+      'lh',
+      'fsh',
+      'prolactin',
+      'esr',
+      'homocysteine',
     ],
   };
 
@@ -283,7 +328,7 @@ describe('lab catalog', () => {
     it('never guesses', () => {
       expect(resolveLabAnalyte('')).toBeUndefined();
       expect(resolveLabAnalyte('---')).toBeUndefined();
-      expect(resolveLabAnalyte('Lipoprotein(a)')).toBeUndefined();
+      expect(resolveLabAnalyte('Apolipoprotein A1')).toBeUndefined();
       expect(resolveLabAnalyte('weight')).toBeUndefined();
       expect(resolveLabAnalyte('energy')).toBeUndefined();
     });
@@ -340,8 +385,100 @@ describe('lab catalog', () => {
       ['Triglycerides/HDL Ratio', 'tg_hdl_ratio'],
       ['TG/HDL', 'tg_hdl_ratio'],
       ['TG/HDL Ratio (calc)', 'tg_hdl_ratio'],
+      // Portal spellings of the #309 analytes.
+      ['MCH', 'mch'],
+      ['MCHC', 'mchc'],
+      ['RDW', 'rdw'],
+      ['RDW-CV', 'rdw'],
+      ['MPV', 'mpv'],
+      ['Immature Granulocytes', 'immature_granulocytes_pct'],
+      ['IG %', 'immature_granulocytes_pct'],
+      ['Anion Gap', 'anion_gap'],
+      ['Bilirubin, Direct', 'direct_bilirubin'],
+      ['Direct Bilirubin Lvl', 'direct_bilirubin'],
+      ['GGT', 'ggt'],
+      ['Gamma-Glutamyl Transferase', 'ggt'],
+      ['Magnesium Lvl', 'magnesium'],
+      ['Magnesium, Serum', 'magnesium'],
+      ['Phosphorus Lvl', 'phosphorus'],
+      ['Phosphate', 'phosphorus'],
+      ['LDH', 'ldh'],
+      ['Lactate Dehydrogenase', 'ldh'],
+      ['Amylase Lvl', 'amylase'],
+      ['Lipase, Serum', 'lipase'],
+      ['VLDL Cholesterol Cal', 'vldl_cholesterol'],
+      ['VLDL', 'vldl_cholesterol'],
+      ['Lipoprotein (a)', 'lipoprotein_a'],
+      ['Lp(a)', 'lipoprotein_a'],
+      ['Estimated Average Glucose', 'eag'],
+      ['eAG', 'eag'],
+      ['C-Peptide', 'c_peptide'],
+      ['Albumin/Creatinine Ratio, Urine', 'uacr'],
+      ['Microalb/Creat Ratio', 'uacr'],
+      ['Cystatin C', 'cystatin_c'],
+      ['T4, Total', 'total_t4'],
+      ['Thyroxine (T4)', 'total_t4'],
+      ['T3, Total', 'total_t3'],
+      ['TPO Antibodies', 'tpo_antibodies'],
+      ['Thyroid Peroxidase Ab', 'tpo_antibodies'],
+      ['Folate, Serum', 'folate'],
+      ['Zinc, Serum', 'zinc'],
+      ['PSA, Total', 'psa'],
+      ['Prostate Specific Antigen', 'psa'],
+      ['Estradiol', 'estradiol'],
+      ['Sex Hormone Binding Globulin', 'shbg'],
+      ['DHEA-S', 'dhea_s'],
+      ['DHEA Sulfate', 'dhea_s'],
+      ['LH', 'lh'],
+      ['FSH', 'fsh'],
+      ['Prolactin Lvl', 'prolactin'],
+      ['Sed Rate', 'esr'],
+      ['Sed Rate by Modified Westergren', 'esr'],
+      ['Homocysteine', 'homocysteine'],
     ])('resolves %p to %s once common qualifiers are stripped', (name, key) => {
       expect(resolveLabAnalyte(name)?.key).toBe(key);
+    });
+
+    it('never crosses a differential percentage and its absolute count; a bare name is the percentage (#309)', () => {
+      const cells = ['Neutrophils', 'Lymphocytes', 'Monocytes', 'Eosinophils', 'Basophils'];
+      for (const name of cells) {
+        const stem = name.toLowerCase();
+        for (const pct of [name, `${name} %`, `% ${name}`, `${name} Lvl`, `${name}, percent`]) {
+          expect(resolveLabAnalyte(pct)?.key).toBe(`${stem}_pct`);
+        }
+        for (const abs of [`${name} Abs`, `Absolute ${name}`, `${name}, Absolute`, `${name} (Absolute)`, `Abs ${name}`, `${name} Abs Lvl`]) {
+          expect(resolveLabAnalyte(abs)?.key).toBe(`${stem}_abs`);
+        }
+        expect(getMetric(`${stem}_pct`)!.canonicalUnit).toBe('%');
+        expect(getMetric(`${stem}_abs`)!.canonicalUnit).toBe('10^3/µL');
+        // The unit check is what catches a bare name printed with a count unit.
+        expect(unitFor(`${stem}_pct`, '10^3/µL')).toBeUndefined();
+        expect(unitFor(`${stem}_abs`, '%')).toBeUndefined();
+      }
+      expect(resolveLabAnalyte('ANC')?.key).toBe('neutrophils_abs');
+      expect(resolveLabAnalyte('Neut %')?.key).toBe('neutrophils_pct');
+      expect(resolveLabAnalyte('Eos')?.key).toBe('eosinophils_pct');
+    });
+
+    it('keeps Lp(a) molar only: a mass result does not convert (#309)', () => {
+      expect(getMetric('lipoprotein_a')!.canonicalUnit).toBe('nmol/L');
+      expect(unitFor('lipoprotein_a', 'mg/dL')).toBeUndefined();
+    });
+
+    it('converts the #309 SI units with the published factors', () => {
+      expect(toCanonical('magnesium', 0.8228, 'mmol/L')).toBeCloseTo(2, 3);
+      expect(toCanonical('phosphorus', 1.2916, 'mmol/L')).toBeCloseTo(4, 3);
+      expect(toCanonical('direct_bilirubin', 5.13, 'µmol/L')).toBeCloseTo(0.3, 3);
+      expect(toCanonical('mchc', 330, 'g/L')).toBeCloseTo(33, 3);
+      expect(toCanonical('total_t4', 103, 'nmol/L')).toBeCloseTo(8.0, 1);
+      expect(toCanonical('total_t3', 1.84, 'nmol/L')).toBeCloseTo(119.8, 0);
+      expect(toCanonical('estradiol', 367.1, 'pmol/L')).toBeCloseTo(100, 2);
+      expect(toCanonical('dhea_s', 5.428, 'µmol/L')).toBeCloseTo(200, 1);
+      expect(toCanonical('folate', 22.66, 'nmol/L')).toBeCloseTo(10, 2);
+      expect(toCanonical('zinc', 15.3, 'µmol/L')).toBeCloseTo(100, 2);
+      expect(toCanonical('c_peptide', 0.662, 'nmol/L')).toBeCloseTo(2, 2);
+      expect(toCanonical('uacr', 3.39, 'mg/mmol')).toBeCloseTo(30, 1);
+      expect(toCanonical('neutrophils_abs', 4.2, '10^9/L')).toBe(4.2);
     });
 
     it('keeps catalog names that contain a qualifier word on their own key', () => {
@@ -357,7 +494,11 @@ describe('lab catalog', () => {
     it('never guesses after stripping: analytes the catalog lacks stay unmatched', () => {
       expect(resolveLabAnalyte('Calcium, Ionized')).toBeUndefined();
       expect(resolveLabAnalyte('Protein, Urine')).toBeUndefined();
-      expect(resolveLabAnalyte('Magnesium Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Selenium Lvl')).toBeUndefined();
+      expect(resolveLabAnalyte('Immature Grans (Abs)')).toBeUndefined();
+      expect(resolveLabAnalyte('RDW-SD')).toBeUndefined();
+      expect(resolveLabAnalyte('Folate, RBC')).toBeUndefined();
+      expect(resolveLabAnalyte('T3 Uptake')).toBeUndefined();
       expect(resolveLabAnalyte('Lvl')).toBeUndefined();
       expect(resolveLabAnalyte('Serum Total Lvl')).toBeUndefined();
       expect(resolveLabAnalyte('Normal Range: 3.6 - 5.1 g/dL')).toBeUndefined();
@@ -427,7 +568,17 @@ describe('lab catalog', () => {
         'chol_hdl_ratio',
         'ldl_hdl_ratio',
         'tg_hdl_ratio',
+        'lipoprotein_a',
         'mcv',
+        'mch',
+        'rdw',
+        'mpv',
+        'neutrophils_pct',
+        'lymphocytes_pct',
+        'monocytes_pct',
+        'eosinophils_pct',
+        'basophils_pct',
+        'immature_granulocytes_pct',
         'alt',
         'ast',
         'alp',
@@ -438,9 +589,23 @@ describe('lab catalog', () => {
         'co2',
         'albumin_globulin_ratio',
         'bun_creatinine_ratio',
+        'anion_gap',
+        'ggt',
+        'ldh',
+        'amylase',
+        'lipase',
+        'cystatin_c',
         'tsh',
+        'tpo_antibodies',
         'transferrin_saturation',
         'hs_crp',
+        'psa',
+        'shbg',
+        'lh',
+        'fsh',
+        'prolactin',
+        'esr',
+        'homocysteine',
       ]);
     });
 
