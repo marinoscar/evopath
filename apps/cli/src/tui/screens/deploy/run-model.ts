@@ -26,7 +26,7 @@
 import { DEFAULT_BIND_PORT, DEFAULT_PROXY_ROOT } from '../../../commands/deploy.js';
 import { CLI_NAME } from '../../../branding.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
-import { TOGGLES_FOR, VALUE_FLAGS, type RunnableAction } from './flags-model.js';
+import { DEDICATED_STEPS, TOGGLES_FOR, VALUE_FLAGS, type RunnableAction } from './flags-model.js';
 import { shouldMask } from './model.js';
 
 export interface StepView {
@@ -148,6 +148,10 @@ export function rerunCommand({ action, name, values, chosen }: RerunInput): stri
 
   for (const toggle of TOGGLES_FOR[action]) {
     if (chosen.has(toggle.flag)) parts.push(toggle.flag);
+  }
+  // Flags set on a step of their own (the Android step, #315) repeat too.
+  for (const dedicated of DEDICATED_STEPS[action]) {
+    if (chosen.has(dedicated.flag)) parts.push(dedicated.flag);
   }
 
   if (action === 'install') parts.push('--resume');
