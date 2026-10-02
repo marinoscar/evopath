@@ -43,9 +43,9 @@ export class HealthSummaryController {
   @ApiOperation({
     summary: 'My AI health summary',
     description:
-      'Whether "Use my health data in training plans" is on, what turning it on shares and which model ' +
-      'provider processes it, the newest summary (verbatim, as the training agents receive it while the ' +
-      'consent is on), the newest attempt, and whether the summary is stale (the health data changed since). ' +
+      'Whether "Use my health data in training plans and coach chat" is on, what turning it on shares and which model ' +
+      'provider processes it, the newest summary (verbatim, as the training agents and the coach chat receive it ' +
+      'while the consent is on), the newest attempt, and whether the summary is stale (the health data changed since). ' +
       'Makes no provider call.',
   })
   @ApiDataResponse(HealthSummaryView, { description: 'The consent, the summary and its state' })
@@ -60,10 +60,13 @@ export class HealthSummaryController {
   @ApiOperation({
     summary: 'Turn the health summary on or off',
     description:
-      'Turns "Use my health data in training plans" on or off (off by default). On: a summary of your lab ' +
+      'Turns "Use my health data in training plans and coach chat" on or off (off by default). On: a summary of your lab ' +
       'results, blood pressure, resting heart rate, body measurements and check-in scores is written by the ' +
-      'administrator\'s model for this feature (queued at once) and later training runs include it. Off: ' +
-      'generation stops (a queued summary is cancelled) and later training runs omit the summary. Audited ' +
+      'administrator\'s model for this feature (queued at once). Training plans then use the summary; the AI Coach ' +
+      'chat may read the summary and, on request, look up your individual biomarker values (lab results with dates, ' +
+      'units, flags and reference ranges; never documents, file names or notes). Off: generation stops (a queued ' +
+      'summary is cancelled), later training runs omit the summary, and the coach chat can read neither the summary ' +
+      'nor biomarker values. Audited ' +
       '(`health_summary:consent`). Returns the updated view.',
   })
   @ApiDataResponse(HealthSummaryView, { description: 'The updated consent and summary state' })

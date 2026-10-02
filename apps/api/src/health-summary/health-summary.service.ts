@@ -30,8 +30,8 @@ import type { HealthSummaryViewData } from './dto/health-summary.dto';
 // and writes an audit row (`health_summary:consent`, `meta: { enabled }`).
 // Turning it ON enqueues a summary at once. Turning it OFF deletes the
 // caller's pending summary job; a job already running sees the consent off
-// and stores nothing, and every later training run omits the summary
-// (`HealthSummaryReader.forTraining`).
+// and stores nothing, and every later training run and coach chat turn
+// omits the summary (`HealthSummaryReader.forTraining`).
 //
 // REGENERATION IS ALWAYS A JOB (`ai.health.summary`), never inline.
 // `requestRegeneration` (after a health write) enqueues one job scheduled
@@ -141,7 +141,7 @@ export class HealthSummaryService {
   async refresh(userId: string): Promise<HealthSummaryViewData> {
     if (!(await this.reader.consentOn(userId))) {
       throw new ConflictException({
-        message: 'Turn on "Use my health data in training plans" first.',
+        message: 'Turn on "Use my health data in training plans and coach chat" first.',
         details: { reason: HEALTH_SUMMARY_REASONS.CONSENT_OFF },
       });
     }

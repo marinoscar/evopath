@@ -51,19 +51,25 @@ export const HEALTH_SUMMARY_SPAN_ATTRIBUTES = {
   outputTokens: 'health_summary.output_tokens',
 } as const;
 
-/** What the opt-in shares, for the consent panel ("what will be shared"). */
+/**
+ * What the opt-in shares, for the consent panel ("what will be shared").
+ * Scope (#327): the summary goes to the training agents and the coach chat;
+ * individual biomarker values go to the coach chat only, when it looks them
+ * up (`list_biomarkers`, `get_biomarker_values`). The last item lists what
+ * the summary-writing model reads.
+ */
 export const HEALTH_SUMMARY_SHARED = [
-  'Lab results: the latest and previous value of each analyte, with its flag and reference range',
-  'Blood pressure and resting heart rate: latest readings and 30- and 90-day averages',
-  'Body measurements: weight trend, body fat and waist',
-  'Check-in scores: 28-day averages and runs of low days',
-  'Your age in whole years and sex at birth',
+  'Your AI health summary (a short narrative and training considerations), with training plans and the coach chat',
+  'Biomarker values (your individual lab results, with dates, units, flags and reference ranges), with the coach chat only, when it looks them up for you',
+  'To write the summary, the AI model reads: lab results (the latest and previous value of each analyte, with its flag and reference range), blood pressure and resting heart rate (latest readings and 30- and 90-day averages), body measurements (weight trend, body fat and waist), check-in scores (28-day averages and runs of low days), and your age in whole years and sex at birth',
 ] as const;
 
 /** What it never shares. */
 export const HEALTH_SUMMARY_NEVER_SHARED = [
+  'Raw lab values and readings with the training agents (they receive only the summary text)',
   'Documents, photos and file names',
+  'Medications',
   'Notes and any other free text',
   'Lab and test names as printed, and the lab that issued them',
-  'Your name, e-mail and date of birth',
+  'Your e-mail and date of birth',
 ] as const;

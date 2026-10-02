@@ -17,7 +17,10 @@ export const healthConsiderationSchema = z.object({
 });
 
 export const healthSummaryViewSchema = z.object({
-  /** "Use my health data in training plans" (off by default). */
+  /**
+   * "Use my health data in training plans and coach chat" (off by default): training plans use the AI health
+   * summary; the coach chat may read the summary and look up biomarker values.
+   */
   enabled: z.boolean(),
   /** When the consent was last turned on (ISO), null when never. */
   consentedAt: z.string().nullable(),
@@ -32,7 +35,7 @@ export const healthSummaryViewSchema = z.object({
       .object({ provider: z.string(), modelId: z.string(), displayName: z.string() })
       .nullable(),
   }),
-  /** The newest ready summary, verbatim as the training agents receive it (they receive it only while `enabled`). */
+  /** The newest ready summary, verbatim as the training agents and the coach chat receive it (only while `enabled`). */
   summary: z
     .object({
       version: z.number().int(),
@@ -68,7 +71,7 @@ export class HealthSummaryView extends createZodDto(healthSummaryViewSchema) {}
 
 export const setHealthSummaryConsentSchema = z
   .object({
-    /** Turn "Use my health data in training plans" on or off. */
+    /** Turn "Use my health data in training plans and coach chat" on or off. */
     enabled: z.boolean(),
   })
   .strict();
