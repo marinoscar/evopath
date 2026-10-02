@@ -66,7 +66,7 @@ export interface NudgeContextInput {
   now: Date;
   signals: PlanSignals;
   state: NudgeStateInput | null;
-  /** The user's coach-authored messages, newest first (any number; the last 10 are used). */
+  /** The user's coach-authored messages, newest first (any number; the last 10 are used), after any "Start over" (#323). */
   history: readonly NudgeHistoryInput[];
   settings: Pick<ResolvedCoachUserSettings, 'preferredTime' | 'lockScreenSafe'>;
   /** An active training safety stop (planner's `isSafetyStop`). */

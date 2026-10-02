@@ -31,6 +31,13 @@ export const coachStateViewSchema = z.object({
     .nullable()
     .meta({ description: 'The next planned session not done yet, from today on; null when none in the next 7 days.' }),
   unreadCount: count.meta({ description: 'Delivered coach messages the caller has not opened.' }),
+  chatClearedAt: z.iso
+    .datetime()
+    .nullable()
+    .meta({
+      description:
+        'When the caller last started the chat over (`POST /api/coach/chat/clear`); the timeline lists only messages after it. Null: never.',
+    }),
 });
 
 export type CoachStateView = z.infer<typeof coachStateViewSchema>;

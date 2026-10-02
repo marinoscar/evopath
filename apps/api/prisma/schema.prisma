@@ -3556,6 +3556,9 @@ model CoachState {
   weeklyStreak            Int       @default(0) @map("weekly_streak")
   streakPassesLeft        Int       @default(0) @map("streak_passes_left")
   lastWeeklyReviewWeek    String?   @map("last_weekly_review_week") // ISO week key, e.g. 2026-W40
+  // "Start over" (#323): the timeline, the chat history and the nudge context
+  // read only messages created after this instant. Rows are kept (soft clear).
+  chatClearedAt           DateTime? @map("chat_cleared_at") @db.Timestamptz
   createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

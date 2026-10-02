@@ -148,6 +148,8 @@ describe('AI RBAC matrix — every /api/ai/*, /api/admin/ai/*, /api/coach/* and 
         'PUT /api/coach/settings',
         'POST /api/coach/chat/stream',
         'GET /api/coach/messages',
+        // #323: "Start over".
+        'POST /api/coach/chat/clear',
         // E7.6: the rate-limited voice preview.
         'POST /api/coach/voice-preview',
         // #259: on-demand Listen and its poll.

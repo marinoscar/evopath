@@ -24,6 +24,7 @@ import { CoachSettingsService } from '../coach-settings.service';
 import { guardCoachText, extractNumbers, type CoachGuardReason } from '../guard/coach-content-guard';
 import type { Intensity } from '../personas';
 import { renderPersonaStyle, resolveRegister, type RenderedPersonaStyle } from '../personas/resolve-register';
+import { afterChatClear, chatClearedAtOf } from './coach-chat-clear';
 import { COACH_PAUSE_MAX_DAYS, COACH_PAUSE_MIN_DAYS } from './coach-chat-errors';
 import {
   COACH_ADJUST_LABEL,
@@ -83,8 +84,13 @@ import { createCoachChatTools, type CoachChatToolDeps, type CoachChatTurnActions
 // RETRY (`retryOf`). A client whose turn ended in an `error` frame retries
 // with `retryOf: <userMessageId>` and the same `text`: the stored user row is
 // reused (no second row) when it is the caller's latest user chat message, no
-// coach chat reply follows it and its body equals `text`; otherwise 400
+// coach chat reply follows it, its body equals `text` and it was not created
+// before a "Start over" (`chatClearedAt`); otherwise 400
 // `COACH_RETRY_INVALID` before anything else happens.
+//
+// START OVER (#323). The model history holds only rows created after
+// `CoachState.chatClearedAt` (`coach-chat-clear.ts`). The safety lookback
+// below deliberately ignores the clear: safety wins.
 //
 // SAFETY HISTORY. A blocked turn tags BOTH its rows `data.safety` (`distress`
 // or `symptom`); those rows are never sent to the model again
@@ -203,8 +209,10 @@ export class CoachChatService {
       ]);
       if (!policy.enabled) throw coachDisabledError();
 
+      const clearedAt = await chatClearedAtOf(this.prisma, userId);
+
       if (opts.retryOf) {
-        ctx.retry = await this.retryTarget(userId, opts.retryOf, text);
+        ctx.retry = await this.retryTarget(userId, opts.retryOf, text, clearedAt);
         span.setAttribute('coach.chat.retry', true);
       }
 
@@ -241,7 +249,7 @@ export class CoachChatService {
       const [rows, today] = await Promise.all([
         // Twice the window, so dropping blocked safety turns still leaves a full one.
         this.prisma.coachMessage.findMany({
-          where: { userId, ...(ctx.retry ? { id: { not: ctx.retry.id } } : {}) },
+          where: { userId, ...afterChatClear(clearedAt), ...(ctx.retry ? { id: { not: ctx.retry.id } } : {}) },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: COACH_CHAT_HISTORY_LIMIT * 2,
           select: { role: true, kind: true, title: true, body: true, data: true },
@@ -541,9 +549,15 @@ export class CoachChatService {
   /**
    * The stored user row a `retryOf` names, or 400 `COACH_RETRY_INVALID`: it
    * must be the caller's LATEST user chat message, no coach chat reply may
-   * follow it, and its body must equal `text`.
+   * follow it, its body must equal `text`, and it must postdate the last
+   * "Start over" (`clearedAt`).
    */
-  private async retryTarget(userId: string, retryOf: string, text: string): Promise<{ id: string; createdAt: Date }> {
+  private async retryTarget(
+    userId: string,
+    retryOf: string,
+    text: string,
+    clearedAt: Date | null,
+  ): Promise<{ id: string; createdAt: Date }> {
     const latest = await this.prisma.coachMessage.findFirst({
       where: { userId, role: 'user', kind: 'chat' },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -556,6 +570,7 @@ export class CoachChatService {
       });
     if (!latest || latest.id !== retryOf) throw invalid('not your latest message');
     if (latest.body !== text) throw invalid('the text differs from the stored message');
+    if (clearedAt && latest.createdAt.getTime() <= clearedAt.getTime()) throw invalid('the chat was cleared since');
     const answered = await this.prisma.coachMessage.findFirst({
       where: { userId, role: 'coach', kind: 'chat', createdAt: { gt: latest.createdAt } },
       select: { id: true },
@@ -564,7 +579,11 @@ export class CoachChatService {
     return { id: latest.id, createdAt: latest.createdAt };
   }
 
-  /** Whether a blocked safety turn (distress or symptom) of this user lies within the lookback. */
+  /**
+   * Whether a blocked safety turn (distress or symptom) of this user lies
+   * within the lookback. Ignores `chatClearedAt` on purpose: a "Start over"
+   * never ends the supportive window early.
+   */
   private async hasRecentBlockedTurn(userId: string, now: Date): Promise<boolean> {
     const row = await this.prisma.coachMessage.findFirst({
       where: {
