@@ -191,7 +191,12 @@ describe('mapLabReportOutput (H4, #188)', () => {
   });
 
   describe('non-results (#310)', () => {
-    it.each(['NOT APPLICABLE', 'SEE NOTE:', 'See note', 'see comment.', 'N/A', 'NA', '--', '—', 'TNP', 'Test not performed', 'Cancelled', 'Canceled', 'Pending', 'Not done', 'QNS'])(
+    it.each([
+      'NOT APPLICABLE', 'SEE NOTE:', 'See note', 'see comment.', 'N/A', 'NA', '--', '—', 'TNP', 'Test not performed',
+      'Cancelled', 'Canceled', 'Pending', 'Not done', 'QNS',
+      // #317: a non-result phrase as a prefix, or as a token with nothing result-like, and an empty cell.
+      'SEE NOTE: (CALC)', 'NOT APPLICABLE (CALC)', 'N/A*', '*See note', '(CALC) see note', 'Result to follow', '', '   ', null,
+    ])(
       'drops a cell printed %p with no number, counting it',
       (printed) => {
         const { drafts, resultMeta } = mapLabReportOutput(
@@ -213,12 +218,19 @@ describe('mapLabReportOutput (H4, #188)', () => {
       },
     );
 
-    it('keeps a non-numeric RESULT, a number with any text, and an empty cell the model returned', () => {
-      expect(isNonResult({ value: null, valueText: 'negative' })).toBe(false);
-      expect(isNonResult({ value: null, valueText: '<0.5' })).toBe(false);
-      expect(isNonResult({ value: null, valueText: 'Not detected' })).toBe(false);
+    it('drops a non-result of a matched (numeric catalog) analyte too (#317)', () => {
+      const { drafts, resultMeta } = one(result({ nameAsPrinted: 'LDL-C', value: null, valueText: 'SEE NOTE: (CALC)' }));
+      expect(drafts).toEqual([]);
+      expect(resultMeta.nonResultsDropped).toBe(1);
+      expect(one(result({ nameAsPrinted: 'LDL-C', value: null, valueText: null })).drafts).toEqual([]);
+    });
+
+    it('keeps a non-numeric RESULT and a number with any text', () => {
+      for (const printed of ['negative', '<0.5', '>90', 'trace', 'Not detected', 'Trace, see note', 'Negative (see comment)', 'Reactive']) {
+        expect([printed, isNonResult({ value: null, valueText: printed })]).toEqual([printed, false]);
+      }
       expect(isNonResult({ value: 14, valueText: 'SEE NOTE' })).toBe(false);
-      expect(isNonResult({ value: null, valueText: null })).toBe(false);
+      expect(isNonResult({ value: 14, valueText: null })).toBe(false);
       expect(isNonResult({ value: null, valueText: '  pending.  ' })).toBe(true);
 
       const kept = one(result({ value: null, valueText: 'negative' }));
