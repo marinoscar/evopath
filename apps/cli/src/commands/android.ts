@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 
 import { runBuild, type BuildResult } from '../android/build.js';
+import { behindWarning, checkGitFreshness } from '../android/git-freshness.js';
 import { formatAndroidDoctorReport, runAndroidDoctor, sdkFixesNeeded } from '../android/doctor.js';
 import { exec as defaultExec, type ExecFn } from '../android/exec.js';
 import { fixSdk } from '../android/installer.js';
@@ -240,10 +241,10 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
     });
 
   // ---- build -------------------------------------------------------------------
-  const doBuild = async (options: { serverUrl?: string; debug?: boolean }): Promise<BuildResult> => {
+  const doBuild = async (options: { serverUrl?: string; debug?: boolean; requireUpToDate?: boolean }): Promise<BuildResult> => {
     const { env, exec } = io();
     const result = await runBuild(
-      { serverUrl: options.serverUrl, debug: options.debug },
+      { serverUrl: options.serverUrl, debug: options.debug, requireUpToDate: options.requireUpToDate },
       { ...paths(), env, exec, log },
     );
     log(`APK:      ${result.apkPath} (${formatBytes(result.metadata.sizeBytes)})`);
@@ -256,7 +257,8 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
     .description('Build and sign the APK into dist/android/ with a metadata JSON')
     .option('--server-url <url>', 'Default server URL baked into the app')
     .option('--debug', 'Build the debug variant (debug-signed, not publishable)')
-    .action(async (options: { serverUrl?: string; debug?: boolean }) => {
+    .option('--require-up-to-date', 'Refuse to build when the checkout is behind its upstream (or origin/main) instead of warning')
+    .action(async (options: { serverUrl?: string; debug?: boolean; requireUpToDate?: boolean }) => {
       const result = await doBuild(options);
       io().stdout.write(`${result.apkPath}\n`);
     });
@@ -328,7 +330,8 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
     .option('--notes <text>', 'Release notes')
     .option('--server-url <url>', 'Default server URL baked into the app')
     .option('--no-commit', 'Do not commit version.properties')
-    .action(async (options: { bump: string; notes?: string; serverUrl?: string; commit: boolean }) => {
+    .option('--require-up-to-date', 'Refuse to build when the checkout is behind its upstream (or origin/main) instead of warning')
+    .action(async (options: { bump: string; notes?: string; serverUrl?: string; commit: boolean; requireUpToDate?: boolean }) => {
       const { stdout, exec } = io();
       const part = parseBumpPart(options.bump);
       const root = requireRepoRoot(paths());
@@ -337,12 +340,24 @@ export function registerAndroidCommand(program: Command, ctx?: AndroidCommandCon
       if (readSigningConfig(paths()) === undefined) {
         throw new PreconditionError(`No release keystore is configured. Run \`${CLI_NAME} android keystore init\` first.`);
       }
+      // Checked BEFORE the bump as well as in the build: refusing only at the
+      // build would leave version.properties bumped and uncommitted (#315).
+      if (options.requireUpToDate === true) {
+        const behind = behindWarning(await checkGitFreshness(root, { exec, env: io().env }));
+        if (behind !== undefined) {
+          throw new PreconditionError(`${behind.replace(/^⚠ /, '')} (refusing to release: --require-up-to-date)`);
+        }
+      }
 
       const outcome = await runRelease<BuildResult, AndroidRelease>(
         { bump: part, commit: options.commit },
         {
           bump: (bumpPart): AppVersion => bumpVersionFile(root, bumpPart).after,
-          build: () => doBuild({ ...(options.serverUrl !== undefined ? { serverUrl: options.serverUrl } : {}) }),
+          build: () =>
+            doBuild({
+              ...(options.serverUrl !== undefined ? { serverUrl: options.serverUrl } : {}),
+              ...(options.requireUpToDate === true ? { requireUpToDate: true } : {}),
+            }),
           publish: (build) => doPublish(build.apkPath, { ...(options.notes !== undefined ? { notes: options.notes } : {}), current: true }),
           commit: (version) => commitVersionFile(exec, root, version),
         },

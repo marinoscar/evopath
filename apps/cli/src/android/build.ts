@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError } from '../errors.js';
 import { exec as defaultExec, execChecked, type ExecFn } from './exec.js';
+import { behindWarning, checkGitFreshness, describeFreshness } from './git-freshness.js';
 import { builtApkPath, gradleArgs, gradlewPath, readApplicationId } from './gradle.js';
 import { fingerprintToHex, readCertificateSha256, readSigningConfig, signingEnv } from './keystore.js';
 import { apkFileName, buildMetadata, metadataPathFor, readGitSha, writeMetadata, type ApkMetadata } from './metadata.js';
@@ -18,6 +19,8 @@ import { readVersion } from './version.js';
 export interface BuildOptions {
   serverUrl?: string | undefined;
   debug?: boolean | undefined;
+  /** Refuse to build from a checkout behind its remote (#315); by default that is a warning. */
+  requireUpToDate?: boolean | undefined;
 }
 
 export interface BuildContext {
@@ -70,6 +73,20 @@ export async function runBuild(options: BuildOptions, ctx: BuildContext): Promis
 
   const wrapper = gradlewPath(projectDir, platform);
   if (!existsSync(wrapper)) throw new PreconditionError(`${wrapper} is missing.`);
+
+  // ⚠ Before Gradle, not after: a checkout behind its remote builds an APK
+  // without the commits it is missing (#315). A warning by default, an error
+  // with --require-up-to-date; never a pull.
+  const freshness = await checkGitFreshness(repoRoot, { exec, env });
+  const behind = behindWarning(freshness);
+  if (behind !== undefined) {
+    if (options.requireUpToDate === true) {
+      throw new PreconditionError(`${behind.replace(/^⚠ /, '')} (refusing to build: --require-up-to-date)`);
+    }
+    ctx.log(behind);
+  } else if (freshness.state !== 'up_to_date' || freshness.fetchError !== undefined) {
+    ctx.log(`Note: ${describeFreshness(freshness)}.`);
+  }
 
   const childEnv: NodeJS.ProcessEnv = {
     ...env,
