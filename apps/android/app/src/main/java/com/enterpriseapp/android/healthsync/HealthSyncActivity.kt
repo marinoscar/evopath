@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import com.enterpriseapp.android.BuildConfig
 import com.enterpriseapp.android.MobileApplication
 import com.enterpriseapp.android.TwaLauncherActivity
+import com.enterpriseapp.android.notifications.FirstOpenNotificationPrompt
+import com.enterpriseapp.android.notifications.NotificationAccess
 import com.enterpriseapp.android.sync.WorkManagerSyncScheduler
 import com.enterpriseapp.android.update.AppUpdates
 import com.enterpriseapp.android.ui.components.ServerUrlEditor
@@ -75,6 +77,7 @@ class HealthSyncActivity : ComponentActivity() {
             AppUpdates.onAppOpen(this)
             pendingOpen.value = intent?.getStringExtra(EXTRA_OPEN)
         }
+        refreshNotificationState()
         setContent {
             AppTheme {
                 HealthSyncApp(
@@ -95,7 +98,13 @@ class HealthSyncActivity : ComponentActivity() {
         pairingVm.refreshStatus()
         syncVm.refresh()
         diagnosticsVm.onResume()
+        refreshNotificationState()
         MobileApplication.from(this).refreshAvailableUpdate()
+    }
+
+    /** Notification permission may have changed in Android Settings or through the web app. */
+    fun refreshNotificationState() {
+        diagnosticsVm.refreshNotifications(NotificationAccess.state(this, MobileApplication.from(this).notificationPrompts))
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -224,6 +233,25 @@ private fun HubScreen(
     val pairing by pairingVm.state.collectAsState()
     val appInfo = AppInfo.read(context)
 
+    // Notifications: a once-only rationale card on the first open (Android 13+), then the hub row.
+    val requestNotifications = rememberNotificationRequester()
+    val firstOpenPrompt = FirstOpenNotificationPrompt(app.notificationPrompts)
+    var showNotificationRationale by rememberSaveable {
+        mutableStateOf(diagnostics.notifications?.let { firstOpenPrompt.shouldShow(android.os.Build.VERSION.SDK_INT, it) } ?: false)
+    }
+    LaunchedEffect(showNotificationRationale) {
+        if (showNotificationRationale) firstOpenPrompt.markShown()
+    }
+    if (showNotificationRationale) {
+        NotificationRationaleCard(
+            onAllow = {
+                showNotificationRationale = false
+                requestNotifications(diagnostics.notifications)
+            },
+            onDismiss = { showNotificationRationale = false },
+        )
+    }
+
     val update by app.availableUpdate.collectAsState()
     update?.let { UpdateCard(it, installedVersion = "${appInfo.versionName} (${appInfo.versionCode})", highlighted = highlightUpdate) }
 
@@ -241,6 +269,8 @@ private fun HubScreen(
             else -> Text("Not paired with your ${Brand.name} account yet.")
         }
     }
+
+    NotificationsCard(diagnostics.notifications, onAction = { requestNotifications(diagnostics.notifications) })
 
     SectionCard(title = "Health Connect") {
         Button(onClick = { onNavigate(HealthSyncScreen.Connect) }, modifier = Modifier.fillMaxWidth()) {

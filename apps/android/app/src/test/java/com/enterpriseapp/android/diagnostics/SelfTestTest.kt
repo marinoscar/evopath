@@ -43,11 +43,13 @@ class FakePlatform : DiagnosticsPlatform {
     var work: WorkSnapshot? = WorkSnapshot("ENQUEUED", Instant.parse("2026-10-01T19:00:00Z"))
     var workError: Exception? = null
     var installed: Set<String> = emptySet()
+    var channels: List<NotificationChannelSnapshot> = listOf(NotificationChannelSnapshot("general", "General", 3))
     override fun appInfo() = app
     override fun device() = DeviceSnapshot("samsung", "SM-S921B", "16", 36, "America/Costa_Rica")
     override fun isIgnoringBatteryOptimizations() = battery
     override fun notificationPermissionGranted() = notificationPermission
     override fun notificationsEnabled() = notificationsOn
+    override fun notificationChannels() = channels
     override suspend fun periodicWork(): WorkSnapshot? = workError?.let { throw it } ?: work
     override fun installedPackages(packages: Collection<String>) = installed.filterTo(linkedSetOf()) { it in packages }
 }
@@ -140,10 +142,22 @@ class SelfTestTest {
         assertEquals(expectedHead, ids.take(expectedHead.size))
         assertEquals(HcDataType.SYNCED.map { "hc.data.${it.key}" }, ids.filter { it.startsWith("hc.data.") })
         assertEquals(
-            listOf("battery.optimization", "notifications.permission", "work.scheduled", "sync.last", "sync.delivery", "timezone.match", "twa.verification"),
-            ids.takeLast(7),
+            listOf(
+                "battery.optimization", "notifications.permission", "notifications.channels", "work.scheduled", "sync.last",
+                "sync.delivery", "timezone.match", "twa.verification",
+            ),
+            ids.takeLast(8),
         )
         assertTrue(result.checks.all { it.label.isNotBlank() && it.detail.isNotBlank() })
+    }
+
+    @Test fun `notifications channels check reads the platform`() = runBlocking {
+        assertEquals(CheckStatus.PASS, selfTest().run().check("notifications.channels").verdict)
+        platform.channels = listOf(NotificationChannelSnapshot("general", "General", NotificationChannelSnapshot.IMPORTANCE_NONE))
+        assertEquals(CheckStatus.WARN, selfTest().run().check("notifications.channels").verdict)
+        platform.notificationPermission = false
+        assertEquals(CheckStatus.SKIP, selfTest().run().check("notifications.channels").verdict)
+        assertEquals(CheckAction.ALLOW_NOTIFICATIONS, selfTest().run().check("notifications.permission").action)
     }
 
     @Test fun `healthy phone with sources but empty types warns per empty type`() = runBlocking {

@@ -48,6 +48,9 @@ interface DiagnosticsPlatform {
     /** Notifications enabled for the app at all. */
     fun notificationsEnabled(): Boolean
 
+    /** Every notification channel the app created (empty below Android 8). */
+    fun notificationChannels(): List<NotificationChannelSnapshot>
+
     /** The unique periodic sync work, or null when none exists. */
     suspend fun periodicWork(): WorkSnapshot?
 
@@ -222,6 +225,14 @@ class SelfTest(
                     platform.device().sdkInt,
                     safe { platform.notificationPermissionGranted() } ?: false,
                     safe { platform.notificationsEnabled() } ?: false,
+                ),
+            )
+            add(
+                Checks.notificationChannels(
+                    platform.device().sdkInt,
+                    safe { platform.notificationPermissionGranted() } ?: false,
+                    safe { platform.notificationsEnabled() } ?: false,
+                    safe { platform.notificationChannels() },
                 ),
             )
             add(Checks.workScheduled(configured, work, zoneId))

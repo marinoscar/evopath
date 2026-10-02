@@ -168,13 +168,58 @@ highlighted update card. Nothing is posted for the installed or an older build, 
 notifications are off (POST_NOTIFICATIONS on Android 13+; the `notifications.permission` check
 reports it); the notified versionCode is forgotten once that build is installed.
 
+## Notifications
+
+Two kinds of notification reach the phone, and both need the same Android permission
+(POST_NOTIFICATIONS on Android 13+) and notifications switched on for the app:
+
+- **Delegated Web Push** from the PWA running in the TWA. androidbrowserhelper's
+  `DelegationService` (manifest service with the `TRUSTED_WEB_ACTIVITY_SERVICE` intent filter and
+  the `SMALL_ICON` meta-data) posts them as this app; its constructor registers
+  `NotificationDelegationExtraCommandHandler`, so no subclass is needed. When the PWA asks for
+  notification permission inside the TWA, that handler gives the browser a PendingIntent to
+  `com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity`, which shows the
+  system dialog and reports the answer back. The activity **must be declared in the manifest**
+  (not exported, since only the app's own PendingIntent starts it, with the translucent
+  `Theme.App.Invisible`); without it the request fails and delegated push stays blocked. The
+  library creates a channel per name the browser passes (id `<name>_channel_id`).
+- **Native notifications** from Health sync, on the app's own channels: `health_sync_status`
+  (Re-pair, background access), `health_sync_progress`, `app_updates` and `general` ("General":
+  the diagnostics test notification).
+
+**Asking in context (Android 13+).** The first time the Health sync hub opens, a card explains why
+("Allow notifications so <product> can tell you about updates, re-pairing and reminders") before
+**Allow** shows the system dialog; it is shown once (`firstOpenPromptShown` in the
+`<storage prefix>_notifications` preferences), whatever the answer. The hub's **Notifications**
+row shows the current state, read on every resume by `notifications/NotificationAccess` and
+decided by the pure `NotificationPermissions.state`:
+
+| State | When | Row action |
+|---|---|---|
+| Allowed | granted (or below Android 13) and switched on | none |
+| Not allowed yet | never requested by the app | **Allow** (system dialog) |
+| Not allowed | denied once (`shouldShowRequestPermissionRationale`) | **Allow** (system dialog) |
+| Blocked | requested before (`permissionRequested`) and Android no longer shows the dialog | **Open settings** (`Settings.ACTION_APP_NOTIFICATION_SETTINGS`) |
+| Turned off | permission granted but notifications switched off for the app | **Open settings** |
+
+The `notifications.permission` diagnostics check carries the same **Allow notifications** action.
+
+**Testing on a phone.** Diagnostics → Actions → **Send test notification** posts "Test
+notification — notifications from <product> work on this phone." on the General channel; the
+action's message says when notifications are not allowed or the channel is blocked. The
+`notifications.channels` check warns when notifications are off for the app or any channel it
+created (its own or a delegated one) is blocked (`IMPORTANCE_NONE`); its action opens that
+channel's settings. Delegated Web Push is tested end to end from the server: Admin → Android app →
+**Send test notification**.
+
 ## Diagnostics
 
 Health sync → **Diagnostics** runs a self-test on open (`diagnostics/SelfTest`). Each check is
 independent, has its own timeout and never throws; it yields
 `{ id, label, status: pass|warn|fail|skip, detail, remedy?, data? }` and, on the phone, an action
-button (grant permissions, battery or notification settings, Play Store, Re-pair, the web's
-Connected devices page…). Verdicts are pure functions in `diagnostics/Checks.kt`.
+button (grant permissions, allow notifications, battery, notification or channel settings, Play
+Store, Re-pair, the web's Connected devices page…). Actions also has **Send test notification**
+(see [Notifications](#notifications)). Verdicts are pure functions in `diagnostics/Checks.kt`.
 
 | Id | Label | Verifies |
 |---|---|---|
@@ -192,7 +237,8 @@ Connected devices page…). Verdicts are pure functions in `diagnostics/Checks.k
 | `hc.sources` | Apps feeding Health Connect | union of source apps over every readable type, last 30 days; warn when none (the remedy names the installed known source apps) |
 | `hc.data.<type>` | `<Type> in Health Connect` | per synced type: fail when denied, warn when granted but no record in 30 days, pass with count (`1000+` when capped), latest record and sources; `data.remedyApps` (see below) |
 | `battery.optimization` | Battery optimization | `isIgnoringBatteryOptimizations` |
-| `notifications.permission` | Notifications | POST_NOTIFICATIONS (Android 13+) and notifications enabled |
+| `notifications.permission` | Notifications | POST_NOTIFICATIONS (Android 13+) and notifications enabled; action **Allow notifications** (system dialog, or notification settings once denied for good) |
+| `notifications.channels` | Notification channels | notifications enabled and no channel the app created blocked (`IMPORTANCE_NONE`); skip while the permission is missing; `data.channels`, `data.blocked` |
 | `work.scheduled` | Hourly sync scheduled | the unique periodic work's state and next run |
 | `sync.last` | Last sync | last local run: warn when older than 3 h, failed, partial or skipped |
 | `sync.delivery` | Data delivery | last run: per type read vs sent (drops), per table sent vs accepted (`created + updated + unchanged`); flags `skipped` |
@@ -243,7 +289,10 @@ app/src/main/java/com/enterpriseapp/android/
   healthconnect/             HealthConnectGateway (availability, permissions, per-type readers
                              with source packages, inventory), data types/toggles, rationale
   sync/                      HealthMapping, SyncPayloadBuilder, HealthSyncEngine, stores,
-                             HealthSyncWorker + WorkManagerSyncScheduler, notifications
+                             HealthSyncWorker + WorkManagerSyncScheduler, notifications (channels,
+                             test notification)
+  notifications/             notification permission state (pure), first-open prompt flags,
+                             NotificationAccess (reads the phone)
   diagnostics/               AppLog (rolling redacted log), Checks (verdicts), SelfTest (runner),
                              DiagnosticReport, AutoDiagnostics (upload after failed runs)
   healthsync/                Health sync hub, Connect, Sync and Diagnostics screens (Compose);
