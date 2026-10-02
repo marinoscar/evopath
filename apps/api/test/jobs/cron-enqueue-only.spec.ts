@@ -175,6 +175,8 @@ describe('every @Cron enqueues rather than working', () => {
     // Named so a move or rename of a cron that deletes user files cannot drop
     // out of the scan unnoticed (H7, #191: export files expire after 7 days).
     'health-export/tasks/health-export-purge.task.ts',
+    // #325: the daily purge of deleted and replaced user memories.
+    'memory/purge/memory-purge.task.ts',
   ])('scans %s, which deletes user files and so must only enqueue', (file) => {
     expect(files.map((candidate) => candidate.rel)).toContain(file);
     expect(exemptFiles.has(file)).toBe(false);
