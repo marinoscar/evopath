@@ -232,6 +232,8 @@ const TRIGLYCERIDE_MMOL = per(0.01129); // 88.57 mg/dL per mmol/L
 const GLUCOSE_MMOL = per(0.0555); // 18.02 mg/dL per mmol/L (180.16 g/mol)
 const IRON_UMOL = 5.585; // ug/dL per umol/L (55.85 g/mol)
 const KATAL_U = 60; // 1 ukat/L = 60 U/L (umol/min)
+/** The canonical "unit" of a unitless lab ratio (A/G, BUN/creatinine). */
+export const RATIO = 'ratio';
 /** HbA1c: NGSP % = IFCC mmol/mol / 10.929 + 2.15 (the IFCC-NGSP master equation). */
 const HBA1C_IFCC: readonly [number, number] = [per(10.929), 2.15];
 
@@ -371,6 +373,44 @@ const LAB_METRICS: readonly MetricDef[] = [
     label: 'Potassium', panel: 'cmp', unit: 'mmol/L', alt: { 'mEq/L': 1 },
     min: 1, max: 12, decimals: 1,
     aliases: ['K', 'K+', 'Serum potassium'],
+  }),
+  // Comprehensive metabolic panel, the rest (#305): what a CMP trend table prints.
+  lab('calcium', {
+    label: 'Calcium', panel: 'cmp', unit: 'mg/dL', alt: { 'mmol/L': per(0.2495) }, si: ['mmol/L', 2],
+    min: 0, max: 25, decimals: 1,
+    aliases: ['Ca', 'Calcium, total', 'Total calcium', 'Calcium, serum', 'Serum calcium'],
+  }),
+  lab('chloride', {
+    label: 'Chloride', panel: 'cmp', unit: 'mmol/L', alt: { 'mEq/L': 1 },
+    min: 50, max: 150, decimals: 0,
+    aliases: ['Cl', 'Cl-', 'Serum chloride', 'Chloride, serum'],
+  }),
+  lab('co2', {
+    label: 'CO2 (bicarbonate)', panel: 'cmp', unit: 'mmol/L', alt: { 'mEq/L': 1 },
+    min: 0, max: 60, decimals: 0,
+    aliases: ['CO2', 'Bicarbonate', 'Bicarb', 'HCO3', 'HCO3-', 'Total CO2', 'TCO2', 'Carbon dioxide', 'Carbon dioxide, total', 'CO2 content'],
+  }),
+  lab('total_protein', {
+    label: 'Total protein', panel: 'cmp', unit: 'g/dL', alt: { 'g/L': 0.1 }, si: ['g/L', 0],
+    min: 0, max: 20, decimals: 1,
+    aliases: ['Protein, total', 'Protein', 'TP', 'Serum protein', 'Total serum protein'],
+  }),
+  lab('globulin', {
+    label: 'Globulin', panel: 'cmp', unit: 'g/dL', alt: { 'g/L': 0.1 }, si: ['g/L', 0],
+    min: 0, max: 15, decimals: 1,
+    aliases: ['GLOB', 'Globulin, total', 'Total globulin', 'Calculated globulin', 'Serum globulin'],
+  }),
+  // Unitless ratios: the canonical "unit" is `ratio`; a result printed without
+  // a unit takes it (`toCanonicalLabValue`).
+  lab('albumin_globulin_ratio', {
+    label: 'Albumin/globulin ratio', panel: 'cmp', unit: RATIO,
+    min: 0, max: 10, decimals: 1,
+    aliases: ['A/G ratio', 'Albumin/Globulin Ratio', 'A:G ratio', 'Alb/Glob ratio', 'AG ratio'],
+  }),
+  lab('bun_creatinine_ratio', {
+    label: 'BUN/creatinine ratio', panel: 'cmp', unit: RATIO,
+    min: 0, max: 100, decimals: 0,
+    aliases: ['B/C ratio', 'BUN/Creatinine Ratio', 'BUN/Creat ratio', 'BUN:Creatinine ratio', 'Urea nitrogen/creatinine ratio'],
   }),
 
   // --- Thyroid ------------------------------------------------------------------

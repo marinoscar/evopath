@@ -7,6 +7,7 @@ import {
   isWithinBounds,
   LAB_PANELS,
   MetricRegistryError,
+  RATIO,
   resolveLabAnalyte,
   toCanonical,
   unitFor,
@@ -244,8 +245,9 @@ export function matchOf(analyteKey: string | null, nameAsPrinted: string | null)
  * The value in the analyte's canonical unit: `value` and the reference limits
  * converted, `unit` spelled canonically, `panel` the analyte's. The printed
  * value and unit are kept in `originalValue`/`originalUnit` (set here only
- * when they were not yet). Unchanged when unmatched, when `unit` is null or
- * when the analyte does not allow `unit` (the caller flags it).
+ * when they were not yet). A unitless ratio with no unit gets `ratio`.
+ * Unchanged when unmatched, when `unit` is otherwise null or when the
+ * analyte does not allow `unit` (the caller flags it).
  */
 export function toCanonicalLabValue(value: LabReportValue): LabReportValue {
   if (!value.analyteKey) return value;
@@ -254,7 +256,8 @@ export function toCanonicalLabValue(value: LabReportValue): LabReportValue {
   if (!metric) return value;
 
   const withPanel: LabReportValue = { ...value, panel: metric.panel ?? value.panel };
-  if (value.unit === null) return withPanel;
+  // A unitless ratio is printed without a unit: it takes the canonical `ratio`.
+  if (value.unit === null) return metric.canonicalUnit === RATIO ? { ...withPanel, unit: RATIO } : withPanel;
 
   const unitDef = unitFor(value.analyteKey, value.unit);
   if (!unitDef) return withPanel;

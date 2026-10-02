@@ -149,6 +149,25 @@ describe('mapLabReportOutput (H4, #188)', () => {
     expect(bounds.resultMeta.flagged).toBe(1);
   });
 
+  it('drafts a unitless ratio printed without a unit as a clean, saveable result (#305)', () => {
+    const { drafts, resultMeta } = one(
+      result({ nameAsPrinted: 'Albumin/Globulin Ratio', value: 1.8, unit: null, note: '(CALC)', collectionDate: '2025-11-19' }),
+    );
+    expect(drafts[0]).toMatchObject({
+      confidence: 'high',
+      uncertain: false,
+      uncertaintyNote: '(CALC)',
+      value: { analyteKey: 'albumin_globulin_ratio', value: 1.8, unit: 'ratio', originalUnit: null, panel: 'cmp', match: 'matched' },
+    });
+    expect(resultMeta.flagged).toBe(0);
+
+    // A CMP trend row printed in "mMol/L" is recognised as-is.
+    expect(one(result({ nameAsPrinted: 'Chloride Lvl', value: 103, unit: 'mMol/L' })).drafts[0]).toMatchObject({
+      uncertain: false,
+      value: { analyteKey: 'chloride', value: 103, unit: 'mmol/L' },
+    });
+  });
+
   it('attributes a result with no valid input number to every input', () => {
     const { drafts } = mapLabReportOutput(
       { readable: true, collectionDate: null, labName: null, results: [result({ sourcePhotoIndexes: [9] })] },
