@@ -22,7 +22,9 @@ import { subscribePushNotifications, unsubscribePushNotifications } from './api'
 import {
   requestBrowserNotificationPermission,
 } from './browserNotifications';
-import type { NotificationConfigResponse, PushSubscriptionPayload } from '../types';
+import type { NotificationConfigResponse, PushPlatform, PushSubscriptionPayload } from '../types';
+import { isRunningInTwa } from '../utils/twa';
+import { androidStorageKey } from '../utils/androidIdentity';
 
 /**
  * How long to wait for `navigator.serviceWorker.ready`. That promise never
@@ -86,6 +88,68 @@ function subscriptionUsesKey(subscription: PushSubscription, key: Uint8Array): b
   return bytes.every((byte, index) => byte === key[index]);
 }
 
+// =============================================================================
+// Platform: browser or the Android app (#312)
+// =============================================================================
+
+/**
+ * Remembers the endpoint this device last registered as `android_app`, so the
+ * one-time re-registration of a subscription first made as `browser` (the TWA
+ * shares Chrome's push subscription with the site) happens once per endpoint.
+ * `localStorage`, not `sessionStorage`: the TWA session ends with every app
+ * close, the subscription does not.
+ */
+export const ANDROID_APP_PUSH_REGISTERED_KEY = androidStorageKey('push.androidAppEndpoint');
+
+/** `android_app` inside the Android app's TWA, `browser` everywhere else. Presentation-level: the API decides what it means. */
+export function currentPushPlatform(): PushPlatform {
+  return isRunningInTwa() ? 'android_app' : 'browser';
+}
+
+function readAndroidRegisteredEndpoint(): string | null {
+  try {
+    return window.localStorage.getItem(ANDROID_APP_PUSH_REGISTERED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeAndroidRegisteredEndpoint(endpoint: string): void {
+  try {
+    window.localStorage.setItem(ANDROID_APP_PUSH_REGISTERED_KEY, endpoint);
+  } catch {
+    // Storage blocked: the next boot's POST (an idempotent upsert) re-sends
+    // `android_app` anyway; only the one-time retry below may repeat.
+  }
+}
+
+/**
+ * POST the subscription with this device's platform.
+ *
+ * Every boot already re-posts (an upsert by endpoint that updates `platform`),
+ * so an endpoint first registered from the browser becomes `android_app` the
+ * first time the TWA syncs. The flag covers the one case that upsert does not:
+ * the server answering that the row is STILL `browser` for an endpoint that
+ * existed before this sync. Then it is re-registered once, and the endpoint is
+ * remembered so it never happens again for it.
+ */
+async function registerWithServer(subscription: PushSubscription, existed: boolean): Promise<void> {
+  const platform = currentPushPlatform();
+  const payload: PushSubscriptionPayload = {
+    ...(subscription.toJSON() as PushSubscriptionPayload),
+    platform,
+  };
+  const response = await subscribePushNotifications(payload);
+  if (platform !== 'android_app') return;
+
+  const endpoint = payload.endpoint ?? subscription.endpoint;
+  if (!endpoint || readAndroidRegisteredEndpoint() === endpoint) return;
+  if (existed && response?.platform === 'browser') {
+    await subscribePushNotifications(payload);
+  }
+  writeAndroidRegisteredEndpoint(endpoint);
+}
+
 /**
  * The in-flight sync, so the boot effect and a permission-grant handler racing
  * each other share one subscribe + POST.
@@ -121,6 +185,7 @@ async function runSync(vapidPublicKey: string): Promise<void> {
     subscription = null;
   }
 
+  const existed = Boolean(subscription);
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
@@ -128,7 +193,7 @@ async function runSync(vapidPublicKey: string): Promise<void> {
     });
   }
 
-  await subscribePushNotifications(subscription.toJSON() as PushSubscriptionPayload);
+  await registerWithServer(subscription, existed);
 }
 
 /**
