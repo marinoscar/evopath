@@ -58,7 +58,7 @@ describe('AndroidUpdateBanner', () => {
     serveRelease();
     render(<AndroidUpdateBanner />);
     expect(await screen.findByTestId('android-update-banner')).toHaveTextContent('Android app 0.2.0 is available.');
-    expect(screen.getByRole('link', { name: 'Update' })).toHaveAttribute('href', '/settings/android-app');
+    expect(screen.getByRole('link', { name: 'Details' })).toHaveAttribute('href', '/settings/android-app');
   });
 
   it('stays hidden when the installed build is current', async () => {
