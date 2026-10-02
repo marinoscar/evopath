@@ -9,9 +9,10 @@ import type {
   IntakeValueSource,
 } from '../../intake/intake-kind.interface';
 import { IntakeKindRegistry } from '../../intake/intake-kind.registry';
-import { createMeasurementEntrySchema, MAX_LAB_READINGS_PER_ENTRY, type MeasurementEntry } from '../dto/measurement.dto';
+import { createMeasurementEntrySchema, type MeasurementEntry } from '../dto/measurement.dto';
 import { type EntryProvenance, MeasurementsService } from '../measurements.service';
 import { getMetric } from '../metric-registry';
+import { labApplyIssues, type LabApplyIssue, type LabDateGroup } from './lab-report-issues';
 import { LAB_REPORT_SOURCE_KIND, type LabReportAiSourceRef, type LabReportManualSourceRef } from './lab-report-source-ref';
 import {
   analyteLabel,
@@ -99,12 +100,7 @@ export interface LabReportApplyResult {
   documentDate: string | null;
 }
 
-type CheckedResult = { item: DraftItem; value: LabReportValue };
-
-interface DateGroup {
-  collectionDate: string | null;
-  results: CheckedResult[];
-}
+type DateGroup = LabDateGroup<DraftItem>;
 
 interface ApplyIssue {
   path: string;
@@ -238,40 +234,15 @@ export class LabReportIntakeKind implements IntakeKind<LabReportContext, LabRepo
   }
 
   /**
-   * Every accepted item parsed and checked, then grouped by effective date
-   * and each group checked. Unmatched results refuse first (409, with every
-   * unresolved item id); then every other issue at once (400), so the review
-   * can show each. Groups come back newest date first, the undated one last.
+   * Every accepted item checked by `labApplyIssues` (the function the review's
+   * issues route shares, #317) and grouped by effective date. Unmatched
+   * results refuse first (409, with every unresolved item id); then every
+   * other issue at once (400), so the review can show each. Groups come back
+   * newest date first, the undated one last.
    */
   private checkAccepted(accepted: readonly DraftItem[], context: LabReportContext): DateGroup[] {
-    const issues: ApplyIssue[] = [];
-    const unresolved: string[] = [];
-    const results: CheckedResult[] = [];
-
-    for (const item of accepted) {
-      const parsed = labReportValueSchema.safeParse(item.value);
-
-      if (!parsed.success || item.kind !== LAB_REPORT_ITEM_KIND) {
-        issues.push({ path: `items.${item.id}.value`, message: 'This item is not a valid lab result; edit or reject it' });
-        continue;
-      }
-
-      if (!parsed.data.analyteKey) {
-        unresolved.push(item.id);
-        continue;
-      }
-
-      const value = toCanonicalLabValue(parsed.data);
-      const label = analyteLabel(value.analyteKey!);
-
-      for (const problem of labResultProblems(value, { requireValue: true })) {
-        const prefixed = problem.message.startsWith(label) ? problem.message : `${label}: ${problem.message}`;
-        const message = /reject it$/.test(prefixed) ? prefixed : `${prefixed}; edit or reject it`;
-        issues.push({ path: `items.${item.id}.value.${problem.field}`, message });
-      }
-
-      results.push({ item, value });
-    }
+    const { issues, groups } = labApplyIssues(accepted, context);
+    const unresolved = issues.filter((issue) => issue.code === 'UNMATCHED').flatMap((issue) => issue.itemIds);
 
     if (unresolved.length > 0) {
       throw new ConflictException({
@@ -283,43 +254,19 @@ export class LabReportIntakeKind implements IntakeKind<LabReportContext, LabRepo
       });
     }
 
-    const byDate = new Map<string | null, CheckedResult[]>();
-    for (const result of results) {
-      const date = effectiveCollectionDate(result.value, context);
-      byDate.set(date, [...(byDate.get(date) ?? []), result]);
-    }
-
-    const groups: DateGroup[] = [...byDate.entries()]
-      .map(([collectionDate, grouped]) => ({ collectionDate, results: grouped }))
-      .sort((a, b) => newestFirst(a.collectionDate, b.collectionDate));
-
-    for (const group of groups) {
-      const when = group.collectionDate ? `on ${group.collectionDate}` : 'without a collection date';
-      const seen = new Set<string>();
-      for (const { item, value } of group.results) {
-        if (seen.has(value.analyteKey!)) {
-          issues.push({
-            path: `items.${item.id}.value.analyteKey`,
-            message: `${analyteLabel(value.analyteKey!)} is accepted more than once ${when}; reject one of them or change its date`,
-          });
-        }
-        seen.add(value.analyteKey!);
-      }
-
-      if (group.results.length > MAX_LAB_READINGS_PER_ENTRY) {
-        issues.push({
-          path: 'items',
-          message: `One collection date saves at most ${MAX_LAB_READINGS_PER_ENTRY} results; ${group.results.length} are accepted ${when}, reject ${group.results.length - MAX_LAB_READINGS_PER_ENTRY} of them`,
-        });
-      }
-    }
-
     if (issues.length > 0) {
-      throw validationFailed(issues);
+      throw validationFailed(issues.map(applyIssueOf));
     }
 
     return groups;
   }
+}
+
+/** A shared issue as apply's 400 `details.issues` entry: the path names the item and field. */
+function applyIssueOf(issue: LabApplyIssue): ApplyIssue {
+  if (issue.code === 'DATE_CAP') return { path: 'items', message: issue.message };
+  const base = `items.${issue.itemIds[0]}.value`;
+  return { path: issue.field ? `${base}.${issue.field}` : base, message: issue.message };
 }
 
 /**
@@ -384,14 +331,6 @@ function healthDocumentOf(
     if (match) return match.id;
   }
   return documents[0]?.id ?? null;
-}
-
-/** Dates newest first, null (no date) last. */
-function newestFirst(a: string | null, b: string | null): number {
-  if (a === b) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
-  return b.localeCompare(a);
 }
 
 function validationFailed(issues: ApplyIssue[]): BadRequestException {

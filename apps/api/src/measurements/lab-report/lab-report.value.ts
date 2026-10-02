@@ -277,8 +277,12 @@ export function toCanonicalLabValue(value: LabReportValue): LabReportValue {
   };
 }
 
+/** Which rule a matched result breaks (#317: the review shows it as a reason). */
+export type LabResultProblemCode = 'UNIT_NOT_ALLOWED' | 'NO_VALUE' | 'OUT_OF_RANGE' | 'REFERENCE_ORDER';
+
 /** One broken rule of a MATCHED result, at the field it concerns. */
 export interface LabResultProblem {
+  code: LabResultProblemCode;
   field: 'value' | 'unit' | 'referenceLow';
   message: string;
 }
@@ -305,17 +309,19 @@ export function labResultProblems(value: LabReportValue, options: { requireValue
 
   if (!unitDef) {
     problems.push({
+      code: 'UNIT_NOT_ALLOWED',
       field: 'unit',
       message: `unit must be one of ${metric.units.map((unit) => unit.unit).join(', ')} for ${label}`,
     });
   }
 
   if (value.value === null) {
-    if (options.requireValue) problems.push({ field: 'value', message: `${label} has no numeric value; enter one or reject it` });
+    if (options.requireValue) problems.push({ code: 'NO_VALUE', field: 'value', message: `${label} has no numeric value; enter one or reject it` });
   } else if (unitDef) {
     const canonical = canonicalOf(key, value.value, unitDef.unit);
     if (canonical === null || !isWithinBounds(key, canonical)) {
       problems.push({
+        code: 'OUT_OF_RANGE',
         field: 'value',
         message: `value is outside the allowed range for ${label} (${metric.min} to ${metric.max} ${metric.canonicalUnit})`,
       });
@@ -323,7 +329,7 @@ export function labResultProblems(value: LabReportValue, options: { requireValue
   }
 
   if (value.referenceLow !== null && value.referenceHigh !== null && value.referenceLow > value.referenceHigh) {
-    problems.push({ field: 'referenceLow', message: 'referenceLow must not be higher than referenceHigh' });
+    problems.push({ code: 'REFERENCE_ORDER', field: 'referenceLow', message: 'referenceLow must not be higher than referenceHigh' });
   }
 
   return problems;
