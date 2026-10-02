@@ -633,7 +633,7 @@ object Checks {
                 id, label, CheckStatus.WARN,
                 "The notification permission is not granted: you will miss \"Re-pair\" and background-access prompts.",
                 remedy = "Allow notifications for ${Brand.name}.",
-                action = CheckAction.NOTIFICATION_SETTINGS,
+                action = CheckAction.ALLOW_NOTIFICATIONS,
             )
             !enabled -> CheckResult.of(
                 id, label, CheckStatus.WARN,

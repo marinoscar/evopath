@@ -17,6 +17,8 @@ import com.enterpriseapp.android.healthconnect.HealthConnectGateway
 import com.enterpriseapp.android.net.ApiClient
 import com.enterpriseapp.android.net.HealthSyncApi
 import com.enterpriseapp.android.net.HealthSyncBackend
+import com.enterpriseapp.android.notifications.NotificationPromptStore
+import com.enterpriseapp.android.notifications.PrefsNotificationPromptStore
 import com.enterpriseapp.android.pairing.ApiDeviceFlowTransport
 import com.enterpriseapp.android.pairing.DeviceFlowPoller
 import com.enterpriseapp.android.pairing.DeviceInfo
@@ -67,6 +69,7 @@ class MobileApplication : Application() {
     val syncState: SyncStateStore by lazy { PrefsSyncStateStore.from(this) }
     val syncHistory: SyncHistoryStore by lazy { PrefsSyncHistoryStore.from(this) }
     val syncScheduler: SyncScheduling by lazy { WorkManagerSyncScheduler(this) }
+    val notificationPrompts: NotificationPromptStore by lazy { PrefsNotificationPromptStore.from(this) }
 
     /** Process-wide scope for short fire-and-forget calls (update check on app open). */
     val appScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }

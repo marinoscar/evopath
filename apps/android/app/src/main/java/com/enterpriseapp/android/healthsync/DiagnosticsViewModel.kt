@@ -8,6 +8,7 @@ import com.enterpriseapp.android.diagnostics.AppLog
 import com.enterpriseapp.android.diagnostics.BuiltReport
 import com.enterpriseapp.android.diagnostics.SelfTestResult
 import com.enterpriseapp.android.net.ApiResult
+import com.enterpriseapp.android.notifications.NotificationPermissionState
 import com.enterpriseapp.android.sync.LocalSyncRun
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,8 @@ data class DiagnosticsUiState(
     val uploadError: String? = null,
     /** One-line feedback for the last action (copied, reset…). */
     val message: String? = null,
+    /** Notification permission as of the last resume (read by the activity: it needs an Activity). */
+    val notifications: NotificationPermissionState? = null,
 )
 
 /** Self-test, report actions and the log viewer. Shared by the hub (health line) and Diagnostics. */
@@ -121,6 +124,10 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         app.syncScheduler.ensurePeriodic()
         app.syncScheduler.syncNow(com.enterpriseapp.android.sync.SyncTrigger.MANUAL)
         _state.update { it.copy(message = "Sync started. Run the self-test again when it finishes.") }
+    }
+
+    fun refreshNotifications(state: NotificationPermissionState) {
+        _state.update { it.copy(notifications = state) }
     }
 
     fun showMessage(message: String) {

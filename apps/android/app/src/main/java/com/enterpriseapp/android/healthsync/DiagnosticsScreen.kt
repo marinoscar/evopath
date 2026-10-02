@@ -88,6 +88,11 @@ internal fun DiagnosticsScreen(
         vm.runSelfTest()
     }
 
+    val requestNotifications = rememberNotificationRequester(
+        onResult = { vm.runSelfTest() },
+        onSettingsOpened = vm::markActionTaken,
+    )
+
     fun perform(action: CheckAction) {
         val server = MobileApplication.from(context).serverConfig.serverUrl
         when (action) {
@@ -111,6 +116,7 @@ internal fun DiagnosticsScreen(
                 vm.markActionTaken()
                 DiagnosticsIntents.openNotificationSettings(context)
             }
+            CheckAction.ALLOW_NOTIFICATIONS -> requestNotifications(state.notifications)
             CheckAction.SYNC_NOW -> vm.syncNow()
             CheckAction.OPEN_CONNECTED_DEVICES -> server?.let { openInCustomTab(context, "$it$CONNECTED_DEVICES_PATH") }
             CheckAction.OPEN_ANDROID_APP_ADMIN -> server?.let { openInCustomTab(context, "$it$ANDROID_ADMIN_PATH") }
