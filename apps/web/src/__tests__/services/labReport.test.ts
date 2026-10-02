@@ -20,12 +20,16 @@ import {
   isHighConfidencePending,
   isUnresolved,
   labApplyRefusal,
+  foldPrintedName,
+  labEditChange,
   labMappedMessage,
+  labPropagatedMessage,
   labResultPayload,
   mapLabResult,
   labSavedMessage,
   needsAttention,
   referenceRangeText,
+  sameNamedOthers,
   type LabReportValue,
 } from '../../services/labReport';
 import { LAB_METRICS, labItem, labValue, panelItems } from '../mocks/fixtures/labReportIntake';
@@ -176,7 +180,7 @@ describe('labReport service', () => {
         return HttpResponse.json({ data: { items: [mapped], skipped: [{ itemId: 'x', message: 'nope' }] } });
       }),
     );
-    const result = await mapLabResult('a b', 'item-1', 'chol_hdl_ratio');
+    const result = await mapLabResult('a b', 'item-1', { analyteKey: 'chol_hdl_ratio' });
     expect(path).toBe('/api/measurements/lab-reports/a%20b/map');
     expect(body).toEqual({ itemId: 'item-1', analyteKey: 'chol_hdl_ratio' });
     expect(result.items).toEqual([mapped]);
@@ -199,5 +203,53 @@ describe('labReport service', () => {
     expect(labMappedMessage({ items: items(3), skipped: skipped(1) }, null, label)?.message).toBe(
       'Mapped 3 results to Cholesterol/HDL ratio. 1 could not be mapped',
     );
+  });
+
+  it('sends only the changes it is given to the map route (#307)', async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post('*/api/measurements/lab-reports/:id/map', async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ data: { items: [], skipped: [] } });
+      }),
+    );
+    await mapLabResult('i', 'item-1', { unit: 'mmol/L' });
+    await mapLabResult('i', 'item-1', { analyteKey: 'fasting_glucose', unit: 'mmol/L' });
+    expect(bodies).toEqual([
+      { itemId: 'item-1', unit: 'mmol/L' },
+      { itemId: 'item-1', analyteKey: 'fasting_glucose', unit: 'mmol/L' },
+    ]);
+  });
+
+  it('finds the same-named results an edit should be carried to (#307)', () => {
+    const edited = labItem(labValue({ nameAsPrinted: '  Glucose  Lvl ' }));
+    const same = labItem(labValue({ nameAsPrinted: 'glucose lvl' }));
+    const rejected = labItem(labValue({ nameAsPrinted: 'Glucose Lvl' }), { status: 'rejected' });
+    const other = labItem(labValue({ nameAsPrinted: 'Glucose' }));
+    expect(foldPrintedName('  Glucose  Lvl ')).toBe('glucose lvl');
+    expect(sameNamedOthers([edited, same, rejected, other], edited).map((item) => item.id)).toEqual([same.id]);
+    expect(sameNamedOthers([edited, same], labItem(labValue({ nameAsPrinted: null })))).toEqual([]);
+  });
+
+  it('reads the analyte and unit change an edit makes (#307)', () => {
+    const before = { analyteKey: 'fasting_glucose', unit: 'mg/dL' };
+    expect(labEditChange(before, { analyteKey: 'fasting_glucose', unit: 'mg/dL' })).toBeNull();
+    expect(labEditChange(before, { analyteKey: 'fasting_glucose', unit: 'mmol/L' })).toEqual({ unit: 'mmol/L' });
+    expect(labEditChange(before, { analyteKey: 'hba1c', unit: 'mg/dL' })).toEqual({ analyteKey: 'hba1c' });
+    expect(labEditChange(before, { analyteKey: 'hba1c', unit: '%' })).toEqual({ analyteKey: 'hba1c', unit: '%' });
+    expect(labEditChange(before, { analyteKey: null, unit: null })).toBeNull();
+  });
+
+  it('says how many other same-named results an edit updated (#307)', () => {
+    const edited = labItem(labValue({}));
+    const others = (n: number) => Array.from({ length: n }, () => labItem(labValue({})));
+    expect(labPropagatedMessage({ items: [edited], skipped: [] }, edited.id, 'Glucose Lvl')).toBeNull();
+    expect(labPropagatedMessage({ items: [edited, ...others(4)], skipped: [] }, edited.id, 'Glucose Lvl')).toEqual({
+      message: 'Updated 4 other results named “Glucose Lvl”',
+      severity: 'success',
+    });
+    expect(
+      labPropagatedMessage({ items: others(1), skipped: [{ itemId: 's', message: 'unit' }] }, edited.id, 'Glucose Lvl'),
+    ).toEqual({ message: 'Updated 1 other result named “Glucose Lvl”. 1 could not be updated', severity: 'warning' });
   });
 });

@@ -5,7 +5,8 @@
  * unmatched gate and mapping, edits, the report details, the duplicate
  * warning with "Save anyway", apply, and an axe pass on the review; #305: a
  * multi-date report, "Accept high confidence" and a save over several dates;
- * #307: mapping one result maps every same-named one, with the feedback.
+ * #307: mapping one result maps every same-named one, and an analyte or unit
+ * edit is carried to them, with the feedback.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -215,6 +216,8 @@ describe('LabReportDialog: review', () => {
     });
     await waitFor(() => expect(within(rowFor('HDL Cholesterol')).getAllByTestId('lab-result-number')[0]).toHaveTextContent('50 mg/dL'));
     expect(within(rowFor('HDL Cholesterol')).getByTestId('draft-item-ai-said')).toHaveTextContent('48 mg/dL');
+    // #307: a value-only edit is not carried to other results.
+    expect(api.maps).toHaveLength(0);
   });
 
   it("shows the server's field message when an edit is refused", async () => {
@@ -455,5 +458,89 @@ describe('LabReportDialog: map once for every same-named result (#307)', () => {
     expect(await screen.findByTestId('lab-report-write-issues')).toHaveTextContent(message);
     expect(screen.queryByTestId('lab-report-map-notice')).not.toBeInTheDocument();
     expect(rowFor('Lipoprotein (a)')).toHaveAttribute('data-unresolved', 'true');
+  });
+});
+
+/** "Glucose Lvl" printed in mmol/L-looking values but read as mg/dL on four dates; one already edited by the user. */
+function glucoseTrendIntake() {
+  const dates = ['2022-01-10', '2023-01-10', '2024-01-10', '2025-01-10'];
+  const items = dates.map((date, index) =>
+    labItem(
+      labValue({ analyteKey: 'fasting_glucose', nameAsPrinted: 'Glucose Lvl', value: 5.1 + index / 10, unit: 'mg/dL', panel: 'glycemic', collectionDate: date }),
+    ),
+  );
+  // The user already corrected this one: an edit elsewhere leaves it alone.
+  items[3] = { ...items[3], originalAiValue: items[3].value, userVerified: true };
+  items.push(labItem(labValue({ analyteKey: 'hba1c', nameAsPrinted: 'Hemoglobin A1c', value: 5.6, unit: '%', panel: 'glycemic', collectionDate: dates[0] })));
+  return labIntake('ready', { items, photos: PHOTOS, context: { collectionDate: null, labName: null } });
+}
+
+describe('LabReportDialog: an edit is carried to same-named results (#307)', () => {
+  const glucoseRows = () =>
+    screen
+      .getAllByTestId('lab-result-row')
+      .filter((row) => within(row).queryAllByTestId('lab-result-value')[0]?.textContent?.startsWith('Glucose Lvl'));
+
+  async function changeUnit(user: ReturnType<typeof userEvent.setup>, row: HTMLElement, unit: string) {
+    await user.click(within(row).getByRole('button', { name: 'Edit' }));
+    const editor = within(row).getByTestId('lab-result-editor');
+    await user.click(within(editor).getByRole('combobox', { name: 'Unit' }));
+    await user.click(await screen.findByRole('option', { name: unit }));
+    await user.click(within(row).getByRole('button', { name: 'Save' }));
+  }
+
+  it('a unit change on one date updates the same-named results on the other dates', async () => {
+    const intake = glucoseTrendIntake();
+    const { api, user } = setup({ existing: [intake] });
+    await screen.findByTestId('lab-report-review');
+    expect(glucoseRows()).toHaveLength(4);
+
+    const edited = glucoseRows().find((row) => row.getAttribute('data-item-id') === intake.items[0].id)!;
+    await changeUnit(user, edited, 'mmol/L');
+
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    expect(api.itemPatches).toHaveLength(1);
+    expect(api.itemPatches[0].body).toMatchObject({ value: { unit: 'mmol/L' } });
+    // The PATCH comes first, then the map carries only the unit.
+    const paths = api.requests.map((request) => request.path);
+    expect(paths.findIndex((path) => path.endsWith('/map'))).toBeGreaterThan(paths.findIndex((path) => path.includes('/items/')));
+    expect(api.requests.find((request) => request.path.endsWith('/map'))?.body).toEqual({ itemId: intake.items[0].id, unit: 'mmol/L' });
+
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Updated 2 other results named “Glucose Lvl”');
+
+    const stored = api.intakes.get('lab-intake-1')!.items;
+    expect(stored.slice(0, 3).map((item) => item.value.unit)).toEqual(['mmol/L', 'mmol/L', 'mmol/L']);
+    // The one the user had already edited, and a different name, are untouched.
+    expect(stored[3].value.unit).toBe('mg/dL');
+    expect(stored[4].value.unit).toBe('%');
+  });
+
+  it('an edit of a result with no same-named results is not carried anywhere', async () => {
+    const intake = glucoseTrendIntake();
+    const { api, user } = setup({ existing: [intake] });
+    await screen.findByTestId('lab-report-review');
+    const a1c = screen.getAllByTestId('lab-result-row').find((row) => row.getAttribute('data-item-id') === intake.items[4].id)!;
+    await changeUnit(user, a1c, 'mmol/mol');
+    await waitFor(() => expect(api.itemPatches).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId('lab-result-editor')).not.toBeInTheDocument());
+    expect(api.maps).toHaveLength(0);
+    expect(screen.queryByTestId('lab-report-map-notice')).not.toBeInTheDocument();
+  });
+
+  it('warns when some same-named results could not take the unit', async () => {
+    const intake = glucoseTrendIntake();
+    const reason = 'value is outside what Fasting glucose allows';
+    const { api, user } = setup({
+      existing: [intake],
+      mapRefusal: (item) => (item.id === intake.items[2].id ? reason : null),
+    });
+    await screen.findByTestId('lab-report-review');
+    const edited = glucoseRows().find((row) => row.getAttribute('data-item-id') === intake.items[0].id)!;
+    await changeUnit(user, edited, 'mmol/L');
+    await waitFor(() => expect(api.maps).toHaveLength(1));
+    const notice = await screen.findByTestId('lab-report-map-notice');
+    expect(notice).toHaveTextContent('Updated 1 other result named “Glucose Lvl”. 1 could not be updated');
+    expect(notice).toHaveTextContent(reason);
   });
 });

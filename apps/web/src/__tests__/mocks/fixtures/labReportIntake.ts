@@ -15,10 +15,13 @@
  * the time of apply), answering `entryIds`, `entries` and `measuredAtSource`
  * (`collection_date`, `mixed` or `apply_time`).
  *
- * #307: `POST /api/measurements/lab-reports/:id/map` maps the picked result
- * and every same-named one (folded name; not rejected; not user-mapped to
- * another analyte), skipping a result `mapRefusal` refuses (a 400 when that
- * is the picked one), and answers `{ items, skipped }`.
+ * #307: `POST /api/measurements/lab-reports/:id/map { itemId, analyteKey?,
+ * unit? }` applies the change to the given result and every same-named one
+ * (folded name; not rejected). An analyte change skips results user-mapped
+ * to another analyte; a unit-only change reaches only results not edited by
+ * the user that carried the given result's previous unit. A result
+ * `mapRefusal` refuses is skipped (a 400 when it is the given one); the
+ * answer is `{ items, skipped }`.
  */
 import { http, HttpResponse } from 'msw';
 import { server } from '../server';
@@ -240,7 +243,7 @@ export interface LabIntakeApiState {
   itemPatches: { itemId: string; body: Record<string, unknown> }[];
   itemPosts: { kind: string; value: Partial<LabReportValue> }[];
   /** #307: every map request, with the item ids the server mapped and skipped. */
-  maps: { itemId: string; analyteKey: string; mapped: string[]; skipped: string[] }[];
+  maps: { itemId: string; analyteKey?: string; unit?: string; mapped: string[]; skipped: string[] }[];
   intakePatches: { id: string; body: Record<string, unknown> }[];
   duplicateChecks: number;
   applied: number;
@@ -504,7 +507,11 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
 
     http.post('*/api/measurements/lab-reports/:intakeId/map', async ({ request, params }) => {
       const id = String(params.intakeId);
-      const body = (await record(request, `/api/measurements/lab-reports/${id}/map`)) as { itemId: string; analyteKey: string };
+      const body = (await record(request, `/api/measurements/lab-reports/${id}/map`)) as {
+        itemId: string;
+        analyteKey?: string;
+        unit?: string;
+      };
       const intake = state.intakes.get(id);
       const clicked = intake?.items.find((entry) => entry.id === body.itemId);
       if (!intake || !clicked) return notFound();
@@ -513,20 +520,24 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
         mapError = undefined;
         return HttpResponse.json(refusal.body, { status: refusal.status });
       }
-      const metric = LAB_METRICS.find((m) => m.key === body.analyteKey);
-      if (!metric) {
+      const metric = LAB_METRICS.find((m) => m.key === (body.analyteKey ?? clicked.value.analyteKey));
+      if (!metric || (body.analyteKey === undefined && body.unit === undefined)) {
         return HttpResponse.json(
           { code: 'BAD_REQUEST', message: 'Validation failed', details: { issues: [{ path: 'analyteKey', message: 'Not a lab analyte' }] } },
           { status: 400 },
         );
       }
       const fold = (name: string | null) => (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+      // The given result's unit before its edit (it may already carry the change).
+      const previousUnit = clicked.originalAiValue?.unit ?? clicked.value.unit;
       const targets = intake.items.filter(
         (item) =>
           item.id === clicked.id ||
           (fold(item.value.nameAsPrinted) === fold(clicked.value.nameAsPrinted) &&
             item.status !== 'rejected' &&
-            !(item.value.match === 'user_mapped' && item.value.analyteKey !== null && item.value.analyteKey !== body.analyteKey)),
+            (body.analyteKey !== undefined
+              ? !(item.value.match === 'user_mapped' && item.value.analyteKey !== null && item.value.analyteKey !== body.analyteKey)
+              : item.originalAiValue === null && item.value.unit === previousUnit)),
       );
       const refusal = (item: DraftItemView<LabReportValue>) => options.mapRefusal?.(item, metric) ?? null;
       const clickedRefusal = refusal(clicked);
@@ -545,7 +556,13 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
           continue;
         }
         if (item.origin === 'ai' && item.originalAiValue === null) item.originalAiValue = item.value;
-        item.value = normalize({ analyteKey: body.analyteKey }, item.value);
+        item.value = normalize(
+          {
+            ...(body.analyteKey !== undefined ? { analyteKey: body.analyteKey } : {}),
+            ...(body.unit !== undefined ? { unit: body.unit } : {}),
+          },
+          item.value,
+        );
         item.userVerified = true;
         item.uncertain = false;
         item.uncertaintyNote = null;
@@ -553,7 +570,8 @@ export function labIntakeApi(options: LabIntakeApiOptions = {}): LabIntakeApiSta
       }
       state.maps.push({
         itemId: body.itemId,
-        analyteKey: body.analyteKey,
+        ...(body.analyteKey !== undefined ? { analyteKey: body.analyteKey } : {}),
+        ...(body.unit !== undefined ? { unit: body.unit } : {}),
         mapped: mapped.map((item) => item.id),
         skipped: skipped.map((skip) => skip.itemId),
       });
