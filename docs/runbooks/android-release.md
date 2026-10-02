@@ -49,7 +49,9 @@ The keystore, `version.properties` and the version rules ([section 5](#5-version
 - **An account with `system_settings:write`.** Only the Admin role holds it.
 - **The deployment reachable over HTTPS** from your machine and from the phones.
 
-`doctor` checks, in order: the `apps/android` checkout, the Gradle wrapper, `version.properties`, the JDK, the SDK and its parts, the release keystore and its SHA-256. It exits 6 when any check fails. `--json` prints the report on stdout.
+`doctor` checks, in order: the `apps/android` checkout, whether that checkout is up to date with its upstream branch or `origin/main` (`repo.fresh`), the Gradle wrapper, `version.properties`, the JDK, the SDK and its parts, the release keystore and its SHA-256. It exits 6 when any check fails. `--json` prints the report on stdout.
+
+**Build from the latest `main`.** An APK contains only what your checkout holds: built from a checkout behind `origin/main`, it leaves out the commits you have not pulled, and publishing it makes that the current release. `repo.fresh` runs `git fetch` (10-second timeout) and compares. It warns when you are behind, with `git pull` as the fix (`git checkout main && git pull` when you are on another branch without an upstream). It also warns when the fetch failed (it then compares with the last-known remote ref, which may be stale), on a detached HEAD, and outside a git clone. It never fails and never changes your files. `android build` makes the same check before Gradle runs and prints `⚠ Your checkout is N commit(s) behind origin/main — the APK will not include them. Run: git pull`. Pass `--require-up-to-date` to `android build` or `android release` to stop instead of warning; `release` checks it before bumping the version. The deploy step builds from the deployment's checkout, which the deploy has just updated, so there the check normally passes.
 
 ## 3. Log in the CLI
 
@@ -120,7 +122,7 @@ Never commit the keystore or its passwords. `*.jks` and `*.keystore` are git-ign
 
 ### 6.1 One shot
 
-1. `evopathcli android doctor --fix`, then `evopathcli login --server https://app.example.com` ([sections 2 and 3](#2-prerequisites)). The release command checks the login and the keystore before it bumps anything.
+1. `git pull` on `main`, `evopathcli android doctor --fix`, then `evopathcli login --server https://app.example.com` ([sections 2 and 3](#2-prerequisites)). Doctor's `repo.fresh` row warns if the checkout is still behind. The release command checks the login and the keystore before it bumps anything.
 2. Run:
 
    ```bash
@@ -318,6 +320,8 @@ Roll back:
 | `No release keystore is configured` | None created or imported | `evopathcli android keystore init` or `import <file>` |
 | `Could not find apps/android in this directory or any parent` | Not run inside the repository | `cd` into it, or set `EVOPATHCLI_REPO_ROOT` |
 | `doctor` shows red rows, exit 6 | A prerequisite is missing | JDK: install it with the printed command. SDK, platform, build-tools, licences: `evopathcli android doctor --fix`. Gradle wrapper: restore `apps/android/gradlew` from git. `version.properties`: fix the file. Keystore: `keystore init` or `import`. |
+| `⚠ Your checkout is N commit(s) behind origin/main` (build), or doctor warns on `repo.fresh` | Commits on the remote are not in your checkout, so the APK would leave them out | `git pull` (or `git checkout main && git pull`), then build. With `--require-up-to-date` the build or release stops here instead of warning |
+| doctor's `repo.fresh` says `could not fetch` | Offline, or git has no credentials for the remote | Fix the network or credentials and re-run; until then the comparison uses the last-known remote ref |
 | `release` failed after "Version bumped" | Build or publish failed; the bump is uncommitted | Fix the cause, then `android build` and `android publish`; do not run `release` again (it bumps twice). Or revert `apps/android/version.properties` |
 | Release is current but the TWA shows an address bar | The trust list was full, so the key was not added | Remove stale entries at Admin, then Settings, then Android app, trust the new one ([Android app runbook](android-app.md#63-trust-the-build-on-the-server)) |
 | Phones are paired but the Doctor warns `android.releases` | No release is current | Make one current ([section 12](#12-roll-back)) or publish |
