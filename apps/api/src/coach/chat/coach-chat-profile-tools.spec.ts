@@ -122,13 +122,16 @@ describe('get_profile (#327)', () => {
       sexAtBirth: 'male',
       heightCm: 180.5,
       unitSystem: 'imperial',
+      units: { unitSystem: 'imperial', weight: 'kg', distance: 'm', preferredWeight: 'lb', preferredDistance: 'mi' },
+      timeZone: 'America/Costa_Rica',
       bio: 'I coach my kids’ football team.',
       onboardingGoal: 'strength',
+      latestBody: {},
     });
     const sent = JSON.stringify(result);
+    // The date of birth and the email stay out (#338 keeps them on the chat tools' never-send list).
     expect(sent).not.toContain('1990');
     expect(sent).not.toContain('o@x.test');
-    expect(sent).not.toContain('Costa_Rica');
   });
 
   it('is null-safe: no name, no profile, no goal', async () => {
@@ -148,15 +151,38 @@ describe('get_profile (#327)', () => {
       sexAtBirth: null,
       heightCm: null,
       unitSystem: 'metric',
+      units: { unitSystem: 'metric', weight: 'kg', distance: 'm', preferredWeight: 'kg', preferredDistance: 'km' },
+      timeZone: null,
       bio: null,
       onboardingGoal: null,
+      latestBody: {},
     });
   });
 
-  it('clips the bio to 500 characters and withholds one naming an urgent symptom', async () => {
+  it('answers the latest body and vital readings, one read, active rows of the caller only (#338)', async () => {
+    const deps = makeDeps();
+    (deps.prisma as any).measurement = {
+      findMany: jest.fn().mockResolvedValue([
+        { metricKey: 'body_fat_pct', value: 18.2, unit: '%', measuredAt: new Date('2026-09-28T07:00:00Z'), localDate: null },
+        { metricKey: 'weight', value: 92.4, unit: 'kg', measuredAt: new Date('2026-09-30T07:00:00Z'), localDate: new Date('2026-09-30T00:00:00Z') },
+      ]),
+    };
+    const result = await run(deps, 'get_profile');
+    const query = (deps.prisma as any).measurement.findMany.mock.calls[0][0];
+    expect(query.where).toMatchObject({ userId: USER, supersededAt: null, deletedAt: null });
+    expect(query.distinct).toEqual(['metricKey']);
+    expect(Object.keys(query.select).sort()).toEqual(['localDate', 'measuredAt', 'metricKey', 'unit', 'value']);
+    expect(result.latestBody).toEqual({
+      weight: { value: 92.4, unit: 'kg', date: '2026-09-30' },
+      body_fat_pct: { value: 18.2, unit: '%', date: '2026-09-28' },
+    });
+  });
+
+  it('bounds the bio at 1000 characters (its stored maximum) and withholds one naming an urgent symptom', async () => {
     const deps = makeDeps();
     deps.profile.healthProfile.get.mockResolvedValue({ unitSystem: 'metric', bio: 'word '.repeat(300) } as never);
-    expect((await run(deps, 'get_profile')).bio.length).toBeLessThanOrEqual(500);
+    expect((await run(deps, 'get_profile')).bio.length).toBeGreaterThan(500);
+    expect((await run(deps, 'get_profile')).bio.length).toBeLessThanOrEqual(1000);
 
     deps.profile.healthProfile.get.mockResolvedValue({ unitSystem: 'metric', bio: 'I get chest pain when I run.' } as never);
     expect((await run(deps, 'get_profile')).bio).toBeNull();
@@ -234,13 +260,28 @@ describe('get_training_profile (#327)', () => {
 
   it('answers the active program and its intake, avoid keys named, no ids or gym, for the caller', async () => {
     const deps = makeDeps();
-    deps.prisma.program.findFirst.mockResolvedValue({ name: 'Strong 8', goal: 'strength', intake });
+    deps.prisma.program.findFirst.mockResolvedValue({
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'Strong 8',
+      goal: 'strength',
+      intake,
+      status: 'active',
+      source: 'ai',
+      autonomy: 'autonomous',
+      startDate: new Date('2026-09-21T00:00:00.000Z'),
+      rationale: 'Three full-body days build the base.',
+      gym: { name: 'Iron Temple' },
+    });
+    (deps.prisma as any).programWeek = { aggregate: jest.fn().mockResolvedValue({ _max: { weekNumber: 8 } }) };
+    (deps.prisma as any).gym = { findFirst: jest.fn().mockResolvedValue({ name: 'Iron Temple' }) };
     deps.prisma.exercise.findMany.mockResolvedValue([{ slug: 'box-jump', name: 'Box jump' }]);
     const result = await run(deps, 'get_training_profile');
 
-    expect(deps.prisma.program.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: USER, status: 'active' }, select: { name: true, goal: true, intake: true } }),
-    );
+    expect(deps.prisma.program.findFirst.mock.calls[0][0].where).toEqual({ userId: USER, status: 'active' });
+    expect((deps.prisma as any).gym.findFirst).toHaveBeenCalledWith({
+      where: { id: intake.gymId, userId: USER },
+      select: { name: true },
+    });
     expect(deps.prisma.exercise.findMany).toHaveBeenCalledWith({
       where: { slug: { in: ['box-jump', 'custom-abc12345'] }, OR: [{ ownerUserId: null }, { ownerUserId: USER }] },
       select: { slug: true, name: true },
@@ -249,10 +290,19 @@ describe('get_training_profile (#327)', () => {
       program: {
         name: 'Strong 8',
         goal: { type: 'strength', description: 'Deadlift twice my body weight' },
+        status: 'active',
+        source: 'ai',
+        autonomy: 'autonomous',
+        startDate: '2026-09-21',
+        currentWeek: 2,
+        totalWeeks: 8,
+        gym: 'Iron Temple',
+        rationale: 'Three full-body days build the base.',
         intake: {
           experience: 'intermediate',
           daysPerWeek: 3,
           minutesPerSession: 60,
+          durationWeeks: 8,
           preferredWeekdays: [1, 3, 5],
           limitations: [{ area: 'knee', description: 'Old ACL repair, no deep jumps' }],
           avoidExercises: [
@@ -260,6 +310,8 @@ describe('get_training_profile (#327)', () => {
             { key: 'custom-abc12345', name: null },
           ],
           preferences: 'Short rests',
+          cardio: null,
+          equipment: { bodyweightOnly: false, gym: 'Iron Temple' },
         },
       },
       onboardingGoal: 'strength',
@@ -274,9 +326,32 @@ describe('get_training_profile (#327)', () => {
 
   it('a program without a valid intake snapshot (manual plan) answers intake null', async () => {
     const deps = makeDeps();
-    deps.prisma.program.findFirst.mockResolvedValue({ name: 'My plan', goal: 'general', intake: null });
+    deps.prisma.program.findFirst.mockResolvedValue({
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'My plan',
+      goal: 'general',
+      intake: null,
+      status: 'active',
+      source: 'manual',
+      autonomy: 'ask_first',
+      startDate: null,
+      rationale: null,
+      gym: null,
+    });
     expect(await run(deps, 'get_training_profile')).toEqual({
-      program: { name: 'My plan', goal: { type: 'general', description: null }, intake: null },
+      program: {
+        name: 'My plan',
+        goal: { type: 'general', description: null },
+        status: 'active',
+        source: 'manual',
+        autonomy: 'ask_first',
+        startDate: null,
+        currentWeek: null,
+        totalWeeks: null,
+        gym: null,
+        rationale: null,
+        intake: null,
+      },
       onboardingGoal: 'strength',
     });
     expect(deps.prisma.exercise.findMany).not.toHaveBeenCalled();
@@ -334,7 +409,7 @@ describe('get_health_summary (#327)', () => {
 });
 
 describe('get_sleep (#327)', () => {
-  it('reads the last 14 local nights for the caller, selecting no note, provider id or device', async () => {
+  it('reads the last 14 local nights for the caller with the note (#338), selecting no provider id or device', async () => {
     const deps = makeDeps();
     deps.prisma.sleepSession.findMany.mockResolvedValue([
       {
@@ -345,6 +420,7 @@ describe('get_sleep (#327)', () => {
         deepMinutes: 90,
         remMinutes: 110,
         origin: 'device',
+        note: '  Woke up   at 3am ',
       },
       {
         localDate: new Date('2026-09-30T00:00:00.000Z'),
@@ -354,6 +430,7 @@ describe('get_sleep (#327)', () => {
         deepMinutes: null,
         remMinutes: null,
         origin: 'manual',
+        note: null,
       },
     ]);
     const result = await run(deps, 'get_sleep');
@@ -365,16 +442,27 @@ describe('get_sleep (#327)', () => {
       localDate: { gte: new Date('2026-09-18T00:00:00.000Z'), lte: new Date('2026-10-01T00:00:00.000Z') },
     });
     expect(Object.keys(query.select).sort()).toEqual(
-      ['awakeMinutes', 'deepMinutes', 'durationMinutes', 'lightMinutes', 'localDate', 'origin', 'remMinutes'].sort(),
+      ['awakeMinutes', 'deepMinutes', 'durationMinutes', 'lightMinutes', 'localDate', 'note', 'origin', 'remMinutes'].sort(),
     );
     expect(result).toEqual({
       from: '2026-09-18',
       to: '2026-10-01',
       nights: [
-        { localDate: '2026-10-01', asleepMinutes: 420, awakeMinutes: 20, lightMinutes: 200, deepMinutes: 90, remMinutes: 110, origin: 'device' },
+        { localDate: '2026-10-01', asleepMinutes: 420, awakeMinutes: 20, lightMinutes: 200, deepMinutes: 90, remMinutes: 110, origin: 'device', note: 'Woke up at 3am' },
         { localDate: '2026-09-30', asleepMinutes: 380, origin: 'manual' },
       ],
     });
+  });
+
+  it('reads a longer window on request, up to 90 nights (#338)', async () => {
+    const deps = makeDeps();
+    await run(deps, 'get_sleep', { nights: 60 });
+    let query = deps.prisma.sleepSession.findMany.mock.calls[0][0];
+    expect(query.where.localDate.gte).toEqual(new Date('2026-08-03T00:00:00.000Z'));
+    expect(query.take).toBe(180);
+    await run(deps, 'get_sleep', { nights: 400 });
+    query = deps.prisma.sleepSession.findMany.mock.calls[1][0];
+    expect(query.where.localDate.gte).toEqual(new Date('2026-07-04T00:00:00.000Z'));
   });
 
   it('answers an empty list when nothing was recorded, and unavailable on a failed read', async () => {
