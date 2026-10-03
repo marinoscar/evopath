@@ -35,6 +35,9 @@ const PE = '55555555-5555-4555-8555-555555555555';
 const EXERCISE = '66666666-6666-4666-8666-666666666666';
 const WORKOUT = '77777777-7777-4777-8777-777777777777';
 const OTHER_WORKOUT = '88888888-8888-4888-8888-888888888888';
+const PW_MISSED = '99999999-9999-4999-8999-aaaaaaaaaaa1';
+const PW_LATER = '99999999-9999-4999-8999-aaaaaaaaaaa2';
+const PW_FLOATING = '99999999-9999-4999-8999-aaaaaaaaaaa3';
 
 const TODAY = localDateInZone(new Date(), 'UTC');
 
@@ -87,8 +90,8 @@ describe('Training today (integration)', () => {
   });
 
   /** The caller has an ACTIVE program starting today with one workout on today's weekday. */
-  function activePlan(userId: string, status = 'active') {
-    const program = { id: PROGRAM, name: 'Plan', status, startDate: new Date(`${TODAY}T00:00:00.000Z`), gymId: null, currentVersion: 4 };
+  function activePlan(userId: string, status = 'active', startDate = TODAY) {
+    const program = { id: PROGRAM, name: 'Plan', status, startDate: new Date(`${startDate}T00:00:00.000Z`), gymId: null, currentVersion: 4 };
     prisma.program.findFirst.mockImplementation(async ({ where }: any) =>
       where.userId === userId && (where.status === undefined || where.status === status) ? program : null,
     );
@@ -234,6 +237,89 @@ describe('Training today (integration)', () => {
 
     const response = await request(server()).get(`/api/training/today?date=${TODAY}`).set(authHeader(user.accessToken)).expect(200);
     expect(response.body.data).toMatchObject({ kind: 'workout', done: true, completedWorkoutId: WORKOUT });
+  });
+
+  /**
+   * A plan that started yesterday: week 1 is yesterday .. today + 5. Besides
+   * today's workout (PW) it has one yesterday, one in three days and one with
+   * no weekday (never listed).
+   */
+  function weekPlan(userId: string, options: { today?: boolean } = {}) {
+    activePlan(userId, 'active', addDays(TODAY, -1));
+    const row = (id: string, position: number, weekday: number | null, name: string) => ({
+      id,
+      weekId: WEEK,
+      position,
+      weekday,
+      name,
+      estimatedMinutes: 30,
+      rationale: null,
+      archivedAt: null,
+    });
+    prisma.programWorkout.findMany.mockResolvedValue([
+      row(PW_MISSED, 0, isoWeekday(addDays(TODAY, -1)), 'Legs'),
+      ...(options.today === false ? [] : [{ ...row(PW, 1, isoWeekday(TODAY), 'Upper'), estimatedMinutes: 45 }]),
+      row(PW_LATER, 2, isoWeekday(addDays(TODAY, 3)), 'Pull'),
+      row(PW_FLOATING, 3, null, 'Extra'),
+    ]);
+  }
+
+  it('lists the current plan week with statuses, linked workouts and the suggested session', async () => {
+    const user = await createMockContributorUser(context);
+    weekPlan(user.id);
+    prisma.workout.findMany.mockResolvedValue([
+      { id: OTHER_WORKOUT, status: 'in_progress', programWorkoutId: PW_LATER, startedAt: new Date(), programSession: { programWorkoutId: PW_LATER } },
+    ]);
+
+    const response = await request(server()).get(`/api/training/today?date=${TODAY}`).set(authHeader(user.accessToken)).expect(200);
+
+    expect(response.body.data.kind).toBe('workout');
+    expect(response.body.data.week).toEqual([
+      {
+        date: addDays(TODAY, -1),
+        status: 'missed',
+        suggested: false,
+        completedWorkoutId: null,
+        inProgressWorkoutId: null,
+        programWorkout: { id: PW_MISSED, name: 'Legs', position: 0, weekday: isoWeekday(addDays(TODAY, -1)), estimatedMinutes: 30, exerciseCount: 0 },
+      },
+      {
+        date: TODAY,
+        status: 'today',
+        suggested: true,
+        completedWorkoutId: null,
+        inProgressWorkoutId: null,
+        programWorkout: { id: PW, name: 'Upper', position: 1, weekday: isoWeekday(TODAY), estimatedMinutes: 45, exerciseCount: 1 },
+      },
+      {
+        date: addDays(TODAY, 3),
+        status: 'in_progress',
+        suggested: false,
+        completedWorkoutId: null,
+        inProgressWorkoutId: OTHER_WORKOUT,
+        programWorkout: { id: PW_LATER, name: 'Pull', position: 2, weekday: isoWeekday(addDays(TODAY, 3)), estimatedMinutes: 30, exerciseCount: 0 },
+      },
+    ]);
+    // One linked-workouts read for the whole week (no per-session query).
+    expect(prisma.workout.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('a rest day lists the week and suggests the next session in it; a completed one is done', async () => {
+    const user = await createMockContributorUser(context);
+    weekPlan(user.id, { today: false });
+    prisma.workout.findMany.mockResolvedValue([
+      { id: WORKOUT, status: 'completed', programWorkoutId: PW_MISSED, startedAt: new Date(), programSession: null },
+    ]);
+
+    const response = await request(server()).get(`/api/training/today?date=${TODAY}`).set(authHeader(user.accessToken)).expect(200);
+
+    expect(response.body.data).toMatchObject({ kind: 'rest_day', next: { date: addDays(TODAY, 3), programWorkout: { id: PW_LATER } } });
+    expect(
+      response.body.data.week.map((entry: any) => [entry.programWorkout.id, entry.status, entry.suggested, entry.completedWorkoutId]),
+    ).toEqual([
+      [PW_MISSED, 'done', false, WORKOUT],
+      [PW_LATER, 'upcoming', true, null],
+    ]);
   });
 
   it.each([
