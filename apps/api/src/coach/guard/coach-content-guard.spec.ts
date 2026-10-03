@@ -3,6 +3,7 @@ import {
   bannedCategories,
   extractNumbers,
   guardCoachMessage,
+  inventedNumbers,
   guardCoachText,
   type CoachGuardContext,
   type CoachMessageText,
@@ -227,6 +228,30 @@ describe('coach content guard', () => {
 
     it('extracts tokens', () => {
       expect(extractNumbers('3 sets at 17:30, 82.5 kg, 1,000 reps')).toEqual(['3', '17:30', '82.5', '1,000']);
+    });
+
+    it('tokenizes an ISO timestamp into its date parts and one clock time (#338)', () => {
+      expect(extractNumbers('2026-10-03T07:15:00.000Z')).toEqual(['2026', '10', '03', '07:15:00.000']);
+    });
+
+    it('a timestamp in a source allows its HH:mm, H:mm, 12-hour and part forms (#338)', () => {
+      const ctx = { ...CLEAN, allowedNumbers: extractNumbers('{"startedAt":"2026-10-03T19:15:00.000Z"}') };
+      expect(guardCoachText('body', 'You started at 19:15 on 2026-10-03.', ctx)).toEqual([]);
+      expect(guardCoachText('body', 'You started at 7:15 pm.', ctx)).toEqual([]);
+      expect(guardCoachText('body', 'You started at 19:15:00.', ctx)).toEqual([]);
+      expect(guardCoachText('body', 'You started at 20:15.', ctx)).toContainEqual({ reason: 'invented_number', field: 'body' });
+    });
+
+    it('accepts a rounded form of an allowed decimal', () => {
+      const ctx = { ...CLEAN, allowedNumbers: [82.46] };
+      expect(guardCoachText('body', 'About 82.5 kg, call it 82.', ctx)).toEqual([]);
+    });
+
+    it('allowSmallCounts lets whole numbers 0 to 31 through, nothing larger and no decimals (#338)', () => {
+      const ctx = { ...CLEAN, allowedNumbers: [], allowSmallCounts: true };
+      expect(guardCoachText('body', 'That was your 1st session; 2 more this week, 31 days in October.', ctx)).toEqual([]);
+      expect(inventedNumbers('You lifted 32 kg and 2.5 more.', ctx)).toEqual(['32', '2.5']);
+      expect(inventedNumbers('2 sessions', { ...CLEAN, allowedNumbers: [] })).toEqual(['2']);
     });
   });
 
