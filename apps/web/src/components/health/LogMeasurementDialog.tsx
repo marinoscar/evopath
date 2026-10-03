@@ -97,7 +97,11 @@ import {
   toDateTimeLocalValue,
 } from '../../utils/measurementDates';
 
-/** A reading more than this far (percent) from the metric's latest one asks "Check the unit". */
+/**
+ * A reading more than this far (percent) from the metric's latest one asks
+ * "Check the unit". A new entry dated before that latest reading (backfilled
+ * history) is never compared with it.
+ */
 export const SOFT_WARNING_PERCENT = 25;
 export const NOTES_MAX_LENGTH = 500;
 
@@ -472,6 +476,14 @@ export function LogMeasurementDialog({
         ? originalReading(reading.metricKey as MetricKey)
         : latestByKey.get(reading.metricKey)?.latest;
       if (!metric || !previous) continue;
+      // A backdated entry (older than the metric's latest reading) is history
+      // being backfilled: "your last entry" would be a later reading, so the
+      // comparison is meaningless and would warn on every legitimate old value.
+      if (!isEdit) {
+        const entryTime =
+          (measuredAtTouched ? parseDateTimeLocalValue(measuredAtText) : null) ?? new Date();
+        if (entryTime.getTime() < new Date(previous.measuredAt).getTime()) continue;
+      }
       const entered = fromDisplay(metric, reading.value, unitSystem);
       const pct = percentDifference(entered, previous.value);
       if (pct > SOFT_WARNING_PERCENT) {
