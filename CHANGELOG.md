@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guided First-Time Setup**: `npm run setup` builds the CLI and runs `evopathcli init`, which creates `infra/compose/.env` interactively.
 - **Template Tooling**: rebrand a fork with `scripts/rename.mjs` and `scripts/new-project.mjs` (or the `/rename-app`/`/new-project` skills), which rewrite the product identity centralized in `packages/shared`. See `docs/RENAMING.md`.
 
+### Fixed
+
+- **`deploy update` seed step OOMing on the API container**: the seed's `ts-node` invocation no longer type-checks `prisma/seed.ts`/`seed-data.ts` against the full generated Prisma Client surface at runtime (`--transpile-only`), which could exceed the api container's 512M memory cap as the schema grows. That type coverage now runs separately, in CI, via a new `prisma:typecheck` script.
+
 ### Removed
 
 - **Web Push environment-variable fallback**: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` are retired; Web Push is now configured exclusively at `/admin/settings/push`. Breaking change: a deployment that relied on the env-var path with no admin-UI configuration ever saved loses Web Push until an administrator reconfigures it there. No auto-migration, matching how object storage and SES's AWS credential were retired. See `docs/specs/browser-notifications.md`.
