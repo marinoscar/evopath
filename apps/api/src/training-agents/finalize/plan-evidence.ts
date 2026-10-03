@@ -1,6 +1,7 @@
 import type { Evidence } from '../../programs/contracts/plan-change.contract';
 import type { PlanTree } from '../../programs/contracts/plan-tree.contract';
 import {
+  evidenceBasisOf,
   type VerifiedEvidenceBrief,
   verifiedEvidenceBriefSchema,
 } from '../agents/researcher/evidence-brief.contract';
@@ -16,6 +17,12 @@ import {
 // exact `VerifiedEvidenceBrief` (`briefFromEvidence`) and the plan view can
 // list claims and sources without parsing a blob. Only verified material is
 // ever stored: the brief passed the citation guardrail before it got here.
+//
+// The header carries the brief's `basis`. A `web_partial` or
+// `model_knowledge` brief has claims with `sourceIds: []` (from established
+// training principles, not a web source), and a `model_knowledge` brief has
+// no `source` items at all. A header without `basis` (stored before the
+// field) reads as `web_verified`.
 // =============================================================================
 
 /** A stored brief younger than this is reused by a revise run. */
@@ -31,6 +38,7 @@ export function evidenceOf(brief: VerifiedEvidenceBrief | null): Evidence[] {
       cautions: brief.cautions,
       searchQueries: brief.searchQueries,
       researchMode: brief.researchMode,
+      basis: evidenceBasisOf(brief),
       droppedClaims: brief.droppedClaims,
       droppedSources: brief.droppedSources,
     },
@@ -111,6 +119,7 @@ export function briefFromEvidence(evidence: unknown): VerifiedEvidenceBrief | nu
     cautions: header.cautions,
     searchQueries: header.searchQueries,
     researchMode: header.researchMode,
+    basis: header.basis,
     droppedClaims: header.droppedClaims,
     droppedSources: header.droppedSources,
   });
@@ -129,8 +138,14 @@ export function instructionChangesGoal(instruction: string | null | undefined): 
   return typeof instruction === 'string' && GOAL_OR_LIMITATION_CHANGE.test(instruction);
 }
 
-/** Whether every source of a stored brief was retrieved within the reuse window. */
+/**
+ * Whether every source of a stored brief was retrieved within the reuse
+ * window. A `model_knowledge` brief has no source to age: established
+ * training principles do not go stale, and a revise run (which never
+ * researches) is better served by them than by no evidence at all.
+ */
 export function briefIsFresh(brief: VerifiedEvidenceBrief, now: Date, maxAgeMs = BRIEF_REUSE_MAX_AGE_MS): boolean {
+  if (brief.sources.length === 0) return evidenceBasisOf(brief) === 'model_knowledge';
   const oldest = Math.min(...brief.sources.map((source) => Date.parse(source.retrievedAt)));
   return Number.isFinite(oldest) && now.getTime() - oldest <= maxAgeMs;
 }

@@ -148,10 +148,16 @@ describe('research event payloads', () => {
       parseRunEventData('research.source', { id: 'S1', url: 'https://acsm.org', title: 'T', domain: 'acsm.org', kind: 'guideline', verified: false }),
     ).toThrow();
     expect(() =>
-      parseRunEventData('research.brief', { claimCount: 3, sourceCount: 2, droppedClaims: 0, droppedSources: 1, researchMode: 'single' }),
+      parseRunEventData('research.brief', { claimCount: 3, sourceCount: 2, droppedClaims: 0, droppedSources: 1, researchMode: 'single', basis: 'web_verified' }),
     ).not.toThrow();
     expect(() =>
-      parseRunEventData('research.brief', { claimCount: 3, sourceCount: 2, droppedClaims: 0, droppedSources: 1, researchMode: 'single', summary: 'x' }),
+      parseRunEventData('research.brief', { claimCount: 6, sourceCount: 0, droppedClaims: 0, droppedSources: 0, researchMode: 'single', basis: 'model_knowledge' }),
+    ).not.toThrow();
+    expect(() =>
+      parseRunEventData('research.brief', { claimCount: 3, sourceCount: 2, droppedClaims: 0, droppedSources: 1, researchMode: 'single', basis: 'guessed' }),
+    ).toThrow();
+    expect(() =>
+      parseRunEventData('research.brief', { claimCount: 3, sourceCount: 2, droppedClaims: 0, droppedSources: 1, researchMode: 'single', basis: 'web_verified', summary: 'x' }),
     ).toThrow();
   });
 });

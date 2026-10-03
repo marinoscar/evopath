@@ -1,5 +1,6 @@
 import '../agents/researcher/research.events';
 
+import { evidenceBasisOf } from '../agents/researcher/evidence-brief.contract';
 import { runResearcher } from '../agents/researcher/researcher.agent';
 import { researcherContextSchema, type ResearcherContext } from '../agents/researcher/researcher-context';
 import type { GraphNode, NodeContext, NodeFn } from '../graph/node-context';
@@ -19,7 +20,10 @@ import { TRAINING_REASONS } from '../runtime/training-runs.constants';
 // 2. Reads the minimised researcher context the context builder put at
 //    `state.context.researcher`; nothing else from the state reaches a model.
 // 3. Runs the researcher (single call, two-step fallback, one retry) and the
-//    citation guardrail (`guardrails/citations.ts`).
+//    citation guardrail (`guardrails/citations.ts`). A research shortfall
+//    never fails the run: the researcher falls back to established training
+//    principles and the brief's `basis` says so (`web_partial`,
+//    `model_knowledge`).
 // 4. Emits `research.query`, one `research.source` per verified source and
 //    `research.brief`, then returns `{ brief }`: a `VerifiedEvidenceBrief`.
 //
@@ -86,6 +90,7 @@ export const runResearch: NodeFn = async (state, ctx) => {
     droppedClaims: brief.droppedClaims,
     droppedSources: brief.droppedSources,
     researchMode: brief.researchMode,
+    basis: evidenceBasisOf(brief),
   });
 
   return { brief };

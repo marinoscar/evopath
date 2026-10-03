@@ -65,6 +65,42 @@ describe('plan evidence', () => {
   });
 });
 
+describe('plan evidence of a research shortfall (knowledge fallback)', () => {
+  const knowledge = {
+    ...STUB_VERIFIED_BRIEF,
+    basis: 'model_knowledge' as const,
+    sources: [],
+    claims: STUB_VERIFIED_BRIEF.claims.map((claim) => ({ ...claim, sourceIds: [] })),
+  };
+
+  it('stores the basis in the header and rebuilds a model_knowledge brief with no sources', () => {
+    const evidence = evidenceOf(knowledge);
+    expect(evidence.find((e) => e.type === 'brief')).toMatchObject({ basis: 'model_knowledge' });
+    expect(evidence.filter((e) => e.type === 'source')).toHaveLength(0);
+    expect(briefFromEvidence(evidence)).toEqual(knowledge);
+  });
+
+  it('has no citations, whatever the plan cites', () => {
+    expect(citationsOf(knowledge, tree())).toEqual([]);
+  });
+
+  it('a header stored before `basis` existed rebuilds as web_verified', () => {
+    const legacy = evidenceOf(STUB_VERIFIED_BRIEF).map((item) => {
+      if (item.type !== 'brief') return item;
+      const { basis: _basis, ...rest } = item;
+      return rest;
+    });
+    expect(briefFromEvidence(legacy)).toEqual(STUB_VERIFIED_BRIEF);
+  });
+
+  it('a revise run reuses a model_knowledge brief (principles do not age) unless the goal changes', () => {
+    const later = at('2027-06-01T00:00:00Z');
+    expect(briefIsFresh(knowledge, later)).toBe(true);
+    expect(reusableBrief([evidenceOf(knowledge)], 'Swap days.', later)).toEqual(knowledge);
+    expect(reusableBrief([evidenceOf(knowledge)], 'New goal: endurance.', later)).toBeNull();
+  });
+});
+
 describe('prepare_context on a revise run', () => {
   async function run(instruction: string, now: Date) {
     const fake = createFakeProgramsPort();

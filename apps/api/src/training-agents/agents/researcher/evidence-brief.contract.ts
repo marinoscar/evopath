@@ -61,6 +61,32 @@ export const RESEARCH_MODES = ['single', 'two_step'] as const;
 
 export type ResearchMode = (typeof RESEARCH_MODES)[number];
 
+/**
+ * Where a stored brief's claims come from. Set by the server, never by the model:
+ *
+ * - `web_verified`: every claim rests on at least one source the hosted web
+ *   search returned in this run (the normal path; also what a brief stored
+ *   before this field existed is read as);
+ * - `web_partial`: the web research verified some sources and claims, but too
+ *   few, so claims from established training principles filled the brief
+ *   (those carry `sourceIds: []`);
+ * - `model_knowledge`: nothing could be verified (or web search is off), so
+ *   every claim comes from established training principles, with no sources.
+ *
+ * A research shortfall never fails a run: it lowers the basis instead.
+ */
+export const EVIDENCE_BASES = ['web_verified', 'web_partial', 'model_knowledge'] as const;
+
+export type EvidenceBasis = (typeof EVIDENCE_BASES)[number];
+
+/** The basis of a brief that predates the field (and of the normal path). */
+export const DEFAULT_EVIDENCE_BASIS: EvidenceBasis = 'web_verified';
+
+/** A brief's basis, tolerating one read back from an old checkpoint without the field. */
+export function evidenceBasisOf(brief: { basis?: EvidenceBasis | null } | null | undefined): EvidenceBasis {
+  return brief?.basis ?? DEFAULT_EVIDENCE_BASIS;
+}
+
 /** Bounds shared by the schema, the verifier and the node. */
 export const EVIDENCE_LIMITS = {
   minClaims: 3,
@@ -114,6 +140,25 @@ export const evidenceBriefSchema = z.object({
 /** The structured-output name the researcher's schema is sent under. */
 export const EVIDENCE_BRIEF_SCHEMA_NAME = 'evidence_brief';
 
+/**
+ * The MODEL-FACING schema of the knowledge fallback (no web search): claims
+ * from established exercise-science consensus, with no sources at all, so the
+ * model has nowhere to put a URL or a citation. Strict-mode compatible like
+ * `evidenceBriefSchema`.
+ */
+export const knowledgeClaimSchema = evidenceClaimSchema.omit({ sourceIds: true });
+
+export const knowledgeBriefSchema = z.object({
+  summary: z.string().max(EVIDENCE_LIMITS.summaryChars),
+  claims: z.array(knowledgeClaimSchema).min(EVIDENCE_LIMITS.minClaims).max(EVIDENCE_LIMITS.maxClaims),
+  cautions: z.array(z.string().max(EVIDENCE_LIMITS.cautionChars)).max(EVIDENCE_LIMITS.maxCautions),
+});
+
+/** The structured-output name the knowledge fallback's schema is sent under. */
+export const KNOWLEDGE_BRIEF_SCHEMA_NAME = 'knowledge_brief';
+
+export type KnowledgeBrief = z.infer<typeof knowledgeBriefSchema>;
+
 export type EvidenceSource = z.infer<typeof evidenceSourceSchema>;
 export type EvidenceClaim = z.infer<typeof evidenceClaimSchema>;
 export type EvidenceBrief = z.infer<typeof evidenceBriefSchema>;
@@ -129,7 +174,10 @@ export interface VerifiedEvidenceSource extends EvidenceSource {
 
 /** What the rest of the epic consumes: server-verified, with provenance the model cannot forge. */
 export interface VerifiedEvidenceBrief extends Omit<EvidenceBrief, 'sources'> {
+  /** Empty for a `model_knowledge` brief; a claim from established principles has `sourceIds: []`. */
   sources: VerifiedEvidenceSource[];
+  /** Set by the server (see `EVIDENCE_BASES`). */
+  basis: EvidenceBasis;
   /** Taken from the hosted tool result, never from the model's text. */
   searchQueries: string[];
   researchMode: ResearchMode;
@@ -140,6 +188,12 @@ export interface VerifiedEvidenceBrief extends Omit<EvidenceBrief, 'sources'> {
 /**
  * Validates a stored `VerifiedEvidenceBrief` (read back from a checkpoint or
  * a run row). Not a model-facing schema: it is never sent to a provider.
+ *
+ * `basis` defaults to `web_verified`, so a brief stored before the field
+ * existed still parses. The basis decides what the sources must look like:
+ * `web_verified` keeps the original bar (at least `minSources` sources and a
+ * source on every claim), `model_knowledge` has no sources and no claim
+ * cites one, `web_partial` has at least one source and one cited claim.
  */
 export const verifiedEvidenceBriefSchema = z
   .object({
@@ -147,7 +201,7 @@ export const verifiedEvidenceBriefSchema = z
     claims: z
       .array(
         evidenceClaimSchema.extend({
-          sourceIds: z.array(z.string().regex(/^S\d{1,2}$/)).min(1).max(EVIDENCE_LIMITS.maxSourcesPerClaim),
+          sourceIds: z.array(z.string().regex(/^S\d{1,2}$/)).max(EVIDENCE_LIMITS.maxSourcesPerClaim),
         }).strict(),
       )
       .min(EVIDENCE_LIMITS.minClaims)
@@ -162,12 +216,32 @@ export const verifiedEvidenceBriefSchema = z
           })
           .strict(),
       )
-      .min(EVIDENCE_LIMITS.minSources)
       .max(EVIDENCE_LIMITS.maxSources),
     cautions: z.array(z.string().max(EVIDENCE_LIMITS.cautionChars)).max(EVIDENCE_LIMITS.maxCautions),
     searchQueries: z.array(z.string().max(EVIDENCE_LIMITS.queryChars)).max(EVIDENCE_LIMITS.maxQueries),
     researchMode: z.enum(RESEARCH_MODES),
+    basis: z.enum(EVIDENCE_BASES).default(DEFAULT_EVIDENCE_BASIS),
     droppedClaims: z.number().int().min(0),
     droppedSources: z.number().int().min(0),
   })
-  .strict();
+  .strict()
+  .superRefine((brief, ctx) => {
+    const sourceIds = new Set(brief.sources.map((source) => source.id));
+    const cited = brief.claims.filter((claim) => claim.sourceIds.length > 0);
+    const fail = (message: string) => ctx.addIssue({ code: 'custom', message, path: ['basis'] });
+
+    for (const claim of cited) {
+      if (claim.sourceIds.some((id) => !sourceIds.has(id))) {
+        ctx.addIssue({ code: 'custom', message: `Claim ${claim.id} cites a source the brief does not hold.`, path: ['claims'] });
+      }
+    }
+
+    if (brief.basis === 'web_verified') {
+      if (brief.sources.length < EVIDENCE_LIMITS.minSources) fail(`A web_verified brief needs at least ${EVIDENCE_LIMITS.minSources} sources.`);
+      if (cited.length !== brief.claims.length) fail('Every claim of a web_verified brief cites a source.');
+    } else if (brief.basis === 'model_knowledge') {
+      if (brief.sources.length > 0 || cited.length > 0) fail('A model_knowledge brief has no sources.');
+    } else if (brief.sources.length === 0 || cited.length === 0) {
+      fail('A web_partial brief keeps at least one verified source and one cited claim.');
+    }
+  });

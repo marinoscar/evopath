@@ -1,4 +1,4 @@
-import type { VerifiedEvidenceBrief } from '../researcher/evidence-brief.contract';
+import { evidenceBasisOf, type EvidenceBasis, type VerifiedEvidenceBrief } from '../researcher/evidence-brief.contract';
 import { delimit, withSharedBlocks } from '../shared/prompt-blocks';
 import type { PlanDraft } from './plan-draft.contract';
 
@@ -71,10 +71,23 @@ export interface PlannerReview {
   serverRepairs: string[];
 }
 
+/**
+ * What the planner (and the critic) is told, inside <evidence>, when the brief
+ * is not fully web-verified. Fixed server text, never model text.
+ */
+export const EVIDENCE_BASIS_NOTES: Record<Exclude<EvidenceBasis, 'web_verified'>, string> = {
+  web_partial:
+    'Only some claims rest on verified web sources; claims with an empty sourceIds list come from established training principles. Cite claims by id only.',
+  model_knowledge:
+    'No web source could be verified for this run: every claim comes from established training principles and has no source. Cite claims by id only, or cite nothing; never name a source, study or URL.',
+};
+
 /** The evidence as the planner sees it: claims with source ids, sources without URLs. */
 export function plannerEvidence(brief: VerifiedEvidenceBrief | null, maxClaims?: number) {
   if (!brief) return { summary: 'No evidence brief is available for this run.', claims: [], sources: [], cautions: [] };
+  const basis = evidenceBasisOf(brief);
   return {
+    ...(basis === 'web_verified' ? {} : { basis, note: EVIDENCE_BASIS_NOTES[basis] }),
     summary: brief.summary,
     claims: brief.claims.slice(0, maxClaims ?? brief.claims.length).map((claim) => ({
       id: claim.id,

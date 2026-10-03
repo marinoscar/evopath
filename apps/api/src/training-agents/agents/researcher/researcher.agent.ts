@@ -3,20 +3,23 @@ import type { AiResponse, AiWebSearchTool } from '../../../ai/core/types/respons
 import type { NodeContext } from '../../graph/node-context';
 import { collectSearchQueries, collectVerifiedUrls, verifyBrief } from '../../guardrails/citations';
 import { AgentOutputTruncated } from '../../runtime/agent-caller';
-import { TrainingRunFailedError } from '../../runtime/training-run-errors';
-import { TRAINING_REASONS } from '../../runtime/training-runs.constants';
 import {
   EVIDENCE_BRIEF_SCHEMA_NAME,
   evidenceBriefSchema,
+  KNOWLEDGE_BRIEF_SCHEMA_NAME,
+  knowledgeBriefSchema,
   type EvidenceBrief,
+  type KnowledgeBrief,
   type ResearchMode,
   type VerifiedEvidenceBrief,
 } from './evidence-brief.contract';
+import { mergeFallbackBrief } from './knowledge-fallback';
 import type { ResearcherContext } from './researcher-context';
 import {
   RESEARCH_RETRY_NUDGE,
   RESEARCH_TRUNCATION_NUDGE,
   RESEARCHER_INSTRUCTIONS,
+  RESEARCHER_KNOWLEDGE_INSTRUCTIONS,
   RESEARCHER_NOTES_INSTRUCTIONS,
   RESEARCHER_SHAPE_INSTRUCTIONS,
   renderResearcherInput,
@@ -24,7 +27,7 @@ import {
 } from './researcher.prompt';
 
 // =============================================================================
-// The researcher agent: search, shape, verify, retry once
+// The researcher agent: search, shape, verify, retry once, never fail on a shortfall
 // =============================================================================
 //
 // Every model call goes through `ctx.agent` (AgentCaller), so the frozen
@@ -39,8 +42,16 @@ import {
 //
 // Verification uses only what the search RETURNED (hosted tool results and
 // message citations, across every call of this run), never the model's text.
-// Too few verified claims or sources, or a truncated answer, earns ONE retry;
-// after it the run fails `TRAINING_RESEARCH_INSUFFICIENT`.
+// Too few verified claims or sources, or a truncated answer, earns ONE retry.
+//
+// A research shortfall NEVER fails the run. After the retry (or at once when
+// web search is off, refused or unusable for this model), one more call, with
+// no tools, asks for the brief from established training principles
+// (`knowledge-fallback.ts`); what the web attempts verified is kept, and the
+// brief's `basis` records `web_partial` or `model_knowledge`. If that call
+// fails too, a fixed set of conservative principles is used. Only platform
+// errors that are not about research quality propagate: the kill switch, a
+// key or model problem, the run budget, a throttle (deferred), an abort.
 // =============================================================================
 
 export const RESEARCH_NODE = 'research';
@@ -48,30 +59,48 @@ export const RESEARCH_NODE = 'research';
 /** The mode tried first. The two-step path ships as the fallback. */
 export const DEFAULT_RESEARCH_MODE: ResearchMode = 'single';
 
+/** The round the knowledge fallback call is metered under (after the two web attempts). */
+export const KNOWLEDGE_ROUND = 3;
+
+/**
+ * Kept because runs failed before the knowledge fallback existed are stored
+ * with it (`TRAINING_REASONS.RESEARCH_INSUFFICIENT`); nothing throws it any more.
+ */
 export const RESEARCH_INSUFFICIENT_MESSAGE =
   'The research agent could not find enough reliable sources; try again, or simplify the goal.';
 
 /** Codes from the tool-plus-schema call that switch to the two-step mode. */
 const TWO_STEP_FALLBACK_CODES = new Set(['AI_STRUCTURED_OUTPUT_INVALID', 'AI_INVALID_REQUEST']);
 
+/**
+ * Codes that mean web research cannot help this run (web search switched off,
+ * a model without hosted tools, a refused request or filtered content): go to
+ * the knowledge fallback at once instead of retrying the search.
+ */
+const WEB_UNAVAILABLE_CODES = new Set(['AI_TOOL_DISABLED', 'AI_CAPABILITY_UNSUPPORTED', 'AI_INVALID_REQUEST', 'AI_CONTENT_FILTERED']);
+
+/** Why the web research fell short and the knowledge fallback ran. */
+export type ResearchFallbackCause = 'too_few_sources' | 'truncated' | 'web_unavailable';
+
+export interface ResearchFallback {
+  cause: ResearchFallbackCause;
+  /** `model` when the knowledge call answered, `static` when the fixed principles were used. */
+  knowledge: 'model' | 'static';
+}
+
 export interface ResearchOutcome {
   brief: VerifiedEvidenceBrief;
-  /** 1, or 2 when the one retry ran. */
+  /** Web attempts made: 1, or 2 when the one retry ran (0 when web search was unavailable from the start). */
   attempts: number;
+  /** Set when the knowledge fallback produced (part of) the brief. */
+  fallback: ResearchFallback | null;
 }
 
 export interface ResearchOptions {
   mode?: ResearchMode;
 }
 
-export function researchInsufficient(reason: 'too_few_sources' | 'truncated'): TrainingRunFailedError {
-  return new TrainingRunFailedError(TRAINING_REASONS.RESEARCH_INSUFFICIENT, RESEARCH_INSUFFICIENT_MESSAGE, {
-    reason: TRAINING_REASONS.RESEARCH_INSUFFICIENT,
-    cause: reason,
-  });
-}
-
-/** Runs the researcher for `context` and returns the verified brief, or throws. */
+/** Runs the researcher for `context` and returns a brief; throws only for platform errors (see the header). */
 export async function runResearcher(
   ctx: NodeContext,
   context: ResearcherContext,
@@ -81,21 +110,30 @@ export async function runResearcher(
   const state: OnceState = { mode: opts.mode ?? DEFAULT_RESEARCH_MODE };
   let nudge: string | undefined;
   let searchContextSize: AiWebSearchTool['searchContextSize'] = 'high';
+  let best: VerifiedEvidenceBrief | null = null;
+  let cause: ResearchFallbackCause = 'too_few_sources';
+  let attempts = 0;
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     let raw: EvidenceBrief;
 
     try {
       raw = await researchOnce(ctx, context, { nudge, searchContextSize, round: attempt }, state, responses);
+      attempts = attempt;
     } catch (err) {
       // A cut-off answer: the free-text search call reports it directly; a
       // structured answer cut off mid-JSON surfaces as an invalid structured
       // output (the single-mode one already fell back to two-step).
       if (err instanceof AgentOutputTruncated || isInvalidStructuredOutput(err)) {
-        if (attempt === 2) throw researchInsufficient('truncated');
+        attempts = attempt;
+        cause = 'truncated';
         searchContextSize = 'medium';
         nudge = RESEARCH_TRUNCATION_NUDGE;
         continue;
+      }
+      if (err instanceof AiError && WEB_UNAVAILABLE_CODES.has(err.code)) {
+        cause = 'web_unavailable';
+        break;
       }
       throw err;
     }
@@ -107,13 +145,53 @@ export async function runResearcher(
     });
 
     if (verified.sufficient) {
-      return { brief: verified.brief, attempts: attempt };
+      return { brief: verified.brief, attempts: attempt, fallback: null };
     }
 
+    if (!best || strength(verified.brief) > strength(best)) best = verified.brief;
+    cause = 'too_few_sources';
     nudge = RESEARCH_RETRY_NUDGE;
   }
 
-  throw researchInsufficient('too_few_sources');
+  const knowledge = await knowledgeOnce(ctx, context);
+  const brief = mergeFallbackBrief({
+    partial: best,
+    knowledge,
+    researchMode: state.mode,
+    searchQueries: collectSearchQueries(responses),
+  });
+
+  return { brief, attempts, fallback: { cause, knowledge: knowledge ? 'model' : 'static' } };
+}
+
+/** How much of an insufficient verified attempt is worth keeping: claims first, then sources. */
+function strength(brief: VerifiedEvidenceBrief): number {
+  return brief.claims.length * 100 + brief.sources.length;
+}
+
+/**
+ * The knowledge fallback call: no tools, the knowledge schema, the same
+ * delimited user context. `null` when it fails for a reason a fixed brief can
+ * stand in for (cut off, invalid output, refused, filtered); a platform error
+ * (kill switch, budget, throttle, abort, key or model) propagates.
+ */
+async function knowledgeOnce(ctx: NodeContext, context: ResearcherContext): Promise<KnowledgeBrief | null> {
+  try {
+    const { parsed } = await ctx.agent.structured({
+      role: 'researcher',
+      node: RESEARCH_NODE,
+      round: KNOWLEDGE_ROUND,
+      schema: knowledgeBriefSchema,
+      schemaName: KNOWLEDGE_BRIEF_SCHEMA_NAME,
+      instructions: RESEARCHER_KNOWLEDGE_INSTRUCTIONS,
+      input: renderResearcherInput(context),
+    });
+    return parsed;
+  } catch (err) {
+    if (err instanceof AgentOutputTruncated) return null;
+    if (err instanceof AiError && (err.code === 'AI_STRUCTURED_OUTPUT_INVALID' || WEB_UNAVAILABLE_CODES.has(err.code))) return null;
+    throw err;
+  }
 }
 
 function isInvalidStructuredOutput(err: unknown): boolean {

@@ -29,6 +29,7 @@ export const STUB_VERIFIED_BRIEF: VerifiedEvidenceBrief = {
   cautions: [],
   searchQueries: ['resistance training frequency guidelines'],
   researchMode: 'single',
+  basis: 'web_verified',
   droppedClaims: 0,
   droppedSources: 0,
 };
