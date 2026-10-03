@@ -106,6 +106,12 @@ describe('Node span relay (Integration)', () => {
 
   const nodeHeader = () => ({ Authorization: `Bearer ${NODE_TOKEN}` });
 
+  // The real 10-minute stuck-job reaper (`where.status === 'running'`) can tick mid-test and hit the shared mock; only the relay's own reads count.
+  const relayJobReads = () =>
+    (context.prismaMock.job.findMany as jest.Mock).mock.calls.filter(
+      ([args]) => args?.where?.status !== 'running',
+    );
+
   it('admits a nod_ credential and answers { accepted, dropped }', async () => {
     const admin = await createMockAdminUser(context);
     await givenNodeCredentialFor(admin.id);
@@ -141,7 +147,7 @@ describe('Node span relay (Integration)', () => {
 
     await request(server()).post(url).set(nodeHeader()).send({ spans: [span(HELD_JOB)] }).expect(403);
 
-    expect(context.prismaMock.job.findMany).not.toHaveBeenCalled();
+    expect(relayJobReads()).toEqual([]);
   });
 
   it('404 for a node that does not exist', async () => {
@@ -172,7 +178,7 @@ describe('Node span relay (Integration)', () => {
 
       await request(server()).post(url).set(nodeHeader()).send(body as object).expect(400);
 
-      expect(context.prismaMock.job.findMany).not.toHaveBeenCalled();
+      expect(relayJobReads()).toEqual([]);
     });
   });
 
