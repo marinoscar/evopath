@@ -7,6 +7,7 @@ import type { CoachChatToolDeps } from './coach-chat-tool.types';
 import { TOOL_UNAVAILABLE } from './coach-chat-tool.types';
 import { safely } from './minimise';
 import { dropNulls, invalid, num, userBasics, userText, weekdayOf } from './user-context';
+import { EQUIPMENT_TYPE_SELECT, EXERCISE_META_SELECT, GYM_EQUIPMENT_SELECT, equipmentView, exerciseMeta } from './workout-detail';
 
 /** Sessions `get_exercise_history` returns by default, and at most. */
 export const COACH_EXERCISE_HISTORY_DEFAULT = 10;
@@ -22,6 +23,7 @@ interface Candidate {
   slug: string;
   trackingMode: string;
   aliases: string[];
+  [key: string]: unknown;
 }
 
 /**
@@ -63,7 +65,7 @@ export function createGetExerciseHistoryTool(deps: CoachChatToolDeps) {
           },
           orderBy: { name: 'asc' },
           take: MATCH_CANDIDATES,
-          select: { id: true, name: true, slug: true, trackingMode: true, aliases: true },
+          select: { id: true, slug: true, ...EXERCISE_META_SELECT },
         });
         if (candidates.length === 0) {
           return { found: false, message: `No exercise matches "${query}". Ask the user which exercise they mean.` };
@@ -80,12 +82,14 @@ export function createGetExerciseHistoryTool(deps: CoachChatToolDeps) {
               id: true,
               date: true,
               name: true,
-              gym: { select: { name: true } },
+              gym: { select: { name: true, equipment: { select: GYM_EQUIPMENT_SELECT } } },
               exercises: {
                 where: { exerciseId: exercise.id },
                 orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
                 select: {
                   notes: true,
+                  equipmentTypeId: true,
+                  equipmentType: { select: EQUIPMENT_TYPE_SELECT },
                   sets: {
                     orderBy: { setNumber: 'asc' },
                     select: {
@@ -114,7 +118,7 @@ export function createGetExerciseHistoryTool(deps: CoachChatToolDeps) {
 
         return {
           found: true,
-          exercise: { name: exercise.name, trackingMode: exercise.trackingMode },
+          exercise: { name: exercise.name, ...exerciseMeta(exercise as never) },
           otherMatches: candidates.filter((c) => c.id !== exercise.id).slice(0, 5).map((c) => c.name),
           units: basics.units,
           records: history?.records ?? null,
@@ -142,6 +146,14 @@ export function createGetExerciseHistoryTool(deps: CoachChatToolDeps) {
               workout: session.name,
               gym: userText(session.gym?.name ?? null, 80),
               notes: session.exercises.map((entry) => userText(entry.notes)).filter((note): note is string => note !== null),
+              equipment: session.exercises
+                .map((entry) =>
+                  equipmentView(
+                    entry.equipmentType,
+                    (session.gym?.equipment ?? []).filter((item) => item.equipmentTypeId === entry.equipmentTypeId),
+                  ),
+                )
+                .filter((item) => item !== null),
               topSet,
               e1rmKg: best,
               sets: sets.map((set) => ({

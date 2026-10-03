@@ -6,7 +6,11 @@ import type { CoachChatToolDeps } from './coach-chat-tool.types';
 import { TOOL_UNAVAILABLE } from './coach-chat-tool.types';
 import { safely } from './minimise';
 
-/** Today's plan as the coach sees it: names, sets and targets only. No ids, no rationale, no gym. */
+/**
+ * Today's plan as the coach sees it (#338: in full): the session, every
+ * exercise's prescription, rationale, load guidance, suggested load, last
+ * time, muscles and availability at the plan's gym, and the plan's last change.
+ */
 export function minimiseToday(today: TrainingTodayData) {
   switch (today.kind) {
     case 'no_program':
@@ -36,8 +40,19 @@ export function minimiseToday(today: TrainingTodayData) {
         done: today.done,
         inProgress: today.inProgressWorkoutId !== null,
         estimatedMinutes: today.session.estimatedMinutes,
+        planVersion: today.session.planVersion,
+        lastChange: today.session.lastChange ? { summary: today.session.lastChange.summary, by: today.session.lastChange.actor, at: today.session.lastChange.at } : null,
         exercises: today.session.exercises.map((exercise) => ({
           name: exercise.exercise.name,
+          trackingMode: exercise.exercise.trackingMode,
+          primaryMuscles: exercise.exercise.primaryMuscles,
+          priority: exercise.isPriority,
+          loadGuidance: exercise.loadGuidance,
+          targetLoadKg: exercise.targetLoadKg,
+          suggestedLoadKg: exercise.suggestedLoadKg,
+          lastTime: exercise.lastTime,
+          availableAtGym: exercise.availableAtGym,
+          rationale: exercise.rationale,
           sets: exercise.sets,
           repMin: exercise.repMin,
           repMax: exercise.repMax,
@@ -57,7 +72,8 @@ export function createGetTodayPlanTool(deps: CoachChatToolDeps) {
     description:
       "Today's planned session from the user's active program: whether it is a workout or a rest day, the workout " +
       'name, its exercises with sets, rep range (or, for cardio, a duration in seconds and/or a distance in ' +
-      'meters), target RPE and rest, whether it is done, and the next session on a ' +
+      'meters), target RPE, rest, load guidance, target and suggested load, last time, rationale, muscles and ' +
+      'availability at the gym, whether it is done, the plan\'s last change, and the next session on a ' +
       'rest day.',
     parameters: z.object({}),
     execute: (_args, ctx) =>

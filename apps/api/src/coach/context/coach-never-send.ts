@@ -36,14 +36,13 @@ import { NEVER_SEND, type NeverSendEntry } from '../../training-agents/context/n
 // user-context.ts`, `userText`. The owner wants no artificial caps.
 //
 // What the chat's tools STILL never send (`COACH_CHAT_TOOL_NEVER_SEND`): the
-// email address, the date of birth itself, medications, documents and photos
-// and their file names, storage keys and file URLs, another user's data,
+// email address, the date of birth itself, medications, storage keys and
+// file URLs (and the files and photos themselves), another user's data,
 // progress photos beyond dates and counts, coach audio, and earlier coach
-// message bodies; nor credentials, tokens or keys of any kind (no tool reads
-// a credential table). Lab values stay behind the health consent
-// (`list_biomarkers`, `get_biomarker_values`: date, value, unit, numeric
-// range and flag only; never a note, the printed reference text or the
-// source document). The canaries: `apps/api/test/coach/coach-never-send.spec.ts`
+// message bodies; nor credentials, tokens, device installation or token ids,
+// or keys of any kind (no tool reads a credential table). Labs and health
+// documents stay behind the user's own health-data setting
+// (`HealthSummaryReader.consentOn`, a switch the user controls in Settings). The canaries: `apps/api/test/coach/coach-never-send.spec.ts`
 // (every read tool, secrets seeded in every source it reads) and
 // `coach/chat/coach-chat.service.spec.ts` (a whole turn).
 // =============================================================================
@@ -68,10 +67,16 @@ export const COACH_CHAT_TOOL_LIFTED: Readonly<Record<string, string>> = {
   check_in_notes: 'Check-in notes (get_check_ins)',
   pain_notes: 'Pain notes on logged sets (get_recent_workouts, get_workout_history, get_workout, get_exercise_history)',
   other_free_text: 'Workout, exercise, set, sleep and activity notes, the plan intake text, the plan rationale and the bio',
-  gym_name: "The gym's name (never its notes or location)",
-  other_gyms: "The user's other gyms' names where a workout or the intake names them",
+  gym_name: "The gym's name, type, description, notes, location and full equipment inventory (get_gyms)",
+  other_gyms: "Every gym of the user and its inventory (get_gyms)",
   ids: 'The workout id where a follow-up tool takes it (workoutId); no other id',
-  body_measurements: 'Body weight, body fat and other body and vital readings (get_profile, get_training_signals)',
+  body_measurements: 'Body weight, body fat and other body and vital readings (get_profile, get_measurements, get_training_signals)',
+  labs:
+    "Lab values with their reference range, printed reference text, flag and note, and blood pressure, only while the user's own " +
+    '"Use my health data in training plans and coach chat" setting is on (get_measurements, list_biomarkers, get_biomarker_values)',
+  documents_photos:
+    "Health document metadata (kind, file name, date, type, size) behind the same setting (get_health_documents), and gym photo " +
+    'captions (get_gyms); never a file, a photo or its content',
 };
 
 /** What the coach chat's read tools still never send (#338): `COACH_NEVER_SEND` minus the lifted entries. */

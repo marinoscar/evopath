@@ -32,3 +32,27 @@ export async function safely<T, F>(read: () => Promise<T>, fallback: F): Promise
     return fallback;
   }
 }
+
+/** Keys that name a secret or a storage location: dropped from any JSON blob a tool passes through (#338). */
+const SECRET_KEY = /^(?:storage[a-zA-Z0-9]*|[a-zA-Z0-9]*(?:Url|URL|url|Uri)|url|uri|[a-zA-Z0-9]*(?:[Tt]oken|[Ss]ecret|[Pp]assword)|email|apiKey|keySource|signingSha256)$/;
+
+/**
+ * A deep copy of a stored JSON blob as the coach may read it: no id keys
+ * (`withoutIds`) and no key naming a secret, a storage object or a URL.
+ */
+export function forCoach<T>(value: T): unknown {
+  const stripped = withoutIds(value);
+  const walk = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(walk);
+    if (item && typeof item === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [key, inner] of Object.entries(item as Record<string, unknown>)) {
+        if (SECRET_KEY.test(key)) continue;
+        out[key] = walk(inner);
+      }
+      return out;
+    }
+    return item;
+  };
+  return walk(stripped);
+}

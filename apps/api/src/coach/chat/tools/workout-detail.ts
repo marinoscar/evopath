@@ -29,6 +29,84 @@ import { dropNulls, localTimeOf, num, round, userText, weekdayOf } from './user-
 // workouts are folded in chronological order (`prsForWorkouts`).
 // =============================================================================
 
+/** The exercise library fields the coach sees for any exercise (#338). */
+export const EXERCISE_META_SELECT = {
+  name: true,
+  trackingMode: true,
+  primaryMuscles: true,
+  secondaryMuscles: true,
+  movementPattern: true,
+  isUnilateral: true,
+  isBodyweight: true,
+  aliases: true,
+  notes: true,
+  ownerUserId: true,
+  requirements: {
+    orderBy: { groupIndex: 'asc' },
+    select: {
+      groupIndex: true,
+      equipmentType: { select: { name: true } },
+      capability: { select: { name: true } },
+    },
+  },
+} satisfies Prisma.ExerciseSelect;
+
+export type ExerciseMetaRow = Prisma.ExerciseGetPayload<{ select: typeof EXERCISE_META_SELECT }>;
+
+/** The equipment catalog fields the coach sees (#338). */
+export const EQUIPMENT_TYPE_SELECT = { name: true, category: true, description: true } satisfies Prisma.EquipmentTypeSelect;
+
+/** The gym inventory fields the coach sees: never photos' storage objects (#338). */
+export const GYM_EQUIPMENT_SELECT = {
+  equipmentTypeId: true,
+  quantity: true,
+  brand: true,
+  model: true,
+  notes: true,
+} satisfies Prisma.GymEquipmentSelect;
+
+/**
+ * An exercise's library metadata: muscles, movement pattern, tracking mode,
+ * unilateral/bodyweight, aliases, library notes, whether it is the user's own
+ * custom exercise, and the equipment it needs (each group is one way to do it).
+ */
+export function exerciseMeta(row: ExerciseMetaRow) {
+  const groups = new Map<number, string[]>();
+  for (const req of row.requirements ?? []) {
+    const need = req.equipmentType?.name ?? req.capability?.name;
+    if (!need) continue;
+    groups.set(req.groupIndex, [...(groups.get(req.groupIndex) ?? []), need]);
+  }
+  return dropNulls({
+    trackingMode: row.trackingMode,
+    movementPattern: row.movementPattern,
+    primaryMuscles: row.primaryMuscles,
+    secondaryMuscles: row.secondaryMuscles?.length ? row.secondaryMuscles : null,
+    unilateral: row.isUnilateral || null,
+    bodyweight: row.isBodyweight || null,
+    aliases: row.aliases?.length ? row.aliases : null,
+    libraryNotes: userText(row.notes),
+    custom: row.ownerUserId ? true : null,
+    needsOneOf: groups.size ? [...groups.values()] : null,
+  });
+}
+
+/** An equipment type and, when the gym's inventory has it, the user's own item (brand, model, notes, quantity). */
+export function equipmentView(
+  type: { name: string; category: string; description: string | null } | null,
+  items: ReadonlyArray<{ brand: string | null; model: string | null; notes: string | null; quantity: number }> = [],
+) {
+  if (!type) return null;
+  return dropNulls({
+    name: type.name,
+    category: type.category,
+    description: userText(type.description),
+    gymItems: items.length
+      ? items.map((item) => dropNulls({ brand: userText(item.brand), model: userText(item.model), notes: userText(item.notes), quantity: item.quantity }))
+      : null,
+  });
+}
+
 export const WORKOUT_DETAIL_SELECT = {
   id: true,
   name: true,
@@ -38,7 +116,7 @@ export const WORKOUT_DETAIL_SELECT = {
   endedAt: true,
   durationSeconds: true,
   notes: true,
-  gym: { select: { name: true } },
+  gym: { select: { name: true, type: true, equipment: { select: GYM_EQUIPMENT_SELECT } } },
   programWorkout: { select: { name: true, week: { select: { weekNumber: true } } } },
   programSession: {
     select: {
@@ -54,7 +132,9 @@ export const WORKOUT_DETAIL_SELECT = {
       exerciseId: true,
       position: true,
       notes: true,
-      exercise: { select: { name: true, trackingMode: true } },
+      equipmentTypeId: true,
+      equipmentType: { select: EQUIPMENT_TYPE_SELECT },
+      exercise: { select: EXERCISE_META_SELECT },
       sets: {
         orderBy: { setNumber: 'asc' },
         select: {
@@ -117,7 +197,13 @@ export interface CoachWorkoutView {
   gym: string | null;
   notes: string | null;
   plan: { session: string | null; weekNumber: number | null; plannedFor: string | null } | null;
-  exercises: Array<{ name: string; notes: string | null; sets: CoachSetView[] }>;
+  exercises: Array<{
+    name: string;
+    notes: string | null;
+    equipment: ReturnType<typeof equipmentView>;
+    exercise: ReturnType<typeof exerciseMeta>;
+    sets: CoachSetView[];
+  }>;
   totals: { workingSets: number; volumeKg: number };
   prs: CoachPrView[];
 }
@@ -207,6 +293,11 @@ export function workoutView(row: WorkoutDetailRow, timeZone: string | null, prs:
     exercises: row.exercises.map((entry) => ({
       name: entry.exercise.name,
       notes: userText(entry.notes),
+      equipment: equipmentView(
+        entry.equipmentType,
+        (row.gym?.equipment ?? []).filter((item) => item.equipmentTypeId === entry.equipmentTypeId),
+      ),
+      exercise: exerciseMeta(entry.exercise),
       sets: entry.sets.map(setView),
     })),
     totals: totalsOf(row),
