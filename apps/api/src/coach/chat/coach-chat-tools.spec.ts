@@ -156,7 +156,7 @@ describe('coach chat tools (E7.7)', () => {
   });
 
   describe('get_check_ins', () => {
-    it('returns the scores and the user\'s note for 14 days by default, up to 90 on request (#338)', async () => {
+    it('returns the scores and the user\'s note for 14 days by default, up to 365 on request (#338)', async () => {
       const { deps } = makeDeps();
       deps.checkIns.list.mockResolvedValue({
         items: [
@@ -170,8 +170,10 @@ describe('coach chat tools (E7.7)', () => {
       expect(deps.checkIns.list).toHaveBeenCalledWith(USER, 14);
       await run(deps, 'get_check_ins', { days: 60 });
       expect(deps.checkIns.list).toHaveBeenLastCalledWith(USER, 60);
+      await run(deps, 'get_check_ins', { days: 365 });
+      expect(deps.checkIns.list).toHaveBeenLastCalledWith(USER, 365);
       await run(deps, 'get_check_ins', { days: 500 });
-      expect(deps.checkIns.list).toHaveBeenLastCalledWith(USER, 90);
+      expect(deps.checkIns.list).toHaveBeenLastCalledWith(USER, 365);
     });
   });
 
@@ -360,6 +362,29 @@ describe('coach chat tools (E7.7)', () => {
       });
       expect(JSON.stringify(result)).not.toMatch(UUID);
       expect(JSON.stringify(result)).not.toContain('CANARY-NOTE');
+    });
+
+    it('returns up to 100 activity goals', async () => {
+      const { deps } = makeDeps();
+      const progress = (i: number) => ({
+        goalId: GOAL,
+        goal: { id: GOAL, title: `Goal ${i}`, activityKind: 'walk', customLabel: null, metric: 'sessions', period: 'week', startsOn: '2026-09-01' },
+        periodStart: '2026-09-28',
+        periodEnd: '2026-10-04',
+        done: 1,
+        target: 2,
+        remaining: 1,
+        daysLeft: 4,
+        onTrack: true,
+        hit: false,
+        streakPeriods: 0,
+        elapsedFraction: 3 / 7,
+        entries: [],
+      });
+      deps.goals.progressForUser.mockResolvedValue(Array.from({ length: 120 }, (_, i) => progress(i)));
+      const result: any = await run(deps, 'get_goals');
+      expect(result.activityGoals).toHaveLength(100);
+      expect(result.activityGoals[99].title).toBe('Goal 99');
     });
 
     it('answers unavailable without a goals source or on a failure', async () => {

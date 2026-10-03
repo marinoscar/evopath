@@ -40,9 +40,9 @@ import { HEALTH_SUMMARY_CONSENT_PATH } from './get-health-summary.tool';
 // ⚠ No value is logged, counted or put on a span.
 // =============================================================================
 
-export const COACH_BIOMARKER_LIST_MAX = 200;
-export const COACH_BIOMARKER_KEYS_MAX = 10;
-export const COACH_BIOMARKER_READINGS_MAX = 24;
+export const COACH_BIOMARKER_LIST_MAX = 1000;
+export const COACH_BIOMARKER_KEYS_MAX = 50;
+export const COACH_BIOMARKER_READINGS_MAX = 200;
 export const COACH_BIOMARKER_SINCE_DAYS_MAX = 3650;
 
 const CONSENT_OFF = { available: false as const, reason: 'consent_off' as const };

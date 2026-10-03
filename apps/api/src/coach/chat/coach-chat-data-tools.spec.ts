@@ -1,4 +1,5 @@
 import { createCoachChatTools, type CoachChatToolDeps } from './tools';
+import { COACH_EXERCISE_HISTORY_MAX } from './tools/get-exercise-history.tool';
 import { COACH_WORKOUT_HISTORY_LIMIT_MAX } from './tools/get-workout-history.tool';
 import { COACH_USER_TEXT_MAX, resolveRange } from './tools/user-context';
 
@@ -567,6 +568,18 @@ describe('get_exercise_history (#338)', () => {
 
     deps.prisma.exercise.findMany.mockResolvedValue([]);
     expect(await run(deps, 'get_exercise_history', { exercise: 'zercher', limit: null })).toMatchObject({ found: false });
+  });
+
+  it('reads up to 500 sessions on request and clamps a larger limit', async () => {
+    expect(COACH_EXERCISE_HISTORY_MAX).toBe(500);
+    const deps = makeDeps();
+    deps.prisma.exercise.findMany.mockResolvedValue([
+      { id: EX_BENCH, name: 'Bench press', slug: 'bench-press', trackingMode: 'weight_reps', aliases: [] },
+    ]);
+    await run(deps, 'get_exercise_history', { exercise: 'Bench press', limit: 500 });
+    expect(deps.prisma.workout.findMany.mock.calls[0][0].take).toBe(500);
+    await run(deps, 'get_exercise_history', { exercise: 'Bench press', limit: 9999 });
+    expect(deps.prisma.workout.findMany.mock.calls[1][0].take).toBe(COACH_EXERCISE_HISTORY_MAX);
   });
 });
 

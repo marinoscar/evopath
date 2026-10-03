@@ -11,7 +11,7 @@ import { safely } from './minimise';
 import { userText } from './user-context';
 
 /** At most this many activity goals are sent (the API caps active goals at 10 anyway). */
-export const COACH_CHAT_GOALS_MAX = 10;
+export const COACH_CHAT_GOALS_MAX = 100;
 
 /** One active activity goal in its current period. */
 export function goalView(p: GoalProgressData) {

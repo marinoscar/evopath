@@ -8,7 +8,7 @@ import { userText } from './user-context';
 
 /** Days of check-ins the tool reads by default, and at most (#338). */
 export const COACH_CHECK_IN_DAYS = 14;
-export const COACH_CHECK_IN_MAX_DAYS = 90;
+export const COACH_CHECK_IN_MAX_DAYS = 365;
 
 /** `get_check_ins`: recent readiness scores and the user's own note (#338: the chat sees the note, clipped). */
 export function createGetCheckInsTool(deps: CoachChatToolDeps) {
