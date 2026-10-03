@@ -128,6 +128,34 @@ const nextSessionSchema = z
   .nullable()
   .meta({ description: 'The next scheduled occurrence within 14 days; null when there is none.' });
 
+const weekProgramWorkoutRefSchema = programWorkoutRefSchema.extend({
+  position: z.number().int().meta({ description: 'Order within the plan week (ties on one date).' }),
+  exerciseCount: z.number().int().meta({ description: 'Live exercises in the planned workout.' }),
+});
+
+const WEEK_SESSION_STATUSES = ['done', 'in_progress', 'missed', 'upcoming', 'today'] as const;
+
+const weekSessionSchema = z.object({
+  date: z.iso.date().meta({ description: 'The occurrence date inside the current plan week.' }),
+  status: z.enum(WEEK_SESSION_STATUSES).meta({
+    description:
+      '`done`: a completed linked workout; `in_progress`: the caller\'s in-progress linked workout; otherwise ' +
+      '`missed` (before `date`), `today` or `upcoming` (after `date`).',
+  }),
+  suggested: z.boolean().meta({
+    description: 'The session the card suggests: today\'s workout, or the rest day\'s `next` when it falls in this week.',
+  }),
+  completedWorkoutId: z.uuid().nullable().meta({ description: 'The most recent completed linked workout.' }),
+  inProgressWorkoutId: z.uuid().nullable().meta({ description: 'The caller\'s in-progress workout linked to it.' }),
+  programWorkout: weekProgramWorkoutRefSchema,
+});
+
+const weekSchema = z.array(weekSessionSchema).meta({
+  description:
+    'Every scheduled session of the current plan week, ordered by date then position. Any of them may be started ' +
+    'with `POST /api/program-workouts/:id/start`.',
+});
+
 const todayNoProgramSchema = z.object({ kind: z.literal('no_program'), date: z.iso.date() });
 
 const todayNotStartedSchema = z.object({
@@ -150,6 +178,7 @@ const todayRestDaySchema = z.object({
   weekNumber: z.number().int(),
   totalWeeks: z.number().int(),
   next: nextSessionSchema,
+  week: weekSchema,
 });
 
 const todayWorkoutSchema = z.object({
@@ -164,6 +193,7 @@ const todayWorkoutSchema = z.object({
   completedWorkoutId: z.uuid().nullable().meta({ description: 'The most recent completed linked workout.' }),
   inProgressWorkoutId: z.uuid().nullable().meta({ description: 'The caller\'s in-progress workout linked to it.' }),
   session: sessionSchema,
+  week: weekSchema,
 });
 
 /**
@@ -199,6 +229,7 @@ export type TrainingTodayData = z.infer<typeof trainingTodaySchema>;
 export type TodaySessionData = z.infer<typeof sessionSchema>;
 export type TodaySessionExerciseData = z.infer<typeof sessionExerciseSchema>;
 export type ProgramWorkoutRefData = z.infer<typeof programWorkoutRefSchema>;
+export type TodayWeekSessionData = z.infer<typeof weekSessionSchema>;
 
 export const startProgramWorkoutResultSchema = z.object({
   workoutId: z.uuid().meta({ description: 'The E4 workout to open in the logger.' }),

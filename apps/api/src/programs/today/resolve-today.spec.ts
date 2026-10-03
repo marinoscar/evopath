@@ -1,5 +1,5 @@
 import type { PlanTree, PlanWeek, PlanWorkout } from '../contracts/plan-tree.contract';
-import { isoWeekday, occurrenceDate, resolveToday, type ResolverProgram, type TodayResult } from './resolve-today';
+import { isoWeekday, occurrenceDate, resolveToday, resolveWeek, type ResolverProgram, type TodayResult, type WeekSession } from './resolve-today';
 
 // Calendar anchors (verified): 2026-09-28 is a Monday, 2026-09-30 a Wednesday,
 // 2026-10-04 a Sunday, 2026-10-05 a Monday.
@@ -146,6 +146,82 @@ describe('resolveToday', () => {
     resolveToday({ program: program(START_MON, mwfTree(2)), today: '2026-10-04', completedProgramWorkoutIds: new Set() });
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  describe('week', () => {
+    const view = (week: WeekSession[]) =>
+      week.map((entry) => `${entry.programWorkout.id} ${entry.date} ${entry.status}${entry.suggested ? ' *' : ''}`);
+
+    it('a workout day lists the week with statuses and suggests today\'s workout', () => {
+      const result = resolveToday({
+        program: program(START_MON, mwfTree(2)),
+        today: '2026-09-30',
+        completedProgramWorkoutIds: new Set(),
+      });
+      expect(result.kind).toBe('workout');
+      if (result.kind !== 'workout') return;
+      expect(view(result.week)).toEqual(['w1-1 2026-09-28 missed', 'w1-3 2026-09-30 today *', 'w1-5 2026-10-02 upcoming']);
+    });
+
+    it('done wins over in_progress, in_progress over the date status', () => {
+      const result = resolveToday({
+        program: program(START_MON, mwfTree(2)),
+        today: '2026-09-30',
+        completedProgramWorkoutIds: new Set(['w1-1', 'w1-5']),
+        inProgressProgramWorkoutIds: new Set(['w1-5', 'w1-3']),
+      });
+      if (result.kind !== 'workout') throw new Error(result.kind);
+      expect(view(result.week)).toEqual(['w1-1 2026-09-28 done', 'w1-3 2026-09-30 in_progress *', 'w1-5 2026-10-02 done']);
+    });
+
+    it('a rest day suggests next when it falls in the current week', () => {
+      const result = resolveToday({ program: program(START_MON, mwfTree(2)), today: '2026-09-29', completedProgramWorkoutIds: new Set() });
+      if (result.kind !== 'rest_day') throw new Error(result.kind);
+      expect(view(result.week)).toEqual(['w1-1 2026-09-28 missed', 'w1-3 2026-09-30 upcoming *', 'w1-5 2026-10-02 upcoming']);
+    });
+
+    it('a rest day whose next is in the following week suggests nothing in this week', () => {
+      const result = resolveToday({ program: program(START_MON, mwfTree(2)), today: '2026-10-04', completedProgramWorkoutIds: new Set() });
+      if (result.kind !== 'rest_day') throw new Error(result.kind);
+      expect(result.next?.programWorkout.id).toBe('w2-1');
+      expect(result.week.every((entry) => !entry.suggested)).toBe(true);
+      expect(result.week.map((entry) => entry.status)).toEqual(['missed', 'missed', 'missed']);
+    });
+
+    it('mid-week start: the week window follows the plan week, not the calendar week', () => {
+      const result = resolveToday({ program: program(START_WED, mwfTree(2)), today: '2026-10-02', completedProgramWorkoutIds: new Set(['w1-3']) });
+      if (result.kind !== 'workout') throw new Error(result.kind);
+      expect(view(result.week)).toEqual(['w1-3 2026-09-30 done', 'w1-5 2026-10-02 today *', 'w1-1 2026-10-05 upcoming']);
+    });
+
+    it('excludes unscheduled workouts and orders same-date sessions by position', () => {
+      const tree = mwfTree(1);
+      tree.blocks[0].weeks[0].workouts = [workout('late', 2, 5), workout('floating', null, 0), workout('early', 2, 1), workout('mon', 1, 9)];
+      const week = resolveWeek({
+        startDate: START_MON,
+        weekNumber: 1,
+        tree,
+        today: '2026-09-28',
+        completedProgramWorkoutIds: new Set(),
+        suggestedProgramWorkoutId: 'mon',
+      });
+      expect(view(week)).toEqual(['mon 2026-09-28 today *', 'early 2026-09-29 upcoming', 'late 2026-09-29 upcoming']);
+    });
+
+    it('a week without workouts is empty', () => {
+      const tree = mwfTree(2);
+      tree.blocks[0].weeks[1].workouts = [];
+      const week = resolveWeek({
+        startDate: START_MON,
+        weekNumber: 2,
+        tree,
+        today: '2026-10-06',
+        completedProgramWorkoutIds: new Set(),
+        suggestedProgramWorkoutId: null,
+      });
+      expect(week).toEqual([]);
+      expect(resolveWeek({ startDate: START_MON, weekNumber: 9, tree, today: '2026-10-06', completedProgramWorkoutIds: new Set(), suggestedProgramWorkoutId: null })).toEqual([]);
+    });
   });
 
   describe('helpers', () => {
