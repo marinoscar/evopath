@@ -11,7 +11,7 @@ import { EQUIPMENT_TYPE_SELECT, EXERCISE_META_SELECT, GYM_EQUIPMENT_SELECT, equi
 
 /** Sessions `get_exercise_history` returns by default, and at most. */
 export const COACH_EXERCISE_HISTORY_DEFAULT = 10;
-export const COACH_EXERCISE_HISTORY_MAX = 100;
+export const COACH_EXERCISE_HISTORY_MAX = 500;
 /** Candidate exercises read when matching a name. */
 const MATCH_CANDIDATES = 20;
 

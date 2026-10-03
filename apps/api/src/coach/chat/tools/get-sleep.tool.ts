@@ -10,7 +10,7 @@ import { localTimeOf, userBasics, userText } from './user-context';
 
 /** Nights `get_sleep` looks back over by default, and at most (#338), today (the user's local date) included. */
 export const COACH_SLEEP_NIGHTS = 14;
-export const COACH_SLEEP_MAX_NIGHTS = 90;
+export const COACH_SLEEP_MAX_NIGHTS = 365;
 /** Sessions read at most per night (naps included). */
 export const COACH_SLEEP_SESSIONS_PER_NIGHT = 3;
 
