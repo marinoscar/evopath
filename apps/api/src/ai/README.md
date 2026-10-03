@@ -474,7 +474,11 @@ on in `ai.hostedTools` (all off by default; `AI_TOOL_DISABLED`, 403, from
 `core/hosted-tools.ts`, which also enforces `mcpAllowedHosts`), and the model
 must declare `hosted_tools` (step 3). Results come back as `hosted_tool_call`
 items with a typed `result` per tool, and web-search citations as
-`citations` on the message item.
+`citations` on the message item. The OpenAI Responses mapper always adds
+`include: ['web_search_call.action.sources']` to a request that carries the
+`web_search` tool (merged and deduplicated with a `providerOptions` `include`),
+because OpenAI omits the searched sources otherwise; it maps a `search`
+action's `sources` and an `open_page` action's `url` into the call's result.
 
 Two things never leave the facade, both handled by
 `runtime/ai-hosted-outputs.ts` on every response and stream event:
