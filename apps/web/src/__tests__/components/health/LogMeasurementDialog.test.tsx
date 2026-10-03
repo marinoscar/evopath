@@ -267,6 +267,159 @@ describe('LogMeasurementDialog', () => {
       await user.type(await field('Weight'), '176.4{Enter}');
       await waitFor(() => expect(onClose).toHaveBeenCalled());
     });
+
+    describe('backdated entries', () => {
+      const HOUR = 60 * 60 * 1000;
+      /** A whole-minute instant `hours` ago, as the datetime-local field can hold it. */
+      const ago = (hours: number) => {
+        const at = new Date(Date.now() - hours * HOUR);
+        at.setSeconds(0, 0);
+        return at;
+      };
+      const pickTime = (at: Date) =>
+        fireEvent.change(screen.getByLabelText('Date and time'), {
+          target: { value: toDateTimeLocalValue(at) },
+        });
+      const lastEntry = /different from your last entry/;
+
+      it('warns for an untouched date (now) against a recent latest reading', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(24).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120.7{Enter}');
+
+        expect(
+          await screen.findByText('This is 29% different from your last entry (93.5 kg). Check the unit.'),
+        ).toBeInTheDocument();
+        expect(bodies).toHaveLength(0);
+      });
+
+      it('does not warn when the picked time is older than the latest reading, and saves at once', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(24).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120.7');
+        const picked = ago(365 * 24);
+        pickTime(picked);
+        await user.click(save());
+
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(screen.queryByText(lastEntry)).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Save anyway' })).toBeNull();
+        expect(bodies).toEqual([
+          {
+            measuredAt: picked.toISOString(),
+            readings: [{ metricKey: 'weight', value: 120.7, unit: 'kg' }],
+          },
+        ]);
+      });
+
+      it('still warns when the picked time is after the latest reading, and Save anyway posts', async () => {
+        const older = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(72).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: older });
+        await user.type(await field('Weight'), '120.7');
+        const picked = ago(24);
+        pickTime(picked);
+        await user.click(save());
+
+        expect(
+          await screen.findByText('This is 29% different from your last entry (93.5 kg). Check the unit.'),
+        ).toBeInTheDocument();
+        expect(bodies).toHaveLength(0);
+
+        await user.click(screen.getByRole('button', { name: 'Save anyway' }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(bodies).toEqual([
+          {
+            measuredAt: picked.toISOString(),
+            readings: [{ metricKey: 'weight', value: 120.7, unit: 'kg' }],
+          },
+        ]);
+      });
+
+      it('warns for no metric when the whole entry is older than every latest reading', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 80, { measuredAt: ago(24).toISOString() }) },
+          body_fat_pct: { latest: mockMeasurement('body_fat_pct', 20, { measuredAt: ago(48).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120');
+        await user.click(chip('body_fat_pct'));
+        await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '40');
+        const picked = ago(10 * 24);
+        pickTime(picked);
+        await user.click(save());
+
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(screen.queryByText(lastEntry)).toBeNull();
+        expect(bodies).toHaveLength(1);
+        expect(bodies[0].measuredAt).toBe(picked.toISOString());
+        expect(bodies[0].readings).toEqual([
+          { metricKey: 'weight', value: 120, unit: 'kg' },
+          { metricKey: 'body_fat_pct', value: 40, unit: '%' },
+        ]);
+      });
+
+      it('warns only for the metric whose latest reading is older than the picked time', async () => {
+        // Picked: 2 days ago. Weight's latest is 1 day ago (newer: skipped);
+        // body fat's latest is 3 days ago (older: compared).
+        const mixed = mockLatest({
+          weight: { latest: mockMeasurement('weight', 80, { measuredAt: ago(24).toISOString() }) },
+          body_fat_pct: { latest: mockMeasurement('body_fat_pct', 20, { measuredAt: ago(72).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: mixed });
+        await user.type(await field('Weight'), '120');
+        await user.click(chip('body_fat_pct'));
+        await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '40');
+        const picked = ago(48);
+        pickTime(picked);
+        await user.click(save());
+
+        expect(await screen.findByText(/^Body fat: This is 100% different from your last entry/)).toBeInTheDocument();
+        expect(screen.queryByText(/^Weight:/)).toBeNull();
+        expect(screen.getAllByText(lastEntry)).toHaveLength(1);
+        expect(bodies).toHaveLength(0);
+
+        await user.click(screen.getByRole('button', { name: 'Save anyway' }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(bodies).toHaveLength(1);
+        expect(bodies[0].measuredAt).toBe(picked.toISOString());
+        expect(bodies[0].readings.map((r) => r.metricKey)).toEqual(['weight', 'body_fat_pct']);
+      });
+
+      it('Save and add another with a backdated time posts without a warning and stays open', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(24).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose, onSaved } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120.7');
+        const picked = ago(365 * 24);
+        pickTime(picked);
+        await user.click(saveAndAddAnother());
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+        expect(screen.queryByText(lastEntry)).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Save anyway' })).toBeNull();
+        expect(bodies).toEqual([
+          {
+            measuredAt: picked.toISOString(),
+            readings: [{ metricKey: 'weight', value: 120.7, unit: 'kg' }],
+          },
+        ]);
+        expect(onClose).not.toHaveBeenCalled();
+        expect(screen.getByRole('textbox', { name: 'Weight' })).toHaveValue('');
+      });
+    });
   });
 
   describe('details', () => {
