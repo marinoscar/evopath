@@ -117,6 +117,7 @@ import {
   type WeeklyReviewGoal,
   type WeeklyReviewStats,
 } from '../weekly-review-stats';
+import { stripMarkdown } from '../../text/strip-markdown';
 import { updateWeeklyStreak } from '../weekly-streak';
 
 /** Each model call's own deadline; two fit inside the job's three minutes. */
@@ -380,7 +381,8 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
     // ---- push teaser: lock-screen-safe, never stats ---------------------------------
     const pushTitle = FALLBACK_TITLES.weekly_review;
     const teaser = `${style.persona.name} has your weekly review.`;
-    let pushBody = settings.lockScreenSafe ? teaser : truncate(email.prose.headline, 140);
+    // Plain text on a lock screen: the headline's markdown is stripped (#343).
+    let pushBody = settings.lockScreenSafe ? teaser : truncate(stripMarkdown(email.prose.headline), 140);
     if (!this.guard.check({ pushTitle, pushBody }, { ...emailGuard, register: CLEAN_REGISTER }, []).ok) pushBody = teaser;
 
     // ---- 6. persist (one transaction), then deliver ------------------------------------
@@ -418,7 +420,7 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
             angle: null,
             personaId: style.persona.id,
             intensity: style.intensity,
-            title: app.prose.headline,
+            title: stripMarkdown(app.prose.headline),
             body: app.prose.intro,
             pushTitle,
             pushBody,

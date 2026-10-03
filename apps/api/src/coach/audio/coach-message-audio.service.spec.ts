@@ -1,7 +1,7 @@
 import { DEFAULT_SYSTEM_SETTINGS } from '../../common/types/settings.types';
 import { CoachSlidingWindowLimiter } from './coach-preview-rate-limiter';
 import { CoachAudioService } from './coach-audio.service';
-import { CoachMessageAudioService, messageAudioView, stripMarkdownLinks } from './coach-message-audio.service';
+import { CoachMessageAudioService, messageAudioView } from './coach-message-audio.service';
 
 // =============================================================================
 // CoachMessageAudioService (#259): the guarded on-demand transition, the
@@ -143,9 +143,5 @@ describe('CoachMessageAudioService', () => {
       // Ready but the object is gone (deleted): nothing to play.
       expect(messageAudioView({ ...row, audioStatus: 'ready' })).toEqual({ status: 'none' });
     });
-  });
-
-  it('stripMarkdownLinks keeps the labels only', () => {
-    expect(stripMarkdownLinks('See [your plan](/programs/1) and ![chart](x.png).')).toBe('See your plan and chart.');
   });
 });

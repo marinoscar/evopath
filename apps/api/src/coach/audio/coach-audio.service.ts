@@ -55,6 +55,7 @@ import {
   COACH_MESSAGE_SUBJECT_TYPE,
 } from '../coach-job-types';
 import type { RenderedPersonaStyle } from '../personas/resolve-register';
+import { stripMarkdown } from '../text/strip-markdown';
 import { classifySpeechRun, type CoachAudioCause } from './tts-refusal';
 
 export const COACH_VOICE_FEATURE_ID = 'coach.voice';
@@ -119,7 +120,8 @@ export class CoachAudioService {
    * The speech request for a message: the guard-approved `audioScript` (else
    * the body), the user's voice (else the persona's default for the RENDERED
    * level), the user's speed, and the persona's TTS instructions followed by
-   * the message's own `audioInstructions`.
+   * the message's own `audioInstructions`. The script is plain text: its
+   * markdown (links, emphasis, lists, tables) is stripped first (#343).
    */
   speechRequest(input: {
     style: RenderedPersonaStyle;
@@ -129,7 +131,8 @@ export class CoachAudioService {
     body: string;
     audioInstructions: string | null | undefined;
   }): CoachSpeechRequest {
-    const script = (input.audioScript && input.audioScript.trim()) || input.body;
+    // Markdown is never read aloud (#343): `**19 sets**` is spoken as "19 sets".
+    const script = stripMarkdown((input.audioScript && input.audioScript.trim()) || input.body);
     const parts = [input.style.ttsInstructions, input.audioInstructions?.trim()].filter(
       (part, index, all): part is string => Boolean(part) && all.indexOf(part) === index,
     );

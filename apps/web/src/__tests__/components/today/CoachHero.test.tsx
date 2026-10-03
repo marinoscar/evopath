@@ -34,6 +34,23 @@ describe('CoachHero', () => {
     expect(screen.getByRole('region', { name: 'From your coach' })).toBeInTheDocument();
   });
 
+  it('shows markdown as one plain line, without asterisks (#343)', async () => {
+    messages([
+      mockCoachMessage({
+        id: coachMessageId(8),
+        openedAt: null,
+        kind: 'chat',
+        title: '',
+        body: 'You did **19 working sets**.\n\n- Squat\n- `Bench`',
+      }),
+    ]);
+    render(<CoachHero />, { wrapperOptions: { aiEnabled: true } });
+    const line = await screen.findByTestId('coach-hero-line');
+    expect(line).toHaveTextContent('You did 19 working sets. Squat Bench');
+    expect(line.textContent).not.toMatch(/[*`]/);
+    expect(line).toHaveAttribute('title', 'You did 19 working sets. Squat Bench');
+  });
+
   it('renders nothing when every coach message has been read', async () => {
     let called = false;
     server.use(

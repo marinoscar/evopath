@@ -132,6 +132,20 @@ describe('CoachMessageDeliverHandler', () => {
     expect(t.metrics.coachNudgeDelivered).toHaveBeenCalledWith('missed_twice');
   });
 
+  it('notifies with plain text: markdown in the push pair is stripped, the stored row untouched (#343)', async () => {
+    const t = setup({ pushTitle: null, title: '**New PR**', pushBody: 'You hit **45 kg** - see [your plan](/programs/1).' });
+    await t.handler.deliver(MESSAGE, NOW);
+    expect(t.notifications.notifyNow).toHaveBeenCalledWith('coach.nudge', USER, {
+      messageId: MESSAGE,
+      pushTitle: 'New PR',
+      pushBody: 'You hit 45 kg - see your plan.',
+      hasAudio: false,
+    });
+    expect(t.prisma.coachMessage.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ pushBody: expect.anything() }) }),
+    );
+  });
+
   it.each([
     ['celebration', 'coach.celebration'],
     ['photo_prompt', 'coach.photo_prompt'],

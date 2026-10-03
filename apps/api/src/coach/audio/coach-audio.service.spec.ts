@@ -102,6 +102,16 @@ describe('CoachAudioService', () => {
       expect(req.voice).toBe('cedar');
       expect(req.instructions!.length).toBeLessThanOrEqual(COACH_TTS_INSTRUCTIONS_MAX);
     });
+
+    it('speaks plain text: markdown and links are stripped from the script and the body (#343)', () => {
+      const service = new CoachAudioService({} as never, {} as never, {} as never, {} as never, {} as never);
+      const base = { style, userVoice: null, speed: 1, audioInstructions: null };
+      expect(
+        service.speechRequest({ ...base, audioScript: null, body: '### This week\n- **19 working sets**\n- See [your plan](/programs/1).' })
+          .input,
+      ).toBe('This week\n19 working sets\nSee your plan.');
+      expect(service.speechRequest({ ...base, audioScript: 'Hit **45 kg** today.', body: 'x' }).input).toBe('Hit 45 kg today.');
+    });
   });
 
   describe('settle', () => {

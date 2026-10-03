@@ -74,6 +74,7 @@ import { findCoachPersona } from '../../personas';
 import { coachUserSettingsOf } from '../../planning/coach-planner.service';
 import { CoachStateService } from '../../planning/coach-state.service';
 import { weeklyReviewMessageDataSchema } from '../../review/weekly-review-data';
+import { stripMarkdown } from '../../text/strip-markdown';
 import { eventForKind } from '../coach-message-kinds';
 
 const payloadSchema = z.object({ messageId: z.uuid() }).passthrough();
@@ -176,8 +177,9 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     const eventKey = eventForKind(message.kind);
     const push: CoachNotificationData = {
       messageId: message.id,
-      pushTitle: message.pushTitle ?? message.title,
-      pushBody: message.pushBody ?? '',
+      // A notification is plain text: no markdown reaches the OS or the inbox row (#343).
+      pushTitle: stripMarkdown(message.pushTitle ?? message.title),
+      pushBody: stripMarkdown(message.pushBody ?? ''),
       // Audio available on demand adds the "Hear Coach" action (`/coach?m=<id>&autoplay=1`).
       hasAudio: gate.audioAvailable,
     };
@@ -298,7 +300,13 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
       messageId: message.id,
       personaName: findCoachPersona(message.personaId ?? '')?.name ?? 'Coach',
       stats,
-      prose: { headline: emailProse.headline, intro: emailProse.intro, wins: emailProse.wins, focus: emailProse.focus },
+      // The email renders plain prose (its subject is the headline): markdown stripped (#343).
+      prose: {
+        headline: stripMarkdown(emailProse.headline),
+        intro: stripMarkdown(emailProse.intro),
+        wins: emailProse.wins.map((win) => stripMarkdown(win)),
+        focus: stripMarkdown(emailProse.focus),
+      },
       ...(appUrl ? { appUrl: appUrl.replace(/\/+$/, '') } : {}),
     };
   }
