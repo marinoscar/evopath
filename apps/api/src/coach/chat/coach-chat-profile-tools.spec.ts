@@ -475,15 +475,20 @@ describe('get_sleep (#327)', () => {
     });
   });
 
-  it('reads a longer window on request, up to 90 nights (#338)', async () => {
+  it('reads a longer window on request, up to 365 nights (#338)', async () => {
     const deps = makeDeps();
     await run(deps, 'get_sleep', { nights: 60 });
     let query = deps.prisma.sleepSession.findMany.mock.calls[0][0];
     expect(query.where.localDate.gte).toEqual(new Date('2026-08-03T00:00:00.000Z'));
     expect(query.take).toBe(180);
-    await run(deps, 'get_sleep', { nights: 400 });
+    await run(deps, 'get_sleep', { nights: 200 });
     query = deps.prisma.sleepSession.findMany.mock.calls[1][0];
-    expect(query.where.localDate.gte).toEqual(new Date('2026-07-04T00:00:00.000Z'));
+    expect(query.where.localDate.gte).toEqual(new Date('2026-03-16T00:00:00.000Z'));
+    expect(query.take).toBe(600);
+    await run(deps, 'get_sleep', { nights: 400 });
+    query = deps.prisma.sleepSession.findMany.mock.calls[2][0];
+    expect(query.where.localDate.gte).toEqual(new Date('2025-10-02T00:00:00.000Z'));
+    expect(query.take).toBe(1095);
   });
 
   it('answers an empty list when nothing was recorded, and unavailable on a failed read', async () => {

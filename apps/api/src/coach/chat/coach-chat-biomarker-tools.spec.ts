@@ -1,6 +1,7 @@
 import { toDisplayUnit } from '../../measurements/metric-registry';
 import { createCoachChatTools, type CoachChatToolDeps } from './tools';
 import {
+  COACH_BIOMARKER_KEYS_MAX,
   COACH_BIOMARKER_LIST_MAX,
   COACH_BIOMARKER_READINGS_MAX,
   outOfRangeOf,
@@ -215,7 +216,7 @@ describe('get_biomarker_values (#327)', () => {
 
   it.each([
     [{ keys: [], sinceDays: null }, 'INVALID_KEYS'],
-    [{ keys: Array.from({ length: 11 }, (_, i) => `k${i}`), sinceDays: null }, 'INVALID_KEYS'],
+    [{ keys: Array.from({ length: COACH_BIOMARKER_KEYS_MAX + 1 }, (_, i) => `k${i}`), sinceDays: null }, 'INVALID_KEYS'],
     [{ keys: ['ldl_cholesterol'], sinceDays: 0 }, 'INVALID_SINCE_DAYS'],
     [{ keys: ['ldl_cholesterol'], sinceDays: 3651 }, 'INVALID_SINCE_DAYS'],
     [{ keys: ['ldl_cholesterol'], sinceDays: 2.5 }, 'INVALID_SINCE_DAYS'],
@@ -223,6 +224,16 @@ describe('get_biomarker_values (#327)', () => {
     const deps = makeDeps();
     expect(await run(deps, 'get_biomarker_values', args)).toMatchObject({ ok: false, error });
     expect(deps.prisma.measurement.findMany).not.toHaveBeenCalled();
+  });
+
+  it('caps at 200 readings per key and accepts up to 50 keys in one call', async () => {
+    expect(COACH_BIOMARKER_READINGS_MAX).toBe(200);
+    expect(COACH_BIOMARKER_KEYS_MAX).toBe(50);
+    expect(COACH_BIOMARKER_LIST_MAX).toBe(1000);
+    const deps = makeDeps();
+    const keys = Array.from({ length: COACH_BIOMARKER_KEYS_MAX }, (_, i) => `k${i}`);
+    const result = await run(deps, 'get_biomarker_values', { keys, sinceDays: null });
+    expect(result).toMatchObject({ available: true, unknown: keys });
   });
 
   it('a known key with no readings answers an empty list', async () => {
