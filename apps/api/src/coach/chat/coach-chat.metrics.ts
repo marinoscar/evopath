@@ -11,8 +11,17 @@ import type { CoachChatSafetyScreen } from './coach-chat-safety';
 //
 //   app.coach.chat.turns{coach.outcome}         a turn answered: `model`,
 //                                               `safety` (fixed reply, no
-//                                               model) or `fallback` (the
-//                                               guard replaced the reply)
+//                                               model), `fallback` (the
+//                                               guard replaced the reply) or
+//                                               `soft_pass` (delivered with
+//                                               only a soft guard reason, #338)
+//   app.coach.chat.recoveries{coach.recovery}   `final_round` (the tool loop
+//                                               gave no text: one more call
+//                                               without tools) or
+//                                               `regenerated` (the guard
+//                                               failed the first reply)
+//   app.coach.chat.guard_soft_passes{coach.reason}  `invented_number` or
+//                                               `length` on a delivered reply
 //   app.coach.chat.safety_hits{coach.screen}    `distress`, `symptom`, `pain`
 //   app.coach.chat.tool_calls{coach.tool, coach.status}
 //   app.coach.chat.errors{coach.reason}         an AI error code, `cancelled`
@@ -23,7 +32,9 @@ import type { CoachChatSafetyScreen } from './coach-chat-safety';
 // argument. Recorded only while the runtime telemetry gate is open.
 // =============================================================================
 
-export type CoachChatTurnOutcome = 'model' | 'safety' | 'fallback';
+export type CoachChatTurnOutcome = 'model' | 'safety' | 'fallback' | 'soft_pass';
+
+export type CoachChatRecovery = 'final_round' | 'regenerated';
 
 @Injectable()
 export class CoachChatMetrics {
@@ -31,6 +42,8 @@ export class CoachChatMetrics {
   private readonly safetyCounter: Counter;
   private readonly toolCounter: Counter;
   private readonly errorCounter: Counter;
+  private readonly recoveryCounter: Counter;
+  private readonly softPassCounter: Counter;
 
   constructor() {
     const meter = metrics.getMeter(APP_METER_NAME);
@@ -42,6 +55,12 @@ export class CoachChatMetrics {
       description: 'Coach chat tool calls, by tool and status',
     });
     this.errorCounter = meter.createCounter('app.coach.chat.errors', { description: 'Coach chat turns that failed, by reason' });
+    this.recoveryCounter = meter.createCounter('app.coach.chat.recoveries', {
+      description: 'Coach chat extra calls without tools, by kind (final_round, regenerated)',
+    });
+    this.softPassCounter = meter.createCounter('app.coach.chat.guard_soft_passes', {
+      description: 'Coach chat replies delivered with a soft guard reason, by reason',
+    });
   }
 
   turn(outcome: CoachChatTurnOutcome): void {
@@ -58,5 +77,13 @@ export class CoachChatMetrics {
 
   error(reason: string): void {
     if (telemetryGate.isEnabled()) this.errorCounter.add(1, { 'coach.reason': reason });
+  }
+
+  recovery(kind: CoachChatRecovery): void {
+    if (telemetryGate.isEnabled()) this.recoveryCounter.add(1, { 'coach.recovery': kind });
+  }
+
+  softPass(reason: string): void {
+    if (telemetryGate.isEnabled()) this.softPassCounter.add(1, { 'coach.reason': reason });
   }
 }

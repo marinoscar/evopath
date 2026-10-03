@@ -81,6 +81,12 @@ export interface CoachGuardContext {
   intensity: number;
   /** `resolveRegister(...)`, evaluated for this message. */
   register: Pick<CoachRegister, 'profane'>;
+  /**
+   * Whole numbers 0 to `COACH_GUARD_SMALL_COUNT_MAX` pass `invented_number`
+   * without a source: a count the model derived ("your third session", "2 days
+   * left") is not an invented measurement. The chat sets it (#338).
+   */
+  allowSmallCounts?: boolean;
   /** The user's `coach.lockScreenSafe`. */
   lockScreenSafe: boolean;
   /** Every figure the context holds (signals, plan, state). Strings for times like `17:30`. */
@@ -124,17 +130,56 @@ export function bannedCategories(text: string): string[] {
   return BANNED_GROUPS.filter((g) => g.patterns.some((p) => p.test(t))).map((g) => g.category);
 }
 
-/** Figures in the text: `17:30`, `82.5`, `1,000` and `3` are each one token. */
+/**
+ * Figures in the text: `17:30`, `82.5`, `1,000` and `3` are each one token.
+ * A clock time is its own token, seconds and fractions included, so an ISO
+ * timestamp `2026-10-03T07:15:00.000Z` yields `2026`, `10`, `03` and
+ * `07:15:00.000` (whose `7:15` form `allowedNumberSet` also accepts, #338).
+ */
 export function extractNumbers(text: string): string[] {
-  return text.match(/\d+(?:[.,:]\d+)*/g) ?? [];
+  return text.match(/\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?(?!\d)|\d+(?:[.,]\d+)*/g) ?? [];
+}
+
+/** `07:15:00.000` -> { h: 7, mm: '15', s: 0 }; null for anything that is not a clock time. */
+function parseClock(token: string): { h: number; mm: string; s: number | null } | null {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/.exec(token);
+  if (!m) return null;
+  return { h: Number(m[1]), mm: m[2], s: m[3] === undefined ? null : Number(m[3]) };
 }
 
 function canonicalNumber(token: string): string {
-  if (token.includes(':')) return token;
+  if (token.includes(':')) {
+    const clock = parseClock(token);
+    if (!clock) return token;
+    // `07:15`, `7:15` and `07:15:00.000` are the same time of day.
+    return clock.s ? `${clock.h}:${clock.mm}:${String(clock.s).padStart(2, '0')}` : `${clock.h}:${clock.mm}`;
+  }
   const plain = token.replace(/,(?=\d{3}\b)/g, '').replace(',', '.');
   const n = Number(plain);
   return Number.isFinite(n) ? String(n) : token;
 }
+
+/**
+ * The forms one allowed figure may take in a reply: itself, and for a clock
+ * time its `H:mm` form, its 12-hour form and its parts; for a decimal, its
+ * rounded forms (a tool's `82.46` may be said as `82.5` or `82`).
+ */
+function allowedForms(value: string): string[] {
+  const canonical = canonicalNumber(value);
+  const forms = [canonical];
+  const clock = value.includes(':') ? parseClock(value) : null;
+  if (clock) {
+    forms.push(`${clock.h}:${clock.mm}`, `${clock.h % 12 || 12}:${clock.mm}`, String(clock.h), String(Number(clock.mm)));
+    if (clock.s !== null) forms.push(String(clock.s));
+    return forms;
+  }
+  const n = Number(canonical);
+  if (Number.isFinite(n) && !Number.isInteger(n)) forms.push(String(Math.round(n)), String(Math.round(n * 10) / 10));
+  return forms;
+}
+
+/** The largest integer `allowSmallCounts` lets through: a count of days, sessions or sets. */
+export const COACH_GUARD_SMALL_COUNT_MAX = 31;
 
 /** Whether profanity is acceptable for this context at all. */
 function profanityAllowed(ctx: CoachGuardContext): boolean {
@@ -188,10 +233,7 @@ export function guardCoachText(field: CoachTextField, text: string, ctx: CoachGu
 
   // invented_number — figures come from the context, never the model
   if (NUMBER_CHECKED_FIELDS.has(field)) {
-    const allowed = allowedNumberSet(ctx);
-    if (extractNumbers(text).some((token) => !allowed.has(canonicalNumber(token)))) {
-      violations.push({ reason: 'invented_number', field });
-    }
+    if (inventedNumbers(text, ctx).length > 0) violations.push({ reason: 'invented_number', field });
   }
 
   // supportive_register — calm and warm, no challenge
@@ -202,11 +244,32 @@ export function guardCoachText(field: CoachTextField, text: string, ctx: CoachGu
   return violations;
 }
 
-function allowedNumberSet(ctx: CoachGuardContext): Set<string> {
+function allowedNumberSet(ctx: Pick<CoachGuardContext, 'allowedNumbers' | 'personaId'>): Set<string> {
   const set = new Set<string>();
-  for (const value of ctx.allowedNumbers) set.add(canonicalNumber(String(value)));
+  for (const value of ctx.allowedNumbers) for (const form of allowedForms(String(value))) set.add(form);
   for (const value of findCoachPersona(ctx.personaId)?.lexiconNumbers ?? []) set.add(String(value));
   return set;
+}
+
+function isSmallCount(canonical: string): boolean {
+  if (!/^\d+$/.test(canonical)) return false;
+  return Number(canonical) <= COACH_GUARD_SMALL_COUNT_MAX;
+}
+
+/**
+ * The figures of `text` that the context does not hold (distinct, as written):
+ * what `invented_number` rejects, and what a regeneration prompt names.
+ */
+export function inventedNumbers(text: string, ctx: Pick<CoachGuardContext, 'allowedNumbers' | 'personaId' | 'allowSmallCounts'>): string[] {
+  const allowed = allowedNumberSet(ctx);
+  const out = new Set<string>();
+  for (const token of extractNumbers(text)) {
+    const canonical = canonicalNumber(token);
+    if (allowed.has(canonical)) continue;
+    if (ctx.allowSmallCounts === true && isSmallCount(canonical)) continue;
+    out.add(token);
+  }
+  return [...out];
 }
 
 /**

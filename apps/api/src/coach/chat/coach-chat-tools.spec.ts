@@ -14,7 +14,6 @@ import {
   type CoachChatTurnActions,
 } from './tools';
 import { minimiseToday } from './tools/get-today-plan.tool';
-import { coachSignals } from './tools/get-training-signals.tool';
 import { withoutIds } from './tools/minimise';
 
 // =============================================================================
@@ -108,7 +107,7 @@ describe('coach chat tools (E7.7)', () => {
 
       expect(deps.signals.forUser).toHaveBeenCalledWith(USER, {});
       // The same figures GET /api/training/signals serves (same call, same defaults), ids stripped.
-      expect(result).toEqual(withoutIds(coachSignals(compactSignals(signals))));
+      expect(result).toEqual(withoutIds(compactSignals(signals)));
       const compact = compactSignals(signals);
       expect((result as any).adherence.totals).toEqual(compact.adherence.totals);
       expect((result as any).adherence.missedStreak).toBe(compact.adherence.missedStreak);
@@ -116,7 +115,7 @@ describe('coach chat tools (E7.7)', () => {
       expect(JSON.stringify(result)).not.toMatch(UUID);
     });
 
-    it('strips the body block (weight, body fat): body_measurements is on COACH_NEVER_SEND (#327)', async () => {
+    it('keeps the body block (weight, body fat): body_measurements is lifted for the chat tools (#338)', async () => {
       const { deps, signals } = makeDeps();
       const withBody = {
         ...signals,
@@ -125,11 +124,9 @@ describe('coach chat tools (E7.7)', () => {
       deps.signals.forUser.mockResolvedValue(withBody);
       const result = await run(deps, 'get_training_signals');
 
-      expect(compactSignals(withBody as never)).toHaveProperty('body');
-      expect(result).not.toHaveProperty('body');
-      expect(JSON.stringify(result)).not.toMatch(/93\.7|21\.9|bodyFatPct|changePerWeek/);
-      const description = tools(deps).get_training_signals.tool.description ?? '';
-      expect(description).not.toMatch(/body-weight|body weight/i);
+      expect(result).toHaveProperty('body');
+      expect(JSON.stringify(result)).toMatch(/93\.7/);
+      expect(JSON.stringify(result)).toMatch(/21\.9/);
     });
 
     it('answers a safe unavailable result instead of throwing raw errors', async () => {
@@ -159,53 +156,75 @@ describe('coach chat tools (E7.7)', () => {
   });
 
   describe('get_check_ins', () => {
-    it('returns the scores and never the note', async () => {
+    it('returns the scores and the user\'s note for 14 days by default, up to 90 on request (#338)', async () => {
       const { deps } = makeDeps();
       deps.checkIns.list.mockResolvedValue({
-        items: [{ date: '2026-10-01', energy: 4, sleepQuality: 3, soreness: 2, stress: 1, note: 'CANARY-NOTE', updatedAt: NOW.toISOString() }],
+        items: [
+          { date: '2026-10-01', energy: 4, sleepQuality: 3, soreness: 2, stress: 1, note: '  Kid   was sick ', updatedAt: NOW.toISOString() },
+          { date: '2026-09-30', energy: 3, sleepQuality: 3, soreness: 3, stress: 3, note: 'x'.repeat(3000), updatedAt: NOW.toISOString() },
+        ],
       });
-      const result = await run(deps, 'get_check_ins');
-      expect(result).toEqual({ checkIns: [{ date: '2026-10-01', energy: 4, sleepQuality: 3, soreness: 2, stress: 1 }] });
+      const result: any = await run(deps, 'get_check_ins');
+      expect(result.checkIns[0]).toEqual({ date: '2026-10-01', energy: 4, sleepQuality: 3, soreness: 2, stress: 1, note: 'Kid was sick' });
+      expect(result.checkIns[1].note).toHaveLength(2000);
       expect(deps.checkIns.list).toHaveBeenCalledWith(USER, 14);
+      await run(deps, 'get_check_ins', { days: 60 });
+      expect(deps.checkIns.list).toHaveBeenLastCalledWith(USER, 60);
+      await run(deps, 'get_check_ins', { days: 500 });
+      expect(deps.checkIns.list).toHaveBeenLastCalledWith(USER, 90);
     });
   });
 
   describe('get_recent_workouts', () => {
-    it('selects no notes, gym or ids, scopes to the caller, and counts working sets', async () => {
+    it('returns the last 5 completed workouts in full detail for the caller (#338)', async () => {
       const { deps } = makeDeps();
       deps.prisma.workout.findMany.mockResolvedValue([
         {
+          id: '0a000000-0000-4000-8000-0000000000a1',
           name: 'Upper A',
           date: new Date('2026-09-30T00:00:00.000Z'),
+          status: 'completed',
+          startedAt: new Date('2026-09-30T12:00:00.000Z'),
+          endedAt: null,
           durationSeconds: 3540,
+          notes: 'Good session',
+          gym: { name: 'Iron Temple' },
+          programWorkout: null,
+          programSession: null,
           exercises: [
             {
-              exercise: { name: 'Bench press' },
+              id: 'we1',
+              exerciseId: '0e000000-0000-4000-8000-0000000000b1',
+              position: 0,
+              notes: null,
+              exercise: { name: 'Bench press', trackingMode: 'weight_reps' },
               sets: [
-                { completed: true, isWarmup: true },
-                { completed: true, isWarmup: false },
-                { completed: true, isWarmup: false },
-                { completed: false, isWarmup: false },
+                { id: 's1', setNumber: 1, weightKg: 60, reps: 8, durationSeconds: null, distanceMeters: null, rpe: null, rir: null, restSeconds: null, isWarmup: true, completed: true, painFlag: false, painNote: null, notes: null },
+                { id: 's2', setNumber: 2, weightKg: 100, reps: 5, durationSeconds: null, distanceMeters: null, rpe: 8, rir: null, restSeconds: null, isWarmup: false, completed: true, painFlag: true, painNote: 'Shoulder', notes: null },
               ],
             },
           ],
         },
       ]);
-      const result = await run(deps, 'get_recent_workouts');
-      expect(result).toEqual({
-        workouts: [{ date: '2026-09-30', name: 'Upper A', durationMinutes: 59, exercises: [{ name: 'Bench press', workingSetsDone: 2 }] }],
-      });
+      const result: any = await run(deps, 'get_recent_workouts');
       const query = deps.prisma.workout.findMany.mock.calls[0][0];
       expect(query.where).toEqual({ userId: USER, status: 'completed' });
-      const selected = keysDeep(query.select);
-      for (const forbidden of ['notes', 'painNote', 'gym', 'gymId', 'id', 'photos', 'readinessSnapshot']) {
-        expect(selected).not.toContain(forbidden);
-      }
+      expect(query.take).toBe(5);
+      expect(JSON.stringify(query.select)).not.toMatch(/photos|readinessSnapshot|latitude/);
+      expect(result.workouts[0]).toMatchObject({
+        name: 'Upper A',
+        date: '2026-09-30',
+        durationMinutes: 59,
+        notes: 'Good session',
+        gym: 'Iron Temple',
+        totals: { workingSets: 1, volumeKg: 500 },
+      });
+      expect(result.workouts[0].exercises[0].sets[1]).toMatchObject({ weightKg: 100, reps: 5, rpe: 8, painFlag: true, painNote: 'Shoulder' });
     });
   });
 
   describe('get_today_plan', () => {
-    it("reads today's plan for the caller's local today and keeps names and sets only", async () => {
+    it("reads today's plan for the caller's local today in full, rationale included (#338), without ids", async () => {
       const { deps } = makeDeps();
       deps.today.today.mockResolvedValue({
         kind: 'workout',
@@ -229,7 +248,7 @@ describe('coach chat tools (E7.7)', () => {
               repMax: 8,
               targetRpe: 8,
               restSeconds: 180,
-              rationale: 'free text the model does not need',
+              rationale: 'Heavy squat first while fresh',
             },
           ],
         },
@@ -238,7 +257,7 @@ describe('coach chat tools (E7.7)', () => {
       expect(deps.today.today).toHaveBeenCalledWith(USER, '2026-10-01', NOW);
       expect(result).toMatchObject({ kind: 'workout', workout: 'Lower A', exercises: [{ name: 'Back squat', sets: 3, repMin: 5, repMax: 8 }] });
       expect(JSON.stringify(result)).not.toMatch(UUID);
-      expect(JSON.stringify(result)).not.toContain('rationale');
+      expect(JSON.stringify(result)).toContain('Heavy squat first while fresh');
     });
 
     it('describes a day without a program', () => {
@@ -272,12 +291,20 @@ describe('coach chat tools (E7.7)', () => {
   describe('get_goals (F9)', () => {
     const GOAL = '00000000-0000-4000-8000-00000000090a';
 
-    it('returns the active goals compact for the caller: no id, no entries', async () => {
+    it('returns the active activity goals for the caller (no id, no entries) and the training goal (#338)', async () => {
       const { deps } = makeDeps();
       deps.goals.progressForUser.mockResolvedValue([
         {
           goalId: GOAL,
-          goal: { id: GOAL, title: 'Morning walks', metric: 'sessions', period: 'week' },
+          goal: {
+            id: GOAL,
+            title: 'Morning walks',
+            activityKind: 'walk',
+            customLabel: null,
+            metric: 'sessions',
+            period: 'week',
+            startsOn: '2026-09-01',
+          },
           periodStart: '2026-09-28',
           periodEnd: '2026-10-04',
           done: 2,
@@ -291,16 +318,35 @@ describe('coach chat tools (E7.7)', () => {
           entries: [{ id: '00000000-0000-4000-8000-0000000000e1', note: 'CANARY-NOTE' }],
         },
       ]);
+      (deps.prisma as any).program = {
+        findFirst: jest.fn().mockResolvedValue({
+          name: 'Strong 8',
+          goal: 'strength',
+          intake: {
+            goal: { type: 'strength', description: 'Deadlift 200 kg by summer' },
+            experience: 'intermediate',
+            daysPerWeek: 3,
+            minutesPerSession: 60,
+          },
+        }),
+      };
 
       const result = await run(deps, 'get_goals');
 
       expect(deps.goals.progressForUser).toHaveBeenCalledWith(USER, undefined, NOW);
+      expect((deps.prisma as any).program.findFirst.mock.calls[0][0].where).toEqual({ userId: USER, status: 'active' });
       expect(result).toEqual({
-        goals: [
+        trainingGoal: { plan: 'Strong 8', type: 'strength', description: 'Deadlift 200 kg by summer', onboardingGoal: null },
+        activityGoals: [
           {
             title: 'Morning walks',
+            activityKind: 'walk',
+            customLabel: null,
             metric: 'sessions',
             period: 'week',
+            startsOn: '2026-09-01',
+            periodStart: '2026-09-28',
+            periodEnd: '2026-10-04',
             done: 2,
             target: 4,
             remaining: 2,
@@ -310,6 +356,7 @@ describe('coach chat tools (E7.7)', () => {
             streakPeriods: 1,
           },
         ],
+        otherGoals: null,
       });
       expect(JSON.stringify(result)).not.toMatch(UUID);
       expect(JSON.stringify(result)).not.toContain('CANARY-NOTE');
