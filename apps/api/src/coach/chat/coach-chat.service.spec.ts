@@ -575,6 +575,28 @@ describe('CoachChatService (E7.7)', () => {
       const events = await drain(await t.service.startTurn(USER, 'Can you change my plan?'));
       expect((events.find((e) => e.type === 'done') as any).links).toEqual([{ label: "Adjust today's workout", href: '/train' }]);
     });
+
+    it('scans the markdown reply as plain text and stores it unchanged (#343)', async () => {
+      const t = setup();
+      // `**45 kg**` reads as 45 (the user said it); a list ordinal and a link URL are not figures.
+      const reply = '### Bench\n\n32. **45 kg** for your top set\n\nSee [the plan](/programs/987654).';
+      t.script([{ outputText: reply }]);
+      const events = await drain(await t.service.startTurn(USER, 'I benched 45 kg today'));
+      expect(text(events)).toBe(reply);
+      expect(created(t.prisma, 'coach')[0].body).toBe(reply);
+      expect(t.respondCall).not.toHaveBeenCalled();
+      expect(t.appMetrics.coachGuardRejection).not.toHaveBeenCalled();
+    });
+
+    it('measures the length bound on the text, not the markup (#343)', async () => {
+      const t = setup();
+      const reply = '**Keep the pace steady between your sets.** '.repeat(150).trim();
+      expect(reply.length).toBeGreaterThan(COACH_CHAT_REPLY_MAX_CHARS);
+      t.script([{ outputText: reply }]);
+      const events = await drain(await t.service.startTurn(USER, 'Give me a full review'));
+      expect(text(events)).toBe(reply);
+      expect(t.respondCall).not.toHaveBeenCalled();
+    });
   });
 
   describe('history window', () => {

@@ -230,6 +230,10 @@ describe('coach content guard', () => {
       expect(extractNumbers('3 sets at 17:30, 82.5 kg, 1,000 reps')).toEqual(['3', '17:30', '82.5', '1,000']);
     });
 
+    it('reads a figure inside markdown emphasis as the figure (#343)', () => {
+      expect(extractNumbers('**45 kg** and *82.5* and ~~19~~ and `7`')).toEqual(['45', '82.5', '19', '7']);
+    });
+
     it('tokenizes an ISO timestamp into its date parts and one clock time (#338)', () => {
       expect(extractNumbers('2026-10-03T07:15:00.000Z')).toEqual(['2026', '10', '03', '07:15:00.000']);
     });

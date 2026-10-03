@@ -68,6 +68,14 @@ describe('buildCoachChatInstructions (E7.7)', () => {
     expect(text).toContain('override the persona');
   });
 
+  it('allows light markdown: bold key numbers, short bullets, no heading above ###, tables only to compare (#343)', () => {
+    const text = instructions('coach', 2, LOCKED);
+    expect(text).toContain('Light markdown is supported');
+    expect(text).toContain('No heading larger than ###');
+    expect(text).toContain('no table unless you are comparing');
+    expect(text).not.toContain('Reply in plain text');
+  });
+
   it('asks for explicit confirmation before save_commitment (E7.12)', () => {
     const text = instructions('coach', 2, LOCKED);
     expect(text).toContain('save_commitment');
