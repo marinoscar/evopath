@@ -108,6 +108,54 @@ describe('OpenAI hosted tools — request mapping (#442)', () => {
   });
 });
 
+describe('OpenAI hosted tools — web search sources include (#332)', () => {
+  it('asks for web_search_call.action.sources when web_search is present', () => {
+    expect(toOpenAiRequest({ ...base, tools: [{ type: 'web_search' }] }, GPT4O).include).toEqual([
+      'web_search_call.action.sources',
+    ]);
+  });
+
+  it('adds no include without a web_search tool', () => {
+    expect(toOpenAiRequest(base, GPT4O)).not.toHaveProperty('include');
+    expect(
+      toOpenAiRequest(
+        { ...base, tools: [{ type: 'function', name: 'f', description: 'd', parameters: z.object({ a: z.string() }) }] },
+        GPT4O,
+      ),
+    ).not.toHaveProperty('include');
+  });
+
+  it('keeps an escape-hatch include without dropping it, when no web_search', () => {
+    expect(
+      toOpenAiRequest({ ...base, providerOptions: { openai: { include: ['reasoning.encrypted_content'] } } }, GPT4O).include,
+    ).toEqual(['reasoning.encrypted_content']);
+  });
+
+  it('merges with an escape-hatch include, deduplicated', () => {
+    expect(
+      toOpenAiRequest(
+        {
+          ...base,
+          tools: [{ type: 'web_search' }],
+          providerOptions: { openai: { include: ['reasoning.encrypted_content'] } },
+        },
+        GPT4O,
+      ).include,
+    ).toEqual(['reasoning.encrypted_content', 'web_search_call.action.sources']);
+
+    expect(
+      toOpenAiRequest(
+        {
+          ...base,
+          tools: [{ type: 'web_search' }],
+          providerOptions: { openai: { include: ['web_search_call.action.sources'] } },
+        },
+        GPT4O,
+      ).include,
+    ).toEqual(['web_search_call.action.sources']);
+  });
+});
+
 describe('OpenAI hosted tools — output mapping (#442)', () => {
   it('web search call: queries and sources', () => {
     const item = fromOpenAiOutputItem(webSearchCallItem('weather paris', ['https://a.example', 'https://b.example']));
@@ -119,6 +167,41 @@ describe('OpenAI hosted tools — output mapping (#442)', () => {
       result: { queries: ['weather paris'], sources: [{ url: 'https://a.example' }, { url: 'https://b.example' }] },
     });
     expect((item as AiHostedToolCallItem).id).toMatch(/^ws_/);
+  });
+
+  it('web search call: an open_page action contributes its url', () => {
+    const item = fromOpenAiOutputItem({
+      id: 'ws_open',
+      type: 'web_search_call',
+      status: 'completed',
+      action: { type: 'open_page', url: 'https://opened.example/page' },
+    } as never);
+
+    expect(item).toMatchObject({ result: { queries: [], sources: [{ url: 'https://opened.example/page' }] } });
+  });
+
+  it('web search call: malformed source entries are skipped', () => {
+    const item = fromOpenAiOutputItem({
+      id: 'ws_bad',
+      type: 'web_search_call',
+      status: 'completed',
+      action: {
+        type: 'search',
+        query: 'q',
+        sources: [{ type: 'url', url: 'https://ok.example' }, { type: 'url' }, { type: 'url', url: 42 }, null, 'x', { type: 'url', url: '' }],
+      },
+    } as never);
+
+    expect(item).toMatchObject({ result: { queries: ['q'], sources: [{ url: 'https://ok.example' }] } });
+  });
+
+  it('web search call: no action, or no sources, maps to an empty list', () => {
+    expect(fromOpenAiOutputItem({ id: 'ws_n', type: 'web_search_call', status: 'completed' } as never)).toMatchObject({
+      result: { queries: [], sources: [] },
+    });
+    expect(
+      fromOpenAiOutputItem({ id: 'ws_s', type: 'web_search_call', status: 'completed', action: { type: 'search', query: 'q' } } as never),
+    ).toMatchObject({ result: { queries: ['q'], sources: [] } });
   });
 
   it('web search citations land on the message, re-based across text parts', () => {
