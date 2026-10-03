@@ -17,10 +17,11 @@ import type {
   StartProgramWorkoutResultData,
   TodaySessionData,
   TodaySessionExerciseData,
+  TodayWeekSessionData,
   TrainingTodayData,
 } from './dto/training-today.dto';
 import { plannedSnapshotOf, prefilledSets, suggestedLoadKg, topSetOf, type LastTimeTopSet } from './planned-session';
-import { resolveToday } from './resolve-today';
+import { resolveToday, type WeekSession } from './resolve-today';
 import { TODAY_DATE_WINDOW_DAYS, TODAY_REASONS } from './training-today.constants';
 
 // =============================================================================
@@ -92,11 +93,15 @@ export class TrainingTodayService {
     const completed = new Set(
       linked.filter((row) => row.status === 'completed').flatMap((row) => programWorkoutIdsOf(row)),
     );
+    const inProgress = new Set(
+      linked.filter((row) => row.status === 'in_progress').flatMap((row) => programWorkoutIdsOf(row)),
+    );
 
     const result = resolveToday({
       program: { id: program.id, status: program.status, startDate: program.startDate ? fromDbDate(program.startDate) : null, tree },
       today: date,
       completedProgramWorkoutIds: completed,
+      inProgressProgramWorkoutIds: inProgress,
       onWarning: (message) => this.logger.warn(message),
     });
     const programRef = { id: program.id, name: program.name };
@@ -119,6 +124,7 @@ export class TrainingTodayService {
           next: result.next
             ? { date: result.next.date, weekNumber: result.next.weekNumber, programWorkout: workoutRef(result.next.programWorkout) }
             : null,
+          week: weekView(result.week, linked),
         };
       case 'workout': {
         const programWorkoutId = result.programWorkout.id!;
@@ -140,6 +146,7 @@ export class TrainingTodayService {
           completedWorkoutId: mine.find((row) => row.status === 'completed')?.id ?? null,
           inProgressWorkoutId: mine.find((row) => row.status === 'in_progress')?.id ?? null,
           session,
+          week: weekView(result.week, linked),
         };
       }
     }
@@ -407,6 +414,22 @@ export class TrainingTodayService {
 
 function programWorkoutIdsOf(row: LinkedWorkout): string[] {
   return [row.programWorkoutId, row.sessionProgramWorkoutId].filter((id): id is string => id !== null);
+}
+
+/** The week's sessions with their linked workout ids (`linked` is newest first). */
+function weekView(week: WeekSession[], linked: LinkedWorkout[]): TodayWeekSessionData[] {
+  return week.map((entry) => {
+    const id = entry.programWorkout.id!;
+    const mine = linked.filter((row) => programWorkoutIdsOf(row).includes(id));
+    return {
+      date: entry.date,
+      status: entry.status,
+      suggested: entry.suggested,
+      completedWorkoutId: mine.find((row) => row.status === 'completed')?.id ?? null,
+      inProgressWorkoutId: mine.find((row) => row.status === 'in_progress')?.id ?? null,
+      programWorkout: { ...workoutRef(entry.programWorkout), position: entry.programWorkout.position, exerciseCount: entry.programWorkout.exercises.length },
+    };
+  });
 }
 
 function workoutRef(workout: PlanWorkout): ProgramWorkoutRefData {
