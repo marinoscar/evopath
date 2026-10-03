@@ -56,6 +56,45 @@ describe('CoachMessageBubble', () => {
     expect(document.querySelector('img[src="x"]')).toBeNull();
   });
 
+  it('renders a coach body as markdown: bold as <strong>, lists as lists, no asterisks (#343)', () => {
+    const { container } = render(
+      <CoachMessageBubble
+        message={mockCoachMessage({ kind: 'chat', title: '', body: 'You did **19 working sets**.\n\n- Squat\n- Bench' })}
+        persona={persona}
+      />,
+    );
+    const body = screen.getByTestId('coach-message-body');
+    expect(body.querySelector('strong')).toHaveTextContent('19 working sets');
+    expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Squat', 'Bench']);
+    expect(container.querySelector('article')).not.toHaveTextContent('*');
+  });
+
+  it('strips markdown from a coach title', () => {
+    render(<CoachMessageBubble message={mockCoachMessage({ title: '**Big** week' })} persona={persona} />);
+    expect(screen.getByRole('article', { name: /^Coach: Big week/ })).toBeInTheDocument();
+  });
+
+  it('keeps a user turn as plain text, markers and all', () => {
+    const { container } = render(
+      <CoachMessageBubble
+        message={mockCoachMessage({ role: 'user', kind: 'chat', title: '', body: 'is **this** bold?', personaId: null })}
+        persona={persona}
+      />,
+    );
+    expect(screen.getByText('is **this** bold?')).toBeInTheDocument();
+    expect(container.querySelector('strong')).toBeNull();
+  });
+
+  it('has no axe violations with a markdown body', async () => {
+    const { container } = render(
+      <CoachMessageBubble
+        message={mockCoachMessage({ kind: 'chat', title: '', body: '**Nice.** See [this](https://example.com).\n\n- a\n- b' })}
+        persona={persona}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it('shows the AI-generated audio player only when audio is ready', async () => {
     const { rerender } = render(
       <CoachMessageBubble
