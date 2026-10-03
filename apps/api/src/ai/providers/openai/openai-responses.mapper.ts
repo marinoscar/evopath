@@ -417,8 +417,28 @@ function buildOpenAiRequest(
   if (req.metadata !== undefined) body.metadata = req.metadata;
 
   const { stream: _stream, ...escapeHatch } = req.providerOptions?.[family.providerId] ?? {};
+  const merged: OpenAiRequestBody = { ...body, ...(escapeHatch as Partial<OpenAiRequestBody>) };
 
-  return { ...body, ...(escapeHatch as Partial<OpenAiRequestBody>) };
+  // Without this `include`, OpenAI omits `action.sources` from every
+  // `web_search_call`, so the hosted call reports no sources at all (#332).
+  // Merged AFTER the escape hatch so a caller's own `include` adds to it
+  // rather than silently dropping it.
+  if (req.tools?.some((tool) => tool.type === 'web_search')) {
+    merged.include = withInclude(merged.include, WEB_SEARCH_SOURCES_INCLUDE);
+  }
+
+  return merged;
+}
+
+const WEB_SEARCH_SOURCES_INCLUDE = 'web_search_call.action.sources' as const;
+
+type OpenAiIncludable = NonNullable<OpenAiRequestBody['include']>[number];
+
+/** `existing` plus `entry`, deduplicated, order kept. */
+function withInclude(existing: OpenAiRequestBody['include'], entry: OpenAiIncludable): OpenAiIncludable[] {
+  const list = Array.isArray(existing) ? existing : [];
+
+  return list.includes(entry) ? [...list] : [...list, entry];
 }
 
 // ---- response ---------------------------------------------------------------
@@ -469,6 +489,33 @@ function withId(item: AiHostedToolCallItem, id: unknown): AiHostedToolCallItem {
 }
 
 /**
+ * The URLs a `web_search_call` actually returned (#332): a `search` action's
+ * `sources` (present only when the request asked for
+ * `web_search_call.action.sources`), and an `open_page` action's `url` — a
+ * page the tool opened is one the search surfaced. An entry without a string
+ * `url` is skipped, never guessed at.
+ */
+function webSearchSources(action: { type?: string; sources?: unknown; url?: unknown } | undefined): Array<{ url: string }> {
+  if (!action) return [];
+
+  const urls: string[] = [];
+
+  if (Array.isArray(action.sources)) {
+    for (const source of action.sources as unknown[]) {
+      const url = (source as { url?: unknown } | null)?.url;
+
+      if (typeof url === 'string' && url.length > 0) urls.push(url);
+    }
+  }
+
+  if (action.type === 'open_page' && typeof action.url === 'string' && action.url.length > 0) {
+    urls.push(action.url);
+  }
+
+  return [...new Set(urls)].map((url) => ({ url }));
+}
+
+/**
  * Maps one SDK output item. `null` for an item type this contract does not
  * model (it is dropped, never guessed at).
  *
@@ -493,7 +540,9 @@ export function fromOpenAiOutputItem(item: ResponseOutputItem): AiOutputItem | n
       };
 
     case 'web_search_call': {
-      const action = item.action as { type?: string; query?: string; queries?: string[]; sources?: Array<{ url: string }> } | undefined;
+      const action = item.action as
+        | { type?: string; query?: string; queries?: string[]; sources?: unknown; url?: unknown }
+        | undefined;
       const queries = action?.queries ?? (action?.query ? [action.query] : []);
 
       return withId(
@@ -501,7 +550,7 @@ export function fromOpenAiOutputItem(item: ResponseOutputItem): AiOutputItem | n
           type: 'hosted_tool_call',
           tool: 'web_search',
           status: item.status,
-          result: { queries, sources: (action?.sources ?? []).map((source) => ({ url: source.url })) },
+          result: { queries, sources: webSearchSources(action) },
         },
         item.id,
       );
