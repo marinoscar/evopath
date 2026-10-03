@@ -4,7 +4,7 @@ import { adaptationVerdictSchema } from '../../src/training-agents/agents/critic
 import { evaluationResultSchema } from '../../src/training-agents/agents/evaluator/evaluation-result.contract';
 import { criticVerdictSchema } from '../../src/training-agents/agents/critic/critic-verdict.contract';
 import { planDraftSchema } from '../../src/training-agents/agents/planner/plan-draft.contract';
-import { evidenceBriefSchema } from '../../src/training-agents/agents/researcher/evidence-brief.contract';
+import { evidenceBriefSchema, knowledgeBriefSchema } from '../../src/training-agents/agents/researcher/evidence-brief.contract';
 import { loadScenario, readOutputJson, scenarioNames, scriptFromScenario, type ScenarioCallSpec } from './support/scenario-script';
 
 // The tripwire for the scenario fixtures shared by the Jest scenario suites and
@@ -85,7 +85,9 @@ describe('training scenario fixtures', () => {
       );
       if (!HOSTILE_ALLOWED_UNKNOWN.has(file)) expect(named.filter((key) => !SEEDED.has(key))).toEqual([]);
     } else if (role === 'researcher') {
-      evidenceBriefSchema.parse(json.brief ?? json);
+      // The knowledge fallback (no web search) answers with the knowledge schema.
+      if (file.endsWith('/knowledge.json')) knowledgeBriefSchema.parse(json);
+      else evidenceBriefSchema.parse(json.brief ?? json);
     } else {
       throw new Error(`No contract for role ${role}`);
     }

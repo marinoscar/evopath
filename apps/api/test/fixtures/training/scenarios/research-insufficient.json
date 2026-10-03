@@ -1,6 +1,6 @@
 {
   "name": "research-insufficient",
-  "description": "Fewer than two verified sources remain: the run stops with an insufficient-evidence error and nothing is created.",
+  "description": "Fewer than two verified sources remain after the retry: the researcher falls back to established training principles, keeps the one verified source (basis web_partial) and the run completes.",
   "calls": {
     "researcher": [
       {
@@ -9,6 +9,22 @@
           "inputTokens": 9000,
           "outputTokens": 4200,
           "reasoningTokens": 1500
+        }
+      },
+      {
+        "outputJson": "../research/insufficient.json",
+        "usage": {
+          "inputTokens": 9000,
+          "outputTokens": 4200,
+          "reasoningTokens": 1500
+        }
+      },
+      {
+        "outputJson": "../research/knowledge.json",
+        "usage": {
+          "inputTokens": 3000,
+          "outputTokens": 900,
+          "reasoningTokens": 300
         }
       }
     ],
