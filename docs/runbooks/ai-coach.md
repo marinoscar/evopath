@@ -104,7 +104,7 @@ These are **estimates, not measurements**. They assume token sizes typical for t
 |---|---|---|---|
 | Nudge | 1 structured call at `coach.decision` | about 3,000 to 5,000 input tokens, up to 1,500 output (the cap), usually a few hundred | A call where the model decides not to send (`model_declined`) still costs the same. |
 | Weekly review | 1 call (2 when the in-app register is profane, to write a clean email) | about 5,000 input, up to 1,500 output | One per user per ISO week at most. |
-| Chat turn | 1 to 6 model round trips at `coach.chat`, output up to 800 tokens each | 4,000 to 8,000 input per round trip, because each tool result is sent back | Tools are read-only; at most 6 steps per turn. |
+| Chat turn | 1 to 20 model round trips at `coach.chat`, plus at most 2 calls without tools (a final round, a regeneration); no output limit of the coach's own | A tool result can be large (a workout history carries every set and note), and each one is sent back on every later round trip | Tools are read-only. A deployment output cap in `ai.limits`, when set, still applies. |
 | Listen (on request only) | 1 speech call, the first time a message is played | A spoken line is at most 600 characters, about 20 to 40 seconds | At about $0.015 per minute (OpenAI's published rate for `gpt-4o-mini-tts`), roughly half a cent or less per clip. Replays of a ready clip are free. Check the current rate with the provider. |
 
 Per user, using the defaults:
@@ -220,6 +220,20 @@ Work down this list.
 ### Chat answers `409 AI_FEATURE_UNAVAILABLE`
 
 No model resolves for `coach.chat`. Assign one that supports tools and streaming on `/admin/settings/ai/assignments`. The user's message is not stored in this case. Other chat refusals: `403 COACH_DISABLED`, `403 AI_DISABLED`, `429 AI_RATE_LIMITED` (see `ai.limits`). The streaming route is `POST /api/coach/chat/stream`; behind a proxy it needs an unbuffered location, which the shipped nginx and the CLI's proxy config already have.
+
+### A chat reply is the generic "couldn't put that answer together" line, or is cut or odd
+
+Each coach chat reply row stores diagnostics in `data` (never text). Read them on `coach_messages` for the message (`kind = 'chat'`, `role = 'coach'`); there is no UI for them. How a turn settles is in [spec §2.9](../specs/ai-coach.md#29-chat) (**Reliability**).
+
+| `data` | Meaning | What to check |
+|---|---|---|
+| `fallback: true` | The fixed fallback line replaced the reply: the guard failed it on a hard rule after one regeneration, or no text came back at all. `guard` lists the rules. | `guard` with a tone or safety rule (banned term, profanity, insult target) means the model wrote something the guard must block: usually rare, try a stronger `coach.chat` model. An empty `guard` or only `length` with `finishReason` `length` or `content_filter`, or an empty `lastFinishReason`, means the provider returned nothing usable: check the model's limits and the `coach.chat` assignment. |
+| `softPass: true` | Delivered anyway: after regeneration the only failures were `invented_number` or `length`. `guard` says which. | Expected now and then. A rising `app.coach.chat.guard_soft_passes{coach.reason}` for `invented_number` means the model quotes figures no tool returned; the reply may contain a wrong number. For `length`, the reply was cut at a sentence boundary at 6,000 characters. |
+| `finalRound: true` | The tool loop ended without text, so one more call without tools ran. | `stopReason: steps_exhausted` means the model used all 20 round trips on tools: look at which tools it calls in `app.coach.chat.tool_calls{coach.tool,coach.status}`. `stopReason: completed` with an empty reply points at a reasoning model that spent its budget thinking: check `finishReason`. |
+| `retried: true` | The guard failed the first reply; it was regenerated once. | With no `fallback` or `softPass`, the second try passed. |
+| `finishReason`, `lastFinishReason` | The provider's reason for the loop's last call, and for the last call without tools. | `length` or `max_tokens` means the model hit its own output ceiling or an `ai.limits` output cap: raise or remove the cap. |
+
+Aggregate view: `app.coach.chat.turns{coach.outcome}` (`model`, `safety`, `fallback`, `soft_pass`), `app.coach.chat.recoveries{coach.recovery}` (`final_round`, `regenerated`) and `app.coach.guard.rejected{reason}` in the telemetry explorer ([section 9](#9-monitor-and-troubleshoot)). A healthy deployment shows `fallback` as a small share of `turns`. Also check that the model supports tools reliably, that the user is not asking the same thing in a way that triggers a banned-topic rule, and that a tool is not failing (`coach.status` other than ok).
 
 ### Settings will not save
 
