@@ -9,6 +9,10 @@
  * workout), plan complete. A workout already in progress keeps the host's
  * own Resume; a start refused because another workout is in progress offers
  * Resume for that one. Errors are quiet and local, with Retry.
+ *
+ * #335: "Choose another session" (workout and rest-day states) opens a picker
+ * over this plan week's sessions (`week`), so the user can do a different one
+ * than the calendar suggests; it starts through the same path.
  */
 import { useEffect, useState } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
@@ -18,6 +22,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { useChangeLog } from '../../hooks/useChangeLog';
 import { useTrainingToday } from '../../hooks/useTrainingToday';
 import { PlanAdjustedBanner } from './PlanAdjustedBanner';
+import { SessionPickerDialog, selectableSessions } from './SessionPickerDialog';
 import {
   duplicateProgram,
   prescriptionShapeFor,
@@ -163,6 +168,7 @@ export function TodayPlanCard({ canStart, canWritePrograms = false, refreshKey =
   const [starting, setStarting] = useState(false);
   const [problem, setProblem] = useState<StartProblem | null>(null);
   const [duplicating, setDuplicating] = useState(false);
+  const [choosing, setChoosing] = useState(false);
 
   const start = async (programWorkoutId: string, planVersion: number | null) => {
     setStarting(true);
@@ -247,6 +253,11 @@ export function TodayPlanCard({ canStart, canWritePrograms = false, refreshKey =
     </Alert>
   );
 
+  const week = today.kind === 'workout' || today.kind === 'rest_day' ? (today.week ?? []) : [];
+  // The plan version is only known for today's own session.
+  const versionFor = (programWorkoutId: string) =>
+    today.kind === 'workout' && today.programWorkout.id === programWorkoutId ? today.session.planVersion : null;
+
   return (
     <Box data-testid="today-plan" data-kind={today.kind} sx={{ mb: 2 }}>
       <Body
@@ -260,8 +271,21 @@ export function TodayPlanCard({ canStart, canWritePrograms = false, refreshKey =
         onStart={(id, version) => void start(id, version)}
         onDuplicate={(id) => void duplicate(id)}
         onPlanChanged={() => void refresh()}
+        onChoose={() => setChoosing(true)}
       />
       {problemAlert}
+      {week.length > 0 && (
+        <SessionPickerDialog
+          open={choosing}
+          week={week}
+          starting={starting}
+          onClose={() => setChoosing(false)}
+          onStart={(id) => {
+            setChoosing(false);
+            void start(id, versionFor(id));
+          }}
+        />
+      )}
       {error && (
         // A background refresh failed; the state above is the last good one.
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 1 }}>
@@ -289,6 +313,24 @@ interface BodyProps {
   onDuplicate: (programId: string) => void;
   /** The plan changed (an Undo): refetch Today. */
   onPlanChanged: () => void;
+  /** Open the session picker (#335). */
+  onChoose: () => void;
+}
+
+/**
+ * "Choose another session" (#335): only with more than one session left to
+ * pick this week, or, once today's workout is done, at least one other.
+ */
+function ChooseSessionButton({ today, disabled, onChoose }: { today: TrainingToday; disabled: boolean; onChoose: () => void }) {
+  if (today.kind !== 'workout' && today.kind !== 'rest_day') return null;
+  if (today.kind === 'workout' && today.inProgressWorkoutId) return null;
+  const minimum = today.kind === 'workout' && today.done ? 1 : 2;
+  if (selectableSessions(today.week).length < minimum) return null;
+  return (
+    <Button size="small" disabled={disabled} onClick={onChoose} data-testid="today-choose-session">
+      Choose another session
+    </Button>
+  );
 }
 
 function Body({
@@ -302,8 +344,10 @@ function Body({
   onStart,
   onDuplicate,
   onPlanChanged,
+  onChoose,
 }: BodyProps) {
   const year = yearOf(date);
+  const choose = canStart ? <ChooseSessionButton today={today} disabled={starting} onChoose={onChoose} /> : null;
 
   switch (today.kind) {
     case 'no_program':
@@ -361,21 +405,27 @@ function Body({
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 Next: {next.programWorkout.name}, {formatLongDate(next.date, year)}
               </Typography>
-              {canStart && (
-                <Button
-                  variant="outlined"
-                  size="small"
-                  disabled={starting}
-                  onClick={() => onStart(next.programWorkout.id, null)}
-                >
-                  Do it anyway
-                </Button>
-              )}
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }} useFlexGap>
+                {canStart && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    disabled={starting}
+                    onClick={() => onStart(next.programWorkout.id, null)}
+                  >
+                    Do it anyway
+                  </Button>
+                )}
+                {choose}
+              </Stack>
             </>
           ) : (
-            <Typography variant="body2" color="text.secondary">
-              No sessions in the next two weeks.
-            </Typography>
+            <>
+              <Typography variant="body2" color="text.secondary">
+                No sessions in the next two weeks.
+              </Typography>
+              {choose}
+            </>
           )}
         </Box>
       );
@@ -401,16 +451,19 @@ function Body({
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               {meta}
             </Typography>
-            {today.completedWorkoutId && (
-              <Button
-                component={RouterLink}
-                to={`/train/workouts/${today.completedWorkoutId}`}
-                variant="outlined"
-                size="small"
-              >
-                View workout
-              </Button>
-            )}
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }} useFlexGap>
+              {today.completedWorkoutId && (
+                <Button
+                  component={RouterLink}
+                  to={`/train/workouts/${today.completedWorkoutId}`}
+                  variant="outlined"
+                  size="small"
+                >
+                  View workout
+                </Button>
+              )}
+              {choose}
+            </Stack>
           </Box>
         );
       }
@@ -440,14 +493,17 @@ function Body({
             </Box>
           )}
           {canStart && !today.inProgressWorkoutId && (
-            <Button
-              variant="contained"
-              startIcon={<PlayArrowIcon aria-hidden />}
-              disabled={empty || starting}
-              onClick={() => onStart(today.programWorkout.id, session.planVersion)}
-            >
-              Start planned workout
-            </Button>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }} useFlexGap>
+              <Button
+                variant="contained"
+                startIcon={<PlayArrowIcon aria-hidden />}
+                disabled={empty || starting}
+                onClick={() => onStart(today.programWorkout.id, session.planVersion)}
+              >
+                Start planned workout
+              </Button>
+              {choose}
+            </Stack>
           )}
         </Box>
       );

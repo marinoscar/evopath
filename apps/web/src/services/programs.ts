@@ -399,6 +399,22 @@ export interface TodaySession {
   exercises: TodaySessionExercise[];
 }
 
+/** A session's place in the current plan week (#335). */
+export type TodayWeekSessionStatus = 'done' | 'in_progress' | 'missed' | 'upcoming' | 'today';
+
+/** One session of the current plan week (#335): what the session picker lists. */
+export interface TodayWeekSession {
+  /** The calendar day the plan schedules it on, `YYYY-MM-DD`. */
+  date: string;
+  status: TodayWeekSessionStatus;
+  /** The session the calendar picks (today's, or the next one on a rest day). */
+  suggested: boolean;
+  completedWorkoutId: string | null;
+  inProgressWorkoutId: string | null;
+  /** `position`: order within the plan week (ties on one date). */
+  programWorkout: TodayProgramWorkoutRef & { exerciseCount: number; position?: number };
+}
+
 /** `GET /api/training/today`: discriminated by `kind`. `date` echoes the request. */
 export type TrainingToday =
   | { kind: 'no_program'; date: string }
@@ -412,6 +428,8 @@ export type TrainingToday =
       totalWeeks: number;
       /** The next occurrence within 14 days, or null. */
       next: { date: string; weekNumber: number; programWorkout: TodayProgramWorkoutRef } | null;
+      /** This plan week's sessions (#335); absent from older servers. */
+      week?: TodayWeekSession[];
     }
   | {
       kind: 'workout';
@@ -426,6 +444,8 @@ export type TrainingToday =
       completedWorkoutId: string | null;
       inProgressWorkoutId: string | null;
       session: TodaySession;
+      /** This plan week's sessions (#335); absent from older servers. */
+      week?: TodayWeekSession[];
     };
 
 export type TrainingTodayKind = TrainingToday['kind'];
