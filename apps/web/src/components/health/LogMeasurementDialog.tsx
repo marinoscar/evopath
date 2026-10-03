@@ -1,9 +1,15 @@
 /**
  * The quick-entry dialog for body and vital measurements, issue #53 (E2.3).
  *
- * One short form for all six metrics: weight is focused first, everything
- * else is optional, and only filled fields become readings of ONE entry
- * (`POST /api/measurements`). Logging a weight is: open, type, Enter.
+ * One short form for the body and vital metrics. A row of toggle chips picks
+ * which metrics this entry covers (one, or several at once; the initial
+ * choice is the metric of the tile that opened the dialog, else Weight), and
+ * only the chosen metrics show their fields. The date and time sit right under
+ * the chips, so backfilling history needs no extra step. Only filled fields of
+ * the chosen metrics become readings of ONE entry (`POST /api/measurements`).
+ * Logging a weight is: open, type, Enter. "Save and add another" saves, keeps
+ * the dialog open with the same metrics and date, and clears the values, for
+ * entering history one reading after another.
  *
  * Units are the user's (`unitSystem` from the health profile) and every unit,
  * factor and bound comes from the API's catalog (`useMeasurementCatalog`);
@@ -32,6 +38,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -47,6 +54,7 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
+import CheckIcon from '@mui/icons-material/Check';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Link as RouterLink } from 'react-router-dom';
 import { ApiError } from '../../services/api';
@@ -89,7 +97,11 @@ import {
   toDateTimeLocalValue,
 } from '../../utils/measurementDates';
 
-/** A reading more than this far (percent) from the metric's latest one asks "Check the unit". */
+/**
+ * A reading more than this far (percent) from the metric's latest one asks
+ * "Check the unit". A new entry dated before that latest reading (backfilled
+ * history) is never compared with it.
+ */
 export const SOFT_WARNING_PERCENT = 25;
 export const NOTES_MAX_LENGTH = 500;
 
@@ -116,6 +128,11 @@ const METHOD_GROUPS: ReadonlyArray<{ id: string; label: string; keys: MetricKey[
 const GROUP_OF = Object.fromEntries(
   METHOD_GROUPS.flatMap((group) => group.keys.map((key) => [key, group.id])),
 ) as Record<MetricKey, string>;
+
+/** The chip selected when the dialog opens: the focused metric's group, else Weight. */
+function initialGroupId(focusMetric?: MetricKey): string {
+  return GROUP_OF[focusMetric ?? 'weight'];
+}
 
 type Values = Record<MetricKey, string>;
 type ErrorKey = MetricKey | 'measuredAt' | 'notes' | 'form';
@@ -208,11 +225,17 @@ export function LogMeasurementDialog({
   const [maxDateTime, setMaxDateTime] = useState('');
   const [notes, setNotes] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // New-entry mode: the metric groups (ids of METHOD_GROUPS) chosen with the chips.
+  const [selected, setSelected] = useState<string[]>(() => [initialGroupId(focusMetric)]);
+  // A field to focus once it is rendered and enabled (a newly chosen chip, or a cleared form).
+  const [focusRequest, setFocusRequest] = useState<MetricKey | null>(null);
   const [saving, setSaving] = useState(false);
   const [warnings, setWarnings] = useState<string[] | null>(null);
   const [failure, setFailure] = useState<SubmitFailure | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);
   const savingRef = useRef(false);
+  // Which button started the current save, so "Save anyway" and Retry continue the same action.
+  const addAnotherRef = useRef(false);
   const lastPayload = useRef<Payload | null>(null);
   // Edit mode: what the form held when it was prefilled, to diff against.
   const [original, setOriginal] = useState<{
@@ -253,6 +276,9 @@ export function LogMeasurementDialog({
     setMeasuredAtTouched(false);
     setNotes('');
     setDetailsOpen(false);
+    setSelected([initialGroupId(focusMetric)]);
+    setFocusRequest(null);
+    addAnotherRef.current = false;
     setWarnings(null);
     setFailure(null);
     setOriginal(null);
@@ -292,11 +318,22 @@ export function LogMeasurementDialog({
     setOriginal({ values: nextValues, methods: { ...nextMethods }, measuredAtText: at, notes: note });
   }, [open, entry, catalog, metricsByKey, unitSystem]);
 
-  /** Edit mode: the metric keys the entry holds; create mode: every field. */
+  /** Edit mode: the metric keys the entry holds; create mode: the keys of the chosen chips. */
   const shownKeys = useMemo(() => {
-    if (!entry) return new Set<MetricKey>(FIELDS.map((f) => f.key));
+    if (!entry) {
+      return new Set<MetricKey>(
+        METHOD_GROUPS.filter((group) => selected.includes(group.id)).flatMap((group) => group.keys),
+      );
+    }
     return new Set(entry.readings.map((r) => r.metricKey as MetricKey));
-  }, [entry]);
+  }, [entry, selected]);
+
+  // Focus a field once it exists and is enabled (never while a save is in flight).
+  useEffect(() => {
+    if (!focusRequest || saving) return;
+    document.getElementById(`${idBase}-${focusRequest}`)?.focus();
+    setFocusRequest(null);
+  }, [focusRequest, saving, idBase]);
 
   const originalReading = (key: MetricKey) => entry?.readings.find((r) => r.metricKey === key);
 
@@ -331,7 +368,8 @@ export function LogMeasurementDialog({
   const validate = useCallback((): Errors => {
     const next: Errors = {};
     for (const { key } of FIELDS) {
-      if (isEdit && shownKeys.has(key) && !isFilled(values[key])) {
+      if (!shownKeys.has(key)) continue;
+      if (isEdit && !isFilled(values[key])) {
         next[key] = 'Enter a value';
         continue;
       }
@@ -349,7 +387,7 @@ export function LogMeasurementDialog({
       if (systolic <= diastolic) next.bp_systolic = 'Systolic must be higher than diastolic';
     }
 
-    if (!isEdit && !FIELDS.some(({ key }) => isFilled(values[key]))) {
+    if (!isEdit && !FIELDS.some(({ key }) => shownKeys.has(key) && isFilled(values[key]))) {
       next.form = 'Enter at least one value';
     }
 
@@ -372,7 +410,7 @@ export function LogMeasurementDialog({
   // ---------------------------------------------------------------------------
 
   const buildCreate = (): CreateMeasurementEntryInput => {
-    const readings = FIELDS.filter(({ key }) => isFilled(values[key])).map(({ key }) => {
+    const readings = FIELDS.filter(({ key }) => shownKeys.has(key) && isFilled(values[key])).map(({ key }) => {
       const metric = metricsByKey.get(key)!;
       const method = methods[GROUP_OF[key]];
       return {
@@ -438,6 +476,14 @@ export function LogMeasurementDialog({
         ? originalReading(reading.metricKey as MetricKey)
         : latestByKey.get(reading.metricKey)?.latest;
       if (!metric || !previous) continue;
+      // A backdated entry (older than the metric's latest reading) is history
+      // being backfilled: "your last entry" would be a later reading, so the
+      // comparison is meaningless and would warn on every legitimate old value.
+      if (!isEdit) {
+        const entryTime =
+          (measuredAtTouched ? parseDateTimeLocalValue(measuredAtText) : null) ?? new Date();
+        if (entryTime.getTime() < new Date(previous.measuredAt).getTime()) continue;
+      }
       const entered = fromDisplay(metric, reading.value, unitSystem);
       const pct = percentDifference(entered, previous.value);
       if (pct > SOFT_WARNING_PERCENT) {
@@ -477,7 +523,8 @@ export function LogMeasurementDialog({
         next.bp_systolic = next.bp_systolic ?? issue.message;
       } else if (head === 'measuredAt' || head === 'notes') {
         next[head] = next[head] ?? issue.message;
-        openDetails = true;
+        // The date is always visible; only the note lives in Details.
+        if (head === 'notes') openDetails = true;
       } else {
         next.form = next.form ?? issue.message;
       }
@@ -501,7 +548,17 @@ export function LogMeasurementDialog({
           : await updateMeasurementEntry(payload.entryId, payload.body);
       onSaved(saved.items);
       setSavedOpen(true);
-      onClose();
+      if (addAnotherRef.current && payload.mode === 'create') {
+        // Keep the dialog, the chosen metrics, the date and the methods; clear what was typed.
+        setValues(EMPTY_VALUES);
+        setErrors({});
+        setWarnings(null);
+        setFailure(null);
+        setNotes('');
+        setFocusRequest(FIELDS.find(({ key }) => shownKeys.has(key))?.key ?? null);
+      } else {
+        onClose();
+      }
     } catch (err) {
       if (payload.mode === 'edit' && (isEntryGone(err) || isEntryConflict(err))) {
         onStale?.(isEntryGone(err) ? 'gone' : 'conflict');
@@ -521,11 +578,12 @@ export function LogMeasurementDialog({
     }
   };
 
-  const submit = (confirmed: boolean) => {
+  const submit = (confirmed: boolean, addAnother = false) => {
     if (savingRef.current || !catalog) return;
+    addAnotherRef.current = addAnother && !isEdit;
     const found = validate();
     setErrors(found);
-    if (found.measuredAt || found.notes) setDetailsOpen(true);
+    if (found.notes) setDetailsOpen(true);
     if (Object.values(found).some(Boolean)) return;
 
     let payload: Payload;
@@ -578,6 +636,30 @@ export function LogMeasurementDialog({
     if (problem) setErrors((prev) => ({ ...prev, [key]: problem }));
   };
 
+  /** New-entry mode: choose or drop a metric. Dropping clears what was typed for it. */
+  const toggleGroup = (groupId: string) => {
+    const group = METHOD_GROUPS.find((g) => g.id === groupId);
+    if (!group) return;
+    setWarnings(null);
+    if (selected.includes(groupId)) {
+      setSelected((prev) => prev.filter((id) => id !== groupId));
+      setValues((prev) => {
+        const next = { ...prev };
+        for (const key of group.keys) next[key] = '';
+        return next;
+      });
+      setErrors((prev) => {
+        const next = { ...prev, form: undefined };
+        for (const key of group.keys) next[key] = undefined;
+        return next;
+      });
+    } else {
+      setSelected((prev) => [...prev, groupId]);
+      setErrors((prev) => ({ ...prev, form: undefined }));
+      setFocusRequest(group.keys[0]);
+    }
+  };
+
   const requestedFocus: MetricKey =
     focusMetric === 'bp_diastolic' ? 'bp_systolic' : (focusMetric ?? 'weight');
   // Edit mode focuses the entry's first metric when the requested one is not shown.
@@ -616,9 +698,8 @@ export function LogMeasurementDialog({
     );
   };
 
-  const filledGroups = METHOD_GROUPS.filter((group) =>
-    isEdit ? group.keys.some((key) => shownKeys.has(key)) : group.keys.some((key) => isFilled(values[key])),
-  );
+  // One Method select per metric shown: the entry's own (edit) or the chosen chips (new).
+  const methodGroups = METHOD_GROUPS.filter((group) => group.keys.some((key) => shownKeys.has(key)));
   const show = (key: MetricKey) => shownKeys.has(key);
 
   const dialogOpen = open && canWrite;
@@ -675,6 +756,51 @@ export function LogMeasurementDialog({
                   </Typography>
                 )}
 
+                {!isEdit && (
+                  <Stack
+                    direction="row"
+                    useFlexGap
+                    sx={{ flexWrap: 'wrap', gap: 1 }}
+                    role="group"
+                    aria-label="Measurements to log"
+                  >
+                    {METHOD_GROUPS.map((group) => {
+                      const isOn = selected.includes(group.id);
+                      return (
+                        <Chip
+                          key={group.id}
+                          label={group.label}
+                          clickable
+                          onClick={() => toggleGroup(group.id)}
+                          color={isOn ? 'primary' : 'default'}
+                          variant={isOn ? 'filled' : 'outlined'}
+                          icon={isOn ? <CheckIcon /> : undefined}
+                          aria-pressed={isOn}
+                          disabled={saving}
+                          data-testid={`metric-chip-${group.id}`}
+                        />
+                      );
+                    })}
+                  </Stack>
+                )}
+
+                <TextField
+                  id={`${idBase}-measured-at`}
+                  type="datetime-local"
+                  label="Date and time"
+                  value={measuredAtText}
+                  onChange={(event) => {
+                    setMeasuredAtText(event.target.value);
+                    setMeasuredAtTouched(true);
+                    setErrors((prev) => ({ ...prev, measuredAt: undefined }));
+                  }}
+                  error={!!errors.measuredAt}
+                  helperText={errors.measuredAt}
+                  disabled={saving}
+                  fullWidth
+                  slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: maxDateTime } }}
+                />
+
                 {show('weight') && renderField('weight')}
                 {show('body_fat_pct') && renderField('body_fat_pct')}
                 {show('waist_circumference') && renderField('waist_circumference')}
@@ -706,12 +832,12 @@ export function LogMeasurementDialog({
                   </AccordionSummary>
                   <AccordionDetails>
                     <Stack spacing={2}>
-                      {filledGroups.length === 0 && (
+                      {methodGroups.length === 0 && (
                         <Typography variant="body2" color="text.secondary">
-                          Enter a value to choose how it was measured.
+                          Choose a metric to pick how it was measured.
                         </Typography>
                       )}
-                      {filledGroups.map((group) => {
+                      {methodGroups.map((group) => {
                         const metric = metricsByKey.get(group.keys[0]);
                         return (
                           <TextField
@@ -734,22 +860,6 @@ export function LogMeasurementDialog({
                           </TextField>
                         );
                       })}
-                      <TextField
-                        id={`${idBase}-measured-at`}
-                        type="datetime-local"
-                        label="Date and time"
-                        value={measuredAtText}
-                        onChange={(event) => {
-                          setMeasuredAtText(event.target.value);
-                          setMeasuredAtTouched(true);
-                          setErrors((prev) => ({ ...prev, measuredAt: undefined }));
-                        }}
-                        error={!!errors.measuredAt}
-                        helperText={errors.measuredAt}
-                        disabled={saving}
-                        fullWidth
-                        slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: maxDateTime } }}
-                      />
                       <TextField
                         id={`${idBase}-notes`}
                         label="Note"
@@ -783,7 +893,13 @@ export function LogMeasurementDialog({
                       <Button color="inherit" size="small" onClick={() => setWarnings(null)}>
                         Keep editing
                       </Button>
-                      <Button color="inherit" size="small" onClick={() => submit(true)}>
+                      <Button
+                        color="inherit"
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontWeight: 700 }}
+                        onClick={() => submit(true, addAnotherRef.current)}
+                      >
                         Save anyway
                       </Button>
                     </Stack>
@@ -820,6 +936,15 @@ export function LogMeasurementDialog({
             <Button onClick={onClose} disabled={saving}>
               Cancel
             </Button>
+            {!isEdit && (
+              <Button
+                variant="outlined"
+                onClick={() => submit(false, true)}
+                disabled={saving || !catalog || hasErrors || !!warnings}
+              >
+                Save and add another
+              </Button>
+            )}
             <Button
               type="submit"
               variant="contained"

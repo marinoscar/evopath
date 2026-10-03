@@ -72,6 +72,8 @@ async function field(name: string) {
 }
 
 const save = () => screen.getByRole('button', { name: 'Save' });
+const saveAndAddAnother = () => screen.getByRole('button', { name: 'Save and add another' });
+const chip = (groupId: string) => screen.getByTestId(`metric-chip-${groupId}`);
 
 describe('LogMeasurementDialog', () => {
   beforeEach(() => {
@@ -124,6 +126,8 @@ describe('LogMeasurementDialog', () => {
     const bodies = capturePosts();
     const { user, onClose } = renderDialog({ profile: METRIC });
     await user.type(await field('Weight'), '80');
+    await user.click(chip('body_fat_pct'));
+    await user.click(chip('waist_circumference'));
     await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '22.5');
     await user.type(screen.getByRole('textbox', { name: 'Waist' }), '84');
     await user.click(save());
@@ -141,6 +145,7 @@ describe('LogMeasurementDialog', () => {
     const bodies = capturePosts();
     const { user, onClose } = renderDialog();
     await field('Weight');
+    await user.click(chip('blood_pressure'));
     await user.type(screen.getByRole('textbox', { name: 'Systolic' }), '128');
     await user.type(screen.getByRole('textbox', { name: 'Diastolic' }), '84');
     await user.click(save());
@@ -175,6 +180,7 @@ describe('LogMeasurementDialog', () => {
       const bodies = capturePosts();
       const { user } = renderDialog();
       await field('Weight');
+      await user.click(chip('blood_pressure'));
       await user.type(screen.getByRole('textbox', { name: 'Systolic' }), '80');
       await user.type(screen.getByRole('textbox', { name: 'Diastolic' }), '90');
       await user.click(save());
@@ -186,6 +192,7 @@ describe('LogMeasurementDialog', () => {
       const bodies = capturePosts();
       const { user } = renderDialog();
       await field('Weight');
+      await user.click(chip('blood_pressure'));
       await user.type(screen.getByRole('textbox', { name: 'Systolic' }), '120');
       await user.click(save());
       expect(await screen.findByText('Enter both numbers')).toBeInTheDocument();
@@ -260,6 +267,159 @@ describe('LogMeasurementDialog', () => {
       await user.type(await field('Weight'), '176.4{Enter}');
       await waitFor(() => expect(onClose).toHaveBeenCalled());
     });
+
+    describe('backdated entries', () => {
+      const HOUR = 60 * 60 * 1000;
+      /** A whole-minute instant `hours` ago, as the datetime-local field can hold it. */
+      const ago = (hours: number) => {
+        const at = new Date(Date.now() - hours * HOUR);
+        at.setSeconds(0, 0);
+        return at;
+      };
+      const pickTime = (at: Date) =>
+        fireEvent.change(screen.getByLabelText('Date and time'), {
+          target: { value: toDateTimeLocalValue(at) },
+        });
+      const lastEntry = /different from your last entry/;
+
+      it('warns for an untouched date (now) against a recent latest reading', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(24).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120.7{Enter}');
+
+        expect(
+          await screen.findByText('This is 29% different from your last entry (93.5 kg). Check the unit.'),
+        ).toBeInTheDocument();
+        expect(bodies).toHaveLength(0);
+      });
+
+      it('does not warn when the picked time is older than the latest reading, and saves at once', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(24).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120.7');
+        const picked = ago(365 * 24);
+        pickTime(picked);
+        await user.click(save());
+
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(screen.queryByText(lastEntry)).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Save anyway' })).toBeNull();
+        expect(bodies).toEqual([
+          {
+            measuredAt: picked.toISOString(),
+            readings: [{ metricKey: 'weight', value: 120.7, unit: 'kg' }],
+          },
+        ]);
+      });
+
+      it('still warns when the picked time is after the latest reading, and Save anyway posts', async () => {
+        const older = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(72).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: older });
+        await user.type(await field('Weight'), '120.7');
+        const picked = ago(24);
+        pickTime(picked);
+        await user.click(save());
+
+        expect(
+          await screen.findByText('This is 29% different from your last entry (93.5 kg). Check the unit.'),
+        ).toBeInTheDocument();
+        expect(bodies).toHaveLength(0);
+
+        await user.click(screen.getByRole('button', { name: 'Save anyway' }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(bodies).toEqual([
+          {
+            measuredAt: picked.toISOString(),
+            readings: [{ metricKey: 'weight', value: 120.7, unit: 'kg' }],
+          },
+        ]);
+      });
+
+      it('warns for no metric when the whole entry is older than every latest reading', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 80, { measuredAt: ago(24).toISOString() }) },
+          body_fat_pct: { latest: mockMeasurement('body_fat_pct', 20, { measuredAt: ago(48).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120');
+        await user.click(chip('body_fat_pct'));
+        await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '40');
+        const picked = ago(10 * 24);
+        pickTime(picked);
+        await user.click(save());
+
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(screen.queryByText(lastEntry)).toBeNull();
+        expect(bodies).toHaveLength(1);
+        expect(bodies[0].measuredAt).toBe(picked.toISOString());
+        expect(bodies[0].readings).toEqual([
+          { metricKey: 'weight', value: 120, unit: 'kg' },
+          { metricKey: 'body_fat_pct', value: 40, unit: '%' },
+        ]);
+      });
+
+      it('warns only for the metric whose latest reading is older than the picked time', async () => {
+        // Picked: 2 days ago. Weight's latest is 1 day ago (newer: skipped);
+        // body fat's latest is 3 days ago (older: compared).
+        const mixed = mockLatest({
+          weight: { latest: mockMeasurement('weight', 80, { measuredAt: ago(24).toISOString() }) },
+          body_fat_pct: { latest: mockMeasurement('body_fat_pct', 20, { measuredAt: ago(72).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose } = renderDialog({ profile: METRIC, latest: mixed });
+        await user.type(await field('Weight'), '120');
+        await user.click(chip('body_fat_pct'));
+        await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '40');
+        const picked = ago(48);
+        pickTime(picked);
+        await user.click(save());
+
+        expect(await screen.findByText(/^Body fat: This is 100% different from your last entry/)).toBeInTheDocument();
+        expect(screen.queryByText(/^Weight:/)).toBeNull();
+        expect(screen.getAllByText(lastEntry)).toHaveLength(1);
+        expect(bodies).toHaveLength(0);
+
+        await user.click(screen.getByRole('button', { name: 'Save anyway' }));
+        await waitFor(() => expect(onClose).toHaveBeenCalled());
+        expect(bodies).toHaveLength(1);
+        expect(bodies[0].measuredAt).toBe(picked.toISOString());
+        expect(bodies[0].readings.map((r) => r.metricKey)).toEqual(['weight', 'body_fat_pct']);
+      });
+
+      it('Save and add another with a backdated time posts without a warning and stays open', async () => {
+        const recent = mockLatest({
+          weight: { latest: mockMeasurement('weight', 93.5, { measuredAt: ago(24).toISOString() }) },
+        });
+        const bodies = capturePosts();
+        const { user, onClose, onSaved } = renderDialog({ profile: METRIC, latest: recent });
+        await user.type(await field('Weight'), '120.7');
+        const picked = ago(365 * 24);
+        pickTime(picked);
+        await user.click(saveAndAddAnother());
+
+        await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+        expect(screen.queryByText(lastEntry)).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Save anyway' })).toBeNull();
+        expect(bodies).toEqual([
+          {
+            measuredAt: picked.toISOString(),
+            readings: [{ metricKey: 'weight', value: 120.7, unit: 'kg' }],
+          },
+        ]);
+        expect(onClose).not.toHaveBeenCalled();
+        expect(screen.getByRole('textbox', { name: 'Weight' })).toHaveValue('');
+      });
+    });
   });
 
   describe('details', () => {
@@ -270,6 +430,7 @@ describe('LogMeasurementDialog', () => {
       });
       const { user, onClose } = renderDialog({ latest });
       await field('Weight');
+      await user.click(chip('body_fat_pct'));
       await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '27.8');
       await user.click(screen.getByRole('button', { name: 'Details' }));
 
@@ -286,6 +447,8 @@ describe('LogMeasurementDialog', () => {
       const bodies = capturePosts();
       const { user, onClose } = renderDialog();
       await field('Weight');
+      await user.click(chip('body_fat_pct'));
+      await user.click(chip('waist_circumference'));
       await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '27.8');
       await user.type(screen.getByRole('textbox', { name: 'Waist' }), '33');
       await user.click(screen.getByRole('button', { name: 'Details' }));
@@ -478,6 +641,299 @@ describe('LogMeasurementDialog', () => {
       rules: { 'color-contrast': { enabled: false } },
     });
     expect(results).toHaveNoViolations();
+  });
+});
+
+// =============================================================================
+// Choosing metrics and "Save and add another"
+// =============================================================================
+
+const LABELS = ['Weight', 'Body fat', 'Waist', 'Systolic', 'Diastolic', 'Resting heart rate'];
+
+/** The metric labels currently rendered as fields. */
+function visibleFields(): string[] {
+  return LABELS.filter((label) => screen.queryByRole('textbox', { name: label }) !== null);
+}
+
+/** Opens the Details accordion (Method selects and the Note). */
+async function openDetails(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Details' }));
+}
+
+describe('LogMeasurementDialog metric chips', () => {
+  beforeEach(() => {
+    resetMeasurementCatalogCache();
+  });
+
+  afterEach(() => {
+    act(() => resetViewportWidth());
+  });
+
+  it('starts with Weight selected and only the Weight field visible', async () => {
+    renderDialog();
+    await field('Weight');
+
+    expect(visibleFields()).toEqual(['Weight']);
+    const group = screen.getByRole('group', { name: 'Measurements to log' });
+    for (const name of ['Weight', 'Body fat', 'Waist', 'Blood pressure', 'Resting heart rate']) {
+      expect(within(group).getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(chip('weight')).toHaveAttribute('aria-pressed', 'true');
+    for (const id of ['body_fat_pct', 'waist_circumference', 'blood_pressure', 'resting_hr']) {
+      expect(chip(id)).toHaveAttribute('aria-pressed', 'false');
+    }
+  });
+
+  it('opens with the focused metric selected instead of Weight', async () => {
+    renderDialog({ focusMetric: 'waist_circumference' });
+    const waist = await field('Waist');
+    await waitFor(() => expect(waist).toHaveFocus());
+
+    expect(visibleFields()).toEqual(['Waist']);
+    expect(chip('waist_circumference')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('weight')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('maps bp_diastolic to the blood pressure chip', async () => {
+    renderDialog({ focusMetric: 'bp_diastolic' });
+    await field('Systolic');
+
+    expect(visibleFields()).toEqual(['Systolic', 'Diastolic']);
+    expect(chip('blood_pressure')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('weight')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('shows and hides a metric\'s fields as its chip is toggled', async () => {
+    const { user } = renderDialog();
+    await field('Weight');
+
+    await user.click(chip('body_fat_pct'));
+    expect(chip('body_fat_pct')).toHaveAttribute('aria-pressed', 'true');
+    expect(visibleFields()).toEqual(['Weight', 'Body fat']);
+    // A newly chosen metric takes focus.
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Body fat' })).toHaveFocus());
+
+    await user.click(chip('blood_pressure'));
+    expect(visibleFields()).toEqual(['Weight', 'Body fat', 'Systolic', 'Diastolic']);
+
+    await user.click(chip('body_fat_pct'));
+    expect(chip('body_fat_pct')).toHaveAttribute('aria-pressed', 'false');
+    expect(visibleFields()).toEqual(['Weight', 'Systolic', 'Diastolic']);
+
+    await user.click(chip('blood_pressure'));
+    expect(visibleFields()).toEqual(['Weight']);
+  });
+
+  it('clears a typed value and its error when the chip is deselected', async () => {
+    const { user } = renderDialog({ profile: METRIC });
+    await user.type(await field('Weight'), '5');
+    await user.tab();
+    expect(await screen.findByText('Enter a value between 20 and 500 kg')).toBeInTheDocument();
+
+    await user.click(chip('weight'));
+    expect(visibleFields()).toEqual([]);
+    expect(screen.queryByText('Enter a value between 20 and 500 kg')).toBeNull();
+
+    await user.click(chip('weight'));
+    expect(await field('Weight')).toHaveValue('');
+    expect(screen.queryByText('Enter a value between 20 and 500 kg')).toBeNull();
+  });
+
+  it('sends only the selected metrics that were filled', async () => {
+    const bodies = capturePosts();
+    const { user, onClose } = renderDialog({ profile: METRIC });
+    await user.type(await field('Weight'), '80');
+    await user.click(chip('body_fat_pct'));
+    await user.click(chip('waist_circumference'));
+    // Body fat stays selected but empty; Weight is typed then dropped.
+    await user.type(screen.getByRole('textbox', { name: 'Waist' }), '84');
+    await user.click(chip('weight'));
+    await user.click(save());
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].readings).toEqual([{ metricKey: 'waist_circumference', value: 84, unit: 'cm' }]);
+  });
+
+  it('says "Enter at least one value" when every chip is deselected', async () => {
+    const bodies = capturePosts();
+    const { user, onClose } = renderDialog();
+    await field('Weight');
+    await user.click(chip('weight'));
+    expect(visibleFields()).toEqual([]);
+
+    await user.click(save());
+    expect(await screen.findByText('Enter at least one value')).toBeInTheDocument();
+    expect(bodies).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps Date and time outside Details and sends a picked past date as an ISO instant', async () => {
+    const bodies = capturePosts();
+    const { user, onClose } = renderDialog();
+    await user.type(await field('Weight'), '180');
+
+    // Visible with Details still collapsed.
+    expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-expanded', 'false');
+    const input = screen.getByLabelText('Date and time');
+    expect(input).toBeVisible();
+
+    const picked = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    picked.setSeconds(0, 0);
+    fireEvent.change(input, { target: { value: toDateTimeLocalValue(picked) } });
+    await user.click(save());
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(bodies[0].measuredAt).toBe(picked.toISOString());
+  });
+
+  it('does not send measuredAt when the date was not touched', async () => {
+    const bodies = capturePosts();
+    const { user, onClose } = renderDialog();
+    await user.type(await field('Weight'), '180{Enter}');
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(bodies[0]).not.toHaveProperty('measuredAt');
+  });
+
+  it('Enter in a field submits the plain Save and closes', async () => {
+    const bodies = capturePosts();
+    const { user, onClose, onSaved } = renderDialog({ profile: METRIC });
+    await field('Weight');
+    await user.click(chip('body_fat_pct'));
+    await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '22.5{Enter}');
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].readings).toEqual([{ metricKey: 'body_fat_pct', value: 22.5, unit: '%' }]);
+  });
+});
+
+describe('LogMeasurementDialog "Save and add another"', () => {
+  beforeEach(() => {
+    resetMeasurementCatalogCache();
+  });
+
+  it('saves, keeps the dialog open, clears the values and keeps chips, date and methods', async () => {
+    const bodies = capturePosts();
+    const { user, onClose, onSaved } = renderDialog({ profile: METRIC });
+    await user.type(await field('Weight'), '80');
+    await user.click(chip('body_fat_pct'));
+    await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '22');
+
+    const picked = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    picked.setSeconds(0, 0);
+    fireEvent.change(screen.getByLabelText('Date and time'), {
+      target: { value: toDateTimeLocalValue(picked) },
+    });
+    await openDetails(user);
+    await user.click(await screen.findByRole('combobox', { name: 'Body fat method' }));
+    await user.click(await screen.findByRole('option', { name: 'Smart scale' }));
+    await user.type(screen.getByRole('textbox', { name: 'Note' }), 'first');
+
+    await user.click(saveAndAddAnother());
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(onSaved).toHaveBeenCalledWith([
+      expect.objectContaining({ metricKey: 'weight' }),
+      expect.objectContaining({ metricKey: 'body_fat_pct' }),
+    ]);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(bodies).toEqual([
+      {
+        measuredAt: picked.toISOString(),
+        notes: 'first',
+        readings: [
+          { metricKey: 'weight', value: 80, unit: 'kg' },
+          { metricKey: 'body_fat_pct', value: 22, unit: '%', method: 'smart_scale' },
+        ],
+      },
+    ]);
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+
+    // Values and the note are cleared; the first selected field is focused again.
+    const weight = screen.getByRole('textbox', { name: 'Weight' });
+    await waitFor(() => expect(weight).toHaveFocus());
+    expect(weight).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Body fat' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('');
+
+    // Chips, date and method are kept.
+    expect(chip('weight')).toHaveAttribute('aria-pressed', 'true');
+    expect(chip('body_fat_pct')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Date and time')).toHaveValue(toDateTimeLocalValue(picked));
+    expect(screen.getByRole('combobox', { name: 'Body fat method' })).toHaveTextContent('Smart scale');
+
+    // A second save posts again with the kept date and method.
+    await user.type(weight, '81');
+    await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '21');
+    await user.click(saveAndAddAnother());
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toEqual({
+      measuredAt: picked.toISOString(),
+      readings: [
+        { metricKey: 'weight', value: 81, unit: 'kg' },
+        { metricKey: 'body_fat_pct', value: 21, unit: '%', method: 'smart_scale' },
+      ],
+    });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('does not close or save when there is nothing to save', async () => {
+    const bodies = capturePosts();
+    const { user, onClose, onSaved } = renderDialog();
+    await field('Weight');
+    await user.click(saveAndAddAnother());
+
+    expect(await screen.findByText('Enter at least one value')).toBeInTheDocument();
+    expect(bodies).toHaveLength(0);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('asks about a far-off value and "Save anyway" continues the same action, staying open', async () => {
+    const latest = mockLatest({ weight: { latest: mockMeasurement('weight', 80) } });
+    const bodies = capturePosts();
+    const { user, onClose, onSaved } = renderDialog({ profile: METRIC, latest });
+    await user.type(await field('Weight'), '120');
+    await user.click(saveAndAddAnother());
+
+    expect(
+      await screen.findByText('This is 50% different from your last entry (80.0 kg). Check the unit.'),
+    ).toBeInTheDocument();
+    expect(bodies).toHaveLength(0);
+    expect(saveAndAddAnother()).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Save anyway' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].readings).toEqual([{ metricKey: 'weight', value: 120, unit: 'kg' }]);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByText(/different from your last entry/)).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Weight' })).toHaveValue('');
+  });
+
+  it('keeps the typed values and the dialog open when the save fails', async () => {
+    const bodies = capturePosts(() => HttpResponse.error());
+    const { user, onClose, onSaved } = renderDialog();
+    await user.type(await field('Weight'), '200');
+    await user.click(saveAndAddAnother());
+
+    expect(await screen.findByText('Could not save. Check your connection and try again.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Weight' })).toHaveValue('200');
+    expect(bodies).toHaveLength(1);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('is absent in edit mode, which has no chips either', async () => {
+    renderEdit(weightEntry());
+    await field('Weight');
+    expect(screen.queryByRole('button', { name: 'Save and add another' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Measurements to log' })).toBeNull();
+    expect(screen.queryByTestId('metric-chip-weight')).toBeNull();
+    expect(save()).toBeInTheDocument();
   });
 });
 
