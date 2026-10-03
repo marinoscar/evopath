@@ -84,6 +84,10 @@ jobs:
       # `src/**` (see the note atop this file): it is the one type-check the
       # integration specs and their helpers get now that Jest only transpiles.
       - run: npm run typecheck --workspace=api
+
+      # prisma/seed.ts and seed-data.ts sit outside tsconfig.json's `include` and
+      # get no other type-check now that the seed command runs --transpile-only.
+      - run: npm run prisma:typecheck --workspace=api
       - run: npm run typecheck --workspace=web
       - run: npm run typecheck --workspace=cli
 

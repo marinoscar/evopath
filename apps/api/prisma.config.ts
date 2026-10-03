@@ -14,6 +14,8 @@ export default defineConfig({
     url: process.env.DATABASE_URL as string,
   },
   migrations: {
-    seed: 'ts-node --project prisma/tsconfig.json prisma/seed.ts',
+    // --transpile-only: without it ts-node type-checks against the full generated
+    // Prisma Client surface at runtime, which OOMs the 512M api container on deploy.
+    seed: 'ts-node --project prisma/tsconfig.json --transpile-only prisma/seed.ts',
   },
 });

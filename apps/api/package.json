@@ -34,6 +34,7 @@
     "smoke": "node scripts/smoke-test.mjs",
     "openapi:dump": "ts-node -P scripts/tsconfig.json --transpile-only scripts/dump-openapi.ts",
     "openapi:typecheck": "tsc -p scripts/tsconfig.json",
+    "prisma:typecheck": "tsc -p prisma/tsconfig.json",
     "storage:purge": "node dist/storage/purge/storage-purge.main.js"
   },
   "dependencies": {
