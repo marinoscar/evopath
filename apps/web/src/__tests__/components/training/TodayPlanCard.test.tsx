@@ -19,7 +19,7 @@ import {
   TodayPlanCard,
   type TodayPlanCardProps,
 } from '../../../components/training/TodayPlanCard';
-import type { TodaySession, TodaySessionExercise, TrainingToday } from '../../../services/programs';
+import type { TodaySession, TodaySessionExercise, TodayWeekSession, TrainingToday } from '../../../services/programs';
 import { mockHealthProfileEmpty, mockHealthProfileSaved } from '../../mocks/fixtures/health';
 
 const PROGRAM = { id: '00000000-0000-4000-8000-b00000000001', name: 'Muscle gain' };
@@ -28,6 +28,34 @@ const NEXT_PW_ID = '00000000-0000-4000-8000-b00000000003';
 const WORKOUT_ID = '00000000-0000-4000-8000-b00000000010';
 const OTHER_WORKOUT_ID = '00000000-0000-4000-8000-b00000000011';
 const DATE = '2026-09-30';
+const WALK_PW_ID = '00000000-0000-4000-8000-b00000000004';
+const DONE_PW_ID = '00000000-0000-4000-8000-b00000000005';
+const DONE_WORKOUT_ID = '00000000-0000-4000-8000-b00000000012';
+
+function weekSession(
+  id: string,
+  name: string,
+  date: string,
+  overrides: Partial<Omit<TodayWeekSession, 'programWorkout'>> = {},
+): TodayWeekSession {
+  return {
+    date,
+    status: 'upcoming',
+    suggested: false,
+    completedWorkoutId: null,
+    inProgressWorkoutId: null,
+    programWorkout: { id, name, weekday: new Date(`${date}T00:00:00Z`).getUTCDay() || 7, estimatedMinutes: 40, exerciseCount: 5 },
+    ...overrides,
+  };
+}
+
+/** Week 2 (Mon 28 Sep .. Sun 4 Oct): Lower done, Upper A today (suggested), a walk and Lower A ahead. */
+const WEEK: TodayWeekSession[] = [
+  weekSession(DONE_PW_ID, 'Lower B', '2026-09-28', { status: 'done', completedWorkoutId: DONE_WORKOUT_ID }),
+  weekSession(PW_ID, 'Upper A', DATE, { status: 'today', suggested: true }),
+  weekSession(WALK_PW_ID, 'Brisk walk', '2026-10-01', { programWorkout: { id: WALK_PW_ID, name: 'Brisk walk', weekday: 4, estimatedMinutes: 30, exerciseCount: 1 } }),
+  weekSession(NEXT_PW_ID, 'Lower A', '2026-10-02'),
+];
 
 function exercise(overrides: Partial<TodaySessionExercise> = {}): TodaySessionExercise {
   return {
@@ -527,5 +555,166 @@ describe('TodayPlanCard', () => {
     await screen.findByRole('button', { name: 'Start planned workout' });
     const results = await axe(container, { rules: { 'color-contrast': { enabled: false } } });
     expect(results).toHaveNoViolations();
+  });
+
+  describe('Choose another session (#335)', () => {
+    it('lists this week\'s sessions with date, minutes, exercise count, status and Suggested', async () => {
+      serveToday(workoutDay({ week: WEEK }));
+      const user = userEvent.setup();
+      renderCard();
+      await user.click(await screen.findByTestId('today-choose-session'));
+      const picker = await screen.findByTestId('session-picker');
+      const options = within(picker).getAllByRole('button', { name: /Upper A|Lower A|Lower B|Brisk walk/ });
+      expect(options.length).toBeGreaterThanOrEqual(4);
+      const upper = within(picker).getByTestId(`session-option-${PW_ID}`);
+      expect(within(upper).getByText('Today')).toBeInTheDocument();
+      expect(within(upper).getByText('Suggested')).toBeInTheDocument();
+      expect(within(upper).getByText(/about 40 min · 5 exercises/)).toBeInTheDocument();
+      const walk = within(picker).getByTestId(`session-option-${WALK_PW_ID}`);
+      expect(within(walk).getByText('Upcoming')).toBeInTheDocument();
+      expect(within(walk).getByText(/Thu.*1.*Oct/)).toBeInTheDocument();
+      expect(within(walk).getByText(/1 exercise$/)).toBeInTheDocument();
+      expect(within(walk).queryByText('Suggested')).toBeNull();
+    });
+
+    it('starting a non-suggested session starts that planned workout and opens the logger', async () => {
+      serveToday(workoutDay({ week: WEEK }));
+      const calls = serveStart(() =>
+        HttpResponse.json({ data: { workoutId: WORKOUT_ID, existing: false, planVersion: 3 } }, { status: 201 }),
+      );
+      const user = userEvent.setup();
+      renderCard();
+      await user.click(await screen.findByTestId('today-choose-session'));
+      await user.click(await screen.findByTestId(`session-option-${WALK_PW_ID}`));
+      expect(await screen.findByTestId('logger-path')).toHaveTextContent(`/train/workouts/${WORKOUT_ID}`);
+      expect(screen.getByTestId('logger-notice')).toHaveTextContent('');
+      expect(calls).toEqual([{ id: WALK_PW_ID, body: { date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) } }]);
+    });
+
+    it('a refused start closes the picker and shows the card\'s own error', async () => {
+      serveToday(workoutDay({ week: WEEK }));
+      serveStart(() => conflict({ reason: 'WORKOUT_IN_PROGRESS', workoutId: OTHER_WORKOUT_ID }));
+      const user = userEvent.setup();
+      renderCard();
+      await user.click(await screen.findByTestId('today-choose-session'));
+      await user.click(await screen.findByTestId(`session-option-${NEXT_PW_ID}`));
+      expect(await screen.findByText(/Another workout is in progress/)).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId('session-picker')).toBeNull());
+      expect(screen.getByRole('link', { name: 'Resume' })).toHaveAttribute('href', `/train/workouts/${OTHER_WORKOUT_ID}`);
+    });
+
+    it('a done session is disabled, with View linking to the completed workout', async () => {
+      serveToday(workoutDay({ week: WEEK }));
+      const calls = serveStart(() => HttpResponse.json({ data: {} }));
+      const user = userEvent.setup();
+      renderCard();
+      await user.click(await screen.findByTestId('today-choose-session'));
+      const done = await screen.findByTestId(`session-option-${DONE_PW_ID}`);
+      expect(done).toHaveAttribute('aria-disabled', 'true');
+      expect(within(done).getByText('Done')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /View Lower B/ })).toHaveAttribute('href', `/train/workouts/${DONE_WORKOUT_ID}`);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('an in-progress session offers Resume to that workout', async () => {
+      const week = WEEK.map((s) =>
+        s.programWorkout.id === NEXT_PW_ID ? { ...s, status: 'in_progress' as const, inProgressWorkoutId: OTHER_WORKOUT_ID } : s,
+      );
+      serveToday(workoutDay({ week }));
+      const user = userEvent.setup();
+      renderCard();
+      await user.click(await screen.findByTestId('today-choose-session'));
+      const option = await screen.findByTestId(`session-option-${NEXT_PW_ID}`);
+      expect(option).toHaveAccessibleName(/^Resume Lower A/);
+      await user.click(option);
+      expect(await screen.findByTestId('logger-path')).toHaveTextContent(`/train/workouts/${OTHER_WORKOUT_ID}`);
+    });
+
+    it('rest_day: offered next to Do it anyway, and starts the chosen session', async () => {
+      serveToday({ ...REST_DAY, week: WEEK.map((s) => ({ ...s, status: s.status === 'today' ? 'missed' : s.status, suggested: s.programWorkout.id === NEXT_PW_ID })) } as TrainingToday);
+      const calls = serveStart(() =>
+        HttpResponse.json({ data: { workoutId: WORKOUT_ID, existing: false, planVersion: 3 } }, { status: 201 }),
+      );
+      const user = userEvent.setup();
+      renderCard();
+      expect(await screen.findByRole('button', { name: 'Do it anyway' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Choose another session' }));
+      const upper = await screen.findByTestId(`session-option-${PW_ID}`);
+      expect(within(upper).getByText('Missed')).toBeInTheDocument();
+      await user.click(upper);
+      expect(await screen.findByTestId('logger-path')).toHaveTextContent(`/train/workouts/${WORKOUT_ID}`);
+      expect(calls[0].id).toBe(PW_ID);
+    });
+
+    it('is hidden with one selectable session, without week (older server), while in progress, or without workouts:write', async () => {
+      const oneLeft = WEEK.map((s) => (s.programWorkout.id === PW_ID ? s : { ...s, status: 'done' as const }));
+      serveToday(workoutDay({ week: oneLeft }));
+      const first = renderCard();
+      await screen.findByRole('button', { name: 'Start planned workout' });
+      expect(screen.queryByTestId('today-choose-session')).toBeNull();
+      first.unmount();
+
+      serveToday(workoutDay());
+      const second = renderCard();
+      await screen.findByRole('button', { name: 'Start planned workout' });
+      expect(screen.queryByTestId('today-choose-session')).toBeNull();
+      second.unmount();
+
+      serveToday(workoutDay({ week: WEEK, inProgressWorkoutId: WORKOUT_ID }));
+      const third = renderCard();
+      await screen.findByText('In progress');
+      expect(screen.queryByTestId('today-choose-session')).toBeNull();
+      third.unmount();
+
+      serveToday(workoutDay({ week: WEEK }));
+      renderCard({ canStart: false });
+      await screen.findByRole('heading', { name: 'Upper A' });
+      expect(screen.queryByTestId('today-choose-session')).toBeNull();
+    });
+
+    it('done: still offered while another session remains, and starts it', async () => {
+      const week = WEEK.map((s) =>
+        s.programWorkout.id === PW_ID ? { ...s, status: 'done' as const, completedWorkoutId: WORKOUT_ID } : s,
+      );
+      serveToday(workoutDay({ done: true, completedWorkoutId: WORKOUT_ID, week }));
+      const calls = serveStart(() =>
+        HttpResponse.json({ data: { workoutId: OTHER_WORKOUT_ID, existing: false, planVersion: 3 } }, { status: 201 }),
+      );
+      const user = userEvent.setup();
+      renderCard();
+      expect(await screen.findByRole('heading', { name: 'Upper A: done' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'View workout' })).toBeInTheDocument();
+      await user.click(screen.getByTestId('today-choose-session'));
+      expect(await screen.findByTestId(`session-option-${PW_ID}`)).toHaveAttribute('aria-disabled', 'true');
+      await user.click(screen.getByTestId(`session-option-${WALK_PW_ID}`));
+      expect(await screen.findByTestId('logger-path')).toHaveTextContent(`/train/workouts/${OTHER_WORKOUT_ID}`);
+      expect(calls[0].id).toBe(WALK_PW_ID);
+    });
+
+    it('done: one other session left is enough; none left hides it', async () => {
+      const oneOther = WEEK.map((s) =>
+        s.programWorkout.id === WALK_PW_ID ? s : { ...s, status: 'done' as const },
+      );
+      serveToday(workoutDay({ done: true, completedWorkoutId: WORKOUT_ID, week: oneOther }));
+      const first = renderCard();
+      expect(await screen.findByTestId('today-choose-session')).toBeInTheDocument();
+      first.unmount();
+
+      const allDone = WEEK.map((s) => ({ ...s, status: 'done' as const }));
+      serveToday(workoutDay({ done: true, completedWorkoutId: WORKOUT_ID, week: allDone }));
+      renderCard();
+      await screen.findByRole('heading', { name: 'Upper A: done' });
+      expect(screen.queryByTestId('today-choose-session')).toBeNull();
+    });
+
+    it('has no axe violations with the picker open', async () => {
+      serveToday(workoutDay({ week: WEEK }));
+      const user = userEvent.setup();
+      renderCard();
+      await user.click(await screen.findByTestId('today-choose-session'));
+      const picker = await screen.findByTestId('session-picker');
+      const results = await axe(picker, { rules: { 'color-contrast': { enabled: false } } });
+      expect(results).toHaveNoViolations();
+    });
   });
 });
