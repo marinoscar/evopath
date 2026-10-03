@@ -72,6 +72,8 @@ async function field(name: string) {
 }
 
 const save = () => screen.getByRole('button', { name: 'Save' });
+const saveAndAddAnother = () => screen.getByRole('button', { name: 'Save and add another' });
+const chip = (groupId: string) => screen.getByTestId(`metric-chip-${groupId}`);
 
 describe('LogMeasurementDialog', () => {
   beforeEach(() => {
@@ -124,6 +126,8 @@ describe('LogMeasurementDialog', () => {
     const bodies = capturePosts();
     const { user, onClose } = renderDialog({ profile: METRIC });
     await user.type(await field('Weight'), '80');
+    await user.click(chip('body_fat_pct'));
+    await user.click(chip('waist_circumference'));
     await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '22.5');
     await user.type(screen.getByRole('textbox', { name: 'Waist' }), '84');
     await user.click(save());
@@ -141,6 +145,7 @@ describe('LogMeasurementDialog', () => {
     const bodies = capturePosts();
     const { user, onClose } = renderDialog();
     await field('Weight');
+    await user.click(chip('blood_pressure'));
     await user.type(screen.getByRole('textbox', { name: 'Systolic' }), '128');
     await user.type(screen.getByRole('textbox', { name: 'Diastolic' }), '84');
     await user.click(save());
@@ -175,6 +180,7 @@ describe('LogMeasurementDialog', () => {
       const bodies = capturePosts();
       const { user } = renderDialog();
       await field('Weight');
+      await user.click(chip('blood_pressure'));
       await user.type(screen.getByRole('textbox', { name: 'Systolic' }), '80');
       await user.type(screen.getByRole('textbox', { name: 'Diastolic' }), '90');
       await user.click(save());
@@ -186,6 +192,7 @@ describe('LogMeasurementDialog', () => {
       const bodies = capturePosts();
       const { user } = renderDialog();
       await field('Weight');
+      await user.click(chip('blood_pressure'));
       await user.type(screen.getByRole('textbox', { name: 'Systolic' }), '120');
       await user.click(save());
       expect(await screen.findByText('Enter both numbers')).toBeInTheDocument();
@@ -270,6 +277,7 @@ describe('LogMeasurementDialog', () => {
       });
       const { user, onClose } = renderDialog({ latest });
       await field('Weight');
+      await user.click(chip('body_fat_pct'));
       await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '27.8');
       await user.click(screen.getByRole('button', { name: 'Details' }));
 
@@ -286,6 +294,8 @@ describe('LogMeasurementDialog', () => {
       const bodies = capturePosts();
       const { user, onClose } = renderDialog();
       await field('Weight');
+      await user.click(chip('body_fat_pct'));
+      await user.click(chip('waist_circumference'));
       await user.type(screen.getByRole('textbox', { name: 'Body fat' }), '27.8');
       await user.type(screen.getByRole('textbox', { name: 'Waist' }), '33');
       await user.click(screen.getByRole('button', { name: 'Details' }));
