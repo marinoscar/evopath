@@ -27,6 +27,30 @@ function shuffle<T>(items: T[], seed: number): T[] {
   return out;
 }
 
+describe('reduceRunEvents research basis', () => {
+  const withBrief = (data: Record<string, unknown>) =>
+    reduceRunEventList(initialRunViewState(), [
+      { seq: 1, type: 'stage.started', data: { node: 'research' } },
+      { seq: 2, type: 'research.brief', data },
+      { seq: 3, type: 'stage.completed', data: { node: 'research' } },
+    ]);
+
+  it('carries model_knowledge with zero sources', () => {
+    const view = withBrief({ claimCount: 4, sourceCount: 0, droppedClaims: 0, droppedSources: 3, basis: 'model_knowledge' });
+    expect(view.sources).toEqual([]);
+    expect(view.brief).toMatchObject({ sourceCount: 0, basis: 'model_knowledge' });
+  });
+
+  it('carries web_partial', () => {
+    expect(withBrief({ claimCount: 4, sourceCount: 1, basis: 'web_partial' }).brief?.basis).toBe('web_partial');
+  });
+
+  it('treats a missing or unknown basis (an older run) as web_verified', () => {
+    expect(withBrief({ claimCount: 4, sourceCount: 2 }).brief?.basis).toBe('web_verified');
+    expect(withBrief({ claimCount: 4, sourceCount: 2, basis: 'something_else' }).brief?.basis).toBe('web_verified');
+  });
+});
+
 describe('reduceRunEvents', () => {
   const inOrder = reduceRunEventList(initialRunViewState(), runEvents());
 
@@ -36,7 +60,7 @@ describe('reduceRunEvents', () => {
     expect(Object.values(inOrder.stages).every((s) => s === 'done')).toBe(true);
     expect(inOrder.queries).toEqual(['hypertrophy volume guidelines', 'knee friendly squat']);
     expect(inOrder.sources.map((s) => s.id)).toEqual(['S1', 'S2']);
-    expect(inOrder.brief).toMatchObject({ droppedSources: 2, droppedClaims: 1 });
+    expect(inOrder.brief).toMatchObject({ droppedSources: 2, droppedClaims: 1, basis: 'web_verified' });
     expect(inOrder.drafts.map((d) => d.round)).toEqual([1, 2]);
     expect(inOrder.guardrails[0].repairs[0].summary).toContain('Swapped');
     expect(inOrder.critic.map((c) => c.verdict)).toEqual(['revise', 'approve']);

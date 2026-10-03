@@ -286,13 +286,14 @@ test.describe('Training plans with the fake Responses provider', () => {
     await expect(page.getByText('1 source could not be verified and was removed')).toBeVisible();
   });
 
-  test('insufficient research: the run fails with guidance and no plan is made', async ({ page, owner }) => {
+  test('insufficient research: the researcher falls back to established principles and the run still makes a plan', async ({ page, owner }) => {
     void owner;
     await runFromWizard(page, 'research-insufficient');
 
-    await expectRunStatus(page, 'Failed');
-    await expect(page.getByTestId('run-failed')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Review plan' })).toHaveCount(0);
+    await expectRunStatus(page, 'Ready');
+    await expect(page.getByTestId('run-failed')).toHaveCount(0);
+    await expect(page.getByTestId('source-row')).toHaveCount(1);
+    await expect(page.getByRole('link', { name: 'Review plan' })).toBeVisible();
   });
 
   test('reload mid-run replays the same state, and Cancel ends the run cancelled', async ({ page, owner }) => {

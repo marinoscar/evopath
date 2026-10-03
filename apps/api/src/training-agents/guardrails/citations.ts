@@ -366,6 +366,7 @@ export function verifyBrief(
       cautions,
       searchQueries: policy.searchQueries.slice(0, EVIDENCE_LIMITS.maxQueries),
       researchMode: policy.researchMode,
+      basis: 'web_verified',
       droppedClaims,
       droppedSources,
     },

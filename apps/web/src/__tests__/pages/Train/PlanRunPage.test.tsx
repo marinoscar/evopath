@@ -17,7 +17,7 @@ import { mockRun, PROGRAM_ID, RUN_ID } from '../../mocks/fixtures/programs';
 import { runEvents } from '../../mocks/fixtures/runEvents';
 import { fakeRunStream } from '../../utils/fakeRunStream';
 import { runErrorCopy } from '../../../components/training/runErrors';
-import type { TrainingRunView } from '../../../services/trainingAgents';
+import type { TrainingRunEvent, TrainingRunView } from '../../../services/trainingAgents';
 
 const user = { ...mockUser, permissions: [...mockUser.permissions, 'programs:read', 'programs:write'] };
 
@@ -202,6 +202,59 @@ describe('PlanRunPage live view', () => {
   });
 });
 
+/** The fixture stream with the research brief's basis replaced; `dropSources` removes every source event. */
+function eventsWithBasis(basis: string, dropSources: boolean, extra: Record<string, unknown> = {}): TrainingRunEvent[] {
+  return runEvents()
+    .filter((event) => !(dropSources && event.type === 'research.source'))
+    .map((event) => (event.type === 'research.brief' ? { ...event, data: { ...event.data, basis, ...extra } } : event))
+    .map((event, i) => ({ ...event, seq: i + 1 }));
+}
+
+describe('PlanRunPage research basis', () => {
+  it('shows the training-principles note instead of "No sources yet." when no source could be verified', async () => {
+    const run = serveRun();
+    const { stream } = renderRun();
+    await waitFor(() => expect(stream.connections).toHaveLength(1));
+    const events = eventsWithBasis('model_knowledge', true, { sourceCount: 0 });
+    const briefAt = events.findIndex((event) => event.type === 'research.brief');
+    stream.emit(...events.slice(0, briefAt));
+    expect(screen.getByText('No sources yet.')).toBeInTheDocument();
+
+    stream.emit(...events.slice(briefAt));
+    run.set({ status: 'succeeded', result: { programId: PROGRAM_ID, warnings: [] } });
+    stream.end('succeeded');
+    expect(await screen.findByText('Your plan is ready')).toBeInTheDocument();
+    const note = screen.getByTestId('research-basis-note');
+    expect(note).toHaveClass('MuiAlert-root');
+    expect(note).toHaveTextContent(
+      'No web sources could be verified for this plan, so it was built from established training principles.',
+    );
+    expect(screen.queryByText('No sources yet.')).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId('source-row')).toHaveLength(0);
+    expect(screen.getByRole('link', { name: 'Review plan' })).toHaveAttribute('href', `/train/plans/${PROGRAM_ID}`);
+  });
+
+  it('lists the sources with a short note when only some guidance is verified', async () => {
+    serveRun();
+    const { stream } = renderRun();
+    await waitFor(() => expect(stream.connections).toHaveLength(1));
+    stream.emit(...eventsWithBasis('web_partial', false).slice(0, 20));
+    expect(screen.getAllByTestId('source-row')).toHaveLength(2);
+    expect(screen.getByTestId('research-basis-note')).toHaveTextContent(
+      'Some guidance comes from established training principles rather than a verified source.',
+    );
+  });
+
+  it('shows no basis note for a fully verified (or older) run', async () => {
+    serveRun();
+    const { stream } = renderRun();
+    await waitFor(() => expect(stream.connections).toHaveLength(1));
+    stream.emit(...runEvents().slice(0, 20));
+    expect(screen.getAllByTestId('source-row')).toHaveLength(2);
+    expect(screen.queryByTestId('research-basis-note')).not.toBeInTheDocument();
+  });
+});
+
 describe('PlanRunPage failures', () => {
   const CODES = [
     'AI_KEY_INVALID',
@@ -229,7 +282,8 @@ describe('PlanRunPage failures', () => {
     serveRun({ status: 'failed', errorCode: 'TRAINING_RESEARCH_INSUFFICIENT' });
     renderRun();
     const alert = await screen.findByTestId('run-failed');
-    expect(alert).toHaveTextContent('Not enough reliable sources');
+    expect(alert).toHaveTextContent("Research step didn't finish");
+    expect(alert).toHaveTextContent('Try again');
     await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/train/plans/new');
   });

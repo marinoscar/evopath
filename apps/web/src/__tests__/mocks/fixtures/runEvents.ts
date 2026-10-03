@@ -23,7 +23,7 @@ export function runEvents(): TrainingRunEvent[] {
     ['research.query', { queries: ['hypertrophy volume guidelines', 'knee friendly squat'] }],
     ['research.source', { id: 'S1', url: 'https://acsm.org/a', title: 'ACSM stand', domain: 'acsm.org', kind: 'position_stand', verified: true }],
     ['research.source', { id: 'S2', url: 'https://pubmed.gov/b', title: 'Meta', domain: 'pubmed.gov', kind: 'meta_analysis', verified: true }],
-    ['research.brief', { claimCount: 5, sourceCount: 2, droppedClaims: 1, droppedSources: 2, researchMode: 'single' }],
+    ['research.brief', { claimCount: 5, sourceCount: 2, droppedClaims: 1, droppedSources: 2, researchMode: 'single', basis: 'web_verified' }],
     ['agent.usage', { role: 'researcher', node: 'research', provider: 'openai', model: 'frontier-1', inputTokens: 1000, outputTokens: 200, reasoningTokens: 50, latencyMs: 10 }],
     ['stage.completed', { node: 'research', durationMs: 10 }],
     ['stage.started', { node: 'plan' }],

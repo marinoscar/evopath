@@ -1,7 +1,13 @@
+import { toResearchBasis, type ResearchBasis } from '../../utils/reduceRunEvents';
+
 /**
  * A version's stored `evidence` (`{ type: 'brief' | 'claim' | 'source' }`
  * rows, written only after the API verified every source) as lookups for
  * the viewer. Only sources marked verified are ever returned.
+ *
+ * A claim may carry no source (`sourceIds: []`): the researcher falls back to
+ * established training principles when it cannot verify enough sources, and
+ * the brief's `basis` says so (absent on older versions: web-verified).
  */
 export interface EvidenceSourceView {
   id: string;
@@ -26,6 +32,8 @@ export interface PlanEvidence {
   sources: Map<string, EvidenceSourceView>;
   summary: string | null;
   cautions: string[];
+  /** The brief's grounding; null when the version has no brief. */
+  basis: ResearchBasis | null;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
@@ -39,13 +47,14 @@ function hostOf(url: string): string {
 }
 
 export function parseEvidence(evidence: unknown): PlanEvidence {
-  const out: PlanEvidence = { claims: new Map(), sources: new Map(), summary: null, cautions: [] };
+  const out: PlanEvidence = { claims: new Map(), sources: new Map(), summary: null, cautions: [], basis: null };
   if (!Array.isArray(evidence)) return out;
   for (const item of evidence) {
     if (!item || typeof item !== 'object') continue;
     const row = item as Record<string, unknown>;
     if (row.type === 'brief') {
       out.summary = str(row.summary) || null;
+      out.basis = toResearchBasis(row.basis);
       out.cautions = Array.isArray(row.cautions) ? row.cautions.filter((c): c is string => typeof c === 'string') : [];
     } else if (row.type === 'claim' && str(row.id)) {
       out.claims.set(str(row.id), {
@@ -79,4 +88,9 @@ export function resolvableRefs(refs: string[] | undefined, evidence: PlanEvidenc
 export function refsInText(text: string | null | undefined, evidence: PlanEvidence): string[] {
   if (!text) return [];
   return [...new Set(text.match(/\bE\d{1,2}\b/g) ?? [])].filter((ref) => evidence.claims.has(ref));
+}
+
+/** A claim no verified source backs: it comes from established training principles. */
+export function isPrincipleClaim(claim: EvidenceClaimView, evidence: PlanEvidence): boolean {
+  return !claim.sourceIds.some((sid) => evidence.sources.has(sid));
 }

@@ -639,7 +639,7 @@ note and not counted.
 
 | Flow | Scenarios |
 |---|---|
-| Create and revise | `happy`, `critic-reject-once`, `critic-exhausted`, `planner-hostile`, `research-fabricated-url`, `research-insufficient`, `research-page-injection`, `budget-tight`, `rate-limit-once`, `urgent-symptom`, `slow` (delayed, for reload and cancel) |
+| Create and revise | `happy`, `critic-reject-once`, `critic-exhausted`, `planner-hostile`, `research-fabricated-url`, `research-insufficient` (completes `web_partial`), `research-page-injection`, `budget-tight`, `rate-limit-once`, `urgent-symptom`, `slow` (delayed, for reload and cancel) |
 | Evaluate | `evaluator-no-change`, `evaluator-autonomous`, `evaluator-structural`, `evaluator-pain-response`, `evaluator-regenerate`, `evaluator-hostile` |
 
 Descriptions are in each file and in the

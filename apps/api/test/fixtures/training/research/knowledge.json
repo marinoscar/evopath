@@ -1,0 +1,36 @@
+{
+  "summary": "Established principles for a beginner: train each muscle two to three times a week with moderate volume, stop short of failure and progress gradually.",
+  "claims": [
+    {
+      "id": "E1",
+      "topic": "frequency",
+      "claim": "Training each major muscle group two to three times per week supports strength and muscle gain.",
+      "applicability": "Three full-body sessions a week cover each muscle group often enough.",
+      "confidence": "high"
+    },
+    {
+      "id": "E2",
+      "topic": "volume",
+      "claim": "Beginners progress well on modest weekly volume, adding sets gradually as recovery allows.",
+      "applicability": "Start near the low end of the volume range and add sets over the weeks.",
+      "confidence": "moderate"
+    },
+    {
+      "id": "E3",
+      "topic": "intensity",
+      "claim": "Most sets can end one to three repetitions short of failure.",
+      "applicability": "Keep RPE around 7 to 8 while technique settles.",
+      "confidence": "moderate"
+    },
+    {
+      "id": "E4",
+      "topic": "limitation_guidance",
+      "claim": "Joint discomfort is commonly managed by reducing range of motion or load and choosing supported variations.",
+      "applicability": "Prefer pain-free depth on knee-dominant exercises; seek a professional if pain persists.",
+      "confidence": "moderate"
+    }
+  ],
+  "cautions": [
+    "See a qualified professional if joint pain persists or worsens."
+  ]
+}

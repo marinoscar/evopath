@@ -156,7 +156,7 @@ describe('verifyBrief', () => {
       ['E2', ['S1']],
       ['E3', ['S2', 'S1']],
     ]);
-    expect(result.brief).toMatchObject({ searchQueries: ['q1'], researchMode: 'single', droppedClaims: 0, droppedSources: 0 });
+    expect(result.brief).toMatchObject({ searchQueries: ['q1'], researchMode: 'single', basis: 'web_verified', droppedClaims: 0, droppedSources: 0 });
   });
 
   it.each([

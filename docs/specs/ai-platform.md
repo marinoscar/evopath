@@ -332,7 +332,12 @@ Hosted tools run **inside the provider** during one response: `web_search`,
   header values are replaced with `[REDACTED]`.
 - **Outputs** are `hosted_tool_call` items with a typed `result` per tool.
   Web search citations are on the message item as
-  `citations[{ url, title, startIndex, endIndex }]`.
+  `citations[{ url, title, startIndex, endIndex }]`. The sources a search
+  returned are on the `hosted_tool_call` result: the OpenAI Responses mapper
+  always sends `include: ['web_search_call.action.sources']` when the
+  `web_search` tool is present (merged and deduplicated with any
+  `providerOptions` `include`; without it OpenAI returns no sources) and maps
+  a `search` action's `sources` and an `open_page` action's `url` as sources.
 - **Generated images** become the caller's storage objects under
   `ai-outputs/<userId>/<runId or responseId>/`; only `storageObjectId` is
   published. If storage is unavailable the response still succeeds, with

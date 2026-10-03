@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 import { toJsonSchema } from '../../../ai/core/structured-output';
 import {
+  evidenceBasisOf,
   evidenceBriefSchema,
+  knowledgeBriefSchema,
   type EvidenceBrief,
   type VerifiedEvidenceBrief,
   verifiedEvidenceBriefSchema,
@@ -83,6 +85,7 @@ describe('evidence brief contract', () => {
       sources: validBrief().sources.map((s) => ({ ...s, verified: true as const, domain: 'acsm.org', retrievedAt: new Date().toISOString() })),
       searchQueries: ['strength training frequency'],
       researchMode: 'single',
+      basis: 'web_verified',
       droppedClaims: 0,
       droppedSources: 0,
     };
@@ -98,5 +101,75 @@ describe('evidence brief contract', () => {
     // Compile-time: the schema's output is assignable to the interface.
     const assignable: VerifiedEvidenceBrief = {} as z.output<typeof verifiedEvidenceBriefSchema>;
     expect(assignable).toBeDefined();
+  });
+
+  function storedBrief(): VerifiedEvidenceBrief {
+    return {
+      ...validBrief(),
+      sources: validBrief().sources.map((s) => ({ ...s, verified: true as const, domain: 'acsm.org', retrievedAt: '2026-01-01T00:00:00.000Z' })),
+      searchQueries: [],
+      researchMode: 'single',
+      basis: 'web_verified',
+      droppedClaims: 0,
+      droppedSources: 0,
+    };
+  }
+
+  it('a brief stored before `basis` existed still parses, as web_verified', () => {
+    const { basis: _basis, ...legacy } = storedBrief();
+
+    const parsed = verifiedEvidenceBriefSchema.parse(legacy);
+
+    expect(parsed.basis).toBe('web_verified');
+    expect(evidenceBasisOf(legacy as VerifiedEvidenceBrief)).toBe('web_verified');
+  });
+
+  it('a model_knowledge brief has no sources and no cited claim; claims still number at least three', () => {
+    const knowledge: VerifiedEvidenceBrief = {
+      ...storedBrief(),
+      basis: 'model_knowledge',
+      sources: [],
+      claims: storedBrief().claims.map((c) => ({ ...c, sourceIds: [] })),
+    };
+    expect(verifiedEvidenceBriefSchema.safeParse(knowledge).success).toBe(true);
+
+    expect(verifiedEvidenceBriefSchema.safeParse({ ...knowledge, claims: knowledge.claims.slice(0, 2) }).success).toBe(false);
+    expect(verifiedEvidenceBriefSchema.safeParse({ ...knowledge, sources: storedBrief().sources }).success).toBe(false);
+    // Without the basis it reads as web_verified, which needs sources.
+    const { basis: _basis, ...unmarked } = knowledge;
+    expect(verifiedEvidenceBriefSchema.safeParse(unmarked).success).toBe(false);
+  });
+
+  it('a web_partial brief keeps verified sources with uncited claims beside cited ones; web_verified does not', () => {
+    const base = storedBrief();
+    const partial: VerifiedEvidenceBrief = {
+      ...base,
+      basis: 'web_partial',
+      sources: base.sources.slice(0, 1),
+      claims: [{ ...base.claims[0], sourceIds: ['S1'] }, { ...base.claims[1], sourceIds: [] }, { ...base.claims[2], sourceIds: [] }],
+    };
+    expect(verifiedEvidenceBriefSchema.safeParse(partial).success).toBe(true);
+    expect(verifiedEvidenceBriefSchema.safeParse({ ...partial, basis: 'web_verified' }).success).toBe(false);
+    expect(verifiedEvidenceBriefSchema.safeParse({ ...partial, sources: [] }).success).toBe(false);
+  });
+
+  it('refuses a claim citing a source the brief does not hold', () => {
+    const base = storedBrief();
+    const dangling = { ...base, claims: [{ ...base.claims[0], sourceIds: ['S9'] }, ...base.claims.slice(1)] };
+    expect(verifiedEvidenceBriefSchema.safeParse(dangling).success).toBe(false);
+  });
+
+  it('the knowledge schema is strict-mode compatible and has nowhere to put a source or URL', () => {
+    const json = toJsonSchema(knowledgeBriefSchema);
+    for (const obj of objectNodes(json)) {
+      const keys = Object.keys((obj.properties as JsonNode) ?? {});
+      expect([...((obj.required as string[]) ?? [])].sort()).toEqual([...keys].sort());
+      expect(obj.additionalProperties).toBe(false);
+    }
+    const text = JSON.stringify(json);
+    expect(text).not.toContain('sourceIds');
+    expect(text).not.toContain('"sources"');
+    expect(text).not.toContain('"url"');
+    expect(knowledgeBriefSchema.safeParse({ summary: 's', claims: validBrief().claims.slice(0, 2), cautions: [] }).success).toBe(false);
   });
 });

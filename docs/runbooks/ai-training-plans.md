@@ -19,7 +19,7 @@ The researcher cannot run while web search is off. It is off on a fresh deployme
 2. Switch **Web search** on and save.
 3. Confirm: as a contributor, `/settings/ai/agents` shows the researcher as ready (or auto) instead of "Web search is switched off".
 
-What it reaches: the researcher's queries are formed from the goal, level, limitations and equipment class the person typed (plus an age band and sex at birth only if they opted in). It never sends a name, email, date of birth, weight, check-in or gym name. The queries appear in the run view. What it costs: one or two searches per `create` run, on the paying key. A `revise` run and an evaluation do not search.
+What it reaches: the researcher's queries are formed from the goal, level, limitations and equipment class the person typed (plus an age band and sex at birth only if they opted in). It never sends a name, email, date of birth, weight, check-in or gym name. The queries appear in the run view. What it costs: one or two searches per `create` run, on the paying key; when the searches fall short, one more call without tools asks for the evidence from established principles (see section 8). A `revise` run and an evaluation do not search.
 
 ## 3. Try it with the fake provider
 
@@ -67,7 +67,7 @@ Scenarios:
 | `planner-hostile` | An unsafe draft (unknown and unsupported exercises, 500 kg loads, a fabricated citation and link, injected instructions): guardrails repair or block it; the injected sentences are dropped from the plan name and rationale |
 | `cardio-walks` | Three strength days plus four 30-minute walks were asked for: the planner puts the walks on the four non-strength days and the critic approves |
 | `research-fabricated-url` | The brief cites a URL the search never returned; the source and its claim are dropped |
-| `research-insufficient` | Fewer than two verified sources remain; the run stops with an insufficient-evidence error |
+| `research-insufficient` | Fewer than two verified sources remain; the knowledge fallback fills the brief and the run completes with `basis` `web_partial` |
 | `research-page-injection` | A retrieved page told the model to ignore its rules; the injected text never reaches the plan |
 | `slow` | The happy path with every response delayed, for reload and cancel tests |
 | `rate-limit-once` | The second request answers `429` with `retry-after`; the run defers and resumes |
@@ -134,7 +134,8 @@ A run ends `succeeded`, `failed`, `cancelled`, `blocked_safety`, or pauses as `a
 | Start disabled, banner names a role | Role unavailable | Table in section 5 |
 | A role runs on a different model than you assigned | The assignment is not usable for that user's key, so resolution fell through to the default or the auto pick (`assignmentUnavailable` in `GET /api/ai/features`) | Assign a model every key reaches, or accept it |
 | Banner says no model is available, but the user has a key | `no_models` or `missing_capability` with `fix: admin`: nothing enabled fits the role | Enable a capable model (section 4) and assign it; this is not an "Add your own AI key" case |
-| Run fails `TRAINING_RESEARCH_INSUFFICIENT` | After one retry, fewer than 3 verified claims or 2 verified sources survived citation checks (the model cited URLs the search did not return, or only low-quality domains) | Retry; widen the goal text; try a stronger researcher model; check web search is on. Nothing is created |
+| The sources list says no web sources could be verified and the plan was built from established training principles (or notes that some guidance comes from principles) | The web research could not be verified, so the researcher fell back to a tool-less knowledge call (brief `basis` `model_knowledge`, or `web_partial` when some sources survived). The run itself succeeds. Causes: web search switched off or not supported by the researcher model, the provider refused the search, the model cited URLs the search did not return, or only low-quality domains came back | Check **Web search** is on (section 2) and the researcher model is an OpenAI model with `hosted_tools`; look at the run's `research.query` and `research.source` events for what the search returned; retry, widen the goal text, or try a stronger researcher model. The plan is usable as is; the owner reviews it like any draft |
+| An old run shows `TRAINING_RESEARCH_INSUFFICIENT` | Legacy: the run failed before the knowledge fallback existed. Nothing raises it now | Start a new run |
 | Run is blocked with `cardio_missing` | The user switched on walking or cardio days in the wizard, but the planner's draft has no cardio session even after the revision rounds | Retry, or try a stronger planner; the server never adds sessions itself. Cardio sessions need a duration or distance on days without a strength workout (G4, [spec](../specs/ai-training-plans.md#26-guardrails)) |
 | Run fails `TRAINING_PLAN_REJECTED` | The plan still violated a hard guardrail after repairs and the critic rounds ran out | Retry with fewer limitations or a simpler goal; try a stronger planner. Nothing is written |
 | Plan created with open notes | The critic still asked for changes after the allowed rounds (`critic_open_notes`), or the critic was skipped or unavailable | Expected; the owner reviews the draft. Raise `maxCriticRounds` if desired |
@@ -161,7 +162,7 @@ Finished runs keep their replayable events and graph checkpoints for 30 days and
 ## 10. Turn it off
 
 - **Everything, at once.** Switch **Enabled** off at `/admin/settings/ai` (the kill switch, ai-configuration section 2). Every `/api/ai/training/*` route answers `403` with `AI_DISABLED`; the sweep does not enqueue; workout-finished events schedule nothing. A run already in flight fails with `AI_DISABLED` at its next model call. Plans, Today, the manual builder, history and signals keep working.
-- **The researcher only.** Switch **Web search** off (section 2). New `create` runs are refused for the researcher role; `revise` runs and evaluations continue.
+- **The researcher only.** Switch **Web search** off (section 2). New `create` runs are refused for the researcher role; `revise` runs and evaluations continue. A `create` run already in flight does not fail: its researcher completes from established principles (`basis` `model_knowledge`).
 - **One user's automation.** The owner sets the plan to ask first, or pauses the plan.
 
 ## 11. Summary checklist

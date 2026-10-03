@@ -14,8 +14,10 @@ export interface RunErrorCopy {
 
 const TRAINING_COPY: Record<string, RunErrorCopy> = {
   TRAINING_RESEARCH_INSUFFICIENT: {
-    title: 'Not enough reliable sources',
-    body: 'The researcher could not find enough sources it could verify for this plan. Try again, or describe the goal more generally.',
+    // Legacy: the researcher now falls back to established training principles
+    // instead of failing, so only older runs carry this code.
+    title: "Research step didn't finish",
+    body: 'The research step stopped before the plan was built. Try again; the next run builds the plan even when few sources can be verified.',
   },
   TRAINING_PLAN_REJECTED: {
     title: 'The plan did not pass the checks',

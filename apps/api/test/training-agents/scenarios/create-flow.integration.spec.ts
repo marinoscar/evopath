@@ -3,7 +3,6 @@ import type { PlanTree } from '../../../src/programs/contracts/plan-tree.contrac
 import { FreeTextSafetyScreen } from '../../../src/training-agents/runtime/safety-screen';
 import { RunDeferredError } from '../../../src/training-agents/runtime/agent-caller';
 import { RunBudgetExceededError } from '../../../src/training-agents/runtime/run-budget';
-import { TrainingRunFailedError } from '../../../src/training-agents/runtime/training-run-errors';
 import { HARNESS_USER } from '../../../src/ai/testing/ai-runtime-harness';
 import { createFakeProgramsPort } from '../../../src/training-agents/testing/fake-programs-port';
 import { createNodeContextHarness } from '../../../src/training-agents/testing/node-context-harness';
@@ -198,16 +197,31 @@ describe('create-flow scenarios', () => {
     expect(JSON.stringify(s.program().versions[0])).not.toContain('attacker.example.net');
   });
 
-  it('research-insufficient: the run fails TRAINING_RESEARCH_INSUFFICIENT after the researcher, nothing is created and no planner call is made', async () => {
-    const s = scenario('research-insufficient');
+  it('research-insufficient: the knowledge fallback fills the brief (web_partial), the planner is told, and the run completes with a plan', async () => {
+    const planner: string[] = [];
+    const s = scenario('research-insufficient', {
+      wrap: (script, role) => (req, ctx) => {
+        if (role === 'planner') planner.push(String(req.input));
+        return script(req, ctx);
+      },
+    });
 
-    const error = await s.run().catch((e: unknown) => e);
+    const result = await s.run();
 
-    expect(error).toBeInstanceOf(TrainingRunFailedError);
-    expect(error).toMatchObject({ code: 'TRAINING_RESEARCH_INSUFFICIENT' });
-    expect(s.calls('planner')).toHaveLength(0);
-    expect(s.fake.programs.size).toBe(0);
-    expect(s.fake.notifications).toHaveLength(0);
+    expect(result.state.outcome).toMatchObject({ status: 'completed', versionNumber: 1 });
+    // Two web attempts, then one tool-less knowledge call.
+    const researcher = s.calls('researcher');
+    expect(researcher).toHaveLength(3);
+    expect(researcher[2].request?.tools).toBeUndefined();
+    expect(researcher[2].request?.structuredOutput?.name).toBe('knowledge_brief');
+    expect(s.events('research.brief')).toEqual([expect.objectContaining({ basis: 'web_partial', sourceCount: 1, claimCount: 5 })]);
+    expect(planner[0]).toContain('web_partial');
+
+    const evidence = s.program().versions[0].evidence as Array<Record<string, unknown>>;
+    expect(evidence.find((item) => item.type === 'brief')).toMatchObject({ basis: 'web_partial' });
+    expect(evidence.filter((item) => item.type === 'source')).toHaveLength(1);
+    expect(evidence.filter((item) => item.type === 'claim')).toHaveLength(5);
+    expect(s.fake.notifications.map((n) => n.eventKey)).toEqual(['training.plan_ready']);
   });
 
   it('urgent-symptom: the safety screen stops the request with guidance before any provider call', async () => {

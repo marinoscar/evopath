@@ -107,6 +107,18 @@ export interface RunRoleUsage {
   reasoningTokens: number;
 }
 
+/**
+ * How the research brief is grounded (`research.brief` `basis`): every claim
+ * web-verified, some from model knowledge, or none verified (the plan was
+ * built from established training principles). Absent on older runs, which
+ * were always fully web-verified.
+ */
+export type ResearchBasis = 'web_verified' | 'web_partial' | 'model_knowledge';
+
+export function toResearchBasis(value: unknown): ResearchBasis {
+  return value === 'web_partial' || value === 'model_knowledge' ? value : 'web_verified';
+}
+
 export interface RunViewState {
   /** The last contiguous `seq` applied: the cursor to resume the stream from. */
   lastSeq: number;
@@ -120,7 +132,13 @@ export interface RunViewState {
   criticRound: number;
   queries: string[];
   sources: RunSource[];
-  brief: { claimCount: number; sourceCount: number; droppedClaims: number; droppedSources: number } | null;
+  brief: {
+    claimCount: number;
+    sourceCount: number;
+    droppedClaims: number;
+    droppedSources: number;
+    basis: ResearchBasis;
+  } | null;
   drafts: RunDraft[];
   guardrails: RunGuardrailReport[];
   critic: RunCriticRound[];
@@ -245,6 +263,7 @@ function applyEvent(state: RunViewState, event: TrainingRunEvent): RunViewState 
           sourceCount: num(d.sourceCount),
           droppedClaims: num(d.droppedClaims),
           droppedSources: num(d.droppedSources),
+          basis: toResearchBasis(d.basis),
         },
       };
     case 'plan.draft':

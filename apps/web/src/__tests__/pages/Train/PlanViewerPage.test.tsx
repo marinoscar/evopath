@@ -107,6 +107,50 @@ describe('PlanViewerPage', () => {
     expect(within(dialog).getByRole('link', { name: 'ACSM position stand' })).toHaveAttribute('target', '_blank');
   });
 
+  it('handles a plan built from training principles: no sources, source-less claims, the basis note', async () => {
+    const program = mockProgram();
+    program.version.evidence = [
+      { type: 'brief', summary: 'Brief', basis: 'model_knowledge', cautions: ['Built from established training principles.'], searchQueries: [], researchMode: 'single', droppedClaims: 0, droppedSources: 0 },
+      { type: 'claim', id: 'E1', topic: 'volume', claim: '10 to 20 hard sets per muscle per week support growth.', applicability: 'Applies to an intermediate lifter.', confidence: 'moderate', sourceIds: [] },
+    ];
+    servePlan(program);
+    renderViewer();
+    expect(await screen.findByRole('heading', { name: 'Evidence' })).toBeInTheDocument();
+    expect(screen.getByTestId('evidence-basis-note')).toHaveTextContent(
+      'No web sources could be verified for this plan, so it was built from established training principles.',
+    );
+    expect(screen.queryAllByTestId('evidence-source')).toHaveLength(0);
+
+    await userEvent.click(screen.getByTestId('evidence-chip-E1'));
+    const dialog = await screen.findByRole('dialog', { name: 'Evidence E1' });
+    expect(dialog).toHaveTextContent('10 to 20 hard sets per muscle per week support growth.');
+    expect(within(dialog).getByTestId('evidence-principle-E1')).toHaveTextContent('Training principle');
+    expect(within(dialog).queryByRole('list')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('shows the partial note with the sources and labels only the source-less claim', async () => {
+    const program = mockProgram();
+    program.version.evidence = program.version.evidence.map((item) => (item.type === 'brief' ? { ...item, basis: 'web_partial' } : item));
+    program.version.evidence.push({ type: 'claim', id: 'E2', topic: 'rest', claim: 'Rest two minutes between heavy sets.', applicability: '', confidence: 'low', sourceIds: [] });
+    servePlan(program);
+    renderViewer();
+    expect(await screen.findAllByTestId('evidence-source')).toHaveLength(1);
+    expect(screen.getByTestId('evidence-basis-note')).toHaveTextContent(
+      'Some guidance comes from established training principles rather than a verified source.',
+    );
+    await userEvent.click(screen.getByTestId('evidence-chip-E1'));
+    const dialog = await screen.findByRole('dialog', { name: 'Evidence E1' });
+    expect(within(dialog).queryByTestId('evidence-principle-E1')).not.toBeInTheDocument();
+  });
+
+  it('shows no basis note for a verified (or older) brief', async () => {
+    servePlan();
+    renderViewer();
+    expect(await screen.findAllByTestId('evidence-source')).toHaveLength(1);
+    expect(screen.queryByTestId('evidence-basis-note')).not.toBeInTheDocument();
+  });
+
   it('renders the week with workouts in weekday order, prescriptions, loads and availability', async () => {
     servePlan();
     renderViewer();

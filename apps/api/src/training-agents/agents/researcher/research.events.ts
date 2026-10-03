@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { registerRunEventType } from '../../runtime/run-events.registry';
-import { EVIDENCE_LIMITS, EVIDENCE_SOURCE_KINDS, RESEARCH_MODES } from './evidence-brief.contract';
+import { EVIDENCE_BASES, EVIDENCE_LIMITS, EVIDENCE_SOURCE_KINDS, RESEARCH_MODES } from './evidence-brief.contract';
 
 // =============================================================================
 // The research node's event payloads, registered at import time
@@ -39,6 +39,8 @@ export const researchBriefEventSchema = z
     droppedClaims: COUNT,
     droppedSources: COUNT,
     researchMode: z.enum(RESEARCH_MODES),
+    /** `web_verified`, `web_partial` or `model_knowledge` (see `EVIDENCE_BASES`). */
+    basis: z.enum(EVIDENCE_BASES),
   })
   .strict();
 
