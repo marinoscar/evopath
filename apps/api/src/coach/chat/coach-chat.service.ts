@@ -56,6 +56,7 @@ import { CoachChatMetrics, type CoachChatTurnOutcome } from './coach-chat.metric
 import type { TrainingTodayData } from '../../programs/today/dto/training-today.dto';
 import { localDateInZone } from '../../check-ins/local-date';
 import { effectiveUserName } from './coach-user-name';
+import { stripMarkdown } from '../text/strip-markdown';
 import {
   createCoachChatTools,
   type CoachChatMemoryEvent,
@@ -699,15 +700,18 @@ export class CoachChatService {
       supportive: turn.supportive,
       surface: 'app' as const,
     };
+    // The guard reads the reply as plain text (#343): markdown syntax is not scanned (a link's URL
+    // or a list's ordinal is never an invented figure) and does not count toward the length.
+    const plain = stripMarkdown(text, { keepOrderedMarkers: false });
     // The chat reply has its own length bound: the nudge `body` limit does not apply. The other
     // rules still run on an over-long reply, so a soft pass can never carry a hard violation.
-    const violations = guardCoachText('body', text, guardCtx).filter((v) => v.reason !== 'length');
+    const violations = guardCoachText('body', plain, guardCtx).filter((v) => v.reason !== 'length');
     const reasons = [...new Set(violations.map((v) => v.reason))];
-    if (text.length > COACH_CHAT_REPLY_MAX_CHARS) reasons.push('length');
+    if (plain.length > COACH_CHAT_REPLY_MAX_CHARS) reasons.push('length');
     if (reasons.length === 0) return { ok: true, reasons: [], invented: [] };
 
     for (const reason of reasons) this.appMetrics.coachGuardRejection(reason);
-    const invented = reasons.includes('invented_number') ? inventedNumbers(text, guardCtx) : [];
+    const invented = reasons.includes('invented_number') ? inventedNumbers(plain, guardCtx) : [];
     return { ok: false, reasons, invented };
   }
 

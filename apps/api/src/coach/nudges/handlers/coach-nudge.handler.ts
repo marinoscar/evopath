@@ -107,6 +107,7 @@ import { buildNudgeContext, NUDGE_HISTORY_LIMIT, type NudgeContext } from '../nu
 import { nudgeInstructions, nudgeUserText } from '../nudge-prompt';
 import { COACH_NUDGE_SCHEMA_NAME, coachNudgeSchema, type CoachNudgeOutput } from '../nudge-schema';
 import { staticFallbackMessage } from '../static-fallback';
+import { stripMarkdown } from '../../text/strip-markdown';
 
 export const COACH_DECISION_FEATURE_ID = 'coach.decision';
 
@@ -460,10 +461,12 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
         angle,
         personaId: style.persona.id,
         intensity: style.intensity,
-        title: text.title,
+        // The title and the push pair are plain-text surfaces: no markdown (#343).
+        // The body is stored as written; the web renders its markdown.
+        title: stripMarkdown(text.title),
         body: text.body,
-        pushTitle: text.pushTitle,
-        pushBody: text.pushBody,
+        pushTitle: text.pushTitle == null ? text.pushTitle : stripMarkdown(text.pushTitle),
+        pushBody: text.pushBody == null ? text.pushBody : stripMarkdown(text.pushBody),
         // #259: audio is spoken only on the user's request (step 7).
         audioStatus: 'none',
         aiRunId: null,

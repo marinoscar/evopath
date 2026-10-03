@@ -20,8 +20,9 @@
 //   7. `CoachAudioService.start`: `speak()` with the user's voice (else the
 //      persona's for the level the CURRENT register renders), speed, persona
 //      TTS instructions plus `data.audioInstructions`; input
-//      `data.audioScript`, else the body, markdown links reduced to their
-//      labels. It stores `audioRunId` and queues the 2-minute wait cap.
+//      `data.audioScript`, else the body, as plain text (markdown stripped,
+//      links reduced to their labels; #343). It stores `audioRunId` and
+//      queues the 2-minute wait cap.
 //      202 `{ pending, runId }`, or 200 `{ failed }` when `speak()` refused.
 //
 // The speech run settles through `coach.audio.settle` exactly as before, but
@@ -169,13 +170,14 @@ export class CoachMessageAudioService {
       now,
     );
     const style = renderPersonaStyle(personaId, intensity, register);
-    const script = typeof data.audioScript === 'string' ? stripMarkdownLinks(data.audioScript) : null;
+    // `speechRequest` strips the markdown (links included) from whichever text it speaks (#343).
+    const script = typeof data.audioScript === 'string' ? data.audioScript : null;
     const request = this.audio.speechRequest({
       style,
       userVoice: settings.audio.voice,
       speed: settings.audio.speed,
       audioScript: script,
-      body: stripMarkdownLinks(message.body),
+      body: message.body,
       audioInstructions: typeof data.audioInstructions === 'string' ? data.audioInstructions : null,
     });
 
@@ -236,11 +238,6 @@ export function messageAudioView(row: {
     default:
       return { status: 'none' };
   }
-}
-
-/** `[label](url)` and `![alt](url)` reduced to their text, so a link is never read aloud. */
-export function stripMarkdownLinks(text: string): string {
-  return text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
 }
 
 function recordOf(value: Prisma.JsonValue | null | undefined): Record<string, Prisma.JsonValue> {
