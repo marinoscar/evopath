@@ -21,6 +21,8 @@ import {
   type WeeklyReviewPr,
   type WeeklyStreakChange,
 } from '../../services/coach';
+import { MarkdownText } from '../common/MarkdownText';
+import { stripMarkdown } from '../../utils/markdown';
 
 /** The short line under the streak tile, by `stats.streakChange`. */
 export const WEEKLY_STREAK_CHANGE_LABELS: Record<WeeklyStreakChange, string> = {
@@ -137,16 +139,14 @@ export function WeeklyReviewCard({ review, onPlanWeek, distanceUnit = 'km' }: We
     <Stack spacing={1.5} data-testid="coach-weekly-review" sx={{ minWidth: 0 }}>
       <Box>
         <Typography variant="subtitle1" component="h2" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
-          {prose.headline}
+          {stripMarkdown(prose.headline)}
         </Typography>
         <Typography variant="caption" color="text.secondary">
           Week {stats.isoWeek.replace(/^\d{4}-W/, '')} · {stats.weekStart} to {stats.weekEnd}
         </Typography>
       </Box>
       {prose.intro && (
-        <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-          {coachDisplayText(prose.intro)}
-        </Typography>
+        <MarkdownText>{coachDisplayText(prose.intro)}</MarkdownText>
       )}
 
       <section aria-labelledby={`${idBase}-stats`}>
@@ -229,7 +229,7 @@ export function WeeklyReviewCard({ review, onPlanWeek, distanceUnit = 'km' }: We
           <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
             {prose.wins.map((win, i) => (
               <Typography component="li" variant="body2" key={`${i}-${win}`} sx={{ overflowWrap: 'anywhere' }}>
-                {coachDisplayText(win)}
+                <MarkdownText variant="body2">{coachDisplayText(win)}</MarkdownText>
               </Typography>
             ))}
           </Box>
@@ -239,9 +239,7 @@ export function WeeklyReviewCard({ review, onPlanWeek, distanceUnit = 'km' }: We
       {prose.focus.trim() && (
         <section aria-labelledby={`${idBase}-focus`}>
           <SectionHeading id={`${idBase}-focus`}>Focus</SectionHeading>
-          <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
-            {coachDisplayText(prose.focus)}
-          </Typography>
+          <MarkdownText variant="body2">{coachDisplayText(prose.focus)}</MarkdownText>
         </section>
       )}
 

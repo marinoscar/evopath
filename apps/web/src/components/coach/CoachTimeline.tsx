@@ -24,6 +24,7 @@ import {
 } from '../../services/coach';
 import type { CoachPendingTurn } from '../../hooks/useCoachChat';
 import { CoachMessageBubble } from './CoachMessageBubble';
+import { MarkdownText } from '../common/MarkdownText';
 import { personaIcon } from './personaAvatar';
 
 const blink = keyframes`
@@ -202,9 +203,7 @@ function PendingTurn({
                 </Box>
               )}
               {turn.reply ? (
-                <Typography variant="body1" component="div" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                  {coachDisplayText(turn.reply)}
-                </Typography>
+                <MarkdownText data-testid="coach-streaming-body">{coachDisplayText(turn.reply)}</MarkdownText>
               ) : (
                 <TypingIndicator />
               )}

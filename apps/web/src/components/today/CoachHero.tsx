@@ -12,6 +12,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { coachDisplayText, getCoachMessages, type CoachTimelineItem } from '../../services/coach';
 import { useCoachVisible } from '../../hooks/useCoachVisible';
 import { useIsMounted } from '../../hooks/useIsMounted';
+import { stripMarkdown } from '../../utils/markdown';
 
 /** How far back the strip looks for an unread message. */
 const HERO_LOOKBACK = 20;
@@ -39,7 +40,10 @@ export function CoachHero() {
 
   if (!visible || !message) return null;
 
-  const line = coachDisplayText(message.title && message.kind !== 'chat' ? `${message.title}: ${message.body}` : message.body);
+  // One line of plain text: markdown (`**19 working sets**`) is stripped, not shown (#343).
+  const line = stripMarkdown(
+    coachDisplayText(message.title && message.kind !== 'chat' ? `${message.title}: ${message.body}` : message.body),
+  );
 
   return (
     <Paper

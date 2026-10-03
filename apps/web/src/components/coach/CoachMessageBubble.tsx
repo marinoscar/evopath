@@ -24,7 +24,9 @@
  * push action was the reader's request). A 403 hides the button
  * (`onSpeechDisabled`).
  *
- * Text is rendered as text (React escapes it), never as HTML.
+ * Coach-authored bodies are markdown rendered through `MarkdownText` (#343):
+ * formatting only, never raw HTML, links sanitized. User turns stay plain
+ * text (React escapes it), so what someone typed reads exactly as typed.
  */
 import { useEffect, useRef } from 'react';
 import {
@@ -49,6 +51,8 @@ import VolunteerActivismOutlinedIcon from '@mui/icons-material/VolunteerActivism
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import { Link as RouterLink } from 'react-router-dom';
 import { AiSpeechPlayer } from '../ai/AiSpeechPlayer';
+import { MarkdownText } from '../common/MarkdownText';
+import { stripMarkdown } from '../../utils/markdown';
 import {
   COACH_AUDIO_MESSAGES,
   coachDisplayText,
@@ -149,8 +153,9 @@ export function isSupportiveReply(message: CoachTimelineItem): boolean {
   return message.role === 'coach' && safety !== null && SUPPORTIVE_SCREENS.has(safety);
 }
 
-function Body({ text }: { text: string }) {
+function Body({ text, markdown = false }: { text: string; markdown?: boolean }) {
   if (!text) return null;
+  if (markdown) return <MarkdownText data-testid="coach-message-body">{coachDisplayText(text)}</MarkdownText>;
   return (
     <Typography variant="body1" component="div" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
       {coachDisplayText(text)}
@@ -201,7 +206,7 @@ function WeeklyReviewContent({ message }: { message: CoachTimelineItem }) {
     <Stack spacing={1}>
       {data.headline && (
         <Typography variant="subtitle1" sx={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
-          {data.headline}
+          {stripMarkdown(data.headline)}
         </Typography>
       )}
       {data.adherence && (
@@ -217,7 +222,7 @@ function WeeklyReviewContent({ message }: { message: CoachTimelineItem }) {
           <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
             {data.wins.map((win) => (
               <Typography component="li" variant="body2" key={win} sx={{ overflowWrap: 'anywhere' }}>
-                {win}
+                {stripMarkdown(coachDisplayText(win))}
               </Typography>
             ))}
           </Box>
@@ -228,10 +233,10 @@ function WeeklyReviewContent({ message }: { message: CoachTimelineItem }) {
           <Box component="span" sx={{ fontWeight: 600 }}>
             Next week:{' '}
           </Box>
-          {data.focus}
+          {stripMarkdown(coachDisplayText(data.focus))}
         </Typography>
       )}
-      <Body text={message.body} />
+      <Body text={message.body} markdown />
     </Stack>
   );
 }
@@ -354,6 +359,7 @@ export function CoachMessageBubble({
   const review = kind === 'weekly_review' ? parseWeeklyReviewData(message.data) : null;
   // The review card renders its headline (= title) as its own heading.
   const labelTitle = Boolean(message.title) && message.kind !== 'chat';
+  const title = stripMarkdown(message.title);
   const showTitle = labelTitle && !review;
   const playerOutput =
     audio.state.status === 'ready'
@@ -388,7 +394,7 @@ export function CoachMessageBubble({
       <Paper
         variant="outlined"
         component="article"
-        aria-label={`${speaker}${labelTitle ? `: ${message.title}` : ''}${time ? `, ${time}` : ''}`}
+        aria-label={`${speaker}${labelTitle ? `: ${title}` : ''}${time ? `, ${time}` : ''}`}
         sx={{
           p: 1.5,
           flex: '0 1 auto',
@@ -410,7 +416,7 @@ export function CoachMessageBubble({
               {KindIcon && <KindIcon fontSize="small" aria-hidden />}
               {showTitle && (
                 <Typography variant="subtitle2" component="p" sx={{ overflowWrap: 'anywhere' }}>
-                  {message.title}
+                  {title}
                 </Typography>
               )}
             </Box>
@@ -420,7 +426,7 @@ export function CoachMessageBubble({
           ) : kind === 'weekly_review' ? (
             <WeeklyReviewContent message={message} />
           ) : (
-            <Body text={message.body} />
+            <Body text={message.body} markdown />
           )}
           {data.safety === 'pain' && (
             <Typography variant="caption" color="text.secondary">
