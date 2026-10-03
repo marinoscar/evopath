@@ -17,36 +17,35 @@ import { NEVER_SEND, type NeverSendEntry } from '../../training-agents/context/n
 // sees and edits in Settings > Memory, sent as one delimited `<user_memories>`
 // block marked as untrusted data, with `[m<n>]` refs instead of ids.
 //
-// THE COACH CHAT'S ONE EXCEPTION: THE DISPLAY NAME (#327). `name` stays on
-// this list, and nudges, the weekly review and the training agents are still
-// never sent it. The CHAT alone is sent the user's effective display name
-// (the name the user chose for the app, else the sign-in provider's), so the
-// coach can address the user: sanitised and capped at 60 characters
-// (`coach/chat/coach-user-name.ts`), only in the system instructions' one
-// delimited `<user_name>` data line and in the `get_profile` tool result.
-// Nothing else on this list rides with it: the read selects the name columns
-// only (never the email), and `get_profile` sends an age in whole years,
-// never the date of birth. The chat's own bio (`get_profile`, clipped to 500
-// characters and withheld when it names an urgent symptom) and the active
-// plan's intake text (`get_training_profile`) are the user's own words for
-// the profile and the plan, like the planner's. The canary test
-// (`coach/chat/coach-chat.service.spec.ts`) proves the name appears only in
-// those two places and no other canary appears at all.
+// THE COACH CHAT'S TOOLS: ALL RELEVANT DATA, NO SECRETS (#338). The owner
+// decided the coach chat should see every data point about him. The list
+// above still binds nudges, the weekly review and the training agents
+// unchanged, and it still binds the chat's own prompt (instructions and
+// history), with one exception there: the effective display name in the
+// instructions' one delimited `<user_name>` data line (#327; sanitised and
+// capped at 60 characters, `coach/chat/coach-user-name.ts`, read from the
+// name columns only, never the email). The chat's READ TOOLS alone are exempt from the entries in
+// `COACH_CHAT_TOOL_LIFTED` below: the display name and an age in whole years
+// (`get_profile`), check-in, sleep, workout, exercise and set notes, pain
+// notes, activity notes, the plan intake's text and the plan's rationale,
+// the bio, gym names, body weight, body fat and other body readings, and the
+// workout ids a follow-up tool takes (`get_workout`). Each free-text value is
+// a plain JSON field value (data, never an instruction), whitespace collapsed
+// and bounded only as a safety net (2000 characters, above any stored note;
+// the plan rationale 4000, its stored maximum): `coach/chat/tools/
+// user-context.ts`, `userText`. The owner wants no artificial caps.
 //
-// THE COACH CHAT'S SECOND EXCEPTION: BIOMARKER VALUES (#327). `labs` stays
-// on this list, and the training agents, nudges and the weekly review never
-// receive a raw lab value (the training agents get only the health summary's
-// text). The CHAT alone may read individual biomarker values, and only
-// through its `list_biomarkers` and `get_biomarker_values` tools, only while
-// the user's health consent ("Use my health data in training plans and
-// coach chat", `HealthSummaryReader.consentOn`) is on, and only the date,
-// value, unit, numeric reference range and flag: never a measurement id, a
-// note, the printed reference text, the source document or its file name.
-// Blood pressure readings are not lab analytes and stay excluded, as do
-// medications and documents/photos, everywhere.
-//
-// `body_measurements` holds for the chat too: `get_training_signals` drops
-// the signals' `body` block (weight, body fat) before the model sees it.
+// What the chat's tools STILL never send (`COACH_CHAT_TOOL_NEVER_SEND`): the
+// email address, the date of birth itself, medications, documents and photos
+// and their file names, storage keys and file URLs, another user's data,
+// progress photos beyond dates and counts, coach audio, and earlier coach
+// message bodies; nor credentials, tokens or keys of any kind (no tool reads
+// a credential table). Lab values stay behind the health consent
+// (`list_biomarkers`, `get_biomarker_values`: date, value, unit, numeric
+// range and flag only; never a note, the printed reference text or the
+// source document). The canaries: `apps/api/test/coach/coach-never-send.spec.ts`
+// (every read tool, secrets seeded in every source it reads) and
+// `coach/chat/coach-chat.service.spec.ts` (a whole turn).
 // =============================================================================
 
 export const COACH_NEVER_SEND: readonly NeverSendEntry[] = [
@@ -58,3 +57,24 @@ export const COACH_NEVER_SEND: readonly NeverSendEntry[] = [
 ];
 
 export const COACH_NEVER_SEND_IDS: readonly string[] = COACH_NEVER_SEND.map((entry) => entry.id);
+
+/**
+ * The entries of `COACH_NEVER_SEND` the coach chat's READ TOOLS are exempt
+ * from (#338), each with what the tools may now send. Nothing else is lifted.
+ */
+export const COACH_CHAT_TOOL_LIFTED: Readonly<Record<string, string>> = {
+  name: 'The effective display name (get_profile), sanitised and capped at 60 characters',
+  exact_age: 'An age in whole years (get_profile); never the date of birth',
+  check_in_notes: 'Check-in notes (get_check_ins)',
+  pain_notes: 'Pain notes on logged sets (get_recent_workouts, get_workout_history, get_workout, get_exercise_history)',
+  other_free_text: 'Workout, exercise, set, sleep and activity notes, the plan intake text, the plan rationale and the bio',
+  gym_name: "The gym's name (never its notes or location)",
+  other_gyms: "The user's other gyms' names where a workout or the intake names them",
+  ids: 'The workout id where a follow-up tool takes it (workoutId); no other id',
+  body_measurements: 'Body weight, body fat and other body and vital readings (get_profile, get_training_signals)',
+};
+
+/** What the coach chat's read tools still never send (#338): `COACH_NEVER_SEND` minus the lifted entries. */
+export const COACH_CHAT_TOOL_NEVER_SEND: readonly NeverSendEntry[] = COACH_NEVER_SEND.filter(
+  (entry) => !(entry.id in COACH_CHAT_TOOL_LIFTED),
+);

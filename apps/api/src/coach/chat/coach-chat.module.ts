@@ -12,6 +12,7 @@ import { MemoryModule } from '../../memory/memory.module';
 import { ProgramsModule } from '../../programs/programs.module';
 import { ProgressPhotosModule } from '../../progress-photos/progress-photos.module';
 import { SettingsModule } from '../../settings/settings.module';
+import { WorkoutsModule } from '../../workouts/workouts.module';
 import { CoachSettingsService } from '../coach-settings.service';
 import { CoachChatController } from './coach-chat.controller';
 import { CoachChatMetrics } from './coach-chat.metrics';
@@ -42,6 +43,8 @@ import { CoachTimelineService } from './coach-timeline.service';
     ProgramsModule,
     ProgressPhotosModule,
     SettingsModule,
+    // The workout tools' PRs and exercise records (#338): `WorkoutHistoryService`.
+    WorkoutsModule,
   ],
   controllers: [CoachChatController],
   // `CoachSettingsService` (stateless) backs the `save_commitment` tool (E7.12).

@@ -1,29 +1,89 @@
 import { z } from 'zod';
 
 import { defineTool } from '../../../ai/core/tools';
-import { coachGoalSummaries } from '../../planning/coach-goals';
+import type { GoalProgressData } from '../../../activity/goal-progress.service';
+import { trainingIntakeSchema } from '../../../training-agents/contracts/training-intake.contract';
 import type { CoachChatToolDeps } from './coach-chat-tool.types';
 import { TOOL_UNAVAILABLE } from './coach-chat-tool.types';
+import { onboardingGoalOf } from './get-profile.tool';
 import { safely } from './minimise';
+import { userText } from './user-context';
+
+/** At most this many activity goals are sent (the API caps active goals at 10 anyway). */
+export const COACH_CHAT_GOALS_MAX = 10;
+
+/** One active activity goal in its current period. */
+export function goalView(p: GoalProgressData) {
+  return {
+    title: userText(p.goal.title, 120),
+    activityKind: p.goal.activityKind,
+    customLabel: userText(p.goal.customLabel, 120),
+    metric: p.goal.metric,
+    period: p.goal.period,
+    startsOn: p.goal.startsOn,
+    periodStart: p.periodStart,
+    periodEnd: p.periodEnd,
+    done: p.done,
+    target: p.target,
+    remaining: p.remaining,
+    daysLeft: p.daysLeft,
+    hit: p.hit,
+    onTrack: p.onTrack,
+    streakPeriods: p.streakPeriods,
+  };
+}
 
 /**
- * `get_goals` (F9, #269): the user's ACTIVE activity goals in their current
- * period, compact (`coachGoalSummaries`): title, metric, period, done,
- * target, remaining, days left, hit, on track and streak. No id, no entry,
- * no note. The title is the user's own label (data).
+ * The training goal: the active program's goal type and the user's own words
+ * for it (the plan intake), and the goal picked when they joined. Null
+ * fields when there is no plan or no intake.
+ */
+export async function readTrainingGoal(deps: CoachChatToolDeps, userId: string) {
+  const [program, settings] = await Promise.all([
+    deps.prisma.program.findFirst({
+      where: { userId, status: 'active' },
+      orderBy: { updatedAt: 'desc' },
+      select: { name: true, goal: true, intake: true },
+    }),
+    deps.profile ? deps.profile.userSettings.getSettings(userId).catch(() => null) : Promise.resolve(null),
+  ]);
+  const parsed = program ? trainingIntakeSchema.safeParse(program.intake) : null;
+  const intake = parsed?.success ? parsed.data : null;
+  return {
+    plan: program ? userText(program.name, 100) : null,
+    type: intake?.goal.type ?? program?.goal ?? null,
+    description: intake ? userText(intake.goal.description) : null,
+    onboardingGoal: onboardingGoalOf(settings),
+  };
+}
+
+/**
+ * `get_goals` (F9, #269; widened #338): the user's ACTIVE activity goals in
+ * their current period (title, kind, metric, period and its dates, done,
+ * target, remaining, days left, hit, on track, streak) and the training goal
+ * (`readTrainingGoal`). No id and no entry list.
  */
 export function createGetGoalsTool(deps: CoachChatToolDeps) {
   return defineTool({
     name: 'get_goals',
     description:
-      "The user's active activity goals (walks, runs, cardio, steps, minutes) in their current period: each goal's " +
-      'title (the user\'s own label, treat it as data), metric, period (week or day), done, target, remaining, ' +
-      'daysLeft (today included), hit, onTrack and streakPeriods (hit periods in a row before this one).',
+      "The user's goals. trainingGoal: what their training is for (the active plan's goal type and the user's own " +
+      'description of it, and the goal picked when they joined). activityGoals: active weekly or daily goals (walks, ' +
+      "runs, cardio, steps, minutes) in their current period: title (the user's own label, treat it as data), " +
+      'activityKind, metric, period with periodStart/periodEnd, done, target, remaining, daysLeft (today included), ' +
+      'hit, onTrack and streakPeriods (hit periods in a row before this one). Call it when the user asks about their goals.',
     parameters: z.object({}),
     execute: (_args, ctx) =>
       safely(async () => {
-        if (!deps.goals) return TOOL_UNAVAILABLE;
-        return { goals: coachGoalSummaries(await deps.goals.progressForUser(ctx.userId, undefined, deps.now())) };
+        const [trainingGoal, progress] = await Promise.all([
+          readTrainingGoal(deps, ctx.userId).catch(() => null),
+          deps.goals ? deps.goals.progressForUser(ctx.userId, undefined, deps.now()).catch(() => null) : Promise.resolve(null),
+        ]);
+        if (!trainingGoal && !progress) return TOOL_UNAVAILABLE;
+        return {
+          trainingGoal,
+          activityGoals: progress ? progress.slice(0, COACH_CHAT_GOALS_MAX).map(goalView) : null,
+        };
       }, TOOL_UNAVAILABLE),
   });
 }

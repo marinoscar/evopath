@@ -9,15 +9,19 @@ import type { PrismaService } from '../../../prisma/prisma.service';
 import type { TrainingSignalsService } from '../../../programs/signals/signals.service';
 import type { TrainingTodayService } from '../../../programs/today/training-today.service';
 import type { ProgressPhotoSummaryService } from '../../../progress-photos/progress-photo-summary.service';
+import type { WorkoutHistoryService } from '../../../workouts/workout-history.service';
 
 // =============================================================================
 // What the coach chat tools are built from (E7.7, #247; spec §2.9, §4.4)
 // =============================================================================
 //
 // Every tool is bound to the AUTHENTICATED user through the tool loop's
-// `ctx.userId`: no tool takes a user id argument. Read tools return minimised
-// data (no ids, no storage keys, no photo content; free text only where
-// the user wrote it for their profile or plan, clipped); the write tools
+// `ctx.userId`: no tool takes a user id argument. Read tools return
+// everything relevant about the user (#338), including the free text they
+// wrote (notes, pain notes, intake text, bio, gym names), each value capped
+// (`user-context.ts`, `userText`); never a secret (no email, credential,
+// storage key or URL, photo content or another user's data) and ids only
+// where a follow-up tool takes one (`workoutId`). The write tools
 // (`pause_coach`, `save_commitment`, `set_display_name`) are narrow and
 // bounded.
 // =============================================================================
@@ -62,6 +66,11 @@ export interface CoachChatToolDeps {
    * `unavailable`.
    */
   labs?: CoachLabsDeps;
+  /**
+   * PRs and exercise records (#338): `WorkoutHistoryService`. Absent -> the
+   * workout tools answer without PRs and `get_exercise_history` without records.
+   */
+  history?: Pick<WorkoutHistoryService, 'prsForWorkout' | 'priorBuckets' | 'history'>;
 }
 
 /**
@@ -71,10 +80,12 @@ export interface CoachChatToolDeps {
  */
 export interface CoachProfileToolDeps {
   healthProfile: {
-    get(userId: string): Promise<Pick<HealthProfile, 'dateOfBirth' | 'sexAtBirth' | 'heightMm' | 'unitSystem' | 'bio'> & { labUnits?: string }>;
+    get(
+      userId: string,
+    ): Promise<Pick<HealthProfile, 'dateOfBirth' | 'sexAtBirth' | 'heightMm' | 'unitSystem' | 'bio'> & { labUnits?: string; timeZone?: string | null }>;
   };
   userSettings: {
-    getSettings(userId: string): Promise<{ onboarding?: { goal?: string | null } | null }>;
+    getSettings(userId: string): Promise<{ onboarding?: { goal?: string | null } | null; coach?: unknown }>;
     patchSettings(userId: string, dto: { profile: { displayName: string } }): Promise<unknown>;
   };
 }
