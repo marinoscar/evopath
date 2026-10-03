@@ -1,11 +1,14 @@
 /**
  * The researcher's verified sources as they arrive, the queries it ran, and
- * how many claims and sources were dropped. Links open in a new tab with
+ * how many claims and sources were dropped. Once the brief arrives its
+ * `basis` says how the plan is grounded: with no verified source
+ * (`model_knowledge`) an info note replaces the empty list; with some
+ * (`web_partial`) a short note follows the list. Links open in a new tab with
  * `rel="noopener noreferrer"`; no third-party icon is fetched. Capped with
  * "Show more" so a long stream never renders an unbounded list.
  */
 import { useState } from 'react';
-import { Box, Button, Chip, Link, List, ListItem, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Link, List, ListItem, Stack, Typography } from '@mui/material';
 import { Verified as VerifiedIcon } from '@mui/icons-material';
 import type { RunSource, RunViewState } from '../../utils/reduceRunEvents';
 
@@ -21,6 +24,12 @@ export const SOURCE_KIND_LABEL: Record<string, string> = {
 
 const INITIAL = 8;
 
+/** Shown when research finished without a single verified web source. */
+export const MODEL_KNOWLEDGE_NOTE =
+  'No web sources could be verified for this plan, so it was built from established training principles.';
+/** Shown when only part of the guidance is backed by a verified source. */
+export const WEB_PARTIAL_NOTE = 'Some guidance comes from established training principles rather than a verified source.';
+
 export interface SourceListProps {
   sources: RunSource[];
   queries?: string[];
@@ -32,7 +41,11 @@ export function SourceList({ sources, queries = [], brief = null }: SourceListPr
   const shown = all ? sources : sources.slice(0, INITIAL);
   return (
     <Box>
-      {sources.length === 0 ? (
+      {sources.length === 0 && brief?.basis === 'model_knowledge' ? (
+        <Alert severity="info" data-testid="research-basis-note">
+          {MODEL_KNOWLEDGE_NOTE}
+        </Alert>
+      ) : sources.length === 0 ? (
         <Typography color="text.secondary">No sources yet.</Typography>
       ) : (
         <List dense disablePadding aria-label="Sources">
@@ -60,6 +73,11 @@ export function SourceList({ sources, queries = [], brief = null }: SourceListPr
         <Button size="small" onClick={() => setAll((v) => !v)}>
           {all ? 'Show fewer' : `Show ${sources.length - INITIAL} more`}
         </Button>
+      )}
+      {brief && sources.length > 0 && brief.basis !== 'web_verified' && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }} data-testid="research-basis-note">
+          {brief.basis === 'model_knowledge' ? MODEL_KNOWLEDGE_NOTE : WEB_PARTIAL_NOTE}
+        </Typography>
       )}
       {queries.length > 0 && (
         <Box sx={{ mt: 1 }}>

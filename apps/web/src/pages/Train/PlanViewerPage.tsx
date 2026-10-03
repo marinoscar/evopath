@@ -44,7 +44,7 @@ import { ConfirmDialog } from '../../components/gyms/ConfirmDialog';
 import { ActivatePlanDialog } from '../../components/training/ActivatePlanDialog';
 import { HowItWasMade, hasMadeMeta } from '../../components/training/HowItWasMade';
 import { PlanViewer, weekOptions } from '../../components/training/PlanViewer';
-import { SOURCE_KIND_LABEL } from '../../components/training/SourceList';
+import { MODEL_KNOWLEDGE_NOTE, SOURCE_KIND_LABEL, WEB_PARTIAL_NOTE } from '../../components/training/SourceList';
 import { GOAL_LABEL, ORIGIN_LABEL, STATUS_COLOR, STATUS_LABEL } from '../../components/training/planLabels';
 import { parseEvidence } from '../../components/training/planEvidence';
 import { PlanEditor } from '../../components/training/PlanEditor';
@@ -391,22 +391,33 @@ export default function PlanViewerPage() {
               </Section>
             )}
 
-            {sources.length > 0 && (
+            {(sources.length > 0 || (evidence.basis !== null && evidence.basis !== 'web_verified')) && (
               <Section id="evidence-heading" title="Evidence">
-                <List dense disablePadding aria-label="Sources">
-                  {sources.map((source) => (
-                    <ListItem key={source.id} disableGutters sx={{ display: 'block', py: 0.5 }} data-testid="evidence-source">
-                      <Link href={source.url} target="_blank" rel="noopener noreferrer" sx={{ overflowWrap: 'anywhere' }}>
-                        {source.title || source.domain}
-                      </Link>
-                      <Typography variant="body2" color="text.secondary">
-                        {source.domain}
-                        {source.kind ? ` · ${SOURCE_KIND_LABEL[source.kind] ?? source.kind}` : ''}
-                        {source.year ? ` · ${source.year}` : ''}
-                      </Typography>
-                    </ListItem>
-                  ))}
-                </List>
+                {sources.length === 0 || evidence.basis === 'model_knowledge' ? (
+                  <Alert severity="info" sx={{ mb: sources.length > 0 ? 1 : 0 }} data-testid="evidence-basis-note">
+                    {MODEL_KNOWLEDGE_NOTE}
+                  </Alert>
+                ) : evidence.basis === 'web_partial' ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-testid="evidence-basis-note">
+                    {WEB_PARTIAL_NOTE}
+                  </Typography>
+                ) : null}
+                {sources.length > 0 && (
+                  <List dense disablePadding aria-label="Sources">
+                    {sources.map((source) => (
+                      <ListItem key={source.id} disableGutters sx={{ display: 'block', py: 0.5 }} data-testid="evidence-source">
+                        <Link href={source.url} target="_blank" rel="noopener noreferrer" sx={{ overflowWrap: 'anywhere' }}>
+                          {source.title || source.domain}
+                        </Link>
+                        <Typography variant="body2" color="text.secondary">
+                          {source.domain}
+                          {source.kind ? ` · ${SOURCE_KIND_LABEL[source.kind] ?? source.kind}` : ''}
+                          {source.year ? ` · ${source.year}` : ''}
+                        </Typography>
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
               </Section>
             )}
 

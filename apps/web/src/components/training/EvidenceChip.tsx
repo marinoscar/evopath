@@ -2,10 +2,12 @@
  * An evidence reference (`E1`) on a block, workout or exercise rationale. It
  * opens a popover with the claim, how it applies, the confidence and its
  * verified sources (never an unverified one: `parseEvidence` drops them).
+ * A claim with no verified source is labelled "Training principle" instead
+ * of listing an empty source list.
  */
 import { useId, useState } from 'react';
 import { Box, Chip, Link, List, ListItem, Popover, Typography } from '@mui/material';
-import type { PlanEvidence } from './planEvidence';
+import { isPrincipleClaim, type PlanEvidence } from './planEvidence';
 
 export interface EvidenceChipProps {
   refId: string;
@@ -20,6 +22,7 @@ export function EvidenceChip({ refId, evidence }: EvidenceChipProps) {
   const claim = evidence.claims.get(refId);
   if (!claim) return null;
   const sources = claim.sourceIds.map((sid) => evidence.sources.get(sid)).filter((s): s is NonNullable<typeof s> => !!s);
+  const principle = isPrincipleClaim(claim, evidence);
   return (
     <>
       <Chip
@@ -29,7 +32,7 @@ export function EvidenceChip({ refId, evidence }: EvidenceChipProps) {
         onClick={(e) => setAnchor(e.currentTarget)}
         aria-haspopup="dialog"
         aria-expanded={anchor ? 'true' : 'false'}
-        aria-label={`Evidence ${refId}`}
+        aria-label={principle ? `Evidence ${refId}, training principle` : `Evidence ${refId}`}
         sx={{ height: 22 }}
         data-testid={`evidence-chip-${refId}`}
       />
@@ -54,6 +57,11 @@ export function EvidenceChip({ refId, evidence }: EvidenceChipProps) {
         <Typography variant="caption" component="p" sx={{ mt: 0.5 }}>
           {CONFIDENCE[claim.confidence] ?? claim.confidence}
         </Typography>
+        {principle && (
+          <Typography variant="caption" component="p" color="text.secondary" sx={{ mt: 0.5 }} data-testid={`evidence-principle-${refId}`}>
+            Training principle
+          </Typography>
+        )}
         {sources.length > 0 && (
           <Box sx={{ mt: 1 }}>
             <List dense disablePadding aria-label={`Sources for ${refId}`}>
