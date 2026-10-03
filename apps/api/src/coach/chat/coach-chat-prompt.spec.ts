@@ -2,7 +2,10 @@ import { containsProfanity } from '../guard/coach-content-guard';
 import { renderPersonaStyle, type CoachRegister } from '../personas/resolve-register';
 import {
   COACH_ADJUST_LINK,
+  COACH_CHAT_REPLY_MAX_CHARS,
   COACH_PROFILE_RULES,
+  buildCoachChatContext,
+  coachChatPlanLine,
   userNameLine,
   buildCoachChatInput,
   buildCoachChatInstructions,
@@ -244,5 +247,58 @@ describe('the user name line and profile rules (#327)', () => {
     expect(text).toMatch(/Never diagnose/);
     expect(text).toMatch(/medication/);
     expect(text).toMatch(/clinician/);
+  });
+});
+
+describe('buildCoachChatContext (#338)', () => {
+  it('reply length is style guidance: short by default, thorough when asked for analysis, bounded by the cap', () => {
+    const text = buildCoachChatInstructions({ style: renderPersonaStyle('coach', 2, LOCKED), supportive: false, today: '2026-10-03' });
+    expect(text).toContain('Short by default');
+    expect(text).toContain('When the user asks for analysis, feedback or a review');
+    expect(text).toContain(`never more than ${COACH_CHAT_REPLY_MAX_CHARS}`);
+    expect(COACH_CHAT_REPLY_MAX_CHARS).toBe(6000);
+  });
+
+  // 2026-10-03T13:15:00Z is Saturday 07:15 in Costa Rica (UTC-6).
+  const now = new Date('2026-10-03T13:15:00.000Z');
+  const style = renderPersonaStyle('coach', 2, LOCKED);
+
+  it('states the local date, weekday, HH:mm time and IANA zone', () => {
+    expect(buildCoachChatContext({ now, timeZone: 'America/Costa_Rica' })).toContain(
+      "- Today is Saturday, 2026-10-03. The user's local time is 07:15 (time zone America/Costa_Rica).",
+    );
+  });
+
+  it('falls back to UTC for a missing or unknown zone', () => {
+    expect(buildCoachChatContext({ now, timeZone: null })).toContain("local time is 13:15 (time zone UTC)");
+    expect(buildCoachChatContext({ now, timeZone: 'Mars/Olympus' })).toContain('(time zone UTC)');
+  });
+
+  it('adds the plan week and today status, never a plan or workout name', () => {
+    const base = { date: '2026-10-03', program: { id: 'p', name: 'SECRET-PLAN' } };
+    expect(coachChatPlanLine({ kind: 'no_program', date: '2026-10-03' })).toBe('Training plan: no active plan.');
+    expect(coachChatPlanLine({ ...base, kind: 'not_started', startsOn: '2026-10-05' } as never)).toContain('starts on 2026-10-05');
+    expect(
+      coachChatPlanLine({ ...base, kind: 'rest_day', weekNumber: 3, totalWeeks: 8, next: { date: '2026-10-04' }, week: [] } as never),
+    ).toBe('Training plan: week 3 of 8. Today is a rest day. Next planned workout: 2026-10-04.');
+    const workout = { ...base, kind: 'workout', weekNumber: 4, totalWeeks: 8, isDeload: true, done: false, completedWorkoutId: null };
+    expect(coachChatPlanLine({ ...workout, inProgressWorkoutId: 'w' } as never)).toBe(
+      'Training plan: week 4 of 8 (deload week). Today has a planned workout: in progress.',
+    );
+    expect(coachChatPlanLine({ ...workout, inProgressWorkoutId: null } as never)).toContain('not done yet');
+    const block = buildCoachChatContext({ now, timeZone: 'UTC', plan: { ...workout, inProgressWorkoutId: null } as never });
+    expect(block).toContain('- Training plan: week 4 of 8');
+    expect(block).not.toContain('SECRET-PLAN');
+  });
+
+  it('replaces the bare date line in the instructions when given', () => {
+    const context = buildCoachChatContext({ now, timeZone: 'America/Costa_Rica' });
+    const text = buildCoachChatInstructions({ style, supportive: false, today: '2026-10-03', context });
+    expect(text).toContain('CONTEXT (facts for this turn');
+    expect(text).toContain('Saturday, 2026-10-03');
+    expect(text).not.toContain("Today is 2026-10-03 in the user's time zone.");
+    expect(buildCoachChatInstructions({ style, supportive: false, today: '2026-10-03' })).toContain(
+      "Today is 2026-10-03 in the user's time zone.",
+    );
   });
 });

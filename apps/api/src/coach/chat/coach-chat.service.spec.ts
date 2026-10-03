@@ -3,15 +3,28 @@ import { AiError } from '../../ai/core/ai-error';
 import type { AiInputItem, AiOutputItem, AiResponse, AiResponseRequest } from '../../ai/core/types/responses.types';
 import type { AiCallOptions, AiRequest, AiToolLoopRequest } from '../../ai/runtime/ai-runtime.types';
 import { runToolLoop } from '../../ai/runtime/ai-tool-loop';
+import { AI_TOOL_LOOP_MAX_STEPS } from '../../ai/runtime/ai-runtime.types';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../common/types/settings.types';
 import { aggregateSignals } from '../../programs/signals/aggregate-signals';
 import { SAFETY_STOP_GUIDANCE } from '../../training-agents/guardrails/safety-keywords';
 import { containsProfanity } from '../guard/coach-content-guard';
 import { MemoryRefs } from '../../memory/memory-context.service';
 import { COACH_PAUSE_INVALID } from './coach-chat-errors';
-import { COACH_ADJUST_PATH, COACH_CHAT_SAFETY_LOOKBACK_MS } from './coach-chat-prompt';
+import { COACH_ADJUST_PATH, COACH_CHAT_REPLY_MAX_CHARS, COACH_CHAT_SAFETY_LOOKBACK_MS } from './coach-chat-prompt';
 import { COACH_DISTRESS_REPLY } from './coach-chat-safety';
-import { COACH_CHAT_FALLBACK_REPLY, CoachChatService, StepChannel, chunkText, type CoachChatEvent } from './coach-chat.service';
+import {
+  COACH_CHAT_FALLBACK_REPLY,
+  COACH_CHAT_MAX_OUTPUT_TOKENS,
+  COACH_CHAT_MAX_STEPS,
+  CoachChatService,
+  StepChannel,
+  chunkText,
+  TOOL_TRANSCRIPT_MAX,
+  TOOL_TRANSCRIPT_OUTPUT_MAX,
+  toolTranscript,
+  truncateReply,
+  type CoachChatEvent,
+} from './coach-chat.service';
 
 // =============================================================================
 // CoachChatService (E7.7) with a mocked AiService over the REAL tool loop
@@ -21,11 +34,16 @@ const USER = '11111111-1111-4111-8111-111111111111';
 const MEMORY_ID = '88888888-8888-4888-8888-888888888888';
 
 // Canaries in every never-send source the turn could touch.
+// The user's own free text: the chat's read tools may send it (#338, coach-never-send.ts).
+const USER_TEXT = {
+  checkInNote: 'USER-TEXT-CHECKIN-NOTE',
+  workoutNote: 'USER-TEXT-WORKOUT-NOTE',
+};
+
+// Secrets and never-send canaries that must never reach a model, through any tool.
 const CANARY = {
   email: 'canary-email@never-send.test',
   name: 'Canary McNeverSend',
-  checkInNote: 'CANARY-CHECKIN-NOTE',
-  workoutNote: 'CANARY-WORKOUT-NOTE',
   photoStorageId: '9c0ffee0-0000-4000-8000-00000000c0de',
   audioStorageId: '9c0ffee0-0000-4000-8000-00000000a0d1',
   dob: '1990-05-05',
@@ -51,6 +69,10 @@ function setup(
     memory?: boolean;
     /** The user row `prisma.user.findUnique` answers (#327); default: no name on file. */
     user?: Record<string, unknown> | null;
+    /** `TrainingTodayService.today`'s answer (#338); default: no program. */
+    plan?: Record<string, unknown>;
+    /** The health profile's IANA zone (#338); default: unset (UTC). */
+    timeZone?: string | null;
   } = {},
 ) {
   const requests: AiResponseRequest[] = [];
@@ -91,7 +113,20 @@ function setup(
     },
     workout: {
       findMany: jest.fn().mockResolvedValue([
-        { name: 'Upper A', date: new Date('2026-09-30T00:00:00Z'), durationSeconds: 3600, notes: CANARY.workoutNote, exercises: [] },
+        {
+          id: '9c0ffee0-0000-4000-8000-0000000000aa',
+          name: 'Upper A',
+          date: new Date('2026-09-30T00:00:00Z'),
+          status: 'completed',
+          startedAt: new Date('2026-09-30T12:00:00Z'),
+          endedAt: null,
+          durationSeconds: 3600,
+          notes: USER_TEXT.workoutNote,
+          gym: null,
+          programWorkout: null,
+          programSession: null,
+          exercises: [],
+        },
       ]),
     },
   };
@@ -117,7 +152,9 @@ function setup(
   const runTools = jest.fn((req: AiToolLoopRequest, callOpts: AiCallOptions = {}) =>
     runToolLoop(respond, req, { userId: USER, signal: callOpts.signal }),
   );
-  const ai = { forUser: jest.fn(() => ({ runTools })) };
+  // A call without tools (#338: the final round, a regeneration) reads the same script.
+  const respondCall = jest.fn((req: AiRequest, callOpts: AiCallOptions = {}) => respond(req, callOpts));
+  const ai = { forUser: jest.fn(() => ({ runTools, respond: respondCall })) };
   const features = {
     resolve: jest.fn().mockResolvedValue({ state: 'ready', model: { provider: 'openai', modelId: 'fake-chat-model' } }),
   };
@@ -128,15 +165,17 @@ function setup(
   const systemSettings = {
     getCoachPolicy: jest.fn().mockResolvedValue({ ...DEFAULT_SYSTEM_SETTINGS.coach, ...(opts.policy ?? {}) }),
   };
-  const healthProfile = { get: jest.fn().mockResolvedValue({ dateOfBirth: CANARY.dob, unitSystem: 'metric' }) };
+  const healthProfile = {
+    get: jest.fn().mockResolvedValue({ dateOfBirth: CANARY.dob, unitSystem: 'metric', timeZone: opts.timeZone ?? null }),
+  };
   const checkIns = {
     today: jest.fn().mockResolvedValue('2026-10-01'),
     list: jest.fn().mockResolvedValue({
-      items: [{ date: '2026-10-01', energy: 4, sleepQuality: 3, soreness: 2, stress: 1, note: CANARY.checkInNote, updatedAt: '' }],
+      items: [{ date: '2026-10-01', energy: 4, sleepQuality: 3, soreness: 2, stress: 1, note: USER_TEXT.checkInNote, updatedAt: '' }],
     }),
   };
   const signals = { forUser: jest.fn().mockResolvedValue(aggregateSignals(threeDayPlanInput())) };
-  const today = { today: jest.fn().mockResolvedValue({ kind: 'no_program', date: '2026-10-01' }) };
+  const today = { today: jest.fn().mockResolvedValue(opts.plan ?? { kind: 'no_program', date: '2026-10-01' }) };
   const photos = {
     summarize: jest.fn().mockResolvedValue({
       count: 2,
@@ -145,7 +184,7 @@ function setup(
       storageObjectId: CANARY.photoStorageId,
     }),
   };
-  const metrics = { turn: jest.fn(), safetyHit: jest.fn(), toolCall: jest.fn(), error: jest.fn() };
+  const metrics = { turn: jest.fn(), safetyHit: jest.fn(), toolCall: jest.fn(), error: jest.fn(), recovery: jest.fn(), softPass: jest.fn() };
   // User memory (#325): one note shown as [m1]; the writer and the extraction enqueue.
   const memoryContext = {
     forChat: jest.fn(async () => ({
@@ -219,6 +258,8 @@ function setup(
     service,
     prisma,
     runTools,
+    respondCall,
+    today,
     requests,
     features,
     metrics,
@@ -313,6 +354,13 @@ describe('CoachChatService (E7.7)', () => {
       'list_biomarkers',
       'get_biomarker_values',
       'get_sleep',
+      'get_now',
+      'get_about_me',
+      'get_workout_history',
+      'get_workout',
+      'get_plan_week',
+      'get_exercise_history',
+      'get_activity',
       'pause_coach',
       'save_commitment',
       'set_display_name',
@@ -404,15 +452,70 @@ describe('CoachChatService (E7.7)', () => {
   });
 
   describe('content guard', () => {
-    it('replaces a reply with an invented number by the fallback line', async () => {
+    it('regenerates once on an invented number and delivers a passing retry (#338)', async () => {
       const t = setup();
-      t.script([{ outputText: 'You have trained 97 times this month.' }]);
+      t.script([{ outputText: 'You have trained 97 times this month.' }, { outputText: 'You are building a good habit. Keep going.' }]);
       const events = await drain(await t.service.startTurn(USER, 'How am I doing?'));
+
+      expect(text(events)).toBe('You are building a good habit. Keep going.');
+      expect((events.find((e) => e.type === 'done') as any).fallback).toBe(false);
+      expect(t.appMetrics.coachGuardRejection).toHaveBeenCalledWith('invented_number');
+      expect(t.metrics.recovery).toHaveBeenCalledWith('regenerated');
+      expect(t.metrics.turn).toHaveBeenCalledWith('model');
+      // The retry is a call WITHOUT tools carrying the draft and the offending figure.
+      expect(t.respondCall).toHaveBeenCalledTimes(1);
+      const retry = t.requests[1];
+      expect(retry.tools).toBeUndefined();
+      const sent = JSON.stringify(retry.input);
+      expect(sent).toContain('You have trained 97 times this month.');
+      expect(sent).toContain('NOT shown to me');
+      expect(sent).toContain(': 97.');
+      const [coach] = created(t.prisma, 'coach');
+      expect(coach.body).toBe('You are building a good habit. Keep going.');
+      expect(coach.data).toMatchObject({ retried: true, finalRound: false, stopReason: 'completed', finishReason: 'stop' });
+      expect(coach.data.fallback).toBeUndefined();
+    });
+
+    it('a retry failing only invented_number is delivered as a soft pass, with diagnostics and no text in data (#338)', async () => {
+      const t = setup();
+      t.script([{ outputText: 'You have trained 97 times this month.' }, { outputText: 'You trained 96 times, nice.' }]);
+      const events = await drain(await t.service.startTurn(USER, 'How am I doing?'));
+
+      expect(text(events)).toBe('You trained 96 times, nice.');
+      expect((events.find((e) => e.type === 'done') as any).fallback).toBe(false);
+      expect(t.metrics.turn).toHaveBeenCalledWith('soft_pass');
+      expect(t.metrics.softPass).toHaveBeenCalledWith('invented_number');
+      const [coach] = created(t.prisma, 'coach');
+      expect(coach.data).toEqual({
+        softPass: true,
+        guard: ['invented_number'],
+        stopReason: 'completed',
+        finishReason: 'stop',
+        lastFinishReason: 'stop',
+        finalRound: false,
+        retried: true,
+      });
+    });
+
+    it('keeps the hard fallback when the retry still breaks a hard rule (profanity), and stores why (#338)', async () => {
+      const t = setup();
+      t.script([{ outputText: 'Get your damn reps in.' }, { outputText: 'Damn, just do it.' }]);
+      const events = await drain(await t.service.startTurn(USER, 'motivate me'));
 
       expect(text(events)).toBe(COACH_CHAT_FALLBACK_REPLY);
       expect((events.find((e) => e.type === 'done') as any).fallback).toBe(true);
-      expect(t.appMetrics.coachGuardRejection).toHaveBeenCalledWith('invented_number');
       expect(t.metrics.turn).toHaveBeenCalledWith('fallback');
+      const [coach] = created(t.prisma, 'coach');
+      expect(coach.data).toMatchObject({ fallback: true, guard: ['profanity'], retried: true, stopReason: 'completed' });
+      expect(JSON.stringify(coach.data)).not.toContain('damn');
+    });
+
+    it('a draft with only a soft reason is soft-passed when the retry call fails', async () => {
+      const t = setup();
+      t.script([{ outputText: 'You have trained 97 times this month.' }]);
+      const events = await drain(await t.service.startTurn(USER, 'How am I doing?'));
+      expect(text(events)).toBe('You have trained 97 times this month.');
+      expect(created(t.prisma, 'coach')[0].data).toMatchObject({ softPass: true, retried: true });
     });
 
     it('allows numbers the user wrote and numbers from tool results', async () => {
@@ -422,10 +525,42 @@ describe('CoachChatService (E7.7)', () => {
       expect(text(events)).toBe('Energy 4 today, and you said 3 days.');
     });
 
-    it('replaces an empty or over-long reply', async () => {
+    it('allows small derived counts and the CONTEXT date and time without a regeneration (#338)', async () => {
+      const t = setup({ timeZone: 'America/Costa_Rica' });
+      t.script([{ outputText: 'PLACEHOLDER' }]);
+      // The reply quotes the local date from the CONTEXT block, whatever "now" is when the test runs.
+      const original = t.runTools.getMockImplementation()!;
+      t.runTools.mockImplementation((req: AiToolLoopRequest, callOpts?: AiCallOptions) => {
+        const date = /Today is \w+, (\d{4}-\d{2}-\d{2})/.exec(req.instructions ?? '')![1];
+        t.script([{ outputText: `That was your 1st session and 2 more are planned. Today is ${date}.` }]);
+        return original(req, callOpts);
+      });
+      const events = await drain(await t.service.startTurn(USER, 'I did my first session today, tell me what you think'));
+      expect(text(events)).toMatch(/^That was your 1st session and 2 more are planned\. Today is \d{4}-\d{2}-\d{2}\.$/);
+      expect(t.respondCall).not.toHaveBeenCalled();
+      expect(t.appMetrics.coachGuardRejection).not.toHaveBeenCalled();
+    });
+
+    it('an over-long reply is regenerated shorter; a still over-long retry is cut at a sentence boundary', async () => {
       const t = setup();
-      t.script([{ outputText: 'word '.repeat(400) }]);
-      expect(text(await drain(await t.service.startTurn(USER, 'hi')))).toBe(COACH_CHAT_FALLBACK_REPLY);
+      const long = 'This is one sentence of advice. '.repeat(250).trim();
+      t.script([{ outputText: long }, { outputText: long }]);
+      const events = await drain(await t.service.startTurn(USER, 'hi'));
+      const reply = text(events);
+      expect(reply.length).toBeLessThanOrEqual(COACH_CHAT_REPLY_MAX_CHARS);
+      expect(reply.endsWith('advice.')).toBe(true);
+      expect((events.find((e) => e.type === 'done') as any).fallback).toBe(false);
+      expect(JSON.stringify(t.requests[1].input)).toContain(`longer than ${COACH_CHAT_REPLY_MAX_CHARS} characters`);
+      expect(created(t.prisma, 'coach')[0].data).toMatchObject({ softPass: true, guard: ['length'] });
+    });
+
+    it('an empty reply gets one final call without tools; nothing from it either is the fallback', async () => {
+      const t = setup();
+      t.script([{ outputText: '' }]);
+      const events = await drain(await t.service.startTurn(USER, 'hi'));
+      expect(text(events)).toBe(COACH_CHAT_FALLBACK_REPLY);
+      expect(t.metrics.recovery).toHaveBeenCalledWith('final_round');
+      expect(created(t.prisma, 'coach')[0].data).toMatchObject({ fallback: true, guard: ['length'], finalRound: true, retried: false });
     });
 
     it('turns a plan-change link into a structured link', async () => {
@@ -505,7 +640,7 @@ describe('CoachChatService (E7.7)', () => {
     });
   });
 
-  it('never-send canary: no email, name, date of birth, notes or storage ids reach the model (no name on file)', async () => {
+  it('never-send canary: no email, name, date of birth, lab notes or storage ids reach the model; the user\'s own notes do (#338)', async () => {
     const t = setup({
       history: [{ role: 'coach', kind: 'nudge', title: 'Hi', body: 'Your hour.', data: { audio: CANARY.audioStorageId } }],
     });
@@ -518,6 +653,9 @@ describe('CoachChatService (E7.7)', () => {
           call('get_check_ins', {}, 'c4'),
           call('get_progress_photo_summary', {}, 'c5'),
           call('get_last_weekly_review', {}, 'c6'),
+          call('get_workout_history', { from: null, to: null, limit: null }, 'c7'),
+          call('get_about_me', {}, 'c8'),
+          call('get_now', {}, 'c9'),
         ],
       },
       { outputText: 'Ok.' },
@@ -526,6 +664,9 @@ describe('CoachChatService (E7.7)', () => {
 
     const sent = JSON.stringify(t.requests);
     for (const canary of Object.values(CANARY)) expect(sent).not.toContain(canary);
+    // The user's own notes DO reach the chat through its read tools (#338).
+    expect(sent).toContain(USER_TEXT.checkInNote);
+    expect(sent).toContain(USER_TEXT.workoutNote);
   });
 
   it('never-send canary with a name on file (#327): the name only in the <user_name> line and get_profile; nothing else leaks', async () => {
@@ -549,6 +690,8 @@ describe('CoachChatService (E7.7)', () => {
           call('get_sleep', {}, 'c10'),
           call('list_biomarkers', {}, 'c11'),
           call('get_biomarker_values', { keys: ['ldl_cholesterol'], sinceDays: null }, 'c12'),
+          call('get_about_me', {}, 'c13'),
+          call('get_workout_history', { from: null, to: null, limit: null }, 'c14'),
         ],
       },
       { outputText: 'Ok.' },
@@ -1095,3 +1238,133 @@ describe('CoachChatService: user memory (#325)', () => {
   });
 });
 
+
+describe('CoachChatService: the chat reliably answers (#338)', () => {
+  it("never starves the model: no output budget of its own (the model's maximum) and the runtime's 20 round-trips", async () => {
+    expect(COACH_CHAT_MAX_OUTPUT_TOKENS).toBeUndefined();
+    expect(COACH_CHAT_MAX_STEPS).toBe(AI_TOOL_LOOP_MAX_STEPS);
+    expect(COACH_CHAT_MAX_STEPS).toBe(20);
+    const t = setup();
+    t.script([{ outputText: 'Nice work today.' }]);
+    await drain(await t.service.startTurn(USER, 'hi'));
+    const req = t.runTools.mock.calls[0][0];
+    expect('maxOutputTokens' in req).toBe(false);
+    expect(req.maxSteps).toBe(20);
+  });
+
+  it('delivers a long, detailed analysis as is: no regeneration, no truncation', async () => {
+    expect(COACH_CHAT_REPLY_MAX_CHARS).toBeGreaterThanOrEqual(6000);
+    const t = setup();
+    const analysis = 'Your squat form held up well across every set, and the pacing between sets was steady. '.repeat(40).trim();
+    expect(analysis.length).toBeGreaterThan(3000);
+    t.script([{ outputText: analysis }]);
+    const events = await drain(await t.service.startTurn(USER, 'Give me a full review of my workout'));
+    expect(text(events)).toBe(analysis);
+    expect(t.respondCall).not.toHaveBeenCalled();
+  });
+
+  it('steps exhausted: one final call without tools, fed the tool results, answers the user', async () => {
+    const t = setup();
+    t.script([
+      ...Array.from({ length: COACH_CHAT_MAX_STEPS }, (_, i) => ({ output: [call('get_check_ins', {}, `c${i}`)] })),
+      { outputText: 'Your energy was 4 today. Solid start.' },
+    ]);
+    const events = await drain(await t.service.startTurn(USER, 'I did my first session today, tell me what you think'));
+
+    expect(text(events)).toBe('Your energy was 4 today. Solid start.');
+    expect(t.respondCall).toHaveBeenCalledTimes(1);
+    const final = t.requests[COACH_CHAT_MAX_STEPS];
+    expect(final.tools).toBeUndefined();
+    expect('maxOutputTokens' in final).toBe(false);
+    const sent = JSON.stringify(final.input);
+    expect(sent).toContain('<tool_results>');
+    expect(sent).toContain('get_check_ins (ok)');
+    expect(sent).toContain('cannot call any more tools');
+    // A repeated identical call is replayed once.
+    expect(sent.split('get_check_ins (ok)').length - 1).toBe(1);
+    expect(t.metrics.recovery).toHaveBeenCalledWith('final_round');
+    const [coach] = created(t.prisma, 'coach');
+    expect(coach.data).toMatchObject({ stopReason: 'steps_exhausted', finishReason: 'tool_calls', finalRound: true, retried: false });
+    expect(coach.data.fallback).toBeUndefined();
+  });
+
+  it('an empty completed answer (e.g. reasoning spent the budget) gets the final round too', async () => {
+    const t = setup();
+    t.script([{ outputText: '' }, { outputText: 'Good job showing up.' }]);
+    const events = await drain(await t.service.startTurn(USER, "What's my goal?"));
+    expect(text(events)).toBe('Good job showing up.');
+    expect(created(t.prisma, 'coach')[0].data).toMatchObject({ finalRound: true });
+  });
+
+  it('states the local date, weekday, time and IANA zone, and the plan week, in the instructions', async () => {
+    const t = setup({
+      timeZone: 'America/Costa_Rica',
+      plan: {
+        kind: 'workout',
+        date: '2026-10-01',
+        program: { id: 'p1', name: 'CANARY-PLAN-NAME' },
+        weekNumber: 2,
+        totalWeeks: 8,
+        isDeload: false,
+        done: true,
+        completedWorkoutId: 'w1',
+        inProgressWorkoutId: null,
+      },
+    });
+    t.script([{ outputText: 'Week 2 of 8, and today is done.' }]);
+    const events = await drain(await t.service.startTurn(USER, "What's my goal?"));
+
+    const instructions = t.requests[0].instructions ?? '';
+    expect(instructions).toMatch(
+      /Today is (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{4}-\d{2}-\d{2}\. The user's local time is \d{2}:\d{2} \(time zone America\/Costa_Rica\)\./,
+    );
+    expect(instructions).toContain('Training plan: week 2 of 8. Today has a planned workout: done.');
+    expect(instructions).not.toContain('CANARY-PLAN-NAME');
+    expect(t.today.today).toHaveBeenCalledWith(USER, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), expect.any(Date));
+    // The CONTEXT figures are allowed numbers: no regeneration.
+    expect(text(events)).toBe('Week 2 of 8, and today is done.');
+    expect(t.respondCall).not.toHaveBeenCalled();
+  });
+
+  it('falls back to UTC without a time zone, and a failed plan read just leaves the plan line out', async () => {
+    const t = setup();
+    t.today.today.mockRejectedValue(new Error('boom'));
+    t.script([{ outputText: 'Hello.' }]);
+    await drain(await t.service.startTurn(USER, 'hi'));
+    const instructions = t.requests[0].instructions ?? '';
+    expect(instructions).toContain('(time zone UTC)');
+    expect(instructions).not.toContain('Training plan:');
+  });
+});
+
+describe('toolTranscript', () => {
+  const step = (output: string, name = 'get_workout') => ({
+    step: 1,
+    response: {} as never,
+    calls: [{ callId: name, name, arguments: '{}', status: 'ok' as const, output, durationMs: 1 }],
+  });
+
+  it('replays a large tool output whole up to the generous per-output cap', () => {
+    expect(TOOL_TRANSCRIPT_OUTPUT_MAX).toBeGreaterThanOrEqual(20_000);
+    expect(TOOL_TRANSCRIPT_MAX).toBeGreaterThanOrEqual(100_000);
+    const big = 'x'.repeat(15_000);
+    const sent = JSON.stringify(toolTranscript([step(big)]));
+    expect(sent).toContain(big);
+    const huge = 'y'.repeat(TOOL_TRANSCRIPT_OUTPUT_MAX + 50);
+    expect(JSON.stringify(toolTranscript([step(huge)]))).not.toContain(huge);
+  });
+
+  it('is empty when no tool ran', () => {
+    expect(toolTranscript([])).toEqual([]);
+  });
+});
+
+describe('truncateReply', () => {
+  it('keeps text within the cap, cuts at a sentence end, else at a word with an ellipsis', () => {
+    expect(truncateReply('Short.', 20)).toBe('Short.');
+    expect(truncateReply('One two three. Four five six seven.', 20)).toBe('One two three.');
+    const cut = truncateReply('word '.repeat(50), 30);
+    expect(cut.length).toBeLessThanOrEqual(30);
+    expect(cut.endsWith('…')).toBe(true);
+  });
+});
