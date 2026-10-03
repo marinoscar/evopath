@@ -155,10 +155,11 @@ const SECRET = {
   device: '9c0ffee0-0000-4000-8000-00000000d0e1',
   externalId: 'SECRET-EXTERNAL-Zq94',
   photoNote: 'SECRET-PHOTO-NOTE-Zq95',
-  gymNote: 'SECRET-GYM-NOTE-Zq96',
-  latitude: 9.93333,
-  labNote: 'SECRET-LAB-NOTE-Zq97',
   otherUser: 'SECRET-OTHER-USER-Zq98',
+  installationId: '9c0ffee0-0000-4000-8000-00000000d0e2',
+  patId: '9c0ffee0-0000-4000-8000-00000000d0e3',
+  signing: 'SECRET-SIGNING-SHA-Zq99',
+  storageObjectId: '9c0ffee0-0000-4000-8000-00000000d0e4',
 };
 
 const FREE = {
@@ -173,6 +174,14 @@ const FREE = {
   goalText: 'FREE-GOAL-TEXT-Zq09',
   rationale: 'FREE-RATIONALE-Zq10',
   why: 'FREE-WHY-Zq11',
+  gymNote: 'FREE-GYM-NOTE-Zq12',
+  machineSetting: 'FREE-MACHINE-SETTING-Zq13',
+  measurementNote: 'FREE-MEASUREMENT-NOTE-Zq14',
+  changeRationale: 'FREE-CHANGE-RATIONALE-Zq15',
+  programNotes: 'FREE-PROGRAM-NOTES-Zq16',
+  adaptationRequest: 'FREE-ADAPTATION-REQUEST-Zq17',
+  documentName: 'FREE-DOCUMENT-NAME-Zq18.pdf',
+  photoCaption: 'FREE-GYM-PHOTO-CAPTION-Zq19',
 };
 
 const CHAT_USER = '11111111-1111-4111-8111-111111111111';
@@ -181,7 +190,41 @@ const WORKOUT_ID = '0a000000-0000-4000-8000-0000000000a1';
 const BENCH = '0e000000-0000-4000-8000-0000000000b1';
 
 function chatDeps() {
-  const gym = { name: FREE.gymName, notes: SECRET.gymNote, latitude: SECRET.latitude, longitude: SECRET.latitude };
+  const gym = {
+    name: FREE.gymName,
+    type: 'club',
+    description: null,
+    notes: FREE.gymNote,
+    latitude: 9.93,
+    longitude: -84.08,
+    isDefault: true,
+    isTemporary: false,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    equipment: [
+      {
+        equipmentTypeId: 'eq1',
+        quantity: 1,
+        brand: 'Hammer',
+        model: 'ISO',
+        notes: FREE.machineSetting,
+        origin: 'ai',
+        confidence: 'high',
+        userVerified: true,
+        originalAiValue: { sourcePhotoIds: [SECRET.storageObjectId], storageKey: SECRET.storageKey },
+        equipmentType: { name: 'Chest press', category: 'plate_loaded', description: null, ownerUserId: null },
+      },
+    ],
+    photos: [
+      {
+        caption: FREE.photoCaption,
+        takenAt: null,
+        createdAt: new Date('2026-01-02T00:00:00.000Z'),
+        storageObjectId: SECRET.storageObjectId,
+        storageObject: { key: SECRET.storageKey, url: SECRET.url },
+        equipment: [],
+      },
+    ],
+  };
   const workout = {
     id: WORKOUT_ID,
     userId: CHAT_USER,
@@ -253,12 +296,87 @@ function chatDeps() {
       exercise: {
         findMany: jest.fn().mockResolvedValue([{ id: BENCH, name: 'Bench press', slug: 'bench-press', trackingMode: 'weight_reps', aliases: [] }]),
       },
-      program: { findFirst: jest.fn().mockResolvedValue(program) },
+      program: {
+        findFirst: jest.fn().mockResolvedValue(program),
+        findMany: jest.fn().mockResolvedValue([
+          { ...program, notes: FREE.programNotes, autonomyPausedAt: null, autonomyPausedReason: null, updatedAt: program.startDate, createdAt: program.startDate, lastEvaluatedAt: null, weeks: [], _count: { sessions: 1 } },
+        ]),
+      },
+      programChangeLog: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            kind: 'adapted',
+            actor: 'ai',
+            status: 'applied',
+            fromVersion: 1,
+            toVersion: 2,
+            summary: 'Swap',
+            rationale: FREE.changeRationale,
+            operations: [{ exerciseId: BENCH, storageKey: SECRET.storageKey }],
+            citations: [],
+            createdAt: program.startDate,
+            decidedAt: null,
+            program: { name: 'Strong 8' },
+          },
+        ]),
+      },
+      programVersion: { findMany: jest.fn().mockResolvedValue([]) },
+      workoutAdaptation: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            status: 'applied',
+            request: { reason: FREE.adaptationRequest, gymId: SECRET.storageObjectId },
+            proposal: null,
+            safety: {},
+            appliedAs: 'one_off',
+            appliedAt: null,
+            errorCode: null,
+            createdAt: program.startDate,
+            gym: null,
+            contextSnapshot: { email: SECRET.email },
+            models: { keySource: SECRET.signing },
+          },
+        ]),
+      },
+      trainingPlanRun: { findMany: jest.fn().mockResolvedValue([]) },
+      activityGoal: { findMany: jest.fn().mockResolvedValue([]) },
+      equipmentType: { findMany: jest.fn().mockResolvedValue([]) },
+      healthDocument: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            kind: 'lab_report',
+            originalName: FREE.documentName,
+            mimeType: 'application/pdf',
+            sizeBytes: BigInt(1024),
+            retention: 'keep',
+            documentDate: null,
+            fileDeletedAt: null,
+            createdAt: program.startDate,
+            storageObjectId: SECRET.storageObjectId,
+          },
+        ]),
+      },
+      healthSyncDevice: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            name: 'Pixel',
+            manufacturer: 'Google',
+            model: 'Pixel 9',
+            status: 'active',
+            lastSyncAt: null,
+            timezone: null,
+            installationId: SECRET.installationId,
+            patId: SECRET.patId,
+            signingSha256: SECRET.signing,
+          },
+        ]),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([]),
       programBlock: { findMany: jest.fn().mockResolvedValue([]) },
       programWeek: { findMany: jest.fn().mockResolvedValue([]), aggregate: jest.fn().mockResolvedValue({ _max: { weekNumber: 8 } }) },
       programWorkout: { findMany: jest.fn().mockResolvedValue([]) },
       programExercise: { findMany: jest.fn().mockResolvedValue([]) },
-      gym: { findFirst: jest.fn().mockResolvedValue(gym) },
+      gym: { findFirst: jest.fn().mockResolvedValue(gym), findMany: jest.fn().mockResolvedValue([gym]) },
       activityEntry: {
         findMany: jest.fn().mockResolvedValue([
           {
@@ -286,7 +404,13 @@ function chatDeps() {
             unit: 'kg',
             measuredAt: new Date('2026-09-30T07:00:00.000Z'),
             localDate: null,
-            notes: SECRET.labNote,
+            method: 'scale',
+            origin: 'device',
+            referenceLow: null,
+            referenceHigh: null,
+            referenceText: null,
+            flag: null,
+            notes: FREE.measurementNote,
             sourceRef: { storageKey: SECRET.storageKey },
             externalId: SECRET.externalId,
             healthSyncDeviceId: SECRET.device,
@@ -309,6 +433,7 @@ function chatDeps() {
       summarize: jest.fn().mockResolvedValue({ count: 1, lastLocalDate: '2026-09-20', byPose: {}, storageKey: SECRET.storageKey, note: SECRET.photoNote }),
     },
     now: () => CHAT_NOW,
+    healthSummary: { consentOn: jest.fn().mockResolvedValue(true), forTraining: jest.fn().mockResolvedValue(null) },
     goals: { progressForUser: jest.fn().mockResolvedValue([]) },
     profile: {
       healthProfile: {
@@ -359,6 +484,12 @@ const READ_TOOL_ARGS: Record<string, unknown> = {
   get_plan_week: { weekNumber: null },
   get_exercise_history: { exercise: 'Bench press', limit: null },
   get_activity: { from: null, to: null },
+  get_gyms: {},
+  get_measurements: { metricKey: null, category: null, from: null, to: null },
+  get_personal_records: {},
+  get_programs: {},
+  get_plan_history: { limit: null },
+  get_health_documents: {},
 };
 
 describe('coach never-send canary (coach chat read tools, #338)', () => {
@@ -366,7 +497,7 @@ describe('coach never-send canary (coach chat read tools, #338)', () => {
     for (const id of Object.keys(COACH_CHAT_TOOL_LIFTED)) expect(COACH_NEVER_SEND_IDS).toContain(id);
     const still = COACH_CHAT_TOOL_NEVER_SEND.map((entry) => entry.id).sort();
     expect(still).toEqual(
-      ['coach_audio', 'coach_message_bodies', 'date_of_birth', 'documents_photos', 'email', 'labs', 'medications', 'other_users', 'progress_photos', 'storage'].sort(),
+      ['coach_audio', 'coach_message_bodies', 'date_of_birth', 'email', 'medications', 'other_users', 'progress_photos', 'storage'].sort(),
     );
   });
 
@@ -393,18 +524,45 @@ describe('coach never-send canary (coach chat read tools, #338)', () => {
     const missing = Object.entries(FREE).filter(([, text]) => !all.includes(text));
     expect(missing).toEqual([]);
     // The tools that carry the workout really answered (not `unavailable`).
-    for (const name of ['get_workout_history', 'get_workout', 'get_about_me', 'get_activity', 'get_exercise_history']) {
+    for (const name of [
+      'get_workout_history',
+      'get_workout',
+      'get_about_me',
+      'get_activity',
+      'get_exercise_history',
+      'get_gyms',
+      'get_measurements',
+      'get_personal_records',
+      'get_programs',
+      'get_plan_history',
+      'get_health_documents',
+    ]) {
       expect(outputs[name]).not.toContain('"error"');
     }
 
     // Every read of a user-owned table filters by the caller.
-    for (const model of ['workout', 'activityEntry', 'program', 'measurement']) {
-      const api = (deps.prisma as Record<string, Record<string, jest.Mock>>)[model];
+    for (const model of [
+      'workout',
+      'activityEntry',
+      'program',
+      'measurement',
+      'gym',
+      'programChangeLog',
+      'programVersion',
+      'workoutAdaptation',
+      'trainingPlanRun',
+      'activityGoal',
+      'healthDocument',
+      'healthSyncDevice',
+    ]) {
+      const api = (deps.prisma as unknown as Record<string, Record<string, jest.Mock>>)[model];
       for (const fn of Object.values(api)) {
         for (const [query] of fn.mock.calls) {
           expect(JSON.stringify(query.where)).toContain(CHAT_USER);
         }
       }
     }
+    // The raw PR read binds the caller as a parameter.
+    expect((deps.prisma.$queryRaw as jest.Mock).mock.calls[0][0].values).toContain(CHAT_USER);
   });
 });

@@ -409,11 +409,15 @@ describe('get_health_summary (#327)', () => {
 });
 
 describe('get_sleep (#327)', () => {
-  it('reads the last 14 local nights for the caller with the note (#338), selecting no provider id or device', async () => {
+  it('reads the last 14 local nights for the caller with bed/wake times, source app and note (#338), never the device id', async () => {
     const deps = makeDeps();
     deps.prisma.sleepSession.findMany.mockResolvedValue([
       {
         localDate: new Date('2026-10-01T00:00:00.000Z'),
+        startAt: new Date('2026-10-01T04:30:00.000Z'),
+        endAt: new Date('2026-10-01T12:30:00.000Z'),
+        unknownMinutes: null,
+        provider: 'health_connect:9c0ffee0-0000-4000-8000-00000000de71',
         durationMinutes: 420,
         awakeMinutes: 20,
         lightMinutes: 200,
@@ -424,6 +428,10 @@ describe('get_sleep (#327)', () => {
       },
       {
         localDate: new Date('2026-09-30T00:00:00.000Z'),
+        startAt: null,
+        endAt: null,
+        unknownMinutes: null,
+        provider: null,
         durationMinutes: 380,
         awakeMinutes: null,
         lightMinutes: null,
@@ -442,13 +450,26 @@ describe('get_sleep (#327)', () => {
       localDate: { gte: new Date('2026-09-18T00:00:00.000Z'), lte: new Date('2026-10-01T00:00:00.000Z') },
     });
     expect(Object.keys(query.select).sort()).toEqual(
-      ['awakeMinutes', 'deepMinutes', 'durationMinutes', 'lightMinutes', 'localDate', 'note', 'origin', 'remMinutes'].sort(),
+      [
+        'awakeMinutes',
+        'deepMinutes',
+        'durationMinutes',
+        'endAt',
+        'lightMinutes',
+        'localDate',
+        'note',
+        'origin',
+        'provider',
+        'remMinutes',
+        'startAt',
+        'unknownMinutes',
+      ].sort(),
     );
     expect(result).toEqual({
       from: '2026-09-18',
       to: '2026-10-01',
       nights: [
-        { localDate: '2026-10-01', asleepMinutes: 420, awakeMinutes: 20, lightMinutes: 200, deepMinutes: 90, remMinutes: 110, origin: 'device', note: 'Woke up at 3am' },
+        { localDate: '2026-10-01', asleepMinutes: 420, awakeMinutes: 20, lightMinutes: 200, deepMinutes: 90, remMinutes: 110, bedTime: '22:30', wakeTime: '06:30', origin: 'device', provider: 'health_connect', note: 'Woke up at 3am' },
         { localDate: '2026-09-30', asleepMinutes: 380, origin: 'manual' },
       ],
     });

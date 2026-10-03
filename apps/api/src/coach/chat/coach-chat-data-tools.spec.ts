@@ -51,7 +51,14 @@ function benchWorkout(over: Record<string, unknown> = {}, sets: unknown[] = []) 
     endedAt: new Date('2026-09-30T00:35:00.000Z'),
     durationSeconds: null,
     notes: '  Felt   strong today ',
-    gym: { name: 'Iron Temple' },
+    gym: {
+      name: 'Iron Temple',
+      type: 'club',
+      equipment: [
+        { equipmentTypeId: 'eq-bench', quantity: 2, brand: 'Hammer Strength', model: 'Flat Bench', notes: 'Seat at 4' },
+        { equipmentTypeId: 'eq-other', quantity: 1, brand: 'Rogue', model: 'Rack', notes: null },
+      ],
+    },
     programWorkout: null,
     programSession: {
       plannedFor: new Date('2026-09-29T00:00:00.000Z'),
@@ -67,7 +74,25 @@ function benchWorkout(over: Record<string, unknown> = {}, sets: unknown[] = []) 
         exerciseId: EX_BENCH,
         position: 0,
         notes: 'Elbows tucked',
-        exercise: { name: 'Bench press', trackingMode: 'weight_reps' },
+        equipmentTypeId: 'eq-bench',
+        equipmentType: { name: 'Flat bench', category: 'benches_racks', description: null },
+        exercise: {
+          name: 'Bench press',
+          trackingMode: 'weight_reps',
+          primaryMuscles: ['chest'],
+          secondaryMuscles: ['triceps', 'front_delts'],
+          movementPattern: 'horizontal_push',
+          isUnilateral: false,
+          isBodyweight: false,
+          aliases: ['bench'],
+          notes: null,
+          ownerUserId: null,
+          requirements: [
+            { groupIndex: 0, equipmentType: { name: 'Barbell' }, capability: null },
+            { groupIndex: 0, equipmentType: { name: 'Flat bench' }, capability: null },
+            { groupIndex: 1, equipmentType: null, capability: { name: 'Chest press' } },
+          ],
+        },
         sets: sets.length
           ? sets
           : [
@@ -231,6 +256,19 @@ describe('get_workout_history (#338)', () => {
       {
         name: 'Bench press',
         notes: 'Elbows tucked',
+        equipment: {
+          name: 'Flat bench',
+          category: 'benches_racks',
+          gymItems: [{ brand: 'Hammer Strength', model: 'Flat Bench', notes: 'Seat at 4', quantity: 2 }],
+        },
+        exercise: {
+          trackingMode: 'weight_reps',
+          movementPattern: 'horizontal_push',
+          primaryMuscles: ['chest'],
+          secondaryMuscles: ['triceps', 'front_delts'],
+          aliases: ['bench'],
+          needsOneOf: [['Barbell', 'Flat bench'], ['Chest press']],
+        },
         sets: [
           { set: 1, warmup: true, weightKg: 60, reps: 8, completed: true },
           {
@@ -347,7 +385,12 @@ describe('get_plan_week (#338)', () => {
       rationale: 'Three full-body days to build a base.',
       notes: null,
       currentVersion: 3,
-      gym: { name: 'Iron Temple' },
+      gym: {
+        name: 'Iron Temple',
+        type: 'club',
+        description: null,
+        equipment: [{ equipmentTypeId: 'eq-bench', quantity: 1, brand: 'Eleiko', model: null, notes: 'Bench by the window' }],
+      },
     } as never);
     deps.prisma.programBlock.findMany.mockResolvedValue([
       { id: 'b1', position: 0, name: 'Base', focus: 'Strength base', rationale: null, archivedAt: null },
@@ -379,11 +422,29 @@ describe('get_plan_week (#338)', () => {
         rationale: null,
         evidenceRefs: [],
         notes: 'Pause on the chest',
-        equipmentTypeId: null,
+        equipmentTypeId: 'eq-bench',
       },
     ]);
+    (deps.prisma as any).equipmentType = {
+      findMany: jest.fn().mockResolvedValue([{ id: 'eq-bench', name: 'Flat bench', category: 'benches_racks', description: null }]),
+    };
     deps.prisma.workout.findMany.mockResolvedValue([{ id: W1, status: 'completed', programWorkoutId: PW1, programSession: null }]);
-    deps.prisma.exercise.findMany.mockResolvedValue([{ id: EX_BENCH, name: 'Bench press' }]);
+    deps.prisma.exercise.findMany.mockResolvedValue([
+      {
+        id: EX_BENCH,
+        name: 'Bench press',
+        trackingMode: 'weight_reps',
+        primaryMuscles: ['chest'],
+        secondaryMuscles: [],
+        movementPattern: 'horizontal_push',
+        isUnilateral: false,
+        isBodyweight: false,
+        aliases: [],
+        notes: null,
+        ownerUserId: null,
+        requirements: [],
+      },
+    ]);
   }
 
   it('answers the current week with dates, statuses, the logged workout id and full prescriptions, plus the overview', async () => {
@@ -402,6 +463,8 @@ describe('get_plan_week (#338)', () => {
     expect(result.week.sessions[0].exercises).toEqual([
       {
         name: 'Bench press',
+        exercise: { trackingMode: 'weight_reps', movementPattern: 'horizontal_push', primaryMuscles: ['chest'] },
+        equipment: { name: 'Flat bench', category: 'benches_racks', gymItems: [{ brand: 'Eleiko', notes: 'Bench by the window', quantity: 1 }] },
         priority: true,
         sets: 4,
         repMin: 5,
@@ -653,5 +716,350 @@ describe('get_about_me (#338)', () => {
     expect(result.training).toBeNull();
     expect(result.profile).toMatchObject({ name: 'Oscar' });
     expect(result.plan.today).toEqual({ status: 'no_plan' });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Full coverage (#338 follow-up): gyms, measurements, PRs, plans, history, records
+// -----------------------------------------------------------------------------
+
+describe('get_gyms (#338)', () => {
+  it('answers every gym of the caller with its full inventory, photo captions and location, never a storage object', async () => {
+    const deps = makeDeps();
+    (deps.prisma.gym as any).findMany = jest.fn().mockResolvedValue([
+      {
+        name: 'Home garage',
+        type: 'home',
+        description: 'Two-car garage',
+        notes: 'Cold in winter',
+        latitude: 9.93,
+        longitude: -84.08,
+        isDefault: true,
+        isTemporary: false,
+        createdAt: new Date('2026-01-10T00:00:00Z'),
+        equipment: [
+          {
+            quantity: 1,
+            brand: 'Rogue',
+            model: 'R-3',
+            notes: 'J-cups at hole 9',
+            origin: 'ai',
+            confidence: 'high',
+            userVerified: true,
+            originalAiValue: { equipmentTypeSlug: 'power-rack', sourcePhotoIds: ['9c0ffee0-0000-4000-8000-0000000000f0'] },
+            equipmentType: { name: 'Power rack', category: 'benches_racks', description: null, ownerUserId: null },
+          },
+        ],
+        photos: [
+          {
+            caption: 'Rack corner',
+            takenAt: null,
+            createdAt: new Date('2026-01-11T00:00:00Z'),
+            equipment: [{ gymEquipment: { equipmentType: { name: 'Power rack' } } }],
+          },
+        ],
+      },
+    ]);
+    const result = await run(deps, 'get_gyms');
+    const query = (deps.prisma.gym as any).findMany.mock.calls[0][0];
+    expect(query.where).toEqual({ userId: USER });
+    expect(JSON.stringify(query.select)).not.toMatch(/storageObject/);
+    expect(result.gyms[0]).toEqual({
+      name: 'Home garage',
+      type: 'home',
+      default: true,
+      temporary: false,
+      description: 'Two-car garage',
+      notes: 'Cold in winter',
+      location: { latitude: 9.93, longitude: -84.08 },
+      addedOn: '2026-01-10',
+      equipment: [
+        {
+          name: 'Power rack',
+          category: 'benches_racks',
+          quantity: 1,
+          brand: 'Rogue',
+          model: 'R-3',
+          notes: 'J-cups at hole 9',
+          origin: 'ai',
+          aiConfidence: 'high',
+          userVerified: true,
+          aiOriginallyRead: { equipmentTypeSlug: 'power-rack' },
+        },
+      ],
+      photos: [{ caption: 'Rack corner', takenOn: '2026-01-11', shows: ['Power rack'] }],
+    });
+  });
+});
+
+describe('get_measurements (#338)', () => {
+  const rows = [
+    {
+      metricKey: 'weight',
+      value: 92.4,
+      unit: 'kg',
+      measuredAt: new Date('2026-09-30T13:00:00Z'),
+      localDate: new Date('2026-09-30T00:00:00Z'),
+      method: 'smart_scale',
+      origin: 'device',
+      notes: 'After breakfast',
+      referenceLow: null,
+      referenceHigh: null,
+      referenceText: null,
+      flag: null,
+    },
+    {
+      metricKey: 'weight',
+      value: 93.1,
+      unit: 'kg',
+      measuredAt: new Date('2026-09-01T13:00:00Z'),
+      localDate: new Date('2026-09-01T00:00:00Z'),
+      method: 'unspecified',
+      origin: 'manual',
+      notes: null,
+      referenceLow: null,
+      referenceHigh: null,
+      referenceText: null,
+      flag: null,
+    },
+  ];
+
+  it('answers the caller\'s history with notes and a per-metric summary; labs are left out while consent is off', async () => {
+    const deps = makeDeps();
+    deps.prisma.measurement.findMany.mockResolvedValue(rows);
+    (deps as any).healthSummary = { consentOn: jest.fn().mockResolvedValue(false), forTraining: jest.fn() };
+    const result = await run(deps, 'get_measurements', { metricKey: null, category: null, from: null, to: null });
+
+    const query = deps.prisma.measurement.findMany.mock.calls[0][0];
+    expect(query.where).toMatchObject({ userId: USER, supersededAt: null, deletedAt: null });
+    expect(query.where.metricKey.in).toContain('weight');
+    expect(query.where.metricKey.in).not.toContain('ldl_cholesterol');
+    expect(Object.keys(query.select)).not.toEqual(expect.arrayContaining(['sourceRef']));
+    expect(result.labs).toMatch(/setting is off/);
+    expect(result.readings[0]).toMatchObject({ metricKey: 'weight', value: 92.4, date: '2026-09-30', method: 'smart_scale', note: 'After breakfast' });
+    expect(result.summary.weight).toEqual({
+      count: 2,
+      first: { value: 93.1, date: '2026-09-01' },
+      latest: { value: 92.4, date: '2026-09-30' },
+      min: 92.4,
+      max: 93.1,
+      change: -0.7,
+    });
+  });
+
+  it('includes labs while consent is on, filters by key or category, and refuses an unknown key', async () => {
+    const deps = makeDeps();
+    (deps as any).healthSummary = { consentOn: jest.fn().mockResolvedValue(true), forTraining: jest.fn() };
+    const all = await run(deps, 'get_measurements', { metricKey: null, category: null, from: null, to: null });
+    expect(all.labs).toBeUndefined();
+    expect(deps.prisma.measurement.findMany.mock.calls[0][0].where.metricKey).toBeUndefined();
+
+    await run(deps, 'get_measurements', { metricKey: null, category: 'vital', from: null, to: null });
+    expect(deps.prisma.measurement.findMany.mock.calls[1][0].where.metricKey.in).toContain('resting_hr');
+
+    expect(await run(deps, 'get_measurements', { metricKey: 'bogus', category: null, from: null, to: null })).toMatchObject({
+      error: 'invalid_arguments',
+    });
+  });
+});
+
+describe('get_personal_records (#338)', () => {
+  it('reads every exercise\'s records in one scoped SQL read, strongest first', async () => {
+    const deps = makeDeps();
+    (deps.prisma as any).$queryRaw = jest.fn().mockResolvedValue([
+      { kind: 'weight', exercise_id: EX_BENCH, name: 'Bench press', weight_kg: 100, reps: 5, date: new Date('2026-09-29T00:00:00Z'), e1rm: null, sessions: null, working_sets: null },
+      { kind: 'reps', exercise_id: EX_BENCH, name: 'Bench press', weight_kg: 60, reps: 15, date: new Date('2026-08-01T00:00:00Z'), e1rm: null, sessions: null, working_sets: null },
+      { kind: 'e1rm', exercise_id: EX_BENCH, name: 'Bench press', weight_kg: 100, reps: 5, date: new Date('2026-09-29T00:00:00Z'), e1rm: 116.7, sessions: null, working_sets: null },
+      { kind: 'stats', exercise_id: EX_BENCH, name: 'Bench press', weight_kg: null, reps: null, date: new Date('2026-09-29T00:00:00Z'), e1rm: null, sessions: BigInt(12), working_sets: BigInt(40) },
+      { kind: 'stats', exercise_id: EX_ROW, name: 'Pull-up', weight_kg: null, reps: null, date: new Date('2026-09-20T00:00:00Z'), e1rm: null, sessions: 3, working_sets: 9 },
+    ]);
+    const result = await run(deps, 'get_personal_records');
+
+    const sql = (deps.prisma as any).$queryRaw.mock.calls[0][0];
+    expect(sql.values).toContain(USER);
+    expect(result.records).toEqual([
+      {
+        name: 'Bench press',
+        maxWeight: { kg: 100, reps: 5, date: '2026-09-29' },
+        maxReps: { reps: 15, kg: 60, date: '2026-08-01' },
+        bestE1rm: { kg: 116.7, fromKg: 100, fromReps: 5, date: '2026-09-29' },
+        sessions: 12,
+        workingSets: 40,
+        lastDone: '2026-09-29',
+      },
+      { name: 'Pull-up', maxWeight: null, maxReps: null, bestE1rm: null, sessions: 3, workingSets: 9, lastDone: '2026-09-20' },
+    ]);
+  });
+});
+
+describe('get_programs and get_plan_history (#338)', () => {
+  it('get_programs answers every plan of the caller, past ones included, with intake and counts', async () => {
+    const deps = makeDeps();
+    (deps.prisma.program as any).findMany = jest.fn().mockResolvedValue([
+      {
+        name: 'Strong 8',
+        goal: 'strength',
+        status: 'archived',
+        source: 'ai',
+        startDate: new Date('2026-05-04T00:00:00Z'),
+        autonomy: 'autonomous',
+        autonomyPausedAt: new Date('2026-06-01T00:00:00Z'),
+        autonomyPausedReason: 'pain_pattern',
+        currentVersion: 4,
+        rationale: 'Base block.',
+        notes: 'Felt stale by week 6',
+        intake: { goal: { type: 'strength', description: 'Bench 120' }, experience: 'intermediate', daysPerWeek: 3, minutesPerSession: 60, gymId: '9c0ffee0-0000-4000-8000-0000000000f1' },
+        createdAt: new Date('2026-05-01T00:00:00Z'),
+        updatedAt: new Date('2026-07-01T00:00:00Z'),
+        lastEvaluatedAt: null,
+        gym: { name: 'Iron Temple' },
+        weeks: [{ weekNumber: 1 }, { weekNumber: 8 }],
+        _count: { sessions: 21 },
+      },
+    ]);
+    const result = await run(deps, 'get_programs');
+    expect((deps.prisma.program as any).findMany.mock.calls[0][0].where).toEqual({ userId: USER });
+    expect(result.programs[0]).toMatchObject({
+      name: 'Strong 8',
+      status: 'archived',
+      startDate: '2026-05-04',
+      totalWeeks: 8,
+      version: 4,
+      autonomyPaused: { reason: 'pain_pattern' },
+      notes: 'Felt stale by week 6',
+      intake: { goal: { description: 'Bench 120' }, daysPerWeek: 3 },
+      workoutsLogged: 21,
+    });
+    expect(JSON.stringify(result)).not.toContain('9c0ffee0-0000-4000-8000-0000000000f1');
+  });
+
+  it('get_plan_history answers changes, versions, adaptations and runs for the caller, without ids', async () => {
+    const deps = makeDeps();
+    const at = new Date('2026-09-20T10:00:00Z');
+    (deps.prisma as any).programChangeLog = {
+      findMany: jest.fn().mockResolvedValue([
+        {
+          kind: 'adapted',
+          actor: 'ai',
+          status: 'applied',
+          fromVersion: 2,
+          toVersion: 3,
+          summary: 'Swapped squat for leg press',
+          rationale: 'Knee pain flagged twice',
+          operations: [{ op: 'swap', exerciseId: EX_BENCH, to: 'leg-press' }],
+          citations: [],
+          createdAt: at,
+          decidedAt: null,
+          program: { name: 'Strong 8' },
+        },
+      ]),
+    };
+    (deps.prisma as any).programVersion = {
+      findMany: jest.fn().mockResolvedValue([{ versionNumber: 3, origin: 'ai_adapt', rationale: 'Knee', createdAt: at, program: { name: 'Strong 8' } }]),
+    };
+    (deps.prisma as any).workoutAdaptation = {
+      findMany: jest.fn().mockResolvedValue([
+        {
+          status: 'applied',
+          request: { reason: 'Only 30 minutes today' },
+          proposal: { summary: 'Shortened session' },
+          safety: {},
+          appliedAs: 'one_off',
+          appliedAt: at,
+          errorCode: null,
+          createdAt: at,
+          gym: null,
+        },
+      ]),
+    };
+    (deps.prisma as any).trainingPlanRun = {
+      findMany: jest.fn().mockResolvedValue([
+        { kind: 'evaluate', trigger: 'weekly', status: 'succeeded', input: { trigger: 'weekly' }, result: { verdict: 'adapt' }, errorCode: null, createdAt: at, completedAt: at },
+      ]),
+    };
+    const result = await run(deps, 'get_plan_history', { limit: null });
+    expect((deps.prisma as any).programChangeLog.findMany.mock.calls[0][0]).toMatchObject({ where: { userId: USER }, take: 50 });
+    expect((deps.prisma as any).programVersion.findMany.mock.calls[0][0].where).toEqual({ program: { userId: USER } });
+    expect((deps.prisma as any).workoutAdaptation.findMany.mock.calls[0][0].where).toEqual({ userId: USER });
+    expect((deps.prisma as any).trainingPlanRun.findMany.mock.calls[0][0].where).toEqual({ userId: USER });
+    expect(result.changes[0]).toMatchObject({ plan: 'Strong 8', by: 'ai', summary: 'Swapped squat for leg press', rationale: 'Knee pain flagged twice' });
+    expect(result.changes[0].operations).toEqual([{ op: 'swap', to: 'leg-press' }]);
+    expect(result.adaptations[0]).toMatchObject({ request: { reason: 'Only 30 minutes today' }, appliedAs: 'one_off' });
+    expect(result.planRuns[0]).toMatchObject({ kind: 'evaluate', trigger: 'weekly', result: { verdict: 'adapt' } });
+    expect(JSON.stringify(result)).not.toContain(EX_BENCH);
+  });
+
+  it('get_plan_week reads a past plan by name, and answers not_found for an unknown one', async () => {
+    const deps = makeDeps();
+    expect(await run(deps, 'get_plan_week', { weekNumber: null, plan: 'Old plan' })).toMatchObject({ error: 'not_found' });
+    expect(deps.prisma.program.findFirst.mock.calls[0][0].where).toEqual({
+      userId: USER,
+      name: { equals: 'Old plan', mode: 'insensitive' },
+    });
+  });
+});
+
+describe('get_health_documents (#338)', () => {
+  it('lists the caller\'s health records while the health-data setting is on; consent_off otherwise', async () => {
+    const deps = makeDeps();
+    (deps as any).healthSummary = { consentOn: jest.fn().mockResolvedValue(false), forTraining: jest.fn() };
+    (deps.prisma as any).healthDocument = {
+      findMany: jest.fn().mockResolvedValue([
+        {
+          kind: 'lab_report',
+          originalName: 'labs-sept.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: BigInt(204800),
+          retention: 'keep',
+          documentDate: new Date('2026-09-15T00:00:00Z'),
+          fileDeletedAt: null,
+          createdAt: new Date('2026-09-16T00:00:00Z'),
+        },
+      ]),
+    };
+    expect(await run(deps, 'get_health_documents')).toMatchObject({ error: 'consent_off' });
+    expect((deps.prisma as any).healthDocument.findMany).not.toHaveBeenCalled();
+
+    (deps as any).healthSummary.consentOn.mockResolvedValue(true);
+    const result = await run(deps, 'get_health_documents');
+    const query = (deps.prisma as any).healthDocument.findMany.mock.calls[0][0];
+    expect(query.where).toEqual({ userId: USER });
+    expect(Object.keys(query.select)).not.toEqual(expect.arrayContaining(['storageObjectId']));
+    expect(result.documents).toEqual([
+      { kind: 'lab_report', fileName: 'labs-sept.pdf', documentDate: '2026-09-15', fileType: 'application/pdf', sizeKb: 200, fileKept: true, retention: 'keep', addedOn: '2026-09-16' },
+    ]);
+  });
+});
+
+describe('get_goals otherGoals and get_profile devices (#338)', () => {
+  it('get_goals adds the paused, completed and archived goals', async () => {
+    const deps = makeDeps();
+    (deps.prisma as any).activityGoal = {
+      findMany: jest.fn().mockResolvedValue([
+        { title: 'Run 10k', activityKind: 'run', customLabel: null, metric: 'distance_m', target: 10000, period: 'week', status: 'completed', startsOn: new Date('2026-03-02T00:00:00Z'), updatedAt: new Date('2026-06-01T00:00:00Z') },
+      ]),
+    };
+    const result = await run(deps, 'get_goals');
+    expect((deps.prisma as any).activityGoal.findMany.mock.calls[0][0].where).toEqual({ userId: USER, status: { not: 'active' } });
+    expect(result.otherGoals).toEqual([
+      { title: 'Run 10k', activityKind: 'run', customLabel: null, metric: 'distance_m', target: 10000, period: 'week', status: 'completed', startsOn: '2026-03-02', lastChanged: '2026-06-01' },
+    ]);
+  });
+
+  it('get_profile lists the syncing devices, never their install or token ids', async () => {
+    const deps = makeDeps();
+    (deps.prisma as any).healthSyncDevice = {
+      findMany: jest.fn().mockResolvedValue([
+        { name: 'Pixel 9', manufacturer: 'Google', model: 'Pixel 9', status: 'active', lastSyncAt: new Date('2026-10-01T10:00:00Z'), timezone: 'America/Costa_Rica' },
+      ]),
+    };
+    const result = await run(deps, 'get_profile');
+    const query = (deps.prisma as any).healthSyncDevice.findMany.mock.calls[0][0];
+    expect(query.where).toEqual({ userId: USER });
+    expect(Object.keys(query.select)).not.toEqual(expect.arrayContaining(['installationId']));
+    expect(Object.keys(query.select)).not.toEqual(expect.arrayContaining(['patId']));
+    expect(result.devices).toEqual([
+      { name: 'Pixel 9', manufacturer: 'Google', model: 'Pixel 9', status: 'active', lastSyncAt: '2026-10-01T10:00:00.000Z', timeZone: 'America/Costa_Rica' },
+    ]);
   });
 });

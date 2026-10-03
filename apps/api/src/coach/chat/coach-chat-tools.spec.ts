@@ -224,7 +224,7 @@ describe('coach chat tools (E7.7)', () => {
   });
 
   describe('get_today_plan', () => {
-    it("reads today's plan for the caller's local today and keeps names and sets only", async () => {
+    it("reads today's plan for the caller's local today in full, rationale included (#338), without ids", async () => {
       const { deps } = makeDeps();
       deps.today.today.mockResolvedValue({
         kind: 'workout',
@@ -248,7 +248,7 @@ describe('coach chat tools (E7.7)', () => {
               repMax: 8,
               targetRpe: 8,
               restSeconds: 180,
-              rationale: 'free text the model does not need',
+              rationale: 'Heavy squat first while fresh',
             },
           ],
         },
@@ -257,7 +257,7 @@ describe('coach chat tools (E7.7)', () => {
       expect(deps.today.today).toHaveBeenCalledWith(USER, '2026-10-01', NOW);
       expect(result).toMatchObject({ kind: 'workout', workout: 'Lower A', exercises: [{ name: 'Back squat', sets: 3, repMin: 5, repMax: 8 }] });
       expect(JSON.stringify(result)).not.toMatch(UUID);
-      expect(JSON.stringify(result)).not.toContain('rationale');
+      expect(JSON.stringify(result)).toContain('Heavy squat first while fresh');
     });
 
     it('describes a day without a program', () => {
@@ -356,6 +356,7 @@ describe('coach chat tools (E7.7)', () => {
             streakPeriods: 1,
           },
         ],
+        otherGoals: null,
       });
       expect(JSON.stringify(result)).not.toMatch(UUID);
       expect(JSON.stringify(result)).not.toContain('CANARY-NOTE');
