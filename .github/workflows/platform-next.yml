@@ -1,0 +1,140 @@
+name: Platform next channel
+
+# =============================================================================
+# Test a pre-release of the platform packages WITHOUT merging it
+# =============================================================================
+#
+# This app consumes `@marinoscar/platform-*` from npm. Renovate (renovate.json)
+# follows the `latest` dist-tag only, so a pre-release never reaches `main` or
+# production by itself. This workflow is the other half: the same typechecks and
+# test suites `ci.yml` runs, against a pre-release of every platform package
+# the app already depends on. It is the "pilot app CI on next" signal of the
+# platform release pipeline.
+#
+# IT NEVER COMMITS, PUSHES OR OPENS A PR. The install below edits package.json
+# and the lockfile inside the runner's checkout only, and the job holds a
+# read-only token.
+#
+# NO PLATFORM PACKAGE YET IS GREEN, NOT AN ERROR. Until the first adoption story
+# lands, no workspace depends on a `@marinoscar/platform-*` package, so there is
+# nothing to install. The job says so and ends successfully.
+#
+# TRIGGERS
+#   - workflow_dispatch: Actions tab, or `gh workflow run platform-next.yml -f version=next`.
+#   - repository_dispatch (type `platform-next`, `client_payload.version`): lets
+#     the platform repository ping this one after publishing a pre-release.
+#     Sending it needs a token with access to this repository, which the owner
+#     creates; no secret is stored here.
+#
+# `version` is a dist-tag or a version (`next`, `1.4.0-next.3`). It reaches the
+# shell only through an environment variable and is validated first.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Dist-tag or version to install for every platform package already present'
+        required: false
+        default: next
+        type: string
+  repository_dispatch:
+    types: [platform-next]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-next-${{ github.event.client_payload.version || inputs.version || 'next' }}
+  cancel-in-progress: true
+
+jobs:
+  platform-next:
+    name: Platform packages on next
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NODE_ENV: test
+      PLATFORM_VERSION: ${{ github.event.client_payload.version || inputs.version || 'next' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Which platform packages does each app workspace depend on today? One
+      # line per workspace in the list file: `<workspace path> <package> ...`.
+      - name: Find the platform packages in use
+        id: find
+        run: |
+          case "$PLATFORM_VERSION" in
+            ''|*[!A-Za-z0-9._-]*)
+              echo "::error::version must be a dist-tag or a version (letters, digits, dot, underscore, hyphen)."
+              exit 1
+              ;;
+          esac
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const lines = [];
+            for (const dir of fs.readdirSync("apps")) {
+              const file = path.join("apps", dir, "package.json");
+              if (!fs.existsSync(file)) continue;
+              const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+              const names = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies })
+                .filter((name) => /^@marinoscar\/platform-/.test(name))
+                .sort();
+              if (names.length > 0) lines.push(["apps/" + dir, ...names].join(" "));
+            }
+            fs.writeFileSync(process.env.RUNNER_TEMP + "/platform-packages.txt", lines.join("\n") + (lines.length ? "\n" : ""));
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "found=" + (lines.length > 0) + "\n");
+          '
+          if [ "$(grep -c . "$RUNNER_TEMP/platform-packages.txt")" = "0" ]; then
+            echo "no platform packages yet"
+            echo "no platform packages yet: nothing to test on \`$PLATFORM_VERSION\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            cat "$RUNNER_TEMP/platform-packages.txt"
+          fi
+
+      - name: Install the pre-release
+        if: steps.find.outputs.found == 'true'
+        run: |
+          while read -r workspace packages; do
+            specs=()
+            for name in $packages; do
+              specs+=("$name@$PLATFORM_VERSION")
+            done
+            npm install --no-audit --no-fund --workspace="$workspace" "${specs[@]}"
+          done < "$RUNNER_TEMP/platform-packages.txt"
+          {
+            echo "### Installed \`$PLATFORM_VERSION\`"
+            npm ls --all --depth=0 --workspaces 2>/dev/null | grep "@marinoscar/platform-" || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate the Prisma client
+        if: steps.find.outputs.found == 'true'
+        run: npx prisma generate
+        working-directory: apps/api
+
+      - name: Typecheck
+        if: steps.find.outputs.found == 'true'
+        run: |
+          npm run typecheck --workspace=api
+          npm run typecheck --workspace=web
+          npm run typecheck --workspace=cli
+
+      - name: API tests
+        if: steps.find.outputs.found == 'true'
+        run: npm test --workspace=api
+
+      - name: Web tests
+        if: steps.find.outputs.found == 'true'
+        run: npm run test:run --workspace=web
+
+      - name: CLI tests
+        if: steps.find.outputs.found == 'true'
+        run: npm run test:run --workspace=cli
