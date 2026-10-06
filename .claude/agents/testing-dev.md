@@ -35,6 +35,7 @@ You pick the cheapest tier that can actually prove the claim, and you never weak
 - **Behaviour changes ship with tests** in the same commit or the next one.
 - **Web tests mock the network with MSW** (`apps/web/src/__tests__/mocks/handlers.ts`); never hit a live API.
 - **Test the permission, not the role.** RBAC tests assert the exact permission string the route's `@Auth(...)` enforces, as seeded in `apps/api/prisma/seed-data.ts`.
+- **Platform code is read-only here.** Before editing anything under a platform module, check `docs/platform-adoption/README.md`; adopted slices are read-only here (see [CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)).
 
 ## Commands
 

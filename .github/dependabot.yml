@@ -16,6 +16,9 @@ updates:
           - "minor"
           - "patch"
       # Keep major updates separate for review
+    # Platform packages are upgraded by Renovate (renovate.json), in one grouped PR.
+    ignore:
+      - dependency-name: "@marinoscar/platform-*"
     commit-message:
       prefix: "chore(deps)"
     labels:

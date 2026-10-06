@@ -27,6 +27,7 @@ All business logic and every authorization decision live here; the web app only 
 - **Notifications are registry entries.** Declare the event in `notifications/notification-events.ts`, call `notify()` after the write commits and outside any transaction. See the [notifications README](../../apps/api/src/notifications/README.md).
 - **OpenAPI is generated.** Annotate controllers and DTOs; never hand-write per-endpoint docs. See [API.md](../../docs/API.md).
 - **Fastify, not Express.** Use the Fastify request/reply APIs. See [DEVELOPMENT.md](../../docs/DEVELOPMENT.md).
+- **Platform code is read-only here.** Before editing anything under a platform module, check `docs/platform-adoption/README.md`; adopted slices are read-only here (see [CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)).
 
 ## Commands
 

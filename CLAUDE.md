@@ -24,6 +24,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
   docs/
     specs/                    # feature design and rationale
     runbooks/                 # operator procedures (incl. VPS deploy, worker nodes)
+    platform-adoption/        # adoption ledger and drift baseline for `@marinoscar/platform-*`
   infra/
     compose/
       base.compose.yml        # nginx, api, web; no database
@@ -105,6 +106,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
 | Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
+| Platform adoption (which slices run on `@marinoscar/platform-*`, local exceptions, seam requests, rollback; the drift baseline it started from) | [docs/platform-adoption/README.md](docs/platform-adoption/README.md), [docs/platform-adoption/drift-baseline.md](docs/platform-adoption/drift-baseline.md) |
 
 ## MANDATORY: Issue-Driven Development
 
@@ -224,6 +226,16 @@ Each is enforced by tests and explained in the linked doc. Read it before touchi
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).
 - **A job `type` string is permanent** once jobs of that type exist. See [the job handlers README](apps/api/src/jobs/handlers/README.md).
+
+## MANDATORY: Platform code lives in packages
+
+This app replaces its copied platform code with published `@marinoscar/platform-*` packages, slice by slice. The ledger of what has moved, what stays local and how to roll back is [docs/platform-adoption/README.md](docs/platform-adoption/README.md); the measured starting point is [docs/platform-adoption/drift-baseline.md](docs/platform-adoption/drift-baseline.md).
+
+1. **Never edit platform code here.** That is code that comes from `@marinoscar/platform-*`, or a local copy of a slice listed as adopted in `docs/platform-adoption/README.md`. Change it in `marinoscar/EnterpriseAppBase` and pick it up through a Renovate PR.
+2. **Port both ways until a slice is adopted.** A fix to the local copy of a slice that is not yet adopted must also be ported to EnterpriseAppBase.
+3. **A missing seam is a seam request, not a local edit.** When the app needs a platform behaviour that has no seam, file a seam request in EnterpriseAppBase. Only if the app cannot wait, eject the one file, record it under Local exceptions in the ledger with the seam-request link, and remove it when the seam ships.
+4. **Platform-adoption work is tracked in EnterpriseAppBase.** Its issues carry the label `platform-packages`. Reference them cross-repo (`Relates to marinoscar/EnterpriseAppBase#<n>`) and do not open duplicate issues in this repository. This is the one exception to Issue-Driven Development above.
+5. **Never `npm link` a platform package.** Use a `next` pre-release (the manual `platform-next` workflow tests one) or `yalc`; two copies of a package break its single-instance registries.
 
 ## Architecture principles
 
