@@ -25,6 +25,7 @@ The UI presents and collects; the API decides. Never put business logic or an au
 - **AI surfaces are feature-gated.** A card behind the AI platform declares `feature: 'ai'`; the admin `AI` card does not (it is where AI is switched on). The browser never calls a provider or sees a key; it calls `/api/ai/*` through `services/ai.ts`. See [ai-platform](../../docs/specs/ai-platform.md).
 - **API access goes through `services/api.ts`**, wrapped in a hook under `hooks/`. UI permission checks (`usePermissions`) only hide controls; the API enforces them.
 - **Theme and layout.** Use the MUI theme in `apps/web/src/theme/` and `ThemeContext`; lay out mobile-first and test at phone width.
+- **Platform code is read-only here.** Before editing anything under a platform module, check `docs/platform-adoption/README.md`; adopted slices are read-only here (see [CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)).
 
 ## Commands
 

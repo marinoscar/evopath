@@ -25,6 +25,7 @@ You design schema changes that keep the queue, credential and settings invariant
 - **Never store secret material in plaintext.** Deployment secrets go through the encrypted `credentials` table; per-user secrets through `user_credentials` or `user_ai_keys`. `job_node_secrets` stores handles only and has no column that could hold material. See [user-credentials](../../docs/specs/user-credentials.md).
 - **Polymorphic references are not foreign keys.** `jobs.subject_type`/`subject_id` and `ai_runs.job_id` are deliberately unconstrained. See [job-queue](../../docs/specs/job-queue.md).
 - **The API does not migrate on startup.** A new migration must be applied explicitly (`prisma:migrate`) in every environment.
+- **Platform code is read-only here.** Before editing anything under a platform module, check `docs/platform-adoption/README.md`; adopted slices are read-only here (see [CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)).
 
 ## Commands
 
