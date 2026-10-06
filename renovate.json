@@ -1,0 +1,19 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["npm"],
+  "packageRules": [
+    { "matchPackageNames": ["*"], "enabled": false },
+    {
+      "matchPackageNames": ["/^@marinoscar/platform-/"],
+      "enabled": true,
+      "groupName": "platform packages",
+      "groupSlug": "platform",
+      "rangeStrategy": "pin",
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "deps",
+      "labels": ["dependencies", "platform-packages"]
+    }
+  ],
+  "prConcurrentLimit": 2
+}
