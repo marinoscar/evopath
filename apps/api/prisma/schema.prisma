@@ -648,6 +648,10 @@ model NotificationDelivery {
 
   @@index([userId, eventKey])
   @@index([status, createdAt])
+  // Platform history 0022 (retention sweeps): "oldest first, older than the
+  // cutoff", which the status-leading index above serves only one status at a
+  // time. Same index as the platform's notifications fragment.
+  @@index([createdAt])
   @@map("notification_deliveries")
 }
 
@@ -776,6 +780,9 @@ model Notification {
   //    `sort: Desc` matters — a plain ascending index makes Postgres walk it
   //    backwards for the newest page, which is the only page anyone loads.
   @@index([userId, createdAt(sort: Desc)])
+  // Platform history 0022 (retention sweeps): "oldest first, older than the
+  // cutoff" across every user, which neither index above serves.
+  @@index([createdAt])
   @@map("notifications")
 }
 
@@ -2523,6 +2530,9 @@ model AiRun {
   // "This user's run history, most recent first" — the one query this table
   // is known to need today (a user's own run list).
   @@index([userId, createdAt])
+  // Platform history 0022 (retention sweeps): "oldest first, older than the
+  // cutoff" across every user, which `[userId, createdAt]` cannot serve.
+  @@index([createdAt])
   @@map("ai_runs")
 }
 
