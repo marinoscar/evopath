@@ -3,6 +3,8 @@ import { createTheme } from '@mui/material/styles';
 import { lightPalette } from './light';
 import { darkPalette } from './dark';
 import { componentOverrides } from './components';
+import { TIDAL_TEAL } from './tokens';
+import { telemetryStatusTokens } from './telemetryTokens';
 
 /**
  * THE application theme: one MUI theme, two colour schemes, CSS variables.
@@ -23,8 +25,8 @@ import { componentOverrides } from './components';
 export const theme = createTheme({
   cssVariables: { colorSchemeSelector: 'class' },
   colorSchemes: {
-    light: { palette: lightPalette },
-    dark: { palette: darkPalette },
+    light: { palette: { ...lightPalette, status: telemetryStatusTokens(TIDAL_TEAL.light) } },
+    dark: { palette: { ...darkPalette, status: telemetryStatusTokens(TIDAL_TEAL.dark) } },
   },
   typography: {
     fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',

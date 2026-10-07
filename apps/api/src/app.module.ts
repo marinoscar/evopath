@@ -34,7 +34,7 @@ import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { AiModule } from './ai/ai.module';
-import { TelemetryModule } from './telemetry/telemetry.module';
+import { telemetryModule } from './platform/telemetry/telemetry.config';
 import { HealthProfileModule } from './health-profile/health-profile.module';
 import { MeasurementsModule } from './measurements/measurements.module';
 import { CheckInsModule } from './check-ins/check-ins.module';
@@ -250,8 +250,12 @@ import configuration from './config/configuration';
     // Telemetry (#534, epic #528): the `telemetry` settings and the runtime
     // export gate they drive, the GreptimeDB client and store status, and the
     // server-only `telemetry.retention.apply` job. The explorer (#535) and the
-    // assistant (#536) add their services inside this module.
-    TelemetryModule,
+    // assistant (#536) add their services inside this module. From
+    // `@marinoscar/platform-api/telemetry` (marinoscar/EnterpriseAppBase#719);
+    // the app's binding is `platform/telemetry/telemetry.config.ts`
+    // (`TelemetryModule.forRoot({ host, imports: [TelemetryHostModule],
+    // metricGroups })`, the `coach` group included).
+    telemetryModule,
 
     // The caller's health profile (E2.1, #47): `GET`/`PUT /api/health-profile`
     // under `health_data:*`. Exports `HealthProfileService` for later health

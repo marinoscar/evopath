@@ -16,12 +16,19 @@ import { act } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
 import { mockTelemetryQueryResult } from '../../mocks/fixtures/telemetry';
-import { STARTER_QUERIES, traceQuery } from '../../../components/telemetry/starterQueries';
-import { QUERY_HISTORY_KEY } from '../../../components/telemetry/queryHistory';
-import { TELEMETRY_SQL_MAX_LENGTH } from '../../../services/telemetry';
-import TelemetryExplorerPage from '../../../pages/Admin/TelemetryExplorerPage';
+import {
+  QUERY_HISTORY_KEY,
+  STARTER_QUERIES,
+  TELEMETRY_SQL_MAX_LENGTH,
+  traceQuery,
+} from '@marinoscar/platform-web/telemetry/headless';
+import TelemetryExplorerPage from '@marinoscar/platform-web/telemetry/ui/explorer-page';
 
-vi.mock('../../../components/telemetry/SqlEditor', async () => {
+// The page lazy-loads its CodeMirror editor (a chunk jsdom cannot run); the
+// packaged module is replaced by a textarea at its installed, built path
+// (marinoscar/EnterpriseAppBase#719; `vitest.config.ts` inlines the package
+// so the mock reaches its internal import).
+vi.mock('../../../../../../node_modules/@marinoscar/platform-web/dist/telemetry/ui/components/SqlEditor.js', async () => {
   const React = await import('react');
   type Props = {
     value: string;

@@ -3,14 +3,21 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AiConfigProvider } from './contexts/AiConfigContext';
-import { TelemetryConfigProvider } from './contexts/TelemetryConfigContext';
 import { OnboardingProvider } from './contexts/OnboardingContext';
 import { ThemeContextProvider } from './contexts/ThemeContext';
-import { AppPlatformHostProvider } from './platform/platformHost';
+import { AppPlatformHostProvider, appPlatformApi } from './platform/platformHost';
+// The telemetry slice (`@marinoscar/platform-web/telemetry`,
+// marinoscar/EnterpriseAppBase#719): its config provider, route guard and the
+// app's adapters (AI on/off, the model catalogue, the spinner).
+import {
+  RequireTelemetryEnabled,
+  TelemetryConfigProvider,
+  TelemetryWebAdaptersProvider,
+} from '@marinoscar/platform-web/telemetry/headless';
+import { appTelemetryAdapters } from './platform/telemetryAdapters';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
-import { RequireTelemetryEnabled } from './components/common/RequireTelemetryEnabled';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 // Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error
@@ -155,12 +162,14 @@ const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 const CoachPage = lazy(() => import('./pages/CoachPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
-// editor, so neither weighs on the entry chunk.
-const TelemetrySettingsPage = lazy(() => import('./pages/Admin/TelemetrySettingsPage'));
-const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorerPage'));
+// editor, so neither weighs on the entry chunk. Packaged since
+// marinoscar/EnterpriseAppBase#719 (`@marinoscar/platform-web/telemetry/ui`):
+// each page has a subpath of its own so it stays in a chunk of its own.
+const TelemetrySettingsPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/settings-page'));
+const TelemetryExplorerPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/explorer-page'));
 // Issue #578, epic #576 — the at-a-glance dashboard; lazy, and its charts
 // (`@mui/x-charts`) travel in its own chunk.
-const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
+const TelemetryDashboardPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/dashboard-page'));
 // The Doctor page is the package's (`@marinoscar/platform-web/doctor/ui`,
 // marinoscar/EnterpriseAppBase#717): its settings descriptor's `Page`, lazily
 // loaded like every admin page. It reaches the app through the platform host
@@ -245,7 +254,13 @@ function AppRoutes() {
                     chrome (rail, bottom bar, menu, AppBar) and every routed
                     page, instead of one request per consumer.
                     `TelemetryConfigProvider` (#537, epic #528) is its twin for
-                    `GET /api/telemetry/config`. `OnboardingProvider` (#203) is
+                    `GET /api/telemetry/config`; packaged since
+                    marinoscar/EnterpriseAppBase#719, it takes the app's
+                    transport as a prop because it sits ABOVE the platform host
+                    (which reads the feature it answers).
+                    `TelemetryWebAdaptersProvider` hands the packaged telemetry
+                    pages the app's AI hooks and spinner
+                    (`platform/telemetryAdapters.ts`). `OnboardingProvider` (#203) is
                     the same shape again for `GET /api/onboarding`, shared by the
                     welcome dialog, the Today cards, the user menu and the setup
                     guide. */}
@@ -261,12 +276,14 @@ function AppRoutes() {
                   element={
                     <NotificationProvider>
                       <AiConfigProvider>
-                        <TelemetryConfigProvider>
-                          <OnboardingProvider>
-                            <AppPlatformHostProvider>
-                              <Layout />
-                            </AppPlatformHostProvider>
-                          </OnboardingProvider>
+                        <TelemetryConfigProvider api={appPlatformApi}>
+                          <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
+                            <OnboardingProvider>
+                              <AppPlatformHostProvider>
+                                <Layout />
+                              </AppPlatformHostProvider>
+                            </OnboardingProvider>
+                          </TelemetryWebAdaptersProvider>
                         </TelemetryConfigProvider>
                       </AiConfigProvider>
                     </NotificationProvider>

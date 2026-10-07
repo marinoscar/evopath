@@ -1134,7 +1134,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | PATs | `apps/api/src/pat/` |
 | Device flow | `apps/api/src/device-auth/` |
 | Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |
-| Encrypted stores | `@marinoscar/platform-api/core` (the cipher and `verifyEncryptionKeyAtStartup`), `apps/api/src/common/crypto/signing-key.ts` (download-link signing keys), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
+| Encrypted stores | `@marinoscar/platform-api/core` (the cipher, `verifyEncryptionKeyAtStartup` and `deriveSigningKey`, the download-link signing keys), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
 | Test auth | `apps/api/src/test-auth/`, `apps/web/src/pages/TestLoginPage.tsx` |
 | Edge | `infra/nginx/nginx.conf`, `infra/nginx/csp.conf`, `infra/nginx/csp.dev.conf` |
 | Web session | `apps/web/src/contexts/AuthContext.tsx`, `apps/web/src/services/api.ts` |

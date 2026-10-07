@@ -1,10 +1,11 @@
 /**
  * Telemetry Dashboard fixtures — issue #578, epic #576. Shapes follow
- * `apps/api/src/telemetry/dto/telemetry-dashboard.dto.ts` (#577).
+ * `packages/platform-api/src/telemetry/dto/telemetry-dashboard.dto.ts` (#577).
  *
- * `dashboardHandlers()` answers all six endpoints (`/metrics`: #126/#127); a test overrides one with
- * `server.use(...)` after it. Not part of the default handlers: only the
- * dashboard suites need them.
+ * `dashboardHandlers()` answers all seven endpoints (`/metrics`: #601/#602;
+ * `/metric-groups`: #680); a test overrides one with `server.use(...)` after
+ * it. Not part of the default handlers (only the dashboard suites need them),
+ * except `/metric-groups`, which `mocks/handlers.ts` also answers.
  */
 import { http, HttpResponse } from 'msw';
 import type {
@@ -14,12 +15,13 @@ import type {
   DashboardFilters,
   DashboardLogsTimeseries,
   DashboardMetricGroup,
+  DashboardMetricGroupMeta,
   DashboardMetrics,
   DashboardMetricSeries,
   DashboardSummary,
   DashboardTopErrors,
   DashboardTopRoutes,
-} from '../../../services/telemetryDashboard';
+} from '@marinoscar/platform-web/telemetry/headless';
 
 const API_BASE = '*/api/admin/telemetry/dashboard';
 
@@ -33,7 +35,7 @@ const envelope = (sql: string | string[]) => ({
 const starts = Array.from({ length: 4 }, (_, i) => new Date(Date.parse('2026-09-27T10:00:00.000Z') + i * 60_000).toISOString());
 
 /**
- * The summary's two unknown-route statements (#258): at the end of the
+ * The summary's two unknown-route statements (#650): at the end of the
  * summary's `sql` and, per-route first, on `unknownRoutes.sql`.
  */
 export const mockUnknownRoutesTotalsSql =
@@ -146,7 +148,7 @@ export const mockDashboardFilters: DashboardFilters = {
   hosts: ['vps-1', 'vps-2'],
 };
 
-// ---- metrics (#126 / #127) ------------------------------------------------------
+// ---- metrics (#601 / #602) ------------------------------------------------------
 
 const metricEnvelope = (group: DashboardMetricGroup) => ({
   range: { from: '2026-09-27T10:00:00.000Z', to: '2026-09-27T11:00:00.000Z', bucketSeconds: 60 },
@@ -386,8 +388,22 @@ export const mockDashboardMetrics: Record<DashboardMetricGroup, DashboardMetrics
   },
 };
 
+/**
+ * `GET …/metric-groups` (#680): the API's six platform groups, with their API
+ * labels and the section titles the page has always shown, in order.
+ */
+export const mockDashboardMetricGroups: DashboardMetricGroupMeta[] = [
+  { id: 'host', label: 'Host', title: 'Infrastructure', order: 10 },
+  { id: 'database', label: 'Database', title: 'Database', order: 20 },
+  { id: 'queue', label: 'Job queue', title: 'Job queue', order: 30 },
+  { id: 'nodes', label: 'Worker nodes', title: 'Worker nodes', order: 40 },
+  { id: 'uptime', label: 'Uptime and edge', title: 'Uptime & dependencies', order: 50 },
+  { id: 'pipeline', label: 'Telemetry pipeline', title: 'Telemetry pipeline', order: 60 },
+];
+
 export function dashboardHandlers() {
   return [
+    http.get(`${API_BASE}/metric-groups`, () => HttpResponse.json({ data: mockDashboardMetricGroups })),
     http.get(`${API_BASE}/summary`, () => HttpResponse.json({ data: mockDashboardSummary })),
     http.get(`${API_BASE}/timeseries`, ({ request }) => {
       const panel = new URL(request.url).searchParams.get('panel');

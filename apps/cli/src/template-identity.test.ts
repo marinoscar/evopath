@@ -333,9 +333,10 @@ function wordBoundaryPattern(value: string): RegExp {
   const lead = /^\w/.test(value) ? '\\b' : '';
   const tail = /\w$/.test(value) ? '\\b' : '';
   // Deliberately CASE-SENSITIVE (no `i` flag). This is what lets
-  // `apps/api/src/common/crypto/signing-key.ts`'s HMAC label
-  // `'enterpriseappbase:signing-key:v1:'` (lowercase; the cipher's HKDF label
-  // in @marinoscar/platform-api/core is its sibling) pass with no allowlist
+  // `deriveSigningKey`'s HMAC label `'enterpriseappbase:signing-key:v1:'`
+  // (lowercase; in @marinoscar/platform-api/core beside the cipher's HKDF
+  // label, and pinned by the app's golden-value spec
+  // `apps/api/src/android-app/releases/signing-key.spec.ts`) pass with no allowlist
   // entry — that label must NEVER change, because doing so invalidates every
   // outstanding Android download link (and the cipher's, every stored
   // credential). A

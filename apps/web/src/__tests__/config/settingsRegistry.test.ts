@@ -1188,6 +1188,17 @@ describe('the AI group (#425)', () => {
  * mechanical half of CLAUDE.md Settings UI Pattern rule 3.
  */
 describe('the Observability group (#537)', () => {
+  // The telemetry controllers live in `@marinoscar/platform-api/telemetry`
+  // since marinoscar/EnterpriseAppBase#719. Each route is guarded with the
+  // app's own `@Auth()` through the platform host, as
+  // `access.requirePermissions([TELEMETRY_PERMISSIONS.X])`, and the slice's
+  // permission declarations map `X` to the string. The package ships
+  // compiled, so its build output is what is read (the Doctor card's pattern).
+  const TELEMETRY_DIST = resolve(
+    dirname(createRequire(import.meta.url).resolve('@marinoscar/platform-api/package.json')),
+    'dist/telemetry',
+  );
+  const telemetryPermissions = readFileSync(resolve(TELEMETRY_DIST, 'telemetry.permissions.d.ts'), 'utf8');
   const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
   const rolesConstants = readFileSync(resolve(API_SRC, 'common/constants/roles.constants.ts'), 'utf8');
   const observability = ADMIN_SECTIONS.find((section) => section.label === 'Observability');
@@ -1225,13 +1236,11 @@ describe('the Observability group (#537)', () => {
     });
 
     it('declares the exact permission telemetry-admin.controller.ts enforces on its reads', () => {
-      const controller = readFileSync(
-        resolve(API_SRC, 'telemetry/telemetry-admin.controller.ts'),
-        'utf8',
-      );
+      const controller = readFileSync(resolve(TELEMETRY_DIST, 'telemetry-admin.controller.js'), 'utf8');
       expect(telemetry?.permission).toBe('telemetry:read');
       expect(rolesConstants).toContain("TELEMETRY_READ: 'telemetry:read'");
-      expect(controller).toContain('@Auth({ permissions: [PERMISSIONS.TELEMETRY_READ] })');
+      expect(telemetryPermissions).toContain("readonly READ: 'telemetry:read';");
+      expect(controller).toContain('(access.requirePermissions([telemetry_permissions_1.TELEMETRY_PERMISSIONS.READ]))');
     });
   });
 
@@ -1250,13 +1259,12 @@ describe('the Observability group (#537)', () => {
     it('declares telemetry:query, the explorer controller permission', () => {
       expect(explorer?.permission).toBe('telemetry:query');
       expect(rolesConstants).toContain("TELEMETRY_QUERY: 'telemetry:query'");
-      // The explorer controller lands in #535, built in parallel with this
-      // page. Until it exists in the tree, the roles constant above is the
-      // anchor; once it does, it must enforce the same constant.
-      const controllerPath = resolve(API_SRC, 'telemetry/telemetry-explorer.controller.ts');
-      if (existsSync(controllerPath)) {
-        expect(readFileSync(controllerPath, 'utf8')).toContain('PERMISSIONS.TELEMETRY_QUERY');
-      }
+      expect(telemetryPermissions).toContain("readonly QUERY: 'telemetry:query';");
+      const controllerPath = resolve(TELEMETRY_DIST, 'telemetry-explorer.controller.js');
+      expect(existsSync(controllerPath)).toBe(true);
+      expect(readFileSync(controllerPath, 'utf8')).toContain(
+        'access.requirePermissions([telemetry_permissions_1.TELEMETRY_PERMISSIONS.QUERY])',
+      );
     });
   });
 
@@ -1279,13 +1287,14 @@ describe('the Observability group (#537)', () => {
     it("declares telemetry:query, the dashboard controller's permission, and the telemetry feature", () => {
       expect(dashboard?.permission).toBe('telemetry:query');
       expect(dashboard?.feature).toBe('telemetry');
-      const controller = readFileSync(
-        resolve(API_SRC, 'telemetry/dashboard/telemetry-dashboard.controller.ts'),
-        'utf8',
-      );
-      const guards = controller.match(/@Auth\(\{[^)]*\}\)/g) ?? [];
-      expect(guards).toHaveLength(6);
-      for (const guard of guards) expect(guard).toBe('@Auth({ permissions: [PERMISSIONS.TELEMETRY_QUERY] })');
+      const controller = readFileSync(resolve(TELEMETRY_DIST, 'dashboard/telemetry-dashboard.controller.js'), 'utf8');
+      const guards = controller.match(/\(access\.require\w+\([^)]*\)\)/g) ?? [];
+      // summary, timeseries, top, events, filters, metrics and metric-groups
+      // (the metric-group registry the package brings).
+      expect(guards).toHaveLength(7);
+      for (const guard of guards) {
+        expect(guard).toBe('(access.requirePermissions([telemetry_permissions_1.TELEMETRY_PERMISSIONS.QUERY]))');
+      }
     });
 
     it('is hidden while telemetry is off and titles its route by longest prefix', () => {

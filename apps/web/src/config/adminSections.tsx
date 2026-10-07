@@ -57,11 +57,10 @@ import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
 import AltRouteOutlinedIcon from '@mui/icons-material/AltRouteOutlined';
 // AI Coach (E7.3, #243).
 import SportsOutlinedIcon from '@mui/icons-material/SportsOutlined';
-// Observability (#537, epic #528) — the telemetry policy page and the explorer.
-import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
-import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
-// Telemetry Dashboard (#578, epic #576).
-import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
+// Observability (#537, epic #528; #578) — the telemetry policy page, the
+// explorer and the dashboard, packaged since marinoscar/EnterpriseAppBase#719
+// (cards and icons from the slice).
+import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 // Doctor (#634; the package's page since marinoscar/EnterpriseAppBase#717:
 // card and icon from its descriptor).
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
@@ -605,7 +604,7 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
     //
     // The permissions are the literal strings the telemetry controllers
     // enforce (`PERMISSIONS.TELEMETRY_*` in `roles.constants.ts`):
-    //   - `telemetry:read`  → `telemetry/telemetry-admin.controller.ts` (#534),
+    //   - `telemetry:read`  → the admin controller of `@marinoscar/platform-api/telemetry` (#534),
     //                         on GET config and GET status. Saving needs
     //                         `telemetry:write`, which the PAGE gates.
     //   - `telemetry:query` → the explorer controller (#535), on query, schema
@@ -613,47 +612,18 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
     //                         stream (#536).
     label: 'Observability',
     cards: [
-      {
-        // NO `feature`, deliberately — the `AI` card's precedent: this is the
-        // page telemetry is switched on from.
-        title: 'Telemetry',
-        description:
-          'Turn telemetry collection on, choose how long it is kept, set query limits and configure the AI assistant.',
-        Icon: InsightsOutlinedIcon,
-        path: '/admin/settings/telemetry',
-        permission: 'telemetry:read',
-      },
-      {
-        // Nested UNDER the Telemetry route, so `settingsPageTitle`'s
-        // longest-prefix rule titles it "Telemetry Explorer". Feature-gated:
-        // an explorer over a store that is absent or switched off is a page
-        // about nothing. `telemetry:query`, NOT `telemetry:read`: running
-        // arbitrary read-only SQL over telemetry is a separate grant.
-        title: 'Telemetry Explorer',
-        description:
-          'Query traces, logs and metrics with SQL, export the results, and ask the AI assistant for help.',
-        Icon: TerminalOutlinedIcon,
-        path: '/admin/settings/telemetry/explorer',
-        permission: 'telemetry:query',
-        feature: 'telemetry',
-      },
-      {
-        // Issue #578, epic #576. APPENDED after the Explorer. Nested under the
-        // Telemetry route like the Explorer, so the longest-prefix rule titles
-        // it "Telemetry Dashboard". `telemetry:query`, the exact permission
-        // `telemetry/dashboard/telemetry-dashboard.controller.ts` enforces on
-        // every route (#577): the dashboard reads telemetry DATA, the same
-        // grant as the explorer. Feature-gated on `telemetry` for the same
-        // reason: a dashboard over a store that is absent or switched off is
-        // a page about nothing.
-        title: 'Telemetry Dashboard',
-        description:
-          'See at a glance whether anything is wrong: error rate, latency, error logs and the top failing routes.',
-        Icon: MonitorHeartOutlinedIcon,
-        path: '/admin/settings/telemetry/dashboard',
-        permission: 'telemetry:query',
-        feature: 'telemetry',
-      },
+      // Issue #537 (Telemetry, Telemetry Explorer), #578 (Telemetry
+      // Dashboard). Packaged since marinoscar/EnterpriseAppBase#719: the three
+      // cards come from `@marinoscar/platform-web/telemetry/ui` as data and
+      // are spread HERE, where the three literals were, so the order is
+      // unchanged. Their text, icons, permissions and features are the ones
+      // these literals carried, word for word:
+      //   - Telemetry: `telemetry:read`, NO `feature` (the `AI` card's
+      //     precedent: this is the page telemetry is switched on from).
+      //   - Telemetry Explorer, Telemetry Dashboard: `telemetry:query`,
+      //     `feature: 'telemetry'`, nested under the Telemetry route so
+      //     `settingsPageTitle`'s longest-prefix rule titles them.
+      ...telemetryAdminCards,
       {
         // Issue #634. APPENDED as the last Observability card (append-only).
         // `system_settings:read`, the exact permission

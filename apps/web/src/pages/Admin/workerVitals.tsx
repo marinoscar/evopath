@@ -35,7 +35,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import type { NodeVitals, WorkerNode } from '../../services/nodes';
-import { formatBytes } from '../../components/telemetry/dashboard/format';
+import { formatBytes } from '@marinoscar/platform-web/telemetry/headless';
 import { formatRelativeTime } from '../../utils/relativeTime';
 import { formatDuration } from './jobsTable';
 

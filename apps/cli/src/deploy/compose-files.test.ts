@@ -4,11 +4,14 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { parseEnvExample } from './env-spec.js';
+import { telemetryInfraFragment } from '@marinoscar/platform-infra/telemetry';
+
 import {
   ALWAYS_ON_GROUPS,
   composeFileArgs,
   composeFilesFor,
   effectiveGroups,
+  TELEMETRY_GROUP,
 } from './compose-files.js';
 
 const COMPOSE_DIR = resolve(__dirname, '..', '..', '..', '..', 'infra', 'compose');
@@ -60,6 +63,57 @@ describe('composeFilesFor (#531)', () => {
     expect(composeFileArgs(['observability'])).toEqual(
       composeFilesFor(['observability']).flatMap((file) => ['-f', file]),
     );
+  });
+});
+
+describe('composeFilesFor reads the telemetry slots from @marinoscar/platform-infra (#705)', () => {
+  // The literal list `main` hard-coded before the manifest existed. Spelled
+  // out, never derived from the manifest: this is what proves the move
+  // changed nothing a deployment sees.
+  const MAIN = [
+    'base.compose.yml',
+    'prod.compose.yml',
+    'telemetry.compose.yml',
+    'vps.compose.yml',
+    'vps.telemetry.compose.yml',
+  ];
+  const MAIN_ARGS = [
+    '-f', 'base.compose.yml',
+    '-f', 'prod.compose.yml',
+    '-f', 'telemetry.compose.yml',
+    '-f', 'vps.compose.yml',
+    '-f', 'vps.telemetry.compose.yml',
+  ];
+
+  it.each([
+    ['no groups', undefined],
+    ["['observability']", ['observability']],
+    ["['email']", ['email']],
+    ["['microsoft-oauth', 'email']", ['microsoft-oauth', 'email']],
+  ])('is identical to main for %s', (_label, groups) => {
+    expect(composeFilesFor(groups)).toEqual(MAIN);
+    expect(composeFileArgs(groups)).toEqual(MAIN_ARGS);
+  });
+
+  it('takes the group and every telemetry file from the manifest', () => {
+    expect(TELEMETRY_GROUP).toBe(telemetryInfraFragment.envGroup);
+    for (const { file, slot } of telemetryInfraFragment.composeFiles) {
+      const files = composeFilesFor();
+      expect(files, file).toContain(file);
+      if (slot === 'after-prod') {
+        expect(files.indexOf(file)).toBeGreaterThan(files.indexOf('prod.compose.yml'));
+        expect(files.indexOf(file)).toBeLessThan(files.indexOf('vps.compose.yml'));
+      } else {
+        expect(files.indexOf(file)).toBeGreaterThan(files.indexOf('vps.compose.yml'));
+      }
+    }
+  });
+
+  it('names files the sync materialised into this checkout', () => {
+    for (const { file } of telemetryInfraFragment.composeFiles) {
+      expect(telemetryInfraFragment.files.map((entry) => entry.to)).toContain(`infra/compose/${file}`);
+      expect(readFileSync(resolve(COMPOSE_DIR, file), 'utf8')).toMatch(/^# GENERATED from @marinoscar\/platform-infra@/);
+    }
   });
 });
 

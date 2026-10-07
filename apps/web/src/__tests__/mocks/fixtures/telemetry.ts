@@ -16,7 +16,7 @@ import type {
   TelemetrySchema,
   TelemetryStack,
   TelemetryStatus,
-} from '../../../services/telemetry';
+} from '@marinoscar/platform-web/telemetry/headless';
 
 export const mockTelemetryPublicConfigDisabled: TelemetryPublicConfig = {
   available: false,

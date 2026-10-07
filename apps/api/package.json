@@ -22,7 +22,7 @@
     "test:ci": "jest --config ./test/jest.config.js --coverage --ci --reporters=default --reporters=jest-junit --testPathIgnorePatterns='e2e' --testPathIgnorePatterns='\\.db\\.spec\\.ts$' --testPathIgnorePatterns='\\.greptime\\.spec\\.ts$'",
     "test:db": "jest --config ./test/jest.config.js --testRegex '\\.db\\.spec\\.ts$' --runInBand",
     "eval:training": "jest --config ./test/jest.config.js --runInBand test/evals/training",
-    "test:greptime": "jest --config ./test/jest.config.js --testRegex '\\.greptime\\.spec\\.ts$' --runInBand",
+    "test:greptime": "jest --config ./test/jest.config.js --testRegex '\\.greptime\\.spec\\.ts$' --runInBand --passWithNoTests",
     "prisma": "node scripts/prisma-env.js",
     "prisma:generate": "node scripts/prisma-env.js generate",
     "prisma:migrate": "node scripts/prisma-env.js migrate deploy",
@@ -49,7 +49,7 @@
     "@google/genai": "^2.24.0",
     "@langchain/core": "1.2.13",
     "@langchain/langgraph": "1.4.18",
-    "@marinoscar/platform-api": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.2/marinoscar-platform-api-0.1.0-next.2.tgz",
+    "@marinoscar/platform-api": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.3/marinoscar-platform-api-0.1.0-next.3.tgz",
     "@nestjs/common": "^11.1.12",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.12",
@@ -85,6 +85,7 @@
   },
   "devDependencies": {
     "@langchain/langgraph-checkpoint-validation": "^1.1.1",
+    "@marinoscar/platform-infra": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.3/marinoscar-platform-infra-0.1.0-next.3.tgz",
     "@nestjs/cli": "^11.0.16",
     "@nestjs/schematics": "^11.0.9",
     "@nestjs/testing": "^11.1.12",
@@ -110,6 +111,7 @@
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "yaml": "^2.9.0"
   }
 }

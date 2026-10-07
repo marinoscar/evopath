@@ -11,7 +11,7 @@
 import { useMemo } from 'react';
 import type { SettingsFeatures } from '../config/adminSections';
 import { useAiFeatures } from './useAiConfig';
-import { useTelemetryFeatures } from './useTelemetryConfig';
+import { useTelemetryFeatures } from '@marinoscar/platform-web/telemetry/headless';
 
 export interface SettingsFeatureFlags extends SettingsFeatures {
   ai: boolean;

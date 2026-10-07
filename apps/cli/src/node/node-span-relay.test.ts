@@ -1,13 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { NodeApi, NodeSpan } from './node-api.js';
-import { JobSpanRecorder, MAX_SPANS_PER_BATCH, NodeSpanRelay, errorTypeOf } from './node-span-relay.js';
+import { JobSpanRecorder, MAX_SPANS_PER_BATCH, NodeSpanRelay, errorTypeOf } from '@marinoscar/platform-cli/telemetry';
 import { MissingJobInputError } from './node-errors.js';
 import { ApiError } from '../errors.js';
 
 // =============================================================================
 // Job phase spans and their best-effort relay  (issue #133)
 // =============================================================================
+//
+// The relay lives in `@marinoscar/platform-cli/telemetry` now
+// (marinoscar/EnterpriseAppBase#719) and reads an HTTP status structurally
+// instead of `instanceof ApiError`. These cases stay here, unchanged, with this
+// CLI's REAL `ApiError` and `MissingJobInputError`: they prove the app's
+// errors classify exactly as before. The package runs the same cases against
+// look-alikes.
 
 function apiError(status: number): ApiError {
   return new ApiError({

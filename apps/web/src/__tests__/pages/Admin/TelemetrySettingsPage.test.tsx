@@ -28,10 +28,10 @@ import type {
   TelemetryConnection,
   TelemetryConnectionCustomInput,
   TelemetryConnectionInput,
+  TelemetryPublicConfig,
   TelemetrySettingsUpdate,
-} from '../../../services/telemetry';
-import { TELEMETRY_LIMITS, type TelemetryPublicConfig } from '../../../services/telemetry';
-import TelemetrySettingsPage, { validateInteger } from '../../../pages/Admin/TelemetrySettingsPage';
+} from '@marinoscar/platform-web/telemetry/headless';
+import TelemetrySettingsPage from '@marinoscar/platform-web/telemetry/ui/settings-page';
 
 const API_BASE = '*/api';
 
@@ -114,7 +114,7 @@ describe('TelemetrySettingsPage', () => {
     );
     expect(alert).toHaveTextContent(/GreptimeDB is deployed with this application/);
     expect(alert).toHaveTextContent(/take effect once it is reachable, with no restart needed/);
-    expect(alert.textContent).not.toMatch(/evopathcli|compose/i);
+    expect(alert.textContent).not.toMatch(/appctl|compose/i);
   });
 
   it('sets retentionDays from a preset and saves with If-Match', async () => {
@@ -434,7 +434,7 @@ describe('TelemetrySettingsPage', () => {
       expect(description).toHaveTextContent(/GreptimeDB is deployed with this application/);
       expect(description).toHaveTextContent(/the Automatic host finds it — leave the host blank/);
       expect(description).toHaveTextContent(/Enter a host only to use an external GreptimeDB/);
-      expect(description.textContent).not.toMatch(/evopathcli|compose/i);
+      expect(description.textContent).not.toMatch(/appctl|compose/i);
     });
 
     describe('automatic host', () => {
@@ -973,18 +973,6 @@ describe('TelemetrySettingsPage', () => {
       // One load each on mount, and one more each after the deploy.
       await waitFor(() => expect(statusGets).toBeGreaterThanOrEqual(2));
       await waitFor(() => expect(connectionGets).toBeGreaterThanOrEqual(2));
-    });
-  });
-
-  describe('assistant.maxSteps bound (#571: raised to 20)', () => {
-    it('rejects 21', () => {
-      expect(validateInteger('21', TELEMETRY_LIMITS.maxSteps)).toBe(
-        `Must be from ${TELEMETRY_LIMITS.maxSteps.min} to ${TELEMETRY_LIMITS.maxSteps.max}.`,
-      );
-    });
-
-    it('accepts 20', () => {
-      expect(validateInteger('20', TELEMETRY_LIMITS.maxSteps)).toBeNull();
     });
   });
 
