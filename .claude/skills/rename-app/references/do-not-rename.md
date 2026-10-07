@@ -13,11 +13,17 @@ broken, and it is unrecoverable.
 
 ## 1. The HKDF subkey label — destroys data
 
-**`apps/api/src/common/crypto/secret-cipher.ts`**
+**`@marinoscar/platform-api/core`** (`src/core/crypto/secret-cipher.ts` in EnterpriseAppBase)
 
 ```
 SUBKEY_LABEL_PREFIX = 'enterpriseappbase:secret-cipher:v1:'
 ```
+
+It lives in the published package (the `core` slice), so this app cannot
+change it by accident; editing a vendored copy of the package source still can.
+Its sibling, the signing label `'enterpriseappbase:signing-key:v1:'` in the
+local shim `apps/api/src/common/crypto/signing-key.ts`, follows the same rule:
+changing it invalidates every outstanding Android download link.
 
 This string is an input to the key-derivation function that encrypts every
 credential stored through the application — SMTP passwords and anything else an
@@ -39,7 +45,7 @@ of a rebrand.
 
 ## 2. The cross-realm Symbol key
 
-**`apps/api/src/common/exceptions/verbatim-error-body.exception.ts`** — a
+**`@marinoscar/platform-api/core`** (`src/core/errors/verbatim-error-body.exception.ts` in EnterpriseAppBase) — a
 `Symbol.for(...)` call whose key is built from the repository's name. Open the
 file to see the exact literal; it is not quoted here, because this document is
 itself scanned by the identity guard and quoting it would need an allowlist
@@ -50,7 +56,8 @@ identity; two modules agree only because they pass the identical literal.
 Renaming it breaks that agreement silently — the exception stops being
 recognised and error bodies change shape, with nothing failing loudly.
 
-This file is on the identity guard's allowlist for exactly this reason.
+In the package, it is outside this repository's files, so the identity guard
+never scans it.
 
 ## 3. The nginx vhost sentinel — breaks live servers
 

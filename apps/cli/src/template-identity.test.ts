@@ -154,11 +154,8 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // Fetched and run via `curl | bash` BEFORE the repository exists on disk —
   // it can never read the manifest. A permanent codemod target, not a bug.
   'install.sh',
-  // A cross-realm `Symbol.for()` registry key. It is a REGISTRY KEY, not a
-  // display string — see the file's own comment on `VERBATIM_ERROR_BODY` for
-  // why it must be a stable, globally-unique string, not why it happens to be
-  // spelled like the product name.
-  'apps/api/src/common/exceptions/verbatim-error-body.exception.ts',
+  // (The cross-realm `Symbol.for()` key of the verbatim error body now lives in
+  // @marinoscar/platform-api/core, outside this repository's files.)
 ]);
 
 // Deliberately NOT allowlisted, on purpose, spelled out so nobody "fixes" this
@@ -336,10 +333,12 @@ function wordBoundaryPattern(value: string): RegExp {
   const lead = /^\w/.test(value) ? '\\b' : '';
   const tail = /\w$/.test(value) ? '\\b' : '';
   // Deliberately CASE-SENSITIVE (no `i` flag). This is what lets
-  // `apps/api/src/common/crypto/secret-cipher.ts`'s HKDF label
-  // `'enterpriseappbase:secret-cipher:v1:'` (lowercase) pass with no
-  // allowlist entry — that label must NEVER change, because doing so makes
-  // every already-stored credential permanently undecryptable. A
+  // `apps/api/src/common/crypto/signing-key.ts`'s HMAC label
+  // `'enterpriseappbase:signing-key:v1:'` (lowercase; the cipher's HKDF label
+  // in @marinoscar/platform-api/core is its sibling) pass with no allowlist
+  // entry — that label must NEVER change, because doing so invalidates every
+  // outstanding Android download link (and the cipher's, every stored
+  // credential). A
   // case-insensitive guard would force either rewriting that label (forbidden)
   // or adding a special-case allowlist entry to excuse it; case-sensitivity
   // needs neither.
