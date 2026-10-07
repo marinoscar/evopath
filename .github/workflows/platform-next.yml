@@ -57,7 +57,7 @@ jobs:
       NODE_ENV: test
       PLATFORM_VERSION: ${{ github.event.client_payload.version || inputs.version || 'next' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
