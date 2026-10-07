@@ -110,6 +110,13 @@ jobs:
       - run: npm run test:run --workspace=stack-agent
       - run: npm run build --workspace=stack-agent
 
+      # The telemetry compose files and collector config under infra/ are
+      # GENERATED from @marinoscar/platform-infra
+      # (marinoscar/EnterpriseAppBase#719). A hand edit fails here, naming the
+      # file and the fix: re-run the sync, or move the change into
+      # infra/otel/app-collector.yaml or a compose overlay.
+      - run: npm run platform:infra:sync -- --check
+
   api-test:
     name: API Tests (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
@@ -514,3 +521,62 @@ jobs:
           name: visual-playwright-report
           path: tests/visual/playwright-report/
           retention-days: 14
+
+  collector-config:
+    name: OTel collector config
+    runs-on: ubuntu-latest
+    # No `needs:` and no `npm ci`: only Docker and the committed files.
+    #
+    # The collector starts with two --config files, the generated platform
+    # base and the app-owned overlay (infra/compose/telemetry.compose.yml,
+    # marinoscar/EnterpriseAppBase#719). `otelcol validate` with the SAME image
+    # the compose file pins proves the overlay still loads on top of the base,
+    # and `print-config` proves the overlay is behaviour-neutral: the merged
+    # config is identical to the base alone. (The jest twin is
+    # apps/api/test/telemetry/collector-config-parity.spec.ts.)
+    #
+    # /hostfs: the config reads ${file:/hostfs/etc/hostname} and the
+    # hostmetrics receiver stats /hostfs, so a stand-in is mounted there. The
+    # collector runs as uid 10001, hence the world-readable permissions.
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate the collector configs with the pinned image
+        run: |
+          set -euo pipefail
+          image="$(sed -n 's/^ *image: \(otel\/opentelemetry-collector-contrib:[^ ]*\)$/\1/p' infra/compose/telemetry.compose.yml)"
+          test -n "$image" || { echo "no pinned collector image in telemetry.compose.yml" >&2; exit 1; }
+          echo "collector image: $image"
+          hostfs="$(mktemp -d)"
+          mkdir -p "$hostfs/etc"
+          echo ci-host > "$hostfs/etc/hostname"
+          chmod -R a+rX "$hostfs"
+          otelcol() {
+            docker run --rm \
+              -v "$PWD/infra/otel:/cfg:ro" \
+              -v "$hostfs:/hostfs:ro" \
+              -e GREPTIME_DB=public -e GREPTIME_WRITER_USER=w -e GREPTIME_WRITER_PASSWORD=x \
+              -e POSTGRES_HOST=db -e POSTGRES_PORT=5432 -e POSTGRES_DB=appdb -e POSTGRES_SSL=false \
+              -e POSTGRES_MONITOR_USER=u -e POSTGRES_MONITOR_PASSWORD=p \
+              -e UPTIME_PUBLIC_URL=http://nginx/nginx-health \
+              "$image" "$@"
+          }
+          base=--config=/cfg/otel-collector-config.yaml
+          otelcol validate "$base"
+          otelcol validate "$base" --config=/cfg/app-collector.yaml
+          otelcol print-config "$base" > base.out
+          otelcol print-config "$base" --config=/cfg/app-collector.yaml > overlay.out
+          diff -u base.out overlay.out
+          echo "the app overlay is behaviour-neutral"
+
+      # `docker compose config` needs no daemon state: it renders the merged
+      # project, so a broken mount, interpolation or `!override` fails here.
+      - name: Render the telemetry compose stacks
+        working-directory: infra/compose
+        run: |
+          set -euo pipefail
+          docker compose --env-file .env.example \
+            -f base.compose.yml -f dev.compose.yml -f telemetry.compose.yml config -q
+          STACK_AGENT_TOKEN=ci DEPLOY_ROOT=/srv/ci docker compose --env-file .env.example \
+            -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml \
+            -f vps.compose.yml -f vps.telemetry.compose.yml config -q
