@@ -62,8 +62,9 @@ import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 // Telemetry Dashboard (#578, epic #576).
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
-// Doctor (#634).
-import HealthAndSafetyOutlinedIcon from '@mui/icons-material/HealthAndSafetyOutlined';
+// Doctor (#634; the package's page since marinoscar/EnterpriseAppBase#717:
+// card and icon from its descriptor).
+import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 // Factory reset (#211) — the one destructive card, alone in its own group.
 import DeleteForeverOutlinedIcon from '@mui/icons-material/DeleteForeverOutlined';
 import ChecklistOutlinedIcon from '@mui/icons-material/ChecklistOutlined';
@@ -656,16 +657,18 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       {
         // Issue #634. APPENDED as the last Observability card (append-only).
         // `system_settings:read`, the exact permission
-        // `doctor/doctor.controller.ts` enforces on `GET /api/admin/doctor`.
+        // `@marinoscar/platform-api/doctor` enforces on `GET /api/admin/doctor`
+        // (`DEFAULT_DOCTOR_PERMISSION`, bound in
+        // `apps/api/src/platform/doctor.config.ts`).
         // NO `feature`, deliberately: the Doctor reports on AI and telemetry
         // while they are switched off (as `skip`), which is exactly when an
         // administrator asks why a capability is missing. No `alwaysShow`.
-        title: 'Doctor',
-        description:
-          'Check the configuration, connectivity and health of every capability, including telemetry capture.',
-        Icon: HealthAndSafetyOutlinedIcon,
-        path: '/admin/settings/doctor',
-        permission: 'system_settings:read',
+        // Since marinoscar/EnterpriseAppBase#717 the card is the packaged
+        // page's descriptor (`@marinoscar/platform-web/doctor/ui`): title,
+        // description, path and permission come from it, word for word what
+        // the page shows.
+        ...doctorSettingsPage.card,
+        Icon: doctorSettingsPage.Icon,
       },
     ],
   },

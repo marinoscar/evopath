@@ -6,6 +6,7 @@ import { AiConfigProvider } from './contexts/AiConfigContext';
 import { TelemetryConfigProvider } from './contexts/TelemetryConfigContext';
 import { OnboardingProvider } from './contexts/OnboardingContext';
 import { ThemeContextProvider } from './contexts/ThemeContext';
+import { AppPlatformHostProvider } from './platform/platformHost';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
@@ -160,7 +161,13 @@ const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorer
 // Issue #578, epic #576 — the at-a-glance dashboard; lazy, and its charts
 // (`@mui/x-charts`) travel in its own chunk.
 const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
-const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
+// The Doctor page is the package's (`@marinoscar/platform-web/doctor/ui`,
+// marinoscar/EnterpriseAppBase#717): its settings descriptor's `Page`, lazily
+// loaded like every admin page. It reaches the app through the platform host
+// (`platform/platformHost.tsx`).
+const DoctorPage = lazy(() =>
+  import('@marinoscar/platform-web/doctor/ui').then((module) => ({ default: module.doctorSettingsPage.Page })),
+);
 // Android app trust (#283, epic #276).
 const AndroidAppPage = lazy(() => import('./pages/Admin/AndroidAppPage'));
 // Issue #211 — the admin factory reset.
@@ -242,13 +249,23 @@ function AppRoutes() {
                     the same shape again for `GET /api/onboarding`, shared by the
                     welcome dialog, the Today cards, the user menu and the setup
                     guide. */}
+                {/* `AppPlatformHostProvider` (marinoscar/EnterpriseAppBase#717)
+                    is the platform host every packaged page reads
+                    (`@marinoscar/platform-web`): the app's transport, the
+                    viewer's permissions and the feature map. Innermost, so the
+                    AI and telemetry feature flags it exposes come from the
+                    providers above, and inside `ProtectedRoute` and
+                    `AuthProvider`, so the viewer is the signed-in user. See
+                    `platform/platformHost.tsx`. */}
                 <Route
                   element={
                     <NotificationProvider>
                       <AiConfigProvider>
                         <TelemetryConfigProvider>
                           <OnboardingProvider>
-                            <Layout />
+                            <AppPlatformHostProvider>
+                              <Layout />
+                            </AppPlatformHostProvider>
                           </OnboardingProvider>
                         </TelemetryConfigProvider>
                       </AiConfigProvider>
@@ -1036,7 +1053,11 @@ function AppRoutes() {
                     }
                   />
                   {/* Issue #634. `system_settings:read`, the string the `Doctor`
-                      card declares and `doctor/doctor.controller.ts` enforces.
+                      card declares and `@marinoscar/platform-api/doctor`
+                      enforces (bound in `apps/api/src/platform/doctor.config.ts`).
+                      Path and permission are the packaged page's descriptor
+                      (`doctorSettingsPage.card`), written as literals because
+                      `destinations.test.ts` reads this file as text.
                       NOT behind `RequireTelemetryEnabled` or `RequireAiEnabled`:
                       the page reports on those capabilities while they are
                       off. */}
