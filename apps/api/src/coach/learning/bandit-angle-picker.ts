@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/domain-metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SUPPORTIVE_ANGLES } from '../guard/banned-terms';
 import { COACH_ANGLES, DefaultAnglePicker, type AnglePicker, type AnglePickInput, type CoachAngle } from '../nudges/angle-picker';

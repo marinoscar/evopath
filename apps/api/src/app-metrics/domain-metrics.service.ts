@@ -1,5 +1,5 @@
 // =============================================================================
-// EvoPath's domain metrics (marinoscar/EnterpriseAppBase#718)
+// The app's domain metrics (marinoscar/EnterpriseAppBase#718)
 // =============================================================================
 //
 // THE TYPED RECORDERS FOR EVOPATH'S OWN METRICS: health documents, the AI
@@ -10,7 +10,7 @@
 //
 // THE INSTRUMENTS ARE THE PLATFORM'S. The names, units, descriptions and
 // buckets are declared in the otel-core app-metric registry
-// (`evopath-metric-names.ts`, registered by `evopath-metrics.module.ts`), and
+// (`domain-metric-names.ts`, registered by `domain-metrics.module.ts`), and
 // the instruments are created by the platform's metrics host
 // (`MetricsHostService`, `@marinoscar/platform-api/otel-core`) from those
 // declarations: this file never creates an instrument.
@@ -54,7 +54,7 @@ import {
   HEALTH_EXPORT_OUTCOME_VALUES,
   HEALTH_SUMMARY_OUTCOME_VALUES,
   type EvoPathMetricKey,
-} from './evopath-metric-names';
+} from './domain-metric-names';
 
 export { COACH_AUDIO_FAILURE_REASONS, COACH_AUDIO_REQUEST_OUTCOMES, COACH_NUDGE_SUPPRESSION_REASONS };
 
@@ -298,12 +298,12 @@ export class EvoPathMetricsService {
   // Internals
   // ===========================================================================
 
-  /** An EvoPath counter, created by the host from its registry declaration. */
+  /** An app (domain) counter, created by the host from its registry declaration. */
   private counter(key: EvoPathMetricKey): Counter {
     return this.host.counter(key);
   }
 
-  /** An EvoPath histogram, created by the host from its registry declaration. */
+  /** An app (domain) histogram, created by the host from its registry declaration. */
   private histogram(key: EvoPathMetricKey): Histogram {
     return this.host.histogram(key);
   }
@@ -321,7 +321,7 @@ export class EvoPathMetricsService {
 // The fallback instance
 // -----------------------------------------------------------------------------
 //
-// Services that record EvoPath metrics inject `EvoPathMetricsService` as
+// Services that record the app's domain metrics inject `EvoPathMetricsService` as
 // `@Optional()` and fall back to this shared instance: a host of its own on the
 // global meter (the API's no-op meter unless an SDK is installed). That keeps
 // the hand-built service instances in the test suites valid without a stub

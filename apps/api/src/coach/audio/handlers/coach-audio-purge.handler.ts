@@ -31,7 +31,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import type { Job, Prisma } from '@prisma/client';
 
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/domain-metrics.service';
 import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import { StorageObjectReferences } from '../../../intake/storage-object-references';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';

@@ -14,16 +14,16 @@ import {
   type MetricsHostOptions,
 } from '@marinoscar/platform-api/otel-core';
 
-// Registers the 26 EvoPath metrics, exactly as `app.module.ts` does at import.
-import { EvoPathMetricsModule } from './evopath-metrics.module';
-import { EVOPATH_APP_METRICS, EVOPATH_METRIC_NAMES } from './evopath-metric-names';
+// Registers the app's 26 domain metrics, exactly as `app.module.ts` does at import.
+import { EvoPathMetricsModule } from './domain-metrics.module';
+import { EVOPATH_APP_METRICS, EVOPATH_METRIC_NAMES } from './domain-metric-names';
 import {
   COACH_AUDIO_FAILURE_REASONS,
   COACH_AUDIO_REQUEST_OUTCOMES,
   COACH_NUDGE_SUPPRESSION_REASONS,
   EvoPathMetricsService,
   fallbackEvoPathMetrics,
-} from './evopath-metrics.service';
+} from './domain-metrics.service';
 
 // =============================================================================
 // EvoPathMetricsService (marinoscar/EnterpriseAppBase#718)
@@ -97,7 +97,7 @@ const BASELINE_EVOPATH_METRIC_NAMES = {
   coachAudioRequested: 'app.coach.audio.requested',
 };
 
-describe('EvoPath metric names and their registration', () => {
+describe('Domain metric names and their registration', () => {
   it('declares exactly the 26 baseline names, same keys', () => {
     expect(EVOPATH_METRIC_NAMES).toEqual(BASELINE_EVOPATH_METRIC_NAMES);
     expect(Object.keys(EVOPATH_METRIC_NAMES)).toHaveLength(26);
@@ -114,7 +114,7 @@ describe('EvoPath metric names and their registration', () => {
   it('fails fast on a duplicate registration', () => {
     expect(() => registerAppMetrics(EVOPATH_APP_METRICS)).toThrow(RegistryError);
     expect(() => registerAppMetrics(EVOPATH_APP_METRICS)).toThrow(/Duplicate app metric key "healthDocumentPurges"/);
-    // A new key that reuses an EvoPath NAME is refused too.
+    // A new key that reuses a domain metric NAME is refused too.
     expect(() =>
       registerAppMetrics([
         { key: 'coachNudgeSentAgain', name: 'app.coach.nudge.sent', kind: 'counter', unit: '{message}', description: 'x' },
@@ -150,7 +150,7 @@ function recordingMeter(): { meter: MetricsHostOptions['meter']; created: Create
   return { meter: meter as unknown as MetricsHostOptions['meter'], created };
 }
 
-describe('EvoPath metric descriptors (baseline before the registry)', () => {
+describe('Domain metric descriptors (baseline before the registry)', () => {
   it('creates every counter and histogram with its exact name, unit, description and buckets', () => {
     const { meter, created } = recordingMeter();
     new EvoPathMetricsService(undefined, { meter });

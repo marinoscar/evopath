@@ -4,7 +4,7 @@ import type { EventEmitter2 } from '@nestjs/event-emitter';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { Readable } from 'node:stream';
 
-import { EvoPathMetricsService } from '../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService } from '../app-metrics/domain-metrics.service';
 import { StorageObjectReferences } from '../intake/storage-object-references';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { ObjectsService } from '../storage/objects/objects.service';

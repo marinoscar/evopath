@@ -16,7 +16,7 @@ import {
 import { AiService } from '../../ai/runtime/ai.service';
 import { CheckInsService } from '../../check-ins/check-ins.service';
 import { resolveCoachUserSettings } from '../../common/schemas/user-settings-namespaces.schema';
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/domain-metrics.service';
 import { resolveServiceName } from '../../common/otel/telemetry-identity';
 import { HealthProfileService } from '../../health-profile/health-profile.service';
 import { HealthSummaryReader } from '../../health-summary/health-summary.reader';

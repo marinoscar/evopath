@@ -73,7 +73,7 @@ import {
   EvoPathMetricsService,
   fallbackEvoPathMetrics,
   type CoachNudgeSuppressionReason,
-} from '../../../app-metrics/evopath-metrics.service';
+} from '../../../app-metrics/domain-metrics.service';
 import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';

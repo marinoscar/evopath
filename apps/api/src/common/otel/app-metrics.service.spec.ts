@@ -519,7 +519,7 @@ const BASELINE_APP_METRIC_NAMES = {
 
 describe('AppMetricsService baseline (marinoscar/EnterpriseAppBase#680)', () => {
   it('keeps APP_METRIC_NAMES (the 31 baseline platform names, same keys)', () => {
-    // This app's own names are EVOPATH_METRIC_NAMES (app-metrics/evopath-metrics.service.spec.ts).
+    // This app's own names are EVOPATH_METRIC_NAMES (app-metrics/domain-metrics.service.spec.ts).
     expect(APP_METRIC_NAMES).toEqual(BASELINE_APP_METRIC_NAMES);
     expect(Object.keys(APP_METRIC_NAMES)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });

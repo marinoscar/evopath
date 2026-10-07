@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/domain-metrics.service';
 import type { SystemCoachValue } from '../common/schemas/settings.schema';
 import {
   resolveCoachUserSettings,

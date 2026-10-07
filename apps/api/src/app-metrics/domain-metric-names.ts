@@ -1,11 +1,11 @@
 import type { AppMetricAttribute, AppMetricDef } from '@marinoscar/platform-api/otel-core';
 
 // =============================================================================
-// EvoPath's own `app.*` metrics (marinoscar/EnterpriseAppBase#718)
+// The app's own `app.*` metrics (marinoscar/EnterpriseAppBase#718)
 // =============================================================================
 //
 // Pure data: the 26 health and coach metrics this app exports, declared in the
-// otel-core app-metric registry by `evopath-metrics.module.ts` and recorded by
+// otel-core app-metric registry by `domain-metrics.module.ts` and recorded by
 // the typed methods of `EvoPathMetricsService`. The platform's metrics (jobs,
 // backup, auth, AI, notifications, nodes) are declared in
 // `common/otel/platform-app-metrics.ts`; nothing here edits them.
@@ -21,7 +21,7 @@ import type { AppMetricAttribute, AppMetricDef } from '@marinoscar/platform-api/
 // URL, an error message or any free text.
 // =============================================================================
 
-/** Every EvoPath metric name, by code key (the docs quote this table). */
+/** Every domain metric name of this app, by code key (the docs quote this table). */
 export const EVOPATH_METRIC_NAMES = {
   healthDocumentPurges: 'app.health.documents.purges',
   // AI health summary (H8, #192): the `ai.health.summary` job.
@@ -58,10 +58,10 @@ export const EVOPATH_METRIC_NAMES = {
   coachAudioRequested: 'app.coach.audio.requested',
 } as const;
 
-/** An EvoPath metric's code key. */
+/** A domain metric's code key. */
 export type EvoPathMetricKey = keyof typeof EVOPATH_METRIC_NAMES;
 
-// Type EvoPath's keys for the host's generic `add`/`record` and `createRegisteredGauge`.
+// Type the app's keys for the host's generic `add`/`record` and `createRegisteredGauge`.
 declare module '@marinoscar/platform-api/otel-core' {
   interface AppMetricKeys {
     healthDocumentPurges: true;
@@ -200,7 +200,7 @@ const MOMENT_ATTRIBUTES = { moment: oneOf(...COACH_MOMENT_VALUES) };
 
 /**
  * The 26 declarations, in the order the API created them before the registry.
- * Registered once, by `evopath-metrics.module.ts`.
+ * Registered once, by `domain-metrics.module.ts`.
  */
 export const EVOPATH_APP_METRICS = [
   // ---- Health documents, summary and export ----

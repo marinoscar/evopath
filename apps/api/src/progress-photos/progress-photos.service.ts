@@ -52,7 +52,7 @@ import type { Readable } from 'node:stream';
 import { z } from 'zod';
 
 import { fromDbDate, toDbDate } from '../check-ins/local-date';
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/domain-metrics.service';
 import { detectImageType } from '../common/profile-image/profile-image';
 import { StorageObjectReferences } from '../intake/storage-object-references';
 import { PrismaService } from '../prisma/prisma.service';

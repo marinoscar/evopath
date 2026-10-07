@@ -1,11 +1,11 @@
 import { Global, Module } from '@nestjs/common';
 import { registerAppMetrics } from '@marinoscar/platform-api/otel-core';
 
-import { EVOPATH_APP_METRICS } from './evopath-metric-names';
-import { EvoPathMetricsService } from './evopath-metrics.service';
+import { EVOPATH_APP_METRICS } from './domain-metric-names';
+import { EvoPathMetricsService } from './domain-metrics.service';
 
 // =============================================================================
-// EvoPath's metric-name registration (marinoscar/EnterpriseAppBase#718)
+// The app's metric-name registration (marinoscar/EnterpriseAppBase#718)
 // =============================================================================
 //
 // THE APP'S EXTENSION POINT FOR METRICS. The 26 health and coach metrics are

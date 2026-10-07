@@ -7,8 +7,8 @@ import {
   Trace,
 } from '@marinoscar/platform-api/otel-core';
 
-import { EVOPATH_METRIC_NAMES } from '../../src/app-metrics/evopath-metric-names';
-import { EvoPathMetricsService } from '../../src/app-metrics/evopath-metrics.service';
+import { EVOPATH_METRIC_NAMES } from '../../src/app-metrics/domain-metric-names';
+import { EvoPathMetricsService } from '../../src/app-metrics/domain-metrics.service';
 import { AppMetricsService } from '../../src/common/otel/app-metrics.service';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 
@@ -73,7 +73,7 @@ describe('API with OTEL_ENABLED unset', () => {
     expect(appMetrics.gaugeContext()).toBeNull();
   });
 
-  it('has registered the EvoPath metric names, and froze the registry on bootstrap', () => {
+  it('has registered the domain metric names, and froze the registry on bootstrap', () => {
     for (const [key, name] of Object.entries(EVOPATH_METRIC_NAMES)) {
       expect(appMetricRegistry.require(key).name).toBe(name);
     }

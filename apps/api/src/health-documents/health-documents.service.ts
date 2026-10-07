@@ -25,7 +25,7 @@ import { BadRequestException, ConflictException, HttpException, HttpStatus, Inje
 import { trace } from '@opentelemetry/api';
 import { Prisma } from '@prisma/client';
 
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/domain-metrics.service';
 import { JobsService } from '../jobs/jobs.service';
 import { ACTIVE } from '../measurements/measurement-active';
 import { PrismaService } from '../prisma/prisma.service';

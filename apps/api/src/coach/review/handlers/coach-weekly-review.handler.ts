@@ -60,7 +60,7 @@ import { AI_RUN_TERMINAL_CODES } from '../../../ai/runtime/ai-response-run.handl
 import { AiService } from '../../../ai/runtime/ai.service';
 import { CheckInsService } from '../../../check-ins/check-ins.service';
 import { addDays, fromDbDate, localDateInZone, toDbDate } from '../../../check-ins/local-date';
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/domain-metrics.service';
 import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';

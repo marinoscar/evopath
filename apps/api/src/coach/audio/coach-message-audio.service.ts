@@ -44,7 +44,7 @@ import {
   EvoPathMetricsService,
   fallbackEvoPathMetrics,
   type CoachAudioRequestOutcome,
-} from '../../app-metrics/evopath-metrics.service';
+} from '../../app-metrics/domain-metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import {

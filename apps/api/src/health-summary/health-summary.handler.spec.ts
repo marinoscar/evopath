@@ -6,7 +6,7 @@ import { createMockPrismaService, type MockPrismaService } from '../../test/mock
 import type { AiFeatureModelResolver } from '../ai/assignments/ai-feature-model-resolver.service';
 import { AiError } from '../ai/core/ai-error';
 import type { AiService } from '../ai/runtime/ai.service';
-import type { EvoPathMetricsService } from '../app-metrics/evopath-metrics.service';
+import type { EvoPathMetricsService } from '../app-metrics/domain-metrics.service';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { RateLimitError } from '../jobs/rate-limit.error';
 import type { PrismaService } from '../prisma/prisma.service';

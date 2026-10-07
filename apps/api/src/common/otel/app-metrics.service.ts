@@ -27,8 +27,8 @@
 // `@marinoscar/platform-api/otel-core`): the platform's in
 // `platform-app-metrics.ts`, registered by `app-metric.manifest.ts` (imported
 // below); this app's own health and coach metrics in
-// `app-metrics/evopath-metric-names.ts`, registered by
-// `app-metrics/evopath-metrics.module.ts` and recorded by
+// `app-metrics/domain-metric-names.ts`, registered by
+// `app-metrics/domain-metrics.module.ts` and recorded by
 // `EvoPathMetricsService` (marinoscar/EnterpriseAppBase#718). The host creates
 // EVERY
 // registered counter and histogram from its declaration. The typed methods
@@ -172,7 +172,7 @@ export type AppMetricKey = PlatformAppMetricKey | (keyof AppMetricKeys & string)
  * from the platform declarations rather than from the registry, so it does not
  * depend on whether `EvoPathMetricsModule` was imported before this module was
  * evaluated: this app's own names are `EVOPATH_METRIC_NAMES`
- * (`app-metrics/evopath-metric-names.ts`).
+ * (`app-metrics/domain-metric-names.ts`).
  */
 export const APP_METRIC_NAMES: Readonly<Record<PlatformAppMetricKey, string>> = Object.freeze(
   Object.fromEntries(PLATFORM_APP_METRICS.map((def) => [def.key, def.name])) as Record<PlatformAppMetricKey, string>,

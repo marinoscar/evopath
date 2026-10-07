@@ -7,8 +7,8 @@
 // `app-metrics.service.ts`; nothing else imports this file.
 //
 // This app's own metrics (health, coach) are NOT registered here: they are
-// declared in `app-metrics/evopath-metric-names.ts` and registered once by
-// `app-metrics/evopath-metrics.module.ts` (marinoscar/EnterpriseAppBase#718),
+// declared in `app-metrics/domain-metric-names.ts` and registered once by
+// `app-metrics/domain-metrics.module.ts` (marinoscar/EnterpriseAppBase#718),
 // which `app.module.ts` imports after `AppMetricsModule`, so a key or name
 // collision names the app's declaration.
 // =============================================================================

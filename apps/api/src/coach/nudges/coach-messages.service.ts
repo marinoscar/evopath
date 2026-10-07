@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/evopath-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/domain-metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { coachMessageNotFoundError } from '../coach-errors';
 import { conversionCandidateWhere, type CoachConversionTarget } from './coach-conversion';
