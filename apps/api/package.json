@@ -85,6 +85,7 @@
   },
   "devDependencies": {
     "@langchain/langgraph-checkpoint-validation": "^1.1.1",
+    "@marinoscar/platform-infra": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.3/marinoscar-platform-infra-0.1.0-next.3.tgz",
     "@nestjs/cli": "^11.0.16",
     "@nestjs/schematics": "^11.0.9",
     "@nestjs/testing": "^11.1.12",
@@ -110,6 +111,7 @@
     "supertest": "^7.2.2",
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "yaml": "^2.9.0"
   }
 }
