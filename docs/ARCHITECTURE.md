@@ -408,8 +408,8 @@ A program is a user's training plan: a tree of blocks, weeks, workouts and exerc
 
 `GET /api/admin/doctor` runs a set of read-only checks and answers one question: is every capability of this deployment configured, reachable and healthy? Each capability's own module contributes its checks (`<module>/doctor/`), which register themselves with `DoctorCheckRegistry`. `DoctorService` runs them in parallel, skips a check whose dependency did not pass, bounds each with a timeout, caches the report for 15 seconds and always answers `200`: a failing check is a row with a `remedy` and the settings page that fixes it. No check sends, writes, spends tokens or enqueues a job. The AI category includes the per-feature model assignments (training roles included) and web search. The host-level counterpart is `evopathcli deploy doctor` ([§5.9](#59-evopathcli-cli)).
 
-- **Code:** `apps/api/src/doctor/` (contract, registry, service, controller), `apps/api/src/*/doctor/` (the checks)
-- **UI:** `/admin/settings/doctor` (`apps/web/src/pages/Admin/DoctorPage.tsx`)
+- **Code:** `@marinoscar/platform-api/doctor` (contract, registry, service, controller; bound in `apps/api/src/platform/doctor.config.ts`), `apps/api/src/*/doctor/` (the checks)
+- **UI:** `/admin/settings/doctor` (`@marinoscar/platform-web/doctor/ui`, routed in `apps/web/src/App.tsx` through the platform host `apps/web/src/platform/platformHost.tsx`)
 - **Permissions:** `system_settings:read`
 - **Read more:** [specs/doctor.md](specs/doctor.md), [runbooks/doctor.md](runbooks/doctor.md)
 

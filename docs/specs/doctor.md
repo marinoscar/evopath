@@ -1,6 +1,8 @@
 # Admin Doctor
 
-> **Status:** shipped · **Code:** `apps/api/src/doctor/` (contract, registry, service, controller), checks under `apps/api/src/<module>/doctor/`, `apps/web/src/pages/Admin/DoctorPage.tsx` · **API:** `GET /api/admin/doctor` (see `/api/docs`, tag `Doctor`) · **Admin UI:** `/admin/settings/doctor` · **Runbook:** [doctor.md](../runbooks/doctor.md) · **Recipe:** [§4](#4-extending-it-in-a-fork)
+> **Status:** shipped · **Code:** the framework is provided by `@marinoscar/platform-api/doctor` (contract, registry, service, DTOs, controller), bound by `apps/api/src/platform/doctor.config.ts`; checks under `apps/api/src/<module>/doctor/`; the page is provided by `@marinoscar/platform-web/doctor/ui`, routed in `apps/web/src/App.tsx` · **API:** `GET /api/admin/doctor` (see `/api/docs`, tag `Doctor`) · **Admin UI:** `/admin/settings/doctor` · **Runbook:** [doctor.md](../runbooks/doctor.md) · **Recipe:** [§4](#4-extending-it-in-a-fork)
+
+> **Provided by `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor`** (marinoscar/EnterpriseAppBase#717). The framework is platform code: never edit it here ([CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)). This app owns its checks, the one-line binding and the route; the extension points are the packages' READMEs ([API](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/doctor/README.md), [web](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-web/src/doctor/README.md)), and the adoption is recorded in the [platform adoption ledger](../platform-adoption/README.md).
 
 The Doctor answers one question for an administrator: is every capability of this deployment configured, reachable and healthy? It runs a set of small, read-only checks, one per fact worth knowing, that each capability's own module contributes, and returns one report. Each row carries a status, a one-line detail and, when something needs attention, a remedy and the settings page that fixes it.
 
@@ -21,12 +23,12 @@ The Doctor answers one question for an administrator: is every capability of thi
 
 ### 2.1 The check contract
 
-The contract lives in `apps/api/src/doctor/doctor-check.interface.ts`. A check is an `@Injectable()` with these members:
+The contract lives in `@marinoscar/platform-api/doctor` (`DoctorCheck`, `DoctorCheckOutcome`). A check is an `@Injectable()` with these members:
 
 | Member | Meaning |
 |---|---|
 | `id` | Stable, dotted, unique across the application (`storage.bucket`). |
-| `category` | `core`, `auth`, `maintenance`, `storage`, `email`, `push`, `ai`, `jobs`, `nodes`, `backup`, `telemetry`, or any new string a fork adds (the Android app's `android` is one: it is not in `DOCTOR_CATEGORIES`, so it sorts after the shipped ones). |
+| `category` | `core`, `auth`, `maintenance`, `storage`, `email`, `push`, `ai`, `jobs`, `nodes`, `backup`, `telemetry`, or any new string a fork adds (the Android app's `android` is one: it is not in `PLATFORM_DOCTOR_CATEGORIES`, so it sorts after the shipped ones). |
 | `label` | Short human label shown in the page. |
 | `settingsPath` | Optional web route that fixes the problem (`/admin/settings/storage`). |
 | `timeoutMs` | Optional per-check ceiling; the default is 5000 ms ([§2.4](#24-the-service)). |
@@ -79,17 +81,17 @@ A check may reuse the test services' pure helpers where they exist. `push.vapid`
 
 ### 2.3 The registry
 
-`DoctorCheckRegistry` (`apps/api/src/doctor/doctor-check.registry.ts`) is the one place that knows which checks run. It has `register`, `get` and `list` (registration order).
+`DoctorCheckRegistry` (`@marinoscar/platform-api/doctor`) is the one place that knows which checks run. It has `register`, `get` and `list` (registration order). It freezes in `onApplicationBootstrap`, so a check that registers after every `onModuleInit` has run fails with `FROZEN`.
 
 **Explicit self-registration.** Each check lives in its owning feature module under `<module>/doctor/`, injects the registry and calls `this.registry.register(this)` from its own `onModuleInit`. This is the mechanism and the rationale of `apps/api/src/jobs/job-handler.registry.ts`: "why does the Doctor run this check?" has a grep-able answer (one `register(this)` line), and a check nobody wired up is a missing line in a diff rather than a decorator scan that silently matched nothing. Every `onModuleInit` has run before the first HTTP request, so the Doctor never races a registration.
 
 **Duplicate ids throw.** Where the job registry overwrites, this one fails at boot with both class names. A job `type` is a persisted contract a fork may legitimately shadow; a check id only names a line in a report, so two checks claiming one id is always a copy-paste mistake.
 
-**`DoctorModule` is `@Global()` and imports nothing.** A feature module contributes a check by listing it in `providers`, without importing `DoctorModule`. Every edge stays one-way: features know the registry, the Doctor knows no feature.
+**`DoctorModule.forRoot()` is global and imports nothing of the app.** The app mounts it once (`apps/api/src/platform/doctor.config.ts`, imported by `app.module.ts`) with its platform host (`apps/api/src/platform/platform-host.ts`), whose access port applies the app's own `@Auth()`. A feature module contributes a check by listing it in `providers`, without importing the Doctor's module. Every edge stays one-way: features know the registry, the Doctor knows no feature.
 
 ### 2.4 The service
 
-`DoctorService.run({ category?, refresh? })` (`apps/api/src/doctor/doctor.service.ts`) owns everything a check should not have to.
+`DoctorService.run({ category?, refresh? })` (`@marinoscar/platform-api/doctor`) owns everything a check should not have to.
 
 **Dependency waves, without a barrier.** Every check whose dependencies have settled starts at once; a dependent starts the moment its last dependency settles. A slow telemetry probe never delays an unrelated storage one.
 
@@ -123,7 +125,7 @@ Because a dependent waits for its dependencies, the worst-case latency of a run 
 
 **Category filter.** `category=<x>` reports only the checks in that category. A check's dependencies in other categories are still evaluated (so a filtered row reads `skip` for the right reason) but are not reported. A category nothing registered returns `checks: []` with verdict `skip`. A malformed category (not `^[a-z0-9][a-z0-9_-]{0,63}$`) is a `400`.
 
-**Order.** Rows are sorted by category (shipped categories in the order of `DOCTOR_CATEGORIES`; a fork's own categories after them), then by registration order.
+**Order.** Rows are sorted by category (shipped categories in the order of `PLATFORM_DOCTOR_CATEGORIES`, the `categoryOrder` default; a fork's own categories after them), then by registration order.
 
 **Report shape.** `{ verdict, generatedAt, durationMs, checks[] }`. Each row is `{ id, category, label, settingsPath, status, detail, remedy, error, data, durationMs }`. Every nullable field is present as `null` rather than absent. `durationMs` is `0` for a check skipped without running. The body arrives in the usual `{ data, meta }` envelope ([API.md](../API.md#response-envelope)).
 
@@ -247,7 +249,7 @@ The five checks form one chain: `export`, `connection`, `reachable`, `tables`, `
 
 #### android
 
-The `android` category is not in `DOCTOR_CATEGORIES`, so it sorts after the shipped categories.
+The `android` category is not in `PLATFORM_DOCTOR_CATEGORIES` (the package default `categoryOrder`, which this app does not override), so it sorts after the shipped categories.
 
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
@@ -256,19 +258,19 @@ The `android` category is not in `DOCTOR_CATEGORIES`, so it sorts after the ship
 
 ### 2.8 The web page
 
-`/admin/settings/doctor` (`apps/web/src/pages/Admin/DoctorPage.tsx`) is a registry card and nothing else, per the [Settings UI Pattern](settings-ui.md): the last card of the Observability group in `ADMIN_SECTIONS`, permission `system_settings:read`, and a route in `App.tsx` wrapped in `RequirePermission` with the same string. It carries no `feature`, deliberately: it reports on AI and telemetry while they are off (as `skip`), which is when an administrator asks why a capability is missing.
+`/admin/settings/doctor` is a registry card and nothing else, per the [Settings UI Pattern](settings-ui.md): the last card of the Observability group in `ADMIN_SECTIONS`, built from the packaged descriptor (`{ ...doctorSettingsPage.card, Icon: doctorSettingsPage.Icon }`), permission `system_settings:read`, and a route in `App.tsx` wrapped in `RequirePermission` with the same string. The page is `doctorSettingsPage.Page` from `@marinoscar/platform-web/doctor/ui`, loaded lazily; it checks no permission and imports no app code, reading the app through the platform host (`apps/web/src/platform/platformHost.tsx`, mounted around the shell in `App.tsx`). Its status colours come from the theme's `palette.status` tokens, which fall back to the palette's `success`, `warning`, `error` and `grey[500]` in this app's theme. It carries no `feature`, deliberately: it reports on AI and telemetry while they are off (as `skip`), which is when an administrator asks why a capability is missing.
 
 | Part | Behaviour |
 |---|---|
-| Load | `useDoctor` runs `GET /api/admin/doctor` on mount; the answer may come from the 15 s cache. |
+| Load | The package's `useDoctor` runs `GET /api/admin/doctor` on mount; the answer may come from the 15 s cache. |
 | **Run again** | Calls with `refresh=true`. The previous report stays on screen while it runs, and the button shows progress. |
 | Verdict | One alert: "All checks passed", "No problems found; some checks were skipped", or "N problems need attention". |
 | Counts | Chips for pass, warning, fail and skipped. |
 | Problems only | A switch that filters each category to its `warn` and `fail` rows. |
-| Categories | One accordion per category in `DOCTOR_CATEGORIES` order, with the worst status icon and "n/m passed". A category is expanded by default when it holds a `warn` or `fail`; manual toggles reset on **Run again**. A fork's category renders after the shipped ones, title-cased. |
-| Rows | `CheckRow` shows the status icon, label, status chip, duration, detail, the remedy as its own sentence, the `error` verbatim in a wrapping `<pre>`, and an **Open settings** link to `settingsPath`. |
+| Categories | One accordion per category in `PLATFORM_DOCTOR_CATEGORY_LABELS` order, with the worst status icon and "n/m passed". A category is expanded by default when it holds a `warn` or `fail`; manual toggles reset on **Run again**. A fork's category renders after the shipped ones, title-cased. |
+| Rows | The package's `CheckRow` shows the status icon, label, status chip, duration, detail, the remedy as its own sentence, the `error` verbatim in a wrapping `<pre>`, and an **Open settings** link to `settingsPath`. |
 
-**A failing check is not a page error.** The endpoint answers `200` with a `fail` verdict and that renders as the verdict alert and the rows. The page-level error alert, with a **Retry** button, is reserved for a request that actually failed (`403`, network, a maintenance `503`). The `category` filter exists in the client (`services/doctor.ts`) but the page always requests every category.
+**A failing check is not a page error.** The endpoint answers `200` with a `fail` verdict and that renders as the verdict alert and the rows. The page-level error alert, with a **Retry** button, is reserved for a request that actually failed (`403`, network, a maintenance `503`). The `category` filter exists in the package client (`createDoctorClient`) but the page always requests every category.
 
 ### 2.9 Relation to `evopathcli deploy doctor`
 
@@ -286,9 +288,9 @@ They are counterparts, not duplicates. The CLI cannot see settings stored in the
 
 ## 3. Configuration and permissions
 
-The Doctor has no settings, no environment variables and no database tables. The constants are in code: the 5000 ms default timeout and the 15 s cache TTL (`doctor.service.ts`), the thresholds inside each check (`DB_SLOW_LATENCY_MS`, `BACKUP_MAX_AGE_HOURS`, `JOBS_OLDEST_PENDING_WARN_MINUTES`, `JWT_MIN_SECRET_LENGTH`).
+The Doctor has no settings, no environment variables and no database tables. The constants are in code: the 5000 ms default timeout and the 15 s cache TTL (the defaults of `DoctorModule.forRoot`'s `defaultTimeoutMs` and `cacheTtlMs`, which this app does not override), the thresholds inside each check (`DB_SLOW_LATENCY_MS`, `BACKUP_MAX_AGE_HOURS`, `JOBS_OLDEST_PENDING_WARN_MINUTES`, `JWT_MIN_SECRET_LENGTH`).
 
-**Permission:** `system_settings:read`, the exact string `doctor.controller.ts` enforces and the `Doctor` card declares. The role matrix is in [ARCHITECTURE.md](../ARCHITECTURE.md#72-permission-matrix).
+**Permission:** `system_settings:read`, the exact string the packaged controller enforces (`DEFAULT_DOCTOR_PERMISSION`; `platform/doctor.config.ts` passes no `permission`) and the `Doctor` card declares. The role matrix is in [ARCHITECTURE.md](../ARCHITECTURE.md#72-permission-matrix).
 
 | Route | Purpose | Permission |
 |---|---|---|
@@ -303,18 +305,19 @@ An unauthenticated caller gets `401`; Contributor and Viewer get `403`. The per-
 
 ## 4. Extending it in a fork
 
+The authoritative extension-point catalog is the package README: [`@marinoscar/platform-api/doctor`](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/doctor/README.md#extension-point-catalog) (checks, the registry, `DoctorModule.forRoot` options) and [`@marinoscar/platform-web/doctor`](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-web/src/doctor/README.md#extension-point-catalog) (the page, its slots and the descriptor). This section is the app-side recipe.
+
 **Add a check.** A check belongs to the module that owns the capability. Four steps:
 
 1. Create `apps/api/src/<module>/doctor/<thing>.doctor-check.ts`. Put the judgement in a pure `decide…` function and keep `run()` to reads.
 2. Choose an `id` (dotted, unique; a duplicate throws at boot), a `category` (a shipped one, or a new string for a capability of your own), a `settingsPath` if a page fixes it, and `dependsOn` for anything that makes the check meaningless when it fails.
-3. Add the class to the owning module's `providers`. Do not import `DoctorModule`; it is global.
+3. Add the class to the owning module's `providers`. Do not import the Doctor's module; `DoctorModule.forRoot()` is global.
 4. Write the spec next to it ([§5](#5-guardrails)).
 
 ```ts
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome, DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { ReportsService } from '../reports.service';
 
 export const REPORTS_SETTINGS_PATH = '/admin/settings/reports';
@@ -378,7 +381,7 @@ export class ReportQuotaDoctorCheck implements DoctorCheck, OnModuleInit {
 - Catch your own failures and return a `fail` with a real `detail`. Declare `timeoutMs` if a probe can legitimately exceed 5 s, and give the probe its own client-side bound.
 - Never put a key, password, token or hint in `detail`, `error` or `data`.
 
-**Add a category.** Use a new string as `category`. It sorts after the shipped ones and the web page renders it title-cased. To give it a display name or position, add it to `DOCTOR_CATEGORIES` in `doctor-check.interface.ts` (the API sort order) and to `DOCTOR_CATEGORIES` in `DoctorPage.tsx` (the labels and order).
+**Add a category.** Use a new string as `category`. It sorts after the shipped ones and the web page renders it title-cased. To give it a display name or position, pass `categoryOrder` to `DoctorModule.forRoot` in `apps/api/src/platform/doctor.config.ts` (the API sort order) and the matching `categories` prop to the packaged `DoctorPage` (the labels and order). Both are options of the packages; no package file is edited.
 
 **Add a web surface.** None is needed: the page renders whatever the API returns.
 
@@ -386,15 +389,15 @@ export class ReportQuotaDoctorCheck implements DoctorCheck, OnModuleInit {
 
 | Invariant | Test |
 |---|---|
-| Duplicate ids throw; registration order; `list()` returns a copy | `apps/api/src/doctor/doctor-check.registry.spec.ts` |
-| Parallel start, dependency waves, `skip` on a failed or skipped dependency (transitively), `warn` does not block, unknown dependency, cycles, timeouts, throws become `fail`, remedy fallback, one-line detail, invalid status, verdict, category order, category filter, unknown category | `apps/api/src/doctor/doctor.service.spec.ts` |
-| Cache: TTL, refresh replaces the entry, keyed by category, one shared in-flight run | `apps/api/src/doctor/doctor.service.spec.ts` (`cache`) |
-| Permission is exactly `system_settings:read` with no `doctor:read`; `401`, `403` for Viewer and Contributor; admin gets the `{ data, meta }` envelope; every row has the full shape and every `warn`/`fail` a remedy; category filter; `400` on a malformed `category` or `refresh`; the JWT secret and the encryption key never appear in the response | `apps/api/test/doctor/doctor.integration.spec.ts` |
+| Registry (duplicate ids, order, freeze), service (dependency waves, timeouts, cache, verdict, category order and filter), `forRoot` (refuses a missing host, options) | the package's own tests (`packages/platform-api/test/doctor/` in EnterpriseAppBase) |
+| The platform host applies the app's `@Auth()` (guards, permissions metadata, `x-rbac`); the Doctor binding is global and gates on `system_settings:read` | `apps/api/src/platform/platform-host.spec.ts` |
+| Permission is exactly `system_settings:read` with no `doctor:read`; `401`, `403` for Viewer and Contributor; admin gets the `{ data, meta }` envelope; the 27 registered check ids, in registration order, the `android.*` and AI assignment checks included; every row has the full shape and every `warn`/`fail` a remedy; category filter; `400` on a malformed `category` or `refresh`; the JWT secret and the encryption key never appear in the response | `apps/api/test/doctor/doctor.integration.spec.ts` |
 | The two AI assignment checks: every `fail`/`warn`/`skip` branch of `decideFeatureAssignments` and `decideWebSearch`, and the deployment-wide effective assignment | `apps/api/src/ai/assignments/doctor/ai-feature-assignments.doctor-check.spec.ts`, `apps/api/src/ai/assignments/doctor/ai-web-search.doctor-check.spec.ts` |
-| Each check: its verdict table, a real remedy on every `warn`/`fail`, that it depends on what it says, that `run()` reads through the intended service (and, where it matters, does not send or audit), that it registers itself, and that no secret is echoed | `apps/api/src/<module>/doctor/*.doctor-check*.spec.ts` (auth, core, maintenance, storage, email, push, ai, jobs, nodes, backup, telemetry; the AI ones sit under `ai/config/doctor/` and `ai/assignments/doctor/`) |
-| Card is the last Observability card, carries exactly `system_settings:read`, no `feature` and no `alwaysShow`, is visible while AI and telemetry are off, hidden from a Viewer, and resolves its own title | `apps/web/src/__tests__/config/settingsRegistry.test.ts` |
-| Page: title matches its card, loading skeleton, request error with retry, mixed report (verdict, counts, ordered sections, remedy, error, settings link), all-pass, Problems only, Run again sends `refresh=true`, phone width, redirect without `system_settings:read`, category labels | `apps/web/src/__tests__/pages/Admin/DoctorPage.test.tsx` |
-| Hook: loads on mount without refresh, a failing verdict is data rather than an error, `403` message, network fallback message, `rerun` sends `refresh=true` and clears a previous error | `apps/web/src/__tests__/hooks/useDoctor.test.ts` |
+| Each check: its verdict table, a real remedy on every `warn`/`fail`, that it depends on what it says, that `run()` reads through the intended service (and, where it matters, does not send or audit), that it registers itself, and that no secret is echoed | `apps/api/src/<module>/doctor/*.doctor-check*.spec.ts` (auth, core, maintenance, storage, email, push, ai, jobs, nodes, backup, telemetry, android; the AI ones sit under `ai/config/doctor/` and `ai/assignments/doctor/`) |
+| Card is the last Observability card, carries exactly `system_settings:read` (the package's `DEFAULT_DOCTOR_PERMISSION`, not overridden by `platform/doctor.config.ts`), no `feature` and no `alwaysShow`, is visible while AI and telemetry are off, hidden from a Viewer, and resolves its own title | `apps/web/src/__tests__/config/settingsRegistry.test.ts` |
+| App wiring: `/admin/settings/doctor` renders the packaged page in the app's layout and theme for an admin, through the app transport (the `android` category included); a Viewer is sent away before any request | `apps/web/src/__tests__/pages/Admin/DoctorRoute.test.tsx` |
+| Web platform host: error mapping, envelope, If-Match, viewer and feature map, stable identity | `apps/web/src/__tests__/platform/platformHost.test.tsx` |
+| Page, hook and client (loading, errors, verdict, counts, Problems only, Run again, categories, slots, theme tokens) | the package's own tests (`packages/platform-web/test/doctor/` in EnterpriseAppBase) |
 
 The read-only rule has no single tripwire suite that scans every check for calls to the test services. It is held by each check's spec (which asserts what `run()` reads) and by review; a new check's spec is where a reviewer looks for it.
 
@@ -416,7 +419,7 @@ The read-only rule has no single tripwire suite that scans every check for calls
 
 ```bash
 npm test --workspace=api -- doctor
-npm run test:run --workspace=web -- Doctor
+npm run test:run --workspace=web -- Doctor platformHost
 npm run typecheck --workspace=api
 npm run typecheck --workspace=web
 ```
@@ -437,3 +440,4 @@ By hand, with the app running and signed in as an Admin:
 - #214 removed the `telemetry.stack` check, because the stack agent is not part of telemetry capture, and surfaced the agent's error on the Telemetry settings page instead.
 - #279 (epic #276) added the `android` category and the `android.assetlinks` check.
 - #285 (epic #276) added the `android.releases` check.
+- marinoscar/EnterpriseAppBase#717 replaced the local framework (`apps/api/src/doctor/`, the web page, hook, client and row) with `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor` at `0.1.0-next.1`. Check ids, the route, the permission and the OpenAPI operation are unchanged.
