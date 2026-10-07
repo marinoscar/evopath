@@ -1,3 +1,5 @@
+import type { NodeSpan } from '@marinoscar/platform-cli/telemetry';
+
 import { ApiClient, resolveApiBaseUrl } from '../api-client.js';
 
 // =============================================================================
@@ -267,36 +269,11 @@ export interface JobFailureReport {
   willRetry?: boolean | undefined;
 }
 
-/**
- * The phase spans a node may relay (#133). Mirrors the server's
- * `NODE_SPAN_NAMES`: an enum on the server, so a name not listed here is a 400
- * for the whole batch. Never add one on this side first.
- */
-export type NodeSpanName = 'job.download' | 'job.execute' | 'job.upload' | 'job.submit' | 'job.secret';
-
-/**
- * Integer-only, allowlisted span attributes. Mirrors the server's `.strict()`
- * `nodeSpanAttributesSchema` — there is deliberately no string attribute, so no
- * URL, path or credential can ride along in one.
- */
-export interface NodeSpanAttributes {
-  bytes?: number | undefined;
-  attempt?: number | undefined;
-  exitCode?: number | undefined;
-  httpStatus?: number | undefined;
-}
-
-/** One phase of one job, as `POST /nodes/:id/telemetry` takes it. */
-export interface NodeSpan {
-  jobId: string;
-  name: NodeSpanName;
-  startTimeUnixMs: number;
-  durationMs: number;
-  status: 'ok' | 'error';
-  /** An error CLASS or CODE (`MissingJobInputError`, `ApiError.409`), never a message. */
-  errorType?: string | undefined;
-  attributes?: NodeSpanAttributes | undefined;
-}
+// The phase span shapes a node relays (#133) live in the platform package's
+// telemetry slice (`@marinoscar/platform-cli/telemetry`,
+// marinoscar/EnterpriseAppBase#719); re-exported here so this module's public
+// surface is unchanged. `NodeApi` satisfies the relay's `NodeSpanSink`.
+export type { NodeSpan, NodeSpanAttributes, NodeSpanName } from '@marinoscar/platform-cli/telemetry';
 
 export interface NodeTelemetryResult {
   accepted: number;
@@ -358,7 +335,8 @@ export interface NodeApi {
   /**
    * Relays this node's job phase spans (#133). OPTIONAL on the interface so a
    * hand-written test fake need not implement it; the engine treats its
-   * absence as "span relay off". Best-effort: see `node-span-relay.ts`.
+   * absence as "span relay off". Best-effort: see `NodeSpanRelay` in
+   * `@marinoscar/platform-cli/telemetry`.
    */
   telemetry?(nodeId: string, body: { spans: NodeSpan[] }): Promise<NodeTelemetryResult>;
 }

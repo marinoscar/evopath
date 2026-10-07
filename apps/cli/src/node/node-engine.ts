@@ -10,9 +10,9 @@ import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapsh
 import { ExecutorRegistry } from './executors/index.js';
 import { defaultExecutors } from './executors/example-checksum.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
-import { JobSpanRecorder, NodeSpanRelay } from './node-span-relay.js';
 import type { EngineVitalsInput } from './node-vitals.js';
 import { ApiError } from '../errors.js';
+import { JobSpanRecorder, NodeSpanRelay, type NodeSpanSink } from '@marinoscar/platform-cli/telemetry';
 
 // =============================================================================
 // NodeEngine — the claim, execute, submit loop  (issue #274, epic #254)
@@ -238,7 +238,8 @@ export class NodeEngine {
       options.relaySpans === false
         ? undefined
         : new NodeSpanRelay({
-            api: this.api,
+            // Compile-time proof that the app's client is a span sink.
+            api: this.api satisfies NodeSpanSink,
             nodeId: this.nodeId,
             onDisabled: (reason) => this.emit({ kind: 'telemetry-disabled', at: this.iso(), error: reason }),
           });
@@ -479,7 +480,7 @@ export class NodeEngine {
     const claimToken: ClaimToken = assignment.claimToken;
     // THE JOB'S PHASE SPANS (#133): recorded as it runs, relayed after it
     // settles. Recording is synchronous and cannot fail the job; sending is
-    // off this promise entirely (see `node-span-relay.ts`).
+    // off this promise entirely (see `NodeSpanRelay`).
     const spans = new JobSpanRecorder(job.id, this.now);
     const startedMs = this.now();
     const controller = new AbortController();

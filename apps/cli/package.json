@@ -39,6 +39,8 @@
   },
   "dependencies": {
     "@app/shared": "*",
+    "@marinoscar/platform-cli": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.3/marinoscar-platform-cli-0.1.0-next.3.tgz",
+    "@marinoscar/platform-infra": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.3/marinoscar-platform-infra-0.1.0-next.3.tgz",
     "commander": "^14.0.2",
     "ink": "^7.1.1",
     "ink-select-input": "^6.2.0",

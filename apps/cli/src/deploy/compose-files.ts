@@ -33,12 +33,26 @@
 //     service block for `greptimedb` in vps.compose.yml would be a service
 //     with no image on every deployment WITHOUT telemetry, and compose rejects
 //     the whole project for it.
+//
+// THE SLOTS COME FROM THE MANIFEST (issue #705). The telemetry file names,
+// their slot (`after-prod` / `after-vps`) and the env group that adds them
+// are read from `telemetryInfraFragment` (@marinoscar/platform-infra), which
+// also generates those files into infra/compose/ (`npm run
+// platform:infra:sync`). Only base, prod and vps stay literals here; the
+// order above is still decided in this file, by where each slot is spliced.
 // =============================================================================
+
+import { telemetryInfraFragment, type ComposeSlot } from '@marinoscar/platform-infra/telemetry';
 
 import type { EnvGroup } from './env-metadata.js';
 
 /** The group whose presence adds the telemetry stack. Always on; see above. */
-export const TELEMETRY_GROUP = 'observability' satisfies EnvGroup;
+export const TELEMETRY_GROUP = telemetryInfraFragment.envGroup satisfies EnvGroup;
+
+/** The telemetry fragment's compose files that sit in one slot, in manifest order. */
+function telemetryFiles(slot: ComposeSlot): string[] {
+  return telemetryInfraFragment.composeFiles.filter((entry) => entry.slot === slot).map((entry) => entry.file);
+}
 
 /** Groups every VPS deployment has, whatever was passed or recorded. */
 export const ALWAYS_ON_GROUPS: readonly EnvGroup[] = [TELEMETRY_GROUP];
@@ -70,9 +84,9 @@ export function composeFilesFor(groups?: readonly string[] | undefined): string[
   return [
     'base.compose.yml',
     'prod.compose.yml',
-    ...(telemetry ? ['telemetry.compose.yml'] : []),
+    ...(telemetry ? telemetryFiles('after-prod') : []),
     'vps.compose.yml',
-    ...(telemetry ? ['vps.telemetry.compose.yml'] : []),
+    ...(telemetry ? telemetryFiles('after-vps') : []),
   ];
 }
 
