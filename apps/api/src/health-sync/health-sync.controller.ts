@@ -6,7 +6,7 @@ import { AuthCredential, type AuthCredentialInfo } from '../auth/decorators/auth
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import {
   DeviceViewDto,
   ListReportsQueryDto,

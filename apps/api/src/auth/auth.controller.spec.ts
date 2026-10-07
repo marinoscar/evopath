@@ -5,7 +5,7 @@ import { AuthService } from './auth.service';
 import { PatService } from '../pat/pat.service';
 import { NodeCredentialService } from '../nodes/node-credential.service';
 import { AuthLoginDeniedException } from './auth-error-codes';
-import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
+import { DatabaseSeedException } from '@marinoscar/platform-api/core';
 
 describe('AuthController', () => {
   let controller: AuthController;

@@ -22,7 +22,7 @@ import {
   MUSCLES,
 } from '../common/constants/training.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { ExerciseHistoryQueryDto, ExerciseHistoryView } from '../workouts/dto/exercise-history.dto';
 import { WorkoutHistoryService } from '../workouts/workout-history.service';
 import { EXERCISE_HISTORY_LIMIT_DEFAULT, EXERCISE_HISTORY_LIMIT_MAX } from '../workouts/workouts.constants';

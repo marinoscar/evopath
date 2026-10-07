@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { assertEncryptionKeyConfigured } from '../../common/crypto/secret-cipher';
+import { assertEncryptionKeyConfigured } from '@marinoscar/platform-api/core';
 import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
 import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 

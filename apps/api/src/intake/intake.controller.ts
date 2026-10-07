@@ -20,7 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { RequestUser } from '../auth/interfaces/authenticated-user.interface';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import {
   AcceptAllItemsDto,
   AnalyzeIntakeDto,

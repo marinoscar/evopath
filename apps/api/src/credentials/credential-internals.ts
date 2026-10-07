@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-import { isCanonicalUuid } from '../common/crypto/secret-cipher';
+import { isCanonicalUuid } from '@marinoscar/platform-api/core';
 
 // =============================================================================
 // Credential store internals — shared by BOTH encrypted stores (issue #387)

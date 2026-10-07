@@ -4,7 +4,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../common/constants/roles.constants';
-import { ErrorDto } from '../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { AndroidAppPushService } from '../notifications/android-app-push.service';
 import { AndroidAppService } from './android-app.service';
 import {

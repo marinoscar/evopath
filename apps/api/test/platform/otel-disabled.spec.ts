@@ -73,10 +73,11 @@ describe('API with OTEL_ENABLED unset', () => {
     expect(appMetrics.gaugeContext()).toBeNull();
   });
 
-  it('has registered the EvoPath metric names', () => {
+  it('has registered the EvoPath metric names, and froze the registry on bootstrap', () => {
     for (const [key, name] of Object.entries(EVOPATH_METRIC_NAMES)) {
       expect(appMetricRegistry.require(key).name).toBe(name);
     }
+    expect(appMetricRegistry.frozen).toBe(true);
   });
 
   it('makes every AppMetricsService method a safe no-op', async () => {

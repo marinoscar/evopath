@@ -1,5 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
-import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
+import { DatabaseSeedException } from '@marinoscar/platform-api/core';
 
 /**
  * The CLOSED set of sign-in failure codes (#652).

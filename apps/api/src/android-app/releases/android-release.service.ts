@@ -15,7 +15,7 @@ import {
 import type { Multipart, MultipartFile } from '@fastify/multipart';
 import { Prisma, type AndroidAppRelease } from '@prisma/client';
 
-import { deriveSigningKey } from '../../common/crypto/secret-cipher';
+import { deriveSigningKey } from '../../common/crypto/signing-key';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageConfigService } from '../../storage/config/storage-config.service';
 import { StorageNotConfiguredError } from '../../storage/config/storage-not-configured.error';

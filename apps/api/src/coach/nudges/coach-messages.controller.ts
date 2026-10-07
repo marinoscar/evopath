@@ -7,7 +7,7 @@ import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { COACH_LISTEN_LIMIT, COACH_LISTEN_WINDOW_MS } from '../audio/coach-listen-rate-limiter';
 import { CoachMessageAudioService } from '../audio/coach-message-audio.service';
 import { CoachMessageAudioDto, type CoachMessageAudio } from '../audio/dto/coach-message-audio.dto';

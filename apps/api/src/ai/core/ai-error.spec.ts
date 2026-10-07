@@ -1,6 +1,6 @@
 import { ArgumentsHost, HttpException } from '@nestjs/common';
 
-import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
+import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
 import { CLASSIFY_RATE_LIMIT, classifyRateLimit, RateLimitError } from '../../jobs/rate-limit.error';
 import { AI_ERROR_CODES, AI_ERROR_STATUS, AiError, aiErrorLogDetails, isAiErrorCode } from './ai-error';
 

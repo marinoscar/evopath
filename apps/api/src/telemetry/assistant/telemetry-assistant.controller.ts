@@ -7,7 +7,7 @@ import { AI_SSE_HEARTBEAT_MS, abortOnDisconnect } from '../../ai/http/ai-sse';
 import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
-import { ErrorDto } from '../../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { TelemetryAssistantRequestDto } from '../dto/telemetry-assistant.dto';
 import { TelemetryAssistantService } from './telemetry-assistant.service';
 import { openTelemetrySse } from './telemetry-assistant.sse';

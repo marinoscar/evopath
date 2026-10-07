@@ -41,7 +41,7 @@ import {
   TestUser,
 } from '../helpers/auth-mock.helper';
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
-import { decryptSecret } from '../../src/common/crypto/secret-cipher';
+import { decryptSecret } from '@marinoscar/platform-api/core';
 import { CredentialsService } from '../../src/credentials/credentials.service';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { AiConfigService } from '../../src/ai/config/ai-config.service';

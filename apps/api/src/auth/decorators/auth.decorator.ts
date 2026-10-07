@@ -10,7 +10,7 @@ import { RolesGuard } from '../guards/roles.guard';
 import { PermissionsGuard } from '../guards/permissions.guard';
 import { Roles } from './roles.decorator';
 import { Permissions } from './permissions.decorator';
-import { ErrorDto } from '../../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { RoleName, PermissionName } from '../../common/constants/roles.constants';
 
 interface AuthOptions {

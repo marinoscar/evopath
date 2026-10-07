@@ -5,7 +5,7 @@ import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { ENTRY_BATCH_MAX, ENTRY_LIST_MAX_RANGE_DAYS, ENTRY_MAX_DAYS_BACK } from './activity.constants';
 import { ActivityEntriesService } from './activity-entries.service';
 import {

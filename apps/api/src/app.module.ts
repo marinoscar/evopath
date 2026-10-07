@@ -62,7 +62,7 @@ import { CoachPlanningModule } from './coach/planning/coach-planning.module';
 import { CoachModule } from './coach/coach.module';
 import { MemoryModule } from './memory/memory.module';
 
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
