@@ -1,17 +1,21 @@
 import { randomBytes } from 'node:crypto';
 
 // =============================================================================
-// deriveSigningKey (issue #285), the local shim over @marinoscar/platform-api/core
+// deriveSigningKey (issue #285), from @marinoscar/platform-api/core
 // =============================================================================
 //
-// Moved from the deleted `secret-cipher.spec.ts`. Like the cipher, the shim
-// caches the master key for the process, so every case loads a fresh module
-// instance (`jest.resetModules()` + `require`) after setting the variable.
-// The golden value pins the derivation, label included: a change to it would
-// invalidate every outstanding Android download token.
+// The Android APK download links (`android-release.service.ts`) are signed
+// with this sub-key. It came from the app's own copy of the cipher, then a
+// local shim over the package; since platform 0.1.0-next.3 the package
+// exports it (seam marinoscar/EnterpriseAppBase#822), and this spec stays as
+// the app's pin on it. The package caches the master key for the process, so
+// every case loads a fresh module instance (`jest.resetModules()` +
+// `require`) after setting the variable. The golden value pins the
+// derivation, label included: a change to it would invalidate every
+// outstanding Android download token.
 // =============================================================================
 
-type SigningKeyModule = typeof import('./signing-key');
+type SigningKeyModule = typeof import('@marinoscar/platform-api/core');
 
 const ENV_VAR = 'SECRETS_ENCRYPTION_KEY';
 
@@ -29,10 +33,10 @@ function load(key: string | undefined): SigningKeyModule {
   else process.env[ENV_VAR] = key;
   jest.resetModules();
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('./signing-key') as SigningKeyModule;
+  return require('@marinoscar/platform-api/core') as SigningKeyModule;
 }
 
-describe('deriveSigningKey (#285)', () => {
+describe('deriveSigningKey from platform-api/core (#285)', () => {
   const original = process.env[ENV_VAR];
 
   afterEach(() => {
