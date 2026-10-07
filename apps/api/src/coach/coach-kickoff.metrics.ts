@@ -1,7 +1,7 @@
 import { type Counter, metrics } from '@opentelemetry/api';
 
 import { APP_METER_NAME } from '../common/otel/app-metrics.service';
-import { telemetryGate } from '../common/otel/telemetry-gate';
+import { telemetryGate } from '@marinoscar/platform-api/otel-core';
 
 // =============================================================================
 // Kickoff counters (E7.12; docs/specs/ai-coach.md §2.13)

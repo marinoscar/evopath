@@ -61,7 +61,7 @@ import {
   type CoachNudgeSuppressionReason,
 } from '../../../app-metrics/evopath-metrics.service';
 import type { CoachWeeklyReviewEmailData } from '../../../email/templates/coach-weekly-review.email';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';

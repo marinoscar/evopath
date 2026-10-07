@@ -76,7 +76,7 @@ import { AiProviderRegistry } from '../../core/provider-registry';
 import type { AiFileInputStrategies } from '../../core/types/file-inputs.types';
 import type { AiEmbeddingRequest, AiEmbeddingResult, AiEmbeddingsPort } from '../../core/types/media.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import { GeminiClientFactory } from './gemini-client.factory';
 import {
   type GeminiRequest,

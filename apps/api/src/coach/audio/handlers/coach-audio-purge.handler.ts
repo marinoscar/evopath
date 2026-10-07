@@ -32,7 +32,7 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import type { Job, Prisma } from '@prisma/client';
 
 import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/evopath-metrics.service';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import { StorageObjectReferences } from '../../../intake/storage-object-references';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';

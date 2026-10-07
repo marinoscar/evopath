@@ -1,7 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { APP_SLUG } from '@app/shared';
 
-import { telemetryGate } from '../common/otel/telemetry-gate';
+import { telemetryGate } from '@marinoscar/platform-api/otel-core';
 import type { SystemTelemetryValue } from '../common/schemas/settings.schema';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler';

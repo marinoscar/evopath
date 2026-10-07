@@ -1,5 +1,5 @@
 import { buildDatabaseUrl } from '../common/database-url';
-import { resolveServiceName } from '../common/otel/service-name';
+import { resolveServiceName } from '../common/otel/telemetry-identity';
 
 export default () => {
   const host = process.env.POSTGRES_HOST || 'localhost';
@@ -259,7 +259,7 @@ export default () => {
   // runs the overlay anyway. Using them as the default means an operator never
   // types the same credentials twice and existing deployments keep working on
   // upgrade. Whether telemetry is exported is a separate, runtime decision
-  // (the `telemetry.enabled` system setting; see common/otel/telemetry-gate.ts).
+  // (the `telemetry.enabled` system setting; see `telemetryGate` in @marinoscar/platform-api/otel-core).
   //
   // Two roles: `reader*` for the read-only queries the admin telemetry UI
   // runs, `admin*` for the retention/TTL housekeeping that needs DDL. The

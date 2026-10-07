@@ -20,7 +20,7 @@ import { Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 import type { AiError } from '../../core/ai-error';
 import type { AiCallContext } from '../../core/provider-adapter.interface';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import { mapOpenAiError, type OpenAiFamily } from './openai-errors';
 
 export const AI_PROVIDER_CALL_SPAN = 'ai.provider.call';

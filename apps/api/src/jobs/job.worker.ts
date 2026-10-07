@@ -96,7 +96,7 @@ import { ConfigService } from '@nestjs/config';
 import { Context, Span, SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
 import { Job } from '@prisma/client';
 
-import { resolveServiceName } from '../common/otel/service-name';
+import { resolveServiceName } from '../common/otel/telemetry-identity';
 
 import { JobClaimService } from './job-claim.service';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';

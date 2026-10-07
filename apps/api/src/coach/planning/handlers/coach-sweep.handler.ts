@@ -4,7 +4,7 @@ import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
 import { AiConfigService } from '../../../ai/config/ai-config.service';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';

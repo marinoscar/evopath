@@ -7,8 +7,8 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
-import { resolveTelemetryInstanceId } from '../common/otel/instance-id';
-import { telemetryGate } from '../common/otel/telemetry-gate';
+import { resolveTelemetryInstanceId } from '../common/otel/telemetry-identity';
+import { telemetryGate } from '@marinoscar/platform-api/otel-core';
 import type { SystemTelemetryValue } from '../common/schemas/settings.schema';
 import { APP_SLUG } from '@app/shared';
 

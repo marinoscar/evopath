@@ -46,7 +46,7 @@ import {
   fallbackEvoPathMetrics,
   type CoachAudioFailureReason,
 } from '../../app-metrics/evopath-metrics.service';
-import { resolveServiceName } from '../../common/otel/service-name';
+import { resolveServiceName } from '../../common/otel/telemetry-identity';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {

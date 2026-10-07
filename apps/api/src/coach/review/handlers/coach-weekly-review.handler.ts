@@ -61,7 +61,7 @@ import { AiService } from '../../../ai/runtime/ai.service';
 import { CheckInsService } from '../../../check-ins/check-ins.service';
 import { addDays, fromDbDate, localDateInZone, toDbDate } from '../../../check-ins/local-date';
 import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/evopath-metrics.service';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';

@@ -53,7 +53,7 @@ import { AiConfigService } from '../../ai/config/ai-config.service';
 import { AiError } from '../../ai/core/ai-error';
 import { AI_RUN_TERMINAL_CODES } from '../../ai/runtime/ai-response-run.handler';
 import { AiService } from '../../ai/runtime/ai.service';
-import { resolveServiceName } from '../../common/otel/service-name';
+import { resolveServiceName } from '../../common/otel/telemetry-identity';
 import type { TrainingAgentRole } from '../../common/schemas/settings.schema';
 import { JOB_SETTLED_EVENT, type JobSettledEvent } from '../../jobs/events/job-settled.event';
 import type { JobExecutionProfile } from '../../jobs/job-execution-profile';
