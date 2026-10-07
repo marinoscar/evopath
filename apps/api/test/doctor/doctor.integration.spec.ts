@@ -2,7 +2,8 @@
 // Integration tests for GET /api/admin/doctor (issue #634)
 // =============================================================================
 //
-// `src/doctor/doctor.service.spec.ts` proves what the service DECIDES. This
+// The package's `test/doctor/doctor.service.spec.ts`
+// (`@marinoscar/platform-api/doctor`) proves what the service DECIDES. This
 // suite drives the route through the REAL AppModule, guard stack, validation
 // pipe and response interceptor — the things a unit test cannot see:
 //
@@ -22,9 +23,10 @@ process.env.SECRETS_ENCRYPTION_KEY = ENCRYPTION_KEY;
 
 import request from 'supertest';
 
+import { DoctorCheckRegistry, DoctorService } from '@marinoscar/platform-api/doctor';
+
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
-import { DoctorController } from '../../src/doctor/doctor.controller';
-import { DoctorService } from '../../src/doctor/doctor.service';
+import { doctorModule } from '../../src/platform/doctor.config';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
@@ -36,6 +38,44 @@ import {
 } from '../helpers/auth-mock.helper';
 
 const ROUTE = '/api/admin/doctor';
+
+// The controller class `DoctorModule.forRoot()` created for this app, with the
+// app's own `@Auth()` applied through the platform host
+// (marinoscar/EnterpriseAppBase#717).
+const DoctorController = doctorModule.controllers![0] as { name: string; prototype: { getReport: object } };
+
+// Every check this app registers, by id, in registration order: the list the
+// Doctor reported before the framework moved into the package
+// (marinoscar/EnterpriseAppBase#717). A new check appends its id here.
+const REGISTERED_CHECK_IDS = [
+  'email.config',
+  'jobs.worker',
+  'jobs.backlog',
+  'ai.enabled',
+  'ai.providers',
+  'ai.feature-assignments',
+  'ai.web-search',
+  'push.vapid',
+  'maintenance.mode',
+  'auth.jwt-secret',
+  'auth.providers',
+  'auth.initial-admin',
+  'db.connection',
+  'db.migrations',
+  'secrets.encryption-key',
+  'storage.config',
+  'storage.bucket',
+  'nodes.fleet',
+  'backup.schedule',
+  'backup.pg-client',
+  'android.assetlinks',
+  'android.releases',
+  'telemetry.export',
+  'telemetry.connection',
+  'telemetry.reachable',
+  'telemetry.tables',
+  'telemetry.freshness',
+];
 
 describe('Doctor API (Integration)', () => {
   let context: TestContext;
@@ -98,6 +138,15 @@ describe('Doctor API (Integration)', () => {
   });
 
   describe('the report', () => {
+    it("registers every check of the app, the domain checks included, with their ids", async () => {
+      expect(context.module.get(DoctorCheckRegistry).list().map((check) => check.id)).toEqual(REGISTERED_CHECK_IDS);
+
+      const { body } = await request(server()).get(`${ROUTE}?refresh=true`).set(await adminAuth()).expect(200);
+      const reported = (body.data.checks as Array<{ id: string }>).map((check) => check.id);
+
+      expect([...reported].sort()).toEqual([...REGISTERED_CHECK_IDS].sort());
+    }, 30000);
+
     it('lists every registered check with a full row, and a remedy on each warn/fail', async () => {
       const { body } = await request(server()).get(ROUTE).set(await adminAuth()).expect(200);
       const checks = body.data.checks as Array<Record<string, unknown>>;

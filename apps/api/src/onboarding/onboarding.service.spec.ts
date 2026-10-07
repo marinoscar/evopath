@@ -1,5 +1,5 @@
 import { PERMISSIONS } from '../common/constants/roles.constants';
-import { DoctorCheckReport } from '../doctor/dto/doctor-report.dto';
+import { DoctorCheckReport } from '@marinoscar/platform-api/doctor';
 import { OnboardingService } from './onboarding.service';
 
 // =============================================================================

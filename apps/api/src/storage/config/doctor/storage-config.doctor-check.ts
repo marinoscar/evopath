@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import type { StorageConfigResolution } from '../storage-config';
 import { StorageConfigService } from '../storage-config.service';
 import { STORAGE_SETTINGS_PATH } from '../storage-not-configured.error';

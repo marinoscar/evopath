@@ -59,7 +59,7 @@ import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
     JwtStrategy,
     TokenCleanupTask,
     TokenCleanupHandler,
-    // Doctor checks (#634) — see `doctor/doctor-check.registry.ts`.
+    // Doctor checks (#634) — see `DoctorCheckRegistry` in `@marinoscar/platform-api/doctor`.
     JwtSecretDoctorCheck,
     AuthProvidersDoctorCheck,
     InitialAdminDoctorCheck,

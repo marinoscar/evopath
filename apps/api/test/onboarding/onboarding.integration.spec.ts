@@ -11,7 +11,7 @@ import request from 'supertest';
 
 import { AiConfigService } from '../../src/ai/config/ai-config.service';
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
-import { DoctorService } from '../../src/doctor/doctor.service';
+import { DoctorService } from '@marinoscar/platform-api/doctor';
 import { OnboardingController } from '../../src/onboarding/onboarding.controller';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {

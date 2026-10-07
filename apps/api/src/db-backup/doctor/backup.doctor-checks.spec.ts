@@ -1,5 +1,5 @@
-import { DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DatabaseBackupAdminService } from '../db-backup-admin.service';
 import { PgVersionCheck } from '../pg-version.util';

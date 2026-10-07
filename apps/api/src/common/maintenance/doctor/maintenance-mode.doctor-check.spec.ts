@@ -1,4 +1,4 @@
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { MaintenanceModeService, MaintenanceStatus } from '../maintenance-mode.service';
 import { MaintenanceModeDoctorCheck, decideMaintenance } from './maintenance-mode.doctor-check';
 

@@ -7,8 +7,7 @@ import {
   OnboardingGoal,
   onboardingSettingsSchema,
 } from '../common/schemas/user-settings-namespaces.schema';
-import { DoctorService } from '../doctor/doctor.service';
-import { DoctorCheckReport } from '../doctor/dto/doctor-report.dto';
+import { DoctorCheckReport, DoctorService } from '@marinoscar/platform-api/doctor';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import {

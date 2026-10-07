@@ -1,4 +1,4 @@
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { AndroidReleasesDoctorCheck, decideAndroidReleases } from './android-releases.doctor-check';
 
 const CURRENT = { packageName: 'com.evopath.android', versionName: '0.3.0', versionCode: 3 };

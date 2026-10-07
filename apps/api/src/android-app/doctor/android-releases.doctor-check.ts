@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ANDROID_APP_SETTINGS_PATH } from './android-assetlinks.doctor-check';
 

@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { LAST_DATA_LOOKBACK_MS, toDate } from '../dashboard/telemetry-dashboard.service';
 import { lastDataSql } from '../dashboard/telemetry-dashboard.sql';
 import { DASHBOARD_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.verdict';

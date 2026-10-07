@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { HealthCheckError } from '@nestjs/terminus';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { DatabaseHealthIndicator } from '../indicators/database.indicator';
 
 /** Above this round trip the database answers, but slowly enough to notice. */

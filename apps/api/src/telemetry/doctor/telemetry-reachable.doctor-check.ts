@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { GREPTIME_PING_TIMEOUT_MS, GreptimeClient } from '../greptime/greptime.client';
 import { TELEMETRY_SETTINGS_PATH } from './telemetry-export.doctor-check';
 

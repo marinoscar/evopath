@@ -1,7 +1,7 @@
 import { HealthCheckError } from '@nestjs/terminus';
 
-import { DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { DatabaseHealthIndicator } from '../indicators/database.indicator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DbConnectionDoctorCheck } from './db-connection.doctor-check';

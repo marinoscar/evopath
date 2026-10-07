@@ -1,7 +1,7 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { STORAGE_PROVIDER, StorageProvider } from '../../providers/storage-provider.interface';
 import {
   BUCKET_FORBIDDEN_CODES,
