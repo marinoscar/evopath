@@ -445,7 +445,7 @@ All routes are `@Auth({ roles: [ROLES.ADMIN], permissions: [...] })` in `job-adm
 - **Handler veto on delete.** Before deleting, `remove` calls the handler's optional `canDelete(job)`. A non-null reason is a **409** (`details.reason: 'owner_refused'`); a throw is a 409 too (`owner_check_failed`), failing closed. The broadcast start and chunk handlers refuse while their broadcast is `scheduled` or `sending` (`notifications/broadcasts/broadcast-job-delete-guard.ts`).
 - **Dedup collision on retry.** Moving a failed row back to `pending` re-enters the dedup index. A single retry answers **409** `details.reason: 'active_dedup_conflict'`; `retry-failed` counts it as `skipped`. `retry-failed` is a loop of single-row updates (each re-asserting `status: 'failed'`), capped at 500 per call with `remaining` reported.
 - **Literal routes are declared before `:id`.** Nest matches in declaration order; `reset-stuck` after `:id` would be captured as an id.
-- **Machine-readable error fields go in `details`**, because `http-exception.filter.ts` rebuilds error bodies from a fixed key allowlist.
+- **Machine-readable error fields go in `details`**, because the exception filter (`HttpExceptionFilter`, `@marinoscar/platform-api/core`) rebuilds error bodies from a fixed key allowlist.
 
 ### Insights
 

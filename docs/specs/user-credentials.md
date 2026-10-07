@@ -1,6 +1,6 @@
 # Per-User Encrypted Credentials
 
-> **Status:** shipped (store only, no HTTP surface) · **Code:** `apps/api/src/user-credentials/`, `apps/api/src/credentials/credential-internals.ts`, `apps/api/src/common/crypto/secret-cipher.ts` · **API:** none · **Admin UI:** none · **Runbook:** [rotate-secrets-encryption-key.md](../runbooks/rotate-secrets-encryption-key.md)
+> **Status:** shipped (store only, no HTTP surface) · **Code:** `apps/api/src/user-credentials/`, `apps/api/src/credentials/credential-internals.ts`, the cipher in `@marinoscar/platform-api/core` · **API:** none · **Admin UI:** none · **Runbook:** [rotate-secrets-encryption-key.md](../runbooks/rotate-secrets-encryption-key.md)
 
 `UserCredential` stores secrets that a **user** owns (bring-your-own-key),
 encrypted at rest under a cipher domain bound to that user. It is the
@@ -77,7 +77,7 @@ the owner:
 user:<userId>:<purpose>
 ```
 
-- Built by `userCredentialPurpose(userId, purpose)` in `secret-cipher.ts` and
+- Built by `userCredentialPurpose(userId, purpose)` (`@marinoscar/platform-api/core`) and
   passed as the `purpose` argument to the unchanged
   `encryptSecret`/`decryptSecret`.
 - `userId` must be a canonical UUID: lowercase hex, hyphenated, 8-4-4-4-12
@@ -248,7 +248,7 @@ Nothing in the table, the cipher, the service or the resolver changes.
 |---|---|
 | Two users at the same `(purpose, name)` stay apart; a row moved to another purpose fails to decrypt; no plaintext egress; blank preserves; address validation | `apps/api/src/user-credentials/user-credentials.service.spec.ts` |
 | `'none'` without touching the system store when there is no counterpart; unknown purpose throws first; registry validated at construction; production registry is empty and does not declare `'ai'` | `apps/api/src/user-credentials/user-credential.resolver.spec.ts` |
-| `userCredentialPurpose` requires a canonical UUID and a colon-free purpose | `apps/api/src/common/crypto/secret-cipher.spec.ts` |
+| `userCredentialPurpose` requires a canonical UUID and a colon-free purpose | `test/core/secret-cipher.spec.ts` of `@marinoscar/platform-api` |
 | A system purpose containing `:` (including a `user:` spelling) is rejected | `apps/api/src/credentials/credential-internals.spec.ts` |
 | `UserCredentialInfo` cannot hold a secret | compile-time proofs in `apps/api/src/user-credentials/interfaces/user-credential-info.interface.ts` |
 
@@ -290,7 +290,7 @@ Nothing in the table, the cipher, the service or the resolver changes.
 
 ```bash
 cd apps/api
-npm test -- user-credential credential-internals secret-cipher
+npm test -- user-credential credential-internals
 ```
 
 Expect the suites in §5 to pass. There is nothing to exercise over HTTP

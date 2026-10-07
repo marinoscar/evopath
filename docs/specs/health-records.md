@@ -618,7 +618,7 @@ Routes that carry the choice (details in `/api/docs`, tag "Intakes"):
 - `apps/api/test/health-data/health-documents-api.db.spec.ts`: on real Postgres and real file storage, the caller-only list with value counts, `404` everywhere for another user, delete through the purge (provider `exists()` false) with values kept and `fileDeleted: true`, record removal, `deleteValues=true` on exactly that document, stale `If-Match`, and the download TTL and `Content-Disposition`.
 - `apps/api/src/intake/intake.service.spec.ts`: the retention, attach, detach, discard and apply paths.
 - `apps/api/src/measurements/measurements.service.spec.ts`: `fileDeleted` on the measurement view.
-- `apps/api/src/common/otel/app-metrics.service.spec.ts`: the purge counter and its outcome label.
+- `apps/api/src/app-metrics/domain-metrics.service.spec.ts`: the purge counter and its outcome label.
 - `apps/api/test/jobs/cron-enqueue-only.spec.ts` and `apps/api/test/jobs/on-event-no-io.spec.ts`: no long-running work outside the queue.
 - `apps/api/src/health-summary/health-digest.spec.ts`: the digest's allow-list, windows anchored on the data, and its hash.
 - `apps/api/src/health-summary/health-summary.post-check.spec.ts`, `health-summary.prompt.spec.ts`: the rejected language and the pinned instructions.

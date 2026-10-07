@@ -59,7 +59,7 @@ email layout, the CLI banner, the MUI theme, the web app manifest, and so on
 and isn't duplicated here to avoid two lists drifting apart. Two more
 surfaces that work the same way, added since that table was written:
 
-- The **OpenTelemetry service name** — `apps/api/src/common/otel/service-name.ts`
+- The **OpenTelemetry service name** — `apps/api/src/common/otel/telemetry-identity.ts`
   falls back to `${APP_SLUG}-api` whenever the `OTEL_SERVICE_NAME` environment
   variable isn't set, so it follows a renamed product automatically in every
   span and every log line.

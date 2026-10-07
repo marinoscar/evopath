@@ -1425,3 +1425,20 @@ Re-run of `scripts/platform-drift.mjs` (areas `api`, `api-test`, `web`) with the
 | `apps/web/src/pages/Admin/DoctorPage.tsx`, `hooks/useDoctor.ts`, `services/doctor.ts`, `components/doctor/CheckRow.tsx` | identical | cosmetic |
 
 No app-side delta, so nothing was ported to the base. The adoption deleted every path above except the integration spec, which stays as the app's wiring test (now importing the package, and pinning the app's 27 check ids). The package's registry freezes after bootstrap; every check of this app registers in `onModuleInit`, so none is affected. Ledger row: [README.md, Adopted slices](README.md#3-adopted-slices).
+
+### Core and otel-core ([PP-10.3](https://github.com/marinoscar/EnterpriseAppBase/issues/718), 2026-10-07)
+
+Re-run of `scripts/platform-drift.mjs` (area `api`) with the base at `2ea79890d16e9af58d5dd9c4969d886e32bb7092`, the parent of the first commit that moved code into `@marinoscar/platform-api/core` (the otel-core moves started later, from `7cc98b96`; in between only the registry import paths of `app-metric.registry.ts` and the app-metrics spec changed), against the app's `origin/main` at `3e3a0565`. Each differing file was then diffed by hand against the package source of `0.1.0-next.2`.
+
+| Path | Result | Class |
+|---|---|---|
+| `apps/api/src/common/dto/error.dto.ts`, `common/exceptions/database-seed.exception.ts`, `common/exceptions/verbatim-error-body.exception.ts`, `common/filters/http-exception.filter.spec.ts`, `common/crypto/encryption-key-startup-check.ts`, `common/decorators/trace.decorator.ts` | identical | cosmetic |
+| `apps/api/src/common/filters/http-exception.filter.ts` | normalised-identical: the zod `details.issues` and the 412 `PRECONDITION_FAILED` mapping are in the package too (comments differ) | cosmetic |
+| `apps/api/src/common/crypto/secret-cipher.ts`, `secret-cipher.spec.ts` | modified: the app's `deriveSigningKey(purpose)` (issue #285) and its spec; everything else identical to the package | generic improvement (backport candidate); kept as the local shim `common/crypto/signing-key.ts` |
+| `apps/api/src/common/otel/telemetry-gate.ts`, `request-span-attributes.ts` (and specs), `service-name.ts`, `instance-id.ts` (and specs), `apps/api/src/instrumentation.ts` | identical or normalised-identical (issue numbers) | cosmetic |
+| `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.service.spec.ts` | modified: 26 health and coach names and 19 recorders added inline | domain extension (needs a seam): moved to `apps/api/src/app-metrics/` and registered through the app-metric registry |
+| `apps/api/src/common/otel/app-metrics.module.ts` | normalised-identical | cosmetic |
+| `apps/api/src/main.ts` | modified: the base checks `DEPLOYMENT_MODE` at startup | base ahead (app behind); only the core and otel-core lines were adopted |
+| `apps/api/src/common/registry/*`, `common/principal/*`, `common/otel/app-metric.registry.ts` and the other `app-metric.*` and `platform-app-metrics.ts` files | base-only | base ahead (app behind); the registry and principal arrive with the package, the app-metric files were added as the base has them |
+
+No app-side delta was ported to the base by this story: the one generic improvement (`deriveSigningKey`) is a seam request. Ledger rows: [README.md, Adopted slices](README.md#3-adopted-slices) and [Local exceptions](README.md#4-local-exceptions).

@@ -124,7 +124,7 @@ Every blocked response carries:
 | `details.allowAdmins` | Lets a client choose between "come back later" and "sign in as an administrator". |
 | `message` | The resolved operator message. |
 
-The marker must live under `details`. `common/filters/http-exception.filter.ts`
+The marker must live under `details`. The exception filter (`HttpExceptionFilter`, `@marinoscar/platform-api/core`)
 rebuilds every error body from a fixed allowlist (`statusCode`, `code`,
 `message`, `details`, `timestamp`, `path`) and always derives `code` from the
 status. The guard sets `Retry-After` on the Fastify reply before it throws;

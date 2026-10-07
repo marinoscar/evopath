@@ -125,7 +125,7 @@ Node-chosen lease lengths and retries are not accepted. `willRetry` on a failure
 1. `assertJobHeldByNode`.
 2. `400` if the posted `type` differs from the job's. An id and a type agreeing is a statement; two ids agreeing is a coincidence.
 3. `400` if the handler lacks the `nodeResultSchema`/`persistNodeResult` pair.
-4. `handler.nodeResultSchema.parse(body.result)` → `400` with the Zod issues in `details`. A manual parse, because which schema applies is known only after the job row is read. Issues go in `details` because `http-exception.filter.ts` rebuilds error bodies from a fixed key allowlist.
+4. `handler.nodeResultSchema.parse(body.result)` → `400` with the Zod issues in `details`. A manual parse, because which schema applies is known only after the job row is read. Issues go in `details` because the exception filter (`HttpExceptionFilter`, `@marinoscar/platform-api/core`) rebuilds error bodies from a fixed key allowlist.
 5. `handler.persistNodeResult(job, parsed)`. On throw, route through `completeFailed` and answer `500`: once the server starts persisting, it owns the retry.
 6. `completeSucceeded`.
 
