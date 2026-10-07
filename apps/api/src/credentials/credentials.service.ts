@@ -7,7 +7,7 @@ import {
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { decryptSecret, encryptSecret } from '../common/crypto/secret-cipher';
+import { decryptSecret, encryptSecret } from '@marinoscar/platform-api/core';
 import {
   assertCredentialAddress,
   assertCredentialPurpose,

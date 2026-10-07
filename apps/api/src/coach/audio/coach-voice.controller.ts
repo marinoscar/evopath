@@ -6,7 +6,7 @@ import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { COACH_PREVIEW_LIMIT, COACH_PREVIEW_WINDOW_MS } from './coach-preview-rate-limiter';
 import { CoachVoicePreviewService } from './coach-voice-preview.service';
 import {

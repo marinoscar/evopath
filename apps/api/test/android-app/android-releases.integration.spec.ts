@@ -30,7 +30,7 @@ import { IS_PUBLIC_KEY } from '../../src/auth/decorators/public.decorator';
 import { ANDROID_APP_SETTINGS_KEY } from '../../src/android-app/android-app.schema';
 import { AndroidReleaseAdminController } from '../../src/android-app/releases/android-release-admin.controller';
 import { AndroidReleaseController } from '../../src/android-app/releases/android-release.controller';
-import { deriveSigningKey } from '../../src/common/crypto/secret-cipher';
+import { deriveSigningKey } from '../../src/common/crypto/signing-key';
 import { signDownloadToken } from '../../src/android-app/releases/download-token';
 import { StorageConfigService } from '../../src/storage/config/storage-config.service';
 import { STORAGE_PROVIDER, type StorageProvider } from '../../src/storage/providers/storage-provider.interface';

@@ -1,4 +1,4 @@
-import { decryptSecret, encryptSecret } from '../../common/crypto/secret-cipher';
+import { decryptSecret, encryptSecret } from '@marinoscar/platform-api/core';
 import { AiConfigService, type AiPolicy } from '../config/ai-config.service';
 import { AI_CREDENTIAL_PURPOSE } from '../config/ai-credential.constants';
 import { AiError } from '../core/ai-error';

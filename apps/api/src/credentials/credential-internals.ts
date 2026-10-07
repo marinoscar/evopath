@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-import { isCanonicalUuid } from '../common/crypto/secret-cipher';
+import { isCanonicalUuid } from '@marinoscar/platform-api/core';
 
 // =============================================================================
 // Credential store internals — shared by BOTH encrypted stores (issue #387)
@@ -121,7 +121,7 @@ export function assertCredentialIdentifier(
  *
  * On top of {@link assertCredentialIdentifier}: NO `:`. A user credential's
  * sub-key domain is `user:<userId>:<purpose>` (`userCredentialPurpose` in
- * `common/crypto/secret-cipher.ts`), so:
+ * `@marinoscar/platform-api/core`), so:
  *
  *   - in the user store, a `:` in `purpose` would make the domain decompose
  *     two ways;

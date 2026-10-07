@@ -23,7 +23,7 @@
     "@codemirror/lang-sql": "^6.10.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@marinoscar/platform-web": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.1/marinoscar-platform-web-0.1.0-next.1.tgz",
+    "@marinoscar/platform-web": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.2/marinoscar-platform-web-0.1.0-next.2.tgz",
     "@mui/icons-material": "^9.1.0",
     "@mui/material": "^9.1.0",
     "@mui/x-charts": "^9.14.0",

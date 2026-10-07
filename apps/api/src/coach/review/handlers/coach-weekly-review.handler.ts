@@ -60,8 +60,8 @@ import { AI_RUN_TERMINAL_CODES } from '../../../ai/runtime/ai-response-run.handl
 import { AiService } from '../../../ai/runtime/ai.service';
 import { CheckInsService } from '../../../check-ins/check-ins.service';
 import { addDays, fromDbDate, localDateInZone, toDbDate } from '../../../check-ins/local-date';
-import { AppMetricsService, fallbackAppMetrics } from '../../../common/otel/app-metrics.service';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/domain-metrics.service';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
@@ -183,7 +183,7 @@ export class CoachWeeklyReviewHandler implements JobHandler, OnModuleInit {
     private readonly guard: CoachContentGuard,
     private readonly jobs: JobsService,
     private readonly metrics: CoachReviewMetrics,
-    @Optional() private readonly appMetrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly appMetrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
     // Optional so a fork without activity goals (or a test) reviews without them.
     @Optional() private readonly goals?: GoalProgressService,
     // User memory (#325): the memory block in the prose prompt. Optional: absent, none is sent.

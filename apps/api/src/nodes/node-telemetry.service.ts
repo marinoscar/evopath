@@ -46,7 +46,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Attributes, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
-import { resolveServiceName } from '../common/otel/service-name';
+import { resolveServiceName } from '../common/otel/telemetry-identity';
 import { jobParentContext } from '../jobs/job-trace-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { NodeSpan, NodeTelemetryDto } from './dto/node-telemetry.dto';

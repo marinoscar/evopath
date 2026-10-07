@@ -370,3 +370,53 @@ describe('NodeFleetMetrics', () => {
     });
   });
 });
+
+// Baseline pinned on `main` before the app-metric registry (marinoscar/EnterpriseAppBase#680): the
+// fleet gauges keep their exact names, units and descriptions.
+describe('NodeFleetMetrics gauge descriptors (marinoscar/EnterpriseAppBase#680 baseline)', () => {
+  it('creates every fleet gauge with its exact name, unit and description', () => {
+    const created: Array<{ name: string; options: unknown }> = [];
+    const meter = {
+      createObservableGauge: (name: string, options?: unknown) => {
+        created.push({ name, options });
+        return {};
+      },
+      addBatchObservableCallback: () => undefined,
+    };
+    const metrics = {
+      gaugeContext: () => ({ meter, now: () => NOW, gateOpen: () => false }),
+    } as unknown as AppMetricsService;
+    const fleet = new NodeFleetMetrics(
+      {} as unknown as PrismaService,
+      {} as unknown as NodeLifecycleService,
+      {} as unknown as NodeOffloadService,
+      metrics,
+    );
+    fleet.registerGauges();
+
+    const g = (name: string, unit: string, description: string) => ({ name, options: { unit, description } });
+    expect(created).toEqual([
+      g('app.nodes.count', '{node}', 'Registered worker nodes, by status and derived health.'),
+      g('app.nodes.cpu.utilization', '{core}', 'Node process CPU over the last heartbeat interval, in cores (1 = one full core).'),
+      g('app.nodes.memory.rss', 'By', 'Node process resident set size.'),
+      g('app.nodes.heap.used', 'By', 'Node process V8 heap in use.'),
+      g('app.nodes.heap.limit', 'By', 'Node process V8 heap limit.'),
+      g('app.nodes.event_loop.delay.p99', 's', 'Node process event-loop delay, p99 over the last interval.'),
+      g('app.nodes.state_dir.free', 'By', "Free bytes on the filesystem holding the node's state directory."),
+      g('app.nodes.state_dir.total', 'By', "Size of the filesystem holding the node's state directory."),
+      g('app.nodes.slots.used', '{slot}', 'Job slots in use on the node.'),
+      g('app.nodes.slots.total', '{slot}', 'Job slots the node offers.'),
+      g('app.nodes.uptime', 's', 'Node process uptime.'),
+      g(
+        'app.nodes.counter',
+        '{event}',
+        'Node-reported cumulative counters since the node process started (reset on restart), by counter.',
+      ),
+      g(
+        'app.nodes.types.no_eligible_node',
+        '{type}',
+        '1 when an offered job type has runnable pending jobs and no healthy online node lists it as eligible.',
+      ),
+    ]);
+  });
+});

@@ -14,7 +14,7 @@ import {
 } from '../common/otel/app-metrics.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
-import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
+import { DatabaseSeedException } from '@marinoscar/platform-api/core';
 import { DEFAULT_ROLE } from '../common/constants/roles.constants';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import {

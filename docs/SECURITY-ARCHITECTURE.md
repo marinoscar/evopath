@@ -953,7 +953,7 @@ of the object-storage secret; the access key id is an ordinary field in the
 
 ### The cipher
 
-`apps/api/src/common/crypto/secret-cipher.ts`:
+`encryptSecret` / `decryptSecret` in `@marinoscar/platform-api/core` (`src/core/crypto/secret-cipher.ts` in EnterpriseAppBase; this app's own copy until marinoscar/EnterpriseAppBase#718, with the same key derivation and payload format):
 
 - **AES-256-GCM**, key from `SECRETS_ENCRYPTION_KEY` (base64, 32 bytes).
 - Stored as one base64 string: `[iv 12 bytes][auth tag 16 bytes][ciphertext]`.
@@ -1134,7 +1134,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | PATs | `apps/api/src/pat/` |
 | Device flow | `apps/api/src/device-auth/` |
 | Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |
-| Encrypted stores | `apps/api/src/common/crypto/secret-cipher.ts`, `encryption-key-startup-check.ts`, `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
+| Encrypted stores | `@marinoscar/platform-api/core` (the cipher and `verifyEncryptionKeyAtStartup`), `apps/api/src/common/crypto/signing-key.ts` (download-link signing keys), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
 | Test auth | `apps/api/src/test-auth/`, `apps/web/src/pages/TestLoginPage.tsx` |
 | Edge | `infra/nginx/nginx.conf`, `infra/nginx/csp.conf`, `infra/nginx/csp.dev.conf` |
 | Web session | `apps/web/src/contexts/AuthContext.tsx`, `apps/web/src/services/api.ts` |

@@ -59,7 +59,7 @@ import type {
 import { AiProviderRegistry } from '../../core/provider-registry';
 import type { AiFileInputStrategies } from '../../core/types/file-inputs.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
-import { resolveServiceName } from '../../../common/otel/service-name';
+import { resolveServiceName } from '../../../common/otel/telemetry-identity';
 import { AnthropicClientFactory } from './anthropic-client.factory';
 import { ANTHROPIC_PROVIDER_ID, mapAnthropicError } from './anthropic-errors';
 import {

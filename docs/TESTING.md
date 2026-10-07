@@ -1071,7 +1071,7 @@ Several bugs in the Fastify + Passport integration are pinned by tests:
 
 | Behavior | Pinned by |
 |---|---|
-| The exception filter replies with Fastify's `code()`/`send()`, not Express's `status()`/`json()` | `src/common/filters/http-exception.filter.spec.ts` |
+| The exception filter replies with Fastify's `code()`/`send()`, not Express's `status()`/`json()` | `test/core/http-exception.filter.spec.ts` of `@marinoscar/platform-api` (the filter is `@marinoscar/platform-api/core`); here, `test/errors/error-handling.integration.spec.ts` |
 | `GoogleOAuthGuard` hands Passport the raw request/response and copies `user` back | the OAuth redirect cases in `test/auth/oauth.integration.spec.ts` |
 | New users (and the bootstrap admin role) are created in one transaction | `src/auth/auth.service.spec.ts` |
 | A sign-in failure redirects with a closed error code, never a message | `src/auth/auth.controller.spec.ts`, `src/auth/filters/google-oauth-exception.filter.spec.ts`, `test/auth/oauth.integration.spec.ts` |

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { type Counter, metrics } from '@opentelemetry/api';
 
 import { APP_METER_NAME } from '../common/otel/app-metrics.service';
-import { telemetryGate } from '../common/otel/telemetry-gate';
+import { telemetryGate } from '@marinoscar/platform-api/otel-core';
 
 // =============================================================================
 // User memory counters (#325; docs/specs/ai-memory.md §2.8)

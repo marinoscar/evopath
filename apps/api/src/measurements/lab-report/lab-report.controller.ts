@@ -5,7 +5,7 @@ import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { LabReportDuplicatesDto } from './dto/lab-report-duplicates.dto';
 import { LabReportIssuesView } from './dto/lab-report-issues.dto';
 import { LabResultMapView, MapLabResultDto } from './dto/lab-report-map.dto';

@@ -10,7 +10,7 @@ import {
   decryptSecret,
   encryptSecret,
   userCredentialPurpose,
-} from '../common/crypto/secret-cipher';
+} from '@marinoscar/platform-api/core';
 import {
   assertCredentialAddress,
   assertCredentialOwner,

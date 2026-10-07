@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
-import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/domain-metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SUPPORTIVE_ANGLES } from '../guard/banned-terms';
 import { COACH_ANGLES, DefaultAnglePicker, type AnglePicker, type AnglePickInput, type CoachAngle } from '../nudges/angle-picker';
@@ -40,7 +40,7 @@ export class BanditAnglePicker implements AnglePicker {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stats: AngleStatsService,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
     @Optional() @Inject(COACH_ANGLE_RNG) private readonly rng: () => number = Math.random,
     @Optional() @Inject(COACH_ANGLE_CLOCK) private readonly clock: () => Date = () => new Date(),
   ) {}

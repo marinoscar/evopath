@@ -50,7 +50,7 @@ import { AiError, type AiErrorCode } from '../ai/core/ai-error';
 import { AI_RUN_TERMINAL_CODES } from '../ai/runtime/ai-response-run.handler';
 import { AiService } from '../ai/runtime/ai.service';
 import { toDbDate } from '../check-ins/local-date';
-import { AppMetricsService, fallbackAppMetrics, type HealthSummaryOutcome } from '../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics, type HealthSummaryOutcome } from '../app-metrics/domain-metrics.service';
 import { JobExecutionProfile } from '../jobs/job-execution-profile';
 import { JobHandler } from '../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
@@ -117,7 +117,7 @@ export class HealthSummaryHandler implements JobHandler, OnModuleInit {
     private readonly ai: AiService,
     private readonly features: AiFeatureModelResolver,
     private readonly reader: HealthSummaryReader,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
   ) {}
 
   onModuleInit(): void {

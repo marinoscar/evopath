@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
-import { decryptSecret, encryptSecret } from '../../common/crypto/secret-cipher';
+import { decryptSecret, encryptSecret } from '@marinoscar/platform-api/core';
 import { deriveHint } from '../../credentials/credential-internals';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiConfigService, providerCallSettings, providerPolicy } from '../config/ai-config.service';

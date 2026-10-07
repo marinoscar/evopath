@@ -4,7 +4,7 @@ import type { EventEmitter2 } from '@nestjs/event-emitter';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { Readable } from 'node:stream';
 
-import { AppMetricsService } from '../common/otel/app-metrics.service';
+import { EvoPathMetricsService } from '../app-metrics/domain-metrics.service';
 import { StorageObjectReferences } from '../intake/storage-object-references';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { ObjectsService } from '../storage/objects/objects.service';
@@ -78,7 +78,7 @@ describe('ProgressPhotosService', () => {
       objects as unknown as ObjectsService,
       references,
       storage as unknown as StorageProvider,
-      metrics as unknown as AppMetricsService,
+      metrics as unknown as EvoPathMetricsService,
       events as unknown as EventEmitter2,
     );
     prisma.storageObject.findUnique.mockResolvedValue(objectRow() as any);

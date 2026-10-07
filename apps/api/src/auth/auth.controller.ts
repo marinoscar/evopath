@@ -12,7 +12,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
+import { DatabaseSeedException } from '@marinoscar/platform-api/core';
 import {
   ApiTags,
   ApiOperation,

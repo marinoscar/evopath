@@ -532,7 +532,7 @@ Add the column, the field to `healthProfileInputSchema` and the response DTO, an
 | `apps/api/test/health-data/measurements.integration.spec.ts` | `401`, `403`, `404`, `400`, `201`, `200`, `204` per route, the envelope, `details.issues`, `/latest` not captured by `:entryId` |
 | `apps/api/test/health-data/measurements.db.spec.ts` | The four indexes, unique `supersedes_id`, supersede-not-overwrite, exactly one of two concurrent edits wins (`409`), latest after edit and delete, audit with count only, other users get `404`, newest 1000 of 1200 series points, cascade with the user |
 | `apps/api/test/openapi/openapi-document.spec.ts` | Every `/api/measurements*` operation is gated on a `health_data` permission |
-| `apps/api/src/common/filters/http-exception.filter.spec.ts` | Validation `400`s name fields under `details.issues` and never echo a value |
+| `test/core/http-exception.filter.spec.ts` of `@marinoscar/platform-api`, and `apps/api/test/errors/error-handling.integration.spec.ts` | Validation `400`s name fields under `details.issues` and never echo a value |
 | `apps/api/test/prisma/seed-data.spec.ts` | Both permissions are seeded and granted to all three roles |
 | `apps/web/src/__tests__/components/settings/HealthProfileSettings.test.tsx` | Unit-switch conversion, disabled state without write, validation messages, `409` handling |
 | `apps/web/src/__tests__/config/userSettingsSections.test.ts` | The card is in group Health after Security and declares `health_data:read` |

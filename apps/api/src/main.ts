@@ -12,11 +12,11 @@ import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
-import { verifyEncryptionKeyAtStartup } from './common/crypto/encryption-key-startup-check';
+import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
 import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
-import { registerRequestSpanAttributes } from './common/otel/request-span-attributes';
+import { registerRequestSpanAttributes } from '@marinoscar/platform-api/otel-core';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -40,7 +40,7 @@ async function bootstrap() {
   // `app.route.matched=false` for an unknown route, `app.request.bearer`.
   // FIRST, before any plugin or route, so it runs ahead of every other
   // onRequest hook (a CORS preflight reply included). Only when the SDK is
-  // installed; see src/common/otel/request-span-attributes.ts.
+  // installed; see @marinoscar/platform-api/otel-core (spans/request-span-attributes.ts).
   registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), process.env.OTEL_ENABLED === 'true');
 
   // SECRETS_ENCRYPTION_KEY validation (#116, epic #108).
@@ -58,7 +58,9 @@ async function bootstrap() {
   // strict about the state that matters without breaking every deployment and
   // the `Smoke (boot compiled API)` CI job, neither of which sets the variable.
   // The full reasoning — including why there is no development fallback key and
-  // no NODE_ENV branch — is in the header of encryption-key-startup-check.ts.
+  // no NODE_ENV branch — is in the header of encryption-key-startup-check.ts in
+  // @marinoscar/platform-api/core (src/core/crypto/). The package takes the
+  // count as a callback so core never imports this app's Prisma client.
   //
   // Throwing rather than exiting explicitly, matching the TEST_AUTH_ENABLED
   // guard above: `bootstrap()` is called unhandled at the bottom of this file,
@@ -66,7 +68,7 @@ async function bootstrap() {
   // message on stderr. Not calling `app.close()` first is deliberate — the
   // process is about to die and the OS reclaims the connection, so closing
   // would only add a way for a shutdown hang to swallow the diagnosis.
-  await verifyEncryptionKeyAtStartup(app.get(PrismaService), logger);
+  await verifyEncryptionKeyAtStartup(() => app.get(PrismaService).credential.count(), logger);
 
   // Register cookie plugin
   await app.register(fastifyCookie, {

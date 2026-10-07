@@ -456,7 +456,7 @@ model StorageObjectChunk {
 // inventing its own column, its own encrypt call, and its own chance to leak.
 //
 // `secret` holds ONLY the opaque base64 ciphertext produced by
-// `encryptSecret()` in `common/crypto/secret-cipher.ts`, encrypted under
+// `encryptSecret()` in `@marinoscar/platform-api/core`, encrypted under
 // `purpose` as the sub-key derivation label — a ciphertext lifted from one
 // row cannot be decrypted under a different purpose. This model stores
 // ciphertext and non-secret metadata only; it never sees plaintext, and
@@ -514,7 +514,7 @@ model Credential {
 // `secret` is the same opaque base64 [iv][authTag][ciphertext] payload
 // `encryptSecret()` produces, but encrypted under an OWNER-BOUND sub-key
 // domain, `user:<userId>:<purpose>` (`userCredentialPurpose()` in
-// `common/crypto/secret-cipher.ts`), not under `purpose` alone. A ciphertext
+// `@marinoscar/platform-api/core`), not under `purpose` alone. A ciphertext
 // copied from user A's row into user B's row therefore fails GCM
 // authentication instead of handing B the use of A's key.
 //
@@ -2262,7 +2262,7 @@ model JobNodeSecret {
 // ⚠ NO COLUMN HERE CAN EVER HOLD A PLAINTEXT PROVIDER KEY
 // -----------------------------------------------------------------------------
 // `UserAiKey.secret` is ciphertext ONLY — the output of `encryptSecret(
-// plaintext, 'ai_user_key')` (`common/crypto/secret-cipher.ts`), the same
+// plaintext, 'ai_user_key')` (`@marinoscar/platform-api/core`), the same
 // AES-GCM helper `Credential.secret` already uses, keyed under a purpose
 // label specific to this table so a ciphertext lifted from one row cannot be
 // decrypted as if it were the other's. `hint` is the non-secret display aid

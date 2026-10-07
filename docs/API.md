@@ -105,7 +105,8 @@ streams and `204 No Content` responses are not enveloped.
 ## Errors
 
 Every error goes through one global exception filter
-(`apps/api/src/common/filters/http-exception.filter.ts`), which builds this
+(`HttpExceptionFilter` from `@marinoscar/platform-api/core`, registered as
+`APP_FILTER` in `apps/api/src/app.module.ts`), which builds this
 body:
 
 ```json

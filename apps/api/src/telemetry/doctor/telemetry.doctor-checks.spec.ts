@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 
-import { telemetryGate } from '../../common/otel/telemetry-gate';
+import { telemetryGate } from '@marinoscar/platform-api/otel-core';
 import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
 import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { TelemetryConnectionService } from '../connection/telemetry-connection.service';

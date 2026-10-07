@@ -62,7 +62,7 @@ export function isAiErrorCode(value: unknown): value is AiErrorCode {
 // and the global `HttpExceptionFilter` turns it into the standard envelope
 // `{ statusCode, code, message, details, timestamp, path }`. The envelope's
 // top-level `code` is ALWAYS status-derived (`FORBIDDEN`, `TOO_MANY_REQUESTS`,
-// ...) — that is a published, closed enum (see `common/dto/error.dto.ts` and
+// ...) — that is a published, closed enum (see `ErrorDto` in `@marinoscar/platform-api/core` and
 // the filter's own comment) — so the AI-specific code travels in
 // `details.reason`, exactly as `StorageNotConfiguredError` carries its reason.
 // Clients switch on `details.reason`.

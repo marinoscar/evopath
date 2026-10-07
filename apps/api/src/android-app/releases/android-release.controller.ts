@@ -6,7 +6,7 @@ import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Public } from '../../auth/decorators/public.decorator';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
-import { ErrorDto } from '../../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { DownloadLinkDto, PublicReleaseDto } from '../dto/android-release.dto';
 import { APK_MIME_TYPE, DOWNLOAD_LINK_TTL_SECONDS, apkFileName } from './android-release.constants';
 import { AndroidReleaseService } from './android-release.service';

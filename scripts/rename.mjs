@@ -58,8 +58,9 @@ const MANIFEST = join(REPO_ROOT, 'packages', 'shared', 'identity.json');
 // it for an agent.
 // -----------------------------------------------------------------------------
 const DO_NOT_RENAME = [
-  ['apps/api/src/common/crypto/secret-cipher.ts', "the HKDF label 'enterpriseappbase:secret-cipher:v1:' — changing it makes every stored credential permanently undecryptable"],
-  ['apps/api/src/common/exceptions/verbatim-error-body.exception.ts', 'a cross-realm Symbol.for() registry key'],
+  // The cipher's HKDF label and the verbatim-body Symbol.for() key live in
+  // @marinoscar/platform-api/core (node_modules), which this script never reads.
+  ['apps/api/src/common/crypto/signing-key.ts', "the HMAC label 'enterpriseappbase:signing-key:v1:' — changing it invalidates every outstanding Android download link"],
   ['apps/cli/src/deploy/proxy.ts', "the '# Managed by appctl deploy' sentinel, which is written AND parsed on live servers"],
   ['apps/cli/src/deploy/state.ts', "the '.appctl-deploy.json' filename, read from live servers"],
 ];
@@ -246,7 +247,7 @@ export function buildPlan(old, next) {
   add('apps/cli/README.md', old.cloneUrl, next.cloneUrl, 1, 'the APPCTL_REPO default in the env table');
 
   // --- The OpenTelemetry service name -----------------------------------
-  // The code fallback follows APP_SLUG (see common/otel/service-name.ts); these
+  // The code fallback follows APP_SLUG (see common/otel/telemetry-identity.ts); these
   // two are Compose defaults, which no JavaScript read can reach.
   add('infra/compose/.env.example', `OTEL_SERVICE_NAME=${old.serviceName}`, `OTEL_SERVICE_NAME=${next.serviceName}`, 1,
       'the documented default — note: a VALUE change only, never a new key, or env-spec.test.ts fails');

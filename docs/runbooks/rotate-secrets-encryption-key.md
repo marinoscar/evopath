@@ -37,9 +37,19 @@ Design: the encrypted credential storage section of
 
 Source of truth for every claim below:
 
-- `apps/api/src/common/crypto/secret-cipher.ts` — the cipher, key derivation,
-  and `userCredentialPurpose()` (the owner-bound domain builder).
-- `apps/api/src/common/crypto/encryption-key-startup-check.ts` — boot-time validation.
+- `src/core/crypto/secret-cipher.ts` of `@marinoscar/platform-api` — the
+  cipher, key derivation, and `userCredentialPurpose()` (the owner-bound
+  domain builder). Exported by `@marinoscar/platform-api/core`; the app
+  imports it from there (it lived in `apps/api/src/common/crypto/` until
+  marinoscar/EnterpriseAppBase#718, with the same key derivation and payload
+  format).
+- `src/core/crypto/encryption-key-startup-check.ts` of the same package —
+  boot-time validation (`verifyEncryptionKeyAtStartup`, called from
+  `apps/api/src/main.ts`).
+- `apps/api/src/common/crypto/signing-key.ts` — the download-link signing keys
+  (`deriveSigningKey`), also derived from the master key: rotating it
+  invalidates every outstanding Android download link, which is harmless
+  (they last minutes).
 - `apps/api/src/credentials/credentials.service.ts` — the deployment-owned store.
 - `apps/api/src/user-credentials/user-credentials.service.ts` — the per-user
   store.
@@ -111,17 +121,26 @@ Outside of Jest, the equivalent is deleting the module from `require.cache`
 and re-requiring it:
 
 ```js
+const { dirname, join } = require('node:path');
+
 function loadCipherWithKey(key) {
   process.env.SECRETS_ENCRYPTION_KEY = key;
-  const modulePath = require.resolve('../apps/api/dist/common/crypto/secret-cipher');
+  // The cipher is the compiled file next to the package's core entry point:
+  // node_modules/@marinoscar/platform-api/dist/core/crypto/secret-cipher.js.
+  const coreEntry = require.resolve('@marinoscar/platform-api/core');
+  const modulePath = join(dirname(coreEntry), 'crypto', 'secret-cipher.js');
   delete require.cache[modulePath];
   return require(modulePath); // fresh module, fresh cachedMasterKey, fresh derivedKeyCache
 }
 ```
 
-(Adjust the path to wherever your script resolves the compiled — or
-`ts-node`-loaded — module. The point is: a fresh `require`, not a fresh
-`import` inside the same already-loaded module instance.)
+Delete the **cipher file's** entry, not the package entry point's:
+`@marinoscar/platform-api/core` re-exports the cipher, so re-requiring the
+entry point alone hands back the already-cached cipher module and its old
+key. (Resolve from a directory where `@marinoscar/platform-api` is installed,
+for example `apps/api/`. The point is: a fresh `require` of the cipher
+module, not a fresh `import` inside the same already-loaded module
+instance.)
 
 ## 4. The rotation procedure
 

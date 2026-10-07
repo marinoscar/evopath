@@ -4,7 +4,7 @@ import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../common/constants/roles.constants';
-import { ErrorDto } from '../common/dto/error.dto';
+import { ErrorDto } from '@marinoscar/platform-api/core';
 import { TelemetryConfigResponseDto, UpdateTelemetryConfigDto } from './dto/telemetry-config.dto';
 import { TelemetryStatusDto } from './dto/telemetry-status.dto';
 import { TelemetrySettingsService } from './telemetry-settings.service';

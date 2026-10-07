@@ -86,13 +86,14 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import type { BatchObservableResult, Meter, ObservableGauge } from '@opentelemetry/api';
 
 import {
-  APP_METRIC_NAMES,
   AppMetricsService,
+  createRegisteredGauge,
   GAUGE_CACHE_TTL_MS,
   OTHER_LABEL,
   fallbackAppMetrics,
   shapeLabel,
   type AppGaugeContext,
+  type AppMetricKey,
 } from '../common/otel/app-metrics.service';
 import { NodeOffloadService } from '../jobs/node-offload.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -262,33 +263,24 @@ export class NodeFleetMetrics implements OnModuleInit {
     }
   }
 
+  /** Every fleet gauge, with the name, unit and description the app-metric registry declares for it. */
   private createGauges(meter: Meter): Gauges {
-    const N = APP_METRIC_NAMES;
-    const g = (name: string, unit: string, description: string) =>
-      meter.createObservableGauge(name, { unit, description });
+    const g = (key: AppMetricKey) => createRegisteredGauge(meter, key);
 
     return {
-      count: g(N.nodesCount, '{node}', 'Registered worker nodes, by status and derived health.'),
-      cpu: g(N.nodesCpuUtilization, '{core}', 'Node process CPU over the last heartbeat interval, in cores (1 = one full core).'),
-      rss: g(N.nodesMemoryRss, 'By', 'Node process resident set size.'),
-      heapUsed: g(N.nodesHeapUsed, 'By', 'Node process V8 heap in use.'),
-      heapLimit: g(N.nodesHeapLimit, 'By', 'Node process V8 heap limit.'),
-      eventLoop: g(N.nodesEventLoopDelayP99, 's', 'Node process event-loop delay, p99 over the last interval.'),
-      stateFree: g(N.nodesStateDirFree, 'By', "Free bytes on the filesystem holding the node's state directory."),
-      stateTotal: g(N.nodesStateDirTotal, 'By', "Size of the filesystem holding the node's state directory."),
-      slotsUsed: g(N.nodesSlotsUsed, '{slot}', 'Job slots in use on the node.'),
-      slotsTotal: g(N.nodesSlotsTotal, '{slot}', 'Job slots the node offers.'),
-      uptime: g(N.nodesUptime, 's', 'Node process uptime.'),
-      counter: g(
-        N.nodesCounter,
-        '{event}',
-        'Node-reported cumulative counters since the node process started (reset on restart), by counter.',
-      ),
-      noEligibleNode: g(
-        N.nodesTypesNoEligibleNode,
-        '{type}',
-        '1 when an offered job type has runnable pending jobs and no healthy online node lists it as eligible.',
-      ),
+      count: g('nodesCount'),
+      cpu: g('nodesCpuUtilization'),
+      rss: g('nodesMemoryRss'),
+      heapUsed: g('nodesHeapUsed'),
+      heapLimit: g('nodesHeapLimit'),
+      eventLoop: g('nodesEventLoopDelayP99'),
+      stateFree: g('nodesStateDirFree'),
+      stateTotal: g('nodesStateDirTotal'),
+      slotsUsed: g('nodesSlotsUsed'),
+      slotsTotal: g('nodesSlotsTotal'),
+      uptime: g('nodesUptime'),
+      counter: g('nodesCounter'),
+      noEligibleNode: g('nodesTypesNoEligibleNode'),
     };
   }
 

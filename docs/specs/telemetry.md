@@ -1,6 +1,6 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/api/src/telemetry/dashboard/`, `apps/stack-agent/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
+> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/api/src/telemetry/dashboard/`, `apps/stack-agent/`, `apps/api/src/common/otel/` (the app's metrics and identity; the SDK bootstrap, the gate and the metrics host are `@marinoscar/platform-api/otel-core`), `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
@@ -337,7 +337,8 @@ rate-limited; spans for jobs the node did not hold are dropped (#133;
 ## 2. The two switches
 
 Two independent controls decide whether telemetry data ever leaves this
-process, documented in full in `apps/api/src/common/otel/telemetry-gate.ts`:
+process, documented in full with `telemetryGate` in `@marinoscar/platform-api/otel-core`
+(`src/otel-core/sdk/telemetry-gate.ts` in EnterpriseAppBase):
 
 1. **`OTEL_ENABLED`** (environment, infra). Read once by
    `apps/api/src/instrumentation.ts` before Nest exists: whether the
@@ -416,7 +417,7 @@ span, log record or metric batch — distinct from `service.name`
 fork, can point at one shared telemetry store, and without an identity of
 their own their data is indistinguishable. An administrator sets it at
 `/admin/settings/telemetry`; `instanceId: null` (the default) resolves to
-`APP_SLUG` (`apps/api/src/common/otel/instance-id.ts`), the slug of the
+`APP_SLUG` (`apps/api/src/common/otel/telemetry-identity.ts`), the slug of the
 product name in `packages/shared/identity.json` — so a renamed fork reports
 under its own name with no setting to touch, and only needs the override for
 more than one deployment of the *same* fork sharing a store.
@@ -435,7 +436,7 @@ hands one `Resource` to `NodeSDK` before `sdk.start()`, and every span, log
 record and metric collected afterward holds a reference to that same object —
 it is immutable from then on, so a runtime-changeable identity cannot live
 there. The gated exporters (`GatedSpanExporter`, `GatedLogRecordExporter`,
-`GatedPushMetricExporter`, `apps/api/src/common/otel/telemetry-gate.ts`) are
+`GatedPushMetricExporter`, `@marinoscar/platform-api/otel-core`) are
 already the one place every batch passes through on its way out, so they
 re-label each batch with the current `instanceId` as they export it — a
 shallow copy with a replaced `resource` for metrics, the equivalent for spans
@@ -795,7 +796,7 @@ between resolution and the adapter call, request-scoped, not a job.
   GreptimeDB, so a deleted attribute never becomes a column at all — it
   cannot be un-redacted by a later query.
 - **The bearer flag is a presence bit, never the token** (#258). The API's
-  `onRequest` hook (`apps/api/src/common/otel/request-span-attributes.ts`)
+  `onRequest` hook (`registerRequestSpanAttributes`, `@marinoscar/platform-api/otel-core`)
   writes `app.request.bearer` = `true`/`false` on the server span: whether an
   `Authorization: Bearer …` header was sent. Only the scheme is read; no part
   of the token is ever put on a span (the hook's spec asserts it). The
@@ -1745,7 +1746,7 @@ controls instead, just not by selecting a span on the chart itself.
 
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.spec.ts` — every
   SQL template, literal-escaping and the SSE exclusion.
-- `apps/api/src/common/otel/request-span-attributes.spec.ts` (#258) — the
+- `test/otel-core/request-span-attributes.spec.ts` of `@marinoscar/platform-api` (#258; moved with the hook) — the
   `onRequest` hook over `fastify.inject` inside an active SERVER span, on
   plain Fastify and on a Nest Fastify application: `http.route` on a matched
   route, `app.route.matched=false` on an unknown one (Nest's default 404 and
@@ -1922,9 +1923,14 @@ controls instead, just not by selecting a span on the chart itself.
 
 ### 11.13 Application metrics
 
-> **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`
+> **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`, `platform-app-metrics.ts`, `app-metric.manifest.ts`; `apps/api/src/app-metrics/` (this app's own); the registry and the metrics host are `@marinoscar/platform-api/otel-core`
 
-`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are defined: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed `record*` methods. The only other code that creates `app.*` instruments is the node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below), and it takes its names from the same `APP_METRIC_NAMES` table. With `OTEL_ENABLED` unset the service is a no-op.
+Every `app.*` metric is **declared** in the otel-core app-metric registry (`appMetricRegistry`): its code key, name, kind, unit, description, buckets and attribute keys. The platform's metric host (`MetricsHostService`, global through `OtelMetricsModule`, which `AppMetricsModule` imports) creates every declared counter and histogram, on meter scope `app`. Two typed services record on top of it:
+
+- **Platform metrics.** `AppMetricsService` (`AppMetricsModule`, global): jobs, backups, auth, AI and notifications call its typed methods. Declared in `common/otel/platform-app-metrics.ts`, registered by `common/otel/app-metric.manifest.ts`; `APP_METRIC_NAMES` lists them.
+- **This app's metrics.** `EvoPathMetricsService` (`EvoPathMetricsModule`, global): the health documents, health summary, health export, progress photo and coach call sites. Declared in `app-metrics/domain-metric-names.ts` (`EVOPATH_METRIC_NAMES`), registered once at import by `app-metrics/domain-metrics.module.ts` with `registerAppMetrics`, which is this app's extension point for metrics (marinoscar/EnterpriseAppBase#718). A duplicate key or name fails the boot; the registry freezes after bootstrap.
+
+The node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below) take their descriptors from the same registry (`createRegisteredGauge`). With `OTEL_ENABLED` unset no SDK is installed and every recorder is a no-op (`test/platform/otel-disabled.spec.ts`). The names are unchanged by the registry: a name with its unit is a table name.
 
 #### Table naming (verified live, GreptimeDB v1.2.1)
 
@@ -1940,6 +1946,10 @@ Verified on 2026-09-29 by exporting one point per instrument (cumulative tempora
 Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` tag (the service name again; not the queue `job_type`) and one tag per attribute. Through the collector, `transform/promote_labels` (§11.2) also adds `app_instance_id` and `host_name` (the API container's hostname), so a series can be told apart per deployment and per API replica; the verification above exported straight to GreptimeDB and so showed neither.
 
 #### Metric reference
+
+##### Platform (package)
+
+Declared in `common/otel/platform-app-metrics.ts` (the base's declarations, registered by `app-metric.manifest.ts`) and recorded by `AppMetricsService`, or, for the `app.nodes.*` gauges, by `NodeFleetMetrics`.
 
 | Metric | Table(s) | Kind | Unit | Attributes (values) | Recorded |
 |---|---|---|---|---|---|
@@ -1957,6 +1967,30 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.ai.tokens` | `app_ai_tokens_total` | counter | `{token}` | `provider`, `model`, `operation`, `token_type` (`input`, `output`) | With the usage event. |
 | `app.ai.request.duration` | `app_ai_request_duration_seconds_{bucket,sum,count}` | histogram | `s` | `provider`, `model`, `operation`, `status`, `key_source` | With the usage event. |
 | `app.notifications.deliveries` | `app_notifications_deliveries_total` | counter | `{delivery}` | `channel`, `event`, `outcome` (`sent`, `failed`, `rate_limited`, `error`) | A channel delivery attempt ends. |
+| `app.jobs.queue.depth` | `app_jobs_queue_depth` | gauge | `{job}` | `job_type`, `status` (`pending`, `running`) | Observed at collection. |
+| `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
+| `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |
+| `app.backup.last_success.size` | `app_backup_last_success_size_bytes` | gauge | `By` | none | Size of that backup. |
+| `app.nodes.count` | `app_nodes_count` | gauge | `{node}` | `status` (`online`, `draining`, `offline`, `disabled`), `health` (`healthy`, `stale`, `offline`) | Worker nodes by status and derived health. All seven valid pairs are observed, zeros included. |
+| `app.nodes.cpu.utilization` | `app_nodes_cpu_utilization` | gauge | `{core}` | `node_id`, `node_name` | The node's reported `cpuPercent / 100` (1.5 = one and a half cores). |
+| `app.nodes.memory.rss` | `app_nodes_memory_rss_bytes` | gauge | `By` | `node_id`, `node_name` | The node process's resident set size. |
+| `app.nodes.heap.used` | `app_nodes_heap_used_bytes` | gauge | `By` | `node_id`, `node_name` | V8 heap in use. |
+| `app.nodes.heap.limit` | `app_nodes_heap_limit_bytes` | gauge | `By` | `node_id`, `node_name` | V8 heap limit. |
+| `app.nodes.event_loop.delay.p99` | `app_nodes_event_loop_delay_p99_seconds` | gauge | `s` | `node_id`, `node_name` | The reported `eventLoopDelayP99Ms / 1000`. |
+| `app.nodes.state_dir.free` | `app_nodes_state_dir_free_bytes` | gauge | `By` | `node_id`, `node_name` | Free space on the filesystem that holds the node's state directory. |
+| `app.nodes.state_dir.total` | `app_nodes_state_dir_total_bytes` | gauge | `By` | `node_id`, `node_name` | Size of that filesystem. |
+| `app.nodes.slots.used` | `app_nodes_slots_used` | gauge | `{slot}` | `node_id`, `node_name` | Job slots in use. |
+| `app.nodes.slots.total` | `app_nodes_slots_total` | gauge | `{slot}` | `node_id`, `node_name` | Job slots offered. |
+| `app.nodes.uptime` | `app_nodes_uptime_seconds` | gauge | `s` | `node_id`, `node_name` | Node process uptime. |
+| `app.nodes.counter` | `app_nodes_counter` | gauge | `{event}` | `node_id`, `node_name`, `counter` (`claims`, `empty_polls`, `claim_failures`, `succeeded`, `failed`, `rate_limited`, `lease_renewals`, `lease_renew_failures`, `heartbeat_failures`, `watchdog_trips`) | The node's cumulative counters. They reset when the node process restarts, so read them with a reset-aware rate. |
+| `app.nodes.types.no_eligible_node` | `app_nodes_types_no_eligible_node` | gauge | `{type}` | `job_type` | For each node-offered type with due pending jobs: `1` when no `online`, `healthy` node lists the type as eligible, else `0`. See [worker-nodes.md](worker-nodes.md#fleet-metrics). |
+
+##### This app (`app-metrics/domain-metric-names.ts`)
+
+Declared in `EVOPATH_METRIC_NAMES` / `EVOPATH_APP_METRICS`, registered by `app-metrics/domain-metrics.module.ts` and recorded by `EvoPathMetricsService`.
+
+| Metric | Table(s) | Kind | Unit | Attributes (values) | Recorded |
+|---|---|---|---|---|---|
 | `app.health.documents.purges` | `app_health_documents_purges_total` | counter | `{document}` | `outcome` (`purged`, `failed`) | A `health.document.purge` attempt erases a file or fails (and is retried). |
 | `app.health.documents.downloads` | `app_health_documents_downloads_total` | counter | `{download}` | `disposition` (`inline`, `attachment`) | `GET /api/health/documents/:id/download` issues a signed link. |
 | `app.health.documents.deletes` | `app_health_documents_deletes_total` | counter | `{document}` | `scope` (`file`, `record`), `values` (`kept`, `deleted`) | The owner deletes a health document: `file` queues the file's purge, `record` removes the metadata of a file already gone. |
@@ -1983,6 +2017,13 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.coach.audio.failed` | `app_coach_audio_failed_total` | counter | `{message}` | `reason` (`provider_error`, `refusal`, `timeout`, `no_voice_model`) | A message is delivered as text only after its audio failed. |
 | `app.coach.audio.purged` | `app_coach_audio_purged_total` | counter | `{object}` | none | `coach.audio.purge` deletes voice notes past the retention window; adds the batch count. |
 | `app.coach.audio.requested` | `app_coach_audio_requested_total` | counter | `{request}` | `outcome` (`started`, `ready`, `pending`, `failed`, `disabled`, `rate_limited`, `no_voice_model`) | A user asks to hear a coach message (`POST /api/coach/messages/:id/audio`, #259). |
+
+##### This app, outside the registry
+
+Created directly on the `app` meter by `coach/chat/`, `coach/review/`, `coach/planning/`, `coach/coach-kickoff.metrics.ts` and `memory/memory.metrics.ts`. Their names or dotted attribute keys (`coach.reason`) do not satisfy the registry's rules, and a name is permanent, so they stay outside it for now.
+
+| Metric | Table(s) | Kind | Unit | Attributes (values) | Recorded |
+|---|---|---|---|---|---|
 | `app.coach.chat.turns` | `app_coach_chat_turns_total` | counter | none | `coach.outcome` (`model`, `safety`, `fallback`) | A chat turn is answered. |
 | `app.coach.chat.safety_hits` | `app_coach_chat_safety_hits_total` | counter | none | `coach.screen` (`distress`, `symptom`, `pain`) | A safety screen matches a chat message. |
 | `app.coach.chat.tool_calls` | `app_coach_chat_tool_calls_total` | counter | none | `coach.tool`, `coach.status` | The chat model calls a tool. |
@@ -1997,23 +2038,6 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `coach.sweep.users` | `coach_sweep_users_total` | counter | none | none | Adds the number of users a sweep pass planned. Un-prefixed. |
 | `coach.sweep.user_error` | `coach_sweep_user_error_total` | counter | none | none | The sweep skips a user after an error. Un-prefixed. |
 | `coach.time_zone.invalid` | `coach_time_zone_invalid_total` | counter | none | none | A planning pass falls back to UTC for an unknown time zone. Un-prefixed. |
-| `app.jobs.queue.depth` | `app_jobs_queue_depth` | gauge | `{job}` | `job_type`, `status` (`pending`, `running`) | Observed at collection. |
-| `app.jobs.oldest_pending.age` | `app_jobs_oldest_pending_age_seconds` | gauge | `s` | `job_type` | Observed at collection; due pending jobs only (`scheduled_for` null or past). |
-| `app.backup.last_success.timestamp` | `app_backup_last_success_timestamp_seconds` | gauge | `s` | none | Unix seconds of the last completed backup. |
-| `app.backup.last_success.size` | `app_backup_last_success_size_bytes` | gauge | `By` | none | Size of that backup. |
-| `app.nodes.count` | `app_nodes_count` | gauge | `{node}` | `status` (`online`, `draining`, `offline`, `disabled`), `health` (`healthy`, `stale`, `offline`) | Worker nodes by status and derived health. All seven valid pairs are observed, zeros included. |
-| `app.nodes.cpu.utilization` | `app_nodes_cpu_utilization` | gauge | `{core}` | `node_id`, `node_name` | The node's reported `cpuPercent / 100` (1.5 = one and a half cores). |
-| `app.nodes.memory.rss` | `app_nodes_memory_rss_bytes` | gauge | `By` | `node_id`, `node_name` | The node process's resident set size. |
-| `app.nodes.heap.used` | `app_nodes_heap_used_bytes` | gauge | `By` | `node_id`, `node_name` | V8 heap in use. |
-| `app.nodes.heap.limit` | `app_nodes_heap_limit_bytes` | gauge | `By` | `node_id`, `node_name` | V8 heap limit. |
-| `app.nodes.event_loop.delay.p99` | `app_nodes_event_loop_delay_p99_seconds` | gauge | `s` | `node_id`, `node_name` | The reported `eventLoopDelayP99Ms / 1000`. |
-| `app.nodes.state_dir.free` | `app_nodes_state_dir_free_bytes` | gauge | `By` | `node_id`, `node_name` | Free space on the filesystem that holds the node's state directory. |
-| `app.nodes.state_dir.total` | `app_nodes_state_dir_total_bytes` | gauge | `By` | `node_id`, `node_name` | Size of that filesystem. |
-| `app.nodes.slots.used` | `app_nodes_slots_used` | gauge | `{slot}` | `node_id`, `node_name` | Job slots in use. |
-| `app.nodes.slots.total` | `app_nodes_slots_total` | gauge | `{slot}` | `node_id`, `node_name` | Job slots offered. |
-| `app.nodes.uptime` | `app_nodes_uptime_seconds` | gauge | `s` | `node_id`, `node_name` | Node process uptime. |
-| `app.nodes.counter` | `app_nodes_counter` | gauge | `{event}` | `node_id`, `node_name`, `counter` (`claims`, `empty_polls`, `claim_failures`, `succeeded`, `failed`, `rate_limited`, `lease_renewals`, `lease_renew_failures`, `heartbeat_failures`, `watchdog_trips`) | The node's cumulative counters. They reset when the node process restarts, so read them with a reset-aware rate. |
-| `app.nodes.types.no_eligible_node` | `app_nodes_types_no_eligible_node` | gauge | `{type}` | `job_type` | For each node-offered type with due pending jobs: `1` when no `online`, `healthy` node lists the type as eligible, else `0`. See [worker-nodes.md](worker-nodes.md#fleet-metrics). |
 
 The coach metrics created outside `AppMetricsService` (`coach/chat/`, `coach/review/`, `coach/planning/`) carry no unit and dotted attribute names (`coach.reason`); their table names follow the counter rule above and are not verified live. Attribute columns with dots need double-quoting in SQL.
 
@@ -2021,7 +2045,7 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 
 #### Gauges
 
-- The gauges are registered only when `OTEL_ENABLED` is set. The four queue and backup gauges live in `AppMetricsService`. The `app.nodes.*` gauges live in `apps/api/src/nodes/node-fleet-metrics.service.ts`, the one sanctioned sibling: it needs `NodeOffloadService` and the fleet policy, which the global module cannot import without a cycle. It takes its meter, clock and gate from `AppMetricsService.gaugeContext()` and its names from `APP_METRIC_NAMES`.
+- The gauges are registered only when `OTEL_ENABLED` is set. The four queue and backup gauges live in `AppMetricsService`. The `app.nodes.*` gauges live in `apps/api/src/nodes/node-fleet-metrics.service.ts`, the one sanctioned sibling: it needs `NodeOffloadService` and the fleet policy, which the global module cannot import without a cycle. It takes its meter, clock and gate from `AppMetricsService.gaugeContext()` and its names, units and descriptions from the app-metric registry (`createRegisteredGauge`).
 - Their callbacks read PostgreSQL only while the telemetry gate is open (see [§2](#2-the-two-switches)). A closed gate costs no query.
 - Readings are cached for 30 seconds (`GAUGE_CACHE_TTL_MS`) with one read in flight.
 - Every API replica reports the same database-wide values. Take the maximum per timestamp, never the sum.
@@ -2040,7 +2064,7 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 - Backup settlements made by the stale-sweep.
 - Controller-level auth cases (missing profile, missing cookie).
 
-Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, the gauge-temporality case in `apps/api/src/common/otel/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
+Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/app-metrics/domain-metrics.service.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, `apps/api/test/platform/otel-disabled.spec.ts`, the gauge-temporality case in the package's `test/otel-core/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
 
 - **PostgreSQL is scraped by the collector, not instrumented in the API.**
   The `postgresql` receiver reads the statistics views from outside the
@@ -2196,8 +2220,8 @@ route was indistinguishable from a legitimate 404 (`GET /api/gyms/:id` for a
 deleted gym).
 
 **The source of truth: three span attributes.** One Fastify `onRequest`
-hook, `registerRequestSpanAttributes` in
-`apps/api/src/common/otel/request-span-attributes.ts`, registered in
+hook, `registerRequestSpanAttributes` from
+`@marinoscar/platform-api/otel-core`, registered in
 `main.ts` on the root instance right after `NestFactory.create` (before any
 plugin or route, so it runs ahead of every other `onRequest` hook, a CORS
 preflight reply included), writes on the **active span**:

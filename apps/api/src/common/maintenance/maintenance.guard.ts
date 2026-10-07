@@ -43,7 +43,7 @@ import { MaintenanceModeService } from './maintenance-mode.service';
  * to it — show the operator's message and retry — without also showing it when
  * the deployment is simply broken. This string is the difference.
  *
- * WHY IT LIVES UNDER `details`. `common/filters/http-exception.filter.ts`
+ * WHY IT LIVES UNDER `details`. `HttpExceptionFilter` (`@marinoscar/platform-api/core`)
  * rebuilds every error body from a FIXED KEY ALLOWLIST (`statusCode`, `code`,
  * `message`, `details`, `timestamp`, `path`); `code` is always derived from the
  * status and a `code` on the thrown payload is deliberately ignored. A custom
