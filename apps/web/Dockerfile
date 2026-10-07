@@ -35,6 +35,12 @@ COPY apps/web/package.json ./apps/web/
 # inherits it through `COPY --from=deps /app ./` — Vite inlines the constant
 # into the bundle, so nginx's production stage needs nothing further.
 COPY packages/shared ./packages/shared/
+# `@marinoscar/platform-web` (marinoscar/EnterpriseAppBase#717) is NOT a workspace
+# and is not copied or built here: the lockfile pins its prebuilt tarball (a
+# GitHub release URL with its integrity hash until the packages are on npm),
+# and the `npm ci` below downloads and installs its compiled `dist/` like any
+# other dependency. The build therefore needs github.com reachable, as it
+# needs registry.npmjs.org.
 # The root postinstall (patch-react-transition-group.js) runs during npm ci
 COPY scripts ./scripts
 RUN npm ci --workspace=web --include-workspace-root

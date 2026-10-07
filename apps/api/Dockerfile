@@ -77,6 +77,12 @@ COPY apps/web/package.json ./apps/web/
 # holds one string that changes only when the product is renamed, so that is a
 # trade worth making to remove the failure mode entirely.
 COPY packages/shared ./packages/shared/
+# `@marinoscar/platform-api` (marinoscar/EnterpriseAppBase#717) is NOT a workspace
+# and is not copied or built here: the lockfile pins its prebuilt tarball (a
+# GitHub release URL with its integrity hash until the packages are on npm),
+# and the `npm ci` below downloads and installs its compiled `dist/` like any
+# other dependency. The build therefore needs github.com reachable, as it
+# needs registry.npmjs.org.
 # Prisma schema and config are needed by `prisma generate` below
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/
