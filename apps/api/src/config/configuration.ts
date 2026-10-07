@@ -51,8 +51,8 @@ export default () => {
 
   // SECRETS_ENCRYPTION_KEY is DELIBERATELY ABSENT from this object (#116,
   // epic #108). It is read directly from process.env by
-  // common/crypto/secret-cipher.ts, which caches it once and never re-reads,
-  // and validated at bootstrap by common/crypto/encryption-key-startup-check.ts.
+  // the cipher in @marinoscar/platform-api/core, which caches it once and never
+  // re-reads, and validated at bootstrap by its verifyEncryptionKeyAtStartup.
   // Adding it here would create a second source of truth that could disagree
   // with the cached one, and would put raw key material into the ConfigService
   // object — a structure that is far easier to log, dump to a debug endpoint or

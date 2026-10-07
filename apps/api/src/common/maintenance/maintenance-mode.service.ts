@@ -44,7 +44,7 @@ import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
 //      truthiness check here would turn `MAINTENANCE_MODE=off` into an outage.
 //
 // READ STRAIGHT FROM `process.env`, NOT THROUGH `ConfigService`, and
-// deliberately so — the same call `common/crypto/secret-cipher.ts` makes for
+// deliberately so — the same call the cipher in `@marinoscar/platform-api/core` makes for
 // `SECRETS_ENCRYPTION_KEY`. This is a break-glass control whose entire value is
 // that it works when other things do not; routing it through the config object
 // would make it depend on a successful `configuration.ts` load and would put a

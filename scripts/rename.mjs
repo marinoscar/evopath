@@ -247,7 +247,7 @@ export function buildPlan(old, next) {
   add('apps/cli/README.md', old.cloneUrl, next.cloneUrl, 1, 'the APPCTL_REPO default in the env table');
 
   // --- The OpenTelemetry service name -----------------------------------
-  // The code fallback follows APP_SLUG (see common/otel/service-name.ts); these
+  // The code fallback follows APP_SLUG (see common/otel/telemetry-identity.ts); these
   // two are Compose defaults, which no JavaScript read can reach.
   add('infra/compose/.env.example', `OTEL_SERVICE_NAME=${old.serviceName}`, `OTEL_SERVICE_NAME=${next.serviceName}`, 1,
       'the documented default — note: a VALUE change only, never a new key, or env-spec.test.ts fails');

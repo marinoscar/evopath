@@ -453,7 +453,7 @@ const SNIPPET_LIMIT = 200;
  * have.
  *
  * The happy path is the API's own envelope from
- * apps/api/src/common/filters/http-exception.filter.ts:
+ * `HttpExceptionFilter` in @marinoscar/platform-api/core:
  *
  *     { statusCode, code, message, details?, timestamp, path }
  *

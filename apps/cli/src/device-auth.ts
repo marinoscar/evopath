@@ -45,7 +45,7 @@ import { ApiError, CliError, EXIT, type ExitCode } from './errors.js';
 // As of this writing the API DOES NOT PUT THESE CODES ON THE WIRE.
 // `DeviceAuthService.pollForToken` throws
 // `BadRequestException({ error, error_description })`, but the global
-// `HttpExceptionFilter` (apps/api/src/common/filters/http-exception.filter.ts)
+// `HttpExceptionFilter` (@marinoscar/platform-api/core, src/core/errors/)
 // only copies `message`, `code` and `details` out of an exception's response
 // body. `{ error, error_description }` has no `message`, so the filter falls
 // through to its default and every one of the four outcomes reaches a client

@@ -121,7 +121,7 @@ export function assertCredentialIdentifier(
  *
  * On top of {@link assertCredentialIdentifier}: NO `:`. A user credential's
  * sub-key domain is `user:<userId>:<purpose>` (`userCredentialPurpose` in
- * `common/crypto/secret-cipher.ts`), so:
+ * `@marinoscar/platform-api/core`), so:
  *
  *   - in the user store, a `:` in `purpose` would make the domain decompose
  *     two ways;
