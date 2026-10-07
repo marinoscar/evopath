@@ -349,7 +349,7 @@ jobs:
       #   db:drift           the migration history replayed in a throwaway
       #                      shadow database must equal schema.prisma, and
       #                      every raw-SQL partial index (the platform's four,
-      #                      EvoPath's ten in the lock's rawSqlIndexes) must
+      #                      the app's ten in the lock's rawSqlIndexes) must
       #                      exist with its recorded definition, which Prisma's
       #                      diff cannot see.
       - run: npm run db:check --workspace=api

@@ -96,7 +96,7 @@ describe('platform.lock (EvoPath)', () => {
   });
 
   it('declares push_subscriptions.platform, which the platform history lacks, and never drops it', () => {
-    const deviation = lock.deviations?.find((d) => d.id === 'evopath:push-subscriptions-platform');
+    const deviation = lock.deviations?.find((d) => d.id === 'app:push-subscriptions-platform');
     expect(deviation).toBeDefined();
     expect(deviation!.expectDiff).toEqual([
       `ALTER TABLE "push_subscriptions" ADD COLUMN "platform" TEXT NOT NULL DEFAULT 'browser';`,

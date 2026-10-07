@@ -106,6 +106,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
 | Recipe: add a doctor check | [`@marinoscar/platform-api/doctor` README](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/doctor/README.md#extension-point-catalog) (extension points), [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) (this app's recipe) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
+| Runbook: platform migration history baseline (`platform.lock`, mapping, deviations, rehearsal log, production procedure) | [docs/runbooks/platform-db-baseline.md](docs/runbooks/platform-db-baseline.md) |
 | Platform adoption (which slices run on `@marinoscar/platform-*`, local exceptions, seam requests, rollback; the drift baseline it started from) | [docs/platform-adoption/README.md](docs/platform-adoption/README.md), [docs/platform-adoption/drift-baseline.md](docs/platform-adoption/drift-baseline.md) |
 
 ## MANDATORY: Issue-Driven Development
@@ -226,6 +227,7 @@ Each is enforced by tests and explained in the linked doc. Read it before touchi
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).
 - **A job `type` string is permanent** once jobs of that type exist. See [the job handlers README](apps/api/src/jobs/handlers/README.md).
+- **Never rename, edit or delete a migration listed in `platform.lock`.** `_prisma_migrations` identifies an applied migration by directory name and stores its checksum; a renamed directory looks new and would run again. `npm run db:check` and CI fail on it. Never run `db:baseline -- --apply` on a deployed database. See [platform-db-baseline.md](docs/runbooks/platform-db-baseline.md).
 
 ## MANDATORY: Platform code lives in packages
 

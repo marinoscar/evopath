@@ -75,6 +75,7 @@ In this order:
 | [runbooks/vapid-keys.md](runbooks/vapid-keys.md) | Generating, enabling, rotating or removing Web Push keys |
 | [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md) | Opening or closing a maintenance window, or recovering from a lockout |
 | [runbooks/database-restore.md](runbooks/database-restore.md) | Restoring the database from a backup, with the app possibly down |
+| [runbooks/platform-db-baseline.md](runbooks/platform-db-baseline.md) | The platform migration history mapped onto this database: `platform.lock`, the deviations, the rehearsal log, the production verification and rollback |
 | [runbooks/postgres-client-version.md](runbooks/postgres-client-version.md) | Backups fail because `pg_dump` is older than the server |
 | [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md) | Letting worker nodes take backups with short-lived database roles |
 | [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md) | Rotating or recovering from the loss of `SECRETS_ENCRYPTION_KEY` |

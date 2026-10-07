@@ -4,8 +4,8 @@
       "expectDiff": [
         "ALTER TABLE \"push_subscriptions\" ADD COLUMN \"platform\" TEXT NOT NULL DEFAULT 'browser';"
       ],
-      "id": "evopath:push-subscriptions-platform",
-      "reason": "EvoPath adds push_subscriptions.platform (the Android push channel, migration 20261004100000_add_push_subscription_platform). The CHECK constraint push_subscriptions_platform_check is a hand-written constraint Prisma's diff does not print. Never dropped; to be proposed to the platform as a seam request."
+      "id": "app:push-subscriptions-platform",
+      "reason": "This app adds push_subscriptions.platform (the Android push channel, migration 20261004100000_add_push_subscription_platform). The CHECK constraint push_subscriptions_platform_check is a hand-written constraint Prisma's diff does not print. Never dropped; to be proposed to the platform as a seam request."
     },
     {
       "expectDiff": [
@@ -19,8 +19,8 @@
         "CREATE TYPE \"HealthSyncRunStatus\" AS ENUM ('ok', 'partial', 'failed', 'skipped');",
         "CREATE TYPE \"HealthSyncTrigger\" AS ENUM ('periodic', 'manual', 'initial', 'app_open');"
       ],
-      "id": "evopath:domain-types",
-      "reason": "EvoPath domain enums (the 46 domain models' types). Not platform-owned; the baseline diff has no app-object filter yet, so they are listed."
+      "id": "app:domain-types",
+      "reason": "This app's domain enums (the 46 domain models' types). Not platform-owned; the baseline diff has no app-object filter yet, so they are listed."
     },
     {
       "expectDiff": [
@@ -71,8 +71,8 @@
         "CREATE TABLE \"workout_photos\" ( \"id\" UUID NOT NULL, \"workout_id\" UUID NOT NULL, \"storage_object_id\" UUID NOT NULL, \"caption\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"workout_photos_pkey\" PRIMARY KEY (\"id\") );",
         "CREATE TABLE \"workouts\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"name\" TEXT NOT NULL, \"date\" DATE NOT NULL, \"status\" TEXT NOT NULL DEFAULT 'in_progress', \"started_at\" TIMESTAMPTZ(6) NOT NULL, \"ended_at\" TIMESTAMPTZ(6), \"duration_seconds\" INTEGER, \"gym_id\" UUID, \"notes\" TEXT, \"program_workout_id\" UUID, \"readiness_snapshot\" JSONB, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"workouts_pkey\" PRIMARY KEY (\"id\") );"
       ],
-      "id": "evopath:domain-tables",
-      "reason": "EvoPath's 46 domain tables. Not platform-owned; listed because the baseline diff has no app-object filter yet."
+      "id": "app:domain-tables",
+      "reason": "The 46 domain tables of this app. Not platform-owned; listed because the baseline diff has no app-object filter yet."
     },
     {
       "expectDiff": [
@@ -168,8 +168,8 @@
         "CREATE INDEX \"workouts_user_id_status_idx\" ON \"workouts\"(\"user_id\" ASC, \"status\" ASC);",
         "CREATE UNIQUE INDEX \"workouts_user_in_progress_uniq_idx\" ON \"workouts\"(\"user_id\" ASC);"
       ],
-      "id": "evopath:domain-indexes",
-      "reason": "Indexes on EvoPath's domain tables (the partial unique ones are in rawSqlIndexes, not here: Prisma's diff cannot see them)."
+      "id": "app:domain-indexes",
+      "reason": "Indexes on this app's domain tables (the partial unique ones are in rawSqlIndexes, not here: Prisma's diff cannot see them)."
     },
     {
       "expectDiff": [
@@ -251,8 +251,8 @@
         "ALTER TABLE \"workouts\" ADD CONSTRAINT \"workouts_program_workout_id_fkey\" FOREIGN KEY (\"program_workout_id\") REFERENCES \"program_workouts\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
         "ALTER TABLE \"workouts\" ADD CONSTRAINT \"workouts_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;"
       ],
-      "id": "evopath:domain-foreign-keys",
-      "reason": "Foreign keys of EvoPath's domain tables, including those to the platform tables users, storage_objects and personal_access_tokens. Domain-owned constraints; the platform tables themselves are unchanged."
+      "id": "app:domain-foreign-keys",
+      "reason": "Foreign keys of this app's domain tables, including those to the platform tables users, storage_objects and personal_access_tokens. Domain-owned constraints; the platform tables themselves are unchanged."
     }
   ],
   "lockVersion": 1,
