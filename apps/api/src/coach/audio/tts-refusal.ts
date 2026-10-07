@@ -1,4 +1,4 @@
-import type { CoachAudioFailureReason } from '../../common/otel/app-metrics.service';
+import type { CoachAudioFailureReason } from '../../app-metrics/evopath-metrics.service';
 
 // =============================================================================
 // Speech-run outcome and refusal detection (E7.6, #246; spec §2.7)

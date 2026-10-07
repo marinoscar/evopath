@@ -56,10 +56,10 @@ import { z } from 'zod';
 
 import { AiConfigService } from '../../../ai/config/ai-config.service';
 import {
-  AppMetricsService,
-  fallbackAppMetrics,
+  EvoPathMetricsService,
+  fallbackEvoPathMetrics,
   type CoachNudgeSuppressionReason,
-} from '../../../common/otel/app-metrics.service';
+} from '../../../app-metrics/evopath-metrics.service';
 import type { CoachWeeklyReviewEmailData } from '../../../email/templates/coach-weekly-review.email';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
@@ -105,7 +105,7 @@ export class CoachMessageDeliverHandler implements JobHandler, OnModuleInit {
     private readonly coachState: CoachStateService,
     private readonly aiConfig: AiConfigService,
     private readonly systemSettings: SystemSettingsService,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
     @Optional() private readonly config?: ConfigService,
   ) {}
 

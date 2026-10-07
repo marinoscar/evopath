@@ -42,10 +42,10 @@ import { AI_SPEECH_INPUT_MAX_CHARS } from '../../ai/core/types/media.types';
 import { AiRunsService } from '../../ai/runtime/ai-runs.service';
 import { AiService } from '../../ai/runtime/ai.service';
 import {
-  AppMetricsService,
-  fallbackAppMetrics,
+  EvoPathMetricsService,
+  fallbackEvoPathMetrics,
   type CoachAudioFailureReason,
-} from '../../common/otel/app-metrics.service';
+} from '../../app-metrics/evopath-metrics.service';
 import { resolveServiceName } from '../../common/otel/service-name';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -106,7 +106,7 @@ export class CoachAudioService {
     private readonly runs: AiRunsService,
     private readonly features: AiFeatureModelResolver,
     private readonly jobs: JobsService,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
   ) {}
 
   /** The `coach.voice` model for `userId`, or null when the feature cannot run (no model, no `audio_speech`). */

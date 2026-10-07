@@ -16,7 +16,7 @@ import {
 import { AiService } from '../../ai/runtime/ai.service';
 import { CheckInsService } from '../../check-ins/check-ins.service';
 import { resolveCoachUserSettings } from '../../common/schemas/user-settings-namespaces.schema';
-import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/evopath-metrics.service';
 import { resolveServiceName } from '../../common/otel/service-name';
 import { HealthProfileService } from '../../health-profile/health-profile.service';
 import { HealthSummaryReader } from '../../health-summary/health-summary.reader';
@@ -253,7 +253,7 @@ export class CoachChatService {
     private readonly today: TrainingTodayService,
     private readonly photos: ProgressPhotoSummaryService,
     private readonly metrics: CoachChatMetrics,
-    @Optional() private readonly appMetrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly appMetrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
     // `save_commitment`'s writer (E7.12). Optional: without it the tool answers `unavailable`.
     @Optional() private readonly coachSettings?: CoachSettingsService,
     // `get_goals`' source (F9). Optional: without it the tool answers `unavailable`.

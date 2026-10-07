@@ -41,10 +41,10 @@ import { AiFeatureModelResolver } from '../../ai/assignments/ai-feature-model-re
 import { RUNNABLE_FEATURE_STATES } from '../../ai/assignments/dto/ai-feature-resolution.dto';
 import { fromDbDate } from '../../check-ins/local-date';
 import {
-  AppMetricsService,
-  fallbackAppMetrics,
+  EvoPathMetricsService,
+  fallbackEvoPathMetrics,
   type CoachAudioRequestOutcome,
-} from '../../common/otel/app-metrics.service';
+} from '../../app-metrics/evopath-metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import {
@@ -85,7 +85,7 @@ export class CoachMessageAudioService {
     private readonly features: AiFeatureModelResolver,
     private readonly audio: CoachAudioService,
     private readonly limiter: CoachListenRateLimiter,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
   ) {}
 
   /** The caller's message's audio state. Read only. */

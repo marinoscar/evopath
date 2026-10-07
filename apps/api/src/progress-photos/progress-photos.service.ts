@@ -52,7 +52,7 @@ import type { Readable } from 'node:stream';
 import { z } from 'zod';
 
 import { fromDbDate, toDbDate } from '../check-ins/local-date';
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/evopath-metrics.service';
 import { detectImageType } from '../common/profile-image/profile-image';
 import { StorageObjectReferences } from '../intake/storage-object-references';
 import { PrismaService } from '../prisma/prisma.service';
@@ -164,7 +164,7 @@ export class ProgressPhotosService {
     private readonly objects: ObjectsService,
     private readonly references: StorageObjectReferences,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
     @Optional() private readonly events?: EventEmitter2,
   ) {}
 

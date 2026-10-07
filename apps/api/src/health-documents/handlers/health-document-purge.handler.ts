@@ -39,7 +39,7 @@ import { trace } from '@opentelemetry/api';
 import type { Job, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
-import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/evopath-metrics.service';
 import type { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
@@ -79,7 +79,7 @@ export class HealthDocumentPurgeHandler implements JobHandler, OnModuleInit {
     private readonly registry: JobHandlerRegistry,
     private readonly prisma: PrismaService,
     private readonly objects: ObjectsService,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
   ) {}
 
   onModuleInit(): void {

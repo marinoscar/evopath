@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../app-metrics/evopath-metrics.service';
 import type { SystemCoachValue } from '../common/schemas/settings.schema';
 import {
   resolveCoachUserSettings,
@@ -65,7 +65,7 @@ export class CoachSettingsService {
     private readonly userSettings: UserSettingsService,
     private readonly systemSettings: SystemSettingsService,
     private readonly healthProfile: HealthProfileService,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
   ) {}
 
   /** The caller's register now: every unlock condition re-read. */

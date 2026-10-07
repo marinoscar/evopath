@@ -31,7 +31,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import type { Job, Prisma } from '@prisma/client';
 
-import { AppMetricsService, fallbackAppMetrics } from '../../../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../../app-metrics/evopath-metrics.service';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import { StorageObjectReferences } from '../../../intake/storage-object-references';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
@@ -72,7 +72,7 @@ export class CoachAudioPurgeHandler implements JobHandler, OnModuleInit {
     private readonly objects: ObjectsService,
     private readonly references: StorageObjectReferences,
     private readonly audio: CoachAudioService,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
   ) {}
 
   onModuleInit(): void {

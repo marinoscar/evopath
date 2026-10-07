@@ -1,6 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
 
-import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/evopath-metrics.service';
 import {
   guardCoachMessage,
   type CoachGuardContext,
@@ -16,7 +16,7 @@ import {
  */
 @Injectable()
 export class CoachContentGuard {
-  constructor(@Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics()) {}
+  constructor(@Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics()) {}
 
   check(message: CoachMessageText, ctx: CoachGuardContext, required?: readonly CoachTextField[]): CoachGuardResult {
     const result = guardCoachMessage(message, ctx, required);

@@ -6,7 +6,7 @@ import { createMockPrismaService, type MockPrismaService } from '../../test/mock
 import type { AiFeatureModelResolver } from '../ai/assignments/ai-feature-model-resolver.service';
 import { AiError } from '../ai/core/ai-error';
 import type { AiService } from '../ai/runtime/ai.service';
-import type { AppMetricsService } from '../common/otel/app-metrics.service';
+import type { EvoPathMetricsService } from '../app-metrics/evopath-metrics.service';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { RateLimitError } from '../jobs/rate-limit.error';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -85,7 +85,7 @@ describe('HealthSummaryHandler (H8, #192)', () => {
       { forUser } as unknown as AiService,
       features as unknown as AiFeatureModelResolver,
       reader as unknown as HealthSummaryReader,
-      metrics as unknown as AppMetricsService,
+      metrics as unknown as EvoPathMetricsService,
     );
     (prisma.healthSummary.findFirst as jest.Mock).mockResolvedValue({ version: 3 });
     (prisma.healthSummary.create as jest.Mock).mockResolvedValue({});

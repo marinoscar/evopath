@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
+import { EvoPathMetricsService, fallbackEvoPathMetrics } from '../../app-metrics/evopath-metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { coachMessageNotFoundError } from '../coach-errors';
 import { conversionCandidateWhere, type CoachConversionTarget } from './coach-conversion';
@@ -27,7 +27,7 @@ export class CoachMessagesService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
   ) {}
 
   /**

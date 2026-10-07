@@ -70,10 +70,10 @@ import { AI_RUN_TERMINAL_CODES } from '../../../ai/runtime/ai-response-run.handl
 import { AiService } from '../../../ai/runtime/ai.service';
 import { addDays, fromDbDate } from '../../../check-ins/local-date';
 import {
-  AppMetricsService,
-  fallbackAppMetrics,
+  EvoPathMetricsService,
+  fallbackEvoPathMetrics,
   type CoachNudgeSuppressionReason,
-} from '../../../common/otel/app-metrics.service';
+} from '../../../app-metrics/evopath-metrics.service';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import type { JobExecutionProfile } from '../../../jobs/job-execution-profile';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
@@ -182,7 +182,7 @@ export class CoachNudgeHandler implements JobHandler, OnModuleInit {
     private readonly guard: CoachContentGuard,
     private readonly jobs: JobsService,
     @Inject(COACH_ANGLE_PICKER) private readonly anglePicker: AnglePicker,
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() private readonly metrics: EvoPathMetricsService = fallbackEvoPathMetrics(),
     // Optional so a fork without activity goals (or a test) writes nudges without them.
     @Optional() private readonly goals?: GoalProgressService,
     // User memory (#325): the memory block in the prompt. Optional: absent, none is sent.
