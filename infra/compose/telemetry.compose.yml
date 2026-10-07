@@ -1,3 +1,5 @@
+# GENERATED from @marinoscar/platform-infra@0.1.0-next.3 (telemetry) — do not edit; extend through infra/otel/app-collector.yaml or a compose overlay
+# Source of truth: @marinoscar/platform-infra/telemetry/compose/telemetry.compose.yml; re-materialise with `npx platform-infra sync`
 # =============================================================================
 # Docker Compose - Telemetry Stack (OpenTelemetry Collector + GreptimeDB)
 # =============================================================================
@@ -24,7 +26,7 @@
 # Passwords have NO compose-level default, unlike the old Uptrace overlay: a
 # missing GREPTIME_*_PASSWORD fails `docker compose` with a message naming the
 # key, rather than silently booting a telemetry store with a well-known
-# password. .env.example (and therefore `evopathcli init`) supplies development
+# password. .env.example (and therefore the CLI's `init`) supplies development
 # placeholders, so a fresh local setup still starts without extra steps.
 # =============================================================================
 
@@ -51,10 +53,17 @@ services:
   # ---------------------------------------------------------------------------
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.145.0
-    command: ["--config=/etc/otel-collector-config.yaml"]
+    # TWO config files, merged in this order: the platform base, then the
+    # app-owned overlay. Maps merge; lists are REPLACED, so an overlay adds a
+    # new named pipeline (metrics/app) rather than restating a platform one.
+    # infra/otel/app-collector.yaml ships behaviour-neutral (comments only)
+    # and documents the rules; `platform-infra sync` creates it once and never
+    # overwrites it.
+    command: ["--config=/etc/otelcol/platform.yaml", "--config=/etc/otelcol/app.yaml"]
     volumes:
-      - ../otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
-      # Host metrics (issue #122): the hostmetrics receiver reads the host's
+      - ../otel/otel-collector-config.yaml:/etc/otelcol/platform.yaml:ro
+      - ../otel/app-collector.yaml:/etc/otelcol/app.yaml:ro
+      # Host metrics (issue #597): the hostmetrics receiver reads the host's
       # /proc, /sys and mount table here (root_path: /hostfs), and the host's
       # /etc/hostname for host.name. Read-only; the collector still runs as
       # its image's unprivileged user (10001), with no privileged mode, no
@@ -73,7 +82,7 @@ services:
       - GREPTIME_DB=${GREPTIME_DB:-public}
       - GREPTIME_WRITER_USER=${GREPTIME_WRITER_USER:-writer}
       - GREPTIME_WRITER_PASSWORD=${GREPTIME_WRITER_PASSWORD:?set GREPTIME_WRITER_PASSWORD in infra/compose/.env}
-      # PostgreSQL metrics (issue #123): the database the API uses, with the
+      # PostgreSQL metrics (issue #598): the database the API uses, with the
       # same defaults as base.compose.yml's api block, so the collector
       # scrapes whatever server the application is actually talking to.
       - POSTGRES_HOST=${POSTGRES_HOST:-db}
@@ -88,7 +97,7 @@ services:
       # POSTGRES_SSL=true into the receiver's inverse `tls.insecure: false`
       # (see the comment on the postgresql receiver). Do not move it to .env.
       - POSTGRES_TLS_INSECURE_WHEN_SSL_true=false
-      # The httpcheck receiver's PUBLIC target (issue #124). Not an .env key:
+      # The httpcheck receiver's PUBLIC target (issue #599). Not an .env key:
       # outside a VPS there is no public origin the collector can reach
       # (APP_URL=http://localhost:3535 is the collector itself in here), so it
       # checks nginx's own health route instead. vps.telemetry.compose.yml

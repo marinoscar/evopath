@@ -17,7 +17,8 @@
     "api:test": "npm -w apps/api test",
     "web:test": "npm -w apps/web test",
     "openapi:dump": "npm run openapi:dump --workspace=api -- ../../openapi.json",
-    "openapi:lint": "spectral lint openapi.json --ruleset .spectral.yaml --fail-severity=error"
+    "openapi:lint": "spectral lint openapi.json --ruleset .spectral.yaml --fail-severity=error",
+    "platform:infra:sync": "platform-infra sync"
   },
   "overrides": {
     "@nestjs/common": "^11.1.12",

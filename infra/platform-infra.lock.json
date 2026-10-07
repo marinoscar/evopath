@@ -1,0 +1,12 @@
+{
+  "version": "0.1.0-next.3",
+  "fragments": {
+    "telemetry": {
+      "files": {
+        "infra/compose/telemetry.compose.yml": "4b24874db3bc359cad2e0dc0176400a46842f0b21faee7190e1c83a7f11c8f31",
+        "infra/compose/vps.telemetry.compose.yml": "4e35f520f4e99c17162ae53b39a45949693ba9cb9b5d3fa006c1db1bee6e66d9",
+        "infra/otel/otel-collector-config.yaml": "4f7f560b7787a8cea8152bd6e22664ae5e262f135f8944287d779647cdca3832"
+      }
+    }
+  }
+}
