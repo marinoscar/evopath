@@ -31,6 +31,6 @@
     "@stoplight/spectral-cli": "^6.16.3"
   },
   "dependencies": {
-    "@marinoscar/platform-contract": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.2/marinoscar-platform-contract-0.1.0-next.2.tgz"
+    "@marinoscar/platform-contract": "https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v0.1.0-next.3/marinoscar-platform-contract-0.1.0-next.3.tgz"
   }
 }
