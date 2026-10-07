@@ -6,16 +6,19 @@ import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockAdminUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
 import type { SystemTelemetryValue } from '../../src/common/schemas/settings.schema';
-import { GreptimeClient } from '../../src/telemetry/greptime/greptime.client';
-import { TelemetrySchemaService } from '../../src/telemetry/query/telemetry-schema.service';
-import { TelemetrySettingsService } from '../../src/telemetry/telemetry-settings.service';
 import {
+  GreptimeClient,
+  METRIC_GROUPS,
   REQUIRED_LOG_COLUMNS,
   REQUIRED_TRACE_COLUMNS,
-} from '../../src/telemetry/dashboard/telemetry-dashboard.sql';
-import { TelemetryDashboardService } from '../../src/telemetry/dashboard/telemetry-dashboard.service';
-import { METRIC_GROUPS } from '../../src/telemetry/metrics/metric-catalog';
-import { metricCatalogSchema } from '../../src/telemetry/testing/metric-schema.fixture';
+  TelemetrySchemaService,
+  TelemetrySettingsService,
+} from '@marinoscar/platform-api/telemetry';
+import { metricCatalogSchema } from '@marinoscar/platform-api/telemetry/testing';
+import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
+
+// The dashboard service is not exported by the slice; tests reach it by class name.
+const { TelemetryDashboardService } = telemetryProviders;
 
 // =============================================================================
 // Telemetry dashboard over HTTP (issue #577)

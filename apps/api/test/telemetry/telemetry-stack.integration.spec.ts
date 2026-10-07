@@ -7,9 +7,12 @@ import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockAdminUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
-import { StackAgentClient } from '../../src/telemetry/stack/stack-agent.client';
-import { TelemetryStackController } from '../../src/telemetry/stack/telemetry-stack.controller';
-import { TELEMETRY_STACK_DEPLOY_TYPE } from '../../src/telemetry/stack/telemetry-stack-deploy.handler';
+import { TELEMETRY_STACK_DEPLOY_TYPE } from '@marinoscar/platform-api/telemetry';
+import { telemetryControllers, telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
+
+// Neither class is exported by the slice; tests reach them by class name.
+const { StackAgentClient } = telemetryProviders;
+const { TelemetryStackController } = telemetryControllers;
 
 // =============================================================================
 // Telemetry services (stack-agent) integration (issue #567)
