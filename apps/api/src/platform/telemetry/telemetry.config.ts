@@ -15,18 +15,23 @@
 // `dashboard.verdictThresholds` nor `dashboard.verdictPolicy` is passed; a
 // test pins the resolved thresholds to `DEFAULT_VERDICT_THRESHOLDS`.
 //
-// APP METRIC GROUPS. None yet: `APP_METRIC_GROUPS` below is where this app's
-// own dashboard groups go, after the six platform groups.
+// APP METRIC GROUPS. `coach` (`coach/telemetry/coach-metric-group.ts`), the
+// AI Coach funnel over the `app.coach.*` counters. Passed here rather than
+// registered from a module's `onModuleInit` so it is in the registry before
+// the dashboard controller is built: the `/metrics` route's documented
+// `group` enum then lists it, and the platform dashboard renders it from
+// `/metric-groups` with no app UI code.
 // =============================================================================
 
 import type { Type } from '@nestjs/common';
 import { TelemetryModule, type MetricGroupDef } from '@marinoscar/platform-api/telemetry';
 
+import { COACH_METRIC_GROUP } from '../../coach/telemetry/coach-metric-group';
 import { platformHost } from '../platform-host';
 import { TelemetryHostModule } from './telemetry-host.module';
 
 /** This app's own Telemetry Dashboard metric groups, in registration order. */
-export const APP_METRIC_GROUPS: readonly MetricGroupDef[] = [];
+export const APP_METRIC_GROUPS: readonly MetricGroupDef[] = [COACH_METRIC_GROUP];
 
 export const telemetryModule = TelemetryModule.forRoot({
   host: platformHost,
