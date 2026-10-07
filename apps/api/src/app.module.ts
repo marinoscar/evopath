@@ -29,6 +29,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { DbBackupModule } from './db-backup/db-backup.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { AppMetricsModule } from './common/otel/app-metrics.module';
+import { EvoPathMetricsModule } from './app-metrics/evopath-metrics.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
@@ -95,6 +96,9 @@ import configuration from './config/configuration';
     // Application metrics (#125): the one `app` meter every feature records
     // into. Global; a no-op unless OTEL_ENABLED installed the SDK.
     AppMetricsModule,
+    // EvoPath's own health and coach metrics (marinoscar/EnterpriseAppBase#718):
+    // registers their names in the otel-core registry at import. Global.
+    EvoPathMetricsModule,
 
     // Feature modules
     CommonModule,
