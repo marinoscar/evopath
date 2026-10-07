@@ -21,7 +21,7 @@ import {
   mockDashboardTopRoutes,
   mockUnknownRoutesTopSql,
 } from '../../mocks/fixtures/telemetryDashboard';
-import TelemetryDashboardPage from '../../../pages/Admin/TelemetryDashboardPage';
+import TelemetryDashboardPage from '@marinoscar/platform-web/telemetry/ui/dashboard-page';
 import { http, HttpResponse } from 'msw';
 
 const DASHBOARD = '/admin/settings/telemetry/dashboard';
@@ -74,7 +74,7 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       ['panel-top-routes', mockDashboardTopRoutes.sql as string],
       ['panel-top-errors', mockDashboardTopErrors.sql as string],
       ['panel-events', mockDashboardEventsPage1.sql as string],
-      // #258: `unknownRoutes.sql[0]` (the per-route list), not the summary's primary.
+      // #650: `unknownRoutes.sql[0]` (the per-route list), not the summary's primary.
       ['panel-unknown-routes', mockUnknownRoutesTopSql],
     ])('%s hands its API-reported SQL to the explorer', async (panelId, expected) => {
       const user = userEvent.setup();
@@ -235,7 +235,7 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       expect((within(dialog).getByRole('textbox', { name: 'Ask the assistant' }) as HTMLTextAreaElement).value).toContain('Investigate "Top failing routes"');
 
       await user.click(within(dialog).getByRole('button', { name: 'Close assistant' }));
-      // The page also renders the infrastructure sections (#127): under a
+      // The page also renders the infrastructure sections (#602): under a
       // loaded full-suite run the exit transition can outlast the 1 s default.
       await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Assistant' })).not.toBeInTheDocument(), {
         timeout: 5000,

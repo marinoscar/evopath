@@ -54,6 +54,17 @@ export default defineConfig({
     // genuinely hung test takes longer to be declared dead.
     testTimeout: 20000,
     hookTimeout: 20000,
+    // The packaged telemetry UI (`@marinoscar/platform-web`,
+    // marinoscar/EnterpriseAppBase#719) is processed by Vite like app code
+    // rather than loaded as an external dependency, so a test can
+    // `vi.mock()` one of its internal modules (the explorer replaces the
+    // CodeMirror editor, which jsdom cannot run, at its built path) and the
+    // package resolves the app's single React and MUI instances.
+    server: {
+      deps: {
+        inline: [/@marinoscar\/platform-web/],
+      },
+    },
   },
   resolve: {
     alias: {

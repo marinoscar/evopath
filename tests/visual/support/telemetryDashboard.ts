@@ -7,8 +7,10 @@ import type { Page, Route } from '@playwright/test';
  * spec screenshots surfaces whose `/api` fetches are allowed to fail. The
  * dashboard IS its data, so this answers the calls it makes with Playwright's
  * `page.route()`: the two feature flags (`/api/telemetry/config`,
- * `/api/ai/config`), the five #577 dashboard endpoints and `/metrics` (#126,
- * the six infrastructure sections of #127: every group available in the
+ * `/api/ai/config`), the five #577 dashboard endpoints, `/metric-groups`
+ * (the six platform groups, in either scenario; the packaged dashboard,
+ * marinoscar/EnterpriseAppBase#719, builds its sections from it) and
+ * `/metrics` (#126, the six infrastructure sections of #127: every group available in the
  * `critical` scenario, none in `no_data`). Anything else falls
  * through to the harness's Vite server exactly as before (`route.fallback()`).
  *
@@ -502,6 +504,16 @@ function metrics(url: URL, scenario: DashboardScenario) {
   }
 }
 
+/** `GET …/metric-groups`: the API's six platform groups and their section titles. */
+const METRIC_GROUPS = [
+  { id: 'host', label: 'Host', title: 'Infrastructure', order: 10 },
+  { id: 'database', label: 'Database', title: 'Database', order: 20 },
+  { id: 'queue', label: 'Job queue', title: 'Job queue', order: 30 },
+  { id: 'nodes', label: 'Worker nodes', title: 'Worker nodes', order: 40 },
+  { id: 'uptime', label: 'Uptime and edge', title: 'Uptime & dependencies', order: 50 },
+  { id: 'pipeline', label: 'Telemetry pipeline', title: 'Telemetry pipeline', order: 60 },
+];
+
 function answer(route: Route, data: unknown) {
   return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data }) });
 }
@@ -554,6 +566,11 @@ export async function mockTelemetryDashboard(page: Page, scenario: DashboardScen
           instances: scenario === 'no_data' ? [] : ['api-1', 'worker-1'],
           hosts: scenario === 'no_data' ? [] : ['vps-1'],
         });
+      case '/admin/telemetry/dashboard/metric-groups':
+        // In-memory registry metadata: the same in every scenario. The
+        // six platform groups only, so the screenshots stay comparable;
+        // this app's `coach` group is covered by the web unit tests.
+        return answer(route, METRIC_GROUPS);
       case '/admin/telemetry/dashboard/metrics':
         return answer(route, metrics(url, scenario));
       default:

@@ -14,15 +14,17 @@ import {
 } from '../mocks/fixtures/ai';
 import {
   TelemetryConfigContext,
+  TelemetryWebAdaptersProvider,
+  type TelemetryPublicConfig,
   type UseTelemetryConfigReturn,
-} from '../../hooks/useTelemetryConfig';
+} from '@marinoscar/platform-web/telemetry/headless';
 import {
   mockTelemetryPublicConfigDisabled,
   mockTelemetryPublicConfigEnabled,
 } from '../mocks/fixtures/telemetry';
-import type { TelemetryPublicConfig } from '../../services/telemetry';
 import type { AuthProvider as AuthProviderType } from '../../types';
 import { AppPlatformHostProvider } from '../../platform/platformHost';
+import { appTelemetryAdapters } from '../../platform/telemetryAdapters';
 
 interface WrapperOptions {
   route?: string;
@@ -206,7 +208,7 @@ function MockAuthProvider({
   );
 }
 
-function createWrapper(options: WrapperOptions = {}) {
+export function createWrapper(options: WrapperOptions = {}) {
   const {
     route = '/',
     routeState,
@@ -254,7 +256,12 @@ function createWrapper(options: WrapperOptions = {}) {
     // The real platform host adapter (marinoscar/EnterpriseAppBase#717),
     // innermost like the shell mounts it, so a packaged page (the Doctor) runs
     // through the app's transport and the fixture user's permissions.
-    const withHost = <AppPlatformHostProvider>{children}</AppPlatformHostProvider>;
+    // The telemetry adapters beside it, as `App.tsx` mounts them.
+    const withHost = (
+      <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
+        <AppPlatformHostProvider>{children}</AppPlatformHostProvider>
+      </TelemetryWebAdaptersProvider>
+    );
     const withTelemetry = telemetryValue ? (
       <TelemetryConfigContext.Provider value={telemetryValue}>{withHost}</TelemetryConfigContext.Provider>
     ) : (

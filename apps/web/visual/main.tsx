@@ -85,7 +85,9 @@ import { AiConfigProvider } from '../src/contexts/AiConfigContext';
 import { ThemeContextProvider } from '../src/contexts/ThemeContext';
 import { ProtectedRoute } from '../src/components/common/ProtectedRoute';
 import { RequirePermission } from '../src/components/common/RequirePermission';
-import { RequireTelemetryEnabled } from '../src/components/common/RequireTelemetryEnabled';
+import { RequireTelemetryEnabled, TelemetryWebAdaptersProvider } from '@marinoscar/platform-web/telemetry/headless';
+import { AppPlatformHostProvider } from '../src/platform/platformHost';
+import { appTelemetryAdapters } from '../src/platform/telemetryAdapters';
 import { Layout } from '../src/components/common/Layout';
 import { ErrorBoundary } from '../src/components/common/ErrorBoundary';
 import { LoadingSpinner } from '../src/components/common/LoadingSpinner';
@@ -109,7 +111,7 @@ const AdminUsersPage = lazy(() => import('../src/pages/Admin/UsersPage'));
 // its spec (`tests/visual/specs/telemetry-dashboard.spec.ts`) answers every
 // `/api` call this page makes with fixtures through Playwright's
 // `page.route()` — the "fetch fails" contract above does not apply to it.
-const TelemetryDashboardPage = lazy(() => import('../src/pages/Admin/TelemetryDashboardPage'));
+const TelemetryDashboardPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/dashboard-page'));
 
 /** Byte-identical to `contexts/ThemeContext.tsx`'s private constant. */
 const THEME_STORAGE_KEY = 'theme_mode';
@@ -333,15 +335,23 @@ function Inner() {
     <>
       <CssBaseline />
       <ErrorBoundary>
-        <Suspense fallback={<LoadingSpinner fullScreen />}>
-          {ai ? (
-            <AiConfigProvider>
-              <HarnessRoutes />
-            </AiConfigProvider>
-          ) : (
-            <HarnessRoutes />
-          )}
-        </Suspense>
+        {/* The packaged telemetry dashboard (marinoscar/EnterpriseAppBase#719)
+            reads the app through the platform host and the telemetry
+            adapters, exactly as `App.tsx` mounts them; neither fetches
+            anything on its own. */}
+        <AppPlatformHostProvider>
+          <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
+            <Suspense fallback={<LoadingSpinner fullScreen />}>
+              {ai ? (
+                <AiConfigProvider>
+                  <HarnessRoutes />
+                </AiConfigProvider>
+              ) : (
+                <HarnessRoutes />
+              )}
+            </Suspense>
+          </TelemetryWebAdaptersProvider>
+        </AppPlatformHostProvider>
       </ErrorBoundary>
     </>
   );

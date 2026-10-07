@@ -51,16 +51,16 @@ vi.mock('../pages/Admin/AboutPage', () => ({
 
 // Issue #537, epic #528 — the two Observability pages, stood in for the same
 // reason as the admin pages above.
-vi.mock('../pages/Admin/TelemetrySettingsPage', () => ({
+vi.mock('@marinoscar/platform-web/telemetry/ui/settings-page', () => ({
   default: () => <h1>Admin Telemetry</h1>,
 }));
 
-vi.mock('../pages/Admin/TelemetryExplorerPage', () => ({
+vi.mock('@marinoscar/platform-web/telemetry/ui/explorer-page', () => ({
   default: () => <h1>Admin Telemetry Explorer</h1>,
 }));
 
 // Issue #578, epic #576.
-vi.mock('../pages/Admin/TelemetryDashboardPage', () => ({
+vi.mock('@marinoscar/platform-web/telemetry/ui/dashboard-page', () => ({
   default: () => <h1>Admin Telemetry Dashboard</h1>,
 }));
 

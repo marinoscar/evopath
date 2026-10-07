@@ -32,7 +32,7 @@
 import { SettingsHub } from '../components/settings/SettingsHub';
 import { USER_SETTINGS_SECTIONS, USER_HUB_TITLE } from '../config/userSettingsSections';
 import { useAiConfig } from '../hooks/useAiConfig';
-import { isTelemetryOn, useTelemetryConfig } from '../hooks/useTelemetryConfig';
+import { isTelemetryOn, useTelemetryConfig } from '@marinoscar/platform-web/telemetry/headless';
 
 export default function UserSettingsHubPage() {
   // The deployment feature map (#425), exactly as the admin hub reads it:

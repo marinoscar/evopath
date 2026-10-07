@@ -19,7 +19,7 @@ import {
   mockDashboardEventsPage1,
   mockDashboardSummary,
 } from '../../mocks/fixtures/telemetryDashboard';
-import TelemetryDashboardPage from '../../../pages/Admin/TelemetryDashboardPage';
+import TelemetryDashboardPage from '@marinoscar/platform-web/telemetry/ui/dashboard-page';
 
 const API = '*/api/admin/telemetry/dashboard';
 
@@ -274,7 +274,7 @@ describe('TelemetryDashboardPage', () => {
     expect(screen.queryByTestId('panel-events')).not.toBeInTheDocument();
   });
 
-  describe('unknown API routes (#258)', () => {
+  describe('unknown API routes (#650)', () => {
     it('shows the tile, the unknown-routes panel and the 4xx column with an unknown-route chip', async () => {
       renderPage();
 
@@ -400,7 +400,7 @@ describe('TelemetryDashboardPage', () => {
       expect(screen.queryByRole('table', { name: 'Top routes' })).not.toBeInTheDocument();
       const routes = await within(panel).findByRole('list', { name: 'Top routes' });
       expect(routes).toHaveTextContent('/api/users/:id');
-      // #258: the 4xx count and the unknown-route chip fit the card too.
+      // #650: the 4xx count and the unknown-route chip fit the card too.
       expect(routes).toHaveTextContent('6 4xx');
       const unknownCard = within(routes).getByText('/api/coach/messages', { exact: false }).closest('li')!;
       expect(within(unknownCard).getByTestId('unknown-route-chip')).toBeInTheDocument();
