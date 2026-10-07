@@ -441,6 +441,11 @@ jobs:
           docker logs greptime-test || true
           exit 1
 
+      # The telemetry slice's own live tier moved into
+      # @marinoscar/platform-api with the slice (marinoscar/EnterpriseAppBase#719)
+      # and runs in EnterpriseAppBase; `test:greptime` passes with no tests until
+      # this app adds a live-store spec of its own (the coach group is covered
+      # with mocked queries in test/telemetry/coach-metric-group.integration.spec.ts).
       - run: npm run test:greptime --workspace=api
         env:
           GREPTIME_TEST_URL: postgres://reader:test-reader@localhost:14013/public
