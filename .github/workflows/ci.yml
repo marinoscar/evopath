@@ -335,6 +335,27 @@ jobs:
       # seed writes real rows and fails on a schema that does not match.
       - run: npm run prisma:migrate --workspace=api
 
+      # Migration drift tripwires (marinoscar/EnterpriseAppBase#747). All three
+      # need the database `prisma:migrate` just built; none writes to it.
+      #
+      #   db:check           `apps/api/prisma/platform.lock` proves every
+      #                      platform migration is installed and byte-identical
+      #                      to @marinoscar/platform-db's (or a recorded
+      #                      comment-only divergence), and no locked directory
+      #                      was edited, renamed or deleted. Prisma itself never
+      #                      notices an edited, already-applied file.
+      #   db:check:database  the same for the database: every row of
+      #                      `_prisma_migrations` must match the file on disk.
+      #   db:drift           the migration history replayed in a throwaway
+      #                      shadow database must equal schema.prisma, and
+      #                      every raw-SQL partial index (the platform's four,
+      #                      EvoPath's ten in the lock's rawSqlIndexes) must
+      #                      exist with its recorded definition, which Prisma's
+      #                      diff cannot see.
+      - run: npm run db:check --workspace=api
+      - run: npm run db:check:database --workspace=api
+      - run: npm run db:drift --workspace=api
+
       # The one place in CI a real Postgres is up: `*.db.spec.ts` (job-schema
       # index/constraint assertions today, see apps/api/test/jobs/) are
       # excluded from every other `npm test`/`test:unit`/`test:cov`/`test:ci`
