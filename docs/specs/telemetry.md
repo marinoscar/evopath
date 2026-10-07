@@ -1,6 +1,6 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/api/src/telemetry/dashboard/`, `apps/stack-agent/`, `apps/api/src/common/otel/` (the app's metrics and identity; the SDK bootstrap, the gate and the metrics host are `@marinoscar/platform-api/otel-core`), `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
+> **Status:** shipped; the framework is provided by the `@marinoscar/platform-*` telemetry slices (see below) · **Code (platform, read-only here):** `@marinoscar/platform-api/telemetry`, `@marinoscar/platform-web/telemetry/{headless,ui}`, `@marinoscar/platform-infra/telemetry`, `@marinoscar/platform-cli/telemetry`, `@marinoscar/platform-contract/telemetry`; paths written `platform-api/src/telemetry/...` or `platform-web/src/telemetry/...` below are in EnterpriseAppBase's `packages/` · **Code (this app):** `apps/api/src/platform/telemetry/` (the binding and the host-port adapters), `apps/api/src/coach/telemetry/` (the `coach` metric group), `apps/web/src/platform/telemetryAdapters.ts`, `apps/web/src/theme/telemetryTokens.ts`, `infra/otel/app-collector.yaml`, `apps/stack-agent/`, `apps/api/src/common/otel/` (the app's metrics and identity; the SDK bootstrap, the gate and the metrics host are `@marinoscar/platform-api/otel-core`) · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
@@ -8,6 +8,20 @@ Admins query telemetry with SQL, export the results, and ask an AI assistant
 about them. Traces, logs and metrics live in GreptimeDB alone; nothing is
 written to the application's own PostgreSQL database (the collector only
 reads its statistics views).
+
+## Provided by the platform package
+
+Since [marinoscar/EnterpriseAppBase#719](https://github.com/marinoscar/EnterpriseAppBase/issues/719) this app runs telemetry on the published slices, at the version the [adoption ledger](../platform-adoption/README.md#3-adopted-slices) records. The design below is the platform's and is unchanged by the move: the routes, permission strings, job types (`telemetry.retention.apply`, `telemetry.stack.deploy`), Doctor check ids (`telemetry.connection`, `telemetry.export`, `telemetry.freshness`, `telemetry.reachable`, `telemetry.tables`), audit actions and settings namespace are the same. What lives where:
+
+| Part | Package | This app's binding |
+|---|---|---|
+| API: settings, connection, explorer, assistant, dashboard, stack surface, jobs, Doctor checks | `@marinoscar/platform-api/telemetry` | `apps/api/src/platform/telemetry/telemetry.config.ts` (`TelemetryModule.forRoot({ host, imports: [TelemetryHostModule], metricGroups })`, no verdict override) and `telemetry-host.module.ts` (the six host ports: audit sink, settings store, credential store, jobs, AI, app info) |
+| Web: pages, components, hooks, services, config context, route guard, admin cards | `@marinoscar/platform-web/telemetry/{headless,ui}` | `apps/web/src/App.tsx` (routes and providers), `apps/web/src/config/adminSections.tsx` (`telemetryAdminCards`), `apps/web/src/platform/telemetryAdapters.ts`, `apps/web/src/platform/platformHost.tsx` |
+| Collector config and the telemetry compose files | `@marinoscar/platform-infra/telemetry` | generated into `infra/` by `npm run platform:infra:sync`; the app-owned overlay is `infra/otel/app-collector.yaml` |
+| Worker span relay | `@marinoscar/platform-cli/telemetry` | `apps/cli/src/node/node-engine.ts` |
+| Wire shapes | `@marinoscar/platform-contract/telemetry` | none |
+
+Never edit a generated file or a package here: change the platform in EnterpriseAppBase and pick it up with a version bump ([CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)). This app's own extensions are in [§12](#12-evopath-extensions).
 
 ## Decision record
 
@@ -266,7 +280,7 @@ otel-collector                                          (infra/otel/otel-collect
 GreptimeDB standalone v1.2.1                             (infra/compose/telemetry.compose.yml)
   HTTP :4000 (ingest, /health, /dashboard) · Postgres wire :4003
   ▲
-  │ Postgres wire protocol, GreptimeClient (apps/api/src/telemetry/greptime/greptime.client.ts)
+  │ Postgres wire protocol, GreptimeClient (platform-api/src/telemetry/greptime/greptime.client.ts)
   │   reader pool  (GREPTIME_READER_*) — explorer, assistant, status
   │   admin pool   (GREPTIME_ADMIN_*)  — retention ALTER DATABASE, SHOW CREATE DATABASE
   ▼
@@ -286,7 +300,7 @@ It also probes uptime with the `httpcheck` receiver and reads nginx's
 `stub_status` with the `nginx` receiver, in the same pipeline (§11.2, §11.3;
 [runbook](../runbooks/telemetry.md#83-uptime-tls-and-edge-metrics)).
 
-`TelemetryModule` (`apps/api/src/telemetry/telemetry.module.ts`) wires:
+`TelemetryModule` (`platform-api/src/telemetry/telemetry.module.ts`) wires:
 
 - `GreptimeClient` — the only connection to the store (§2).
 - `TelemetrySettingsService` — the `telemetry` settings namespace, its 5 s
@@ -449,7 +463,7 @@ with no restart, and applies starting with the next batch exported.
 ## 4. Retention
 
 `telemetry.retention.apply` (`TelemetryRetentionHandler`,
-`apps/api/src/telemetry/handlers/telemetry-retention.handler.ts`) runs one
+`platform-api/src/telemetry/handlers/telemetry-retention.handler.ts`) runs one
 statement:
 
 ```sql
@@ -496,12 +510,12 @@ Three routes, all `telemetry:query`, all on `TelemetryExplorerController`:
 | `GET /api/admin/telemetry/schema` | Every table with its columns, row estimates and semantic types |
 | `POST /api/admin/telemetry/export` | Run the same statement and return it as a file attachment |
 
-`TelemetryQueryService.run` (`apps/api/src/telemetry/query/telemetry-query
+`TelemetryQueryService.run` (`platform-api/src/telemetry/query/telemetry-query
 .service.ts`) is the **one entry point** for caller-supplied SQL: the
 explorer, the export and the assistant's `run_query` tool all come through
 it, so all three get the same guard, bounds and audit trail.
 
-**The SQL guard** (`apps/api/src/telemetry/query/sql-guard.ts`) is defence
+**The SQL guard** (`platform-api/src/telemetry/query/sql-guard.ts`) is defence
 in depth on top of GreptimeDB's own read-only user, which already refuses
 `INSERT`/`DROP`/`ALTER`/`SET`. It is a small lexer, not a parser: it strips
 comments outside quotes, then requires
@@ -551,7 +565,7 @@ into base64, a `bigint` into a decimal string, a non-finite number into its
 name, and recurses through arrays and plain objects.
 
 **Export formats** (`TelemetryExportService`,
-`apps/api/src/telemetry/export/telemetry-export.service.ts`), run through
+`platform-api/src/telemetry/export/telemetry-export.service.ts`), run through
 the same guard, bounds and audit as the query endpoint with the row cap at
 the full `telemetry.query.maxRows`:
 
@@ -842,7 +856,7 @@ between resolution and the adapter call, request-scoped, not a job.
 
 The GreptimeDB connection the API uses — host, PG port, database, reader and
 admin logins — is resolved at runtime by `TelemetryConnectionService`
-(`apps/api/src/telemetry/connection/telemetry-connection.service.ts`), not
+(`platform-api/src/telemetry/connection/telemetry-connection.service.ts`), not
 fixed at boot from `GREPTIME_*` alone. An administrator can point the API at
 a different GreptimeDB, or rotate the reader/admin passwords, from
 `/admin/settings/telemetry`'s Connection section, with no restart.
@@ -942,7 +956,7 @@ the reader pool untouched. This is what makes a saved connection, or a
 rotated password, take effect with no process restart.
 
 **Routes**, all on `TelemetryConnectionController`
-(`apps/api/src/telemetry/connection/telemetry-connection.controller.ts`):
+(`platform-api/src/telemetry/connection/telemetry-connection.controller.ts`):
 
 | Route | Permission | Notes |
 |---|---|---|
@@ -1125,7 +1139,7 @@ to read in one sitting.
 `GET /api/admin/telemetry/stack` (`system_settings:read`) and `POST
 /api/admin/telemetry/stack/deploy` (`system_settings:write`) are on
 `TelemetryStackController`
-(`apps/api/src/telemetry/stack/telemetry-stack.controller.ts`) — deliberately
+(`platform-api/src/telemetry/stack/telemetry-stack.controller.ts`) — deliberately
 `system_settings:*`, not `telemetry:*`: starting containers on the host is a
 deployment action with the same reach as the rest of the system-wide
 deployment settings, not a telemetry-policy edit.
@@ -1138,7 +1152,7 @@ deployment settings, not a telemetry-policy edit.
   `agent` is `unavailable` or `unauthorized`, otherwise `null`. The Doctor has
   no check for the agent, because telemetry capture never uses it.
 - `POST /deploy` enqueues `telemetry.stack.deploy`
-  (`apps/api/src/telemetry/stack/telemetry-stack-deploy.handler.ts`) and
+  (`platform-api/src/telemetry/stack/telemetry-stack-deploy.handler.ts`) and
   answers `202` at once — an image pull can take up to ten minutes, far
   longer than an admin request should stay open (CLAUDE.md queue rule 1).
   The job has no subject, so the queue's active-dedup index makes a second
@@ -1164,7 +1178,7 @@ deployment settings, not a telemetry-policy edit.
   external service.
 
 The **Telemetry services** section of `/admin/settings/telemetry`
-(`apps/web/src/components/telemetry/TelemetryServicesSection.tsx`) shows the
+(`platform-web/src/telemetry/ui/components/TelemetryServicesSection.tsx`) shows the
 two containers and a **Deploy GreptimeDB** / **Redeploy** button, polls the
 job while it runs, and shows the tail of its output on failure. Every message
 shown to an administrator is about "the telemetry services" or "GreptimeDB" —
@@ -1268,7 +1282,7 @@ loaded from the Telemetry Dashboard. Review it and press Run." notice, and
 clears the handoff from both `location.state` and the URL with a `replace`
 navigation so a reload does not repeat it. Anything blank, not a string, or
 longer than `TELEMETRY_SQL_MAX_LENGTH` (20,000 characters — the same DTO
-bound the API enforces, `apps/api/src/telemetry/dto/telemetry-query.dto.ts`)
+bound the API enforces, `platform-api/src/telemetry/dto/telemetry-query.dto.ts`)
 is ignored and the Explorer opens as usual. The statement never runs until
 the reader presses Run: a dashboard panel and an assistant report are both
 untrusted enough (server-composed from data, or model-composed) that this
@@ -1375,7 +1389,7 @@ memory are therefore not collected.
 ### 11.3 Column findings (verified live, GreptimeDB v1.2.1)
 
 Verified against a running store on 2026-09-27; see the header comment of
-`apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.ts` for the full
+`platform-api/src/telemetry/dashboard/telemetry-dashboard.sql.ts` for the full
 account. These override the issue text where they differ:
 
 | Table | Finding |
@@ -1493,7 +1507,7 @@ exact statement(s) run, primary first) — the same seam each panel's
 "Open in Explorer" action uses (§11.1), and useful on its own for anyone
 who wants to paste the statement into a BI tool. A shared window query
 (`range` or `from`/`to`, `service`, `instance`, `buckets`) is validated by
-`refineWindow` (`apps/api/src/telemetry/dto/telemetry-dashboard.dto.ts`):
+`refineWindow` (`platform-api/src/telemetry/dto/telemetry-dashboard.dto.ts`):
 either `range` or `from`+`to`, never both; `from < to`; `to` at most one
 minute ahead (clock skew); span at most 30 days. `/metrics` adds `host`
 (1–200 characters), validated like `service`/`instance` against the window's
@@ -1517,7 +1531,7 @@ only with
   regular expressions before they are ever concatenated.
 
 **The metric catalog (§11.14) follows the same discipline.** Its builders
-(`apps/api/src/telemetry/metrics/metric-sql.ts`) share the literal helpers
+(`platform-api/src/telemetry/metrics/metric-sql.ts`) share the literal helpers
 with the templates above (`dashboard/sql-literals.ts`: `ident`, `literal`,
 `timestampLiteral`, `bucketInterval`, `positive`). Identifiers are catalog
 constants or column names the store itself reported in
@@ -1548,7 +1562,7 @@ p95 for a stream (that number is honest there: it is the stream's own row).
 ### 11.6 Bounds, caching, and why this is not a queue job
 
 Every route runs the same five-step flow
-(`apps/api/src/telemetry/dashboard/telemetry-dashboard.service.ts`):
+(`platform-api/src/telemetry/dashboard/telemetry-dashboard.service.ts`):
 preconditions (`requireQueryablePolicy`: 503 not configured, 409 disabled —
 checked **before** the cache, so a disabled store never serves a cached
 answer) → resolve the window and bucket size → the 15-second **result
@@ -1572,7 +1586,7 @@ read, capped at 500 entries each (oldest evicted first).
 
 ### 11.7 Verdict rules
 
-`computeVerdict` (`apps/api/src/telemetry/dashboard/telemetry-dashboard
+`computeVerdict` (`platform-api/src/telemetry/dashboard/telemetry-dashboard
 .verdict.ts`) is one pure function over numbers the summary has already
 computed — four traffic rules, each with a **volume guard** so a quiet
 deployment does not flap red on one failed request, the unknown-API-routes
@@ -1599,7 +1613,7 @@ cut to 80 characters). Every threshold lives in
 | Collector exports (window) | any failed metric point | failed ≥ 10 % of sent + failed, naming the exporter | `otelcol_exporter_*_metric_points_total` exist |
 | Last successful backup | > 26 h | > 50 h | `app_backup_last_success_timestamp_seconds` has a reading |
 
-**How the infrastructure inputs are gathered** (`apps/api/src/telemetry/metrics/metric-verdict.ts`):
+**How the infrastructure inputs are gathered** (`platform-api/src/telemetry/metrics/metric-verdict.ts`):
 the summary adds **one small statement per rule family** — host, database,
 queue, nodes, uptime, TLS, pipeline — to its existing `Promise.all`, inside
 the same 15-second result cache and audit row. A statement whose tables are
@@ -1744,7 +1758,7 @@ controls instead, just not by selecting a span on the chart itself.
 
 ### 11.11 Tests
 
-- `apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.spec.ts` — every
+- `platform-api/src/telemetry/dashboard/telemetry-dashboard.sql.spec.ts` — every
   SQL template, literal-escaping and the SSE exclusion.
 - `test/otel-core/request-span-attributes.spec.ts` of `@marinoscar/platform-api` (#258; moved with the hook) — the
   `onRequest` hook over `fastify.inject` inside an active SERVER span, on
@@ -1752,25 +1766,25 @@ controls instead, just not by selecting a span on the chart itself.
   route, `app.route.matched=false` on an unknown one (Nest's default 404 and
   a wrong method included), the bearer flag both ways and never any token
   text, and no registration without OTel.
-- `apps/api/src/telemetry/dashboard/telemetry-dashboard.verdict.spec.ts` —
+- `platform-api/src/telemetry/dashboard/telemetry-dashboard.verdict.spec.ts` —
   the four traffic rules and their volume guards, the unknown-API-routes
   rule (bearer vs anonymous, both critical bounds, #258), and each infrastructure
   rule at both levels, its offender and its absence (#126).
-- `apps/api/src/telemetry/metrics/metric-sql.spec.ts` — snapshots of every
+- `platform-api/src/telemetry/metrics/metric-sql.spec.ts` — snapshots of every
   catalog family and table, with and without filters, the uptime, host and
   verdict-probe statements, absent-table skips, and guard acceptance.
-- `apps/api/src/telemetry/metrics/metric-catalog.spec.ts` — the catalog's
+- `platform-api/src/telemetry/metrics/metric-catalog.spec.ts` — the catalog's
   invariants against the verified table shapes
-  (`apps/api/src/telemetry/testing/metric-schema.fixture.ts`).
-- `apps/api/src/telemetry/metrics/metric-group.spec.ts` — tiles, series,
+  (`platform-api/src/telemetry/testing/metric-schema.fixture.ts`).
+- `platform-api/src/telemetry/metrics/metric-group.spec.ts` — tiles, series,
   tables, ratios, histogram quantiles, delta-gauge freshness and row caps.
-- `apps/api/src/telemetry/metrics/metric-verdict.spec.ts` and
+- `platform-api/src/telemetry/metrics/metric-verdict.spec.ts` and
   `metric-values.spec.ts` — probe rows to verdict inputs; quantile
   interpolation and value parsing.
-- `apps/api/src/telemetry/dashboard/telemetry-dashboard.service.spec.ts` —
+- `platform-api/src/telemetry/dashboard/telemetry-dashboard.service.spec.ts` —
   window resolution, caching (including the shared in-flight promise),
   filter validation, the audit row.
-- `apps/api/src/telemetry/dashboard/telemetry-dashboard.greptime.spec.ts` —
+- `platform-api/src/telemetry/dashboard/telemetry-dashboard.greptime.spec.ts` —
   the real-database tier, over an actual GreptimeDB. With
   `GREPTIME_TEST_ADMIN_URL` on a store without catalog tables (CI) it creates
   look-alikes of every verified metric table, seeds 40 minutes of rows
@@ -2099,7 +2113,7 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/app
 
 ### 11.14 Metric catalog and the `/metrics` route
 
-> **Code:** `apps/api/src/telemetry/metrics/` — `metric-catalog.ts` (the
+> **Code:** `platform-api/src/telemetry/metrics/` — `metric-catalog.ts` (the
 > declarations), `metric-sql.ts` (the builders), `metric-group.ts` (rows to
 > tiles, series and tables), `metric-verdict.ts` (the summary's probes),
 > `metric-values.ts` (parsing, histogram quantile).
@@ -2123,6 +2137,9 @@ job) from one or more tables.
 | `nodes` | Nodes by health (tiles `healthy`, `stale`, `offline`), job types without an eligible node | — | Nodes: CPU cores, RSS, heap used/limit and %, state-dir free/size and free %, slots; node-offered job types |
 | `uptime` | Check duration per URL, TLS days left per URL, nginx requests/s, nginx connections by state (tile `active`) | — | Uptime targets: up, status code, checks, failed checks, last error, duration, TLS days left |
 | `pipeline` | Metric points sent/s and failed by exporter, exporter queue size, points refused by receiver, GreptimeDB write stalls, scrape targets down (`up = 0`, by `job`) | Exporter queue used % | Scrape targets: up, by `job` |
+| `coach` (this app's, §12.1) | Nudges sent, suppressed, opened and converted, static fallbacks, content-guard rejections/min, voice fallbacks/min, feedback | — | — |
+
+The groups are entries of the package's **metric-group registry** (`metricGroupRegistry`, `MetricGroupRegistry`): the six platform groups first, then any group the app passes to `TelemetryModule.forRoot({ metricGroups })`. `/metric-groups` lists them in order, and the dashboard renders one section per group from that list.
 
 **Semantics.** A **gauge** is combined across series per timestamp (sum for
 "how many", max for "the worst", min for the soonest expiry) and then per
@@ -2292,6 +2309,49 @@ normalized paths are unchanged.
 `unknownRoutePaths` (§6), and the instructions tell it to check 4xx and
 unknown routes in its baseline and to name the method + path of any
 unknown-route request with a bearer.
+
+## 12. EvoPath extensions
+
+What this app adds to the packaged telemetry, through the extension points the package READMEs document. Nothing here edits a package.
+
+### 12.1 The `coach` metric group
+
+`apps/api/src/coach/telemetry/coach-metric-group.ts`, passed to `TelemetryModule.forRoot({ metricGroups })` by `apps/api/src/platform/telemetry/telemetry.config.ts`. It is registered once, before the dashboard controller is built, so `/api/admin/telemetry/dashboard/metrics?group=coach` is documented in the route's `group` enum, `/metric-groups` lists it after the six platform groups (`order` 70, title `AI Coach`), the assistant's `metrics_overview` tool accepts it, and the packaged dashboard renders it as a section from that metadata. There is no coach-specific dashboard component.
+
+The eight families read the counters `EvoPathMetricsService` emits (`apps/api/src/app-metrics/`). GreptimeDB stores an OTLP counter under its name with dots as underscores plus `_total` ([§11.13](#1113-application-metrics)), the convention of the platform's own `queue` group. Every family is a counter filtered by `service` and `instance`, split by one label the recorder bounds with `enumLabel` (no user id or free text):
+
+| Key | Label | Table | Split by | Unit | Verdict |
+|---|---|---|---|---|---|
+| `coachNudgesSent` | Nudges sent | `app_coach_nudge_sent_total` | `moment` | count | none |
+| `coachNudgesSuppressed` | Nudges suppressed | `app_coach_nudge_suppressed_total` | `reason` | count | none |
+| `coachNudgesOpened` | Nudges opened | `app_coach_nudge_opened_total` | `moment` | count | none |
+| `coachNudgesConverted` | Nudges converted | `app_coach_nudge_converted_total` | `target` | count | none |
+| `coachNudgeFallbacks` | Static fallbacks | `app_coach_nudge_fallback_total` | `moment` | count | none |
+| `coachGuardRejections` | Content-guard rejections | `app_coach_guard_rejected_total` | `reason` | per minute | degraded 5, critical 20, above |
+| `coachAudioFailures` | Voice fallbacks to text | `app_coach_audio_failed_total` | `reason` | per minute | degraded 5, critical 20, above |
+| `coachFeedback` | Feedback | `app_coach_feedback_total` | `value` | count | none |
+
+- **Verdicts are this app's choice.** The nudge families are informational. Guard rejections and voice fallbacks carry `degraded` at 5 per minute and `critical` at 20 per minute, `above`. As for every platform family, a family's thresholds are metadata the dashboard publishes; the summary verdict's rules ([§11.7](#117-verdict-rules)) are unchanged, and so are the platform thresholds (this app passes no `dashboard.verdictThresholds`; a test pins them to `DEFAULT_VERDICT_THRESHOLDS`).
+- **A family whose table is absent is skipped, not an error.** On a fresh deployment, or before a counter first fires, the group answers `available: false` with every absent family under `skipped`, and the section shows that no data has arrived yet.
+- **Tests:** `coach-metric-group.spec.ts` (shape, tables derived from the metric names, single registration), `apps/api/test/telemetry/coach-metric-group.integration.spec.ts` (over HTTP with mocked store queries: listed, skipped, values, OpenAPI enum) and `apps/web/src/__tests__/pages/Admin/TelemetryRoutes.test.tsx` (the packaged dashboard draws the section from metadata). The platform's live GreptimeDB tier runs in EnterpriseAppBase; this app has no live-store spec of its own yet.
+
+To add another group, follow the same shape: a pure-data `MetricGroupDef` next to the feature that emits the metrics, added to `APP_METRIC_GROUPS` in `telemetry.config.ts` with a `MetricGroupIds` augmentation for its id.
+
+### 12.2 Theme tokens
+
+The packaged UI reads its colours from the token contract `palette.status.{ok,warn,crit,info,neutral}` and `palette.chart.series` (`@marinoscar/platform-web/telemetry`). `apps/web/src/theme/telemetryTokens.ts` maps them onto this app's own tokens (`apps/web/src/theme/tokens.ts`), per colour scheme in `theme/index.ts`:
+
+| Token | This app's value |
+|---|---|
+| `status.ok`, `warn`, `crit`, `info` | `success`, `warning`, `error`, `info` of the scheme |
+| `status.neutral` | `outline` (the "other" log records, as the app's own chart painted them) |
+| `chart.series` | the app's six-colour `chart.series`, unchanged |
+
+The package's `Palette` augmentation and this app's (`theme/augment.ts`) declare `chart: PaletteChart` with the same `series: string[]` shape, so they merge; nothing was renamed and no seam request was needed. The tokens are set in the `createTheme` options of each scheme rather than through `withTelemetryTokens(theme)`, which on a CSS-variables theme would complete only the default scheme's top-level palette. `apps/web/src/__tests__/theme/telemetryTokens.test.tsx` proves, in light and dark, that the packaged charts receive exactly the series and status colours the app's own copies painted. One visible difference is package-originated: the API timeline paints 2xx and 3xx bars with `status.ok` and `status.info`, where the app's copy used the first and fifth series colours.
+
+### 12.3 Collector overlay
+
+The collector starts with the generated platform config and `infra/otel/app-collector.yaml` (maps merge, lists are replaced). This app needs no collector difference of its own: its copy differed from the platform's only in comments. The overlay therefore stays as `platform-infra sync` created it, comments only, and exists because the compose file mounts it. `apps/api/test/telemetry/collector-config-parity.spec.ts` proves the effective config equals the package's (and that any future overlay only adds keys); CI's `collector-config` job proves the same with the pinned collector image.
 
 ## History
 

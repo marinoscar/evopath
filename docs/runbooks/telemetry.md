@@ -14,14 +14,21 @@ and the security model.
 
 Source of truth for every claim below:
 
-- `infra/compose/telemetry.compose.yml`, `infra/compose/vps.telemetry.compose.yml`, `infra/compose/vps.compose.yml` (`stack-agent`)
-- `infra/otel/otel-collector-config.yaml`
+- `infra/compose/telemetry.compose.yml`, `infra/compose/vps.telemetry.compose.yml` and `infra/otel/otel-collector-config.yaml`: GENERATED from `@marinoscar/platform-infra/telemetry` (§2.4); `infra/compose/vps.compose.yml` (`stack-agent`)
+- `infra/otel/app-collector.yaml` (this app's collector overlay, §2.4)
 - `infra/compose/.env.example` (the `GREPTIME_*` and `STACK_AGENT_TOKEN` blocks)
-- `apps/api/src/telemetry/` (settings, status, retention, explorer, assistant)
-- `apps/api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
-- `apps/api/src/telemetry/stack/` (stack-agent client, `telemetry.stack.deploy` job, controller)
+- `@marinoscar/platform-api/telemetry` (settings, status, retention, explorer, assistant, dashboard), bound by `apps/api/src/platform/telemetry/telemetry.config.ts`; paths written `platform-api/src/telemetry/...` are its source in EnterpriseAppBase's `packages/`
+- `platform-api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
+- `platform-api/src/telemetry/stack/` (stack-agent client, `telemetry.stack.deploy` job, controller)
 - `apps/stack-agent/` (the sidecar)
-- `apps/cli/src/deploy/compose-files.ts`, `env-metadata.ts` (`effectiveGroups`, `STACK_AGENT_TOKEN`)
+- `apps/cli/src/deploy/compose-files.ts` (the telemetry slots, read from the `@marinoscar/platform-infra/telemetry` manifest), `env-metadata.ts` (`effectiveGroups`, `STACK_AGENT_TOKEN`)
+- `apps/api/src/coach/telemetry/coach-metric-group.ts` (this app's `coach` dashboard group, §8.4)
+
+The telemetry framework is the platform's: the platform runbook
+([EnterpriseAppBase `docs/runbooks/telemetry.md`](https://github.com/marinoscar/EnterpriseAppBase/blob/main/docs/runbooks/telemetry.md)) is the
+reference for the generic procedures, and this runbook keeps the steps and
+names specific to this app (`evopathcli`, the `coach` group). The adoption
+is recorded in the [ledger](../platform-adoption/README.md).
 
 **Telemetry ships off, but the containers ship on.** A fresh VPS deployment
 always carries the GreptimeDB and collector containers and `stack-agent`
@@ -128,6 +135,31 @@ The messages shown here are always about "the telemetry services" or
 "GreptimeDB" — never about compose, a compose file, or the CLI. If you would
 rather do this from a shell (for example, while debugging), §10 below still
 works exactly as it did before this feature.
+
+### 2.4 Generated files and the collector overlay
+
+The telemetry compose files and the platform collector config are generated
+from `@marinoscar/platform-infra` and committed, because a VPS deploy runs
+`docker compose` from the cloned repository, where there is no
+`node_modules`. Each starts with a `# GENERATED from
+@marinoscar/platform-infra@<version>` header, and
+`infra/platform-infra.lock.json` records their hashes. Never edit them:
+
+```bash
+npm run platform:infra:sync              # after a platform upgrade: re-materialise, then commit infra/
+npm run platform:infra:sync -- --check   # what CI runs: fails on a hand edit, naming the file
+```
+
+The collector starts with two configs: the generated platform config, then
+`infra/otel/app-collector.yaml`, which this app owns. Maps merge; lists are
+replaced, so add a new named pipeline (`metrics/app`) rather than restating a
+platform one. This app has no collector difference of its own, so the file is
+comments only, exactly as the sync created it; it must still exist, because
+the compose file mounts it. The pattern and an example are in the platform
+runbook, [§2.4](https://github.com/marinoscar/EnterpriseAppBase/blob/main/docs/runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay).
+After editing it, restart the collector (`docker compose ... restart
+otel-collector`), and keep `apps/api/test/telemetry/collector-config-parity.spec.ts`
+green: it allows an overlay that only adds keys.
 
 ## 3. Set the GreptimeDB passwords
 
@@ -511,6 +543,28 @@ FROM nginx_connections_current
 ORDER BY state, greptime_timestamp DESC
 ```
 
+### 8.4 The AI Coach section
+
+The last section of the dashboard, **AI Coach**, is this app's own metric
+group (`coach`, [spec §12.1](../specs/telemetry.md#121-the-coach-metric-group)):
+nudges sent, suppressed, opened and converted, static fallbacks and feedback
+as counts over the window, and content-guard rejections and voice fallbacks
+per minute.
+
+- **"No data yet" or every family skipped** is normal on a new deployment, or
+  before the coach has sent a nudge: GreptimeDB creates a metric's table on
+  its first write. Check the coach is on and nudges are being produced
+  ([ai-coach.md](ai-coach.md)), and that `telemetry.enabled` is on.
+- **Guard rejections or voice fallbacks above 5 per minute** (20 is the
+  critical mark this app chose) mean the content guard is refusing most model
+  output, or the voice provider is failing; see the AI Coach runbook's
+  troubleshooting. The summary verdict at the top does not include these
+  thresholds; read them on the section's tiles.
+- **Adding another group** follows the platform recipe,
+  [§8.4 Adding an app metric group](https://github.com/marinoscar/EnterpriseAppBase/blob/main/docs/runbooks/telemetry.md#84-adding-an-app-metric-group):
+  here, a pure-data group next to the feature, added to `APP_METRIC_GROUPS` in
+  `apps/api/src/platform/telemetry/telemetry.config.ts`.
+
 ## 9. Point a deployment at a GreptimeDB, or rotate credentials, from the UI
 
 The GreptimeDB connection the API uses is resolved at runtime, not fixed
@@ -660,6 +714,8 @@ configured to do.
 | A query or the assistant returns `TELEMETRY_QUERY_TIMEOUT` (504) | The statement outran `telemetry.query.timeoutSeconds` | Narrow the query (add a time filter, reduce the row cap) or raise the setting (≤ 120 s), then retry |
 | The nginx assistant route hangs or drops mid-stream | A proxy in front of nginx is buffering the response | Confirm the deployment's own reverse proxy (in front of nginx, on a VPS) does not buffer `/api/admin/telemetry/assistant/stream`; nginx itself already forwards it unbuffered |
 | The assistant reports no logs (or an empty `opentelemetry_logs`) even though the app is running | The logs pipeline specifically isn't reaching the store — `OTEL_ENABLED` unset/`false` on the `api` service, `telemetry.enabled` off, or the export gate not yet open | Check `OTEL_ENABLED=true` on `api` (§12 above) and `telemetry.enabled` (§4); confirm with `SELECT count(*) FROM opentelemetry_logs` in the explorer — if traces have rows but logs do not, the app's own log level or exporter, not telemetry, is the next thing to check |
+| CI or `npm run platform:infra:sync -- --check` reports a file `differs from @marinoscar/platform-infra@<version>` | A generated telemetry file was edited by hand, or the package was upgraded without a sync | Run `npm run platform:infra:sync` and commit `infra/`; move a deliberate collector change into `infra/otel/app-collector.yaml` (§2.4) |
+| The collector exits with `read /etc/otelcol/app.yaml: is a directory` | `infra/otel/app-collector.yaml` was missing when the container started, so Docker created a directory in its place | Remove that directory, run `npm run platform:infra:sync` (it recreates the file), and restart the collector |
 | `PUT`/`DELETE .../connection` answers 409 | Someone else saved the connection first (stale `If-Match`) | Re-read `GET /api/admin/telemetry/connection` for the current `version` and retry |
 
 ## 13. Summary checklist

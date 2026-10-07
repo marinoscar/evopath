@@ -46,7 +46,7 @@ Source of truth for every claim below:
 - `src/core/crypto/encryption-key-startup-check.ts` of the same package —
   boot-time validation (`verifyEncryptionKeyAtStartup`, called from
   `apps/api/src/main.ts`).
-- `apps/api/src/common/crypto/signing-key.ts` — the download-link signing keys
+- `deriveSigningKey` in `@marinoscar/platform-api/core` — the download-link signing keys
   (`deriveSigningKey`), also derived from the master key: rotating it
   invalidates every outstanding Android download link, which is harmless
   (they last minutes).

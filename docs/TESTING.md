@@ -32,7 +32,7 @@ here.
 | API unit | `apps/api/src/**/*.spec.ts` | Jest, `@nestjs/testing`, mocked dependencies | `npm test --workspace=api` | `api-test` (2 shards) |
 | API integration | `apps/api/test/**/*.integration.spec.ts` (60 files) | Full `AppModule` on Fastify, Supertest, **mocked** Prisma | `npm test --workspace=api` | `api-test` |
 | API real-Postgres | `**/*.db.spec.ts` (26 files) | A real, migrated PostgreSQL 16; `pg_dump`/`pg_restore` for backup suites | `npm run test:db --workspace=api` | `smoke` |
-| API real-GreptimeDB | `apps/api/src/telemetry/telemetry.greptime.spec.ts` | A real, disposable GreptimeDB standalone | `npm run test:greptime --workspace=api` | `greptime-test` |
+| API real-GreptimeDB | `**/*.greptime.spec.ts` (none in this app since the telemetry slice moved into `@marinoscar/platform-api`; the script passes with no tests) | A real, disposable GreptimeDB standalone | `npm run test:greptime --workspace=api` | `greptime-test` |
 | Web | `apps/web/src/**/*.test.{ts,tsx}` | Vitest, jsdom, React Testing Library, MSW | `npm run test:run --workspace=web` | `web-test` (6 shards) |
 | CLI | `apps/cli/src/**/*.test.{ts,tsx}` | Vitest, Node environment | `npm run test:run --workspace=cli` | `build` |
 | End-to-end | `tests/e2e/specs/*.spec.ts` | Playwright against the running Compose stack, `/testing/login` bypass | `cd tests/e2e && npm test` | none (run locally) |
@@ -350,14 +350,17 @@ server. See [runbooks/postgres-client-version.md](runbooks/postgres-client-versi
 
 ## API real-GreptimeDB tests
 
-`apps/api/src/telemetry/telemetry.greptime.spec.ts` observes a real
-GreptimeDB standalone: the reader/admin user split enforced by the server
-itself (not the app's SQL guard), `TelemetryQueryService` end to end (SELECT
-wrapping, truncation, multi-statement rejection, server-side SQL errors),
-retention (`ALTER DATABASE ... SET 'ttl'`, `SHOW CREATE DATABASE`,
-`TelemetryStatusService`), schema discovery and every export format,
-including a real Parquet round trip through the child-process helper
-(`apps/api/src/telemetry/testing/parquet-child.ts`).
+The live-store suite of the telemetry slice (the reader/admin user split
+enforced by the server itself, `TelemetryQueryService` end to end, retention,
+schema discovery, every export format including a real Parquet round trip,
+and the dashboard's statements) moved into `@marinoscar/platform-api` with
+the slice (marinoscar/EnterpriseAppBase#719) and runs in EnterpriseAppBase.
+This app has no `*.greptime.spec.ts` of its own today, so `test:greptime`
+passes with no tests (`--passWithNoTests`) and the `greptime-test` CI job is
+ready for one. This app's own telemetry extension, the `coach` metric group,
+is covered with mocked store queries
+(`apps/api/test/telemetry/coach-metric-group.integration.spec.ts`), and its
+collector overlay by `apps/api/test/telemetry/collector-config-parity.spec.ts`.
 
 It is excluded from every other Jest script (`test`, `test:db`, `test:all`
 all skip it via `testPathIgnorePatterns`/their own `testRegex`) and only runs

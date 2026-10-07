@@ -21,8 +21,8 @@ SUBKEY_LABEL_PREFIX = 'enterpriseappbase:secret-cipher:v1:'
 
 It lives in the published package (the `core` slice), so this app cannot
 change it by accident; editing a vendored copy of the package source still can.
-Its sibling, the signing label `'enterpriseappbase:signing-key:v1:'` in the
-local shim `apps/api/src/common/crypto/signing-key.ts`, follows the same rule:
+Its sibling, the signing label `'enterpriseappbase:signing-key:v1:'` of
+`deriveSigningKey` (also in the `core` slice), follows the same rule:
 changing it invalidates every outstanding Android download link.
 
 This string is an input to the key-derivation function that encrypts every
