@@ -7,8 +7,12 @@ import {
 } from '@opentelemetry/sdk-metrics';
 
 import type { PrismaService } from '../../prisma/prisma.service';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   APP_METRIC_NAMES,
+  appMetricRegistry,
+  createRegisteredGauge,
+  type AppMetricDef,
   AppMetricsService,
   GAUGE_CACHE_TTL_MS,
   MAX_DISTINCT_VALUES,
@@ -273,106 +277,6 @@ describe('AppMetricsService', () => {
         ]),
       );
     });
-
-    it('counts health document purges by outcome (H1, #185)', async () => {
-      const { service, reader } = setup();
-
-      service.healthDocumentPurge('purged');
-      service.healthDocumentPurge('purged');
-      service.healthDocumentPurge('failed');
-
-      const all = await collect(reader);
-
-      expect(metric(all, 'app.health.documents.purges').descriptor.unit).toBe('{document}');
-      expect(points(all, 'app.health.documents.purges')).toEqual(
-        expect.arrayContaining([
-          { attributes: { outcome: 'purged' }, value: 2 },
-          { attributes: { outcome: 'failed' }, value: 1 },
-        ]),
-      );
-    });
-
-    it('records AI health summary outcomes, duration, regenerations, rejections and tokens (H8, #192)', async () => {
-      const { service, reader } = setup();
-
-      service.healthSummaryGenerated('ready', 2_000, { regenerations: 1, rejections: 1, inputTokens: 900, outputTokens: 300 });
-      service.healthSummaryGenerated('rejected', 3_000, { regenerations: 1, rejections: 2, inputTokens: 1_000, outputTokens: 400 });
-      service.healthSummaryGenerated('skipped', 5);
-      service.healthSummaryGenerated('bogus' as never, null);
-
-      const all = await collect(reader);
-
-      expect(points(all, 'app.health.summary.generations')).toEqual(
-        expect.arrayContaining([
-          { attributes: { outcome: 'ready' }, value: 1 },
-          { attributes: { outcome: 'rejected' }, value: 1 },
-          { attributes: { outcome: 'skipped' }, value: 1 },
-          { attributes: { outcome: OTHER_LABEL }, value: 1 },
-        ]),
-      );
-      expect(metric(all, 'app.health.summary.duration').descriptor.unit).toBe('s');
-      expect(points(all, 'app.health.summary.regenerations')).toEqual([{ attributes: {}, value: 2 }]);
-      expect(points(all, 'app.health.summary.post_check_rejections')).toEqual([{ attributes: {}, value: 3 }]);
-      expect(points(all, 'app.health.summary.tokens')).toEqual(
-        expect.arrayContaining([
-          { attributes: { token_type: 'input' }, value: 1_900 },
-          { attributes: { token_type: 'output' }, value: 700 },
-        ]),
-      );
-    });
-
-    it('records health exports by format and outcome, with duration and size (H7, #191)', async () => {
-      const { service, reader } = setup();
-
-      service.healthExportSettled('pdf', 'completed', 2500, 48_000);
-      service.healthExportSettled('csv', 'failed', 100, 999);
-      service.healthExportSettled('docx', 'completed', 10, 10);
-
-      const all = await collect(reader);
-
-      expect(metric(all, 'app.health.exports').descriptor.unit).toBe('{export}');
-      expect(points(all, 'app.health.exports')).toEqual(
-        expect.arrayContaining([
-          { attributes: { format: 'pdf', outcome: 'completed' }, value: 1 },
-          { attributes: { format: 'csv', outcome: 'failed' }, value: 1 },
-          { attributes: { format: OTHER_LABEL, outcome: 'completed' }, value: 1 },
-        ]),
-      );
-      expect(metric(all, 'app.health.export.duration').descriptor.unit).toBe('s');
-      expect(metric(all, 'app.health.export.size').descriptor.unit).toBe('By');
-      // A failed attempt records no size.
-      const sizes = metric(all, 'app.health.export.size').dataPoints.map((p: { attributes: object }) => p.attributes);
-      expect(sizes).toEqual(expect.arrayContaining([{ format: 'pdf' }]));
-      expect(sizes).not.toEqual(expect.arrayContaining([{ format: 'csv' }]));
-    });
-
-    it('counts health document downloads and deletes (H6, #190)', async () => {
-      const { service, reader } = setup();
-
-      service.healthDocumentDownload('inline');
-      service.healthDocumentDownload('attachment');
-      service.healthDocumentDownload('attachment');
-      service.healthDocumentDelete('file', false);
-      service.healthDocumentDelete('file', true);
-      service.healthDocumentDelete('record', false);
-
-      const all = await collect(reader);
-
-      expect(metric(all, 'app.health.documents.downloads').descriptor.unit).toBe('{download}');
-      expect(points(all, 'app.health.documents.downloads')).toEqual(
-        expect.arrayContaining([
-          { attributes: { disposition: 'inline' }, value: 1 },
-          { attributes: { disposition: 'attachment' }, value: 2 },
-        ]),
-      );
-      expect(points(all, 'app.health.documents.deletes')).toEqual(
-        expect.arrayContaining([
-          { attributes: { scope: 'file', values: 'kept' }, value: 1 },
-          { attributes: { scope: 'file', values: 'deleted' }, value: 1 },
-          { attributes: { scope: 'record', values: 'kept' }, value: 1 },
-        ]),
-      );
-    });
   });
 
   describe('label bounding', () => {
@@ -432,9 +336,6 @@ describe('AppMetricsService', () => {
         service.aiUsage({ provider: 'p', model: 'm', operation: 'o', status: 'succeeded', latencyMs: 1, inputTokens: 1 }),
       ).not.toThrow();
       expect(() => service.notificationDelivery('email', 'sent')).not.toThrow();
-      expect(() => service.healthDocumentPurge('purged')).not.toThrow();
-      expect(() => service.healthDocumentDownload('inline')).not.toThrow();
-      expect(() => service.healthDocumentDelete('file', true)).not.toThrow();
     });
 
     it('the fallback instance (no DI) works against the global no-op meter', () => {
@@ -540,6 +441,344 @@ describe('AppMetricsService', () => {
 
       const all = await collect(reader);
       expect(all.map((m) => m.descriptor.name)).not.toContain('app.jobs.queue.depth');
+    });
+  });
+});
+
+// =============================================================================
+// Baseline pinned on `main` before the app-metric registry (marinoscar/EnterpriseAppBase#680)
+// =============================================================================
+//
+// Every instrument must keep its exact name, kind, unit, description and
+// bucket boundaries: they are the OTLP descriptor, and so the GreptimeDB table
+// name and every dashboard query that reads it. A recording meter captures the
+// create calls verbatim and delegates to a real SDK meter.
+// =============================================================================
+
+interface CreatedInstrument {
+  kind: 'counter' | 'histogram' | 'gauge';
+  name: string;
+  options: unknown;
+}
+
+function recordingMeter(): { meter: AppMetricsOptions['meter']; created: CreatedInstrument[] } {
+  const inner = new MeterProvider({ readers: [new TestReader()] }).getMeter('app');
+  const created: CreatedInstrument[] = [];
+  const meter = {
+    createCounter: (name: string, options?: unknown) => {
+      created.push({ kind: 'counter', name, options });
+      return inner.createCounter(name, options as never);
+    },
+    createHistogram: (name: string, options?: unknown) => {
+      created.push({ kind: 'histogram', name, options });
+      return inner.createHistogram(name, options as never);
+    },
+    createObservableGauge: (name: string, options?: unknown) => {
+      created.push({ kind: 'gauge', name, options });
+      return inner.createObservableGauge(name, options as never);
+    },
+    addBatchObservableCallback: (...args: Parameters<typeof inner.addBatchObservableCallback>) =>
+      inner.addBatchObservableCallback(...args),
+  };
+  return { meter: meter as unknown as AppMetricsOptions['meter'], created };
+}
+
+const BASELINE_APP_METRIC_NAMES = {
+  jobsEnqueued: 'app.jobs.enqueued',
+  jobsClaimed: 'app.jobs.claimed',
+  jobsSettled: 'app.jobs.settled',
+  jobsDuration: 'app.jobs.duration',
+  jobsReaped: 'app.jobs.reaped',
+  jobsQueueDepth: 'app.jobs.queue.depth',
+  jobsOldestPendingAge: 'app.jobs.oldest_pending.age',
+  backupRuns: 'app.backup.runs',
+  backupDuration: 'app.backup.duration',
+  backupSize: 'app.backup.size',
+  backupLastSuccessTimestamp: 'app.backup.last_success.timestamp',
+  backupLastSuccessSize: 'app.backup.last_success.size',
+  authLogins: 'app.auth.logins',
+  authRefreshes: 'app.auth.refreshes',
+  aiRequests: 'app.ai.requests',
+  aiTokens: 'app.ai.tokens',
+  aiDuration: 'app.ai.request.duration',
+  notificationDeliveries: 'app.notifications.deliveries',
+  nodesCount: 'app.nodes.count',
+  nodesCpuUtilization: 'app.nodes.cpu.utilization',
+  nodesMemoryRss: 'app.nodes.memory.rss',
+  nodesHeapUsed: 'app.nodes.heap.used',
+  nodesHeapLimit: 'app.nodes.heap.limit',
+  nodesEventLoopDelayP99: 'app.nodes.event_loop.delay.p99',
+  nodesStateDirFree: 'app.nodes.state_dir.free',
+  nodesStateDirTotal: 'app.nodes.state_dir.total',
+  nodesSlotsUsed: 'app.nodes.slots.used',
+  nodesSlotsTotal: 'app.nodes.slots.total',
+  nodesUptime: 'app.nodes.uptime',
+  nodesCounter: 'app.nodes.counter',
+  nodesTypesNoEligibleNode: 'app.nodes.types.no_eligible_node',
+};
+
+describe('AppMetricsService baseline (marinoscar/EnterpriseAppBase#680)', () => {
+  it('keeps APP_METRIC_NAMES (the 31 baseline platform names, same keys)', () => {
+    // This app's own names are EVOPATH_METRIC_NAMES (app-metrics/evopath-metrics.service.spec.ts).
+    expect(APP_METRIC_NAMES).toEqual(BASELINE_APP_METRIC_NAMES);
+    expect(Object.keys(APP_METRIC_NAMES)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
+  });
+
+  it('creates every counter, histogram and gauge with its exact name, unit, description and buckets', () => {
+    const { meter, created } = recordingMeter();
+    const config = { get: jest.fn((key: string) => (key === 'otel.enabled' ? true : undefined)) };
+    const service = new AppMetricsService(
+      prismaStub() as unknown as PrismaService,
+      config as unknown as ConfigService,
+      { meter, now: () => 0, gateOpen: () => false },
+    );
+    service.registerGauges();
+
+    expect(created).toEqual([
+      { kind: 'counter', name: 'app.jobs.enqueued', options: { description: 'Jobs inserted into the queue (dedup hits excluded).', unit: '{job}' } },
+      { kind: 'counter', name: 'app.jobs.claimed', options: { description: 'Jobs claimed by an executor.', unit: '{job}' } },
+      { kind: 'counter', name: 'app.jobs.settled', options: { description: 'Executor reports settled by the terminal state machine, by outcome.', unit: '{job}' } },
+      {
+        kind: 'histogram',
+        name: 'app.jobs.duration',
+        options: {
+          description: 'Run time of one job attempt, from claim to settlement.',
+          unit: 's',
+          advice: { explicitBucketBoundaries: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600] },
+        },
+      },
+      { kind: 'counter', name: 'app.jobs.reaped', options: { description: 'Abandoned running jobs recovered by the lease reaper.', unit: '{job}' } },
+      { kind: 'counter', name: 'app.backup.runs', options: { description: 'Database backup runs settled, by outcome.', unit: '{run}' } },
+      {
+        kind: 'histogram',
+        name: 'app.backup.duration',
+        options: {
+          description: 'Wall time of a settled database backup run.',
+          unit: 's',
+          advice: { explicitBucketBoundaries: [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400] },
+        },
+      },
+      {
+        kind: 'histogram',
+        name: 'app.backup.size',
+        options: {
+          description: 'Size of a completed, verified database backup archive.',
+          unit: 'By',
+          advice: { explicitBucketBoundaries: [1e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10, 5e10, 1e11] },
+        },
+      },
+      { kind: 'counter', name: 'app.auth.logins', options: { description: 'Interactive sign-in attempts, by provider and outcome.', unit: '{login}' } },
+      { kind: 'counter', name: 'app.auth.refreshes', options: { description: 'Refresh-token rotations, by outcome.', unit: '{refresh}' } },
+      { kind: 'counter', name: 'app.ai.requests', options: { description: 'AI provider round-trips, by provider, model, operation and status.', unit: '{request}' } },
+      { kind: 'counter', name: 'app.ai.tokens', options: { description: 'AI tokens reported by the provider, by token_type (input|output).', unit: '{token}' } },
+      {
+        kind: 'histogram',
+        name: 'app.ai.request.duration',
+        options: {
+          description: 'Latency of one AI provider round-trip.',
+          unit: 's',
+          advice: { explicitBucketBoundaries: [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300] },
+        },
+      },
+      { kind: 'counter', name: 'app.notifications.deliveries', options: { description: 'Notification delivery attempts, by channel, event and outcome.', unit: '{delivery}' } },
+      { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
+      { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },
+      { kind: 'gauge', name: 'app.backup.last_success.timestamp', options: { description: 'When the most recent completed database backup finished (unix seconds).', unit: 's' } },
+      { kind: 'gauge', name: 'app.backup.last_success.size', options: { description: 'Size of the most recent completed database backup archive.', unit: 'By' } },
+    ]);
+  });
+});
+
+describe('AppMetricsService recorded export (marinoscar/EnterpriseAppBase#700: identical to before the extraction)', () => {
+  it('exports every platform counter and histogram with exactly its baseline name, description, unit and buckets', async () => {
+    const { service, reader } = setup();
+
+    service.jobEnqueued('t');
+    service.jobsClaimedBy('server', ['t']);
+    service.jobSettled('t', 'succeeded', 1000, 'server');
+    service.leaseReaped('requeued', 1);
+    service.backupSettled('completed', 1000, 1024);
+    service.authLogin('success');
+    service.authRefresh('success');
+    service.aiUsage({ provider: 'p', model: 'm', operation: 'o', status: 'succeeded', latencyMs: 10, inputTokens: 1 });
+    service.notificationDelivery('email', 'sent', 'e');
+
+    const all = await collect(reader);
+    const exported = all
+      .map((m) => ({
+        name: m.descriptor.name,
+        description: m.descriptor.description,
+        unit: m.descriptor.unit,
+        ...(m.dataPointType === DataPointType.HISTOGRAM
+          ? { buckets: (m.dataPoints[0].value as { buckets: { boundaries: number[] } }).buckets.boundaries }
+          : {}),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    expect(exported).toEqual(
+      [
+        { name: 'app.jobs.enqueued', description: 'Jobs inserted into the queue (dedup hits excluded).', unit: '{job}' },
+        { name: 'app.jobs.claimed', description: 'Jobs claimed by an executor.', unit: '{job}' },
+        { name: 'app.jobs.settled', description: 'Executor reports settled by the terminal state machine, by outcome.', unit: '{job}' },
+        {
+          name: 'app.jobs.duration',
+          description: 'Run time of one job attempt, from claim to settlement.',
+          unit: 's',
+          buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
+        },
+        { name: 'app.jobs.reaped', description: 'Abandoned running jobs recovered by the lease reaper.', unit: '{job}' },
+        { name: 'app.backup.runs', description: 'Database backup runs settled, by outcome.', unit: '{run}' },
+        {
+          name: 'app.backup.duration',
+          description: 'Wall time of a settled database backup run.',
+          unit: 's',
+          buckets: [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400],
+        },
+        {
+          name: 'app.backup.size',
+          description: 'Size of a completed, verified database backup archive.',
+          unit: 'By',
+          buckets: [1e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10, 5e10, 1e11],
+        },
+        { name: 'app.auth.logins', description: 'Interactive sign-in attempts, by provider and outcome.', unit: '{login}' },
+        { name: 'app.auth.refreshes', description: 'Refresh-token rotations, by outcome.', unit: '{refresh}' },
+        { name: 'app.ai.requests', description: 'AI provider round-trips, by provider, model, operation and status.', unit: '{request}' },
+        { name: 'app.ai.tokens', description: 'AI tokens reported by the provider, by token_type (input|output).', unit: '{token}' },
+        {
+          name: 'app.ai.request.duration',
+          description: 'Latency of one AI provider round-trip.',
+          unit: 's',
+          buckets: [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300],
+        },
+        { name: 'app.notifications.deliveries', description: 'Notification delivery attempts, by channel, event and outcome.', unit: '{delivery}' },
+      ].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  });
+});
+
+// =============================================================================
+// App metrics through the registry: generic add/record (marinoscar/EnterpriseAppBase#680)
+// =============================================================================
+
+const APP_COUNTER: AppMetricDef = {
+  key: 'testWidgetsMade',
+  name: 'app.test.widgets.made',
+  kind: 'counter',
+  unit: '{widget}',
+  description: 'Test widgets made, by kind and outcome.',
+  attributes: { widget_kind: { kind: 'free' }, outcome: { kind: 'enum', values: ['ok', 'failed'] } },
+};
+
+const APP_HISTOGRAM: AppMetricDef = {
+  key: 'testWidgetLatency',
+  name: 'app.test.widgets.latency',
+  kind: 'histogram',
+  unit: 's',
+  description: 'Time to make one test widget.',
+  buckets: [0.1, 1, 10],
+  attributes: { outcome: { kind: 'enum', values: ['ok', 'failed'] } },
+};
+
+const APP_GAUGE: AppMetricDef = {
+  key: 'testWidgetBacklog',
+  name: 'app.test.widgets.backlog',
+  kind: 'gauge',
+  unit: '{widget}',
+  description: 'Test widgets waiting.',
+};
+
+describe('AppMetricsService generic add/record (marinoscar/EnterpriseAppBase#680)', () => {
+  // The generic half (instrument creation, attribute bounding, unknown keys,
+  // budgets, never throwing) is MetricsHostService's since marinoscar/EnterpriseAppBase#700 and is
+  // pinned by packages/platform-api/test/otel-core/metrics-host.spec.ts. What
+  // stays here: AppMetricsService keeps the same public methods and delegates
+  // them to ONE host, so `add`/`record` and the typed recorders share a label
+  // budget and an exporter.
+
+  /** Registers the app metrics, THEN constructs the service (it reads the registry at construction). */
+  async function withAppMetrics(fn: (t: ReturnType<typeof setup>) => Promise<void>): Promise<void> {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_HISTOGRAM, APP_GAUGE], async () => fn(setup()));
+  }
+
+  it('creates the app counter and histogram with their declared name, unit, description and buckets', async () => {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_HISTOGRAM, APP_GAUGE], async () => {
+      const { meter, created } = recordingMeter();
+      new AppMetricsService(undefined, undefined, { meter });
+
+      expect(created.slice(-2)).toEqual([
+        {
+          kind: 'counter',
+          name: 'app.test.widgets.made',
+          options: { description: 'Test widgets made, by kind and outcome.', unit: '{widget}' },
+        },
+        {
+          kind: 'histogram',
+          name: 'app.test.widgets.latency',
+          options: { description: 'Time to make one test widget.', unit: 's', advice: { explicitBucketBoundaries: [0.1, 1, 10] } },
+        },
+      ]);
+      expect(created.map((c) => c.name)).not.toContain('app.test.widgets.backlog');
+    });
+  });
+
+  it('exports an app counter through add() and a histogram through record(), bounded', async () => {
+    await withAppMetrics(async ({ service, reader }) => {
+      service.add('testWidgetsMade', 2, { widget_kind: 'sprocket', outcome: 'ok', user_id: 'u-123' });
+      service.add('testWidgetsMade', 1, { widget_kind: 'someone@example.com', outcome: 'exploded' });
+      service.record('testWidgetLatency', 0.5, { outcome: 'ok' });
+
+      const all = await collect(reader);
+      expect(points(all, 'app.test.widgets.made')).toEqual(
+        expect.arrayContaining([
+          { attributes: { widget_kind: 'sprocket', outcome: 'ok' }, value: 2 },
+          { attributes: { widget_kind: OTHER_LABEL, outcome: OTHER_LABEL }, value: 1 },
+        ]),
+      );
+      expect(metric(all, 'app.test.widgets.latency').dataPointType).toBe(DataPointType.HISTOGRAM);
+    });
+  });
+
+  it('add() and boundLabel() share one per-key distinct-value budget', async () => {
+    await withAppMetrics(async ({ service }) => {
+      for (let i = 0; i < MAX_DISTINCT_VALUES; i += 1) {
+        service.add('testWidgetsMade', 1, { widget_kind: `kind-${i}`, outcome: 'ok' });
+      }
+      expect(service.boundLabel('widget_kind', 'one-more')).toBe(OTHER_LABEL);
+      expect(service.boundLabel('widget_kind', 'kind-0')).toBe('kind-0');
+    });
+  });
+
+  it('never throws when the instrument does, or for an unknown key', async () => {
+    await withAppMetrics(async () => {
+      const throwing = {
+        createCounter: () => ({ add: () => { throw new Error('boom'); } }),
+        createHistogram: () => ({ record: () => { throw new Error('boom'); } }),
+      } as unknown as AppMetricsOptions['meter'];
+      const service = new AppMetricsService(undefined, undefined, { meter: throwing });
+      expect(() => service.add('testWidgetsMade', 1, { outcome: 'ok' })).not.toThrow();
+      expect(() => service.record('testWidgetLatency', 1)).not.toThrow();
+      expect(() => service.add('noSuchMetric')).not.toThrow();
+      expect(() => service.jobEnqueued('x')).not.toThrow();
+    });
+  });
+
+  it('is a no-op against the global no-op meter (OTEL_ENABLED unset)', async () => {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_HISTOGRAM], async () => {
+      const service = new AppMetricsService();
+      expect(() => service.add('testWidgetsMade', 1, { outcome: 'ok' })).not.toThrow();
+      expect(() => service.record('testWidgetLatency', 1)).not.toThrow();
+    });
+  });
+
+  it('createRegisteredGauge creates a declared gauge with its descriptor, and refuses anything else', async () => {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_GAUGE], async () => {
+      const { meter, created } = recordingMeter();
+      createRegisteredGauge(meter as never, 'testWidgetBacklog' as never);
+      expect(created).toEqual([
+        { kind: 'gauge', name: 'app.test.widgets.backlog', options: { description: 'Test widgets waiting.', unit: '{widget}' } },
+      ]);
+      expect(() => createRegisteredGauge(meter as never, 'testWidgetsMade' as never)).toThrow(/not a gauge/);
+      expect(() => createRegisteredGauge(meter as never, 'nope' as never)).toThrow(/Unknown id "nope"/);
     });
   });
 });
