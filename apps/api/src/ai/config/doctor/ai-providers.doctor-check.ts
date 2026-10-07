@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { AiConfigAdminService } from '../ai-config-admin.service';
 import { AiConfigResponse } from '../dto/ai-config-response.dto';
 import { AI_SETTINGS_PATH } from './ai-enabled.doctor-check';

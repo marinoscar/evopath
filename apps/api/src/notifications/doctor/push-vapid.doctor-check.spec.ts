@@ -1,6 +1,6 @@
 import { createECDH } from 'node:crypto';
 
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { PushConfigService } from '../push-config.service';
 import { PushVapidDoctorCheck, decidePushVapid } from './push-vapid.doctor-check';
 

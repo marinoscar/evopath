@@ -22,6 +22,7 @@ import {
 } from '../mocks/fixtures/telemetry';
 import type { TelemetryPublicConfig } from '../../services/telemetry';
 import type { AuthProvider as AuthProviderType } from '../../types';
+import { AppPlatformHostProvider } from '../../platform/platformHost';
 
 interface WrapperOptions {
   route?: string;
@@ -250,10 +251,14 @@ function createWrapper(options: WrapperOptions = {}) {
   })();
 
   return function Wrapper({ children }: { children: ReactNode }) {
+    // The real platform host adapter (marinoscar/EnterpriseAppBase#717),
+    // innermost like the shell mounts it, so a packaged page (the Doctor) runs
+    // through the app's transport and the fixture user's permissions.
+    const withHost = <AppPlatformHostProvider>{children}</AppPlatformHostProvider>;
     const withTelemetry = telemetryValue ? (
-      <TelemetryConfigContext.Provider value={telemetryValue}>{children}</TelemetryConfigContext.Provider>
+      <TelemetryConfigContext.Provider value={telemetryValue}>{withHost}</TelemetryConfigContext.Provider>
     ) : (
-      children
+      withHost
     );
     return (
       <MemoryRouter initialEntries={[initialEntry]}>

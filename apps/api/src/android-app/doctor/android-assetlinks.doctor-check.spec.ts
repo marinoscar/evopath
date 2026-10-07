@@ -1,4 +1,4 @@
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import type { AndroidAppService } from '../android-app.service';
 import {
   ANDROID_APP_SETTINGS_PATH,

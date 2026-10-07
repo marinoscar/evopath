@@ -10,7 +10,7 @@ import { onboardingGoalSchema } from '../../common/schemas/user-settings-namespa
 /**
  * `refresh` is `z.enum(['true','false']).transform(...)` and NOT
  * `z.coerce.boolean()`: every query parameter is a string and
- * `Boolean('false')` is `true` (same rule as `doctor/dto/doctor-query.dto.ts`).
+ * `Boolean('false')` is `true` (same rule as the Doctor's query DTO in `@marinoscar/platform-api/doctor`).
  */
 export const onboardingQuerySchema = z.object({
   /** `true` forwards `refresh` to the Doctor, bypassing its report cache. */

@@ -1,5 +1,5 @@
-import { DoctorCheckOutcome } from '../../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { StorageProvider } from '../../providers/storage-provider.interface';
 import { StorageConfigService } from '../storage-config.service';
 import {

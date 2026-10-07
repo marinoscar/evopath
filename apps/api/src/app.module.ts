@@ -52,7 +52,7 @@ import { TrainingAgentsModule } from './training-agents/training-agents.module';
 import { HealthSummaryModule } from './health-summary/health-summary.module';
 import { TrainingAdaptationModule } from './training-adaptation/training-adaptation.module';
 import { TrainingUsageModule } from './training-usage/training-usage.module';
-import { DoctorModule } from './doctor/doctor.module';
+import { doctorModule } from './platform/doctor.config';
 import { AndroidAppModule } from './android-app/android-app.module';
 import { UserDataModule } from './user-data/user-data.module';
 import { AdminFactoryResetModule } from './admin-factory-reset/admin-factory-reset.module';
@@ -223,10 +223,13 @@ import configuration from './config/configuration';
     AboutModule,
 
     // `GET /api/admin/doctor` (#634): read-only configuration and health
-    // checks for every capability. `@Global()` so each feature module
+    // checks for every capability. Global, so each feature module
     // contributes its checks by providing them (they inject the registry and
-    // self-register) without importing this module; see `doctor.module.ts`.
-    DoctorModule,
+    // self-register) without importing this module. The module is the
+    // package's (`@marinoscar/platform-api/doctor`,
+    // marinoscar/EnterpriseAppBase#717); the app's binding is
+    // `platform/doctor.config.ts`.
+    doctorModule,
 
     // Android app trust (#279): the trusted (package, signing fingerprint)
     // list at `/api/admin/android-app` under `system_settings:*`, the public

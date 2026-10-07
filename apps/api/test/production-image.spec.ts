@@ -124,3 +124,38 @@ describe('the api image installs no build-only packages', () => {
     expect(dockerfile).toContain('--ignore-scripts');
   });
 });
+
+// =============================================================================
+// The platform packages come prebuilt, from the lockfile
+// =============================================================================
+// (marinoscar/EnterpriseAppBase#717)
+//
+// `@marinoscar/platform-api` is a tarball pinned in the lockfile (a release
+// URL with its integrity hash today, an npm version later). `npm ci` in the
+// deps stage installs its compiled `dist/`, which every later stage inherits
+// through `COPY --from=deps /app ./`. Nothing here may copy a platform
+// package's source or build one: this app has no such workspace, and a build
+// step would silently prefer a local copy over the pinned, tested release.
+// =============================================================================
+
+describe('the api image installs the platform packages, never builds them', () => {
+  const dockerfile = read('Dockerfile');
+  const apiPackage = JSON.parse(read('package.json')) as { dependencies?: Record<string, string> };
+
+  it('pins @marinoscar/platform-api to an exact version, not a workspace or a local path', () => {
+    const spec = apiPackage.dependencies?.['@marinoscar/platform-api'];
+
+    expect(spec).toBeDefined();
+    expect(spec).not.toMatch(/^(file|link|workspace):|^[~^*]|^(latest|next)$/);
+  });
+
+  it('copies no platform package source and runs no platform build', () => {
+    expect(dockerfile).not.toMatch(/packages\/platform-/);
+    expect(dockerfile).not.toMatch(/--workspace=@marinoscar\/platform-/);
+  });
+
+  it('installs from the lockfile with npm ci, which carries the platform packages', () => {
+    expect(dockerfile).toContain('COPY package.json package-lock.json ./');
+    expect(dockerfile).toMatch(/RUN npm ci --workspace=api\b/);
+  });
+});

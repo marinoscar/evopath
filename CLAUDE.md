@@ -104,7 +104,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
 | Recipe: add a training agent or graph node | [apps/api/src/ai/README.md](apps/api/src/ai/README.md#adding-a-training-agent-or-node) |
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
-| Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
+| Recipe: add a doctor check | [`@marinoscar/platform-api/doctor` README](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/doctor/README.md#extension-point-catalog) (extension points), [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) (this app's recipe) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
 | Platform adoption (which slices run on `@marinoscar/platform-*`, local exceptions, seam requests, rollback; the drift baseline it started from) | [docs/platform-adoption/README.md](docs/platform-adoption/README.md), [docs/platform-adoption/drift-baseline.md](docs/platform-adoption/drift-baseline.md) |
 

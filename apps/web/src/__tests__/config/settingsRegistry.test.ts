@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -907,8 +908,9 @@ describe('the Operations group (#266)', () => {
       // EXACTLY the cards they did before, in order.
       //
       // OBSERVABILITY RESOLVES FOR THIS HOLDER TOO since `Doctor` (#634),
-      // for the same reason as About: `doctor/doctor.controller.ts` enforces
-      // `system_settings:read`, so the card mirrors it.
+      // for the same reason as About: `@marinoscar/platform-api/doctor`
+      // enforces `system_settings:read` (`DEFAULT_DOCTOR_PERMISSION`, bound in
+      // `apps/api/src/platform/doctor.config.ts`), so the card mirrors it.
       const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
         ['system_settings:read', 'system_settings:write', 'users:read'].includes(permission),
       );
@@ -1327,11 +1329,19 @@ describe('the Observability group (#537)', () => {
       expect(doctor?.feature).toBeUndefined();
     });
 
-    it('declares the exact permission doctor.controller.ts enforces, and invents none', () => {
-      const controller = readFileSync(resolve(API_SRC, 'doctor/doctor.controller.ts'), 'utf8');
+    it('declares the exact permission @marinoscar/platform-api/doctor enforces, and invents none', () => {
+      // Since marinoscar/EnterpriseAppBase#717 the controller is the
+      // package's: it enforces `DEFAULT_DOCTOR_PERMISSION` unless the app's
+      // binding passes another `permission`, and the app's binding passes none.
+      // The package ships compiled, so its declaration file is what is read.
+      const packageRoot = dirname(createRequire(import.meta.url).resolve('@marinoscar/platform-api/package.json'));
+      const moduleTypes = readFileSync(resolve(packageRoot, 'dist/doctor/doctor.module.d.ts'), 'utf8');
+      const binding = readFileSync(resolve(API_SRC, 'platform/doctor.config.ts'), 'utf8');
       expect(doctor?.permission).toBe('system_settings:read');
+      expect(moduleTypes).toContain('export declare const DEFAULT_DOCTOR_PERMISSION = "system_settings:read";');
+      expect(binding).toContain('DoctorModule.forRoot({ host: platformHost })');
+      expect(binding).not.toMatch(/\bpermission\s*:/);
       expect(rolesConstants).toContain("SYSTEM_SETTINGS_READ: 'system_settings:read'");
-      expect(controller).toContain('@Auth({ permissions: [PERMISSIONS.SYSTEM_SETTINGS_READ] })');
       expect(doctor?.permission).not.toBe('doctor:read');
     });
 

@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 
 import { telemetryGate } from '../../common/otel/telemetry-gate';
-import { DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
 import { TelemetryStatus } from '../dto/telemetry-status.dto';
 import { GreptimeClient } from '../greptime/greptime.client';

@@ -1,5 +1,5 @@
-import { DoctorCheckOutcome } from '../../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { AiConfigService } from '../../config/ai-config.service';
 import { AiAssignmentsAdminService } from '../ai-assignments-admin.service';
 import { AI_ASSIGNMENT_ISSUES } from '../dto/ai-assignments.dto';

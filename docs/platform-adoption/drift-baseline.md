@@ -1408,3 +1408,20 @@ These are not the app changes to protect. They arrive by adopting the packages, 
 - **Telemetry tokens** in the web theme (`theme/telemetryTokens.ts`) and the telemetry dashboard that reads them.
 - **Maintainer tooling**: package docs and pack checks, the drift script, `CODEOWNERS`, the seam request issue template and the packages workflow. An app does not carry these.
 
+
+## Part 8: Re-checks at adoption
+
+Each adoption story re-runs the drift script for its slice against the base commit the package was cut from, and records the result here. The tables above stay as measured at the baseline.
+
+### Doctor ([PP-10.2](https://github.com/marinoscar/EnterpriseAppBase/issues/717), 2026-10-07)
+
+Re-run of `scripts/platform-drift.mjs` (areas `api`, `api-test`, `web`) with the base at `c928ba29a3411e43d6970da8e9b8dc5bf1c9657f`, the parent of the commit that moved the Doctor into `@marinoscar/platform-api/doctor`, against the app's `origin/main` at `6da517eb`. The four web files were also compared with `14949ef99da07523de059d3cc8908699c1c7211b`, the parent of the commit that bound the packaged page.
+
+| Path | Result | Class |
+|---|---|---|
+| `apps/api/src/doctor/` (7 of 9 files) | identical | cosmetic |
+| `apps/api/src/doctor/doctor-check.registry.ts`, `doctor-check.registry.spec.ts` | modified: the base built the registry on the generic registry primitive and freezes it after bootstrap | base ahead (app behind) |
+| `apps/api/test/doctor/doctor.integration.spec.ts` | modified: the base also asserts its `core.deployment-mode` check, which this app does not have yet ([PP-10.3](https://github.com/marinoscar/EnterpriseAppBase/issues/718)) | base ahead (app behind) |
+| `apps/web/src/pages/Admin/DoctorPage.tsx`, `hooks/useDoctor.ts`, `services/doctor.ts`, `components/doctor/CheckRow.tsx` | identical | cosmetic |
+
+No app-side delta, so nothing was ported to the base. The adoption deleted every path above except the integration spec, which stays as the app's wiring test (now importing the package, and pinning the app's 27 check ids). The package's registry freezes after bootstrap; every check of this app registers in `onModuleInit`, so none is affected. Ledger row: [README.md, Adopted slices](README.md#3-adopted-slices).

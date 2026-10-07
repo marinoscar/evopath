@@ -19,8 +19,8 @@ The rule that follows from it is in [CLAUDE.md](../../CLAUDE.md#mandatory-platfo
 
 | Part | How it works |
 |---|---|
-| Packages | Published on npm under the `@marinoscar` scope, versions pinned exactly in the workspace `package.json` files. No `file:`, `link:` or workspace path points at the platform. |
-| Upgrades | [`renovate.json`](../../renovate.json) opens one grouped PR, "platform packages", for `@marinoscar/platform-*` only, following the `latest` dist-tag. [`.github/dependabot.yml`](../../.github/dependabot.yml) ignores those packages and keeps every other dependency. |
+| Packages | Published under the `@marinoscar` scope, pinned exactly in the workspace `package.json` files. No `file:`, `link:` or workspace path points at the platform. Until the packages are on npm (an owner step in EnterpriseAppBase), the pin is the tarball URL of a GitHub prerelease of EnterpriseAppBase (`https://github.com/marinoscar/EnterpriseAppBase/releases/download/platform-v<version>/marinoscar-platform-<x>-<version>.tgz`), recorded in the lockfile with its integrity hash; see EnterpriseAppBase `docs/runbooks/release-platform-packages.md`, "Install from a GitHub release". The packages arrive prebuilt: no image or CI job builds one. |
+| Upgrades | [`renovate.json`](../../renovate.json) opens one grouped PR, "platform packages", for `@marinoscar/platform-*` only, following the `latest` dist-tag. [`.github/dependabot.yml`](../../.github/dependabot.yml) ignores those packages and keeps every other dependency. While a pin is a release URL, Renovate has no registry version to compare it with: upgrade by changing the version in every platform URL (all packages share one version) and running `npm install`. |
 | Pre-release check | The manual workflow [`platform-next.yml`](../../.github/workflows/platform-next.yml) installs a pre-release (default dist-tag `next`) of every platform package already present, then runs the typechecks and the three test suites. It never commits and never opens a PR. Production never receives a pre-release. |
 | Local development | Use a `next` pre-release or `yalc`. Never `npm link` a platform package: two copies of a package break its single-instance registries. |
 
@@ -36,15 +36,16 @@ No secret is stored for it here.
 
 ## 3. Adopted slices
 
-One row per slice, appended by the story that adopts it. Empty until the first adoption.
+One row per slice, appended by the story that adopts it.
 
 | Slice | Package and version | Local paths deleted | Extension registrations (file:symbol) | Issue | Date |
 |---|---|---|---|---|---|
+| Doctor | `@marinoscar/platform-api` `0.1.0-next.1` (`/doctor`, `/core` host) in `apps/api`; `@marinoscar/platform-web` `0.1.0-next.1` (`/doctor/ui`, `/core` host) in `apps/web`; both from the GitHub prerelease `platform-v0.1.0-next.1` | `apps/api/src/doctor/` (9 files: contract, registry and its spec, controller, module, service and its spec, two DTOs); `apps/web/src/pages/Admin/DoctorPage.tsx`, `apps/web/src/hooks/useDoctor.ts`, `apps/web/src/services/doctor.ts`, `apps/web/src/components/doctor/CheckRow.tsx`, `apps/web/src/__tests__/hooks/useDoctor.test.ts`, `apps/web/src/__tests__/pages/Admin/DoctorPage.test.tsx` | Binding: `apps/api/src/platform/doctor.config.ts:doctorModule` (`DoctorModule.forRoot({ host })`, defaults), `apps/api/src/platform/platform-host.ts:platformHost` (access port), `apps/web/src/platform/platformHost.tsx:AppPlatformHostProvider`, `apps/web/src/config/adminSections.tsx` (`doctorSettingsPage.card`). App-owned checks registered through `DoctorCheckRegistry`: `apps/api/src/android-app/android-app.module.ts:AndroidAssetLinksDoctorCheck` (`android.assetlinks`), `apps/api/src/android-app/android-app.module.ts:AndroidReleasesDoctorCheck` (`android.releases`), `apps/api/src/ai/assignments/ai-assignments.module.ts:AiFeatureAssignmentsDoctorCheck` (`ai.feature-assignments`), `apps/api/src/ai/assignments/ai-assignments.module.ts:AiWebSearchDoctorCheck` (`ai.web-search`). The 23 platform-slice checks keep their modules and ids; only their imports changed. | [marinoscar/EnterpriseAppBase#717](https://github.com/marinoscar/EnterpriseAppBase/issues/717) | 2026-10-07 |
 
 ## 4. Local exceptions
 
 A file that is a copy of platform code but stays, because the package has no seam for it yet.
-Each row links the seam request and is removed when the seam ships. Empty today.
+Each row links the seam request and is removed when the seam ships. Empty today: the Doctor slice exports everything this app uses (`DoctorService` and `DoctorCheckReport` for the setup guide included), so it was adopted with no local copy.
 
 | Local file | Why it stays | Seam request | Removed when |
 |---|---|---|---|

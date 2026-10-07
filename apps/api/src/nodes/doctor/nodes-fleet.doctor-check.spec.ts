@@ -1,4 +1,4 @@
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { NodesAdminService } from '../nodes-admin.service';
 import { NodesFleetDoctorCheck, decideNodesFleet } from './nodes-fleet.doctor-check';
 
