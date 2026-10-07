@@ -21,7 +21,7 @@ Since [marinoscar/EnterpriseAppBase#719](https://github.com/marinoscar/Enterpris
 | Worker span relay | `@marinoscar/platform-cli/telemetry` | `apps/cli/src/node/node-engine.ts` |
 | Wire shapes | `@marinoscar/platform-contract/telemetry` | none |
 
-Never edit a generated file or a package here: change the platform in EnterpriseAppBase and pick it up with a version bump ([CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)). This app's own extensions are in [§12](#12-evopath-extensions).
+Never edit a generated file or a package here: change the platform in EnterpriseAppBase and pick it up with a version bump ([CLAUDE.md](../../CLAUDE.md#mandatory-platform-code-lives-in-packages)). This app's own extensions are in [§12](#12-app-extensions).
 
 ## Decision record
 
@@ -2310,7 +2310,7 @@ normalized paths are unchanged.
 unknown routes in its baseline and to name the method + path of any
 unknown-route request with a bearer.
 
-## 12. EvoPath extensions
+## 12. App extensions
 
 What this app adds to the packaged telemetry, through the extension points the package READMEs document. Nothing here edits a package.
 

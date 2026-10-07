@@ -27,7 +27,7 @@
 // reach a series name.
 //
 // VERDICTS (this app's choice, documented in docs/specs/telemetry.md,
-// "EvoPath extensions"): none for the nudge families, which are
+// "App extensions"): none for the nudge families, which are
 // informational. Content-guard rejections and voice fallbacks carry
 // `degraded` at 5 per minute and `critical` at 20 per minute, `above`. As
 // for every platform family, the thresholds are metadata the dashboard
@@ -53,7 +53,7 @@ export const COACH_METRIC_GROUP_ID: MetricGroup = 'coach';
  */
 export const COACH_METRIC_FILTERS: readonly MetricFilterKey[] = Object.freeze(['service', 'instance']);
 
-/** The verdict bounds of the two failure families, per minute. EvoPath's choice. */
+/** The verdict bounds of the two failure families, per minute. This app's choice. */
 export const COACH_FAILURE_VERDICT = Object.freeze({ degraded: 5, critical: 20, direction: 'above' as const });
 
 /** An informational counter: the increase over the window, split by one label. */
