@@ -1,0 +1,3 @@
+# Migration SQL is hashed as raw bytes (platform.lock, Prisma's _prisma_migrations
+# checksum). Git must never convert its line endings or otherwise rewrite it.
+**/migration.sql -text
