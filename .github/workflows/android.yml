@@ -77,14 +77,14 @@ jobs:
 
       - name: Upload test reports
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-test-reports
           path: apps/android/app/build/reports/tests/
           retention-days: 7
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.meta.outputs.slug }}-android-debug
           path: apps/android/app/build/outputs/apk/debug/app-debug.apk
@@ -184,7 +184,7 @@ jobs:
 
       - name: Upload release APK artifact
         if: steps.signing.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.meta.outputs.slug }}-android-release
           path: ${{ runner.temp }}/${{ steps.meta.outputs.slug }}-android.apk
