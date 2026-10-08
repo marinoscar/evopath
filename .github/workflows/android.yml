@@ -62,7 +62,7 @@ jobs:
             apps/android/gradle/libs.versions.toml
             apps/android/gradle/wrapper/gradle-wrapper.properties
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           # The action's default list includes `tools`, which the SDK repository no
           # longer publishes, so the step fails. Install exactly what the build needs.
@@ -137,7 +137,7 @@ jobs:
             apps/android/gradle/libs.versions.toml
             apps/android/gradle/wrapper/gradle-wrapper.properties
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         if: steps.signing.outputs.enabled == 'true'
         with:
           # The action's default list includes `tools`, which the SDK repository no
