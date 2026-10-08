@@ -130,13 +130,16 @@ describe('Programs (integration)', () => {
   // Access control, per route
   // ---------------------------------------------------------------------------
 
+  // Activation accepts a start day at most 7 days back, so the fixture must not be a fixed date.
+  const TODAY = new Date().toISOString().slice(0, 10);
+
   const ROUTES: Array<{ method: 'get' | 'post' | 'patch' | 'put' | 'delete'; path: string; permission: string; body?: unknown }> = [
     { method: 'get', path: '/api/programs', permission: 'programs:read' },
     { method: 'post', path: '/api/programs', permission: 'programs:write', body: { name: 'P', goal: 'strength' } },
     { method: 'get', path: `/api/programs/${PROGRAM}`, permission: 'programs:read' },
     { method: 'patch', path: `/api/programs/${PROGRAM}`, permission: 'programs:write', body: { name: 'X' } },
     { method: 'put', path: `/api/programs/${PROGRAM}/structure`, permission: 'programs:write', body: VALID_TREE },
-    { method: 'post', path: `/api/programs/${PROGRAM}/activate`, permission: 'programs:write', body: { startDate: '2026-09-30' } },
+    { method: 'post', path: `/api/programs/${PROGRAM}/activate`, permission: 'programs:write', body: { startDate: TODAY } },
     { method: 'post', path: `/api/programs/${PROGRAM}/pause`, permission: 'programs:write' },
     { method: 'post', path: `/api/programs/${PROGRAM}/archive`, permission: 'programs:write' },
     { method: 'post', path: `/api/programs/${PROGRAM}/autonomy/resume`, permission: 'programs:write' },

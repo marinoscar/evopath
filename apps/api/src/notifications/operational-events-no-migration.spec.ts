@@ -162,6 +162,11 @@ const MIGRATIONS_AT_288 = [
   // #325: `user_memories`, `user_memory_states` and the pg_trgm index. About
   // user memory, not notifications.
   '20261005110000_user_memories',
+  // marinoscar/EnterpriseAppBase#747: platform migration 0022, installed as a
+  // byte copy. Three plain `created_at` indexes (notification_deliveries,
+  // notifications, ai_runs) for the retention sweeps. Indexes only: no
+  // per-event table, column or key, so not about these four events.
+  '20261007141520_add_retention_created_at_indexes',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

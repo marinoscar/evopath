@@ -1,0 +1,438 @@
+{
+  "deviations": [
+    {
+      "expectDiff": [
+        "ALTER TABLE \"push_subscriptions\" ADD COLUMN \"platform\" TEXT NOT NULL DEFAULT 'browser';"
+      ],
+      "id": "app:push-subscriptions-platform",
+      "reason": "This app adds push_subscriptions.platform (the Android push channel, migration 20261004100000_add_push_subscription_platform). The CHECK constraint push_subscriptions_platform_check is a hand-written constraint Prisma's diff does not print. Never dropped; to be proposed to the platform as a seam request."
+    },
+    {
+      "expectDiff": [
+        "CREATE TYPE \"ActivityKind\" AS ENUM ('walk', 'run', 'cardio_any', 'workout_any', 'custom', 'steps');",
+        "CREATE TYPE \"ActivitySource\" AS ENUM ('manual', 'workout', 'integration');",
+        "CREATE TYPE \"GoalMetric\" AS ENUM ('sessions', 'minutes', 'steps', 'distance_m');",
+        "CREATE TYPE \"GoalPeriod\" AS ENUM ('week', 'day');",
+        "CREATE TYPE \"GoalStatus\" AS ENUM ('active', 'paused', 'archived');",
+        "CREATE TYPE \"GymType\" AS ENUM ('home', 'club', 'office', 'hotel', 'apartment', 'outdoor', 'other');",
+        "CREATE TYPE \"HealthSyncDeviceStatus\" AS ENUM ('active', 'revoked');",
+        "CREATE TYPE \"HealthSyncRunStatus\" AS ENUM ('ok', 'partial', 'failed', 'skipped');",
+        "CREATE TYPE \"HealthSyncTrigger\" AS ENUM ('periodic', 'manual', 'initial', 'app_open');"
+      ],
+      "id": "app:domain-types",
+      "reason": "This app's domain enums (the 46 domain models' types). Not platform-owned; the baseline diff has no app-object filter yet, so they are listed."
+    },
+    {
+      "expectDiff": [
+        "CREATE TABLE \"activity_entries\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"occurred_on\" DATE NOT NULL, \"occurred_at\" TIMESTAMPTZ(6), \"activity_kind\" \"ActivityKind\" NOT NULL, \"completed\" BOOLEAN NOT NULL DEFAULT true, \"duration_seconds\" INTEGER, \"steps\" INTEGER, \"distance_meters\" DECIMAL(9,2), \"source\" \"ActivitySource\" NOT NULL DEFAULT 'manual', \"workout_id\" UUID, \"provider\" TEXT, \"external_id\" TEXT, \"note\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"activity_entries_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"activity_goals\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"title\" TEXT NOT NULL, \"activity_kind\" \"ActivityKind\" NOT NULL, \"custom_label\" TEXT, \"metric\" \"GoalMetric\" NOT NULL, \"target\" INTEGER NOT NULL, \"period\" \"GoalPeriod\" NOT NULL, \"status\" \"GoalStatus\" NOT NULL DEFAULT 'active', \"starts_on\" DATE NOT NULL, \"version\" INTEGER NOT NULL DEFAULT 1, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"activity_goals_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"android_app_releases\" ( \"id\" UUID NOT NULL, \"package_name\" TEXT NOT NULL, \"version_name\" VARCHAR(50) NOT NULL, \"version_code\" INTEGER NOT NULL, \"signing_sha256\" TEXT NOT NULL, \"file_sha256\" CHAR(64) NOT NULL, \"size_bytes\" INTEGER NOT NULL, \"storage_key\" TEXT NOT NULL, \"notes\" VARCHAR(2000), \"is_current\" BOOLEAN NOT NULL DEFAULT false, \"uploaded_by_id\" UUID, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"android_app_releases_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"capabilities\" ( \"id\" UUID NOT NULL, \"slug\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"movement_pattern\" TEXT NOT NULL, \"primary_muscles\" TEXT[], \"description\" TEXT, \"sort_order\" INTEGER NOT NULL DEFAULT 0, CONSTRAINT \"capabilities_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"coach_messages\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"role\" TEXT NOT NULL, \"kind\" TEXT NOT NULL, \"moment\" TEXT, \"angle\" TEXT, \"persona_id\" TEXT, \"intensity\" INTEGER, \"title\" TEXT NOT NULL DEFAULT '', \"body\" TEXT NOT NULL, \"push_title\" TEXT, \"push_body\" TEXT, \"audio_status\" TEXT NOT NULL DEFAULT 'none', \"audio_storage_object_id\" UUID, \"audio_run_id\" UUID, \"ai_run_id\" UUID, \"provider\" TEXT, \"model\" TEXT, \"notification_id\" UUID, \"data\" JSONB, \"delivered_at\" TIMESTAMPTZ(6), \"opened_at\" TIMESTAMPTZ(6), \"converted_at\" TIMESTAMPTZ(6), \"feedback\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"coach_messages_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"coach_states\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"last_nudge_at\" TIMESTAMPTZ(6), \"nudges_today\" INTEGER NOT NULL DEFAULT 0, \"nudge_day_local\" DATE, \"consecutive_ignored\" INTEGER NOT NULL DEFAULT 0, \"paused_until\" TIMESTAMPTZ(6), \"silenced_at\" TIMESTAMPTZ(6), \"last_sweep_at\" TIMESTAMPTZ(6), \"usual_workout_minute_local\" INTEGER, \"weekly_streak\" INTEGER NOT NULL DEFAULT 0, \"streak_passes_left\" INTEGER NOT NULL DEFAULT 0, \"last_weekly_review_week\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"chat_cleared_at\" TIMESTAMPTZ(6), CONSTRAINT \"coach_states_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"draft_items\" ( \"id\" UUID NOT NULL, \"intake_id\" UUID NOT NULL, \"kind\" TEXT NOT NULL, \"origin\" TEXT NOT NULL, \"status\" TEXT NOT NULL DEFAULT 'pending', \"confidence\" TEXT, \"uncertain\" BOOLEAN NOT NULL DEFAULT false, \"uncertainty_note\" TEXT, \"source_photo_ids\" UUID[], \"user_verified\" BOOLEAN NOT NULL DEFAULT false, \"value\" JSONB NOT NULL, \"original_ai_value\" JSONB, \"sort_order\" INTEGER NOT NULL DEFAULT 0, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"draft_items_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"equipment_type_capabilities\" ( \"equipment_type_id\" UUID NOT NULL, \"capability_id\" UUID NOT NULL, CONSTRAINT \"equipment_type_capabilities_pkey\" PRIMARY KEY (\"equipment_type_id\",\"capability_id\") );",
+        "CREATE TABLE \"equipment_types\" ( \"id\" UUID NOT NULL, \"slug\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"category\" TEXT NOT NULL, \"aliases\" TEXT[] DEFAULT ARRAY[]::TEXT[], \"description\" TEXT, \"sort_order\" INTEGER NOT NULL DEFAULT 0, \"owner_user_id\" UUID, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"equipment_types_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"exercise_requirements\" ( \"id\" UUID NOT NULL, \"exercise_id\" UUID NOT NULL, \"group_index\" INTEGER NOT NULL, \"equipment_type_id\" UUID, \"capability_id\" UUID, CONSTRAINT \"exercise_requirements_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"exercises\" ( \"id\" UUID NOT NULL, \"slug\" TEXT NOT NULL, \"name\" TEXT NOT NULL, \"owner_user_id\" UUID, \"primary_muscles\" TEXT[], \"secondary_muscles\" TEXT[] DEFAULT ARRAY[]::TEXT[], \"movement_pattern\" TEXT NOT NULL, \"tracking_mode\" TEXT NOT NULL DEFAULT 'weight_reps', \"is_unilateral\" BOOLEAN NOT NULL DEFAULT false, \"is_bodyweight\" BOOLEAN NOT NULL DEFAULT false, \"aliases\" TEXT[] DEFAULT ARRAY[]::TEXT[], \"notes\" TEXT, \"origin\" TEXT NOT NULL DEFAULT 'user', \"status\" TEXT NOT NULL DEFAULT 'active', \"proposed_by_run_id\" UUID, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"exercises_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"gym_equipment\" ( \"id\" UUID NOT NULL, \"gym_id\" UUID NOT NULL, \"equipment_type_id\" UUID NOT NULL, \"quantity\" INTEGER NOT NULL DEFAULT 1, \"brand\" TEXT, \"model\" TEXT, \"notes\" TEXT, \"origin\" TEXT NOT NULL DEFAULT 'manual', \"confidence\" TEXT, \"user_verified\" BOOLEAN NOT NULL DEFAULT true, \"original_ai_value\" JSONB, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"gym_equipment_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"gym_equipment_photos\" ( \"gym_equipment_id\" UUID NOT NULL, \"gym_photo_id\" UUID NOT NULL, CONSTRAINT \"gym_equipment_photos_pkey\" PRIMARY KEY (\"gym_equipment_id\",\"gym_photo_id\") );",
+        "CREATE TABLE \"gym_photos\" ( \"id\" UUID NOT NULL, \"gym_id\" UUID NOT NULL, \"storage_object_id\" UUID NOT NULL, \"caption\" TEXT, \"taken_at\" TIMESTAMPTZ(6), \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"gym_photos_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"gyms\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"name\" TEXT NOT NULL, \"type\" \"GymType\" NOT NULL DEFAULT 'other', \"description\" TEXT, \"notes\" TEXT, \"latitude\" DOUBLE PRECISION, \"longitude\" DOUBLE PRECISION, \"is_default\" BOOLEAN NOT NULL DEFAULT false, \"is_temporary\" BOOLEAN NOT NULL DEFAULT false, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"gyms_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"health_documents\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"kind\" TEXT NOT NULL, \"storage_object_id\" UUID, \"original_name\" TEXT NOT NULL, \"mime_type\" TEXT NOT NULL, \"size_bytes\" BIGINT NOT NULL, \"retention\" TEXT NOT NULL DEFAULT 'keep', \"intake_id\" UUID, \"document_date\" DATE, \"file_deleted_at\" TIMESTAMPTZ(6), \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"version\" INTEGER NOT NULL DEFAULT 1, CONSTRAINT \"health_documents_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"health_profiles\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"date_of_birth\" DATE, \"sex_at_birth\" TEXT, \"height_mm\" INTEGER, \"unit_system\" TEXT NOT NULL DEFAULT 'metric', \"time_zone\" TEXT, \"bio\" TEXT, \"version\" INTEGER NOT NULL DEFAULT 1, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"lab_units\" TEXT NOT NULL DEFAULT 'conventional', CONSTRAINT \"health_profiles_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"health_summaries\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"version\" INTEGER NOT NULL, \"status\" TEXT NOT NULL, \"narrative\" TEXT, \"training_considerations\" JSONB, \"data_as_of\" DATE, \"inputs_as_of\" TIMESTAMPTZ(6), \"inputs_hash\" TEXT NOT NULL, \"provider\" TEXT, \"model\" TEXT, \"regenerations\" INTEGER NOT NULL DEFAULT 0, \"error_code\" TEXT, \"job_id\" UUID, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"health_summaries_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"health_summary_settings\" ( \"user_id\" UUID NOT NULL, \"enabled\" BOOLEAN NOT NULL DEFAULT false, \"consented_at\" TIMESTAMPTZ(6), \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"health_summary_settings_pkey\" PRIMARY KEY (\"user_id\") );",
+        "CREATE TABLE \"health_sync_devices\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"installation_id\" UUID NOT NULL, \"name\" TEXT NOT NULL, \"manufacturer\" TEXT, \"model\" TEXT, \"android_version\" TEXT, \"sdk_int\" INTEGER, \"app_version\" TEXT, \"health_connect_version\" TEXT, \"package_name\" TEXT, \"signing_sha256\" TEXT, \"timezone\" TEXT, \"pat_id\" UUID, \"status\" \"HealthSyncDeviceStatus\" NOT NULL DEFAULT 'active', \"last_seen_at\" TIMESTAMPTZ(6), \"last_sync_at\" TIMESTAMPTZ(6), \"last_sync_status\" \"HealthSyncRunStatus\", \"last_error\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"app_version_code\" INTEGER, CONSTRAINT \"health_sync_devices_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"health_sync_diagnostic_reports\" ( \"id\" UUID NOT NULL, \"device_id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"summary\" TEXT, \"report\" JSONB NOT NULL, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"health_sync_diagnostic_reports_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"health_sync_runs\" ( \"id\" UUID NOT NULL, \"device_id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"trigger\" \"HealthSyncTrigger\" NOT NULL, \"status\" \"HealthSyncRunStatus\" NOT NULL, \"started_at\" TIMESTAMPTZ(6) NOT NULL, \"finished_at\" TIMESTAMPTZ(6) NOT NULL, \"window_from\" DATE, \"window_to\" DATE, \"records_read\" INTEGER NOT NULL DEFAULT 0, \"created\" INTEGER NOT NULL DEFAULT 0, \"updated\" INTEGER NOT NULL DEFAULT 0, \"deleted\" INTEGER NOT NULL DEFAULT 0, \"error_code\" TEXT, \"error_message\" TEXT, \"details\" JSONB, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"health_sync_runs_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"measurements\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"entry_id\" UUID NOT NULL, \"metric_key\" TEXT NOT NULL, \"value\" DOUBLE PRECISION NOT NULL, \"unit\" TEXT NOT NULL, \"measured_at\" TIMESTAMPTZ(6) NOT NULL, \"local_date\" DATE, \"method\" TEXT NOT NULL DEFAULT 'unspecified', \"origin\" TEXT NOT NULL DEFAULT 'manual', \"notes\" TEXT, \"source_ref\" JSONB, \"revision\" INTEGER NOT NULL DEFAULT 1, \"supersedes_id\" UUID, \"superseded_at\" TIMESTAMPTZ(6), \"deleted_at\" TIMESTAMPTZ(6), \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"reference_low\" DOUBLE PRECISION, \"reference_high\" DOUBLE PRECISION, \"reference_text\" TEXT, \"flag\" TEXT, \"external_id\" TEXT, \"external_provider\" TEXT, \"health_sync_device_id\" UUID, CONSTRAINT \"measurements_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"photo_intake_photos\" ( \"id\" UUID NOT NULL, \"intake_id\" UUID NOT NULL, \"storage_object_id\" UUID NOT NULL, \"sort_order\" INTEGER NOT NULL DEFAULT 0, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"photo_intake_photos_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"photo_intakes\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"kind\" TEXT NOT NULL, \"status\" TEXT NOT NULL DEFAULT 'draft', \"subject_type\" TEXT, \"subject_id\" UUID, \"context\" JSONB, \"provider\" TEXT, \"model_id\" TEXT, \"job_id\" UUID, \"error_code\" TEXT, \"error_message\" TEXT, \"result_meta\" JSONB, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"completed_at\" TIMESTAMPTZ(6), \"retention\" TEXT NOT NULL DEFAULT 'keep', CONSTRAINT \"photo_intakes_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"program_blocks\" ( \"id\" UUID NOT NULL, \"program_id\" UUID NOT NULL, \"position\" INTEGER NOT NULL, \"name\" TEXT NOT NULL, \"focus\" TEXT, \"rationale\" TEXT, \"archived_at\" TIMESTAMPTZ(6), CONSTRAINT \"program_blocks_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"program_change_log\" ( \"id\" UUID NOT NULL, \"program_id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"kind\" TEXT NOT NULL, \"actor\" TEXT NOT NULL, \"status\" TEXT NOT NULL DEFAULT 'applied', \"from_version\" INTEGER, \"to_version\" INTEGER, \"run_id\" UUID, \"summary\" TEXT NOT NULL, \"rationale\" TEXT, \"operations\" JSONB NOT NULL DEFAULT '[]', \"citations\" JSONB NOT NULL DEFAULT '[]', \"reverts_log_id\" UUID, \"seen_at\" TIMESTAMPTZ(6), \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"decided_at\" TIMESTAMPTZ(6), CONSTRAINT \"program_change_log_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"program_exercises\" ( \"id\" UUID NOT NULL, \"program_workout_id\" UUID NOT NULL, \"exercise_id\" UUID NOT NULL, \"position\" INTEGER NOT NULL, \"is_priority\" BOOLEAN NOT NULL DEFAULT false, \"target_sets\" INTEGER, \"rep_min\" INTEGER, \"rep_max\" INTEGER, \"target_load_kg\" DECIMAL(7,3), \"target_rpe\" DECIMAL(3,1), \"rest_seconds\" INTEGER NOT NULL, \"load_guidance\" TEXT NOT NULL DEFAULT 'choose_start', \"rationale\" TEXT, \"evidence_refs\" TEXT[] DEFAULT ARRAY[]::TEXT[], \"notes\" TEXT, \"equipmentTypeId\" UUID, \"target_duration_seconds\" INTEGER, \"target_distance_meters\" DECIMAL(9,2), CONSTRAINT \"program_exercises_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"program_sessions\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"program_id\" UUID NOT NULL, \"program_workout_id\" UUID, \"workout_id\" UUID NOT NULL, \"version_number\" INTEGER NOT NULL, \"planned_snapshot\" JSONB NOT NULL, \"planned_for\" DATE NOT NULL, \"started_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"program_sessions_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"program_versions\" ( \"id\" UUID NOT NULL, \"program_id\" UUID NOT NULL, \"version_number\" INTEGER NOT NULL, \"origin\" TEXT NOT NULL, \"snapshot\" JSONB NOT NULL, \"rationale\" TEXT, \"evidence\" JSONB NOT NULL DEFAULT '[]', \"run_id\" UUID, \"meta\" JSONB NOT NULL DEFAULT '{}', \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"program_versions_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"program_weeks\" ( \"id\" UUID NOT NULL, \"program_id\" UUID NOT NULL, \"block_id\" UUID NOT NULL, \"week_number\" INTEGER NOT NULL, \"is_deload\" BOOLEAN NOT NULL DEFAULT false, \"archived_at\" TIMESTAMPTZ(6), CONSTRAINT \"program_weeks_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"program_workouts\" ( \"id\" UUID NOT NULL, \"week_id\" UUID NOT NULL, \"position\" INTEGER NOT NULL, \"weekday\" INTEGER, \"name\" TEXT NOT NULL, \"estimated_minutes\" INTEGER, \"rationale\" TEXT, \"archived_at\" TIMESTAMPTZ(6), CONSTRAINT \"program_workouts_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"programs\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"name\" TEXT NOT NULL, \"goal\" TEXT NOT NULL, \"status\" TEXT NOT NULL DEFAULT 'draft', \"source\" TEXT NOT NULL DEFAULT 'manual', \"start_date\" DATE, \"autonomy\" TEXT NOT NULL DEFAULT 'autonomous', \"gym_id\" UUID, \"intake\" JSONB, \"current_version\" INTEGER NOT NULL DEFAULT 1, \"rationale\" TEXT, \"notes\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"autonomy_paused_at\" TIMESTAMPTZ(6), \"autonomy_paused_reason\" TEXT, \"evaluation_requested_at\" TIMESTAMPTZ(6), \"last_evaluated_at\" TIMESTAMPTZ(6), \"last_weekly_evaluation_at\" TIMESTAMPTZ(6), CONSTRAINT \"programs_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"progress_photos\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"storage_object_id\" UUID NOT NULL, \"local_date\" DATE NOT NULL, \"pose\" TEXT NOT NULL DEFAULT 'front', \"note\" VARCHAR(200), \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"progress_photos_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"set_logs\" ( \"id\" UUID NOT NULL, \"workout_exercise_id\" UUID NOT NULL, \"set_number\" INTEGER NOT NULL, \"weight_kg\" DECIMAL(7,3), \"reps\" INTEGER, \"duration_seconds\" INTEGER, \"distance_meters\" DECIMAL(9,2), \"rpe\" DECIMAL(3,1), \"rir\" INTEGER, \"rest_seconds\" INTEGER, \"is_warmup\" BOOLEAN NOT NULL DEFAULT false, \"completed\" BOOLEAN NOT NULL DEFAULT false, \"completed_at\" TIMESTAMPTZ(6), \"pain_flag\" BOOLEAN NOT NULL DEFAULT false, \"pain_note\" TEXT, \"notes\" TEXT, CONSTRAINT \"set_logs_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"sleep_sessions\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"start_at\" TIMESTAMPTZ(6) NOT NULL, \"end_at\" TIMESTAMPTZ(6) NOT NULL, \"local_date\" DATE NOT NULL, \"duration_minutes\" INTEGER NOT NULL, \"awake_minutes\" INTEGER, \"light_minutes\" INTEGER, \"deep_minutes\" INTEGER, \"rem_minutes\" INTEGER, \"unknown_minutes\" INTEGER, \"origin\" TEXT NOT NULL DEFAULT 'manual', \"provider\" TEXT, \"external_id\" TEXT, \"health_sync_device_id\" UUID, \"note\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"sleep_sessions_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"training_plan_runs\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"kind\" TEXT NOT NULL, \"trigger\" TEXT NOT NULL DEFAULT 'user', \"status\" TEXT NOT NULL DEFAULT 'queued', \"stage\" TEXT, \"program_id\" UUID, \"job_id\" UUID, \"job_ids\" JSONB NOT NULL DEFAULT '[]', \"input\" JSONB NOT NULL, \"context_snapshot\" JSONB, \"role_models\" JSONB NOT NULL DEFAULT '{}', \"token_cap\" INTEGER NOT NULL, \"usage\" JSONB NOT NULL DEFAULT '{}', \"result\" JSONB, \"pending_decision\" JSONB, \"error_code\" TEXT, \"error_message\" TEXT, \"cancel_requested_at\" TIMESTAMPTZ(6), \"resume_count\" INTEGER NOT NULL DEFAULT 0, \"event_seq\" INTEGER NOT NULL DEFAULT 0, \"heartbeat_at\" TIMESTAMPTZ(6), \"expires_at\" TIMESTAMPTZ(6), \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"started_at\" TIMESTAMPTZ(6), \"completed_at\" TIMESTAMPTZ(6), CONSTRAINT \"training_plan_runs_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"training_run_checkpoint_writes\" ( \"thread_id\" TEXT NOT NULL, \"checkpoint_ns\" TEXT NOT NULL DEFAULT '', \"checkpoint_id\" TEXT NOT NULL, \"task_id\" TEXT NOT NULL, \"idx\" INTEGER NOT NULL, \"channel\" TEXT NOT NULL, \"type\" TEXT NOT NULL, \"value\" BYTEA NOT NULL, CONSTRAINT \"training_run_checkpoint_writes_pkey\" PRIMARY KEY (\"thread_id\",\"checkpoint_ns\",\"checkpoint_id\",\"task_id\",\"idx\") );",
+        "CREATE TABLE \"training_run_checkpoints\" ( \"thread_id\" TEXT NOT NULL, \"checkpoint_ns\" TEXT NOT NULL DEFAULT '', \"checkpoint_id\" TEXT NOT NULL, \"parent_checkpoint_id\" TEXT, \"type\" TEXT NOT NULL, \"checkpoint\" BYTEA NOT NULL, \"metadata\" BYTEA NOT NULL, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"training_run_checkpoints_pkey\" PRIMARY KEY (\"thread_id\",\"checkpoint_ns\",\"checkpoint_id\") );",
+        "CREATE TABLE \"training_run_events\" ( \"id\" UUID NOT NULL, \"run_id\" UUID NOT NULL, \"seq\" INTEGER NOT NULL, \"type\" TEXT NOT NULL, \"stage\" TEXT, \"data\" JSONB NOT NULL DEFAULT '{}', \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"training_run_events_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"user_memories\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"content\" TEXT NOT NULL, \"category\" TEXT NOT NULL, \"source\" TEXT NOT NULL, \"sensitivity\" TEXT NOT NULL DEFAULT 'normal', \"status\" TEXT NOT NULL DEFAULT 'active', \"superseded_by_id\" UUID, \"source_message_id\" UUID, \"confidence\" DOUBLE PRECISION, \"pinned\" BOOLEAN NOT NULL DEFAULT false, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, \"last_used_at\" TIMESTAMPTZ(6), \"deleted_at\" TIMESTAMPTZ(6), CONSTRAINT \"user_memories_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"user_memory_states\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"last_extracted_at\" TIMESTAMPTZ(6), \"extractions_today\" INTEGER NOT NULL DEFAULT 0, \"extraction_day_utc\" DATE, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"user_memory_states_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"workout_adaptations\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"status\" TEXT NOT NULL DEFAULT 'queued', \"request\" JSONB NOT NULL, \"gym_id\" UUID, \"base_ref\" JSONB, \"context_snapshot\" JSONB NOT NULL DEFAULT '{}', \"proposal\" JSONB, \"guardrail_report\" JSONB NOT NULL DEFAULT '{}', \"critic_report\" JSONB, \"safety\" JSONB NOT NULL DEFAULT '{}', \"models\" JSONB NOT NULL DEFAULT '{}', \"run_id\" UUID, \"job_id\" UUID, \"error_code\" TEXT, \"error_message\" TEXT, \"applied_as\" TEXT, \"applied_workout_id\" UUID, \"applied_plan_version_id\" UUID, \"applied_at\" TIMESTAMPTZ(6), \"expires_at\" TIMESTAMPTZ(6) NOT NULL, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"workout_adaptations_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"workout_exercises\" ( \"id\" UUID NOT NULL, \"workout_id\" UUID NOT NULL, \"exercise_id\" UUID NOT NULL, \"position\" INTEGER NOT NULL, \"equipment_type_id\" UUID, \"notes\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"workout_exercises_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"workout_photos\" ( \"id\" UUID NOT NULL, \"workout_id\" UUID NOT NULL, \"storage_object_id\" UUID NOT NULL, \"caption\" TEXT, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT \"workout_photos_pkey\" PRIMARY KEY (\"id\") );",
+        "CREATE TABLE \"workouts\" ( \"id\" UUID NOT NULL, \"user_id\" UUID NOT NULL, \"name\" TEXT NOT NULL, \"date\" DATE NOT NULL, \"status\" TEXT NOT NULL DEFAULT 'in_progress', \"started_at\" TIMESTAMPTZ(6) NOT NULL, \"ended_at\" TIMESTAMPTZ(6), \"duration_seconds\" INTEGER, \"gym_id\" UUID, \"notes\" TEXT, \"program_workout_id\" UUID, \"readiness_snapshot\" JSONB, \"created_at\" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP, \"updated_at\" TIMESTAMPTZ(6) NOT NULL, CONSTRAINT \"workouts_pkey\" PRIMARY KEY (\"id\") );"
+      ],
+      "id": "app:domain-tables",
+      "reason": "The 46 domain tables of this app. Not platform-owned; listed because the baseline diff has no app-object filter yet."
+    },
+    {
+      "expectDiff": [
+        "CREATE UNIQUE INDEX \"activity_entries_provider_external_uniq_idx\" ON \"activity_entries\"(\"user_id\" ASC, \"provider\" ASC, \"external_id\" ASC);",
+        "CREATE INDEX \"activity_entries_user_id_occurred_on_idx\" ON \"activity_entries\"(\"user_id\" ASC, \"occurred_on\" ASC);",
+        "CREATE INDEX \"activity_entries_workout_id_idx\" ON \"activity_entries\"(\"workout_id\" ASC);",
+        "CREATE UNIQUE INDEX \"activity_entries_workout_kind_uniq_idx\" ON \"activity_entries\"(\"workout_id\" ASC, \"activity_kind\" ASC);",
+        "CREATE INDEX \"activity_goals_user_id_status_idx\" ON \"activity_goals\"(\"user_id\" ASC, \"status\" ASC);",
+        "CREATE INDEX \"android_app_releases_created_at_idx\" ON \"android_app_releases\"(\"created_at\" ASC);",
+        "CREATE UNIQUE INDEX \"android_app_releases_package_name_version_code_key\" ON \"android_app_releases\"(\"package_name\" ASC, \"version_code\" ASC);",
+        "CREATE INDEX \"android_app_releases_uploaded_by_id_idx\" ON \"android_app_releases\"(\"uploaded_by_id\" ASC);",
+        "CREATE UNIQUE INDEX \"capabilities_slug_key\" ON \"capabilities\"(\"slug\" ASC);",
+        "CREATE INDEX \"coach_messages_audio_run_id_idx\" ON \"coach_messages\"(\"audio_run_id\" ASC);",
+        "CREATE INDEX \"coach_messages_audio_storage_object_id_idx\" ON \"coach_messages\"(\"audio_storage_object_id\" ASC);",
+        "CREATE INDEX \"coach_messages_user_id_created_at_idx\" ON \"coach_messages\"(\"user_id\" ASC, \"created_at\" DESC);",
+        "CREATE UNIQUE INDEX \"coach_states_user_id_key\" ON \"coach_states\"(\"user_id\" ASC);",
+        "CREATE INDEX \"draft_items_intake_id_sort_order_idx\" ON \"draft_items\"(\"intake_id\" ASC, \"sort_order\" ASC);",
+        "CREATE INDEX \"equipment_types_owner_user_id_idx\" ON \"equipment_types\"(\"owner_user_id\" ASC);",
+        "CREATE UNIQUE INDEX \"equipment_types_slug_key\" ON \"equipment_types\"(\"slug\" ASC);",
+        "CREATE INDEX \"exercise_requirements_exercise_id_group_index_idx\" ON \"exercise_requirements\"(\"exercise_id\" ASC, \"group_index\" ASC);",
+        "CREATE INDEX \"exercises_movement_pattern_idx\" ON \"exercises\"(\"movement_pattern\" ASC);",
+        "CREATE INDEX \"exercises_owner_user_id_idx\" ON \"exercises\"(\"owner_user_id\" ASC);",
+        "CREATE UNIQUE INDEX \"exercises_slug_key\" ON \"exercises\"(\"slug\" ASC);",
+        "CREATE INDEX \"gym_equipment_equipment_type_id_idx\" ON \"gym_equipment\"(\"equipment_type_id\" ASC);",
+        "CREATE INDEX \"gym_equipment_gym_id_idx\" ON \"gym_equipment\"(\"gym_id\" ASC);",
+        "CREATE INDEX \"gym_photos_gym_id_idx\" ON \"gym_photos\"(\"gym_id\" ASC);",
+        "CREATE UNIQUE INDEX \"gym_photos_storage_object_id_key\" ON \"gym_photos\"(\"storage_object_id\" ASC);",
+        "CREATE UNIQUE INDEX \"gyms_user_default_uniq_idx\" ON \"gyms\"(\"user_id\" ASC);",
+        "CREATE INDEX \"gyms_user_id_idx\" ON \"gyms\"(\"user_id\" ASC);",
+        "CREATE INDEX \"health_documents_intake_id_idx\" ON \"health_documents\"(\"intake_id\" ASC);",
+        "CREATE INDEX \"health_documents_storage_object_id_idx\" ON \"health_documents\"(\"storage_object_id\" ASC);",
+        "CREATE INDEX \"health_documents_user_id_created_at_idx\" ON \"health_documents\"(\"user_id\" ASC, \"created_at\" ASC);",
+        "CREATE UNIQUE INDEX \"health_profiles_user_id_key\" ON \"health_profiles\"(\"user_id\" ASC);",
+        "CREATE UNIQUE INDEX \"health_summaries_user_id_version_key\" ON \"health_summaries\"(\"user_id\" ASC, \"version\" ASC);",
+        "CREATE INDEX \"health_sync_devices_pat_id_idx\" ON \"health_sync_devices\"(\"pat_id\" ASC);",
+        "CREATE UNIQUE INDEX \"health_sync_devices_user_id_installation_id_key\" ON \"health_sync_devices\"(\"user_id\" ASC, \"installation_id\" ASC);",
+        "CREATE INDEX \"health_sync_devices_user_id_status_idx\" ON \"health_sync_devices\"(\"user_id\" ASC, \"status\" ASC);",
+        "CREATE INDEX \"health_sync_diagnostic_reports_device_id_created_at_idx\" ON \"health_sync_diagnostic_reports\"(\"device_id\" ASC, \"created_at\" ASC);",
+        "CREATE INDEX \"health_sync_diagnostic_reports_user_id_idx\" ON \"health_sync_diagnostic_reports\"(\"user_id\" ASC);",
+        "CREATE INDEX \"health_sync_runs_device_id_created_at_idx\" ON \"health_sync_runs\"(\"device_id\" ASC, \"created_at\" ASC);",
+        "CREATE INDEX \"health_sync_runs_user_id_created_at_idx\" ON \"health_sync_runs\"(\"user_id\" ASC, \"created_at\" ASC);",
+        "CREATE INDEX \"measurements_health_sync_device_id_idx\" ON \"measurements\"(\"health_sync_device_id\" ASC);",
+        "CREATE UNIQUE INDEX \"measurements_provider_external_uniq_idx\" ON \"measurements\"(\"user_id\" ASC, \"external_provider\" ASC, \"external_id\" ASC);",
+        "CREATE UNIQUE INDEX \"measurements_supersedes_id_key\" ON \"measurements\"(\"supersedes_id\" ASC);",
+        "CREATE INDEX \"measurements_user_id_entry_id_idx\" ON \"measurements\"(\"user_id\" ASC, \"entry_id\" ASC);",
+        "CREATE INDEX \"measurements_user_id_local_date_idx\" ON \"measurements\"(\"user_id\" ASC, \"local_date\" ASC);",
+        "CREATE INDEX \"measurements_user_id_metric_key_measured_at_idx\" ON \"measurements\"(\"user_id\" ASC, \"metric_key\" ASC, \"measured_at\" DESC);",
+        "CREATE UNIQUE INDEX \"photo_intake_photos_intake_id_storage_object_id_key\" ON \"photo_intake_photos\"(\"intake_id\" ASC, \"storage_object_id\" ASC);",
+        "CREATE INDEX \"photo_intake_photos_storage_object_id_idx\" ON \"photo_intake_photos\"(\"storage_object_id\" ASC);",
+        "CREATE INDEX \"photo_intakes_user_id_kind_status_idx\" ON \"photo_intakes\"(\"user_id\" ASC, \"kind\" ASC, \"status\" ASC);",
+        "CREATE INDEX \"program_blocks_program_id_position_idx\" ON \"program_blocks\"(\"program_id\" ASC, \"position\" ASC);",
+        "CREATE INDEX \"program_change_log_program_id_created_at_idx\" ON \"program_change_log\"(\"program_id\" ASC, \"created_at\" DESC);",
+        "CREATE INDEX \"program_exercises_exercise_id_idx\" ON \"program_exercises\"(\"exercise_id\" ASC);",
+        "CREATE INDEX \"program_exercises_program_workout_id_position_idx\" ON \"program_exercises\"(\"program_workout_id\" ASC, \"position\" ASC);",
+        "CREATE INDEX \"program_sessions_program_id_planned_for_idx\" ON \"program_sessions\"(\"program_id\" ASC, \"planned_for\" ASC);",
+        "CREATE INDEX \"program_sessions_program_workout_id_idx\" ON \"program_sessions\"(\"program_workout_id\" ASC);",
+        "CREATE INDEX \"program_sessions_user_id_idx\" ON \"program_sessions\"(\"user_id\" ASC);",
+        "CREATE UNIQUE INDEX \"program_sessions_workout_id_key\" ON \"program_sessions\"(\"workout_id\" ASC);",
+        "CREATE UNIQUE INDEX \"program_versions_program_id_version_number_key\" ON \"program_versions\"(\"program_id\" ASC, \"version_number\" ASC);",
+        "CREATE INDEX \"program_weeks_block_id_idx\" ON \"program_weeks\"(\"block_id\" ASC);",
+        "CREATE INDEX \"program_weeks_program_id_week_number_idx\" ON \"program_weeks\"(\"program_id\" ASC, \"week_number\" ASC);",
+        "CREATE INDEX \"program_workouts_week_id_position_idx\" ON \"program_workouts\"(\"week_id\" ASC, \"position\" ASC);",
+        "CREATE UNIQUE INDEX \"programs_one_active_per_user_uniq_idx\" ON \"programs\"(\"user_id\" ASC);",
+        "CREATE INDEX \"programs_status_last_evaluated_at_idx\" ON \"programs\"(\"status\" ASC, \"last_evaluated_at\" ASC);",
+        "CREATE INDEX \"programs_user_id_status_idx\" ON \"programs\"(\"user_id\" ASC, \"status\" ASC);",
+        "CREATE INDEX \"progress_photos_storage_object_id_idx\" ON \"progress_photos\"(\"storage_object_id\" ASC);",
+        "CREATE INDEX \"progress_photos_user_id_local_date_idx\" ON \"progress_photos\"(\"user_id\" ASC, \"local_date\" ASC);",
+        "CREATE UNIQUE INDEX \"set_logs_workout_exercise_id_set_number_key\" ON \"set_logs\"(\"workout_exercise_id\" ASC, \"set_number\" ASC);",
+        "CREATE INDEX \"sleep_sessions_health_sync_device_id_idx\" ON \"sleep_sessions\"(\"health_sync_device_id\" ASC);",
+        "CREATE UNIQUE INDEX \"sleep_sessions_provider_external_uniq_idx\" ON \"sleep_sessions\"(\"user_id\" ASC, \"provider\" ASC, \"external_id\" ASC);",
+        "CREATE INDEX \"sleep_sessions_user_id_local_date_idx\" ON \"sleep_sessions\"(\"user_id\" ASC, \"local_date\" ASC);",
+        "CREATE UNIQUE INDEX \"training_plan_runs_active_per_user_uniq_idx\" ON \"training_plan_runs\"(\"user_id\" ASC);",
+        "CREATE INDEX \"training_plan_runs_program_id_idx\" ON \"training_plan_runs\"(\"program_id\" ASC);",
+        "CREATE INDEX \"training_plan_runs_user_id_created_at_idx\" ON \"training_plan_runs\"(\"user_id\" ASC, \"created_at\" DESC);",
+        "CREATE INDEX \"training_run_checkpoints_thread_id_created_at_idx\" ON \"training_run_checkpoints\"(\"thread_id\" ASC, \"created_at\" ASC);",
+        "CREATE UNIQUE INDEX \"training_run_events_run_id_seq_key\" ON \"training_run_events\"(\"run_id\" ASC, \"seq\" ASC);",
+        "CREATE INDEX \"user_memories_content_trgm_idx\" ON \"user_memories\" USING GIN (\"content\" gin_trgm_ops ASC);",
+        "CREATE INDEX \"user_memories_source_message_id_idx\" ON \"user_memories\"(\"source_message_id\" ASC);",
+        "CREATE INDEX \"user_memories_superseded_by_id_idx\" ON \"user_memories\"(\"superseded_by_id\" ASC);",
+        "CREATE INDEX \"user_memories_user_id_status_category_idx\" ON \"user_memories\"(\"user_id\" ASC, \"status\" ASC, \"category\" ASC);",
+        "CREATE INDEX \"user_memories_user_id_updated_at_idx\" ON \"user_memories\"(\"user_id\" ASC, \"updated_at\" DESC);",
+        "CREATE UNIQUE INDEX \"user_memory_states_user_id_key\" ON \"user_memory_states\"(\"user_id\" ASC);",
+        "CREATE UNIQUE INDEX \"workout_adaptations_active_per_user_uniq_idx\" ON \"workout_adaptations\"(\"user_id\" ASC);",
+        "CREATE INDEX \"workout_adaptations_expires_at_idx\" ON \"workout_adaptations\"(\"expires_at\" ASC);",
+        "CREATE INDEX \"workout_adaptations_gym_id_idx\" ON \"workout_adaptations\"(\"gym_id\" ASC);",
+        "CREATE INDEX \"workout_adaptations_status_idx\" ON \"workout_adaptations\"(\"status\" ASC);",
+        "CREATE INDEX \"workout_adaptations_user_id_created_at_idx\" ON \"workout_adaptations\"(\"user_id\" ASC, \"created_at\" DESC);",
+        "CREATE INDEX \"workout_exercises_exercise_id_idx\" ON \"workout_exercises\"(\"exercise_id\" ASC);",
+        "CREATE INDEX \"workout_exercises_workout_id_position_idx\" ON \"workout_exercises\"(\"workout_id\" ASC, \"position\" ASC);",
+        "CREATE UNIQUE INDEX \"workout_photos_storage_object_id_key\" ON \"workout_photos\"(\"storage_object_id\" ASC);",
+        "CREATE INDEX \"workout_photos_workout_id_idx\" ON \"workout_photos\"(\"workout_id\" ASC);",
+        "CREATE INDEX \"workouts_user_id_date_idx\" ON \"workouts\"(\"user_id\" ASC, \"date\" DESC);",
+        "CREATE INDEX \"workouts_user_id_status_idx\" ON \"workouts\"(\"user_id\" ASC, \"status\" ASC);",
+        "CREATE UNIQUE INDEX \"workouts_user_in_progress_uniq_idx\" ON \"workouts\"(\"user_id\" ASC);"
+      ],
+      "id": "app:domain-indexes",
+      "reason": "Indexes on this app's domain tables (the partial unique ones are in rawSqlIndexes, not here: Prisma's diff cannot see them)."
+    },
+    {
+      "expectDiff": [
+        "ALTER TABLE \"activity_entries\" ADD CONSTRAINT \"activity_entries_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"activity_entries\" ADD CONSTRAINT \"activity_entries_workout_id_fkey\" FOREIGN KEY (\"workout_id\") REFERENCES \"workouts\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"activity_goals\" ADD CONSTRAINT \"activity_goals_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"android_app_releases\" ADD CONSTRAINT \"android_app_releases_uploaded_by_id_fkey\" FOREIGN KEY (\"uploaded_by_id\") REFERENCES \"users\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"coach_messages\" ADD CONSTRAINT \"coach_messages_audio_storage_object_id_fkey\" FOREIGN KEY (\"audio_storage_object_id\") REFERENCES \"storage_objects\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"coach_messages\" ADD CONSTRAINT \"coach_messages_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"coach_states\" ADD CONSTRAINT \"coach_states_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"draft_items\" ADD CONSTRAINT \"draft_items_intake_id_fkey\" FOREIGN KEY (\"intake_id\") REFERENCES \"photo_intakes\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"equipment_type_capabilities\" ADD CONSTRAINT \"equipment_type_capabilities_capability_id_fkey\" FOREIGN KEY (\"capability_id\") REFERENCES \"capabilities\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+        "ALTER TABLE \"equipment_type_capabilities\" ADD CONSTRAINT \"equipment_type_capabilities_equipment_type_id_fkey\" FOREIGN KEY (\"equipment_type_id\") REFERENCES \"equipment_types\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"equipment_types\" ADD CONSTRAINT \"equipment_types_owner_user_id_fkey\" FOREIGN KEY (\"owner_user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"exercise_requirements\" ADD CONSTRAINT \"exercise_requirements_capability_id_fkey\" FOREIGN KEY (\"capability_id\") REFERENCES \"capabilities\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+        "ALTER TABLE \"exercise_requirements\" ADD CONSTRAINT \"exercise_requirements_equipment_type_id_fkey\" FOREIGN KEY (\"equipment_type_id\") REFERENCES \"equipment_types\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+        "ALTER TABLE \"exercise_requirements\" ADD CONSTRAINT \"exercise_requirements_exercise_id_fkey\" FOREIGN KEY (\"exercise_id\") REFERENCES \"exercises\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"exercises\" ADD CONSTRAINT \"exercises_owner_user_id_fkey\" FOREIGN KEY (\"owner_user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"gym_equipment\" ADD CONSTRAINT \"gym_equipment_equipment_type_id_fkey\" FOREIGN KEY (\"equipment_type_id\") REFERENCES \"equipment_types\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+        "ALTER TABLE \"gym_equipment\" ADD CONSTRAINT \"gym_equipment_gym_id_fkey\" FOREIGN KEY (\"gym_id\") REFERENCES \"gyms\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"gym_equipment_photos\" ADD CONSTRAINT \"gym_equipment_photos_gym_equipment_id_fkey\" FOREIGN KEY (\"gym_equipment_id\") REFERENCES \"gym_equipment\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"gym_equipment_photos\" ADD CONSTRAINT \"gym_equipment_photos_gym_photo_id_fkey\" FOREIGN KEY (\"gym_photo_id\") REFERENCES \"gym_photos\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"gym_photos\" ADD CONSTRAINT \"gym_photos_gym_id_fkey\" FOREIGN KEY (\"gym_id\") REFERENCES \"gyms\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"gym_photos\" ADD CONSTRAINT \"gym_photos_storage_object_id_fkey\" FOREIGN KEY (\"storage_object_id\") REFERENCES \"storage_objects\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"gyms\" ADD CONSTRAINT \"gyms_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_documents\" ADD CONSTRAINT \"health_documents_intake_id_fkey\" FOREIGN KEY (\"intake_id\") REFERENCES \"photo_intakes\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_documents\" ADD CONSTRAINT \"health_documents_storage_object_id_fkey\" FOREIGN KEY (\"storage_object_id\") REFERENCES \"storage_objects\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_documents\" ADD CONSTRAINT \"health_documents_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_profiles\" ADD CONSTRAINT \"health_profiles_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_summaries\" ADD CONSTRAINT \"health_summaries_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_summary_settings\" ADD CONSTRAINT \"health_summary_settings_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_sync_devices\" ADD CONSTRAINT \"health_sync_devices_pat_id_fkey\" FOREIGN KEY (\"pat_id\") REFERENCES \"personal_access_tokens\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_sync_devices\" ADD CONSTRAINT \"health_sync_devices_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_sync_diagnostic_reports\" ADD CONSTRAINT \"health_sync_diagnostic_reports_device_id_fkey\" FOREIGN KEY (\"device_id\") REFERENCES \"health_sync_devices\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_sync_diagnostic_reports\" ADD CONSTRAINT \"health_sync_diagnostic_reports_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_sync_runs\" ADD CONSTRAINT \"health_sync_runs_device_id_fkey\" FOREIGN KEY (\"device_id\") REFERENCES \"health_sync_devices\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"health_sync_runs\" ADD CONSTRAINT \"health_sync_runs_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"measurements\" ADD CONSTRAINT \"measurements_health_sync_device_id_fkey\" FOREIGN KEY (\"health_sync_device_id\") REFERENCES \"health_sync_devices\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"measurements\" ADD CONSTRAINT \"measurements_supersedes_id_fkey\" FOREIGN KEY (\"supersedes_id\") REFERENCES \"measurements\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+        "ALTER TABLE \"measurements\" ADD CONSTRAINT \"measurements_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"photo_intake_photos\" ADD CONSTRAINT \"photo_intake_photos_intake_id_fkey\" FOREIGN KEY (\"intake_id\") REFERENCES \"photo_intakes\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"photo_intake_photos\" ADD CONSTRAINT \"photo_intake_photos_storage_object_id_fkey\" FOREIGN KEY (\"storage_object_id\") REFERENCES \"storage_objects\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"photo_intakes\" ADD CONSTRAINT \"photo_intakes_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_blocks\" ADD CONSTRAINT \"program_blocks_program_id_fkey\" FOREIGN KEY (\"program_id\") REFERENCES \"programs\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_change_log\" ADD CONSTRAINT \"program_change_log_program_id_fkey\" FOREIGN KEY (\"program_id\") REFERENCES \"programs\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_change_log\" ADD CONSTRAINT \"program_change_log_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_exercises\" ADD CONSTRAINT \"program_exercises_equipmentTypeId_fkey\" FOREIGN KEY (\"equipmentTypeId\") REFERENCES \"equipment_types\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_exercises\" ADD CONSTRAINT \"program_exercises_exercise_id_fkey\" FOREIGN KEY (\"exercise_id\") REFERENCES \"exercises\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_exercises\" ADD CONSTRAINT \"program_exercises_program_workout_id_fkey\" FOREIGN KEY (\"program_workout_id\") REFERENCES \"program_workouts\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_sessions\" ADD CONSTRAINT \"program_sessions_program_id_fkey\" FOREIGN KEY (\"program_id\") REFERENCES \"programs\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_sessions\" ADD CONSTRAINT \"program_sessions_program_workout_id_fkey\" FOREIGN KEY (\"program_workout_id\") REFERENCES \"program_workouts\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_sessions\" ADD CONSTRAINT \"program_sessions_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_sessions\" ADD CONSTRAINT \"program_sessions_workout_id_fkey\" FOREIGN KEY (\"workout_id\") REFERENCES \"workouts\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_versions\" ADD CONSTRAINT \"program_versions_program_id_fkey\" FOREIGN KEY (\"program_id\") REFERENCES \"programs\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_weeks\" ADD CONSTRAINT \"program_weeks_block_id_fkey\" FOREIGN KEY (\"block_id\") REFERENCES \"program_blocks\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_weeks\" ADD CONSTRAINT \"program_weeks_program_id_fkey\" FOREIGN KEY (\"program_id\") REFERENCES \"programs\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"program_workouts\" ADD CONSTRAINT \"program_workouts_week_id_fkey\" FOREIGN KEY (\"week_id\") REFERENCES \"program_weeks\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"programs\" ADD CONSTRAINT \"programs_gym_id_fkey\" FOREIGN KEY (\"gym_id\") REFERENCES \"gyms\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"programs\" ADD CONSTRAINT \"programs_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"progress_photos\" ADD CONSTRAINT \"progress_photos_storage_object_id_fkey\" FOREIGN KEY (\"storage_object_id\") REFERENCES \"storage_objects\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"progress_photos\" ADD CONSTRAINT \"progress_photos_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"set_logs\" ADD CONSTRAINT \"set_logs_workout_exercise_id_fkey\" FOREIGN KEY (\"workout_exercise_id\") REFERENCES \"workout_exercises\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"sleep_sessions\" ADD CONSTRAINT \"sleep_sessions_health_sync_device_id_fkey\" FOREIGN KEY (\"health_sync_device_id\") REFERENCES \"health_sync_devices\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"sleep_sessions\" ADD CONSTRAINT \"sleep_sessions_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"training_plan_runs\" ADD CONSTRAINT \"training_plan_runs_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"training_run_events\" ADD CONSTRAINT \"training_run_events_run_id_fkey\" FOREIGN KEY (\"run_id\") REFERENCES \"training_plan_runs\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"user_memories\" ADD CONSTRAINT \"user_memories_source_message_id_fkey\" FOREIGN KEY (\"source_message_id\") REFERENCES \"coach_messages\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"user_memories\" ADD CONSTRAINT \"user_memories_superseded_by_id_fkey\" FOREIGN KEY (\"superseded_by_id\") REFERENCES \"user_memories\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"user_memories\" ADD CONSTRAINT \"user_memories_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"user_memory_states\" ADD CONSTRAINT \"user_memory_states_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"workout_adaptations\" ADD CONSTRAINT \"workout_adaptations_gym_id_fkey\" FOREIGN KEY (\"gym_id\") REFERENCES \"gyms\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"workout_adaptations\" ADD CONSTRAINT \"workout_adaptations_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"workout_exercises\" ADD CONSTRAINT \"workout_exercises_equipment_type_id_fkey\" FOREIGN KEY (\"equipment_type_id\") REFERENCES \"equipment_types\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"workout_exercises\" ADD CONSTRAINT \"workout_exercises_exercise_id_fkey\" FOREIGN KEY (\"exercise_id\") REFERENCES \"exercises\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+        "ALTER TABLE \"workout_exercises\" ADD CONSTRAINT \"workout_exercises_workout_id_fkey\" FOREIGN KEY (\"workout_id\") REFERENCES \"workouts\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"workout_photos\" ADD CONSTRAINT \"workout_photos_storage_object_id_fkey\" FOREIGN KEY (\"storage_object_id\") REFERENCES \"storage_objects\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"workout_photos\" ADD CONSTRAINT \"workout_photos_workout_id_fkey\" FOREIGN KEY (\"workout_id\") REFERENCES \"workouts\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+        "ALTER TABLE \"workouts\" ADD CONSTRAINT \"workouts_gym_id_fkey\" FOREIGN KEY (\"gym_id\") REFERENCES \"gyms\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"workouts\" ADD CONSTRAINT \"workouts_program_workout_id_fkey\" FOREIGN KEY (\"program_workout_id\") REFERENCES \"program_workouts\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+        "ALTER TABLE \"workouts\" ADD CONSTRAINT \"workouts_user_id_fkey\" FOREIGN KEY (\"user_id\") REFERENCES \"users\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;"
+      ],
+      "id": "app:domain-foreign-keys",
+      "reason": "Foreign keys of this app's domain tables, including those to the platform tables users, storage_objects and personal_access_tokens. Domain-owned constraints; the platform tables themselves are unchanged."
+    }
+  ],
+  "lockVersion": 1,
+  "migrations": [
+    {
+      "localDir": "20260124223146_initial",
+      "originId": "platform:0001_initial",
+      "sha256": "755688a7d01e70c97f497efdbd5a72adecf9404ba20fc5fc15c748c2bb7d0d2e",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260329151231_add_personal_access_tokens",
+      "originId": "platform:0002_add_personal_access_tokens",
+      "sha256": "696a7bc4a974a2b0142f7183fe795d98b21a353f402ad21b3d5a5e79c06800cd",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260830211041_add_credentials",
+      "originId": "platform:0003_add_credentials",
+      "sha256": "825d08352a40f595a16e3086862c7d0eeb0333c8643119a618666627e87bcb32",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260831010356_add_notification_deliveries",
+      "originId": "platform:0004_add_notification_deliveries",
+      "sha256": "242c3fc6a3a8c68c3515b0a5f19c819e48dd0b8ee3719007a24ffcbf2d8eacdc",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260831014110_drop_stale_uuid_defaults",
+      "originId": "platform:0005_drop_stale_uuid_defaults",
+      "sha256": "34e3ee9325646bd77d3123090826798c7c7fc7b57938ee7cee6584a03d24d6ad",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260831030721_add_notifications",
+      "originId": "platform:0006_add_notifications",
+      "sha256": "56a8156d13b09f0bdfdaa6033c5cf3f0adbd0191a53680eeb2376e13a637c383",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260905182958_add_push_subscriptions",
+      "originId": "platform:0007_add_push_subscriptions",
+      "sha256": "7bfd542911735beae1152c3584e4ae8e131e37413d6d59054a29e9d4ab967e85",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260906120000_add_jobs",
+      "originId": "platform:0008_add_jobs",
+      "sha256": "29ca499509b06bc8ee11c09ed86d8d5b2385bcc9aa48fe597c0efc1ccb40febf",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260906190000_add_worker_nodes",
+      "originId": "platform:0009_add_worker_nodes",
+      "sha256": "d26c1412c6e293f562422bbe292e9e833f1506cb1dc3466f78eacd7bc34ea398",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260907120000_add_database_backup_runs",
+      "originId": "platform:0010_add_database_backup_runs",
+      "sha256": "e6a2c130a155748768148a1993b7e47cabca09236a4eeb31f8793448b389077a",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260907130000_add_notification_broadcasts",
+      "originId": "platform:0011_add_notification_broadcasts",
+      "sha256": "d218ee33f855f575c6633cf0d9a709cb3e0db69a83ff2d38b48c501e730d4370",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260907140000_add_backup_run_job_link",
+      "originId": "platform:0012_add_backup_run_job_link",
+      "sha256": "1a11a1bed116e303136bd1f7ee5065f3b470cb2cb04bb33d0c083b3dfec37144",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260907150000_add_job_node_secrets",
+      "originId": "platform:0013_add_job_node_secrets",
+      "sha256": "309f4a371c0d5ed62b140a10acb28a705fc92c8a1412551fc07ac20b9cb77f0a",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260907160000_add_backup_run_pg_dump_version",
+      "originId": "platform:0014_add_backup_run_pg_dump_version",
+      "sha256": "966c2e2af657739d7e4e447761bf93635c7e8bd41dbc31494f7118ffb4e8a67c",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260908120000_add_job_claim_token",
+      "originId": "platform:0015_add_job_claim_token",
+      "sha256": "22815ddb2bd4fe39edb4ec6bb11709a15df887c46c261d8d567a3a2cae7f2047",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260926034919_add_ai_platform",
+      "originId": "platform:0016_add_ai_platform",
+      "sha256": "89bf4f29db08eb4261b10c5bd64faa61b65d73f524af70851e019fe264fe7617",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260927000000_revoke_viewer_ai_use",
+      "originId": "platform:0017_revoke_viewer_ai_use",
+      "sha256": "85b27bc2d52666f8a3babc5d0abfa9f589f1844869d79fbbdaa7935e6d49b3df",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260927120000_add_user_credentials",
+      "originId": "platform:0018_add_user_credentials",
+      "sha256": "360316e38bf4af727fc095c65e4cac246108b9e91fc3c184646161ce7a5859fb",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260927130000_add_device_session_credential_link",
+      "originId": "platform:0019_add_device_session_credential_link",
+      "sha256": "e2f26e504872850a0fe799151efdf1df4f153e51db3d686f5ad7e603b1796326",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260930100000_add_worker_node_vitals",
+      "originId": "platform:0020_add_worker_node_vitals",
+      "sha256": "978649d6700635017d22d08a492845307659b8a2f6fdb46e230a887d966a2fe4",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20260930120000_add_job_trace_context",
+      "localSha256": "714ab00d0447ffdbf08c168a9191d3897fe6620d6a296f5f75f0bba9058c8b2b",
+      "note": "differs from the package file only in comments or whitespace (recorded by platform db baseline)",
+      "originId": "platform:0021_add_job_trace_context",
+      "sha256": "4d54077792406901812bb76d697e6708c9058245ec1003c49bc8983b53b01302",
+      "since": "1.0.0"
+    },
+    {
+      "localDir": "20261007141520_add_retention_created_at_indexes",
+      "originId": "platform:0022_add_retention_created_at_indexes",
+      "sha256": "f7bc4ab3ec81c55261752c61e48e750faf7affb7202635f8e051934a9410c32f",
+      "since": "1.0.0"
+    }
+  ],
+  "platformVersion": "1.0.0",
+  "rawSqlIndexes": [
+    {
+      "definition": "CREATE UNIQUE INDEX activity_entries_provider_external_uniq_idx ON public.activity_entries USING btree (user_id, provider, external_id) WHERE (provider IS NOT NULL)",
+      "name": "activity_entries_provider_external_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX activity_entries_workout_kind_uniq_idx ON public.activity_entries USING btree (workout_id, activity_kind) WHERE (workout_id IS NOT NULL)",
+      "name": "activity_entries_workout_kind_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX android_app_releases_one_current_uniq_idx ON public.android_app_releases USING btree ((true)) WHERE is_current",
+      "name": "android_app_releases_one_current_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX gyms_user_default_uniq_idx ON public.gyms USING btree (user_id) WHERE (is_default = true)",
+      "name": "gyms_user_default_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX measurements_provider_external_uniq_idx ON public.measurements USING btree (user_id, external_provider, external_id) WHERE (external_provider IS NOT NULL)",
+      "name": "measurements_provider_external_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX programs_one_active_per_user_uniq_idx ON public.programs USING btree (user_id) WHERE (status = 'active'::text)",
+      "name": "programs_one_active_per_user_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX sleep_sessions_provider_external_uniq_idx ON public.sleep_sessions USING btree (user_id, provider, external_id) WHERE (provider IS NOT NULL)",
+      "name": "sleep_sessions_provider_external_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX training_plan_runs_active_per_user_uniq_idx ON public.training_plan_runs USING btree (user_id) WHERE ((status = ANY (ARRAY['queued'::text, 'running'::text, 'awaiting_approval'::text])) AND (kind <> 'adapt'::text))",
+      "name": "training_plan_runs_active_per_user_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX workout_adaptations_active_per_user_uniq_idx ON public.workout_adaptations USING btree (user_id) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]))",
+      "name": "workout_adaptations_active_per_user_uniq_idx"
+    },
+    {
+      "definition": "CREATE UNIQUE INDEX workouts_user_in_progress_uniq_idx ON public.workouts USING btree (user_id) WHERE (status = 'in_progress'::text)",
+      "name": "workouts_user_in_progress_uniq_idx"
+    }
+  ]
+}

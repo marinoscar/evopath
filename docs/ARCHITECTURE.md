@@ -605,6 +605,14 @@ Every read completes missing namespaces from built-in defaults, so the stored do
 
 ---
 
+### 6.3 Platform migration history and `platform.lock`
+
+The first 22 migrations of the history are the platform's (`@marinoscar/platform-db`, platform history v1); the rest are this app's own, interleaved in `apps/api/prisma/migrations/`. `apps/api/prisma/platform.lock` maps each platform migration to the directory this database already applied (19 identical names, `20260930100000_add_worker_node_vitals` for the platform's `20260928100000_...`, the comment-only `20260930120000_add_job_trace_context`, and the installed `20261007141520_add_retention_created_at_indexes`) and records checksums, the declared deviations (`push_subscriptions.platform`, the app's domain objects) and the app's ten raw-SQL partial unique indexes.
+
+- **Migration ownership.** A migration listed in the lock is never renamed, edited or deleted. This app's own migrations are authored with `prisma:migrate:dev` and are not in the lock. A new platform migration arrives through `npm run db:sync` after a package upgrade.
+- **Checks.** `npm run db:check` (lock vs files), `db:check:database` (lock vs `_prisma_migrations`) and `db:drift` (history vs `schema.prisma`, and the 14 raw-SQL indexes) run in CI's `smoke` job after `prisma:migrate`. `apps/api/test/prisma/platform-db-conformance.spec.ts`, `platform-lock.spec.ts` and `platform-lock.db.spec.ts` pin them.
+- **Baseline.** Mapping an existing database onto the history is `db:baseline`, a dry run unless `--apply`; it is a one-time, operator-run action, never part of a deploy. Procedure, mapping table, deviations, rehearsal log and rollback: [runbooks/platform-db-baseline.md](runbooks/platform-db-baseline.md).
+
 ## 7. Authorization
 
 ### 7.1 Roles

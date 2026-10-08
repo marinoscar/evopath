@@ -149,6 +149,9 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // The proposal's rendered mock-up (components): the wordmark and sample app
   // copy the page draws, not a substitutable token.
   'docs/design/color-studio/studio.jsx',
+  // This deployment's record of adopting the platform migration history: names
+  // the product's own database and migrations, not a substitutable token.
+  'docs/runbooks/platform-db-baseline.md',
   // Install one-liners carrying the repo URL for `npm install -g`/`npx`.
   'apps/cli/README.md',
   // Fetched and run via `curl | bash` BEFORE the repository exists on disk —

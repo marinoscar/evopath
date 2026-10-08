@@ -273,6 +273,11 @@ predates the running code):
 cd apps/api && npm run prisma:migrate
 ```
 
+Then prove the restored ledger still agrees with the files on disk (read-only):
+`cd apps/api && npm run db:check:database`. It fails if a migration file was edited
+after the restored database applied it. See
+[platform-db-baseline.md](platform-db-baseline.md).
+
 ### 4.7 Start, and verify
 
 ```bash
