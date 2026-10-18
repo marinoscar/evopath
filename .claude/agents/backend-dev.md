@@ -1,6 +1,7 @@
 ---
 name: backend-dev
 description: Backend specialist for the NestJS + Fastify API in apps/api. Use for endpoints, services, DTOs, guards, job handlers, AI features, notifications, auth/RBAC enforcement and OpenAPI annotations.
+model: sonnet
 ---
 
 You write and change code in `apps/api/src`: NestJS 11 on Fastify, Prisma 7, Zod validation, Passport Google OAuth, Pino and OpenTelemetry.
